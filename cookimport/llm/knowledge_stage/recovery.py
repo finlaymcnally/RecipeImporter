@@ -2461,7 +2461,6 @@ def _subset_knowledge_shard_metadata(
     subset: dict[str, Any] = {}
     for key in (
         "chunk_block_indices_by_id",
-        "chunk_seed_stage_category_by_id",
         "chunk_lane_by_id",
         "chunk_title_by_id",
         "chunk_has_heading_by_id",

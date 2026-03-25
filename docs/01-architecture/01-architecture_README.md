@@ -57,7 +57,7 @@ Architecture priorities:
 - recipe-ID reassignment logic lives in `cookimport/staging/pdf_jobs.py`.
 - stage import session now builds the label-first authority seam before drafting: `label_det`, optional `label_llm_correct`, and `group_recipe_spans` artifacts are written under the stage run root and drive downstream stage block predictions.
 - if label-first regrouping yields zero recipes after importer candidates existed, the stage session stays on the authoritative label-first result and writes `group_recipe_spans/<workbook_slug>/authority_mismatch.json` instead of silently reverting to candidate-first ownership.
-- The legacy Stage 7 non-recipe lane now runs through explicit `nonrecipe-route` and `knowledge-final` runtime results; `ConversionResult.non_recipe_blocks` is repopulated only afterward as a downstream cache.
+- The legacy Stage 7 non-recipe lane now runs through explicit `nonrecipe-route` and `knowledge-final` runtime results; `ConversionResult.non_recipe_blocks` is repopulated only from final non-recipe authority afterward as a downstream cache.
 
 ### Optional Label Studio lane
 - `cookimport/labelstudio/ingest.py` can:
@@ -74,7 +74,7 @@ Architecture priorities:
 - label-first grouped spans and normalized block labels are the recipe/non-recipe authority boundary for stage-backed flows.
 - `recipe-refine` may improve recipe content, but it may not change recipe ownership decided by `recipe-boundary`.
 - The legacy Stage 7 nickname now refers to the outside-recipe routing seam, not one mixed semantic classifier.
-- `nonrecipe-route` only honors obvious-junk exclusions and packages surviving outside-recipe rows for review.
+- `nonrecipe-route` only honors obvious-junk exclusions and packages surviving outside-recipe rows into one category-neutral review queue.
 - obvious-junk exclusions become final `other` immediately; `knowledge-final` is the only live semantic owner of review-eligible outside-recipe `knowledge` versus `other`.
 - scalar trust/confidence is no longer part of the label-first line-role contract.
 - line-role Codex escalation now depends on explicit escalation reasons, not score thresholds; that remains an escalation seam, not the main runtime truth boundary.
@@ -365,7 +365,7 @@ When you need the shortest accurate mental model, describe the repo this way:
 - `cookimport/staging/import_session.py` writes authoritative label artifacts first (`label_det`, optional `label_llm_correct`, `group_recipe_spans`) and only then builds recipe drafts.
 - If importer candidates existed but authoritative regrouping finds zero recipes, the run stays on the label-first result and writes `group_recipe_spans/<workbook_slug>/authority_mismatch.json`.
 - `09_nonrecipe_authority.json` is the machine-readable authority for outside-recipe `knowledge` vs `other`; `08_nonrecipe_seed_routing.json` and `09_nonrecipe_review_status.json` answer routing/debugging questions but are not truth surfaces.
-- Stage 7 now has an explicit seed-vs-final authority seam: deterministic non-recipe labels seed the decision, optional knowledge harvest can merge block decisions into the final non-recipe authority, and scored benchmark artifacts should project that final authority rather than the seed view.
+- Stage 7 now has an explicit routing-vs-final authority seam: deterministic labels can exclude obvious junk and package a review queue, optional knowledge harvest can merge block decisions into the final non-recipe authority, and scored benchmark artifacts should project that final authority rather than the provisional queue.
 - `stage_observability.json` is the run-level semantic stage index and should be the naming backbone for docs, prompt exports, and reviewer tooling.
 - Inline recipe tags are part of recipe correction plus deterministic normalization; there is no separate live tagging runtime package anymore.
 

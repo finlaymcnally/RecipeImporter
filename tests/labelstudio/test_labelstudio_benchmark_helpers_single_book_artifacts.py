@@ -354,11 +354,12 @@ def test_single_book_comparison_artifacts_trigger_starter_pack(
     assert flattened_metadata.get("relative_path") == "benchmark_summary.md"
     assert starter_calls == [session_root]
 
+@pytest.mark.heavy_side_effects
 def test_single_book_starter_pack_fallback_loader_registers_module(
+    allow_heavy_test_side_effects: None,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("COOKIMPORT_ALLOW_HEAVY_TEST_SIDE_EFFECTS", "1")
     session_root = tmp_path / "session"
     session_root.mkdir(parents=True, exist_ok=True)
     helper_script_path = tmp_path / "fake_benchmark_helper.py"

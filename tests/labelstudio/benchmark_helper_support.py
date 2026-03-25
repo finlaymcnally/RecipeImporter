@@ -14,12 +14,17 @@ import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Callable
 
 import pytest
 
 import cookimport.cli as cli
 import cookimport.cli_commands.labelstudio as labelstudio_cli
 import cookimport.cli_support as cli_support
+import cookimport.cli_support.bench_all_method as bench_all_method
+import cookimport.cli_support.bench_single_book as bench_single_book
+import cookimport.cli_support.bench_single_profile as bench_single_profile
 import cookimport.cli_support.interactive_flow as interactive_flow
 from cookimport.bench.prediction_records import (
     make_prediction_record,
@@ -47,7 +52,15 @@ def _patch_cli_attr(
     name: str,
     value: object,
 ) -> None:
-    for module in (cli, cli_support, labelstudio_cli, interactive_flow):
+    for module in (
+        cli,
+        cli_support,
+        labelstudio_cli,
+        interactive_flow,
+        bench_single_book,
+        bench_single_profile,
+        bench_all_method,
+    ):
         if hasattr(module, name):
             monkeypatch.setattr(module, name, value)
 
@@ -94,6 +107,72 @@ def _force_helper_oracle_test_lane(monkeypatch: pytest.MonkeyPatch) -> None:
         "_write_benchmark_upload_bundle",
         _fake_write_benchmark_upload_bundle,
     )
+
+
+def _write_fake_benchmark_upload_bundle(output_dir: Path) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for file_name in cli.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES:
+        (output_dir / file_name).write_text("{}", encoding="utf-8")
+    return output_dir
+
+
+def _make_lightweight_single_book_publisher() -> tuple[
+    Callable[[object], object],
+    dict[str, object],
+]:
+    captured: dict[str, object] = {"results": []}
+
+    def _publisher(result):
+        captured["results"].append(result)
+        upload_bundle_dir = None
+        if getattr(result, "succeeded", 0) > 0:
+            upload_bundle_dir = _write_fake_benchmark_upload_bundle(
+                getattr(result, "session_root") / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+            )
+        return SimpleNamespace(
+            upload_bundle_dir=upload_bundle_dir,
+            starter_pack_dir=None,
+            flattened_summary_path=None,
+        )
+
+    return _publisher, captured
+
+
+def _make_lightweight_single_profile_publisher() -> tuple[
+    Callable[[object], object],
+    dict[str, object],
+]:
+    captured: dict[str, object] = {"results": []}
+
+    def _publisher(result):
+        captured["results"].append(result)
+        target_results = []
+        for target_result in getattr(result, "completed_results"):
+            upload_bundle_dir = _write_fake_benchmark_upload_bundle(
+                getattr(target_result, "target_eval_output")
+                / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+            )
+            target_results.append(
+                SimpleNamespace(
+                    target=getattr(target_result, "target"),
+                    upload_bundle_dir=upload_bundle_dir,
+                    publication_error=None,
+                )
+            )
+
+        group_upload_bundle_dir = None
+        if getattr(result, "total_targets", 0) > 1:
+            group_upload_bundle_dir = _write_fake_benchmark_upload_bundle(
+                getattr(result, "single_profile_root")
+                / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+            )
+
+        return SimpleNamespace(
+            target_results=target_results,
+            group_upload_bundle_dir=group_upload_bundle_dir,
+        )
+
+    return _publisher, captured
 
 
 def _benchmark_test_run_settings(

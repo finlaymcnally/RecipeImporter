@@ -5043,6 +5043,7 @@ def _run_all_method_benchmark_global_queue(
     include_codex_farm_effective: bool,
     root_output_dir: Path,
     processed_output_root: Path,
+    golden_root: Path,
     overlap_threshold: float,
     force_source_match: bool,
     progress_callback: Callable[[str], None] | None = None,
@@ -6845,6 +6846,7 @@ def _run_all_method_benchmark_global_queue(
     _refresh_dashboard_after_history_write(
         csv_path=history_csv_path,
         output_root=resolved_dashboard_output_root,
+        golden_root=golden_root,
         dashboard_out_dir=(
             history_root_for_output(resolved_dashboard_output_root) / "dashboard"
             if resolved_dashboard_output_root is not None
@@ -6891,6 +6893,7 @@ def _run_all_method_benchmark_multi_source(
     include_codex_farm_effective: bool,
     root_output_dir: Path,
     processed_output_root: Path,
+    golden_root: Path,
     overlap_threshold: float,
     force_source_match: bool,
     progress_callback: Callable[[str], None] | None = None,
@@ -6921,6 +6924,7 @@ def _run_all_method_benchmark_multi_source(
         include_codex_farm_effective=include_codex_farm_effective,
         root_output_dir=root_output_dir,
         processed_output_root=processed_output_root,
+        golden_root=golden_root,
         overlap_threshold=overlap_threshold,
         force_source_match=force_source_match,
         progress_callback=progress_callback,
@@ -6953,6 +6957,7 @@ def _run_all_method_benchmark(
     include_codex_farm_effective: bool,
     root_output_dir: Path,
     processed_output_root: Path,
+    golden_root: Path,
     overlap_threshold: float,
     force_source_match: bool,
     progress_callback: Callable[[str], None] | None = None,
@@ -8716,6 +8721,7 @@ def _run_all_method_benchmark(
         _refresh_dashboard_after_history_write(
             csv_path=history_csv_path,
             output_root=resolved_dashboard_output_root,
+            golden_root=golden_root,
             dashboard_out_dir=(
                 history_root_for_output(resolved_dashboard_output_root) / "dashboard"
                 if resolved_dashboard_output_root is not None
@@ -8754,6 +8760,7 @@ def _interactive_all_method_benchmark(
     selected_benchmark_settings: RunSettings,
     benchmark_eval_output: Path,
     processed_output_root: Path,
+    golden_root: Path | None = None,
     max_parallel_sources: int | None = None,
     max_inflight_pipelines: int | None = None,
     max_concurrent_split_phases: int | None = None,
@@ -8768,6 +8775,7 @@ def _interactive_all_method_benchmark(
     wing_backlog_target: int | None = None,
     smart_scheduler: bool | None = None,
 ) -> None:
+    resolved_golden_root = golden_root or DEFAULT_GOLDEN
     scope_choice = _menu_select(
         "Select all method benchmark scope:",
         menu_help=(
@@ -8788,7 +8796,7 @@ def _interactive_all_method_benchmark(
 
     scope_all_matched = scope_choice == "all_matched"
     if scope_all_matched:
-        targets, unmatched_targets = _resolve_all_method_targets(DEFAULT_GOLDEN)
+        targets, unmatched_targets = _resolve_all_method_targets(resolved_golden_root)
         if not targets:
             typer.secho(
                 "No matched golden sets were found in data/input. Nothing to benchmark.",
@@ -8814,7 +8822,7 @@ def _interactive_all_method_benchmark(
         resolved_inputs = _resolve_benchmark_gold_and_source(
             gold_spans=None,
             source_file=None,
-            output_dir=DEFAULT_GOLDEN,
+            output_dir=resolved_golden_root,
             allow_cancel=True,
         )
         if resolved_inputs is None:
@@ -8825,7 +8833,7 @@ def _interactive_all_method_benchmark(
                 gold_spans_path=selected_gold,
                 source_file=selected_source,
                 source_file_name=selected_source.name,
-                gold_display=_display_gold_export_path(selected_gold, DEFAULT_GOLDEN),
+                gold_display=_display_gold_export_path(selected_gold, resolved_golden_root),
             )
         ]
         unmatched_targets = []
@@ -9172,6 +9180,7 @@ def _interactive_all_method_benchmark(
                 include_codex_farm_effective=include_codex_effective,
                 root_output_dir=all_method_root,
                 processed_output_root=all_method_processed_root,
+                golden_root=resolved_golden_root,
                 overlap_threshold=0.5,
                 force_source_match=False,
                 progress_callback=update_progress,
@@ -9225,6 +9234,7 @@ def _interactive_all_method_benchmark(
                     include_codex_farm_effective=include_codex_effective,
                     root_output_dir=single_root,
                     processed_output_root=single_processed_root,
+                    golden_root=resolved_golden_root,
                     overlap_threshold=0.5,
                     force_source_match=False,
                     progress_callback=update_progress,

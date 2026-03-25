@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cookimport.cli_support.test_safety import should_skip_heavy_test_side_effects
+from cookimport.cli_support.test_safety import require_heavy_test_side_effect_permission
 
 
 def _runtime():
@@ -15,19 +15,16 @@ def _refresh_dashboard_after_history_write(
     *,
     csv_path: Path,
     output_root: Path | None = None,
-    golden_root: Path | None = None,
+    golden_root: Path,
     dashboard_out_dir: Path | None = None,
     reason: str | None = None,
 ) -> None:
     runtime = _runtime()
-    if should_skip_heavy_test_side_effects():
-        runtime.logger.info(
-            "Skipping dashboard refresh during pytest-side-effect guard."
-        )
-        return
+    require_heavy_test_side_effect_permission("dashboard refresh")
     resolved_csv_path = csv_path.expanduser()
     if not resolved_csv_path.exists():
         return
+    resolved_golden_root = golden_root.expanduser()
     resolved_output_root = output_root.expanduser() if output_root is not None else None
     resolved_dashboard_out_dir = (
         dashboard_out_dir.expanduser()
@@ -55,7 +52,7 @@ def _refresh_dashboard_after_history_write(
         )
         dashboard_runner(
             output_root=resolved_output_root,
-            golden_root=golden_root or runtime.DEFAULT_GOLDEN,
+            golden_root=resolved_golden_root,
             out_dir=resolved_dashboard_out_dir,
             open_browser=False,
             since_days=None,

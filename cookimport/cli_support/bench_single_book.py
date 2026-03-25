@@ -114,18 +114,146 @@ def _write_single_book_summary_markdown(
     return summary_md_path
 
 
+@dataclass(frozen=True)
+class _SingleBookBenchmarkComputationResult:
+    variants: list[tuple[str, RunSettings]]
+    variant_results: dict[str, dict[str, Any]]
+    session_root: Path
+    session_processed_root: Path
+    succeeded: int
+    comparison_json_path: Path | None
+    summary_md_path: Path | None
+
+
+@dataclass(frozen=True)
+class _SingleBookBenchmarkPublicationResult:
+    upload_bundle_dir: Path | None = None
+    starter_pack_dir: Path | None = None
+    flattened_summary_path: Path | None = None
+
+
+def _upsert_single_book_metadata_entry(
+    comparison_json_path: Path,
+    *,
+    key: str,
+    value: dict[str, Any],
+) -> None:
+    payload = _load_json_dict(comparison_json_path) or {}
+    metadata_payload = payload.get("metadata")
+    if not isinstance(metadata_payload, dict):
+        metadata_payload = {}
+    metadata_payload[key] = value
+    payload["metadata"] = metadata_payload
+    comparison_json_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+def _publish_single_book_benchmark_result(
+    result: _SingleBookBenchmarkComputationResult,
+    *,
+    golden_root: Path,
+    processed_output_root: Path,
+    write_starter_pack: bool,
+) -> _SingleBookBenchmarkPublicationResult:
+    starter_pack_dir: Path | None = None
+    flattened_summary_path: Path | None = None
+    if write_starter_pack and result.comparison_json_path is not None:
+        starter_pack_dir = _write_single_book_starter_pack(
+            session_root=result.session_root
+        )
+        if starter_pack_dir is not None:
+            _upsert_single_book_metadata_entry(
+                result.comparison_json_path,
+                key="starter_pack_v1",
+                value={
+                    "path": str(starter_pack_dir),
+                    "relative_path": "starter_pack_v1",
+                    "manifest_file": "starter_pack_v1/10_process_manifest.json",
+                },
+            )
+            flattened_summary_path = result.session_root / "benchmark_summary.md"
+            if flattened_summary_path.is_file():
+                _upsert_single_book_metadata_entry(
+                    result.comparison_json_path,
+                    key="flattened_summary",
+                    value={
+                        "path": str(flattened_summary_path),
+                        "relative_path": "benchmark_summary.md",
+                    },
+                )
+            else:
+                flattened_summary_path = None
+
+    upload_bundle_dir: Path | None = None
+    if result.succeeded > 0:
+        upload_bundle_dir = _write_benchmark_upload_bundle(
+            source_root=result.session_root,
+            output_dir=result.session_root / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
+            suppress_summary=False,
+            high_level_only=True,
+            target_bundle_size_bytes=BENCHMARK_SINGLE_BOOK_UPLOAD_BUNDLE_TARGET_BYTES,
+        )
+        if upload_bundle_dir is not None:
+            _start_benchmark_bundle_oracle_upload_background(
+                bundle_dir=upload_bundle_dir,
+                scope="single_book",
+            )
+
+    history_csv_path = history_csv_for_output(
+        result.session_processed_root / _DASHBOARD_REFRESH_SENTINEL_DIRNAME
+    )
+    _refresh_dashboard_after_history_write(
+        csv_path=history_csv_path,
+        output_root=processed_output_root,
+        golden_root=golden_root,
+        dashboard_out_dir=history_root_for_output(processed_output_root) / "dashboard",
+        reason="single-book benchmark variant batch append",
+    )
+    return _SingleBookBenchmarkPublicationResult(
+        upload_bundle_dir=upload_bundle_dir,
+        starter_pack_dir=starter_pack_dir,
+        flattened_summary_path=flattened_summary_path,
+    )
+
+
+def _make_single_book_benchmark_publisher(
+    *,
+    golden_root: Path,
+    processed_output_root: Path,
+    write_starter_pack: bool,
+) -> Callable[
+    [_SingleBookBenchmarkComputationResult],
+    _SingleBookBenchmarkPublicationResult,
+]:
+    return lambda result: _publish_single_book_benchmark_result(
+        result,
+        golden_root=golden_root,
+        processed_output_root=processed_output_root,
+        write_starter_pack=write_starter_pack,
+    )
+
+
 def _interactive_single_book_benchmark(
     *,
     selected_benchmark_settings: RunSettings,
     benchmark_eval_output: Path,
     processed_output_root: Path,
+    golden_root: Path | None = None,
     write_markdown: bool = False,
     write_label_studio_tasks: bool = False,
     write_starter_pack: bool = False,
     single_book_split_cache_mode: str = "auto",
     single_book_split_cache_dir: Path | None = None,
     single_book_split_cache_force: bool = False,
+    publisher: Callable[
+        [_SingleBookBenchmarkComputationResult],
+        _SingleBookBenchmarkPublicationResult,
+    ]
+    | None = None,
 ) -> bool:
+    resolved_golden_root = golden_root or DEFAULT_GOLDEN
     variants = _interactive_single_book_variants(selected_benchmark_settings)
     if not variants:
         typer.secho("No single-book benchmark variants were planned.", fg=typer.colors.YELLOW)
@@ -137,7 +265,7 @@ def _interactive_single_book_benchmark(
         resolved_inputs = _resolve_benchmark_gold_and_source(
             gold_spans=None,
             source_file=None,
-            output_dir=DEFAULT_GOLDEN,
+            output_dir=resolved_golden_root,
             allow_cancel=True,
         )
         if resolved_inputs is None:
@@ -334,7 +462,7 @@ def _interactive_single_book_benchmark(
                 ),
             ),
             write_markdown=False,
-            write_starter_pack=write_starter_pack,
+            write_starter_pack=False,
         )
         if comparison_paths is not None:
             comparison_written = True
@@ -343,16 +471,8 @@ def _interactive_single_book_benchmark(
                 f"Comparison JSON: {comparison_json_path}",
                 fg=typer.colors.CYAN,
             )
-            starter_pack_dir = session_root / "starter_pack_v1"
-            if starter_pack_dir.is_dir():
-                typer.secho(f"Starter pack: {starter_pack_dir}", fg=typer.colors.CYAN)
-            flattened_summary_path = session_root / "benchmark_summary.md"
-            if flattened_summary_path.is_file():
-                typer.secho(
-                    f"Flattened summary: {flattened_summary_path}",
-                    fg=typer.colors.CYAN,
-                )
 
+    summary_md_path: Path | None = None
     if (
         not comparison_written
         and isinstance(codex_result, dict)
@@ -375,34 +495,37 @@ def _interactive_single_book_benchmark(
         )
         typer.secho(f"Summary report: {summary_md_path}", fg=typer.colors.CYAN)
 
-    upload_bundle_dir: Path | None = None
-    if succeeded > 0:
-        upload_bundle_dir = _write_benchmark_upload_bundle(
-            source_root=session_root,
-            output_dir=session_root / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
-            suppress_summary=False,
-            high_level_only=True,
-            target_bundle_size_bytes=BENCHMARK_SINGLE_BOOK_UPLOAD_BUNDLE_TARGET_BYTES,
+    result = _SingleBookBenchmarkComputationResult(
+        variants=variants,
+        variant_results=variant_results,
+        session_root=session_root,
+        session_processed_root=session_processed_root,
+        succeeded=succeeded,
+        comparison_json_path=comparison_json_path,
+        summary_md_path=summary_md_path,
+    )
+    if publisher is None:
+        publisher = _make_single_book_benchmark_publisher(
+            golden_root=resolved_golden_root,
+            processed_output_root=processed_output_root,
+            write_starter_pack=write_starter_pack,
         )
-        if upload_bundle_dir is not None:
-            typer.secho(
-                f"External-AI upload bundle: {upload_bundle_dir}",
-                fg=typer.colors.CYAN,
-            )
-            _start_benchmark_bundle_oracle_upload_background(
-                bundle_dir=upload_bundle_dir,
-                scope="single_book",
-            )
-
-    history_csv_path = history_csv_for_output(
-        session_processed_root / _DASHBOARD_REFRESH_SENTINEL_DIRNAME
-    )
-    _refresh_dashboard_after_history_write(
-        csv_path=history_csv_path,
-        output_root=processed_output_root,
-        dashboard_out_dir=history_root_for_output(processed_output_root) / "dashboard",
-        reason="single-book benchmark variant batch append",
-    )
+    publication = publisher(result)
+    if publication.upload_bundle_dir is not None:
+        typer.secho(
+            f"External-AI upload bundle: {publication.upload_bundle_dir}",
+            fg=typer.colors.CYAN,
+        )
+    if publication.starter_pack_dir is not None:
+        typer.secho(
+            f"Starter pack: {publication.starter_pack_dir}",
+            fg=typer.colors.CYAN,
+        )
+    if publication.flattened_summary_path is not None:
+        typer.secho(
+            f"Flattened summary: {publication.flattened_summary_path}",
+            fg=typer.colors.CYAN,
+        )
 
     if len(variants) == 1:
         return succeeded == 1

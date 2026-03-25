@@ -217,7 +217,7 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
     assert '"rejection_reason": "rejected_missing_title_anchor"' in decision_payload
 
 
-def test_execute_stage_import_session_uses_stage7_rows_for_tables_and_chunks(
+def test_execute_stage_import_session_uses_only_final_nonrecipe_authority_for_tables_and_chunks(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -329,9 +329,9 @@ def test_execute_stage_import_session_uses_stage7_rows_for_tables_and_chunks(
         write_raw_artifacts_enabled=False,
     )
 
-    assert [row["index"] for row in seen_table_rows[0]] == [1]
-    assert [row["index"] for row in seen_chunk_rows[0]] == [1]
-    assert [row["index"] for row in session.conversion_result.non_recipe_blocks] == [1]
+    assert seen_table_rows == []
+    assert seen_chunk_rows == []
+    assert session.conversion_result.non_recipe_blocks == []
 
 
 def test_execute_stage_import_session_writes_source_model_artifacts(

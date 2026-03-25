@@ -1831,6 +1831,7 @@ def register(app: typer.Typer) -> dict[str, object]:
                 _refresh_dashboard_after_history_write(
                     csv_path=csv_history_path,
                     output_root=output_root,
+                    golden_root=DEFAULT_GOLDEN,
                     reason="stage history append",
                 )
         except Exception as exc:

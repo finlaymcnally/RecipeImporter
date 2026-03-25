@@ -41,7 +41,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
 - `cookimport/staging/nonrecipe_stage.py`
   - Deterministic Stage 7 review routing for all outside-recipe blocks.
   - Exposes explicit routing, final-authority, and review-status components so the live runtime can separate “queued for review” from “final truth.”
-  - Assumes line-role is routing-only outside recipes: useful lesson prose arrives as review-eligible seed `other`, and only final non-recipe authority can emit scored outside-recipe `knowledge`.
+  - Assumes line-role is routing-only outside recipes: surviving outside-recipe rows enter a category-neutral review queue, and only final non-recipe authority can emit scored outside-recipe `knowledge` or final `other`.
   - Keeps any richer LLM reviewer category internal to the refinement report so scored artifacts still collapse to the stable external `knowledge|other` contract.
 - `cookimport/staging/pipeline_runtime.py`
   - Defines the stage-owned runtime bundles now used by `import_session.py`: `ExtractedBookBundle`, `RecipeBoundaryResult`, `RecipeRefineResult`, `NonrecipeRouteResult`, and `KnowledgeFinalResult`.
@@ -168,13 +168,13 @@ Recipe-authority note:
 
 Stage-block `KNOWLEDGE` label contract:
 - `stage_block_predictions.json` now uses only the explicit final non-recipe authority recorded in `09_nonrecipe_authority.json`.
-- `08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` artifact (legacy Stage 7 routing). It keeps seed spans, review eligibility, exclusions, exclusion reasons, and block previews, but it is not a final-truth surface.
+- `08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` artifact (legacy Stage 7 routing). It keeps review eligibility, exclusions, exclusion reasons, block ids, and previews, but it does not publish seed semantic category maps.
 - `09_nonrecipe_authority.json` is the only final-truth artifact for outside-recipe `knowledge` versus `other`. It contains only authoritative spans, categories, and block indices.
 - `09_nonrecipe_review_status.json` is the runtime-status artifact for reviewed, skipped, changed, and unresolved review-eligible rows. It keeps unreviewed fallback metadata out of the authority file while still making incompleteness visible.
 - `08_nonrecipe_review_exclusions.jsonl` is the row-level explanation ledger for the upstream obvious-junk veto. When knowledge input looks too large or a row seems to have disappeared before review, inspect this file before changing scorer math or knowledge prompts.
 - Optional knowledge snippets are reviewer-facing evidence; Codex `block_decisions` are what can refine final `KNOWLEDGE` versus `OTHER`.
 - Review-eligible rows that remain unreviewed stay visible only in the seed-routing and review-status artifacts; they must not be treated as reviewed semantic authority by scoring or Label Studio projection.
-- Chunk generation now depends on final Stage 7 non-recipe authority; runs with zero final non-recipe rows simply emit no chunks.
+- `ConversionResult.non_recipe_blocks`, table extraction, and chunk generation now mirror final Stage 7 non-recipe authority only; runs with zero final non-recipe rows simply emit no chunks.
 
 Stage-block label resolution contract:
 - `stage_block_predictions.py` labels blocks from recipe-local text matches (title, ingredients, instructions, notes, variant/yield/time lines).

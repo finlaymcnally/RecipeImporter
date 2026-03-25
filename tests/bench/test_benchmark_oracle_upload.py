@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -1492,11 +1493,14 @@ def test_start_background_oracle_followup_worker_does_not_forward_launch_default
     assert updated_launch.auto_followup_worker_pid == 4243
 
 
+@pytest.mark.heavy_side_effects
 def test_start_benchmark_bundle_oracle_upload_background_reports_followup_launch_failure_separately(
+    allow_heavy_test_side_effects: None,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("COOKIMPORT_ALLOW_HEAVY_TEST_SIDE_EFFECTS", "1")
+    monkeypatch.delenv("COOKIMPORT_DISABLE_HEAVY_TEST_SIDE_EFFECTS", raising=False)
     bundle_dir = _make_bundle(
         tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
@@ -1523,16 +1527,23 @@ def test_start_benchmark_bundle_oracle_upload_background_reports_followup_launch
     )
     messages: list[str] = []
 
-    monkeypatch.setattr(cli_support, "resolve_oracle_benchmark_bundle", lambda _path: target)
-    monkeypatch.setattr(cli_support, "start_oracle_benchmark_upload_background", lambda **_kwargs: launch)
-    monkeypatch.setattr(
-        cli_support,
-        "_start_background_oracle_followup_worker",
-        lambda **_kwargs: (_ for _ in ()).throw(
-            RuntimeError("expected str, bytes or os.PathLike object, not NoneType")
-        ),
-    )
-    monkeypatch.setattr(cli_support.typer, "secho", lambda message, **_kwargs: messages.append(str(message)))
+    runtime = sys.modules["cookimport.cli_support.bench"]
+    oracle_support = sys.modules["cookimport.cli_support.bench_oracle"]
+    for module in (cli, cli_support, runtime, oracle_support):
+        monkeypatch.setattr(module, "resolve_oracle_benchmark_bundle", lambda _path: target)
+        monkeypatch.setattr(
+            module,
+            "start_oracle_benchmark_upload_background",
+            lambda **_kwargs: launch,
+        )
+        monkeypatch.setattr(
+            module,
+            "_start_background_oracle_followup_worker",
+            lambda **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("expected str, bytes or os.PathLike object, not NoneType")
+            ),
+        )
+    monkeypatch.setattr(cli.typer, "secho", lambda message, **_kwargs: messages.append(str(message)))
 
     cli._start_benchmark_bundle_oracle_upload_background(
         bundle_dir=bundle_dir,

@@ -99,7 +99,7 @@ Current contracts:
 
 - Marker assignment is centralized in `tests/conftest.py`; do not spread domain markers across individual test files.
 - `_FILE_MARKERS` maps test filenames to domain markers. Unknown `test_*.py` files fall back to marker `core`.
-- Markers declared in `pytest.ini` are: `analytics`, `bench`, `cli`, `core`, `ingestion`, `labelstudio`, `llm`, `parsing`, `staging`, `slow`, and `smoke`.
+- Markers declared in `pytest.ini` are: `analytics`, `bench`, `cli`, `core`, `heavy_side_effects`, `ingestion`, `labelstudio`, `llm`, `parsing`, `staging`, `slow`, and `smoke`.
 - `slow` and `smoke` routing is controlled centrally by `_SLOW_FILES` and `_SMOKE_FILES` in `tests/conftest.py`.
 - If you add or rename a test file, update `_FILE_MARKERS` and then decide whether the file also belongs in `_SLOW_FILES` or `_SMOKE_FILES`.
 - The `slow` slice is intentionally narrow and currently covers only the explicitly high-cost files in `tests/conftest.py`; do not widen it without measuring runtime first.
@@ -111,7 +111,10 @@ Current contracts:
 - Prefer moving proven heavy helper-internal suites into `_SLOW_FILES` before changing production code for test speed; production edits need a stronger reason than loop runtime alone.
 - Bench-side Oracle upload tests that only care about command or metadata shape should clamp the background audit poll constants inside the test so they do not pay the default production wait window.
 - The benchmark smoke slice includes the real interactive single-book benchmark path while stubbing `labelstudio_benchmark(...)` so smoke runs catch routing and artifact regressions without spending tokens.
-- Label Studio benchmark-helper tests default-stub `_start_benchmark_bundle_oracle_upload_background(...)` from `tests/labelstudio/benchmark_helper_support.py`; routine test runs must not open live Oracle / ChatGPT browser sessions. Tests that need launch assertions should override that stub explicitly and assert the handoff arguments.
+- Label Studio benchmark-helper tests now have two safety layers:
+  - low-level heavy helpers fail fast under pytest unless the test opts in with `@pytest.mark.heavy_side_effects` plus `allow_heavy_test_side_effects`
+  - `tests/labelstudio/benchmark_helper_support.py` provides shared lightweight benchmark publishers for routine single-book, single-profile, and smoke coverage
+- Tests that only care about benchmark computation or routing should use those lightweight publishers instead of patching `_write_benchmark_upload_bundle(...)`, `_refresh_dashboard_after_history_write(...)`, and `_start_benchmark_bundle_oracle_upload_background(...)` one by one.
 - for shard-shape assertions, set `line_role_prompt_target_count=None` or an explicit `line_role_shard_target_lines`; otherwise current defaults will legally regroup several rows into one shard
 - Before the Label Studio fast-slice cleanup, `tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py` was about `121s` and `tests/labelstudio/test_labelstudio_benchmark_helpers_single_book_run.py` was about `79s`; keep interactive routing tests at the handoff boundary unless you intentionally want full helper coverage in the slow slice.
 - Broad routine runs should go through `./scripts/test-suite.sh` or the equivalent `make test-*` targets. `scripts/test-suite.sh` exports `COOKIMPORT_TEST_SUITE=1` so pytest can tell wrapper-driven runs from ad hoc broad raw invocations.

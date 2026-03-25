@@ -111,13 +111,11 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
     )
 
     assert nonrecipe_payload["schema_version"] == "nonrecipe_seed_routing.v1"
-    assert nonrecipe_payload["counts"]["seed_knowledge_spans"] == 1
     assert nonrecipe_payload["counts"]["review_eligible_blocks"] == 2
     assert nonrecipe_payload["counts"]["review_excluded_blocks"] == 0
-    assert nonrecipe_payload["review_eligible_seed_block_category_by_index"] == {
-        "0": "other",
-        "1": "knowledge",
-    }
+    assert nonrecipe_payload["review_eligible_block_ids"] == ["b0", "b1"]
+    assert "review_eligible_seed_block_category_by_index" not in nonrecipe_payload
+    assert "seed_block_category_by_index" not in nonrecipe_payload
     assert authority_payload["schema_version"] == "nonrecipe_authority.v1"
     assert authority_payload["counts"]["final_authority_blocks"] == 0
     assert authority_payload["authoritative_block_category_by_index"] == {}
@@ -240,6 +238,7 @@ def test_nonrecipe_stage_writes_review_exclusion_ledger(tmp_path: Path) -> None:
 
     assert payload["counts"]["review_excluded_blocks"] == 1
     assert payload["review_excluded_block_indices"] == [0]
+    assert payload["review_excluded_block_ids"] == ["b0"]
     assert ledger_rows == [
         {
             "block_id": "b0",

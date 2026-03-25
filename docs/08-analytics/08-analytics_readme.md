@@ -192,7 +192,8 @@ Benchmark history appenders:
 - `cookimport labelstudio-eval` appends benchmark rows and refreshes the dashboard.
 - `cookimport labelstudio-benchmark` appends benchmark rows and refreshes the dashboard.
 - Interactive single-book and all-method benchmark flows batch refreshes so they do not rewrite the dashboard after every sub-run.
-- Repo pytest runs now default to skipping these best-effort dashboard refreshes unless a test explicitly opts in with `COOKIMPORT_ALLOW_HEAVY_TEST_SIDE_EFFECTS=1`.
+- Dashboard refresh helpers now require an explicit `golden_root` from the caller; CLI edges own repo-default root resolution instead of lower-level benchmark helpers guessing it.
+- Repo pytest runs now fail fast when a test reaches real dashboard refresh without explicit opt-in. Use `@pytest.mark.heavy_side_effects` plus `allow_heavy_test_side_effects` for the rare tests that intentionally exercise the real refresh path.
 
 ## 5) Dashboard surface (current)
 

@@ -57,7 +57,6 @@ class _PreparedKnowledgeBundleChunk:
     char_count: int
     has_table_content: bool
     has_heading: bool
-    seed_stage_category: str | None
     suggested_lane: str | None
     title: str | None
     knowledge_cue: bool
@@ -155,13 +154,11 @@ def build_knowledge_jobs(
                     char_count=sum(len(block.text) for block in payload.blocks),
                     has_table_content=any(block.table_hint is not None for block in payload.blocks),
                     has_heading=any(block.heading_level is not None for block in payload.blocks),
-                    seed_stage_category=str(stage_span.category or "").strip() or None,
                     suggested_lane=str(suggested_lane or "").strip() or None,
                     title=str(chunk.title or "").strip() or None,
                     knowledge_cue=_chunk_has_strong_knowledge_cue(
                         chunk=chunk,
                         payload=payload,
-                        seed_stage_category=str(stage_span.category or "").strip() or None,
                         utility_profile=utility_profile,
                     ),
                     utility_profile=utility_profile,
@@ -248,18 +245,6 @@ def build_knowledge_jobs(
                         chunk.payload.chunk_id: list(chunk.absolute_indices)
                         for chunk in prepared_chunks
                     },
-                    "chunk_seed_stage_category_by_id": (
-                        {
-                            chunk.payload.chunk_id: chunk.seed_stage_category
-                            for chunk in prepared_chunks
-                            if chunk.seed_stage_category is not None
-                        }
-                        if any(
-                            chunk.seed_stage_category is not None
-                            for chunk in prepared_chunks
-                        )
-                        else {}
-                    ),
                     "chunk_lane_by_id": (
                         {
                             chunk.payload.chunk_id: chunk.suggested_lane
@@ -482,10 +467,8 @@ def _chunk_has_strong_knowledge_cue(
     *,
     chunk: KnowledgeChunk,
     payload: KnowledgeCompactBundleChunkPayloadV2,
-    seed_stage_category: str | None,
     utility_profile: Mapping[str, Any] | None,
 ) -> bool:
-    normalized_seed_category = str(seed_stage_category or "").strip().lower()
     block_char_count = sum(len(str(block.text or "").strip()) for block in payload.blocks)
     profile = dict(utility_profile or {})
     positive_cues = {
@@ -511,8 +494,6 @@ def _chunk_has_strong_knowledge_cue(
     if bool(profile.get("strong_positive_cue")):
         return True
     if any(block.table_hint is not None for block in payload.blocks):
-        return True
-    if normalized_seed_category == "knowledge" and block_char_count >= 20 and positive_cues:
         return True
     if {"storage_or_safety", "failure_prevention", "diagnostic_or_sensory"}.intersection(
         positive_cues

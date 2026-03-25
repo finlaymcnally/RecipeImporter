@@ -841,6 +841,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         _refresh_dashboard_after_history_write(
             csv_path=csv_history_path,
             output_root=csv_history_root,
+            golden_root=DEFAULT_GOLDEN,
             reason="labelstudio-eval history append",
         )
 
@@ -2719,6 +2720,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             _refresh_dashboard_after_history_write(
                 csv_path=csv_history_path,
                 output_root=processed_output_dir,
+                golden_root=DEFAULT_GOLDEN,
                 reason="labelstudio-benchmark history append",
             )
         history_append_seconds = max(0.0, time.monotonic() - history_append_started)

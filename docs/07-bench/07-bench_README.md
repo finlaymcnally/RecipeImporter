@@ -147,7 +147,9 @@ Current interactive contracts:
 - multi-book single-profile runs also emit one top-level group `upload_bundle_v1/`
 - interactive single-book writes its session bundle, auto-starts Oracle in the background, and returns immediately without blocking benchmark wrap-up
 - multi-book single-profile writes the top-level group bundle and leaves Oracle upload as a separate manual step
-- repo pytest runs now default to disabling those heavyweight follow-up side effects (`upload_bundle_v1`, dashboard refresh, background Oracle launch) unless a test explicitly opts back in via `COOKIMPORT_ALLOW_HEAVY_TEST_SIDE_EFFECTS=1`
+- repo pytest runs now fail closed on heavyweight publication side effects (`upload_bundle_v1`, starter-pack export, dashboard refresh, background Oracle launch) unless a test explicitly opts in.
+- the explicit pytest opt-in contract is `@pytest.mark.heavy_side_effects` plus the `allow_heavy_test_side_effects` fixture; subprocess-heavy tests can still rely on the inherited `COOKIMPORT_ALLOW_HEAVY_TEST_SIDE_EFFECTS=1` environment variable that fixture sets.
+- single-book and single-profile benchmark helpers now compute their benchmark result first and publish heavy follow-up work second through explicit publisher seams; routine benchmark-helper tests should inject a lightweight publisher instead of patching every heavy helper individually.
 
 ### 2.3 `cf-debug`
 

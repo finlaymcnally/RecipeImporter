@@ -138,7 +138,7 @@ If you want the current Codex-backed flow in operator language instead of artifa
 4. The program groups the corrected recipe-side lines into coherent recipe spans and recipes. Everything not grouped into recipe spans becomes the non-recipe side.
 5. The recipe Codex surface reviews the recipe side in owned recipe shards. One worker session processes its assigned recipe task files under `in/` and writes one `out/<task_id>.json` per task. Repo code validates those task outputs, rejoins them into shard proposals, and near-miss invalid tasks can still get one structured repair pass.
 6. The program deterministically validates and promotes those recipe outputs into the final recipe formats.
-7. The knowledge Codex surface reviews the non-recipe side. The program first packages the `nonrecipe-route` review queue into transport-safe non-recipe chunks, then Codex reviews every built chunk using raw block text plus mechanically true structure rather than letting the routing stage declare final meaning. Each knowledge task owns exactly one deterministic chunk plus optional nearby non-authoritative context, and one worker session processes its assigned knowledge task files under `in/` and writes one semantic task-result JSON file per task under `out/`. Repo code validates that one-chunk result, normalizes it into the canonical compact bundle payload, and then keeps/refines useful cooking knowledge while rejecting blurbs, filler, and other author yapping.
+7. The knowledge Codex surface reviews the non-recipe side. The program first packages the category-neutral `nonrecipe-route` review queue into transport-safe non-recipe chunks, then Codex reviews every built chunk using raw block text plus mechanically true structure rather than letting the routing stage declare final meaning. Each knowledge task owns exactly one deterministic chunk plus optional nearby non-authoritative context, and one worker session processes its assigned knowledge task files under `in/` and writes one semantic task-result JSON file per task under `out/`. Repo code validates that one-chunk result, normalizes it into the canonical compact bundle payload, and then keeps/refines useful cooking knowledge while rejecting blurbs, filler, and other author yapping.
 8. The program validates owned output coverage, writes artifacts/reports, and emits the final recipe, knowledge, and debug outputs.
 
 Worker/shard mental model:
@@ -204,7 +204,7 @@ Knowledge-stage writes:
 - `data/output/<ts>/knowledge/<workbook_slug>/knowledge.md`
 - `data/output/<ts>/knowledge/knowledge_index.json`
 
-`08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` artifact (legacy Stage 7 routing). `09_nonrecipe_authority.json` is the final machine-readable truth surface for outside-recipe `knowledge` versus `other`. `09_nonrecipe_review_status.json` is the runtime-status artifact for reviewed, skipped, changed, and unresolved review-eligible rows. `snippets.jsonl` remains reviewer-facing evidence only.
+`08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` artifact (legacy Stage 7 routing). It keeps the review queue, exclusions, and previews, but not seed semantic category maps. `09_nonrecipe_authority.json` is the final machine-readable truth surface for outside-recipe `knowledge` versus `other`. `09_nonrecipe_review_status.json` is the runtime-status artifact for reviewed, skipped, changed, and unresolved review-eligible rows. `snippets.jsonl` remains reviewer-facing evidence only.
 
 Knowledge runtime note:
 - the live knowledge implementation is no longer one direct `knowledge/in -> knowledge/out` CodexFarm call
@@ -314,7 +314,7 @@ Prompt/debug artifacts:
   - knowledge prompt inputs from `codex_farm_knowledge_jobs`, which now plans shard-owned compact payloads for both live non-recipe knowledge review and preview reconstruction
   - line-role prompt text from `build_canonical_line_role_prompt`
 - knowledge preview now follows the live shard contract exactly: prompt counts come from the same shard planner as the live runtime, so deterministic chunking still defines the ordered review units while `knowledge_prompt_target_count` controls how many shard payloads preview emits
-- preview uses the same review-eligible non-recipe span set as the live knowledge runtime; excluded seed spans must not silently widen the preview work set
+- preview uses the same category-neutral review queue as the live knowledge runtime; excluded spans must not silently widen the preview work set
 - the current default knowledge context is `0` blocks on each side, and that default is shared across stage, benchmark, CLI, and prompt-preview paths
 - `build_knowledge_jobs(...)` now keeps deterministic chunk boundaries but partitions the ordered chunk list into approximately `knowledge_prompt_target_count` shards. Knowledge worker count still controls concurrency separately from shard planning.
 - line-role preview must batch the full ordered candidate set and pass `deterministic_label` plus `escalation_reasons` into `build_canonical_line_role_prompt(...)`; preview-only unresolved shortlists are a stale contract and will understate line-role prompt volume.
@@ -342,7 +342,7 @@ Prompt cost notes worth keeping in mind:
   - line-role preview on the same run moved from `45` prompts to `15`, then to `8`, after raw-prompt transport, larger shared batch defaults, and compact row serialization landed in the live line-role path
   - the next cut changed the default control surface from shard size to per-phase prompt target, but knowledge still keeps its hard bundle caps even when that prompt target is explicitly in force
 - the durable shape lessons are:
-  - knowledge prompt count fell because contiguous chunks were packed across neighboring seed spans, not only within each individual seed span
+  - knowledge prompt count fell because contiguous chunks were packed across neighboring review-queue spans instead of being frozen to deterministic seed `knowledge` versus `other` boundaries
   - after that, remaining knowledge prompt count was mostly gap-limited by hard breaks between chunk runs
   - line-role cost after the transport fix mostly lived in repeated per-row keys and duplicated inline neighbor text, so the right seam is one ordered contiguous slice without in-slice line repetition
   - after those cuts, most remaining prompt budget is real task payload rather than wrapper waste

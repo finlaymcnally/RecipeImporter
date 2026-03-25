@@ -97,6 +97,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             _refresh_dashboard_after_history_write(
                 csv_path=csv_history_path,
                 output_root=out_dir,
+                golden_root=DEFAULT_GOLDEN,
                 reason="perf-report history append",
             )
 
@@ -285,6 +286,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             _refresh_dashboard_after_history_write(
                 csv_path=csv_path,
                 output_root=refresh_output_root,
+                golden_root=DEFAULT_GOLDEN,
                 reason="benchmark-csv-backfill write",
             )
 

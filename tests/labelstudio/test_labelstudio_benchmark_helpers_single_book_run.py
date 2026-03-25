@@ -25,8 +25,10 @@ def _run_single_book_codex_enabled_fixture(
     benchmark_eval_output = (
         tmp_path / "golden" / "benchmark-vs-golden" / "2026-03-02_12.34.56"
     )
+    golden_root = tmp_path / "golden"
     processed_output_root = tmp_path / "output"
     source_path = str(tmp_path / "book.epub")
+    publisher, publication_capture = _make_lightweight_single_book_publisher()
 
     benchmark_calls: list[dict[str, object]] = []
     refresh_calls: list[dict[str, object]] = []
@@ -74,19 +76,12 @@ def _run_single_book_codex_enabled_fixture(
         lambda **kwargs: refresh_calls.append(kwargs),
     )
 
-    _patch_cli_attr(monkeypatch, "_write_single_book_starter_pack",
-        lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("starter pack should not run by default for single-book")
-        ),
-    )
-    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
-        lambda **kwargs: kwargs.get("output_dir"),
-    )
-
     completed = cli._interactive_single_book_benchmark(
         selected_benchmark_settings=selected_settings,
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,
+        golden_root=golden_root,
+        publisher=publisher,
     )
     return {
         "completed": completed,
@@ -94,6 +89,7 @@ def _run_single_book_codex_enabled_fixture(
         "refresh_calls": refresh_calls,
         "benchmark_eval_output": benchmark_eval_output,
         "processed_output_root": processed_output_root,
+        "publication_capture": publication_capture,
     }
 
 
@@ -216,6 +212,7 @@ def test_interactive_single_book_preserves_selected_codex_recipe_pipeline(
         selected_benchmark_settings=selected_settings,
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,
+        golden_root=tmp_path / "golden",
     )
 
     assert completed is True

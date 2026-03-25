@@ -50,13 +50,16 @@ def run_codex_farm_nonrecipe_knowledge_review(
         fallback=DEFAULT_KNOWLEDGE_PIPELINE_ID,
     )
     routing = nonrecipe_stage_result.routing
-    seed_candidate_spans = list(routing.seed_nonrecipe_spans)
+    all_nonrecipe_spans = list(
+        nonrecipe_stage_result.seed_nonrecipe_spans
+        or nonrecipe_stage_result.nonrecipe_spans
+    )
     review_candidate_spans = list(routing.review_eligible_nonrecipe_spans)
-    seed_nonrecipe_span_count = len(seed_candidate_spans)
+    seed_nonrecipe_span_count = len(all_nonrecipe_spans)
     review_eligible_nonrecipe_span_count = len(review_candidate_spans)
     review_eligible_block_count = len(routing.review_eligible_block_indices)
     review_excluded_block_count = len(routing.review_excluded_block_indices)
-    if not seed_candidate_spans:
+    if not all_nonrecipe_spans:
         llm_report = _build_noop_knowledge_llm_report(
             run_settings=run_settings,
             pipeline_id=pipeline_id,
@@ -298,7 +301,10 @@ def run_codex_farm_nonrecipe_knowledge_review(
             ignored_block_indices,
         ) = _collect_block_category_updates(
             outputs=outputs,
-            allowed_block_indices=routing.review_eligible_seed_block_category_by_index(),
+            allowed_block_indices={
+                int(block_index): "review_candidate"
+                for block_index in routing.review_eligible_block_indices
+            },
         )
         refined_stage_result = refine_nonrecipe_stage_result(
             stage_result=nonrecipe_stage_result,

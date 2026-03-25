@@ -957,7 +957,7 @@ def _block_id_for_stage_result(
     block_index: int,
 ) -> str:
     for span in (
-        list(stage_result.routing.seed_nonrecipe_spans)
+        list(stage_result.seed_nonrecipe_spans or [])
         + list(stage_result.routing.review_eligible_nonrecipe_spans)
         + list(stage_result.routing.review_excluded_other_spans)
     ):
@@ -997,19 +997,18 @@ def write_nonrecipe_seed_routing_artifact(
 ) -> Path:
     path = output_dir / NONRECIPE_SEED_ROUTING_FILE_NAME
     routing = stage_result.routing
-    seed_nonrecipe_spans = list(routing.seed_nonrecipe_spans)
-    seed_knowledge_spans = list(routing.seed_knowledge_spans)
-    seed_other_spans = list(routing.seed_other_spans)
-    seed_block_category_by_index = dict(routing.seed_block_category_by_index)
+    review_eligible_block_ids = [
+        _block_id_for_stage_result(stage_result, int(block_index))
+        for block_index in routing.review_eligible_block_indices
+    ]
+    review_excluded_block_ids = [
+        _block_id_for_stage_result(stage_result, int(block_index))
+        for block_index in routing.review_excluded_block_indices
+    ]
     payload = {
         "schema_version": "nonrecipe_seed_routing.v1",
         "counts": {
-            "seed_nonrecipe_spans": len(seed_nonrecipe_spans),
-            "seed_knowledge_spans": len(seed_knowledge_spans),
-            "seed_other_spans": len(seed_other_spans),
-            **_knowledge_counts_for_block_map(seed_block_category_by_index),
             "review_eligible_nonrecipe_spans": len(routing.review_eligible_nonrecipe_spans),
-            "review_eligible_other_spans": len(routing.review_eligible_other_spans),
             "review_excluded_other_spans": len(routing.review_excluded_other_spans),
             "review_eligible_blocks": len(routing.review_eligible_block_indices),
             "review_excluded_blocks": len(routing.review_excluded_block_indices),
@@ -1021,37 +1020,29 @@ def write_nonrecipe_seed_routing_artifact(
             for index, route in sorted(routing.review_routing_by_block.items())
         },
         "review_eligible_block_indices": list(routing.review_eligible_block_indices),
+        "review_eligible_block_ids": review_eligible_block_ids,
         "review_excluded_block_indices": list(routing.review_excluded_block_indices),
+        "review_excluded_block_ids": review_excluded_block_ids,
         "review_exclusion_reason_by_block": {
             str(index): reason
             for index, reason in sorted(routing.review_exclusion_reason_by_block.items())
         },
-        "seed_block_category_by_index": {
-            str(index): category
-            for index, category in sorted(seed_block_category_by_index.items())
-        },
-        "review_eligible_seed_block_category_by_index": {
-            str(index): category
-            for index, category in sorted(routing.review_eligible_seed_block_category_by_index().items())
-        },
-        "seed_spans": [
-            _serialize_nonrecipe_span(span)
-            for span in seed_nonrecipe_spans
-        ],
-        "seed_knowledge_spans": [
-            _serialize_nonrecipe_span(span)
-            for span in seed_knowledge_spans
-        ],
-        "seed_other_spans": [
-            _serialize_nonrecipe_span(span)
-            for span in seed_other_spans
-        ],
         "review_eligible_spans": [
-            _serialize_nonrecipe_span(span)
+            {
+                "block_start_index": span.block_start_index,
+                "block_end_index": span.block_end_index,
+                "block_indices": list(span.block_indices),
+                "block_ids": list(span.block_ids),
+            }
             for span in routing.review_eligible_nonrecipe_spans
         ],
         "review_excluded_other_spans": [
-            _serialize_nonrecipe_span(span)
+            {
+                "block_start_index": span.block_start_index,
+                "block_end_index": span.block_end_index,
+                "block_indices": list(span.block_indices),
+                "block_ids": list(span.block_ids),
+            }
             for span in routing.review_excluded_other_spans
         ],
         "block_preview_by_index": {
@@ -1197,9 +1188,6 @@ def write_nonrecipe_review_status_artifact(
     routing = stage_result.routing
     authority = stage_result.authority
     review_status_result = stage_result.review_status
-    review_excluded_index_set = {
-        int(index) for index in routing.review_excluded_block_indices
-    }
     reviewed_block_indices = list(review_status_result.reviewed_block_indices)
     changed_block_indices = [
         int(row.get("block_index"))

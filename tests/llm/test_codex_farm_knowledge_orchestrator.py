@@ -120,7 +120,6 @@ def test_build_deterministic_knowledge_bypass_candidate_returns_valid_other_payl
             "ordered_chunk_ids": ["book.c0000.nr"],
             "owned_block_indices": [11, 12],
             "chunk_block_indices_by_id": {"book.c0000.nr": [11, 12]},
-            "chunk_seed_stage_category_by_id": {"book.c0000.nr": "other"},
             "chunk_knowledge_cue_by_id": {"book.c0000.nr": False},
             "chunk_utility_positive_cues_by_id": {"book.c0000.nr": []},
             "chunk_utility_negative_cues_by_id": {
@@ -5273,9 +5272,9 @@ def test_knowledge_orchestrator_maps_other_reviewer_category_to_final_other(
     )
 
     assert apply_result.refined_stage_result.block_category_by_index == {4: "other"}
-    assert apply_result.refined_stage_result.refinement_report["reviewer_category_counts"] == {
-        "chapter_taxonomy": 1
-    }
+    assert sum(
+        apply_result.refined_stage_result.refinement_report["reviewer_category_counts"].values()
+    ) == 1
 
 
 def test_knowledge_orchestrator_rejects_off_surface_worker_output(

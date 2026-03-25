@@ -159,12 +159,6 @@ def _build_deterministic_knowledge_bypass_candidate(
     )
     if positive_cues or not bool(metadata.get("strong_negative_utility_cue")):
         return None
-    seed_category_by_id = _coerce_dict(metadata.get("chunk_seed_stage_category_by_id"))
-    if any(
-        str(seed_category_by_id.get(chunk_id) or "").strip().lower() == "knowledge"
-        for chunk_id in owned_ids
-    ):
-        return None
     negative_cues = sorted(
         {
             str(value).strip()

@@ -153,6 +153,7 @@ def test_interactive_single_profile_all_matched_benchmark_runs_each_target_once(
     )
 
     benchmark_calls: list[dict[str, object]] = []
+    publisher, publication_capture = _make_lightweight_single_profile_publisher()
     _patch_cli_attr(monkeypatch, "labelstudio_benchmark",
         lambda **kwargs: benchmark_calls.append(kwargs),
     )
@@ -163,6 +164,7 @@ def test_interactive_single_profile_all_matched_benchmark_runs_each_target_once(
         processed_output_root=processed_output_root,
         write_markdown=False,
         write_label_studio_tasks=False,
+        publisher=publisher,
     )
 
     assert completed is True
@@ -185,6 +187,7 @@ def test_interactive_single_profile_all_matched_benchmark_runs_each_target_once(
     assert benchmark_calls[1]["eval_output_dir"] == (
         benchmark_eval_output / "single-profile-benchmark" / "02_book_b"
     )
+    assert publication_capture["results"]
 
 
 def test_interactive_single_profile_parallel_uses_shared_spinner_dashboard(

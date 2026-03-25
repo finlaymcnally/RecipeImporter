@@ -20,6 +20,7 @@ _OTHER_LABELS = {
     "chapter_heading",
     "chapter-heading",
 }
+_REVIEW_CANDIDATE_CATEGORY = "review_candidate"
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,26 +35,14 @@ class NonRecipeSpan:
 
 @dataclass(frozen=True, slots=True)
 class NonRecipeRoutingResult:
-    seed_nonrecipe_spans: list[NonRecipeSpan]
-    seed_knowledge_spans: list[NonRecipeSpan]
-    seed_other_spans: list[NonRecipeSpan]
-    seed_block_category_by_index: dict[int, str]
     review_routing_by_block: dict[int, str]
     review_eligible_nonrecipe_spans: list[NonRecipeSpan]
-    review_eligible_other_spans: list[NonRecipeSpan]
     review_excluded_other_spans: list[NonRecipeSpan]
     review_eligible_block_indices: list[int]
     review_excluded_block_indices: list[int]
     review_exclusion_reason_by_block: dict[int, str]
     block_preview_by_index: dict[int, str]
     warnings: list[str]
-
-    def review_eligible_seed_block_category_by_index(self) -> dict[int, str]:
-        return {
-            int(index): self.seed_block_category_by_index[int(index)]
-            for index in self.review_eligible_block_indices
-            if int(index) in self.seed_block_category_by_index
-        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +70,6 @@ class NonRecipeStageResult:
     block_category_by_index: dict[int, str]
     review_routing_by_block: dict[int, str] = field(default_factory=dict)
     review_eligible_nonrecipe_spans: list[NonRecipeSpan] = field(default_factory=list)
-    review_eligible_other_spans: list[NonRecipeSpan] = field(default_factory=list)
     review_excluded_other_spans: list[NonRecipeSpan] = field(default_factory=list)
     review_eligible_block_indices: list[int] = field(default_factory=list)
     review_excluded_block_indices: list[int] = field(default_factory=list)
@@ -91,8 +79,6 @@ class NonRecipeStageResult:
     block_preview_by_index: dict[int, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     seed_nonrecipe_spans: list[NonRecipeSpan] | None = None
-    seed_knowledge_spans: list[NonRecipeSpan] | None = None
-    seed_other_spans: list[NonRecipeSpan] | None = None
     seed_block_category_by_index: dict[int, str] | None = None
     routing: NonRecipeRoutingResult | None = None
     authority: NonRecipeAuthorityResult | None = None
@@ -102,7 +88,6 @@ class NonRecipeStageResult:
     def __post_init__(self) -> None:
         explicit_review_routing = not (
             not self.review_eligible_nonrecipe_spans
-            and not self.review_eligible_other_spans
             and not self.review_excluded_other_spans
             and not self.review_eligible_block_indices
             and not self.review_excluded_block_indices
@@ -115,12 +100,10 @@ class NonRecipeStageResult:
             object.__setattr__(
                 self,
                 "review_eligible_nonrecipe_spans",
-                list(self.nonrecipe_spans),
-            )
-            object.__setattr__(
-                self,
-                "review_eligible_other_spans",
-                list(self.other_spans),
+                self._spans_for_block_indices(
+                    sorted(self.block_category_by_index),
+                    category=_REVIEW_CANDIDATE_CATEGORY,
+                ),
             )
             object.__setattr__(self, "review_excluded_other_spans", [])
             object.__setattr__(
@@ -130,6 +113,24 @@ class NonRecipeStageResult:
             )
             object.__setattr__(self, "review_excluded_block_indices", [])
             object.__setattr__(self, "review_exclusion_reason_by_block", {})
+        elif self.review_eligible_block_indices and not self.review_eligible_nonrecipe_spans:
+            object.__setattr__(
+                self,
+                "review_eligible_nonrecipe_spans",
+                self._spans_for_block_indices(
+                    self.review_eligible_block_indices,
+                    category=_REVIEW_CANDIDATE_CATEGORY,
+                ),
+            )
+        if self.review_excluded_block_indices and not self.review_excluded_other_spans:
+            object.__setattr__(
+                self,
+                "review_excluded_other_spans",
+                self._spans_for_block_indices(
+                    self.review_excluded_block_indices,
+                    category="other",
+                ),
+            )
         if not self.review_routing_by_block:
             review_routing_by_block = {
                 int(index): "excluded_other"
@@ -170,10 +171,6 @@ class NonRecipeStageResult:
             )
         if self.seed_nonrecipe_spans is None:
             object.__setattr__(self, "seed_nonrecipe_spans", list(self.nonrecipe_spans))
-        if self.seed_knowledge_spans is None:
-            object.__setattr__(self, "seed_knowledge_spans", list(self.knowledge_spans))
-        if self.seed_other_spans is None:
-            object.__setattr__(self, "seed_other_spans", list(self.other_spans))
         if self.seed_block_category_by_index is None:
             object.__setattr__(
                 self,
@@ -209,17 +206,10 @@ class NonRecipeStageResult:
                 self,
                 "routing",
                 NonRecipeRoutingResult(
-                    seed_nonrecipe_spans=list(self.seed_nonrecipe_spans or []),
-                    seed_knowledge_spans=list(self.seed_knowledge_spans or []),
-                    seed_other_spans=list(self.seed_other_spans or []),
-                    seed_block_category_by_index=dict(
-                        self.seed_block_category_by_index or {}
-                    ),
                     review_routing_by_block=dict(self.review_routing_by_block),
                     review_eligible_nonrecipe_spans=list(
                         self.review_eligible_nonrecipe_spans
                     ),
-                    review_eligible_other_spans=list(self.review_eligible_other_spans),
                     review_excluded_other_spans=list(self.review_excluded_other_spans),
                     review_eligible_block_indices=list(self.review_eligible_block_indices),
                     review_excluded_block_indices=list(self.review_excluded_block_indices),
@@ -295,8 +285,14 @@ class NonRecipeStageResult:
     def unreviewed_block_category_by_index(self) -> dict[int, str]:
         return dict(self.review_status.unreviewed_block_category_by_index)
 
-    def review_eligible_seed_block_category_by_index(self) -> dict[int, str]:
-        return self.routing.review_eligible_seed_block_category_by_index()
+    def review_eligible_block_seed_category_by_index(self) -> dict[int, str]:
+        if self.seed_block_category_by_index is None:
+            return {}
+        return {
+            int(index): self.seed_block_category_by_index[int(index)]
+            for index in self.review_eligible_block_indices
+            if int(index) in self.seed_block_category_by_index
+        }
 
     def authoritative_nonrecipe_spans(self) -> list[NonRecipeSpan]:
         return list(self.authority.authoritative_nonrecipe_spans)
@@ -309,6 +305,17 @@ class NonRecipeStageResult:
 
     def unreviewed_nonrecipe_spans(self) -> list[NonRecipeSpan]:
         return list(self.review_status.unreviewed_spans)
+
+    def _spans_for_block_indices(
+        self,
+        block_indices: Sequence[int],
+        *,
+        category: str,
+    ) -> list[NonRecipeSpan]:
+        spans, _, _ = self._spans_for_block_category_map(
+            {int(index): category for index in block_indices}
+        )
+        return spans
 
     def _spans_for_block_category_map(
         self,
@@ -399,9 +406,12 @@ def build_nonrecipe_stage_result(
         index: block_category_by_index[index]
         for index in sorted(review_exclusion_reason_by_block)
     }
-    review_eligible_nonrecipe_spans, _, review_eligible_other_spans = _build_spans_from_categories(
+    review_eligible_nonrecipe_spans, _, _ = _build_spans_from_categories(
         full_blocks_by_index=full_blocks_by_index,
-        block_category_by_index=review_eligible_block_category_by_index,
+        block_category_by_index={
+            index: _REVIEW_CANDIDATE_CATEGORY
+            for index in sorted(review_eligible_block_category_by_index)
+        },
     )
     _, _, review_excluded_other_spans = _build_spans_from_categories(
         full_blocks_by_index=full_blocks_by_index,
@@ -423,7 +433,6 @@ def build_nonrecipe_stage_result(
             },
         },
         review_eligible_nonrecipe_spans=review_eligible_nonrecipe_spans,
-        review_eligible_other_spans=review_eligible_other_spans,
         review_excluded_other_spans=review_excluded_other_spans,
         review_eligible_block_indices=sorted(review_eligible_block_category_by_index),
         review_excluded_block_indices=sorted(review_exclusion_reason_by_block),
@@ -518,7 +527,6 @@ def refine_nonrecipe_stage_result(
         block_category_by_index=final_block_category_by_index,
         review_routing_by_block=dict(stage_result.review_routing_by_block),
         review_eligible_nonrecipe_spans=list(stage_result.review_eligible_nonrecipe_spans),
-        review_eligible_other_spans=list(stage_result.review_eligible_other_spans),
         review_excluded_other_spans=list(stage_result.review_excluded_other_spans),
         review_eligible_block_indices=list(stage_result.review_eligible_block_indices),
         review_excluded_block_indices=list(stage_result.review_excluded_block_indices),
@@ -528,8 +536,6 @@ def refine_nonrecipe_stage_result(
         block_preview_by_index=dict(stage_result.block_preview_by_index),
         warnings=warnings,
         seed_nonrecipe_spans=list(stage_result.seed_nonrecipe_spans or stage_result.nonrecipe_spans),
-        seed_knowledge_spans=list(stage_result.seed_knowledge_spans or stage_result.knowledge_spans),
-        seed_other_spans=list(stage_result.seed_other_spans or stage_result.other_spans),
         seed_block_category_by_index=seed_block_category_by_index,
         refinement_report={
             "enabled": True,
@@ -541,7 +547,11 @@ def refine_nonrecipe_stage_result(
             "input_mode": "stage7_review_eligible_nonrecipe_spans",
             "seed_nonrecipe_span_count": len(stage_result.seed_nonrecipe_spans or stage_result.nonrecipe_spans),
             "final_nonrecipe_span_count": len(spans),
-            "seed_knowledge_span_count": len(stage_result.seed_knowledge_spans or stage_result.knowledge_spans),
+            "seed_knowledge_span_count": sum(
+                1
+                for span in (stage_result.seed_nonrecipe_spans or stage_result.nonrecipe_spans)
+                if span.category == "knowledge"
+            ),
             "final_knowledge_span_count": len(knowledge_spans),
             "changed_block_count": len(changed_blocks),
             "reviewed_block_count": sum(reviewer_counts.values()),
@@ -578,6 +588,26 @@ def block_rows_for_nonrecipe_stage(
         payload = dict(block)
         payload["index"] = int(block_index)
         payload["stage7_category"] = stage_result.block_category_by_index[int(block_index)]
+        rows.append(payload)
+    return rows
+
+
+def block_rows_for_nonrecipe_authority(
+    *,
+    full_blocks: Sequence[Mapping[str, Any]],
+    stage_result: NonRecipeStageResult,
+) -> list[dict[str, Any]]:
+    full_blocks_by_index = _prepare_full_blocks_by_index(full_blocks)
+    rows: list[dict[str, Any]] = []
+    for block_index in stage_result.authority.authoritative_block_indices:
+        block = full_blocks_by_index.get(int(block_index))
+        if block is None:
+            continue
+        payload = dict(block)
+        payload["index"] = int(block_index)
+        payload["stage7_category"] = (
+            stage_result.authority.authoritative_block_category_by_index[int(block_index)]
+        )
         rows.append(payload)
     return rows
 

@@ -22,23 +22,25 @@ def _patch_single_book_smoke_runtime(
 ) -> list[dict[str, object]]:
     menu_answers = iter(["labelstudio_benchmark", "single_book", "exit"])
 
-    monkeypatch.setattr(
-        cli_module, "_menu_select", lambda *_args, **_kwargs: next(menu_answers)
+    _patch_cli_attr(
+        monkeypatch,
+        "_menu_select",
+        lambda *_args, **_kwargs: next(menu_answers),
     )
-    monkeypatch.setattr(cli_module, "_list_importable_files", lambda *_: [])
-    monkeypatch.setattr(
-        cli_module,
+    _patch_cli_attr(monkeypatch, "_list_importable_files", lambda *_: [])
+    _patch_cli_attr(
+        monkeypatch,
         "_load_settings",
         lambda: {"output_dir": str(configured_output), "epub_extractor": "beautifulsoup"},
     )
-    monkeypatch.setattr(
-        cli_module,
+    _patch_cli_attr(
+        monkeypatch,
         "choose_run_settings",
         lambda **_kwargs: selected_benchmark_settings,
     )
-    monkeypatch.setattr(cli_module, "DEFAULT_GOLDEN", golden_root)
-    monkeypatch.setattr(
-        cli_module,
+    _patch_cli_attr(monkeypatch, "DEFAULT_GOLDEN", golden_root)
+    _patch_cli_attr(
+        monkeypatch,
         "_resolve_interactive_labelstudio_settings",
         lambda _settings: (_ for _ in ()).throw(
             AssertionError(
@@ -46,23 +48,19 @@ def _patch_single_book_smoke_runtime(
             )
         ),
     )
-    monkeypatch.setattr(
-        cli_module,
+    _patch_cli_attr(
+        monkeypatch,
         "_refresh_dashboard_after_history_write",
         lambda **_kwargs: None,
     )
-    monkeypatch.setattr(
-        cli_module,
-        "_write_benchmark_upload_bundle",
-        lambda **kwargs: kwargs.get("output_dir"),
+    publisher, _publisher_capture = _make_lightweight_single_book_publisher()
+    _patch_cli_attr(
+        monkeypatch,
+        "_make_single_book_benchmark_publisher",
+        lambda **_kwargs: publisher,
     )
-    monkeypatch.setattr(
-        cli_module,
-        "_start_benchmark_bundle_oracle_upload_background",
-        lambda **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        cli_module,
+    _patch_cli_attr(
+        monkeypatch,
         "_write_single_book_starter_pack",
         lambda **_kwargs: None,
     )
@@ -103,7 +101,7 @@ def _patch_single_book_smoke_runtime(
             encoding="utf-8",
         )
 
-    monkeypatch.setattr(cli_module, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
     return benchmark_calls
 
 

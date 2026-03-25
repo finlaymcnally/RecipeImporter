@@ -11,6 +11,7 @@ _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 _TEST_SUITE_ENV = "COOKIMPORT_TEST_SUITE"
 _RUNNING_UNDER_PYTEST_ENV = "COOKIMPORT_RUNNING_UNDER_PYTEST"
 _DISABLE_HEAVY_TEST_SIDE_EFFECTS_ENV = "COOKIMPORT_DISABLE_HEAVY_TEST_SIDE_EFFECTS"
+_ALLOW_HEAVY_TEST_SIDE_EFFECTS_ENV = "COOKIMPORT_ALLOW_HEAVY_TEST_SIDE_EFFECTS"
 
 _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_atoms.py": ("core", "parsing"),
@@ -20,6 +21,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_benchmark_gc.py": ("bench", "cli", "analytics"),
     "test_benchmark_csv_backfill_cli.py": ("analytics", "bench", "cli"),
     "test_benchmark_cutdown_for_external_ai.py": ("bench",),
+    "test_benchmark_heavy_side_effects.py": ("bench",),
     "test_cutdown_export_consistency.py": ("bench",),
     "test_canonical_alignment_cache.py": ("bench",),
     "test_canonical_line_role_env.py": ("parsing", "llm"),
@@ -393,6 +395,12 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     if not _should_emit_raw_pytest_guidance(session.config):
         return
     _emit_raw_pytest_guidance(terminalreporter)
+
+
+@pytest.fixture
+def allow_heavy_test_side_effects(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(_ALLOW_HEAVY_TEST_SIDE_EFFECTS_ENV, "1")
+    monkeypatch.delenv(_DISABLE_HEAVY_TEST_SIDE_EFFECTS_ENV, raising=False)
 
 
 def pytest_report_teststatus(

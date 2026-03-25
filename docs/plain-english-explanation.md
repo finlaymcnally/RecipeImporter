@@ -192,7 +192,7 @@ That is why the run now has a seed-routing artifact and a separate final-authori
 By the end of `nonrecipe-route`, the program has two routed outcomes plus the metadata needed for the next stage:
 
 - excluded rows that are done forever
-- review-eligible rows that are still alive for later Codex judgment
+- one category-neutral review queue containing every surviving row that is still alive for later Codex judgment
 - routing metadata that explains why those rows survived or were excluded
 
 This stage also matters because later chunk generation, table extraction, Label Studio knowledge counts, and benchmark evidence are not supposed to revive importer leftovers or old side lanes. They are supposed to follow the stage-owned outside-recipe path.
@@ -201,7 +201,7 @@ This stage also matters because later chunk generation, table extraction, Label 
 
 `knowledge-final` is the last authority step for outside-recipe meaning.
 
-If knowledge review is off, the program keeps the routed review queue and moves on. In that mode, only the upstream obvious-junk exclusions have final outside-recipe authority; the surviving reviewable rows stay provisional rather than magically becoming final semantic truth.
+If knowledge review is off, the program keeps the routed review queue artifact and moves on. In that mode, only the upstream obvious-junk exclusions have final outside-recipe authority; the surviving reviewable rows stay provisional rather than magically becoming final semantic truth.
 
 If knowledge review is on, the public knowledge pipeline name is `codex-knowledge-shard-v1`.
 
@@ -213,7 +213,7 @@ That bounded packaging matters for business logic, not just token control. The p
 
 The reviewer returns semantic decisions plus the supporting snippets and records used by the runtime. Those decisions are then validated and promoted back into the stage-owned authority model.
 
-Those worker decisions refine the seed routing into the final outside-recipe authority.
+Those worker decisions refine the routed review queue into the final outside-recipe authority.
 
 So the final `knowledge` blocks are not whatever the importer found, and not whatever the early line labels happened to suggest. They are whatever survives `knowledge-final`.
 
@@ -223,7 +223,7 @@ This is the place where the system makes its final semantic claim about outside-
 - this passage is just other outside-recipe material
 - this passage was excluded earlier and never came back into play
 
-In artifact terms, `08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` view (legacy Stage 7 routing), `09_nonrecipe_authority.json` is the final machine-readable truth, and `09_nonrecipe_review_status.json` explains what was reviewed, skipped, changed, or left unresolved.
+In artifact terms, `08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` view (legacy Stage 7 routing), `09_nonrecipe_authority.json` is the final machine-readable truth, and `09_nonrecipe_review_status.json` explains what was reviewed, skipped, changed, or left unresolved. The routing artifact keeps queue and exclusion facts, not the final semantic answer.
 
 If optional reviewer-facing knowledge snippets are written, they are evidence artifacts, not the authority surface themselves.
 
@@ -276,9 +276,9 @@ So the end of the run is not just "write recipes." It is "write recipes, write t
 
 - The deterministic label-first path still runs even when `llm_recipe_pipeline=off` and `llm_knowledge_pipeline=off`.
 
-- Outside-recipe text now lives in two real runtime states: Stage 7 seed routing in `08_nonrecipe_seed_routing.json` and final reviewed authority in `09_nonrecipe_authority.json`.
+- Outside-recipe text now lives in two real runtime states: Stage 7 routing in `08_nonrecipe_seed_routing.json` and final reviewed authority in `09_nonrecipe_authority.json`.
 
-- `ConversionResult.non_recipe_blocks` is a downstream cache that gets repopulated after the stage session has already decided outside-recipe authority.
+- `ConversionResult.non_recipe_blocks` is a downstream cache that gets repopulated only from final outside-recipe authority after the stage session has already decided what is truly final.
 
 - `codex-recipe-shard-v1` and `codex-knowledge-shard-v1` are refinement/review layers over repo-owned deterministic scaffolding, not direct final-output writers.
 

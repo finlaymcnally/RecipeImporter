@@ -607,16 +607,139 @@ class _SingleProfileProgressDashboard:
                 )
             return "\n".join(lines)
 
+
+@dataclass(frozen=True)
+class _SingleProfileTargetComputationResult:
+    target: AllMethodTarget
+    failure_reason: str | None
+    target_eval_output: Path
+    comparison_json_path: Path | None
+
+
+@dataclass(frozen=True)
+class _SingleProfileTargetPublicationResult:
+    target: AllMethodTarget
+    upload_bundle_dir: Path | None
+    publication_error: str | None = None
+
+
+@dataclass(frozen=True)
+class _SingleProfileBenchmarkComputationResult:
+    completed_results: list[_SingleProfileTargetComputationResult]
+    single_profile_root: Path
+    single_profile_processed_root: Path
+    total_targets: int
+    refresh_dashboard: bool
+
+
+@dataclass(frozen=True)
+class _SingleProfileBenchmarkPublicationResult:
+    target_results: list[_SingleProfileTargetPublicationResult]
+    group_upload_bundle_dir: Path | None = None
+
+
+def _publish_single_profile_benchmark_result(
+    result: _SingleProfileBenchmarkComputationResult,
+    *,
+    golden_root: Path,
+    processed_output_root: Path,
+) -> _SingleProfileBenchmarkPublicationResult:
+    target_publications: list[_SingleProfileTargetPublicationResult] = []
+    for target_result in result.completed_results:
+        try:
+            upload_bundle_dir = _write_benchmark_upload_bundle(
+                source_root=target_result.target_eval_output,
+                output_dir=target_result.target_eval_output / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
+                suppress_summary=False,
+            )
+            target_publications.append(
+                _SingleProfileTargetPublicationResult(
+                    target=target_result.target,
+                    upload_bundle_dir=upload_bundle_dir,
+                )
+            )
+        except typer.Exit as exc:
+            exit_code = int(getattr(exc, "exit_code", 1))
+            target_publications.append(
+                _SingleProfileTargetPublicationResult(
+                    target=target_result.target,
+                    upload_bundle_dir=None,
+                    publication_error=f"upload bundle exit code {exit_code}",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            target_publications.append(
+                _SingleProfileTargetPublicationResult(
+                    target=target_result.target,
+                    upload_bundle_dir=None,
+                    publication_error=f"upload bundle error: {exc}",
+                )
+            )
+
+    group_upload_bundle_dir: Path | None = None
+    if result.total_targets > 1:
+        group_upload_bundle_dir = _write_benchmark_upload_bundle(
+            source_root=result.single_profile_root,
+            output_dir=result.single_profile_root / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
+            suppress_summary=False,
+            high_level_only=True,
+            target_bundle_size_bytes=BENCHMARK_GROUP_UPLOAD_BUNDLE_TARGET_BYTES,
+        )
+        if group_upload_bundle_dir is not None:
+            _start_benchmark_bundle_oracle_upload_background(
+                bundle_dir=group_upload_bundle_dir,
+                scope="single_profile_group",
+            )
+
+    if result.refresh_dashboard:
+        history_csv_path = history_csv_for_output(
+            result.single_profile_processed_root / _DASHBOARD_REFRESH_SENTINEL_DIRNAME
+        )
+        _refresh_dashboard_after_history_write(
+            csv_path=history_csv_path,
+            output_root=processed_output_root,
+            golden_root=golden_root,
+            dashboard_out_dir=history_root_for_output(processed_output_root) / "dashboard",
+            reason="single-profile benchmark variant batch append",
+        )
+
+    return _SingleProfileBenchmarkPublicationResult(
+        target_results=target_publications,
+        group_upload_bundle_dir=group_upload_bundle_dir,
+    )
+
+
+def _make_single_profile_benchmark_publisher(
+    *,
+    golden_root: Path,
+    processed_output_root: Path,
+) -> Callable[
+    [_SingleProfileBenchmarkComputationResult],
+    _SingleProfileBenchmarkPublicationResult,
+]:
+    return lambda result: _publish_single_profile_benchmark_result(
+        result,
+        golden_root=golden_root,
+        processed_output_root=processed_output_root,
+    )
+
 def _interactive_single_profile_all_matched_benchmark(
     *,
     selected_benchmark_settings: RunSettings,
     benchmark_eval_output: Path,
     processed_output_root: Path,
+    golden_root: Path | None = None,
     write_markdown: bool,
     write_label_studio_tasks: bool,
     allow_subset_selection: bool = False,
+    publisher: Callable[
+        [_SingleProfileBenchmarkComputationResult],
+        _SingleProfileBenchmarkPublicationResult,
+    ]
+    | None = None,
 ) -> bool:
     """Run one benchmark profile across matched gold/source pairs."""
+    resolved_golden_root = golden_root or DEFAULT_GOLDEN
 
     def _friendly_single_profile_failure_reason(reason: object) -> str:
         text = str(reason or "").strip()
@@ -633,7 +756,7 @@ def _interactive_single_profile_all_matched_benchmark(
             return f"codex-farm {pipeline_id}: {summary}"
         return summary
 
-    all_targets, unmatched_targets = _resolve_all_method_targets(DEFAULT_GOLDEN)
+    all_targets, unmatched_targets = _resolve_all_method_targets(resolved_golden_root)
     if not all_targets:
         typer.secho(
             "No matched golden sets were found in data/input. Nothing to benchmark.",
@@ -863,7 +986,7 @@ def _interactive_single_profile_all_matched_benchmark(
         index: int,
         target: AllMethodTarget,
         update_progress: Callable[[str], None] | None = None,
-    ) -> tuple[AllMethodTarget, str | None, Path | None, Path | None]:
+    ) -> _SingleProfileTargetComputationResult:
         target_slug = f"{index:02d}_{slugify_name(target.source_file.stem)}"
         target_eval_output = single_profile_root / target_slug
         target_processed_output = single_profile_processed_root / target_slug
@@ -1041,42 +1164,6 @@ def _interactive_single_profile_all_matched_benchmark(
             if comparison_paths is not None:
                 comparison_json_path = comparison_paths[0]
 
-        try:
-            upload_bundle_dir = _write_benchmark_upload_bundle(
-                source_root=target_eval_output,
-                output_dir=target_eval_output / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
-                suppress_summary=False,
-            )
-        except typer.Exit as exc:
-            exit_code = int(getattr(exc, "exit_code", 1))
-            reason = "; ".join(variant_errors) if variant_errors else ""
-            failure_reason = reason.strip()
-            if failure_reason:
-                failure_reason += "; "
-            failure_reason += f"upload bundle exit code {exit_code}"
-            _finish_source_progress(
-                failed=True,
-                status=(
-                    f"Failed {format_task_counter('', index, max(1, total_targets), noun='book')}: "
-                    f"{target.source_file_name}"
-                ),
-            )
-            return target, failure_reason, None, comparison_json_path
-        except Exception as exc:  # noqa: BLE001
-            reason = "; ".join(variant_errors) if variant_errors else ""
-            failure_reason = reason.strip()
-            if failure_reason:
-                failure_reason += "; "
-            failure_reason += f"upload bundle error: {exc}"
-            _finish_source_progress(
-                failed=True,
-                status=(
-                    f"Failed {format_task_counter('', index, max(1, total_targets), noun='book')}: "
-                    f"{target.source_file_name}"
-                ),
-            )
-            return target, failure_reason, None, comparison_json_path
-
         failure_reason = "; ".join(variant_errors) if variant_errors else None
         _finish_source_progress(
             failed=failure_reason is not None,
@@ -1086,7 +1173,12 @@ def _interactive_single_profile_all_matched_benchmark(
                 f"{target.source_file_name}"
             ),
         )
-        return target, failure_reason, upload_bundle_dir, comparison_json_path
+        return _SingleProfileTargetComputationResult(
+            target=target,
+            failure_reason=failure_reason,
+            target_eval_output=target_eval_output,
+            comparison_json_path=comparison_json_path,
+        )
 
     target_index_pairs = list(enumerate(targets, start=1))
     for index, target in target_index_pairs:
@@ -1107,16 +1199,14 @@ def _interactive_single_profile_all_matched_benchmark(
     else:
         def _run_parallel_targets_with_shared_status(
             update_progress: Callable[[str], None],
-        ) -> list[tuple[AllMethodTarget, str | None, Path | None, Path | None]]:
+        ) -> list[_SingleProfileTargetComputationResult]:
             _emit_single_profile_dashboard(
                 update_progress,
                 task_message=(
                     f"Queued {format_task_counter('', 0, max(1, total_targets), noun='book')}"
                 ),
             )
-            completed: list[
-                tuple[AllMethodTarget, str | None, Path | None, Path | None]
-            ] = []
+            completed: list[_SingleProfileTargetComputationResult] = []
             with ThreadPoolExecutor(max_workers=max_parallel_targets) as executor:
                 futures = [
                     executor.submit(
@@ -1138,7 +1228,33 @@ def _interactive_single_profile_all_matched_benchmark(
             run=_run_parallel_targets_with_shared_status,
         )
 
-    for target, failure_reason, upload_bundle_dir, comparison_json_path in completed_results:
+    computation = _SingleProfileBenchmarkComputationResult(
+        completed_results=completed_results,
+        single_profile_root=single_profile_root,
+        single_profile_processed_root=single_profile_processed_root,
+        total_targets=total_targets,
+        refresh_dashboard=single_profile_dashboard is not None,
+    )
+    if publisher is None:
+        publisher = _make_single_profile_benchmark_publisher(
+            golden_root=resolved_golden_root,
+            processed_output_root=processed_output_root,
+        )
+    publication = publisher(computation)
+    publication_by_target = {
+        target_result.target: target_result for target_result in publication.target_results
+    }
+
+    for target_result in completed_results:
+        target = target_result.target
+        failure_reason = target_result.failure_reason
+        comparison_json_path = target_result.comparison_json_path
+        publication_target = publication_by_target.get(target)
+        upload_bundle_dir = (
+            publication_target.upload_bundle_dir
+            if publication_target is not None
+            else None
+        )
         if upload_bundle_dir is not None:
             typer.secho(
                 f"External-AI upload bundle: {upload_bundle_dir}",
@@ -1148,6 +1264,12 @@ def _interactive_single_profile_all_matched_benchmark(
             typer.secho(
                 f"Codex-vs-vanilla comparison: {comparison_json_path}",
                 fg=typer.colors.CYAN,
+            )
+        if publication_target is not None and publication_target.publication_error:
+            failure_reason = (
+                f"{failure_reason}; {publication_target.publication_error}"
+                if failure_reason
+                else publication_target.publication_error
             )
         if failure_reason is None:
             continue
@@ -1160,33 +1282,10 @@ def _interactive_single_profile_all_matched_benchmark(
             fg=typer.colors.YELLOW,
         )
 
-    if total_targets > 1:
-        group_upload_bundle_dir = _write_benchmark_upload_bundle(
-            source_root=single_profile_root,
-            output_dir=single_profile_root / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
-            suppress_summary=False,
-            high_level_only=True,
-            target_bundle_size_bytes=BENCHMARK_GROUP_UPLOAD_BUNDLE_TARGET_BYTES,
-        )
-        if group_upload_bundle_dir is not None:
-            typer.secho(
-                f"External-AI group upload bundle: {group_upload_bundle_dir}",
-                fg=typer.colors.CYAN,
-            )
-            _start_benchmark_bundle_oracle_upload_background(
-                bundle_dir=group_upload_bundle_dir,
-                scope="single_profile_group",
-            )
-
-    if single_profile_dashboard is not None:
-        history_csv_path = history_csv_for_output(
-            single_profile_processed_root / _DASHBOARD_REFRESH_SENTINEL_DIRNAME
-        )
-        _refresh_dashboard_after_history_write(
-            csv_path=history_csv_path,
-            output_root=processed_output_root,
-            dashboard_out_dir=history_root_for_output(processed_output_root) / "dashboard",
-            reason="single-profile benchmark variant batch append",
+    if publication.group_upload_bundle_dir is not None:
+        typer.secho(
+            f"External-AI group upload bundle: {publication.group_upload_bundle_dir}",
+            fg=typer.colors.CYAN,
         )
 
     succeeded = total_targets - len(failures)
