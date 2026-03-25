@@ -19,7 +19,7 @@ def test_local_recipe_pipeline_pack_has_editable_prompt_files() -> None:
         },
         RunSettings().codex_farm_pipeline_knowledge: {
             "prompt_input_mode": "path",
-            "prompt_contains": "Review non-recipe cookbook text",
+            "prompt_contains": "Review one ordered packet of review-eligible non-recipe cookbook text",
         },
     }
 

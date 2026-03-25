@@ -2448,23 +2448,21 @@ def _subset_knowledge_shard_metadata(
     owned_ids: Sequence[str],
 ) -> dict[str, Any]:
     source = dict(metadata or {})
-    owned_id_set = {str(chunk_id).strip() for chunk_id in owned_ids if str(chunk_id).strip()}
+    owned_id_set = {str(packet_id).strip() for packet_id in owned_ids if str(packet_id).strip()}
     subset: dict[str, Any] = {}
-    for key in (
-        "chunk_block_indices_by_id",
-        "chunk_lane_by_id",
-        "chunk_title_by_id",
-        "chunk_has_heading_by_id",
-        "chunk_has_table_hint_by_id",
-        "chunk_knowledge_cue_by_id",
-    ):
+    for key in ("ordered_packet_ids", "source_span_ids", "context_blocks"):
+        value = source.get(key)
+        if value is None:
+            continue
+        subset[key] = value
+    for key in ("packet_block_indices_by_id", "packet_char_count_by_id"):
         raw_mapping = source.get(key)
         if not isinstance(raw_mapping, Mapping):
             continue
         subset[key] = {
-            str(chunk_id): value
-            for chunk_id, value in raw_mapping.items()
-            if str(chunk_id).strip() in owned_id_set
+            str(packet_id): value
+            for packet_id, value in raw_mapping.items()
+            if str(packet_id).strip() in owned_id_set
         }
     return subset
 

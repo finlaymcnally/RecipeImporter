@@ -81,7 +81,7 @@ def test_merge_source_jobs_reports_main_process_phases(tmp_path: Path) -> None:
         for message in statuses
         for payload in [parse_stage_progress(message)]
     ]
-    assert "Generating knowledge chunks..." in normalized_statuses
+    assert "Generating deterministic non-recipe chunks..." in normalized_statuses
     assert any(status.startswith("Writing outputs... task 0/") for status in normalized_statuses)
 
 
@@ -94,6 +94,8 @@ def _output_stats_category_for_path(relative_path: Path) -> str | None:
         return "nonRecipe"
     if relative_path.name == "09_nonrecipe_authority.json":
         return "nonRecipe"
+    if relative_path.name == "09_nonrecipe_knowledge_groups.json":
+        return "knowledge"
     if relative_path.name == "09_nonrecipe_review_status.json":
         return "knowledge"
     top = relative_path.parts[0]
@@ -107,6 +109,8 @@ def _output_stats_category_for_path(relative_path: Path) -> str | None:
         return "chunks"
     if top == "tables":
         return "tables"
+    if top == "knowledge":
+        return "knowledge"
     if top == "recipe_authority":
         return "recipeAuthority"
     if top == "raw":

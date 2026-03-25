@@ -100,6 +100,7 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
         run_root=tmp_path,
         stage_result=stage_result,
         llm_report={"enabled": False, "pipeline": "off"},
+        knowledge_group_records=[],
         snippet_records=[],
         output_stats=stats,
     )
@@ -196,7 +197,7 @@ def test_nonrecipe_stage_refinement_keeps_internal_reviewer_categories_internal(
             "seed_category": "knowledge",
             "final_category": "other",
             "reviewer_category": "chapter_taxonomy",
-            "applied_chunk_ids": [],
+            "applied_packet_ids": [],
         }
     ]
 

@@ -14,7 +14,7 @@ Output-path and artifact contracts for staging writers and merge flows.
 
 - Stage-producing flows must write `.bench/<workbook_slug>/stage_block_predictions.json` using `cookimport/staging/writer.py:write_stage_block_predictions`.
 - Benchmark/eval code depends on this artifact being present for single-file stage runs, split-merge stage runs, and processed-output writes from `cookimport/labelstudio/ingest.py`.
-- `KNOWLEDGE` labels in stage evidence should prefer explicit knowledge snippets (`knowledge/<workbook_slug>/snippets.jsonl`) and fall back to deterministic chunk lanes when snippets are absent.
+- `KNOWLEDGE` labels in stage evidence come only from final non-recipe authority. Reviewer-facing snippets under `knowledge/<workbook_slug>/snippets.jsonl` are evidence sidecars, not a fallback authority seam.
 
 
 ## Recipe Section Artifact Convention

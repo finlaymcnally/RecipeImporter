@@ -150,7 +150,7 @@ Label-first recipe-span note:
 
 ### Recipe path
 
-1. Importer creates `RecipeCandidate` objects.
+1. The recipe-boundary stage builds `RecipeCandidate` objects from accepted recipe spans after importer source facts have been normalized.
 2. `cookimport/staging/draft_v1.py` converts each candidate:
    - optional deterministic fallback step segmentation runs first (`instruction_step_segmentation_policy=off|auto|always`, backend `heuristic_v1|pysbd_v1`)
    - ingredient lines parsed with `parse_ingredient_line`
@@ -164,10 +164,8 @@ Label-first recipe-span note:
 
 1. Importers publish canonical `source_blocks` plus optional non-authoritative `source_support`; they do not own outside-recipe truth.
 2. The shared stage session builds authoritative outside-recipe ownership from that source model and writes the final Stage 7 non-recipe rows back into `ConversionResult.non_recipe_blocks`.
-3. CLI/ingest path still can compute deterministic chunks from final non-recipe rows for fallback/debug artifact surfaces:
-   - `chunks_from_non_recipe_blocks(non_recipe_blocks)`
-   - table-aware enrichment and artifact writing are driven by `extract_and_annotate_tables(...)` in CLI + Label Studio ingest paths
-4. The live knowledge LLM path no longer consumes those parser chunks. `cookimport/llm/codex_farm_knowledge_jobs.py` now plans ordered review packets directly from review-eligible outside-recipe block rows and leaves semantic grouping to the model.
+3. When knowledge review is off, stage and processed-ingest paths may still compute deterministic chunks from final non-recipe rows as optional fallback/debug artifacts.
+4. When knowledge review is on, the live knowledge LLM path does not consume or regenerate those parser chunks. `cookimport/llm/codex_farm_knowledge_jobs.py` plans ordered review packets directly from review-eligible outside-recipe block rows and leaves semantic grouping to the model.
 5. Highlight extraction inside `chunks.py` still reuses the internal advice extractor from `parsing/tips.py`, but those candidates are local deterministic chunk metadata rather than the final knowledge-group authority surface.
 
 ## Ingredient Parsing (`cookimport/parsing/ingredients.py`)

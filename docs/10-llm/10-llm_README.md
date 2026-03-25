@@ -138,13 +138,13 @@ If you want the current Codex-backed flow in operator language instead of artifa
 4. The program groups the corrected recipe-side lines into coherent recipe spans and recipes. Everything not grouped into recipe spans becomes the non-recipe side.
 5. The recipe Codex surface reviews the recipe side in owned recipe shards. One worker session processes its assigned recipe task files under `in/` and writes one `out/<task_id>.json` per task. Repo code validates those task outputs, rejoins them into shard proposals, and near-miss invalid tasks can still get one structured repair pass.
 6. The program deterministically validates those recipe task outputs, records whether each result is promotable, and only then promotes `repaired` outcomes into the final recipe formats.
-7. The knowledge Codex surface reviews the non-recipe side. The program first packages the category-neutral `nonrecipe-route` review queue into transport-safe non-recipe chunks, then Codex reviews every built chunk using raw block text plus mechanically true structure rather than letting the routing stage declare final meaning. Each knowledge task owns exactly one deterministic chunk plus optional nearby non-authoritative context, and one worker session processes its assigned knowledge task files under `in/` and writes one semantic task-result JSON file per task under `out/`. Repo code validates that one-chunk result, normalizes it into the canonical compact bundle payload, and then keeps/refines useful cooking knowledge while rejecting blurbs, filler, and other author yapping.
+7. The knowledge Codex surface reviews the non-recipe side. The program first packages the category-neutral `nonrecipe-route` review queue into ordered non-recipe packets, then Codex reviews each packet using raw block text plus mechanically true structure rather than letting deterministic code declare final grouping meaning. Each knowledge task owns exactly one packet plus optional nearby non-authoritative context, and one worker session processes its assigned knowledge task files under `in/` and writes one semantic task-result JSON file per task under `out/`. Repo code validates exact owned block coverage plus packet-local idea-group coverage, then keeps/refines useful cooking knowledge while rejecting blurbs, filler, and other author yapping.
 8. The program validates owned output coverage, writes artifacts/reports, and emits the final recipe, knowledge, and debug outputs.
 
 Worker/shard mental model:
 
 - A setting such as `10 / 5 / 10` in benchmark interactive mode means the runtime should build ten `line_role` shards, five `recipe` shards, and ten `knowledge` shards unless a phase has fewer owned items total.
-- Knowledge keeps a special warning seam: if forcing the chosen shard count makes a bundle exceed the normal chunk-count, char-count, local-gap, or table-isolation heuristics, the planner still honors the requested count but records warnings in the manifest.
+- Knowledge keeps a special warning seam: if forcing the chosen shard count falls below the packet floor, the planner still keeps one task per packet and records warnings in the manifest instead of dropping later packets.
 - The durable contract is "immutable input payload in, structured owned output/proposal out." The runtime then validates exact ownership/coverage and promotes only valid results.
 - Recipe tags are part of the recipe correction surface, not a fourth independent Codex phase.
 - Freeform prelabel is separate again; it is not part of the recipe/line-role/knowledge trio above.
@@ -236,7 +236,7 @@ Knowledge runtime note:
 - strict JSON knowledge shard attempts now also write `live_status.json`; deterministic preflight can stop malformed shard payloads with `state: preflight_rejected`, the live watchdog can kill tool-use / repeated reasoning detours / cohort-runtime outliers with `state: watchdog_killed`, and retryable watchdog kills now get one fresh repo-owned retry packet under `watchdog_retry/` for the affected task, with sibling examples plus its own prompt/events/usage/workspace/status artifacts
 - repeated uniform malformed, low-trust, watchdog-boundary, or zero-output task failures can now classify a worker as poisoned, which causes later retry/repair follow-ups to record explicit skip reasons instead of paying for another doomed recovery attempt
 - completed knowledge workspace workers should now always carry a non-null `reason_code` in `live_status.json`; successful taskized workers now finish as `workspace_validated_task_queue_completed`, stable-output runs without provable queue completion also fail closed as `workspace_validated_task_queue_incomplete`, genuine clean incomplete exits still land as `workspace_validated_task_queue_incomplete`, premature clean exits after visible queue advancement first surface as `workspace_validated_task_queue_premature_clean_exit` during the auto-resume backstop, repeated conversational stops can now end as `workspace_validated_task_queue_premature_clean_exit_cap_reached`, and true watchdog kills keep their original watchdog reason codes
-- the runtime cutover did not require a brand-new pack immediately; `codex-knowledge-shard-v1` still reuses the compact knowledge pack underneath, and the important authority seam is shard ownership plus validation, not a new prompt asset family
+- the runtime cutover now uses the packet-native knowledge pack directly: `recipe.knowledge.packet.v1` is the live prompt/schema contract, and the important authority seam is still shard ownership plus validation rather than deterministic semantic pre-grouping
 - knowledge worker assignments now launch concurrently and merge back in planned order so `running N` reflects real in-flight work
 - knowledge progress callbacks now also report task truth rather than shard truth: `task_current/task_total` track shard-owned task rows, detail lines carry completed-shard totals, and `active_tasks` rows identify the worker-owned task queue plus any inline follow-up state
 - the billed knowledge payload now avoids chunk-level semantic hints entirely; it carries raw block text, block ids, and mechanically true structure only
@@ -276,7 +276,7 @@ Line-role runtime note:
 - there is no longer any live or compatibility support for a separate LLM recipe gate inside line-role; the only active line-role model surface is the single `line_role` labeling phase
 - line-role pre-grouping candidates now default to `within_recipe_span=None`; importer recipe provenance is no longer supplied before deterministic/Codex labeling, and prompt-preview reconstruction mirrors that same span-free contract
 - `AtomicLineCandidate` is now a single-line parser record; selective inline `ctx:` rows and cache identity derive neighbor text from explicit ordered-candidate lookup instead of embedded `prev_text` / `next_text` fields
-- `workers/*/in/*.json` remain the authoritative stored task payloads the worker reads locally. For line-role, those are sub-shard task packets; for knowledge, those are shard-owned task files with optional nearby context and one or more chunk ids; for recipe, they are still one task per shard on the main path. When a structured follow-up still exists, it must read authority from those stored inputs rather than reconstructing freehand.
+- `workers/*/in/*.json` remain the authoritative stored task payloads the worker reads locally. For line-role, those are sub-shard task packets; for knowledge, those are packet-owned task files with optional nearby context and one packet id; for recipe, they are still one task per shard on the main path. When a structured follow-up still exists, it must read authority from those stored inputs rather than reconstructing freehand.
 - `workers/*/hints/*.md` are worker-facing decision aids. They are not validator authority and are intentionally allowed to be richer, more explanatory summaries than the billed `in/*.json` payload. Line-role hints now include packet interpretation, conservative flip policy, and example-file pointers in addition to the older packet-profile/attention-row summaries.
 - line-role now keeps a second local-only debug copy at `workers/*/debug/*.json`; prompt-preview mirrors that as `line-role-pipeline/debug_in/*.json`, while `request_input_file` and budget estimation still point at the compact billed `in/*.json` file.
 - those `workers/*/in/*.json` rows are now compact tuples: `{"v":1,"shard_id":...,"packet_summary":...,"default_posture":...,"flip_policy":[...],"example_files":[...],"rows":[[atomic_index,label_code,current_line], ...]}`. The model-facing file stays compact row-wise, but it now carries small packet-level context fields so a cold-start worker can stay conservative without reading repo code.
@@ -319,7 +319,7 @@ Prompt/debug artifacts:
 - knowledge preview now follows the live packet contract exactly: prompt counts come from the same packet planner as the live runtime, so preview cannot emit fewer prompts than the packet floor even when `knowledge_prompt_target_count` is lower
 - preview uses the same category-neutral review queue as the live knowledge runtime; excluded spans must not silently widen the preview work set
 - the current default knowledge context is `0` blocks on each side, and that default is shared across stage, benchmark, CLI, and prompt-preview paths
-- `build_knowledge_jobs(...)` now keeps deterministic chunk boundaries but partitions the ordered chunk list into approximately `knowledge_prompt_target_count` shards. Knowledge worker count still controls concurrency separately from shard planning.
+- `build_knowledge_jobs(...)` now sizes ordered review packets from the review-eligible block queue and keeps one task per packet. `knowledge_prompt_target_count` still requests approximate shard count, but it cannot collapse work below the packet floor. Knowledge worker count still controls concurrency separately from shard planning.
 - line-role preview must batch the full ordered candidate set and pass `deterministic_label` plus `escalation_reasons` into `build_canonical_line_role_prompt(...)`; preview-only unresolved shortlists are a stale contract and will understate line-role prompt volume.
 - line-role prompt reconstruction no longer injects grouped recipe spans or importer provenance. The pre-grouping contract is now span-free: prompt text explicitly says no prior recipe-span authority is provided, and candidate rows default to `within_recipe_span=None` until grouped labels are projected later.
 - the active line-role wrapper now teaches `HOWTO_SECTION` as a book-optional, recipe-internal subsection label only (`FOR THE SAUCE`, `TO FINISH`, `FOR SERVING`). Packet files now carry `howto_section_availability` plus `howto_section_policy`, and the wrapper explicitly fences chapter/topic/cookbook-lesson headings back to `KNOWLEDGE` or `OTHER`
@@ -355,7 +355,7 @@ Prompt cost notes worth keeping in mind:
   - remove recipe hint provenance from correction payloads
   - reduce knowledge context blocks from `12 -> 4 -> 2 -> 0`
   - stop using deterministic semantic lane labels as a reason to skip knowledge review calls
-  - bundle local knowledge chunks instead of writing one chunk per prompt
+  - bundle local knowledge review packets instead of over-fragmenting the prompt surface
   - compact line-role rows into batch-level legends and one ordered contiguous slice with no inline neighbor duplication
   - remove recipe-range authority from line-role prompts so Codex reviews the deterministic labels without inherited recipe membership
   - switch active shard-v1 packs to file-path prompt transport so prompt wrapper text only carries instructions plus `INPUT_PATH`, while the task payload already lives in the worker folder on disk
@@ -366,8 +366,8 @@ Where prompt cuts should live:
 - recipe prompt body reductions should usually happen in the shared `MergedRecipeRepairInput` serializer so live recipe runs and preview reconstruction stay aligned
 - knowledge prompt count reductions should usually happen in `build_knowledge_jobs(...)`, because both live harvest and preview reconstruction consume that builder
 - obvious junk suppression for knowledge cost should also live in `chunks.py` lane scoring so live harvest and preview both skip the same blurbs / navigation / attribution fragments
-- chunk-count suppression should also live in `chunks.py`: collapsing standalone heading/bridge chunks before bundling is cheaper and safer than trying to fix that fragmentation in the prompt layer
-- when `build_knowledge_jobs(...)` skips every chunk, `run_codex_farm_nonrecipe_knowledge_review(...)` must short-circuit before invoking Codex or writing misleading empty-output manifests
+- packet-count suppression belongs in `build_knowledge_jobs(...)` packet sizing, not in a later semantic skip layer
+- when `build_knowledge_jobs(...)` produces no packets because there is no review-eligible work, `run_codex_farm_nonrecipe_knowledge_review(...)` must short-circuit before invoking Codex or writing misleading empty-output manifests
 
 Run-level observability note:
 - `stage_observability.json` at the run root is the canonical stage index. The recipe and knowledge manifests above are stage-local detail, not a second naming system.
@@ -446,7 +446,7 @@ Structured output contract:
 - Recipe direct-exec no longer treats `recipe_correction/{in,out}` as runtime truth. Current readers and debug helpers should start from `recipe_phase_runtime/inputs/*.json`, `recipe_phase_runtime/proposals/*.json`, and `recipe_correction_audit/*.json`.
 - Stage 7 wording cleanup was a label/reporting pass, not a new runtime. The durable knowledge contract is still:
   - deterministic Stage 7 / `nonrecipe-route` review routing
-  - parser-owned chunk pruning before review
+  - deterministic non-recipe routing plus packet planning before review
   - immutable `knowledge/in/*.json` inputs
   - validated `knowledge/proposals/*.json` outputs
   - deterministic promotion into explicit final authority plus reviewer snippets
@@ -467,7 +467,7 @@ Structured output contract:
 - line-role main workspace workers now use the same rare-kill watchdog contract as recipe and knowledge. The worker is still expected to start from `worker_manifest.json`, `assigned_tasks.json`, `assigned_shards.json`, and the named packet files, but bounded local orientation and helper shell use inside the worker root are telemetry, not kill reasons, unless they turn into a real boundary violation or a pathological no-progress loop.
 - `AtomicLineCandidate` is no longer a neighbor-carrying cache object. Neighbor context for line-role prompt text now comes from explicit ordered-candidate lookup helpers, so adjacency-sensitive prompt changes belong in the prompt builder / lookup seam rather than by re-expanding parser records.
 - Knowledge direct prompts must describe the real inline JSON contract. `{{INPUT_PATH}}` or file-reading wording is stale on the live knowledge surface; only file-backed line-role should use `prompt_input_mode=path`.
-- Live knowledge payloads are intentionally compact and skeptical. They now use short aliases, omit `semantic_hint`, and only expose `suggested_lane` when deterministic evidence is strong enough to be worth a soft prior.
+- Live knowledge payloads are intentionally compact and skeptical. They use short aliases, omit semantic hinting, and expose only owned packet blocks plus mechanically true context and guardrails.
 - The live recipe shard contract is similarly compact: minified shard JSON, compact helper hints, compact tag-guide payload, and a first-class candidate-quality/triage seam rather than a schema-shaped metadata dump.
 - Recipe correction now has an explicit bad-candidate escape hatch. Shard proposals can return `fragmentary` or `not_a_recipe` with compact reasons, and deterministic promotion only emits final recipes for `repaired` results while preserving rejected candidates in proposals/audits.
 - Knowledge reliability now depends on two separate rules that are easy to conflate:

@@ -56,7 +56,9 @@ def _build_review_summary(
     promoted_useful_packet_count: int,
     promoted_snippet_count: int,
 ) -> dict[str, int]:
-    skipped_lane_counts = dict(getattr(build_report, "skipped_lane_counts", {}) or {})
+    skipped_packet_reason_counts = dict(
+        getattr(build_report, "skipped_packet_reason_counts", {}) or {}
+    )
     counts = dict(review_rollup or {})
     planned_packet_count = int(getattr(build_report, "packets_written", 0) or 0)
     unreviewed_packet_count = int(counts.get("unreviewed_packet_count") or 0)
@@ -67,8 +69,8 @@ def _build_review_summary(
         "review_eligible_nonrecipe_span_count": int(
             getattr(build_report, "review_eligible_nonrecipe_span_count", 0) or 0
         ),
-        "chunk_count_before_pruning": int(
-            getattr(build_report, "chunk_count_before_pruning", 0) or 0
+        "packet_count_before_partition": int(
+            getattr(build_report, "packet_count_before_partition", 0) or 0
         ),
         "planned_packet_count": planned_packet_count,
         "reviewed_packet_count": max(0, planned_packet_count - unreviewed_packet_count),
@@ -78,9 +80,12 @@ def _build_review_summary(
         "review_excluded_block_count": int(
             counts.get("review_excluded_block_count") or 0
         ),
-        "skipped_chunk_count": int(getattr(build_report, "skipped_chunk_count", 0) or 0),
-        "skipped_noise_chunk_count": int(skipped_lane_counts.get("noise") or 0),
-        "skipped_low_signal_chunk_count": int(skipped_lane_counts.get("low_signal") or 0),
+        "skipped_packet_count": int(
+            getattr(build_report, "skipped_packet_count", 0) or 0
+        ),
+        "skipped_packet_reason_counts": dict(
+            sorted(skipped_packet_reason_counts.items())
+        ),
         "planned_shard_count": int(planned_shard_count),
         "reviewed_shard_count": int(counts.get("meaningfully_reviewed_shard_count") or 0),
         "validated_output_packet_count": int(validated_output_count),

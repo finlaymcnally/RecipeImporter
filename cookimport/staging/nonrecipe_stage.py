@@ -370,7 +370,7 @@ def refine_nonrecipe_stage_result(
     full_blocks: Sequence[Mapping[str, Any]],
     block_category_updates: Mapping[int, str],
     reviewer_categories_by_block: Mapping[int, str] | None = None,
-    applied_chunk_ids_by_block: Mapping[int, Sequence[str]] | None = None,
+    applied_packet_ids_by_block: Mapping[int, Sequence[str]] | None = None,
     conflicts: Sequence[Mapping[str, Any]] | None = None,
     ignored_block_indices: Sequence[int] | None = None,
 ) -> NonRecipeStageResult:
@@ -406,8 +406,8 @@ def refine_nonrecipe_stage_result(
                 "seed_category": seed_category,
                 "final_category": normalized_category,
                 "reviewer_category": reviewer_category,
-                "applied_chunk_ids": list(applied_chunk_ids_by_block.get(block_index) or [])
-                if applied_chunk_ids_by_block is not None
+                "applied_packet_ids": list(applied_packet_ids_by_block.get(block_index) or [])
+                if applied_packet_ids_by_block is not None
                 else [],
             }
         )

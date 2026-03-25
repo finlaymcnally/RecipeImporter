@@ -124,20 +124,6 @@ class KnowledgeBlockDecisionV1(BaseModel):
         return self
 
 
-class KnowledgeChunkResultV2(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="forbid")
-
-    chunk_id: str = Field(alias="cid")
-    is_useful: bool = Field(alias="u")
-    block_decisions: list[KnowledgeBlockDecisionV1] = Field(default_factory=list, alias="d")
-    snippets: list[KnowledgeSnippetV1] = Field(default_factory=list, alias="s")
-
-    @field_validator("chunk_id", mode="before")
-    @classmethod
-    def _normalize_chunk_id(cls, value: object) -> object:
-        return str(value).strip()
-
-
 class KnowledgeIdeaGroupV1(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 

@@ -10,6 +10,7 @@ from cookimport.core.reporting import build_authoritative_stage_report
 from cookimport.core.slug import slugify_name
 from cookimport.core.source_model import write_source_model_artifacts
 from cookimport.core.timing import TimingStats, measure
+from cookimport.parsing.chunks import chunks_from_non_recipe_blocks
 from cookimport.parsing.label_source_of_truth import LabelFirstStageResult
 from cookimport.staging.import_session_contracts import StageImportSessionResult
 from cookimport.staging.import_session_flows.authority import (
@@ -185,7 +186,7 @@ def execute_stage_import_session_from_result(
             detail_lines=chunk_detail_lines,
         )
         if nonrecipe_block_rows:
-            result.chunks = runtime.chunks_from_non_recipe_blocks(
+            result.chunks = chunks_from_non_recipe_blocks(
                 nonrecipe_block_rows,
                 overrides=parsing_overrides,
             )

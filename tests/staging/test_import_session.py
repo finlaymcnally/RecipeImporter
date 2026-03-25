@@ -18,6 +18,7 @@ from cookimport.parsing.label_source_of_truth import (
     RecipeSpanDecision,
 )
 from cookimport.staging import import_session
+from cookimport.staging.import_session_flows import output_stage as output_stage_flow
 
 
 def _recipe(name: str, start_block: int, end_block: int) -> RecipeCandidate:
@@ -173,7 +174,11 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
         ),
     )
     monkeypatch.setattr(import_session, "extract_and_annotate_tables", lambda *args, **kwargs: [])
-    monkeypatch.setattr(import_session, "chunks_from_non_recipe_blocks", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        output_stage_flow,
+        "chunks_from_non_recipe_blocks",
+        lambda *args, **kwargs: [],
+    )
 
     session = import_session.execute_stage_import_session_from_result(
         result=original_result,
@@ -314,7 +319,7 @@ def test_execute_stage_import_session_uses_only_final_nonrecipe_authority_for_ta
         return []
 
     monkeypatch.setattr(import_session, "extract_and_annotate_tables", _capture_tables)
-    monkeypatch.setattr(import_session, "chunks_from_non_recipe_blocks", _capture_chunks)
+    monkeypatch.setattr(output_stage_flow, "chunks_from_non_recipe_blocks", _capture_chunks)
 
     session = import_session.execute_stage_import_session_from_result(
         result=original_result,
@@ -395,7 +400,11 @@ def test_execute_stage_import_session_writes_source_model_artifacts(
         ),
     )
     monkeypatch.setattr(import_session, "extract_and_annotate_tables", lambda *args, **kwargs: [])
-    monkeypatch.setattr(import_session, "chunks_from_non_recipe_blocks", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        output_stage_flow,
+        "chunks_from_non_recipe_blocks",
+        lambda *args, **kwargs: [],
+    )
 
     session = import_session.execute_stage_import_session_from_result(
         result=original_result,

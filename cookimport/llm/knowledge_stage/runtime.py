@@ -167,14 +167,14 @@ def run_codex_farm_nonrecipe_knowledge_review(
             run_root=run_root,
             knowledge_in_dir=knowledge_in_dir,
             knowledge_stage_dir=knowledge_stage_dir,
-            stage_status="all_chunks_skipped",
+            stage_status="all_packets_skipped",
             seed_nonrecipe_span_count=seed_nonrecipe_span_count,
             review_eligible_nonrecipe_span_count=review_eligible_nonrecipe_span_count,
-            chunk_count_before_pruning=build_report.chunk_count_before_pruning,
+            packet_count_before_partition=build_report.packet_count_before_partition,
             review_eligible_block_count=review_eligible_block_count,
             review_excluded_block_count=review_excluded_block_count,
-            skipped_chunk_count=build_report.skipped_chunk_count,
-            skipped_lane_counts=dict(build_report.skipped_lane_counts),
+            skipped_packet_count=build_report.skipped_packet_count,
+            skipped_packet_reason_counts=dict(build_report.skipped_packet_reason_counts),
         )
         _write_json(llm_report, manifest_path)
         return CodexFarmNonrecipeKnowledgeReviewResult(
@@ -293,7 +293,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
         (
             block_category_updates,
             reviewer_categories_by_block,
-            applied_chunk_ids_by_block,
+            applied_packet_ids_by_block,
             conflicts,
             ignored_block_indices,
         ) = _collect_block_category_updates(
@@ -308,7 +308,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             full_blocks=full_blocks_payload,
             block_category_updates=block_category_updates,
             reviewer_categories_by_block=reviewer_categories_by_block,
-            applied_chunk_ids_by_block=applied_chunk_ids_by_block,
+            applied_packet_ids_by_block=applied_packet_ids_by_block,
             conflicts=conflicts,
             ignored_block_indices=ignored_block_indices,
         )
@@ -379,12 +379,12 @@ def run_codex_farm_nonrecipe_knowledge_review(
             "counts": {
                 "seed_nonrecipe_span_count": seed_nonrecipe_span_count,
                 "review_eligible_nonrecipe_span_count": review_eligible_nonrecipe_span_count,
-                "chunks_built_before_pruning": build_report.chunk_count_before_pruning,
+                "packet_count_before_partition": build_report.packet_count_before_partition,
                 "shards_written": build_report.shards_written,
-                "chunks_written": build_report.chunks_written,
+                "packets_written": build_report.packets_written,
                 "review_eligible_block_count": review_eligible_block_count,
                 "review_excluded_block_count": review_excluded_block_count,
-                "skipped_chunk_count": build_report.skipped_chunk_count,
+                "skipped_packet_count": build_report.skipped_packet_count,
                 "outputs_parsed": len(outputs),
                 "packets_missing": len(missing_packet_ids),
                 "useful_packets_promoted": useful_chunk_count,
@@ -433,7 +433,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
                 **_runtime_artifact_paths(knowledge_stage_dir),
             },
             "missing_packet_ids": missing_packet_ids,
-            "skipped_lane_counts": dict(build_report.skipped_lane_counts),
+            "skipped_packet_reason_counts": dict(build_report.skipped_packet_reason_counts),
             "planning_warnings": list(build_report.planning_warnings),
             "review_summary": review_summary,
             "refinement_report": refined_report,

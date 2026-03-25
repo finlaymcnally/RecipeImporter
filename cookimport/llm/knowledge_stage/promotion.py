@@ -23,18 +23,18 @@ def _build_noop_knowledge_llm_report(
     stage_status: str,
     seed_nonrecipe_span_count: int = 0,
     review_eligible_nonrecipe_span_count: int = 0,
-    chunk_count_before_pruning: int = 0,
+    packet_count_before_partition: int = 0,
     review_eligible_block_count: int = 0,
     review_excluded_block_count: int = 0,
-    skipped_chunk_count: int = 0,
-    skipped_lane_counts: Mapping[str, int] | None = None,
+    skipped_packet_count: int = 0,
+    skipped_packet_reason_counts: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
     authority_mode = (
         "knowledge_not_run_no_nonrecipe_spans"
         if stage_status == "no_nonrecipe_spans"
         else "knowledge_not_run_no_review_eligible_nonrecipe_spans"
         if stage_status == "no_review_eligible_nonrecipe_spans"
-        else "knowledge_not_run_all_chunks_skipped"
+        else "knowledge_not_run_all_packets_skipped"
     )
     return {
         "enabled": True,
@@ -47,12 +47,12 @@ def _build_noop_knowledge_llm_report(
         "counts": {
             "seed_nonrecipe_span_count": int(seed_nonrecipe_span_count),
             "review_eligible_nonrecipe_span_count": int(review_eligible_nonrecipe_span_count),
-            "chunks_built_before_pruning": int(chunk_count_before_pruning),
+            "packet_count_before_partition": int(packet_count_before_partition),
             "shards_written": 0,
-            "chunks_written": 0,
+            "packets_written": 0,
             "review_eligible_block_count": int(review_eligible_block_count),
             "review_excluded_block_count": int(review_excluded_block_count),
-            "skipped_chunk_count": int(skipped_chunk_count),
+            "skipped_packet_count": int(skipped_packet_count),
             "outputs_parsed": 0,
             "packets_missing": 0,
             "useful_packets_promoted": 0,
@@ -88,18 +88,19 @@ def _build_noop_knowledge_llm_report(
             **_runtime_artifact_paths(knowledge_stage_dir),
         },
         "missing_packet_ids": [],
-        "skipped_lane_counts": dict(skipped_lane_counts or {}),
+        "skipped_packet_reason_counts": dict(skipped_packet_reason_counts or {}),
         "review_summary": {
             "seed_nonrecipe_span_count": int(seed_nonrecipe_span_count),
             "review_eligible_nonrecipe_span_count": int(review_eligible_nonrecipe_span_count),
-            "chunk_count_before_pruning": int(chunk_count_before_pruning),
+            "packet_count_before_partition": int(packet_count_before_partition),
             "planned_packet_count": 0,
             "reviewed_packet_count": 0,
             "review_eligible_block_count": int(review_eligible_block_count),
             "review_excluded_block_count": int(review_excluded_block_count),
-            "skipped_chunk_count": int(skipped_chunk_count),
-            "skipped_noise_chunk_count": int((skipped_lane_counts or {}).get("noise") or 0),
-            "skipped_low_signal_chunk_count": int((skipped_lane_counts or {}).get("low_signal") or 0),
+            "skipped_packet_count": int(skipped_packet_count),
+            "skipped_packet_reason_counts": dict(
+                sorted((skipped_packet_reason_counts or {}).items())
+            ),
             "planned_shard_count": 0,
             "reviewed_shard_count": 0,
             "validated_output_packet_count": 0,
@@ -158,14 +159,14 @@ def _build_runtime_failed_knowledge_llm_report(
             "review_eligible_nonrecipe_span_count": int(
                 review_eligible_nonrecipe_span_count
             ),
-            "chunks_built_before_pruning": int(build_report.chunk_count_before_pruning),
+            "packet_count_before_partition": int(build_report.packet_count_before_partition),
             "shards_written": int(build_report.shards_written),
-            "chunks_written": int(build_report.chunks_written),
+            "packets_written": int(build_report.packets_written),
             "review_eligible_block_count": int(
                 getattr(build_report, "review_eligible_block_count", 0) or 0
             ),
             "review_excluded_block_count": int(review_excluded_block_count),
-            "skipped_chunk_count": int(build_report.skipped_chunk_count),
+            "skipped_packet_count": int(build_report.skipped_packet_count),
             "outputs_parsed": 0,
             "packets_missing": int(build_report.packets_written),
             "useful_packets_promoted": 0,
@@ -201,7 +202,7 @@ def _build_runtime_failed_knowledge_llm_report(
             **_runtime_artifact_paths(knowledge_stage_dir),
         },
         "missing_packet_ids": list(build_report.packet_ids),
-        "skipped_lane_counts": dict(build_report.skipped_lane_counts),
+        "skipped_packet_reason_counts": dict(build_report.skipped_packet_reason_counts),
         "planning_warnings": list(build_report.planning_warnings),
         "review_summary": _build_review_summary(
             build_report=build_report,
@@ -348,7 +349,7 @@ def _collect_block_category_updates(
     }
     decisions_by_block: dict[int, list[tuple[str, str, str | None]]] = {}
     ignored_block_indices: list[int] = []
-    for chunk_id, output in outputs.items():
+    for packet_id, output in outputs.items():
         for decision in output.block_decisions:
             block_index = int(decision.block_index)
             if block_index not in normalized_allowed:
@@ -356,7 +357,7 @@ def _collect_block_category_updates(
                 continue
             decisions_by_block.setdefault(block_index, []).append(
                 (
-                    str(chunk_id),
+                    str(packet_id),
                     str(decision.category),
                     str(decision.reviewer_category or "").strip() or None,
                 )
@@ -364,25 +365,25 @@ def _collect_block_category_updates(
 
     block_category_updates: dict[int, str] = {}
     reviewer_categories_by_block: dict[int, str] = {}
-    applied_chunk_ids_by_block: dict[int, list[str]] = {}
+    applied_packet_ids_by_block: dict[int, list[str]] = {}
     conflicts: list[dict[str, Any]] = []
     for block_index, decision_rows in sorted(decisions_by_block.items()):
         categories = {category for _, category, _ in decision_rows}
         if len(categories) > 1:
             conflicts.append(
                 {
-                    "block_index": int(block_index),
-                    "seed_category": normalized_allowed.get(block_index),
-                    "decisions": [
-                        {
-                            "chunk_id": chunk_id,
-                            "category": category,
-                            "reviewer_category": reviewer_category,
+                            "block_index": int(block_index),
+                            "seed_category": normalized_allowed.get(block_index),
+                            "decisions": [
+                                {
+                                    "packet_id": packet_id,
+                                    "category": category,
+                                    "reviewer_category": reviewer_category,
+                                }
+                        for packet_id, category, reviewer_category in decision_rows
+                            ],
+                            "resolution": "kept_seed_category",
                         }
-                        for chunk_id, category, reviewer_category in decision_rows
-                    ],
-                    "resolution": "kept_seed_category",
-                }
             )
             continue
         block_category_updates[block_index] = next(iter(categories))
@@ -393,13 +394,13 @@ def _collect_block_category_updates(
         ]
         if reviewer_categories:
             reviewer_categories_by_block[block_index] = reviewer_categories[0]
-        applied_chunk_ids_by_block[block_index] = [
-            chunk_id for chunk_id, _, _ in decision_rows
+        applied_packet_ids_by_block[block_index] = [
+            packet_id for packet_id, _, _ in decision_rows
         ]
     return (
         block_category_updates,
         reviewer_categories_by_block,
-        applied_chunk_ids_by_block,
+        applied_packet_ids_by_block,
         conflicts,
         ignored_block_indices,
     )

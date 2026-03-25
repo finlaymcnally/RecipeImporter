@@ -1275,7 +1275,7 @@ def build_knowledge_workspace_contract_markdown(
             "",
             "Snippet rules:",
             "- Good snippet: a short grounded claim such as `Use low heat to prevent curdling.` supported by one or two short evidence quotes.",
-            "- Bad snippet: a whole-block dump, a full-chunk echo, or a long stitched quote list copied from the evidence surface.",
+            "- Bad snippet: a whole-block dump, a full-packet echo, or a long stitched quote list copied from the evidence surface.",
             "",
             "Workflow:",
             "- Start from `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md`.",
@@ -1597,7 +1597,7 @@ def _render_validation_error_help(
         )
     if "snippet_evidence_wrong_chunk_surface" in error_set:
         help_lines.append(
-            "Each snippet may cite only block indices from its own chunk result."
+            "Each snippet may cite only block indices from its own owned packet surface."
         )
     if "snippet_evidence_out_of_surface" in error_set:
         help_lines.append(

@@ -1244,7 +1244,7 @@ def write_nonrecipe_review_status_artifact(
             "shards_written": int(counts.get("shards_written") or 0),
             "outputs_parsed": int(counts.get("outputs_parsed") or 0),
             "packets_missing": int(counts.get("packets_missing") or 0),
-            "skipped_chunk_count": int(counts.get("skipped_chunk_count") or 0),
+            "skipped_packet_count": int(counts.get("skipped_packet_count") or 0),
             "snippets_written": int(counts.get("snippets_written") or 0),
             "decisions_applied": int(counts.get("decisions_applied") or 0),
             "changed_blocks": int(counts.get("changed_blocks") or 0),

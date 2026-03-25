@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -41,30 +41,8 @@ class KnowledgeJobBuildReport:
     packet_ids: list[str]
     planning_warnings: list[str]
     shard_entries: list[ShardManifestEntryV1]
-
-    @property
-    def chunk_count_before_pruning(self) -> int:
-        return self.packet_count_before_partition
-
-    @property
-    def chunks_written(self) -> int:
-        return self.packets_written
-
-    @property
-    def chunk_ids(self) -> list[str]:
-        return list(self.packet_ids)
-
-    @property
-    def chunk_lane_by_id(self) -> dict[str, str | None]:
-        return {}
-
-    @property
-    def skipped_chunk_count(self) -> int:
-        return 0
-
-    @property
-    def skipped_lane_counts(self) -> dict[str, int]:
-        return {}
+    skipped_packet_count: int = 0
+    skipped_packet_reason_counts: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
