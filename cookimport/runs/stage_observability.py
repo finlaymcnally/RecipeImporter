@@ -812,7 +812,7 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
     )
     repair_attempted, repair_completed, repair_running = _repair_rollup(stage_root)
     proposal_count = len(list(stage_root.glob("proposals/*.json")))
-    planned_task_total = _count_jsonl_rows(stage_root / "task_manifest.jsonl")
+    planned_task_total = _count_jsonl_rows(stage_root / "shard_manifest.jsonl")
     completed_task_total = len(list(stage_root.glob("workers/*/out/*.json")))
     planned_shard_total = max(
         0,
@@ -846,7 +846,7 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
     suspicious_packet_count = sum(
         1
         for row in task_rows
-        if bool(((row.get("metadata") or {}) if isinstance(row, dict) else {}).get("suspicious_packet"))
+        if bool(((row.get("metadata") or {}) if isinstance(row, dict) else {}).get("suspicious_shard"))
     )
     suspicious_row_count = sum(
         int(((row.get("metadata") or {}) if isinstance(row, dict) else {}).get("suspicious_row_count") or 0)
@@ -1157,11 +1157,11 @@ def build_stage_observability_report(
                         "canonical_line_table_jsonl": _relative_to(
                             run_root, line_role_stage_dir / "canonical_line_table.jsonl"
                         ),
-                        "task_manifest_jsonl": _relative_to(
-                            run_root, line_role_stage_dir / "task_manifest.jsonl"
+                        "shard_manifest_jsonl": _relative_to(
+                            run_root, line_role_stage_dir / "shard_manifest.jsonl"
                         ),
-                        "task_status_jsonl": _relative_to(
-                            run_root, line_role_stage_dir / "task_status.jsonl"
+                        "shard_status_jsonl": _relative_to(
+                            run_root, line_role_stage_dir / "shard_status.jsonl"
                         ),
                         "telemetry_json": _relative_to(
                             run_root, line_role_stage_dir / "telemetry.json"

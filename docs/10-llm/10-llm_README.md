@@ -368,7 +368,7 @@ Prompt cost notes worth keeping in mind:
   - compact line-role rows into batch-level legends and one ordered contiguous slice with no inline neighbor duplication
   - remove recipe-range authority from line-role prompts so Codex reviews the deterministic labels without inherited recipe membership
   - switch active shard-v1 packs to file-path prompt transport so prompt wrapper text only carries instructions plus `INPUT_PATH`, while the task payload already lives in the worker folder on disk
-  - default active shard-v1 phases to `*_prompt_target_count=5`, with older shard-size knobs retained only as explicit lower-level overrides
+  - default active shard-v1 phases to `*_prompt_target_count=5`; worker count remains the separate execution override, and the planner no longer carries extra hidden shard-size knobs underneath that surface
 
 Where prompt cuts should live:
 

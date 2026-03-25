@@ -8,11 +8,10 @@ from pathlib import Path
 from cookimport.parsing.line_role_workspace_tools import (
     LINE_ROLE_OUTPUT_CONTRACT_MARKDOWN,
     LINE_ROLE_WORKER_TOOL_FILENAME,
-    build_line_role_scratch_draft_path,
     build_line_role_seed_output,
     build_line_role_seed_output_for_workspace,
-    build_line_role_workspace_task_metadata,
-    render_line_role_current_task_brief,
+    build_line_role_workspace_shard_metadata,
+    render_line_role_current_phase_brief,
     render_line_role_worker_script,
     validate_line_role_output_payload,
 )
@@ -20,61 +19,53 @@ from cookimport.parsing.line_role_workspace_tools import (
 
 def _write_workspace_fixture(tmp_path: Path) -> tuple[Path, dict[str, object]]:
     workspace_root = tmp_path / "worker-root"
-    (workspace_root / "in").mkdir(parents=True, exist_ok=True)
-    (workspace_root / "hints").mkdir(parents=True, exist_ok=True)
-    (workspace_root / "out").mkdir(parents=True, exist_ok=True)
-    (workspace_root / "scratch").mkdir(parents=True, exist_ok=True)
-    (workspace_root / "tools").mkdir(parents=True, exist_ok=True)
+    for dirname in ("in", "hints", "out", "work", "repair", "tools"):
+        (workspace_root / dirname).mkdir(parents=True, exist_ok=True)
 
-    task_id = "line-role-canonical-0001-a000000-a000001.task-001"
+    shard_id = "line-role-canonical-0001-a000000-a000001"
     input_payload = {
         "v": 1,
-        "shard_id": task_id,
-        "parent_shard_id": "line-role-canonical-0001-a000000-a000001",
-        "context_before_rows": [],
+        "shard_id": shard_id,
         "rows": [
             [0, "L1", "1 cup flour"],
             [1, "L2", "Mix well."],
         ],
-        "context_after_rows": [],
     }
-    metadata = build_line_role_workspace_task_metadata(
-        task_id=task_id,
-        parent_shard_id="line-role-canonical-0001-a000000-a000001",
+    metadata = build_line_role_workspace_shard_metadata(
+        shard_id=shard_id,
         input_payload=input_payload,
-        input_path=f"in/{task_id}.json",
-        hint_path=f"hints/{task_id}.md",
-        result_path=f"out/{task_id}.json",
+        input_path=f"in/{shard_id}.json",
+        hint_path=f"hints/{shard_id}.md",
+        work_path=f"work/{shard_id}.json",
+        result_path=f"out/{shard_id}.json",
+        repair_path=f"repair/{shard_id}.json",
     )
-    task_row = {
-        "task_id": task_id,
-        "task_kind": "line_role_label_packet",
-        "parent_shard_id": "line-role-canonical-0001-a000000-a000001",
+    shard_row = {
+        "shard_id": shard_id,
         "owned_ids": ["0", "1"],
         "metadata": metadata,
     }
-    (workspace_root / "assigned_tasks.json").write_text(
-        json.dumps([task_row], indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
     (workspace_root / "assigned_shards.json").write_text(
-        json.dumps(
-            [{"shard_id": "line-role-canonical-0001-a000000-a000001"}],
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
+        json.dumps([shard_row], indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    (workspace_root / "current_task.json").write_text(
-        json.dumps(task_row, indent=2, sort_keys=True) + "\n",
+    (workspace_root / "current_phase.json").write_text(
+        json.dumps(shard_row, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    (workspace_root / "in" / f"{task_id}.json").write_text(
+    (workspace_root / "CURRENT_PHASE.md").write_text(
+        render_line_role_current_phase_brief(shard_row),
+        encoding="utf-8",
+    )
+    (workspace_root / "CURRENT_PHASE_FEEDBACK.md").write_text(
+        "# Current Phase Feedback\n\nEdit the current work ledger.\n",
+        encoding="utf-8",
+    )
+    (workspace_root / "in" / f"{shard_id}.json").write_text(
         json.dumps(input_payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    (workspace_root / "hints" / f"{task_id}.md").write_text(
+    (workspace_root / "hints" / f"{shard_id}.md").write_text(
         "# line-role hints\n",
         encoding="utf-8",
     )
@@ -86,20 +77,20 @@ def _write_workspace_fixture(tmp_path: Path) -> tuple[Path, dict[str, object]]:
         render_line_role_worker_script(),
         encoding="utf-8",
     )
-    (workspace_root / build_line_role_scratch_draft_path(task_id)).write_text(
+    (workspace_root / "work" / f"{shard_id}.json").write_text(
         json.dumps(
-            build_line_role_seed_output_for_workspace(workspace_root, task_row),
+            build_line_role_seed_output_for_workspace(workspace_root, shard_row),
             indent=2,
             sort_keys=True,
         )
         + "\n",
         encoding="utf-8",
     )
-    return workspace_root, task_row
+    return workspace_root, shard_row
 
 
 def test_line_role_workspace_seed_output_and_validation() -> None:
-    task_row = {
+    shard_row = {
         "input_payload": {
             "rows": [
                 [10, "L1", "Salt"],
@@ -108,7 +99,7 @@ def test_line_role_workspace_seed_output_and_validation() -> None:
         }
     }
 
-    payload = build_line_role_seed_output(task_row)
+    payload = build_line_role_seed_output(shard_row)
 
     assert payload == {
         "rows": [
@@ -116,33 +107,33 @@ def test_line_role_workspace_seed_output_and_validation() -> None:
             {"atomic_index": 11, "label": "INSTRUCTION_LINE"},
         ]
     }
-    errors, metadata = validate_line_role_output_payload(task_row, payload)
+    errors, metadata = validate_line_role_output_payload(shard_row, payload)
     assert errors == ()
     assert metadata["owned_row_count"] == 2
     assert metadata["returned_row_count"] == 2
 
 
-def test_line_role_workspace_task_metadata_defaults_scratch_draft_path() -> None:
-    metadata = build_line_role_workspace_task_metadata(
-        task_id="line-role-canonical-0001-a000000-a000001.task-001",
-        parent_shard_id="line-role-canonical-0001-a000000-a000001",
+def test_line_role_workspace_shard_metadata_sets_owned_paths() -> None:
+    metadata = build_line_role_workspace_shard_metadata(
+        shard_id="line-role-canonical-0001-a000000-a000001",
         input_payload={"rows": [[0, "L1", "Salt"]]},
-        input_path="in/line-role-canonical-0001-a000000-a000001.task-001.json",
-        hint_path="hints/line-role-canonical-0001-a000000-a000001.task-001.md",
-        result_path="out/line-role-canonical-0001-a000000-a000001.task-001.json",
+        input_path="in/line-role-canonical-0001-a000000-a000001.json",
+        hint_path="hints/line-role-canonical-0001-a000000-a000001.md",
+        work_path="work/line-role-canonical-0001-a000000-a000001.json",
+        result_path="out/line-role-canonical-0001-a000000-a000001.json",
+        repair_path="repair/line-role-canonical-0001-a000000-a000001.json",
     )
 
-    assert metadata["scratch_draft_path"] == (
-        "scratch/line-role-canonical-0001-a000000-a000001.task-001.json"
-    )
+    assert metadata["work_path"] == "work/line-role-canonical-0001-a000000-a000001.json"
+    assert metadata["repair_path"] == "repair/line-role-canonical-0001-a000000-a000001.json"
 
 
 def test_line_role_workspace_seed_output_can_load_rows_from_metadata_input_path(
     tmp_path: Path,
 ) -> None:
-    workspace_root, task_row = _write_workspace_fixture(tmp_path)
+    workspace_root, shard_row = _write_workspace_fixture(tmp_path)
 
-    payload = build_line_role_seed_output_for_workspace(workspace_root, task_row)
+    payload = build_line_role_seed_output_for_workspace(workspace_root, shard_row)
 
     assert payload == {
         "rows": [
@@ -152,29 +143,28 @@ def test_line_role_workspace_seed_output_can_load_rows_from_metadata_input_path(
     }
 
 
-def test_line_role_current_task_brief_stays_metadata_only(tmp_path: Path) -> None:
-    workspace_root, task_row = _write_workspace_fixture(tmp_path)
+def test_line_role_current_phase_brief_stays_metadata_only(tmp_path: Path) -> None:
+    workspace_root, shard_row = _write_workspace_fixture(tmp_path)
 
-    current_task_payload = json.loads(
-        (workspace_root / "current_task.json").read_text(encoding="utf-8")
+    current_phase_payload = json.loads(
+        (workspace_root / "current_phase.json").read_text(encoding="utf-8")
     )
-    assert "input_payload" not in current_task_payload
+    assert "input_payload" not in current_phase_payload
 
-    brief_text = render_line_role_current_task_brief(task_row)
+    brief_text = render_line_role_current_phase_brief(shard_row)
 
-    assert "Current Line-Role Task" in brief_text
-    assert "Draft:" in brief_text
-    assert "assigned_tasks.json` is queue/progress context only." in brief_text
+    assert "Current Line-Role Phase" in brief_text
+    assert "Work ledger:" in brief_text
+    assert "assigned_shards.json` is queue/ownership context only." in brief_text
     assert "1 cup flour" not in brief_text
 
 
-def test_line_role_workspace_helper_cli_prepare_all_check_and_finalize_all(
+def test_line_role_workspace_helper_cli_check_phase_and_install_phase(
     tmp_path: Path,
 ) -> None:
-    workspace_root, task_row = _write_workspace_fixture(tmp_path)
+    workspace_root, shard_row = _write_workspace_fixture(tmp_path)
     script_path = workspace_root / "tools" / LINE_ROLE_WORKER_TOOL_FILENAME
-    task_id = str(task_row["task_id"])
-    draft_path = workspace_root / "scratch" / f"{task_id}.json"
+    shard_id = str(shard_row["shard_id"])
 
     overview = subprocess.run(
         [sys.executable, str(script_path), "overview"],
@@ -184,7 +174,7 @@ def test_line_role_workspace_helper_cli_prepare_all_check_and_finalize_all(
         text=True,
     )
     assert overview.returncode == 0
-    assert task_id in overview.stdout
+    assert shard_id in overview.stdout
     assert "current" in overview.stdout
 
     show = subprocess.run(
@@ -195,60 +185,47 @@ def test_line_role_workspace_helper_cli_prepare_all_check_and_finalize_all(
         text=True,
     )
     assert show.returncode == 0
-    assert f"task_id: {task_id}" in show.stdout
-    assert f"result_path: out/{task_id}.json" in show.stdout
-    assert f"scratch_draft_path: scratch/{task_id}.json" in show.stdout
-
-    prepare = subprocess.run(
-        [
-            sys.executable,
-            str(script_path),
-            "prepare-all",
-            "--dest-dir",
-            "scratch",
-        ],
-        cwd=workspace_root,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert prepare.returncode == 0
-    assert draft_path.exists()
-    assert "prepared 1 draft under scratch" in prepare.stdout
+    assert f"shard_id: {shard_id}" in show.stdout
+    assert f"result_path: out/{shard_id}.json" in show.stdout
+    assert f"work_path: work/{shard_id}.json" in show.stdout
 
     check = subprocess.run(
-        [sys.executable, str(script_path), "check", f"scratch/{task_id}.json"],
+        [sys.executable, str(script_path), "check-phase"],
         cwd=workspace_root,
         check=False,
         capture_output=True,
         text=True,
     )
     assert check.returncode == 0
-    assert f"OK {task_id}" in check.stdout
+    assert f"OK {shard_id}" in check.stdout
 
-    finalize = subprocess.run(
-        [sys.executable, str(script_path), "finalize-all", "scratch"],
+    install = subprocess.run(
+        [sys.executable, str(script_path), "install-phase"],
         cwd=workspace_root,
         check=False,
         capture_output=True,
         text=True,
     )
-    assert finalize.returncode == 0
-    assert "installed 1 task output from scratch" in finalize.stdout
+    assert install.returncode == 0
+    assert f"out/{shard_id}.json" in install.stdout
     installed_payload = json.loads(
-        (workspace_root / "out" / f"{task_id}.json").read_text(encoding="utf-8")
+        (workspace_root / "out" / f"{shard_id}.json").read_text(encoding="utf-8")
     )
     assert installed_payload["rows"][0]["label"] == "INGREDIENT_LINE"
     assert installed_payload["rows"][1]["label"] == "INSTRUCTION_LINE"
+    current_phase_payload = json.loads(
+        (workspace_root / "current_phase.json").read_text(encoding="utf-8")
+    )
+    assert current_phase_payload["status"] == "completed"
 
 
-def test_line_role_workspace_helper_cli_check_rejects_wrong_order(
+def test_line_role_workspace_helper_cli_check_phase_rejects_wrong_order(
     tmp_path: Path,
 ) -> None:
-    workspace_root, task_row = _write_workspace_fixture(tmp_path)
+    workspace_root, shard_row = _write_workspace_fixture(tmp_path)
     script_path = workspace_root / "tools" / LINE_ROLE_WORKER_TOOL_FILENAME
-    task_id = str(task_row["task_id"])
-    bad_payload_path = workspace_root / "scratch" / f"{task_id}.json"
+    shard_id = str(shard_row["shard_id"])
+    bad_payload_path = workspace_root / "work" / f"{shard_id}.json"
     bad_payload_path.write_text(
         json.dumps(
             {
@@ -265,7 +242,7 @@ def test_line_role_workspace_helper_cli_check_rejects_wrong_order(
     )
 
     check = subprocess.run(
-        [sys.executable, str(script_path), "check", f"scratch/{task_id}.json"],
+        [sys.executable, str(script_path), "check-phase"],
         cwd=workspace_root,
         check=False,
         capture_output=True,
@@ -274,3 +251,7 @@ def test_line_role_workspace_helper_cli_check_rejects_wrong_order(
 
     assert check.returncode == 1
     assert "row_order_mismatch" in check.stdout
+    repair_payload = json.loads(
+        (workspace_root / "repair" / f"{shard_id}.json").read_text(encoding="utf-8")
+    )
+    assert repair_payload["repair_mode"] == "line_role"

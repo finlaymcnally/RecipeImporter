@@ -439,16 +439,16 @@ def render_line_role_worker_script() -> str:
     allowed_labels_json = json.dumps(list(LINE_ROLE_ALLOWED_LABELS), sort_keys=True)
     label_by_code_json = json.dumps(LINE_ROLE_LABEL_BY_CODE, sort_keys=True)
     valid_reasons_json = json.dumps(sorted(_VALID_REVIEW_EXCLUSION_REASONS))
-    return """#!/usr/bin/env python3
+    script = """#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
 
-ALLOWED_LABELS = {allowed_labels_json}
-LABEL_BY_CODE = {label_by_code_json}
-VALID_REVIEW_EXCLUSION_REASONS = {valid_reasons_json}
+ALLOWED_LABELS = __ALLOWED_LABELS_JSON__
+LABEL_BY_CODE = __LABEL_BY_CODE_JSON__
+VALID_REVIEW_EXCLUSION_REASONS = __VALID_REASONS_JSON__
 
 
 def load_json(path: Path):
@@ -704,10 +704,10 @@ def write_current_phase_files(workspace_root: Path, shard_row, *, completed=Fals
                 "Read order:",
                 f"1. Work ledger: `{{metadata.get('work_path') or '<missing>'}}`",
                 f"2. Hint: `{{metadata.get('hint_path') or '<missing>'}}`",
-                f"3. Input ledger: `{{metadata.get('input_path') or '<missing>'}`",
+                f"3. Input ledger: `{{metadata.get('input_path') or '<missing>'}}`",
                 "4. Run `python3 tools/line_role_worker.py check-phase`.",
                 "5. If feedback names a repair file, fix only the unresolved rows.",
-                f"6. Install to: `{{metadata.get('result_path') or '<missing>'}`",
+                f"6. Install to: `{{metadata.get('result_path') or '<missing>'}}`",
                 "",
                 "`assigned_shards.json` is queue/ownership context only.",
                 "",
@@ -931,8 +931,11 @@ def main():
 
 if __name__ == "__main__":
     main()
-""".format(
-        allowed_labels_json=allowed_labels_json,
-        label_by_code_json=label_by_code_json,
-        valid_reasons_json=valid_reasons_json,
+"""
+    return (
+        script.replace("__ALLOWED_LABELS_JSON__", allowed_labels_json)
+        .replace("__LABEL_BY_CODE_JSON__", label_by_code_json)
+        .replace("__VALID_REASONS_JSON__", valid_reasons_json)
+        .replace("{{", "{")
+        .replace("}}", "}")
     )

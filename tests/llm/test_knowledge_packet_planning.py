@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 
@@ -11,6 +12,56 @@ from cookimport.llm.knowledge_stage.planning import (
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan
+
+
+def test_build_knowledge_jobs_exposes_only_live_planner_controls(tmp_path: Path) -> None:
+    assert list(inspect.signature(build_knowledge_jobs).parameters) == [
+        "full_blocks",
+        "candidate_spans",
+        "recipe_spans",
+        "workbook_slug",
+        "out_dir",
+        "context_blocks",
+        "prompt_target_count",
+    ]
+
+    out_dir = tmp_path / "knowledge"
+    report = build_knowledge_jobs(
+        full_blocks=[
+            {"index": 0, "text": "Recipe title"},
+            {"index": 1, "text": "1 cup flour"},
+            {"index": 2, "text": "Heat matters."},
+        ],
+        candidate_spans=[
+            NonRecipeSpan(
+                span_id="nr.2.2",
+                category="other",
+                block_start_index=2,
+                block_end_index=2,
+                block_indices=[2],
+                block_ids=["b2"],
+            )
+        ],
+        recipe_spans=[
+            RecipeSpan(
+                span_id="recipe.0",
+                start_block_index=0,
+                end_block_index=1,
+                block_indices=[0, 1],
+                source_block_ids=["b0", "b1"],
+            )
+        ],
+        workbook_slug="fixturebook",
+        out_dir=out_dir,
+        context_blocks=1,
+        prompt_target_count=1,
+    )
+
+    assert report.packets_written == 1
+    assert report.shards_written == 1
+    payload = json.loads((out_dir / "fixturebook.kp0000.nr.json").read_text(encoding="utf-8"))
+    assert payload["bid"] == "fixturebook.kp0000.nr"
+    assert [block["i"] for block in payload["b"]] == [2]
 
 
 def test_build_knowledge_jobs_writes_packet_blocks_not_chunk_bundles(tmp_path: Path) -> None:

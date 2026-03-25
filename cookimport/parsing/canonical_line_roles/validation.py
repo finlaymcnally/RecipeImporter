@@ -328,7 +328,7 @@ def _build_line_role_task_status_row(
         "llm_authoritative_row_count": owned_row_count if llm_authoritative else 0,
         "fallback_row_count": fallback_row_count,
         "suspicious_row_count": owned_row_count if semantic_diagnostics else 0,
-        "suspicious_packet": bool(semantic_diagnostics),
+        "suspicious_shard": bool(semantic_diagnostics),
         "semantic_diagnostics": semantic_diagnostics,
         "resumed_from_existing_output": bool(resumed_from_existing_output),
         "validation_errors": [
@@ -338,10 +338,7 @@ def _build_line_role_task_status_row(
     if validation_metadata:
         metadata["validation_metadata"] = dict(validation_metadata)
     return {
-        "task_id": task_manifest.shard_id,
-        "parent_shard_id": str(
-            (task_manifest.metadata or {}).get("parent_shard_id") or task_manifest.shard_id
-        ),
+        "shard_id": task_manifest.shard_id,
         "worker_id": worker_id,
         "owned_ids": [str(value).strip() for value in task_manifest.owned_ids if str(value).strip()],
         "state": state,
@@ -458,7 +455,7 @@ def _normalize_line_role_shard_outcome(
                 "raw_supervision_retryable": raw_supervision_retryable,
             }
         if str(repair_status).strip() == "repaired":
-            detail = "line-role shard validated after a repair attempt corrected the final packet output."
+            detail = "line-role shard validated after a repair attempt corrected the final shard ledger."
             if raw_supervision_reason_code:
                 detail += f" Original workspace reason: {raw_supervision_reason_code}."
             return {
@@ -474,7 +471,7 @@ def _normalize_line_role_shard_outcome(
             }
         if str(watchdog_retry_status).strip() == "recovered":
             detail = (
-                "line-role shard validated after a watchdog retry recovered missing packet outputs."
+                "line-role shard validated after a watchdog retry recovered a missing shard ledger."
             )
             if raw_supervision_reason_code:
                 detail += f" Original workspace reason: {raw_supervision_reason_code}."
@@ -506,7 +503,7 @@ def _normalize_line_role_shard_outcome(
             }
         if str(raw_supervision_state or "").lower() == "watchdog_killed":
             detail = (
-                "line-role shard validated using durable packet outputs even though the main "
+                "line-role shard validated using a durable shard ledger even though the main "
                 "workspace worker was killed before it terminated cleanly."
             )
             if raw_supervision_reason_code:
