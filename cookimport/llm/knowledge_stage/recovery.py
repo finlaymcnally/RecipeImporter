@@ -949,80 +949,60 @@ def _relative_path(base: Path, path: Path) -> str:
 
 def _build_knowledge_workspace_worker_prompt(
     *,
-    tasks: Sequence[TaskManifestEntryV1],
+    shards: Sequence[ShardManifestEntryV1] | None = None,
+    tasks: Sequence[TaskManifestEntryV1] | None = None,
 ) -> str:
-    final_categories_text = "`, `".join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)
-    reviewer_categories_text = "`, `".join(ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES)
+    del tasks
+    shard_ids = [
+        str(shard.shard_id).strip()
+        for shard in (shards or [])
+        if str(getattr(shard, "shard_id", "") or "").strip()
+    ]
     lines = [
         "You are a non-recipe knowledge review worker in a bounded local workspace.",
         "Keep only durable cooking leverage. The positive class is not broad cooking-related factuality; it is information worth preserving because it improves future cooking decisions, diagnosis, or technique.",
         "",
-        "Process the repo-written ordered task queue in this workspace as small repo-owned consecutive batches. Each task owns exactly one deterministic packet plus nearby non-authoritative context. The current working directory is already the workspace root.",
-        "The assignment is complete only when the repo removes `current_batch.json` and the batch sidecars say no current batch is active / the queue is complete.",
+        "Process the repo-written ordered shard queue in this workspace through one active phase at a time. Each shard runs Pass 1 first, then Pass 2 in the same session. The current working directory is already the workspace root.",
+        "The assignment is complete only when `current_phase.json` says the queue is completed.",
         "Do not inspect the repository or explore beyond this workspace.",
         "",
         "Required local loop:",
-        "1. Open `worker_manifest.json`, then `CURRENT_BATCH.md`, then `CURRENT_BATCH_FEEDBACK.md`, then `OUTPUT_CONTRACT.md`. Open `current_batch.json` only when you need the machine-readable paths or task rows.",
-        "2. Treat `CURRENT_BATCH.md`, `CURRENT_BATCH_FEEDBACK.md`, and `current_batch.json` as the authoritative current-batch surface. `assigned_tasks.json` is background queue/progress context only and should not be dumped directly during the main loop. Single-task `CURRENT_TASK*` files and the `python3 tools/knowledge_worker.py debug ...` surface are fallback recovery tools for the first active task, not the normal batch path.",
-        "3. Use the paved road: run `python3 tools/knowledge_worker.py complete-batch`, edit the prewritten drafts under `scratch/current_batch/`, run `python3 tools/knowledge_worker.py check-batch`, and run `python3 tools/knowledge_worker.py install-batch` after the checker says OK or when you want the repo to install the longest valid prefix you already repaired.",
-        "4. Open the raw hint/input files named by the current batch only when the batch sidecars are insufficient: `tasks[*].input_path`, `tasks[*].hint_path`, and `tasks[*].result_path` in `current_batch.json`.",
-        "5. A task is not finished until its batch draft validates. Direct writes to `out/<task_id>.json` without a passing repo-written checker are incomplete work.",
-        "6. After each validation failure, re-open `CURRENT_BATCH_FEEDBACK.md`. After each successful install, re-open `CURRENT_BATCH.md` and `CURRENT_BATCH_FEEDBACK.md`. Open `current_batch.json` only when you need the next batch's machine-readable paths or task rows. If a new batch is active, continue with it immediately. Do not ask for permission to continue, summarize progress as a stopping point, or end the session while later tasks remain. Do not invent your own queue advancement; the repo owns batch advancement.",
-        "6a. Once the queue is complete and no new batch becomes active, send one short completion message and stop.",
-        "7. If the batch sidecars are still insufficient after that, use `python3 tools/knowledge_worker.py explain-failure` or the narrower `python3 tools/knowledge_worker.py debug ...` recovery surface instead of broad queue dumps or task-by-task helper detours. Safe fallback examples are `debug current`, `debug show`, `debug complete-current`, and `debug check-current`.",
-        "8. Workspace-local shell commands are allowed when they materially help, but keep them bounded to the worker root. Prefer the repo-written helper under `tools/` over ad hoc queue spelunking, helper-source spelunking, broad inline schedulers, or one-off validators. If you automate, automate only the active batch drafts named in `current_batch.json` and `scratch/current_batch/`.",
-        "9. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
-        "10. Write one completed semantic task result file per listed batch task only. Do not work ahead on later tasks outside the current batch while the repo-owned batch still has unaccepted drafts.",
-        "11. Do not invent extra tasks, skip owned packets or blocks, or write outside the listed `result_path` files.",
-        "12. Do not invent your own queue/output scheduler or rewrite repo-owned queue-control files. Reading `tools/knowledge_worker.py`, dumping `assigned_tasks.json`, or switching back to single-task helpers during an active batch are discouraged fallback moves, but the real hard boundary is queue/output bypass. The main-worker watchdog treats those bypasses as off-contract behavior and records the slower fallback moves as telemetry instead.",
+        "1. Open `worker_manifest.json`, then `CURRENT_PHASE.md`, then `CURRENT_PHASE_FEEDBACK.md`, then `OUTPUT_CONTRACT.md`.",
+        "2. Treat `CURRENT_PHASE.md`, `CURRENT_PHASE_FEEDBACK.md`, and `current_phase.json` as the authoritative active-phase surface. `assigned_shards.json` is ordered ownership/progress context only.",
+        "3. Use the paved road: edit only the active work ledger named in `CURRENT_PHASE.md`, run `python3 tools/knowledge_worker.py check-phase`, and run `python3 tools/knowledge_worker.py install-phase` after the checker says OK.",
+        "4. Pass 1 is block-local classification only: one row per owned block with `knowledge` or `other`.",
+        "5. Pass 2 runs only after Pass 1 installs. Pass 2 assigns `group_id` and `topic_label` only for the kept knowledge rows.",
+        "6. After each validation failure, re-open `CURRENT_PHASE_FEEDBACK.md`. After each successful install, re-open `CURRENT_PHASE.md` and `CURRENT_PHASE_FEEDBACK.md` immediately and continue with the newly active phase or shard. Do not ask for permission to continue, summarize progress as a stopping point, or invent your own queue advancement.",
+        "7. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "",
-        "Semantic task result contract for each assigned result path:",
+        "Installed result contract for each shard:",
         "- Write exactly one JSON object.",
-        "- Use semantic field names, not the compact canonical bundle envelope.",
         "- Top level keys: `packet_id`, `block_decisions`, `idea_groups`.",
-        "- `packet_id` must equal the current task row's `task_id`.",
-        "- Each task owns exactly one authoritative packet. Cover every owned block exactly once in `block_decisions`, in input order.",
+        "- `packet_id` must equal the current shard id.",
+        "- Cover every owned block exactly once in `block_decisions`, in input order.",
         "- `idea_groups` may be empty only when every block stays `other`.",
         "- Each block decision uses `block_index`, `category`, and optional `reviewer_category`.",
-        "- Each idea group uses `group_id`, `topic_label`, `block_indices`, and `snippets`.",
-        f"- `category` must be exactly one of `{final_categories_text}`.",
-        (
-            f"- `reviewer_category` may be omitted or must be one of "
-            f"`{reviewer_categories_text}`."
-        ),
+        "- Each idea group uses `group_id`, `topic_label`, and `block_indices`.",
+        f"- `category` must be exactly one of `{'`, `'.join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)}`.",
+        f"- `reviewer_category` may be omitted or must be one of `{'`, `'.join(ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES)}`.",
         "- If `category` is `knowledge`, `reviewer_category` must be `knowledge`.",
-        (
-            "- Never invent category labels such as `content`, `noise`, or `heading`; "
-            "those values are invalid."
-        ),
-        "- Each snippet uses `body` and `evidence`; each evidence row uses `block_index` and `quote`.",
         "- Every `knowledge` block must appear in exactly one idea group.",
         "- No `other` block may appear in an idea group.",
-        (
-            "- Keep each snippet body as a short grounded extraction, not a whole-block dump, "
-            "full-packet echo, or stitched quote list."
-        ),
-        (
-            "- Good snippet pattern: body `Use low heat to prevent curdling.` with one or "
-            "two evidence quotes pointing at the exact supporting block text."
-        ),
-        (
-            "- Bad snippet pattern: a body that restates nearly every sentence from the "
-            "owned packet or stitches long quotes from every owned block into one snippet."
-        ),
-        "- The owned packet under `b[*]` is authoritative. Nearby `x` context is informational only and must not be cited as evidence or used to expand ownership.",
-        "- If `check` says the task copied source prose, keep the evidence pointers and rewrite only the snippet body into a shorter grounded claim before installing.",
+        "- Use concise group labels that describe reusable cooking guidance, not source-text echoes.",
+        "- The owned block rows under `b[*]` are authoritative. Nearby `x` context is informational only.",
         "- Ask: would saving this materially improve a cook's future decisions, diagnosis, or technique?",
         "- If the text is technically true but low-value prose, generic memoir-like framing, or just navigation, keep it `other`.",
-        "- If the owned packet mixes memoir, praise, or book-framing with a few useful cooking sentences, do not mark the whole task `knowledge` by inertia.",
-        "- Keep memoir/framing blocks `other`; only mark a block `knowledge` when that block itself stands alone as reusable cooking guidance inside the owned packet.",
-        "- Sentences about why the book matters, why the author teaches well, or how the writer discovered cooking are usually still `other` even when nearby blocks mention technique.",
-        "- Keep all block decisions and snippet evidence on the current task row's own block indices only.",
+        "- If the owned shard mixes memoir, praise, or book-framing with a few useful cooking sentences, do not mark the whole shard `knowledge` by inertia.",
+        "- Keep memoir/framing blocks `other`; only mark a block `knowledge` when that block itself stands alone as reusable cooking guidance.",
         "- If every block is `other`, return an empty `idea_groups` list.",
-        "- Treat each task row's `metadata.hint_path` file as guidance and its `metadata.input_path` file as the authoritative owned input.",
-        "- The repo will write the final canonical `v` / `bid` / `d` / `g` bundle artifact after it accepts your semantic result.",
+        "- Treat the phase-named hint file as guidance and the phase-named input file as the authoritative owned input.",
         "",
-        "Do not return the task outputs in your final message. The authoritative result is the set of files written to the repo-declared local result paths.",
+        (
+            "Assigned shards in this worker: "
+            f"`{', '.join(shard_ids) if shard_ids else '[none]'}`."
+        ),
+        "",
+        "Do not return shard outputs in your final message. The authoritative result is the set of files written through the repo-written phase helper.",
     ]
     return "\n".join(lines)
 

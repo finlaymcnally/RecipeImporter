@@ -959,12 +959,14 @@ def run_oracle_benchmark_followup(
         followup_packet_dir=workspace.followup_packet_dir,
     )
     browser_env = _oracle_followup_browser_env(source_metadata)
+    launch_model = _followup_browser_model_argument(explicit_model)
     metadata_payload = {
         "bundle_dir": str(target.bundle_dir),
         "source_root": str(target.source_root),
         "scope": target.scope,
         "mode": "browser",
         "model": resolved_model,
+        "launch_model": launch_model,
         "browser_profile_dir": str(browser_env.get("ORACLE_BROWSER_PROFILE_DIR") or ""),
         "command": command,
         "log_path": str(workspace.log_path),

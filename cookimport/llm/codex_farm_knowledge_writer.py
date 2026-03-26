@@ -13,7 +13,7 @@ class KnowledgeWriteReport:
     groups_written: int
     snippets_written: int
     groups_path: Path
-    snippets_path: Path
+    snippets_path: Path | None
     preview_path: Path
     group_records: list[dict[str, Any]]
     snippet_records: list[dict[str, Any]]
@@ -29,7 +29,6 @@ def write_knowledge_artifacts(
     knowledge_dir = run_root / "knowledge" / workbook_slug
     knowledge_dir.mkdir(parents=True, exist_ok=True)
     groups_path = knowledge_dir / "knowledge_groups.json"
-    snippets_path = knowledge_dir / "snippets.jsonl"
     preview_path = knowledge_dir / "knowledge.md"
 
     group_records: list[dict[str, Any]] = []
@@ -46,56 +45,26 @@ def write_knowledge_artifacts(
                 "block_indices": list(group.block_indices),
                 "snippets": [],
             }
-            for snippet_index, snippet in enumerate(group.snippets):
-                evidence_indices = [int(pointer.block_index) for pointer in snippet.evidence]
-                for idx in evidence_indices:
-                    if int(idx) not in full_blocks_by_index:
-                        raise ValueError(
-                            "Evidence pointer references missing block index "
-                            f"{idx} (packet_id={packet_id}, group_id={group.group_id})."
-                        )
-                snippet_id = f"{knowledge_group_id}.s{snippet_index:02d}"
-                snippet_record = {
-                    "snippet_id": snippet_id,
-                    "knowledge_group_id": knowledge_group_id,
-                    "packet_id": packet_id,
-                    "group_id": group.group_id,
-                    "topic_label": group.topic_label,
-                    "body": snippet.body,
-                    "evidence": [
-                        {"block_index": int(pointer.block_index), "quote": pointer.quote}
-                        for pointer in snippet.evidence
-                    ],
-                    "provenance": {"block_indices": sorted(set(evidence_indices))},
-                }
-                snippet_records.append(snippet_record)
-                record["snippets"].append(
-                    {
-                        "snippet_id": snippet_id,
-                        "body": snippet.body,
-                        "evidence": snippet_record["evidence"],
-                    }
-                )
-            if not record["snippets"]:
-                raise ValueError(
-                    f"Knowledge idea group {knowledge_group_id} had no snippets after rendering."
-                )
             if not record["block_indices"]:
                 raise ValueError(
                     f"Knowledge idea group {knowledge_group_id} had no block indices."
+                )
+            missing_block_indices = [
+                int(block_index)
+                for block_index in record["block_indices"]
+                if int(block_index) not in full_blocks_by_index
+            ]
+            if missing_block_indices:
+                raise ValueError(
+                    "Knowledge idea group "
+                    f"{knowledge_group_id} referenced missing block index "
+                    f"{missing_block_indices[0]}."
                 )
             record["ordinal"] = group_index
             group_records.append(record)
 
     groups_path.write_text(
         json.dumps(group_records, indent=2, sort_keys=True, ensure_ascii=True) + "\n",
-        encoding="utf-8",
-    )
-    snippets_path.write_text(
-        "".join(
-            json.dumps(record, sort_keys=True, ensure_ascii=True) + "\n"
-            for record in snippet_records
-        ),
         encoding="utf-8",
     )
     preview_path.write_text(
@@ -109,9 +78,9 @@ def write_knowledge_artifacts(
 
     return KnowledgeWriteReport(
         groups_written=len(group_records),
-        snippets_written=len(snippet_records),
+        snippets_written=0,
         groups_path=groups_path,
-        snippets_path=snippets_path,
+        snippets_path=None,
         preview_path=preview_path,
         group_records=group_records,
         snippet_records=snippet_records,
@@ -143,12 +112,6 @@ def _render_preview_md(
             lines.append(
                 f"- block_indices: `{block_indices[0]}..{block_indices[-1]}` ({len(block_indices)} blocks)"
             )
-        lines.append("")
-
-        lines.append("Snippets:")
-        for snippet in record.get("snippets") or []:
-            body = str(snippet.get("body") or "").strip()
-            lines.append(f"- {body}")
         lines.append("")
 
         lines.append("Source context:")

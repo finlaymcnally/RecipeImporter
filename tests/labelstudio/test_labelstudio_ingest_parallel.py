@@ -402,6 +402,42 @@ def _install_split_import_mocks(
         def import_tasks(self, _project_id: int, tasks):
             self.uploaded_batches.append(len(tasks))
 
+    def _fake_execute_stage_import_session_from_result(**kwargs):
+        run_root = processed_root / "2026-02-11_00:00:00"
+        run_root.mkdir(parents=True, exist_ok=True)
+        stage_predictions_path = run_root / ".bench" / "book" / "stage_block_predictions.json"
+        stage_predictions_path.parent.mkdir(parents=True, exist_ok=True)
+        stage_predictions_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "stage_block_predictions.v1",
+                    "block_labels": {},
+                    "label_blocks": {},
+                    "workbook_slug": "book",
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        report_path = run_root / "book.excel_import_report.json"
+        report_path.write_text("{}", encoding="utf-8")
+        return StageImportSessionResult(
+            run_root=run_root,
+            workbook_slug="book",
+            source_file=planned_jobs[0].file_path if planned_jobs else Path("unknown"),
+            source_hash="hash",
+            importer_name="fake",
+            conversion_result=kwargs["result"],
+            report_path=report_path,
+            stage_block_predictions_path=stage_predictions_path,
+            run_config={},
+            run_config_hash=None,
+            run_config_summary=None,
+            llm_report={"enabled": False, "pipeline": "off"},
+            timing={},
+        )
+
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest_flows.prediction_run.registry.get_importer",
         lambda _name: FakeImporter(),
@@ -427,6 +463,10 @@ def _install_split_import_mocks(
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest_flows.prediction_run._merge_parallel_results",
         lambda *_args, **_kwargs: fake_result,
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest_flows.prediction_run.execute_stage_import_session_from_result",
+        _fake_execute_stage_import_session_from_result,
     )
     monkeypatch.setattr(
         "cookimport.labelstudio.ingest_flows.prediction_run.build_extracted_archive",
@@ -1018,6 +1058,124 @@ def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path:
     assert "Uploading 401 task(s) in 3 batch(es)..." in progress_messages
     assert "Uploaded 401/401 task(s)." in progress_messages
     assert progress_messages[-1] == "Label Studio import artifacts complete."
+
+
+def test_run_labelstudio_import_respects_custom_upload_batch_size(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    output_dir = tmp_path / "golden"
+    processed_root = tmp_path / "processed"
+
+    fake_result = _make_empty_conversion_result(source)
+    _install_basic_generate_pred_run_artifacts_mocks(
+        monkeypatch,
+        fake_result=fake_result,
+        archive_blocks=[
+            SimpleNamespace(
+                index=0,
+                text="hello",
+                location={"block_index": 0},
+                source_kind="raw",
+            )
+        ],
+        source_hash="hash",
+    )
+    fake_stage_result = StageImportSessionResult(
+        run_root=processed_root / "2026-02-11_00:00:00",
+        workbook_slug="book",
+        source_file=source,
+        source_hash="hash",
+        importer_name="fake",
+        conversion_result=fake_result,
+        report_path=processed_root / "2026-02-11_00:00:00" / "book.excel_import_report.json",
+        stage_block_predictions_path=(
+            processed_root
+            / "2026-02-11_00:00:00"
+            / ".bench"
+            / "book"
+            / "stage_block_predictions.json"
+        ),
+        run_config={},
+        run_config_hash=None,
+        run_config_summary=None,
+        llm_report={"enabled": False, "pipeline": "off"},
+        timing={},
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest_flows.prediction_run.execute_stage_import_session_from_result",
+        lambda **_kwargs: fake_stage_result,
+    )
+
+    class FakeLabelStudioClient:
+        uploaded_batches: list[int] = []
+
+        def __init__(self, _url: str, _key: str) -> None:
+            pass
+
+        def list_projects(self):
+            return []
+
+        def find_project_by_title(self, _title: str):
+            return None
+
+        def create_project(self, title: str, _label_config: str, description: str | None = None):
+            return {"id": 123, "title": title, "description": description}
+
+        def import_tasks(self, _project_id: int, tasks):
+            self.uploaded_batches.append(len(tasks))
+
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest_flows.prediction_run._write_processed_outputs",
+        lambda **_kwargs: processed_root / "2026-02-11_00:00:00",
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest_flows.prediction_run.build_freeform_span_tasks",
+        lambda **_kwargs: [
+            {"data": {"segment_id": f"seg-{i}"}} for i in range(8)
+        ],
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest_flows.prediction_run.compute_freeform_task_coverage",
+        lambda *_args, **_kwargs: {
+            "extracted_chars": 1000,
+            "segment_chars": 950,
+            "warnings": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cookimport.labelstudio.ingest_flows.prediction_run.sample_freeform_tasks",
+        lambda tasks, **_kwargs: tasks,
+    )
+    monkeypatch.setattr("cookimport.labelstudio.ingest_flows.upload.LabelStudioClient", FakeLabelStudioClient)
+
+    result = run_labelstudio_import(
+        path=source,
+        output_dir=output_dir,
+        pipeline="fake",
+        project_name="benchmark project",
+        segment_blocks=40,
+        segment_overlap=5,
+        overwrite=False,
+        resume=False,
+        label_studio_url="http://localhost:8080",
+        label_studio_api_key="test",
+        limit=None,
+        sample=None,
+        upload_batch_size=3,
+        workers=2,
+        pdf_split_workers=1,
+        epub_split_workers=1,
+        pdf_pages_per_job=50,
+        epub_spine_items_per_job=10,
+        processed_output_root=processed_root,
+        allow_labelstudio_write=True,
+    )
+
+    assert FakeLabelStudioClient.uploaded_batches == [3, 3, 2]
+    assert result["upload_batch_size"] == 3
 
 
 def test_run_labelstudio_import_split_workers_emit_worker_activity(

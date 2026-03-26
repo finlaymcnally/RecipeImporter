@@ -51,6 +51,7 @@ Rules:
   `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `page_furniture`
 - Only use `review_exclusion_reason` on rows labeled `OTHER`, and only for overwhelmingly obvious non-recipe junk that should skip knowledge review.
 - Do not add commentary, markdown, or extra JSON keys.
+- There is no separate repo-owned repair model pass for line-role; the work ledger plus `check-phase` is the real repair loop.
 
 Preferred loop:
 

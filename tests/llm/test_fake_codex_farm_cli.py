@@ -450,7 +450,8 @@ def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
     assert proposals
     assert (phase_dir / "phase_manifest.json").exists()
     assert (phase_dir / "worker_assignments.json").exists()
-    assert (tmp_path / "run" / "knowledge" / "book" / "snippets.jsonl").exists()
+    assert (tmp_path / "run" / "knowledge" / "book" / "knowledge_groups.json").exists()
+    assert not (tmp_path / "run" / "knowledge" / "book" / "snippets.jsonl").exists()
 
 
 def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
@@ -539,10 +540,13 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
     phase_dir = apply_result.llm_raw_dir / "knowledge"
     worker_root = phase_dir / "workers" / "worker-001"
     status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+    current_phase = json.loads((worker_root / "current_phase.json").read_text(encoding="utf-8"))
 
     assert status["runtime_mode_audit"]["output_schema_enforced"] is False
     assert status["runtime_mode_audit"]["tool_affordances_requested"] is True
     assert sorted(path.name for path in (worker_root / "out").glob("*.json"))
+    assert sorted(path.name for path in (worker_root / "in").glob("*.pass2.json"))
+    assert current_phase["status"] == "completed"
 
 
 def test_line_role_runtime_can_run_through_fake_codex_farm_subprocess(

@@ -19,10 +19,25 @@ ORACLE_BROWSER_REMOTE_DEBUG_HOST = "127.0.0.1"
 ORACLE_BROWSER_MODEL_STRATEGY = "select"
 ORACLE_HOME_DIR = str(Path.home() / ".local" / "share" / "oracle")
 ORACLE_BROWSER_PROFILE_DIR = str(Path(ORACLE_HOME_DIR) / "browser-profile")
+ORACLE_MODEL_LANE_INSTANT = "instant"
+ORACLE_MODEL_LANE_PRO = "pro"
+ORACLE_MODEL_LANE_THINKING = "thinking"
+_ORACLE_MODEL_SELECTOR_ALIASES = {
+    "instant": ORACLE_MODEL_LANE_INSTANT,
+    "test": ORACLE_MODEL_LANE_INSTANT,
+    "fast": ORACLE_MODEL_LANE_INSTANT,
+    "smoke": ORACLE_MODEL_LANE_INSTANT,
+    "pro": ORACLE_MODEL_LANE_PRO,
+    "genuine": ORACLE_MODEL_LANE_PRO,
+    "review": ORACLE_MODEL_LANE_PRO,
+    "thinking": ORACLE_MODEL_LANE_THINKING,
+    "deep-review": ORACLE_MODEL_LANE_THINKING,
+    "deep_review": ORACLE_MODEL_LANE_THINKING,
+}
 ORACLE_TEST_MODEL = os.environ.get(
-    "ORACLE_TEST_MODEL",
+    "ORACLE_INSTANT_MODEL",
     os.environ.get(
-        "ORACLE_INSTANT_MODEL",
+        "ORACLE_TEST_MODEL",
         os.environ.get(
             "ORACLE_FAST_MODEL",
             os.environ.get("ORACLE_FAST_SMOKE_MODEL", "gpt-5.3"),
@@ -30,14 +45,18 @@ ORACLE_TEST_MODEL = os.environ.get(
     ),
 )
 ORACLE_DEFAULT_MODEL = os.environ.get(
-    "ORACLE_GENUINE_MODEL",
+    "ORACLE_PRO_MODEL",
     os.environ.get(
-        "ORACLE_PRO_MODEL",
+        "ORACLE_GENUINE_MODEL",
         os.environ.get(
             "ORACLE_REVIEW_MODEL",
             os.environ.get("ORACLE_DEEP_REVIEW_MODEL", "gpt-5-pro"),
         ),
     ),
+)
+ORACLE_THINKING_MODEL = os.environ.get(
+    "ORACLE_THINKING_MODEL",
+    os.environ.get("ORACLE_DEEP_REVIEW_MODEL", ""),
 )
 ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES = 1_000_000
 ORACLE_BROWSER_SHARD_TARGET_BYTES = 900_000
@@ -422,8 +441,8 @@ def oracle_test_helper_enabled(*, env: Mapping[str, str] | None = None) -> bool:
 def _resolve_oracle_test_model(*, env: Mapping[str, str] | None = None) -> str:
     source_env = env if env is not None else os.environ
     return str(
-        source_env.get("ORACLE_TEST_MODEL")
-        or source_env.get("ORACLE_INSTANT_MODEL")
+        source_env.get("ORACLE_INSTANT_MODEL")
+        or source_env.get("ORACLE_TEST_MODEL")
         or source_env.get("ORACLE_FAST_MODEL")
         or source_env.get("ORACLE_FAST_SMOKE_MODEL")
         or ORACLE_TEST_MODEL
@@ -433,12 +452,28 @@ def _resolve_oracle_test_model(*, env: Mapping[str, str] | None = None) -> str:
 def _resolve_oracle_genuine_model(*, env: Mapping[str, str] | None = None) -> str:
     source_env = env if env is not None else os.environ
     return str(
-        source_env.get("ORACLE_GENUINE_MODEL")
-        or source_env.get("ORACLE_PRO_MODEL")
+        source_env.get("ORACLE_PRO_MODEL")
+        or source_env.get("ORACLE_GENUINE_MODEL")
         or source_env.get("ORACLE_REVIEW_MODEL")
         or source_env.get("ORACLE_DEEP_REVIEW_MODEL")
         or ORACLE_DEFAULT_MODEL
     ).strip()
+
+
+def _resolve_oracle_thinking_model(*, env: Mapping[str, str] | None = None) -> str:
+    source_env = env if env is not None else os.environ
+    return str(
+        source_env.get("ORACLE_THINKING_MODEL")
+        or source_env.get("ORACLE_DEEP_REVIEW_MODEL")
+        or ORACLE_THINKING_MODEL
+    ).strip()
+
+
+def normalize_oracle_model_selector(model: str | None) -> str:
+    cleaned = str(model or "").strip()
+    if not cleaned:
+        return ""
+    return _ORACLE_MODEL_SELECTOR_ALIASES.get(cleaned.lower(), cleaned)
 
 
 def resolve_oracle_benchmark_model(
@@ -446,33 +481,49 @@ def resolve_oracle_benchmark_model(
     *,
     env: Mapping[str, str] | None = None,
 ) -> str:
-    explicit_model = str(model or "").strip()
+    explicit_model = normalize_oracle_model_selector(model)
     if explicit_model:
         return explicit_model
     if oracle_test_helper_enabled(env=env):
-        return _resolve_oracle_test_model(env=env)
-    return _resolve_oracle_genuine_model(env=env)
+        return ORACLE_MODEL_LANE_INSTANT
+    return ORACLE_MODEL_LANE_PRO
 
 
-def normalize_oracle_browser_model(model: str | None) -> str:
-    cleaned = str(model or "").strip()
+def normalize_oracle_browser_model(
+    model: str | None,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    cleaned = normalize_oracle_model_selector(model)
     if not cleaned:
         return ""
-    normalized = cleaned.lower()
-    if not normalized.startswith("gpt-") or "codex" in normalized:
-        return cleaned
-    if normalized in {"gpt-5", "gpt-5.1"}:
-        return "gpt-5.2"
-    if normalized in {"gpt-5-pro", "gpt-5.1-pro"}:
-        return "gpt-5.2-pro"
+    if cleaned == ORACLE_MODEL_LANE_INSTANT:
+        return _resolve_oracle_test_model(env=env)
+    if cleaned == ORACLE_MODEL_LANE_PRO:
+        return _resolve_oracle_genuine_model(env=env)
+    if cleaned == ORACLE_MODEL_LANE_THINKING:
+        resolved = _resolve_oracle_thinking_model(env=env)
+        if resolved:
+            return resolved
+        raise ValueError(
+            "Oracle thinking lane requested but no thinking model is configured. "
+            "Set ORACLE_THINKING_MODEL or pass a literal --model value."
+        )
     return cleaned
 
 
-def _resolve_oracle_launch_model(*, mode: str, model: str) -> str:
+def _resolve_oracle_launch_model(
+    *,
+    mode: str,
+    model: str,
+    env: Mapping[str, str] | None = None,
+) -> str:
     cleaned = str(model).strip()
+    if not cleaned:
+        return ""
     if mode.strip().lower() == "browser":
-        return normalize_oracle_browser_model(cleaned)
-    return cleaned
+        return normalize_oracle_browser_model(cleaned, env=env)
+    return normalize_oracle_browser_model(cleaned, env=env)
 
 
 def _oracle_benchmark_helper_banner(*, env: Mapping[str, str] | None = None) -> str:
@@ -1508,7 +1559,8 @@ def start_oracle_benchmark_upload_background(
         "review_profile": profile.profile_id,
         "review_profile_display_name": profile.display_name,
         "mode": normalized_mode,
-        "model": launch_model,
+        "model": resolved_model,
+        "launch_model": launch_model,
         "prompt": session_prompt,
         "pid": int(proc.pid),
         "command": command,
@@ -1577,7 +1629,7 @@ def start_oracle_benchmark_upload_background(
     )
     return OracleBackgroundUploadLaunch(
         mode=normalized_mode,
-        model=launch_model,
+        model=resolved_model,
         command=command,
         bundle_dir=target.bundle_dir,
         launch_dir=launch_dir,
@@ -1704,7 +1756,8 @@ def run_oracle_benchmark_upload(
             "review_profile": profile.profile_id,
             "review_profile_display_name": profile.display_name,
             "mode": normalized_mode,
-            "model": launch_model,
+        "model": resolved_model,
+        "launch_model": launch_model,
             "prompt": prepared.prompt,
             "pid": None,
             "command": command,

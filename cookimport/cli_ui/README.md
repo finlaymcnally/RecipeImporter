@@ -20,7 +20,7 @@ Interactive run-settings UI helpers.
   - enabled surfaces now also prompt for shard count using the same contract on every Codex-backed stage: import asks recipe then knowledge, while benchmark flows ask line-role then recipe then knowledge
   - those prompts map directly to `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count`
 - Any non-`off` choice also prompts for codex AI settings for that run:
-  - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models, fallback `gpt-5.3-codex`)
+  - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models only)
   - `Codex Farm reasoning effort override` (`Pipeline default` plus only the efforts supported by the selected discovered model when that metadata is available)
 - `off` resolves `Vanilla automatic top-tier`.
 - `CodexFarm` profile keeps the winner-preferred resolver path (quality-suite winner settings first, otherwise built-in top-tier baseline), then harmonizes the full top-tier contract:

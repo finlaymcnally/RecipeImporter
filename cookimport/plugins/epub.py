@@ -1371,27 +1371,13 @@ class EpubImporter:
                 return i
             
             if b.features.get("is_ingredient_header"):
-                # Likely start of next recipe.
-                # But check if it's a sub-header ("For the sauce")
-                # Heuristic: If we haven't seen instructions yet, it might be a sub-header.
-                # If we HAVE seen instructions, it's likely a new recipe.
-                # For now, simplistic: Assume it's new recipe if it matches standard "Ingredients" exactly.
                 if b.text.lower().rstrip(":") in ["ingredients", "ingredient"]:
-                     # But we need to check if we are splitting a single recipe with multiple parts.
-                     # Let's assume start of next recipe for now to be safe.
-                     # But we might consume the title of the next recipe if we are not careful.
-                     
-                     # Refined strategy: Stop if we see a clear "Ingredients" header. 
-                     # The previous blocks (Title) will be captured by the next iteration's backtrack?
-                     # Yes, if we don't consume them.
-                     
-                     # Let's return i, but maybe subtract a few if they look like a title?
-                     # Backtrack from i to find title of NEXT recipe, and end THIS recipe before that title.
-                     
-                     next_title = self._backtrack_for_title(blocks, i)
-                     if next_title != -1 and next_title > anchor_idx:
-                         return next_title
-                     return i
+                    # A canonical next Ingredients header usually belongs to the next recipe,
+                    # so end this candidate at the next title when backtracking finds one.
+                    next_title = self._backtrack_for_title(blocks, i)
+                    if next_title != -1 and next_title > anchor_idx:
+                        return next_title
+                    return i
             
             # Stop at huge headings that look like Chapter titles (h1)
             if b.features.get("is_heading") and b.features.get("heading_level") == 1:

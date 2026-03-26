@@ -22,8 +22,11 @@ Those settings decide things like:
 - whether line-role Codex review is on
 - whether recipe Codex is on
 - whether knowledge Codex is on
+- whether explicit Codex model or reasoning overrides are set
 - how ingredient parsing should behave
 - whether markdown sidecars should be written
+
+If an LLM-backed stage is enabled, explicit model overrides win. Otherwise the run uses discovered config or pipeline defaults. The product no longer invents a hard-coded fallback model id just because the UI could not discover one.
 
 Then the importer registry looks at each input file and picks the importer that best matches that source type.
 
@@ -41,6 +44,8 @@ The important rule is that all of them converge on the same kind of bundle:
 - optional source-support proposals
 - raw artifacts
 - a report
+
+Those source-support proposals are hints, not authority. For example, the text importer can still suggest candidate recipe regions, but those are truthful source coordinates for later review, not final recipe decisions.
 
 For stage-backed flows, those importers produce the source bundle that feeds the shared recipe-boundary stage, where recipe ownership is decided.
 
@@ -187,13 +192,19 @@ If knowledge review is off, the run keeps the routing and status artifacts and c
 
 If knowledge review is on, the public knowledge pipeline is `codex-knowledge-shard-v1`.
 
-Before the model sees anything, the program packages the surviving review queue into bounded ordered packets. Repo code owns packet sizing and ordering. The model owns the harder semantic judgment inside each packet.
+Before the model sees anything, the program partitions the surviving review queue into roughly the requested number of contiguous review shards. Repo code owns shard sizing, ordering, and the exact row ownership for each shard.
 
-That means the model decides:
+Each shard then stays in one worker session through two repo-owned passes:
+
+- Pass 1 classifies every owned row as `knowledge` or `other`
+- repo validation freezes accepted rows and only leaves unresolved rows open for fixes
+- Pass 2 groups only the kept `knowledge` rows into related idea groups with topic labels
+
+So the model decides:
 
 - which reviewed rows are real `knowledge`
 - which reviewed rows are just `other`
-- which nearby blocks belong together as one related idea group
+- which kept `knowledge` rows belong together as one related idea group
 
 The reviewed results are then validated and promoted back into the stage-owned authority model.
 
@@ -210,7 +221,7 @@ In artifact terms:
 - `09_nonrecipe_knowledge_groups.json` records the promoted model-authored related-idea groups
 - `09_nonrecipe_review_status.json` explains what was reviewed, skipped, changed, or left unresolved
 
-If reviewer-facing knowledge snippets are written, they are evidence artifacts derived from those promoted groups.
+If reviewer-facing knowledge output is written, `knowledge.md` is the readable rendering of those promoted authority decisions and groups. Reviewer-facing snippet ledgers are no longer part of the live contract.
 
 ## Late outputs
 
@@ -247,5 +258,6 @@ So the end of the run is: write recipes, write outside-recipe authority, write t
 - The deterministic label-first path still runs even when recipe and knowledge LLM stages are both off.
 - Accepted recipe spans are the recipe ownership boundary. Later stages refine those recipes into final structured outputs.
 - `nonrecipe-route` routes and records. `knowledge-final` decides the final meaning of reviewable outside-recipe rows.
+- For knowledge review, `knowledge_prompt_target_count` is really a shard-count knob now. It is no longer a disguised packet-count setting.
 - `ConversionResult.non_recipe_blocks` mirrors strict final outside-recipe authority only.
 - Split PDF and EPUB jobs do early conversion in pieces, but semantic authority still happens once on the merged whole-book view.

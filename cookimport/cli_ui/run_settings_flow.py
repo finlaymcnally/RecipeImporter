@@ -722,10 +722,6 @@ def _choose_codex_ai_settings(
         label = model_id if not description else f"{model_id} - {description}"
         model_choices.append(questionary.Choice(label, value=model_id))
         seen_model_ids.add(model_id)
-    if len(model_choices) == 1:
-        fallback_model_id = "gpt-5.3-codex"
-        model_choices.append(questionary.Choice(fallback_model_id, value=fallback_model_id))
-
     model_choice = menu_select(
         "Codex Farm model override:",
         menu_help=(

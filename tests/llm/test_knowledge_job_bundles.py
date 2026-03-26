@@ -8,290 +8,163 @@ from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan
 
 
-def _load_all_jobs(in_dir: Path) -> list[dict]:
+def _load_jobs(in_dir: Path) -> list[dict[str, object]]:
     return [
         json.loads(path.read_text(encoding="utf-8"))
         for path in sorted(in_dir.glob("*.json"))
     ]
 
 
-def test_build_knowledge_jobs_writes_seed_nonrecipe_packets_and_is_idempotent(
+def test_build_knowledge_jobs_writes_one_shard_ledger_per_planned_shard(
     tmp_path: Path,
 ) -> None:
-    full_blocks = [
-        {"index": 0, "text": "Preface"},
-        {"index": 1, "text": "A beautiful gorgeous stunning book."},
-        {"index": 2, "text": "Toast"},
-        {"index": 3, "text": "1 slice bread"},
-        {
-            "index": 4,
-            "text": "Technique: To prevent curdling, whisk constantly.",
-            "table_hint": {
-                "table_id": "tbl_demo",
-                "caption": "Sauce Troubleshooting",
-                "markdown": "| Symptom | Fix |\n| --- | --- |\n| Curdled | Whisk gently |",
-                "row_index_in_table": 0,
-            },
-        },
-        {
-            "index": 5,
-            "text": "Use low heat and add acid slowly.",
-            "table_hint": {
-                "table_id": "tbl_demo",
-                "caption": "Sauce Troubleshooting",
-                "markdown": "| Symptom | Fix |\n| --- | --- |\n| Curdled | Whisk gently |",
-                "row_index_in_table": 1,
-            },
-        },
-        {"index": 6, "text": "More notes."},
-        {"index": 7, "text": "End."},
-    ]
-    knowledge_spans = [
-        NonRecipeSpan(
-            span_id="nr.knowledge.4.8",
-            category="knowledge",
-            block_start_index=4,
-            block_end_index=8,
-            block_indices=[4, 5, 6, 7],
-            block_ids=["b4", "b5", "b6", "b7"],
-        )
-    ]
-    in_dir = tmp_path / "in"
-
-    report = build_knowledge_jobs(
-        full_blocks=full_blocks,
-        candidate_spans=knowledge_spans,
-        recipe_spans=[
-            RecipeSpan(
-                span_id="recipe.0",
-                start_block_index=2,
-                end_block_index=4,
-                block_indices=[2, 3],
-                source_block_ids=["b2", "b3"],
-            )
-        ],
-        workbook_slug="book",
-        out_dir=in_dir,
-        context_blocks=2,
-    )
-
-    job_paths = sorted(in_dir.glob("*.json"))
-    assert job_paths, "Expected knowledge job packets to be written."
-    assert report.packets_written == 3
-    assert report.shards_written == 3
-    assert report.packet_ids == [
-        "book.kp0000.nr",
-        "book.kp0001.nr",
-        "book.kp0002.nr",
-    ]
-
-    first_bytes = {path.name: path.read_bytes() for path in job_paths}
-    payloads = _load_all_jobs(in_dir)
-
-    assert all(payload["v"] == "1" for payload in payloads)
-    assert all("c" not in payload for payload in payloads)
-    assert [[block["i"] for block in payload["b"]] for payload in payloads] == [
-        [4],
-        [5],
-        [6, 7],
-    ]
-
-    for payload in payloads:
-        packet_indices = {block["i"] for block in payload["b"]}
-        assert 2 not in packet_indices
-        assert 3 not in packet_indices
-
-    table_hints = [
-        block.get("th")
-        for payload in payloads
-        for block in payload["b"]
-        if block["i"] in {4, 5}
-    ]
-    assert all(isinstance(hint, dict) and hint.get("id") == "tbl_demo" for hint in table_hints)
-    assert all("markdown" not in hint for hint in table_hints)
-
-    context_indices = {
-        block["i"]
-        for payload in payloads
-        for block in payload["x"].get("p", [])
-    }
-    assert 2 in context_indices or 3 in context_indices
-    context_recipe_indices = {
-        index
-        for payload in payloads
-        for index in (payload.get("g") or {}).get("r", [])
-    }
-    assert 2 in context_recipe_indices or 3 in context_recipe_indices
-
-    build_knowledge_jobs(
-        full_blocks=full_blocks,
-        candidate_spans=knowledge_spans,
-        recipe_spans=[
-            RecipeSpan(
-                span_id="recipe.0",
-                start_block_index=2,
-                end_block_index=4,
-                block_indices=[2, 3],
-                source_block_ids=["b2", "b3"],
-            )
-        ],
-        workbook_slug="book",
-        out_dir=in_dir,
-        context_blocks=2,
-    )
-    second_bytes = {
-        path.name: path.read_bytes() for path in sorted(in_dir.glob("*.json"))
-    }
-    assert first_bytes == second_bytes
-
-
-def test_build_knowledge_jobs_partitions_large_spans_by_block_cap(tmp_path: Path) -> None:
-    out_dir = tmp_path / "knowledge"
     report = build_knowledge_jobs(
         full_blocks=[
-            {"index": index, "text": f"Block {index}"}
-            for index in range(12)
+            {"index": 0, "text": "Preface"},
+            {"index": 1, "text": "Toast"},
+            {"index": 2, "text": "1 slice bread"},
+            {"index": 3, "text": "Keep the heat gentle."},
+            {"index": 4, "text": "Whisk constantly."},
+            {"index": 5, "text": "Cool leftovers quickly."},
         ],
         candidate_spans=[
             NonRecipeSpan(
-                span_id="nr.0.12",
-                category="other",
-                block_start_index=0,
-                block_end_index=12,
-                block_indices=list(range(12)),
-                block_ids=[f"b{index}" for index in range(12)],
+                span_id="nr.knowledge.3.6",
+                category="knowledge",
+                block_start_index=3,
+                block_end_index=6,
+                block_indices=[3, 4, 5],
+                block_ids=["b3", "b4", "b5"],
             )
+        ],
+        recipe_spans=[
+            RecipeSpan(
+                span_id="recipe.0",
+                start_block_index=1,
+                end_block_index=3,
+                block_indices=[1, 2],
+                source_block_ids=["b1", "b2"],
+            )
+        ],
+        workbook_slug="book",
+        out_dir=tmp_path / "in",
+        context_blocks=2,
+    )
+
+    payloads = _load_jobs(tmp_path / "in")
+    assert report.shards_written == 1
+    assert report.packets_written == 1
+    assert report.packet_ids == ["book.ks0000.nr"]
+    assert [entry.shard_id for entry in report.shard_entries] == ["book.ks0000.nr"]
+    assert [block["i"] for block in payloads[0]["b"]] == [3, 4, 5]
+    assert [block["i"] for block in payloads[0]["x"]["p"]] == [1, 2]
+
+
+def test_build_knowledge_jobs_splits_review_queue_by_requested_shard_count(
+    tmp_path: Path,
+) -> None:
+    report = build_knowledge_jobs(
+        full_blocks=[
+            {"index": index, "text": f"Technique {index}"}
+            for index in range(6)
+        ],
+        candidate_spans=[
+            NonRecipeSpan(
+                span_id=f"nr.{index}.{index + 1}",
+                category="knowledge",
+                block_start_index=index,
+                block_end_index=index + 1,
+                block_indices=[index],
+                block_ids=[f"b{index}"],
+            )
+            for index in range(6)
         ],
         recipe_spans=[],
-        workbook_slug="fixturebook",
-        out_dir=out_dir,
+        workbook_slug="book",
+        out_dir=tmp_path / "in",
         context_blocks=0,
+        prompt_target_count=2,
     )
 
-    payloads = _load_all_jobs(out_dir)
-    assert report.packets_written == 2
+    payloads = _load_jobs(tmp_path / "in")
     assert report.shards_written == 2
+    assert report.packets_written == 2
+    assert [entry.shard_id for entry in report.shard_entries] == [
+        "book.ks0000.nr",
+        "book.ks0001.nr",
+    ]
     assert [[block["i"] for block in payload["b"]] for payload in payloads] == [
-        list(range(10)),
-        [10, 11],
+        [0, 1, 2],
+        [3, 4, 5],
     ]
 
 
-def test_build_knowledge_jobs_metadata_is_packet_native(tmp_path: Path) -> None:
-    out_dir = tmp_path / "knowledge"
-    report = build_knowledge_jobs(
-        full_blocks=[
-            {"index": 4, "text": "Keep the heat gentle."},
-            {"index": 5, "text": "Whisk constantly."},
+def test_build_knowledge_jobs_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    kwargs = {
+        "full_blocks": [
+            {"index": 4, "text": "Use low heat."},
+            {"index": 5, "text": "Whisk steadily."},
         ],
-        candidate_spans=[
+        "candidate_spans": [
             NonRecipeSpan(
                 span_id="nr.4.6",
-                category="other",
+                category="knowledge",
                 block_start_index=4,
                 block_end_index=6,
                 block_indices=[4, 5],
                 block_ids=["b4", "b5"],
             )
         ],
+        "recipe_spans": [],
+        "workbook_slug": "book",
+        "out_dir": tmp_path / "in",
+        "context_blocks": 0,
+    }
+
+    first = build_knowledge_jobs(**kwargs)
+    first_bytes = {
+        path.name: path.read_bytes()
+        for path in sorted((tmp_path / "in").glob("*.json"))
+    }
+    second = build_knowledge_jobs(**kwargs)
+    second_bytes = {
+        path.name: path.read_bytes()
+        for path in sorted((tmp_path / "in").glob("*.json"))
+    }
+
+    assert first.shards_written == second.shards_written == 1
+    assert first_bytes == second_bytes
+
+
+def test_build_knowledge_jobs_metadata_is_shard_owned(
+    tmp_path: Path,
+) -> None:
+    report = build_knowledge_jobs(
+        full_blocks=[
+            {"index": 7, "text": "Salt in layers."},
+            {"index": 8, "text": "Rest dough before shaping."},
+        ],
+        candidate_spans=[
+            NonRecipeSpan(
+                span_id="nr.7.9",
+                category="knowledge",
+                block_start_index=7,
+                block_end_index=9,
+                block_indices=[7, 8],
+                block_ids=["b7", "b8"],
+            )
+        ],
         recipe_spans=[],
         workbook_slug="book",
-        out_dir=out_dir,
+        out_dir=tmp_path / "in",
         context_blocks=0,
     )
-
-    assert report.skipped_packet_count == 0
-    assert report.skipped_packet_reason_counts == {}
 
     metadata = report.shard_entries[0].metadata
-    assert metadata["packet_id"] == "book.kp0000.nr"
+    assert metadata["packet_id"] == "book.ks0000.nr"
     assert metadata["packet_count"] == 1
-    assert metadata["owned_block_indices"] == [4, 5]
+    assert metadata["owned_block_indices"] == [7, 8]
     assert metadata["owned_block_count"] == 2
-    assert metadata["source_span_ids"] == ["nr.4.6"]
-    assert metadata["task_count"] == 1
-    assert metadata["task_index"] == 1
-    assert metadata["char_count"] == len("Keep the heat gentle.") + len("Whisk constantly.")
-    assert not any(key.startswith("chunk_") for key in metadata)
-
-
-def test_build_knowledge_jobs_warns_when_prompt_target_is_below_packet_floor(
-    tmp_path: Path,
-) -> None:
-    out_dir = tmp_path / "knowledge"
-    report = build_knowledge_jobs(
-        full_blocks=[
-            {"index": 0, "text": "A" * 4000},
-            {"index": 1, "text": "B" * 4000},
-            {"index": 2, "text": "C" * 4000},
-        ],
-        candidate_spans=[
-            NonRecipeSpan(
-                span_id="nr.0.3",
-                category="other",
-                block_start_index=0,
-                block_end_index=3,
-                block_indices=[0, 1, 2],
-                block_ids=["b0", "b1", "b2"],
-            )
-        ],
-        recipe_spans=[],
-        workbook_slug="book",
-        out_dir=out_dir,
-        context_blocks=0,
-        prompt_target_count=1,
-    )
-
-    assert report.packets_written == 3
-    assert report.shards_written == 1
-    assert report.planning_warnings == []
-    assert [entry.shard_id for entry in report.shard_entries] == ["book.ks0000.nr"]
-    assert report.shard_entries[0].owned_ids == (
-        "book.kp0000.nr",
-        "book.kp0001.nr",
-        "book.kp0002.nr",
-    )
-
-
-def test_build_knowledge_jobs_partitions_five_packets_into_two_contiguous_shards(
-    tmp_path: Path,
-) -> None:
-    out_dir = tmp_path / "knowledge"
-    report = build_knowledge_jobs(
-        full_blocks=[
-            {"index": index, "text": f"Technique {index}"}
-            for index in range(5)
-        ],
-        candidate_spans=[
-            NonRecipeSpan(
-                span_id=f"nr.{index}.{index + 1}",
-                category="other",
-                block_start_index=index,
-                block_end_index=index + 1,
-                block_indices=[index],
-                block_ids=[f"b{index}"],
-            )
-            for index in range(5)
-        ],
-        recipe_spans=[],
-        workbook_slug="book",
-        out_dir=out_dir,
-        context_blocks=0,
-        prompt_target_count=2,
-    )
-
-    assert report.packets_written == 5
-    assert report.shards_written == 2
-    assert [entry.shard_id for entry in report.shard_entries] == [
-        "book.ks0000.nr",
-        "book.ks0001.nr",
-    ]
-    assert [entry.owned_ids for entry in report.shard_entries] == [
-        ("book.kp0000.nr", "book.kp0001.nr", "book.kp0002.nr"),
-        ("book.kp0003.nr", "book.kp0004.nr"),
-    ]
-    assert [entry.metadata["packet_count"] for entry in report.shard_entries] == [3, 2]
-    assert [entry.metadata["owned_block_indices"] for entry in report.shard_entries] == [
-        [0, 1, 2],
-        [3, 4],
-    ]
+    assert metadata["source_span_ids"] == ["nr.7.9"]

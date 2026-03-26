@@ -528,6 +528,10 @@ class SubprocessCodexExecRunner:
             sandbox_mode="workspace-write",
             require_final_message=False,
             sync_output_paths=(
+                _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
+                _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME,
+                _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME,
+                _DIRECT_EXEC_INPUT_DIR_NAME,
                 _DIRECT_EXEC_OUTPUT_DIR_NAME,
                 _DIRECT_EXEC_SCRATCH_DIR_NAME,
                 _DIRECT_EXEC_WORK_DIR_NAME,
@@ -672,6 +676,176 @@ class FakeCodexExecRunner:
     workspace_final_message_text: str | None = None
     calls: list[dict[str, Any]] = field(default_factory=list)
 
+    @staticmethod
+    def _write_workspace_json(path: Path, payload: Mapping[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(dict(payload), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def _build_knowledge_pass1_work_payload(
+        *,
+        input_payload: Mapping[str, Any],
+        output_payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        decision_by_block_index = {
+            int(row.get("block_index")): str(row.get("category") or "").strip()
+            for row in (output_payload.get("block_decisions") or [])
+            if isinstance(row, Mapping) and row.get("block_index") is not None
+        }
+        rows: list[dict[str, Any]] = []
+        for block in (input_payload.get("b") or []):
+            if not isinstance(block, Mapping) or block.get("i") is None:
+                continue
+            block_index = int(block.get("i"))
+            rows.append(
+                {
+                    "block_index": block_index,
+                    "category": decision_by_block_index.get(block_index, "other") or "other",
+                }
+            )
+        return {"phase": "pass1", "rows": rows}
+
+    @staticmethod
+    def _build_knowledge_pass2_work_payload(
+        *,
+        pass2_input_payload: Mapping[str, Any],
+        output_payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        group_by_block_index: dict[int, dict[str, str]] = {}
+        for group in (output_payload.get("idea_groups") or []):
+            if not isinstance(group, Mapping):
+                continue
+            group_id = str(group.get("group_id") or "").strip()
+            topic_label = str(group.get("topic_label") or "").strip()
+            if not group_id or not topic_label:
+                continue
+            for block_index in group.get("block_indices") or []:
+                try:
+                    normalized_block_index = int(block_index)
+                except (TypeError, ValueError):
+                    continue
+                group_by_block_index[normalized_block_index] = {
+                    "group_id": group_id,
+                    "topic_label": topic_label,
+                }
+        rows: list[dict[str, Any]] = []
+        for row in (pass2_input_payload.get("rows") or []):
+            if not isinstance(row, Mapping) or row.get("block_index") is None:
+                continue
+            block_index = int(row.get("block_index"))
+            group = group_by_block_index.get(block_index)
+            if group is None:
+                group = {"group_id": f"g{len(rows) + 1:02d}", "topic_label": "Ungrouped"}
+            rows.append(
+                {
+                    "block_index": block_index,
+                    "group_id": group["group_id"],
+                    "topic_label": group["topic_label"],
+                }
+            )
+        return {"phase": "pass2", "rows": rows}
+
+    @staticmethod
+    def _run_workspace_helper_command(
+        *,
+        execution_working_dir: Path,
+        args: Sequence[str],
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            list(args),
+            cwd=execution_working_dir,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    def _run_fake_knowledge_phase_workspace(
+        self,
+        *,
+        execution_working_dir: Path,
+        assigned_task_rows: Sequence[Any],
+        supervision_callback: Callable[
+            [CodexExecLiveSnapshot], CodexExecSupervisionDecision | None
+        ]
+        | None,
+        timeout_seconds: int | None,
+    ) -> None:
+        helper_args = ("python3", "tools/knowledge_worker.py")
+        for index, shard_row in enumerate(assigned_task_rows, start=1):
+            if not isinstance(shard_row, Mapping):
+                continue
+            shard_id = str(shard_row.get("shard_id") or shard_row.get("task_id") or "").strip()
+            if not shard_id:
+                continue
+            input_path = execution_working_dir / _DIRECT_EXEC_INPUT_DIR_NAME / f"{shard_id}.json"
+            if not input_path.exists():
+                continue
+            input_payload = json.loads(input_path.read_text(encoding="utf-8"))
+            output_payload = self.output_builder(input_payload)
+            pass1_payload = self._build_knowledge_pass1_work_payload(
+                input_payload=input_payload,
+                output_payload=output_payload,
+            )
+            self._write_workspace_json(
+                execution_working_dir / _DIRECT_EXEC_WORK_DIR_NAME / f"{shard_id}.pass1.json",
+                pass1_payload,
+            )
+            for command in ("check-phase", "install-phase"):
+                completed = self._run_workspace_helper_command(
+                    execution_working_dir=execution_working_dir,
+                    args=(*helper_args, command),
+                )
+                if completed.returncode != 0:
+                    raise CodexFarmRunnerError(
+                        "fake knowledge workspace helper failed: "
+                        f"{command}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+                    )
+            pass2_input_path = (
+                execution_working_dir / _DIRECT_EXEC_INPUT_DIR_NAME / f"{shard_id}.pass2.json"
+            )
+            if not pass2_input_path.exists():
+                raise CodexFarmRunnerError(
+                    f"fake knowledge workspace helper did not create {pass2_input_path.name}"
+                )
+            pass2_input_payload = json.loads(pass2_input_path.read_text(encoding="utf-8"))
+            pass2_payload = self._build_knowledge_pass2_work_payload(
+                pass2_input_payload=pass2_input_payload,
+                output_payload=output_payload,
+            )
+            self._write_workspace_json(
+                execution_working_dir / _DIRECT_EXEC_WORK_DIR_NAME / f"{shard_id}.pass2.json",
+                pass2_payload,
+            )
+            for command in ("check-phase", "install-phase"):
+                completed = self._run_workspace_helper_command(
+                    execution_working_dir=execution_working_dir,
+                    args=(*helper_args, command),
+                )
+                if completed.returncode != 0:
+                    raise CodexFarmRunnerError(
+                        "fake knowledge workspace helper failed: "
+                        f"{command}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+                    )
+            if supervision_callback is not None and index < len(assigned_task_rows):
+                supervision_callback(
+                    CodexExecLiveSnapshot(
+                        elapsed_seconds=index * 0.1,
+                        last_event_seconds_ago=0.0,
+                        event_count=index,
+                        command_execution_count=index * 4,
+                        reasoning_item_count=0,
+                        last_command=f"/bin/bash -lc cat out/{shard_id}.json",
+                        last_command_repeat_count=1,
+                        has_final_agent_message=False,
+                        timeout_seconds=timeout_seconds,
+                        source_working_dir=str(execution_working_dir),
+                        execution_working_dir=str(execution_working_dir),
+                    )
+                )
+
     def run_structured_prompt(
         self,
         *,
@@ -815,32 +989,47 @@ class FakeCodexExecRunner:
         assigned_task_rows = _read_workspace_manifest_rows(
             execution_working_dir=execution_working_dir,
         )
-        for shard_row in assigned_task_rows:
-            if not isinstance(shard_row, Mapping):
-                continue
-            shard_id = str(
-                shard_row.get("task_id")
-                or shard_row.get("shard_id")
-                or ""
-            ).strip()
-            if not shard_id:
-                continue
-            input_path = execution_working_dir / _DIRECT_EXEC_INPUT_DIR_NAME / f"{shard_id}.json"
-            if not input_path.exists():
-                continue
-            try:
-                input_payload = json.loads(input_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                continue
-            output_payload = self.output_builder(input_payload)
-            (out_dir / f"{shard_id}.json").write_text(
-                json.dumps(output_payload, indent=2, sort_keys=True),
-                encoding="utf-8",
+        if (
+            (execution_working_dir / _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME).exists()
+            and (execution_working_dir / _DIRECT_EXEC_TOOLS_DIR_NAME / "knowledge_worker.py").exists()
+        ):
+            self._run_fake_knowledge_phase_workspace(
+                execution_working_dir=execution_working_dir,
+                assigned_task_rows=assigned_task_rows,
+                supervision_callback=supervision_callback,
+                timeout_seconds=timeout_seconds,
             )
+        else:
+            for shard_row in assigned_task_rows:
+                if not isinstance(shard_row, Mapping):
+                    continue
+                shard_id = str(
+                    shard_row.get("task_id")
+                    or shard_row.get("shard_id")
+                    or ""
+                ).strip()
+                if not shard_id:
+                    continue
+                input_path = execution_working_dir / _DIRECT_EXEC_INPUT_DIR_NAME / f"{shard_id}.json"
+                if not input_path.exists():
+                    continue
+                try:
+                    input_payload = json.loads(input_path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    continue
+                output_payload = self.output_builder(input_payload)
+                (out_dir / f"{shard_id}.json").write_text(
+                    json.dumps(output_payload, indent=2, sort_keys=True),
+                    encoding="utf-8",
+                )
         _sync_direct_exec_workspace_paths(
             source_working_dir=working_dir,
             execution_working_dir=execution_working_dir,
             relative_paths=(
+                _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
+                _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME,
+                _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME,
+                _DIRECT_EXEC_INPUT_DIR_NAME,
                 _DIRECT_EXEC_OUTPUT_DIR_NAME,
                 _DIRECT_EXEC_SCRATCH_DIR_NAME,
                 _DIRECT_EXEC_WORK_DIR_NAME,

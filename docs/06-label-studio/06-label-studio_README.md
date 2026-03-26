@@ -85,6 +85,7 @@ Active Label Studio runtime scope is `freeform-spans`.
 - Interactive Label Studio import uploads directly (no second upload confirmation prompt).
 - Interactive Label Studio import uses overwrite semantics (`overwrite=True`, `resume=False`).
 - Interactive Label Studio import includes freeform prelabel mode + style selection (`span` vs `block`).
+- CLI import exposes `--upload-batch-size` (default `200`) and threads it directly into the upload loop; callers can shrink batches without editing repo code.
 - Interactive export resolves credentials, fetches project titles, and shows detected type tags for operator context.
 - Interactive benchmark is offline-only and offers:
   - single offline run,
@@ -181,6 +182,8 @@ Model resolution order:
 2. `COOKIMPORT_CODEX_FARM_MODEL`
 3. `COOKIMPORT_CODEX_MODEL`
 4. Codex config/defaults
+
+When discovery/config has no concrete model, interactive prelabel keeps the honest default/custom choices instead of inventing a repo-pinned fallback id.
 
 Thinking effort uses `--codex-thinking-effort` (alias `--codex-reasoning-effort`) and maps to CodexFarm reasoning-effort overrides.
 

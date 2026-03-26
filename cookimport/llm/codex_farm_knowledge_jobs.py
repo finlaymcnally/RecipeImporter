@@ -27,10 +27,6 @@ from .codex_farm_knowledge_contracts import (
     SpanV1,
 )
 
-_MAX_PACKET_BLOCKS = 10
-_MAX_PACKET_CHARS = 6_000
-
-
 @dataclass(frozen=True, slots=True)
 class KnowledgeJobBuildReport:
     seed_nonrecipe_span_count: int
@@ -80,8 +76,8 @@ def build_knowledge_jobs(
         for span in recipe_spans
     ]
     planning_warnings: list[str] = []
-    prepared_packets: list[_PreparedKnowledgePacket] = []
-    packet_counter = 0
+    ordered_review_rows: list[dict[str, Any]] = []
+    source_span_ids_by_index: dict[int, list[str]] = {}
 
     for stage_span in candidate_spans:
         sequence = block_rows_for_nonrecipe_span(
@@ -90,41 +86,66 @@ def build_knowledge_jobs(
         )
         if not sequence:
             continue
-        table_hints_by_index = _table_hints_by_index(sequence)
-        for packet_rows in _partition_span_rows(sequence):
-            absolute_indices = [
-                int(row["index"])
-                for row in packet_rows
-                if _coerce_int(row.get("index")) is not None
-            ]
-            if not absolute_indices:
+        for row in sequence:
+            index = _coerce_int(row.get("index"))
+            if index is None:
                 continue
-            blocks = [
-                _to_knowledge_packet_block(
-                    full_blocks_by_index.get(index) or {},
-                    fallback_index=index,
-                    table_hint=table_hints_by_index.get(index),
-                )
-                for index in absolute_indices
-            ]
-            packet_id = f"{workbook_slug}.kp{packet_counter:04d}.nr"
-            prepared_packets.append(
-                _PreparedKnowledgePacket(
-                    packet_id=packet_id,
-                    blocks=blocks,
-                    absolute_indices=absolute_indices,
-                    char_count=sum(len(str(block.text or "").strip()) for block in blocks),
-                    has_table_content=any(block.table_hint is not None for block in blocks),
-                    has_heading=any(block.heading_level is not None for block in blocks),
-                    source_span_ids=(str(stage_span.span_id).strip(),),
-                )
-            )
-            packet_counter += 1
+            ordered_review_rows.append(dict(row))
+            source_span_ids_by_index.setdefault(index, []).append(str(stage_span.span_id).strip())
 
-    sorted_packets = sorted(
-        prepared_packets,
-        key=lambda packet: packet.absolute_indices[0],
+    ordered_review_rows = sorted(
+        ordered_review_rows,
+        key=lambda row: int(row.get("index") or 0),
     )
+    table_hints_by_index = _table_hints_by_index(ordered_review_rows)
+    requested_shard_count = resolve_shard_count(
+        total_items=len(ordered_review_rows),
+        prompt_target_count=prompt_target_count,
+        items_per_shard=None,
+        default_items_per_shard=max(1, len(ordered_review_rows) or 1),
+    )
+    row_partitions = partition_contiguous_items(
+        ordered_review_rows,
+        shard_count=requested_shard_count,
+    )
+    prepared_packets: list[_PreparedKnowledgePacket] = []
+    for shard_index, shard_rows in enumerate(row_partitions, start=0):
+        absolute_indices = [
+            int(row["index"])
+            for row in shard_rows
+            if _coerce_int(row.get("index")) is not None
+        ]
+        if not absolute_indices:
+            continue
+        shard_id = f"{workbook_slug}.ks{shard_index:04d}.nr"
+        blocks = [
+            _to_knowledge_packet_block(
+                full_blocks_by_index.get(index) or {},
+                fallback_index=index,
+                table_hint=table_hints_by_index.get(index),
+            )
+            for index in absolute_indices
+        ]
+        prepared_packets.append(
+            _PreparedKnowledgePacket(
+                packet_id=shard_id,
+                blocks=blocks,
+                absolute_indices=absolute_indices,
+                char_count=sum(len(str(block.text or "").strip()) for block in blocks),
+                has_table_content=any(block.table_hint is not None for block in blocks),
+                has_heading=any(block.heading_level is not None for block in blocks),
+                source_span_ids=tuple(
+                    dict.fromkeys(
+                        span_id
+                        for index in absolute_indices
+                        for span_id in source_span_ids_by_index.get(index, ())
+                    )
+                ),
+            )
+        )
+
+    sorted_packets = prepared_packets
+    shard_entries: list[ShardManifestEntryV1] = []
     for packet in sorted_packets:
         bundle_payload = _build_packet_job_payload(
             packet=packet,
@@ -143,97 +164,36 @@ def build_knowledge_jobs(
             bundle_payload_json,
             out_dir / f"{packet.packet_id}.json",
         )
-
-    requested_shard_count = resolve_shard_count(
-        total_items=len(sorted_packets),
-        prompt_target_count=prompt_target_count,
-        items_per_shard=None,
-        default_items_per_shard=1,
-    )
-    packet_partitions = partition_contiguous_items(
-        sorted_packets,
-        shard_count=requested_shard_count,
-    )
-    shard_entries: list[ShardManifestEntryV1] = []
-    bundle_counter = 0
-    written_packets: list[_PreparedKnowledgePacket] = list(sorted_packets)
-    for shard_index, packet_group in enumerate(packet_partitions, start=0):
-        if not packet_group:
-            continue
-        if len(packet_group) == 1:
-            packet = packet_group[0]
-            packet_payload = json.loads(
-                (out_dir / f"{packet.packet_id}.json").read_text(encoding="utf-8")
-            )
-            shard_id = packet.packet_id
-            owned_packet_ids = [packet.packet_id]
-            owned_block_indices = list(packet.absolute_indices)
-            source_span_ids = list(packet.source_span_ids)
-            shard_payload = packet_payload
-        else:
-            shard_id = f"{workbook_slug}.ks{shard_index:04d}.nr"
-            shard_payload = KnowledgeShardJobInputV1(
-                shard_id=shard_id,
-                packets=[
-                    KnowledgePacketJobInputV1.model_validate(
-                        json.loads(
-                            (out_dir / f"{packet.packet_id}.json").read_text(encoding="utf-8")
-                        )
-                    )
-                    for packet in packet_group
-                ],
-            ).model_dump(
-                mode="json",
-                by_alias=True,
-                exclude_none=True,
-                exclude_defaults=True,
-            )
-            owned_packet_ids = [packet.packet_id for packet in packet_group]
-            owned_block_indices = sorted(
-                {
-                    index
-                    for packet in packet_group
-                    for index in packet.absolute_indices
-                }
-            )
-            source_span_ids = list(
-                dict.fromkeys(
-                    span_id
-                    for packet in packet_group
-                    for span_id in packet.source_span_ids
-                )
-            )
-        char_count = sum(packet.char_count for packet in packet_group)
         shard_entries.append(
             ShardManifestEntryV1(
-                shard_id=shard_id,
-                owned_ids=tuple(owned_packet_ids),
-                evidence_refs=tuple(f"block:{index}" for index in owned_block_indices),
-                input_payload=shard_payload,
+                shard_id=packet.packet_id,
+                owned_ids=(packet.packet_id,),
+                evidence_refs=tuple(f"block:{index}" for index in packet.absolute_indices),
+                input_payload=bundle_payload_json,
                 metadata={
-                    "packet_id": owned_packet_ids[0] if len(owned_packet_ids) == 1 else None,
-                    "packet_count": len(owned_packet_ids),
-                    "owned_packet_ids": list(owned_packet_ids),
-                    "owned_packet_count": len(owned_packet_ids),
-                    "owned_block_indices": list(owned_block_indices),
-                    "owned_block_count": len(owned_block_indices),
-                    "source_span_ids": source_span_ids,
-                    "char_count": char_count,
-                    "table_heavy": any(packet.has_table_content for packet in packet_group),
-                    "has_heading": any(packet.has_heading for packet in packet_group),
+                    "packet_id": packet.packet_id,
+                    "packet_count": 1,
+                    "owned_packet_ids": [packet.packet_id],
+                    "owned_packet_count": 1,
+                    "owned_block_indices": list(packet.absolute_indices),
+                    "owned_block_count": len(packet.absolute_indices),
+                    "source_span_ids": list(packet.source_span_ids),
+                    "char_count": packet.char_count,
+                    "table_heavy": packet.has_table_content,
+                    "has_heading": packet.has_heading,
                     "context_blocks": max(0, int(context_blocks)),
-                    "task_count": len(owned_packet_ids),
+                    "task_count": 1,
                     "task_index": 1,
                 },
             )
         )
-        bundle_counter += 1
+    written_packets: list[_PreparedKnowledgePacket] = list(sorted_packets)
 
     return KnowledgeJobBuildReport(
         seed_nonrecipe_span_count=len(candidate_spans),
         review_eligible_nonrecipe_span_count=len(candidate_spans),
         packet_count_before_partition=len(sorted_packets),
-        shards_written=bundle_counter,
+        shards_written=len(shard_entries),
         packets_written=len(written_packets),
         review_eligible_block_count=len(
             {
@@ -246,33 +206,6 @@ def build_knowledge_jobs(
         planning_warnings=planning_warnings,
         shard_entries=shard_entries,
     )
-
-
-def _partition_span_rows(
-    sequence: Sequence[Mapping[str, Any]],
-) -> list[list[dict[str, Any]]]:
-    packets: list[list[dict[str, Any]]] = []
-    current: list[dict[str, Any]] = []
-    current_chars = 0
-    for raw_row in sequence:
-        row = dict(raw_row)
-        row_char_count = len(str(row.get("text") or "").strip())
-        has_table_hint = _normalize_table_hint(row) is not None
-        would_exceed_block_cap = len(current) >= _MAX_PACKET_BLOCKS
-        would_exceed_char_cap = current and current_chars + row_char_count > _MAX_PACKET_CHARS
-        if current and (would_exceed_block_cap or would_exceed_char_cap or has_table_hint):
-            packets.append(current)
-            current = []
-            current_chars = 0
-        current.append(row)
-        current_chars += row_char_count
-        if has_table_hint:
-            packets.append(current)
-            current = []
-            current_chars = 0
-    if current:
-        packets.append(current)
-    return packets
 
 
 def _prepare_full_blocks_by_index(

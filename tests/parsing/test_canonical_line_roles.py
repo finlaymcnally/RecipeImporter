@@ -3066,8 +3066,8 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
     assert proposal_payload["payload"] == {
         "rows": [{"atomic_index": 0, "label": "OTHER"}]
     }
-    assert proposal_payload["repair_attempted"] is True
-    assert proposal_payload["repair_status"] == "failed"
+    assert proposal_payload["repair_attempted"] is False
+    assert proposal_payload["repair_status"] == "not_attempted"
     assert proposal_payload["validation_metadata"]["row_resolution"] == {
         "accepted_atomic_indices": [],
         "accepted_row_count": 0,
@@ -4920,7 +4920,7 @@ def test_label_atomic_lines_accepts_valid_workspace_outputs_without_final_messag
     assert rows[0]["final_agent_message_reason"] is None
 
 
-def test_label_atomic_lines_repairs_near_miss_invalid_shard_once(
+def test_label_atomic_lines_near_miss_invalid_shard_falls_back_without_second_model_pass(
     tmp_path,
 ) -> None:
     candidates = [
@@ -4935,11 +4935,6 @@ def test_label_atomic_lines_repairs_near_miss_invalid_shard_once(
         )
     ]
 
-    def _output_builder(payload):
-        if payload and payload.get("repair_mode") == "line_role":
-            return {"rows": [{"atomic_index": 0, "label": "OTHER"}]}
-        return {"rows": []}
-
     predictions = label_atomic_lines(
         candidates,
         _settings(
@@ -4948,7 +4943,7 @@ def test_label_atomic_lines_repairs_near_miss_invalid_shard_once(
             line_role_worker_count=1,
         ),
         artifact_root=tmp_path,
-        codex_runner=FakeCodexExecRunner(output_builder=_output_builder),
+        codex_runner=FakeCodexExecRunner(output_builder=lambda _payload: {"rows": []}),
         live_llm_allowed=True,
     )
 
@@ -4960,21 +4955,25 @@ def test_label_atomic_lines_repairs_near_miss_invalid_shard_once(
             encoding="utf-8"
         )
     )
-    assert telemetry_payload["summary"]["attempt_count"] == 2
-    assert telemetry_payload["summary"]["repaired_shard_count"] == 1
+    assert telemetry_payload["summary"]["attempt_count"] == 1
+    assert telemetry_payload["summary"]["repaired_shard_count"] == 0
     assert telemetry_payload["summary"]["invalid_output_shard_count"] == 0
 
-    repair_status_path = next(
+    proposal_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "proposals"
+            / "line-role-canonical-0001-a000000-a000000.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert proposal_payload["repair_attempted"] is False
+    assert proposal_payload["repair_status"] == "not_attempted"
+    assert not list(
         (tmp_path / "line-role-pipeline" / "runtime").rglob("repair_status.json")
     )
-    repair_status = json.loads(repair_status_path.read_text(encoding="utf-8"))
-    assert repair_status["status"] == "repaired"
-    repair_prompt = (repair_status_path.parent / "repair_prompt.txt").read_text(
-        encoding="utf-8"
-    )
-    assert "Authoritative unresolved shard rows to relabel" in repair_prompt
-    assert "Your first response must be the final JSON object." in repair_prompt
-    assert "Do not describe your plan, reasoning, or heuristics." in repair_prompt
 
     runtime_telemetry = json.loads(
         (
@@ -4989,6 +4988,143 @@ def test_label_atomic_lines_repairs_near_miss_invalid_shard_once(
     assert workspace_rows
     assert workspace_rows[0]["proposal_status"] == "invalid"
     assert workspace_rows[0]["final_proposal_status"] == "validated"
+
+
+def test_label_atomic_lines_salvages_meaningful_work_ledger_when_output_missing(
+    tmp_path: Path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:work-ledger:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"Ambiguous line {index}",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        )
+        for index in range(2)
+    ]
+
+    class _WorkOnlyRunner(FakeCodexExecRunner):
+        def run_workspace_worker(self, **kwargs):  # noqa: ANN003
+            result = super().run_workspace_worker(**kwargs)
+            worker_root = Path(kwargs["working_dir"])
+            for output_path in (worker_root / "out").glob("*.json"):
+                output_path.unlink()
+            work_path = next((worker_root / "work").glob("*.json"))
+            work_path.write_text(
+                json.dumps(
+                    {
+                        "rows": [
+                            {"atomic_index": 0, "label": "INGREDIENT_LINE"},
+                            {"atomic_index": 999, "label": "OTHER"},
+                        ]
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            return result
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-shard-v1",
+            line_role_prompt_target_count=1,
+            line_role_worker_count=1,
+        ),
+        artifact_root=tmp_path,
+        codex_batch_size=2,
+        codex_runner=_WorkOnlyRunner(
+            output_builder=lambda _payload: {
+                "rows": [
+                    {"atomic_index": 0, "label": "OTHER"},
+                    {"atomic_index": 1, "label": "OTHER"},
+                ]
+            }
+        ),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[0].label == "INGREDIENT_LINE"
+    assert predictions[0].decided_by == "codex"
+    assert predictions[1].label == "OTHER"
+    assert predictions[1].decided_by != "codex"
+
+    proposal_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "proposals"
+            / "line-role-canonical-0001-a000000-a000001.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert proposal_payload["repair_attempted"] is False
+    assert proposal_payload["repair_status"] == "not_attempted"
+    assert proposal_payload["validation_metadata"]["row_resolution"] == {
+        "accepted_atomic_indices": [0],
+        "accepted_row_count": 1,
+        "fallback_atomic_indices": [1],
+        "fallback_row_count": 1,
+        "semantic_rejected": False,
+    }
+
+
+def test_label_atomic_lines_ignores_untouched_seed_work_ledger_when_output_missing(
+    tmp_path: Path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:seed-only:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous line 0",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+
+    class _NoOutputRunner(FakeCodexExecRunner):
+        def run_workspace_worker(self, **kwargs):  # noqa: ANN003
+            result = super().run_workspace_worker(**kwargs)
+            worker_root = Path(kwargs["working_dir"])
+            for output_path in (worker_root / "out").glob("*.json"):
+                output_path.unlink()
+            return result
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-shard-v1",
+            line_role_prompt_target_count=1,
+            line_role_worker_count=1,
+        ),
+        artifact_root=tmp_path,
+        codex_runner=_NoOutputRunner(
+            output_builder=lambda _payload: {
+                "rows": [{"atomic_index": 0, "label": "INGREDIENT_LINE"}]
+            }
+        ),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[0].decided_by == "fallback"
+    proposal_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "proposals"
+            / "line-role-canonical-0001-a000000-a000000.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert proposal_payload["validation_errors"] == ["missing_output_file"]
+    assert proposal_payload["validation_metadata"]["raw_output_missing"] is True
 
 
 def test_label_atomic_lines_rejects_uniform_shard_output_and_falls_back(
@@ -5146,7 +5282,7 @@ def test_validate_line_role_payload_semantics_reports_uniform_diagnostic_against
     assert "pathological_uniform_label_output:INGREDIENT_LINE" in semantic_errors
 
 
-def test_label_atomic_lines_repairs_invalid_shard_ledgers(
+def test_label_atomic_lines_invalid_shard_ledgers_fall_back_without_structured_repair(
     tmp_path,
 ) -> None:
     candidates = [
@@ -5162,17 +5298,6 @@ def test_label_atomic_lines_repairs_invalid_shard_ledgers(
         for index in range(4)
     ]
 
-    def _output_builder(payload):
-        rows = payload.get("rows") if isinstance(payload, dict) else []
-        if payload and payload.get("repair_mode") == "line_role":
-            return {
-                "rows": [
-                    {"atomic_index": int(row[0]), "label": "OTHER"}
-                    for row in rows
-                ]
-            }
-        return {"rows": []}
-
     predictions = label_atomic_lines(
         candidates,
         _settings(
@@ -5182,25 +5307,28 @@ def test_label_atomic_lines_repairs_invalid_shard_ledgers(
         ),
         artifact_root=tmp_path,
         codex_batch_size=4,
-        codex_runner=FakeCodexExecRunner(output_builder=_output_builder),
+        codex_runner=FakeCodexExecRunner(output_builder=lambda _payload: {"rows": []}),
         live_llm_allowed=True,
     )
 
     assert [prediction.label for prediction in predictions] == ["OTHER"] * 4
 
-    repair_status_paths = sorted(
+    proposal_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "proposals"
+            / "line-role-canonical-0001-a000000-a000003.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert proposal_payload["repair_attempted"] is False
+    assert proposal_payload["repair_status"] == "not_attempted"
+    assert proposal_payload["validation_metadata"]["row_resolution"]["fallback_row_count"] == 4
+    assert not list(
         (tmp_path / "line-role-pipeline" / "runtime").rglob("repair_status.json")
     )
-    assert [path.parent.name for path in repair_status_paths] == [
-        "line-role-canonical-0001-a000000-a000003",
-    ]
-    for repair_status_path in repair_status_paths:
-        repair_status = json.loads(repair_status_path.read_text(encoding="utf-8"))
-        assert repair_status["status"] == "repaired"
-        repair_prompt_path = repair_status_path.parent / "repair_prompt.txt"
-        assert repair_prompt_path.exists()
-        repair_prompt = repair_prompt_path.read_text(encoding="utf-8")
-        assert "Authoritative unresolved shard rows to relabel" in repair_prompt
 
 
 def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_changes(

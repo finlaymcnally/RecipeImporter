@@ -703,6 +703,61 @@ def _line_role_progress_interval(total_tasks: int) -> int:
     return max(1, (total + _LINE_ROLE_PROGRESS_MAX_UPDATES - 1) // _LINE_ROLE_PROGRESS_MAX_UPDATES)
 
 
+def _load_line_role_workspace_frozen_rows(
+    *,
+    repair_path: Path,
+) -> list[dict[str, Any]] | None:
+    if not repair_path.exists():
+        return None
+    try:
+        payload = json.loads(repair_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    frozen_rows = payload.get("frozen_rows")
+    if not isinstance(frozen_rows, list):
+        return None
+    return [dict(row) for row in frozen_rows if isinstance(row, Mapping)]
+
+
+def _line_role_workspace_validation_metadata_from_frozen_rows(
+    frozen_rows: Sequence[Mapping[str, Any]] | None,
+) -> dict[str, Any]:
+    accepted_rows = [dict(row) for row in frozen_rows or [] if isinstance(row, Mapping)]
+    accepted_atomic_indices = [
+        int(row["atomic_index"])
+        for row in accepted_rows
+        if row.get("atomic_index") is not None and str(row.get("atomic_index")).strip()
+    ]
+    return {
+        "accepted_rows": accepted_rows,
+        "accepted_atomic_indices": accepted_atomic_indices,
+        "frozen_atomic_indices": accepted_atomic_indices,
+    }
+
+
+def _line_role_workspace_ledger_has_authoritative_edits(
+    *,
+    response_text: str | None,
+    shard: ShardManifestEntryV1,
+    frozen_rows: Sequence[Mapping[str, Any]] | None,
+) -> bool:
+    if frozen_rows:
+        return True
+    cleaned_response_text = str(response_text or "").strip()
+    if not cleaned_response_text:
+        return False
+    try:
+        payload = json.loads(cleaned_response_text)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(payload, Mapping):
+        return False
+    seed_payload = build_line_role_seed_output({"input_payload": shard.input_payload})
+    return payload != seed_payload
+
+
 
 
 def _looks_like_codex_exec_command(command_text: str) -> bool:
@@ -794,6 +849,18 @@ def _run_line_role_workspace_worker_assignment_v1(
     for shard in assigned_shards:
         shard_root = shard_dir / shard.shard_id
         shard_root.mkdir(parents=True, exist_ok=True)
+        for stale_artifact_name in (
+            "repair_prompt.txt",
+            "repair_events.jsonl",
+            "repair_last_message.json",
+            "repair_usage.json",
+            "repair_workspace_manifest.json",
+            "repair_live_status.json",
+            "repair_status.json",
+        ):
+            stale_artifact_path = shard_root / stale_artifact_name
+            if stale_artifact_path.exists():
+                stale_artifact_path.unlink()
         preflight_failure = _preflight_line_role_shard(shard)
         if preflight_failure is None:
             valid_shards.append(shard)
@@ -909,9 +976,12 @@ def _run_line_role_workspace_worker_assignment_v1(
         shard_row = assigned_shard_row_by_shard_id.get(shard_id)
         if shard_row is None:
             continue
-        metadata = dict(shard_row.get("metadata") or {})
         work_path = work_dir / f"{shard_id}.json"
-        _write_runtime_json(work_path, build_line_role_seed_output({"input_payload": shard.input_payload}))
+        if not work_path.exists():
+            _write_runtime_json(
+                work_path,
+                build_line_role_seed_output({"input_payload": shard.input_payload}),
+            )
         _write_worker_debug_input(
             path=in_dir / f"{shard_id}.json",
             payload=shard.input_payload,
@@ -1049,15 +1119,13 @@ def _run_line_role_workspace_worker_assignment_v1(
         shard_id = shard.shard_id
         input_path = in_dir / f"{shard_id}.json"
         debug_path = debug_dir / f"{shard_id}.json"
+        work_path = work_dir / f"{shard_id}.json"
+        repair_request_path = repair_dir / f"{shard_id}.json"
         output_path = out_dir / f"{shard_id}.json"
         response_source_path = (
             output_path if output_path.exists() else resumed_output_path_by_shard_id.get(shard_id)
         )
-        response_text = (
-            response_source_path.read_text(encoding="utf-8")
-            if response_source_path is not None and response_source_path.exists()
-            else None
-        )
+        response_text: str | None = None
         if (
             session_run_result is not None
             and shard_id in runnable_shard_ids
@@ -1096,19 +1164,66 @@ def _run_line_role_workspace_worker_assignment_v1(
             primary_row = None
             primary_runner_row = None
 
-        payload, validation_errors, validation_metadata, proposal_status = (
-            _evaluate_line_role_response_with_pathology_guard(
-                shard=shard,
-                response_text=response_text,
-                validator=validator,
-                deterministic_baseline_by_atomic_index=dict(
-                    deterministic_baseline_by_shard_id.get(shard_id) or {}
-                ),
-            )
-        )
         baseline_by_atomic_index = dict(
             deterministic_baseline_by_shard_id.get(shard_id) or {}
         )
+        frozen_rows = _load_line_role_workspace_frozen_rows(
+            repair_path=repair_request_path,
+        )
+        if response_source_path is not None and response_source_path.exists():
+            response_text = response_source_path.read_text(encoding="utf-8")
+            payload, validation_errors, validation_metadata, proposal_status = (
+                _evaluate_line_role_response_with_pathology_guard(
+                    shard=shard,
+                    response_text=response_text,
+                    validator=validator,
+                    deterministic_baseline_by_atomic_index=baseline_by_atomic_index,
+                )
+            )
+        elif work_path.exists():
+            try:
+                response_text = work_path.read_text(encoding="utf-8")
+            except OSError:
+                response_text = None
+            if not _line_role_workspace_ledger_has_authoritative_edits(
+                response_text=response_text,
+                shard=shard,
+                frozen_rows=frozen_rows,
+            ):
+                payload, validation_errors, validation_metadata, proposal_status = (
+                    _evaluate_line_role_response_with_pathology_guard(
+                        shard=shard,
+                        response_text=None,
+                        validator=validator,
+                        deterministic_baseline_by_atomic_index=baseline_by_atomic_index,
+                    )
+                )
+                if frozen_rows:
+                    validation_metadata = {
+                        **_line_role_workspace_validation_metadata_from_frozen_rows(
+                            frozen_rows
+                        ),
+                        **dict(validation_metadata or {}),
+                    }
+            else:
+                response_source_path = work_path
+                payload, validation_errors, validation_metadata, proposal_status = (
+                    _evaluate_line_role_workspace_response_with_pathology_guard(
+                        shard=shard,
+                        response_text=response_text,
+                        deterministic_baseline_by_atomic_index=baseline_by_atomic_index,
+                        frozen_rows_by_atomic_index=frozen_rows,
+                    )
+                )
+        else:
+            payload, validation_errors, validation_metadata, proposal_status = (
+                _evaluate_line_role_response_with_pathology_guard(
+                    shard=shard,
+                    response_text=None,
+                    validator=validator,
+                    deterministic_baseline_by_atomic_index=baseline_by_atomic_index,
+                )
+            )
         watchdog_retry_attempted = False
         watchdog_retry_status = "not_attempted"
         repair_attempted = False
@@ -1318,176 +1433,13 @@ def _run_line_role_workspace_worker_assignment_v1(
                         watchdog_retry_validation_metadata or {}
                     ),
                 }
-        repair_request_metadata = dict(final_validation_metadata or {})
-        if repair_request_metadata.get("semantic_rejected"):
-            repair_request_metadata["accepted_rows"] = []
-            repair_request_metadata["accepted_atomic_indices"] = []
-            repair_request_metadata["unresolved_atomic_indices"] = [
-                int(value) for value in shard.owned_ids
-            ]
-        repair_request_payload = build_line_role_repair_request_payload(
-            shard_row={"shard_id": shard_id, "input_payload": shard.input_payload},
-            metadata=repair_request_metadata,
-            validation_errors=final_validation_errors,
-        )
-        if (
-            shard_id in runnable_shard_ids
-            and _should_attempt_line_role_repair(
-                proposal_status=proposal_status,
-                validation_errors=validation_errors,
+        if frozen_rows:
+            frozen_row_metadata = _line_role_workspace_validation_metadata_from_frozen_rows(
+                frozen_rows
             )
-            and list(repair_request_payload.get("rows") or [])
-        ):
-            repair_attempted = True
-            repair_live_status_path = task_root / "repair_live_status.json"
-            repair_run_result = _run_line_role_repair_attempt(
-                runner=runner,
-                worker_root=worker_root,
-                shard=shard,
-                repair_request_payload=repair_request_payload,
-                env=env,
-                output_schema_path=output_schema_path,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                original_response_text=str(response_text or ""),
-                validation_errors=validation_errors,
-                timeout_seconds=timeout_seconds,
-                pipeline_id=pipeline_id,
-                worker_id=assignment.worker_id,
-                live_status_path=repair_live_status_path,
-            )
-            _finalize_live_status(
-                repair_live_status_path,
-                run_result=repair_run_result,
-                watchdog_policy=_STRICT_JSON_WATCHDOG_POLICY,
-            )
-            (task_root / "repair_events.jsonl").write_text(
-                _render_codex_events_jsonl(repair_run_result.events),
-                encoding="utf-8",
-            )
-            _write_runtime_json(
-                task_root / "repair_last_message.json",
-                {"text": repair_run_result.response_text},
-            )
-            _write_runtime_json(
-                task_root / "repair_usage.json",
-                dict(repair_run_result.usage or {}),
-            )
-            _write_runtime_json(
-                task_root / "repair_workspace_manifest.json",
-                repair_run_result.workspace_manifest(),
-            )
-            repair_runner_payload = _build_line_role_inline_attempt_runner_payload(
-                pipeline_id=pipeline_id,
-                worker_id=assignment.worker_id,
-                shard_id=shard_id,
-                run_result=repair_run_result,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                prompt_input_mode="inline_repair",
-            )
-            repair_runner_payload["process_payload"]["runtime_shard_id"] = shard_id
-            repair_runner_payload["process_payload"]["runtime_parent_shard_id"] = shard_id
-            worker_runner_results.append(dict(repair_runner_payload))
-            repair_telemetry = repair_runner_payload.get("telemetry")
-            repair_row_payloads = (
-                repair_telemetry.get("rows")
-                if isinstance(repair_telemetry, dict)
-                else None
-            )
-            repair_primary_row = None
-            if isinstance(repair_row_payloads, list):
-                for row_payload in repair_row_payloads:
-                    if isinstance(row_payload, dict):
-                        stage_rows.append(dict(row_payload))
-                if stage_rows:
-                    repair_primary_row = stage_rows[-1]
-            repair_primary_runner_row = (
-                repair_row_payloads[0]
-                if isinstance(repair_row_payloads, list)
-                and repair_row_payloads
-                and isinstance(repair_row_payloads[0], dict)
-                else None
-            )
-            repair_shard = ShardManifestEntryV1(
-                shard_id=shard.shard_id,
-                owned_ids=tuple(
-                    str(value)
-                    for value in repair_request_payload.get("unresolved_atomic_indices", [])
-                ),
-                input_payload={"rows": list(repair_request_payload.get("rows") or [])},
-                metadata={"phase_key": "line_role_repair_patch"},
-            )
-            repair_payload, repair_validation_errors, repair_validation_metadata, repair_proposal_status = (
-                _evaluate_line_role_response(
-                    shard=repair_shard,
-                    response_text=repair_run_result.response_text,
-                    validator=validator,
-                )
-            )
-            repair_status = (
-                "repaired"
-                if repair_payload is not None and repair_proposal_status == "validated"
-                else "failed"
-            )
-            final_validation_errors = tuple(repair_validation_errors)
-            _write_runtime_json(
-                task_root / "repair_status.json",
-                {
-                    "status": repair_status,
-                    "repair_validation_errors": list(final_validation_errors),
-                    "repair_validation_metadata": dict(repair_validation_metadata or {}),
-                    "state": repair_run_result.supervision_state or "completed",
-                    "reason_code": repair_run_result.supervision_reason_code,
-                    "reason_detail": repair_run_result.supervision_reason_detail,
-                    "retryable": repair_run_result.supervision_retryable,
-                },
-            )
-            if repair_primary_row is not None:
-                repair_primary_row["proposal_status"] = repair_proposal_status
-                _annotate_line_role_final_proposal_status(
-                    repair_primary_row,
-                    final_proposal_status=repair_proposal_status,
-                )
-                repair_primary_row["repair_status"] = repair_status
-                repair_primary_row["runtime_shard_id"] = shard_id
-                repair_primary_row["runtime_parent_shard_id"] = shard_id
-            if repair_primary_runner_row is not None:
-                repair_primary_runner_row["proposal_status"] = repair_proposal_status
-                _annotate_line_role_final_proposal_status(
-                    repair_primary_runner_row,
-                    final_proposal_status=repair_proposal_status,
-                )
-                repair_primary_runner_row["repair_status"] = repair_status
-                repair_primary_runner_row["runtime_shard_id"] = shard_id
-                repair_primary_runner_row["runtime_parent_shard_id"] = shard_id
-            main_accepted_rows = [
-                dict(row)
-                for row in repair_request_metadata.get("accepted_rows", [])
-                if isinstance(row, Mapping)
-            ]
-            repair_accepted_rows = [
-                dict(row)
-                for row in (repair_validation_metadata or {}).get("accepted_rows", [])
-                if isinstance(row, Mapping)
-            ]
-            merged_accepted_rows = {
-                int(row["atomic_index"]): dict(row)
-                for row in [*main_accepted_rows, *repair_accepted_rows]
-                if row.get("atomic_index") is not None
-                and str(row.get("atomic_index")).strip()
-            }
-            merged_validation_metadata = {
-                **repair_request_metadata,
-                "accepted_rows": [
-                    merged_accepted_rows[index]
-                    for index in sorted(merged_accepted_rows)
-                ],
-                "accepted_atomic_indices": sorted(merged_accepted_rows),
-                "repair_validation_errors": list(final_validation_errors),
-                "repair_validation_metadata": dict(repair_validation_metadata or {}),
-            }
-            final_validation_metadata = merged_validation_metadata
+            final_validation_metadata = dict(final_validation_metadata or {})
+            for metadata_key, metadata_value in frozen_row_metadata.items():
+                final_validation_metadata.setdefault(metadata_key, metadata_value)
         row_resolution_payload, row_resolution_metadata = _build_line_role_row_resolution(
             shard=shard,
             validation_metadata=final_validation_metadata,
@@ -1965,14 +1917,11 @@ def _run_line_role_direct_workers_v1(
         repair_completed = 0
         repair_running = 0
         for task_id in task_ids_by_worker.get(worker_id, ()):
-            task_root = run_root / "workers" / worker_id / "shards" / task_id
-            repair_prompt_path = task_root / "repair_status.json"
-            repair_status_path = task_root / "repair_status.json"
-            if repair_prompt_path.exists():
+            repair_request_path = (
+                run_root / "workers" / worker_id / "repair" / f"{task_id}.json"
+            )
+            if repair_request_path.exists():
                 repair_attempted += 1
-            if repair_status_path.exists():
-                repair_completed += 1
-            elif repair_prompt_path.exists():
                 repair_running += 1
         return repair_attempted, repair_completed, repair_running
 
@@ -2920,65 +2869,6 @@ def _should_attempt_line_role_repair(
     return False
 
 
-def _run_line_role_repair_attempt(
-    *,
-    runner: CodexExecRunner,
-    worker_root: Path,
-    shard: ShardManifestEntryV1,
-    repair_request_payload: Mapping[str, Any],
-    env: Mapping[str, str],
-    output_schema_path: Path | None,
-    model: str | None,
-    reasoning_effort: str | None,
-    original_response_text: str,
-    validation_errors: Sequence[str],
-    timeout_seconds: int | None,
-    pipeline_id: str,
-    worker_id: str,
-    live_status_path: Path | None = None,
-) -> CodexExecRunResult:
-    prompt_text = _build_line_role_repair_prompt(
-        shard=shard,
-        repair_request_payload=repair_request_payload,
-        original_response_text=original_response_text,
-        validation_errors=validation_errors,
-    )
-    shard_root = worker_root / "shards" / shard.shard_id
-    shard_root.mkdir(parents=True, exist_ok=True)
-    (shard_root / "repair_prompt.txt").write_text(prompt_text, encoding="utf-8")
-    return runner.run_structured_prompt(
-        prompt_text=prompt_text,
-        input_payload={
-            "repair_mode": "line_role",
-            "pipeline_id": pipeline_id,
-            "worker_id": worker_id,
-            "v": _LINE_ROLE_MODEL_PAYLOAD_VERSION,
-            "shard_id": shard.shard_id,
-            "rows": list(repair_request_payload.get("rows") or []),
-            "owned_ids": list(repair_request_payload.get("unresolved_atomic_indices") or []),
-            "frozen_rows": [
-                dict(row)
-                for row in repair_request_payload.get("frozen_rows", [])
-                if isinstance(row, Mapping)
-            ],
-            "validation_errors": list(validation_errors),
-            "previous_output": _truncate_repair_text(original_response_text),
-        },
-        working_dir=worker_root,
-        env=env,
-        output_schema_path=output_schema_path,
-        model=model,
-        reasoning_effort=reasoning_effort,
-        timeout_seconds=timeout_seconds,
-        workspace_task_label="canonical line-role repair shard",
-        supervision_callback=(
-            _build_strict_json_watchdog_callback(live_status_path=live_status_path)
-            if live_status_path is not None
-            else None
-        ),
-    )
-
-
 def _run_line_role_watchdog_retry_attempt(
     *,
     runner: CodexExecRunner,
@@ -3093,67 +2983,6 @@ def _build_line_role_watchdog_retry_prompt(
     )
 
 
-def _build_line_role_repair_prompt(
-    *,
-    shard: ShardManifestEntryV1,
-    repair_request_payload: Mapping[str, Any],
-    original_response_text: str,
-    validation_errors: Sequence[str],
-) -> str:
-    owned_ids = ", ".join(
-        str(value) for value in repair_request_payload.get("unresolved_atomic_indices") or []
-    )
-    allowed_labels = ", ".join(FREEFORM_ALLOWED_LABELS)
-    label_code_legend = _render_label_code_legend(
-        build_line_role_label_code_by_label(FREEFORM_LABELS)
-    )
-    authoritative_rows = "\n".join(
-        json.dumps(list(row), ensure_ascii=False)
-        for row in repair_request_payload.get("rows") or []
-        if isinstance(row, (list, tuple))
-    ) or "[no unresolved rows]"
-    frozen_rows = "\n".join(
-        json.dumps(dict(row), ensure_ascii=False, sort_keys=True)
-        for row in repair_request_payload.get("frozen_rows") or []
-        if isinstance(row, Mapping)
-    ) or "[no frozen accepted rows]"
-    return (
-        "Repair the invalid canonical line-role shard output.\n\n"
-        "Rules:\n"
-        "- Return strict JSON only.\n"
-        "- Do not run shell commands, Python, or any other tools.\n"
-        "- Do not describe your plan, reasoning, or heuristics.\n"
-        "- Do not think step-by-step out loud.\n"
-        "- The first emitted character must be `{`.\n"
-        "- Your first response must be the final JSON object.\n"
-        "- Return one JSON object shaped like {\"rows\":[{\"atomic_index\":<int>,\"label\":\"<ALLOWED_LABEL>\"}]}.\n"
-        f"- Return only the unresolved atomic_index rows, exactly once each, in input order: {owned_ids}\n"
-        f"- Allowed labels: {allowed_labels}\n"
-        "- Use only the keys `rows`, `atomic_index`, and `label`.\n\n"
-        f"Label code legend: {label_code_legend}\n"
-        "- Treat each row's `label_code` as a weak deterministic hint only, not final truth.\n"
-        "- `INGREDIENT_LINE` means quantity/unit ingredients or bare ingredient-list items.\n"
-        "- `INSTRUCTION_LINE` means a recipe-local procedural step, not generic cooking advice.\n"
-        "- `HOWTO_SECTION` means a recipe-internal subsection heading, not a chapter or topic heading.\n"
-        "- `KNOWLEDGE` is only for recipe-local explanatory/reference prose here; outside-recipe useful prose should stay `OTHER` for the later knowledge stage.\n"
-        "- `OTHER` means navigation, memoir, decorative matter, or other non-structure text.\n\n"
-        "Frozen accepted rows that must not be reopened:\n"
-        "<BEGIN_FROZEN_ACCEPTED_ROWS>\n"
-        f"{frozen_rows}\n"
-        "<END_FROZEN_ACCEPTED_ROWS>\n\n"
-        "Authoritative unresolved shard rows to relabel (each row is [atomic_index, label_code, current_line]):\n"
-        "<BEGIN_AUTHORITATIVE_ROWS>\n"
-        f"{authoritative_rows}\n"
-        "<END_AUTHORITATIVE_ROWS>\n\n"
-        "Return only a repair patch for those unresolved rows. Do not copy the previous output and do not repeat frozen rows.\n\n"
-        f"Validator errors: {json.dumps(list(validation_errors), sort_keys=True)}\n\n"
-        "Previous invalid output:\n"
-        "<BEGIN_PREVIOUS_OUTPUT>\n"
-        f"{_truncate_repair_text(original_response_text)}\n"
-        "<END_PREVIOUS_OUTPUT>\n"
-    )
-
-
 def _build_line_role_inline_attempt_runner_payload(
     *,
     pipeline_id: str,
@@ -3189,12 +3018,6 @@ def _build_line_role_inline_attempt_runner_payload(
     }
     return payload
 
-
-def _truncate_repair_text(text: str, *, max_chars: int = 20_000) -> str:
-    cleaned = str(text or "").strip()
-    if len(cleaned) <= max_chars:
-        return cleaned
-    return cleaned[: max_chars - 15].rstrip() + "\n...[truncated]"
 
 def _write_line_role_telemetry_summary(
     *,

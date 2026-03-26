@@ -188,7 +188,7 @@ Interactive `Import` and benchmark runs (`single_book` + matched-books) ask:
   - import reuses the submenu with recipe + knowledge only because stage call adapters do not carry `line_role_pipeline` or `atomic_block_splitter`
   - benchmark modes expose block labelling because benchmark call builders do carry those fields
 - when any codex-backed surface is selected, chooser then asks:
-  - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models, fallback `gpt-5.3-codex`)
+  - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models only; no repo-invented fallback model id)
   - `Codex Farm reasoning effort override` (`Pipeline default` plus the selected discovered model's supported efforts when metadata is available)
 
 Resolved profile families:
@@ -1057,6 +1057,8 @@ Options:
 - `--speedsuite-codex-farm-confirmation TEXT`: required with `--include-codex-farm`; must be `I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - `--codex-farm-model TEXT`: optional Codex Farm model override (blank keeps pipeline defaults).
 - `--codex-farm-thinking-effort|--codex-farm-reasoning-effort TEXT`: optional Codex Farm reasoning-effort override (`none|minimal|low|medium|high|xhigh`) (blank keeps pipeline defaults).
+
+`cookimport labelstudio-import` also exposes `--upload-batch-size INTEGER` (default `200`) so Label Studio task uploads can be chunked without changing `cookimport/labelstudio/ingest_flows/upload.py`.
 
 ### `cookimport bench speed-compare`
 

@@ -370,10 +370,6 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                                 normalized_supported_efforts
                             )
                     seen_model_ids.add(model_id)
-                if not seen_model_ids:
-                    model_choices.append(
-                        questionary.Choice("gpt-5.3-codex", value="gpt-5.3-codex")
-                    )
                 model_choices.append(
                     questionary.Choice("custom model id...", value="__custom__")
                 )

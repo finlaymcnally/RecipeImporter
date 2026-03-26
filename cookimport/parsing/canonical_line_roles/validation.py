@@ -14,10 +14,15 @@ globals().update(
 def _validate_line_role_shard_proposal(
     shard: ShardManifestEntryV1,
     payload: dict[str, Any],
+    *,
+    frozen_rows_by_atomic_index: Mapping[int, Mapping[str, Any]]
+    | Sequence[Mapping[str, Any]]
+    | None = None,
 ) -> tuple[bool, Sequence[str], dict[str, Any] | None]:
     errors, metadata = validate_line_role_output_payload(
         {"input_payload": shard.input_payload},
         payload,
+        frozen_rows_by_atomic_index=frozen_rows_by_atomic_index,
     )
     mapped_errors: list[str] = []
     row_errors_by_atomic_index = {
@@ -206,6 +211,48 @@ def _evaluate_line_role_response_with_pathology_guard(
             shard=shard,
             response_text=response_text,
             validator=validator,
+        )
+    )
+    if proposal_status != "validated" or payload is None:
+        return payload, validation_errors, validation_metadata, proposal_status
+    semantic_errors, semantic_metadata = _validate_line_role_payload_semantics(
+        payload=payload,
+        deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
+    )
+    if semantic_metadata:
+        validation_metadata = {
+            **dict(validation_metadata or {}),
+            "semantic_validation": semantic_metadata,
+        }
+    if semantic_errors:
+        validation_metadata = {
+            **dict(validation_metadata or {}),
+            "semantic_diagnostics": list(semantic_errors),
+            "semantic_rejected": True,
+        }
+        validation_errors = tuple([*validation_errors, *semantic_errors])
+        proposal_status = "invalid"
+    return payload, validation_errors, validation_metadata, proposal_status
+
+
+def _evaluate_line_role_workspace_response_with_pathology_guard(
+    *,
+    shard: ShardManifestEntryV1,
+    response_text: str | None,
+    deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
+    frozen_rows_by_atomic_index: Mapping[int, Mapping[str, Any]]
+    | Sequence[Mapping[str, Any]]
+    | None = None,
+) -> tuple[dict[str, Any] | None, tuple[str, ...], dict[str, Any], str]:
+    payload, validation_errors, validation_metadata, proposal_status = (
+        _evaluate_line_role_response(
+            shard=shard,
+            response_text=response_text,
+            validator=lambda proposal_shard, proposal_payload: _validate_line_role_shard_proposal(
+                proposal_shard,
+                proposal_payload,
+                frozen_rows_by_atomic_index=frozen_rows_by_atomic_index,
+            ),
         )
     )
     if proposal_status != "validated" or payload is None:

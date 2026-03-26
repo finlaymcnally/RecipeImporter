@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import logging
 import re
+from bisect import bisect_right
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
@@ -142,13 +143,29 @@ def _raw_location_id(prefix: str, index: int) -> str:
 
 def _chunk_source_support(
     chunks: list[tuple[str, tuple[int, int]]],
+    *,
+    raw_lines: list[str],
 ) -> list[SourceSupport]:
+    block_ids_by_line: list[str | None] = []
+    next_block_index = 0
+    for line in raw_lines:
+        text = cleaning.normalize_text(str(line or ""))
+        if not text:
+            block_ids_by_line.append(None)
+            continue
+        block_ids_by_line.append(f"b{next_block_index}")
+        next_block_index += 1
+
     support: list[SourceSupport] = []
     for chunk_index, (_chunk_text, line_range) in enumerate(chunks):
         start_line, end_line = line_range
         start_index = max(0, int(start_line) - 1)
-        end_index = max(start_index, int(end_line))
-        block_ids = [f"b{line_index}" for line_index in range(start_index, end_index)]
+        end_index = min(len(block_ids_by_line), max(start_index, int(end_line)))
+        block_ids = [
+            block_id
+            for block_id in block_ids_by_line[start_index:end_index]
+            if block_id is not None
+        ]
         if not block_ids:
             continue
         support.append(
@@ -184,6 +201,56 @@ def _source_blocks_from_text_lines(lines: list[str]) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def _line_start_offsets(text: str) -> list[int]:
+    starts = [0]
+    for index, char in enumerate(text):
+        if char == "\n":
+            starts.append(index + 1)
+    return starts
+
+
+def _trimmed_char_range(
+    text: str,
+    *,
+    start_char: int,
+    end_char: int,
+) -> tuple[int, int] | None:
+    start = max(0, min(len(text), int(start_char)))
+    end = max(start, min(len(text), int(end_char)))
+    while start < end and text[start].isspace():
+        start += 1
+    while end > start and text[end - 1].isspace():
+        end -= 1
+    if start >= end:
+        return None
+    return start, end
+
+
+def _line_number_for_char_offset(line_starts: list[int], offset: int) -> int:
+    return bisect_right(line_starts, offset) - 1
+
+
+def _chunk_from_char_range(
+    text: str,
+    *,
+    start_char: int,
+    end_char: int,
+    line_starts: list[int],
+) -> tuple[str, tuple[int, int]] | None:
+    trimmed_range = _trimmed_char_range(
+        text,
+        start_char=start_char,
+        end_char=end_char,
+    )
+    if trimmed_range is None:
+        return None
+    trimmed_start, trimmed_end = trimmed_range
+    chunk = text[trimmed_start:trimmed_end]
+    start_line = _line_number_for_char_offset(line_starts, trimmed_start) + 1
+    end_line = _line_number_for_char_offset(line_starts, trimmed_end - 1) + 1
+    return chunk, (start_line, end_line)
 
 
 def _docx_table_row_text(
@@ -531,7 +598,10 @@ class TextImporter:
             source_blocks = normalize_source_blocks(
                 _source_blocks_from_text_lines(raw_text.splitlines())
             )
-            source_support = _chunk_source_support(chunks)
+            source_support = _chunk_source_support(
+                chunks,
+                raw_lines=raw_text.splitlines(),
+            )
             report.total_recipes = 0
             return ConversionResult(
                 recipes=[],
@@ -901,38 +971,55 @@ class TextImporter:
 
     def _split_by_regex(self, text: str, pattern: re.Pattern) -> List[Tuple[str, Tuple[int, int]]]:
         chunks = []
-        last_end = 0
-        lines = text.splitlines(keepends=True)
-        # Mapping char index to line number is expensive, so we'll approximate or do it if needed.
-        # For now, let's just split string and estimate lines.
-        
-        # Actually, let's use re.split logic but keep offsets
+        line_starts = _line_start_offsets(text)
         matches = list(pattern.finditer(text))
         if not matches:
-             return [(text, (1, len(lines)))]
-             
+            total_lines = max(1, len(text.splitlines()))
+            return [(text, (1, total_lines))]
+
         current_start = 0
         for match in matches:
-            chunk = text[current_start:match.start()].strip()
-            if chunk:
-                 # TODO: Calculate accurate line numbers
-                 chunks.append((chunk, (0, 0))) 
+            chunk = _chunk_from_char_range(
+                text,
+                start_char=current_start,
+                end_char=match.start(),
+                line_starts=line_starts,
+            )
+            if chunk is not None:
+                chunks.append(chunk)
             current_start = match.end()
-            
-        last_chunk = text[current_start:].strip()
-        if last_chunk:
-            chunks.append((last_chunk, (0, 0)))
-            
+
+        last_chunk = _chunk_from_char_range(
+            text,
+            start_char=current_start,
+            end_char=len(text),
+            line_starts=line_starts,
+        )
+        if last_chunk is not None:
+            chunks.append(last_chunk)
+
         return chunks
 
     def _split_by_positions(self, text: str, positions: List[int]) -> List[Tuple[str, Tuple[int, int]]]:
         chunks = []
-        for i in range(len(positions)):
-            start = positions[i]
-            end = positions[i+1] if i + 1 < len(positions) else len(text)
-            chunk = text[start:end].strip()
-            if chunk:
-                chunks.append((chunk, (0, 0)))
+        line_starts = _line_start_offsets(text)
+        cleaned_positions = sorted(
+            {
+                max(0, min(len(text), int(position)))
+                for position in positions
+            }
+        )
+        for i in range(len(cleaned_positions)):
+            start = cleaned_positions[i]
+            end = cleaned_positions[i + 1] if i + 1 < len(cleaned_positions) else len(text)
+            chunk = _chunk_from_char_range(
+                text,
+                start_char=start,
+                end_char=end,
+                line_starts=line_starts,
+            )
+            if chunk is not None:
+                chunks.append(chunk)
         return chunks
 
     def _split_by_line_indices(

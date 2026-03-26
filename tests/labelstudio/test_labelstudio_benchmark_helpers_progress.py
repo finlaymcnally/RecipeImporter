@@ -86,6 +86,15 @@ def test_extract_progress_counter_uses_right_most_counter() -> None:
     assert cli._extract_progress_counter("Phase done.") is None
 
 
+def test_extract_progress_stage_label_strips_line_role_shard_suffix() -> None:
+    assert (
+        cli._extract_progress_stage_label(
+            "Running canonical line-role pipeline... shard 2/4 | running 3"
+        )
+        == "Running canonical line-role pipeline..."
+    )
+
+
 def test_extract_all_method_dashboard_metrics_from_task_line() -> None:
     message = (
         "overall source 5/7 | config 71/91\n"
@@ -1174,9 +1183,9 @@ def test_run_with_progress_status_shows_eta_for_canonical_line_role_progress(
     monkeypatch.setattr(cli.console, "status", capture)
 
     def _run(update_progress):
-        update_progress("Running canonical line-role pipeline... task 1/4 | running 4")
+        update_progress("Running canonical line-role pipeline... shard 1/4 | running 4")
         time.sleep(0.06)
-        update_progress("Running canonical line-role pipeline... task 2/4 | running 3")
+        update_progress("Running canonical line-role pipeline... shard 2/4 | running 3")
         return {"ok": True}
 
     result = cli._run_with_progress_status(
@@ -1196,7 +1205,7 @@ def test_run_with_progress_status_shows_eta_for_canonical_line_role_progress(
     )
 
 
-def test_run_with_progress_status_shows_worker_rows_for_generic_running_task_progress(
+def test_run_with_progress_status_shows_worker_rows_for_canonical_line_role_shard_progress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _FakeStatus:
@@ -1224,7 +1233,7 @@ def test_run_with_progress_status_shows_worker_rows_for_generic_running_task_pro
     monkeypatch.setattr(cli.console, "status", capture)
 
     def _run(update_progress):
-        update_progress("Running canonical line-role pipeline... task 1/4 | running 4")
+        update_progress("Running canonical line-role pipeline... shard 1/4 | running 4")
         return {"ok": True}
 
     result = cli._run_with_progress_status(

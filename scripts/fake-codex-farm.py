@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -138,6 +139,89 @@ def _read_workspace_manifest_rows(workspace_root: Path) -> list[dict[str, Any]]:
     return []
 
 
+def _write_workspace_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _build_knowledge_pass1_work_payload(
+    *,
+    input_payload: dict[str, Any],
+    output_payload: dict[str, Any],
+) -> dict[str, Any]:
+    decision_by_block_index = {
+        int(row.get("block_index")): str(row.get("category") or "").strip()
+        for row in (output_payload.get("block_decisions") or [])
+        if isinstance(row, dict) and row.get("block_index") is not None
+    }
+    rows: list[dict[str, Any]] = []
+    for block in (input_payload.get("b") or []):
+        if not isinstance(block, dict) or block.get("i") is None:
+            continue
+        block_index = int(block.get("i"))
+        rows.append(
+            {
+                "block_index": block_index,
+                "category": decision_by_block_index.get(block_index, "other") or "other",
+            }
+        )
+    return {"phase": "pass1", "rows": rows}
+
+
+def _build_knowledge_pass2_work_payload(
+    *,
+    pass2_input_payload: dict[str, Any],
+    output_payload: dict[str, Any],
+) -> dict[str, Any]:
+    group_by_block_index: dict[int, dict[str, str]] = {}
+    for group in (output_payload.get("idea_groups") or []):
+        if not isinstance(group, dict):
+            continue
+        group_id = str(group.get("group_id") or "").strip()
+        topic_label = str(group.get("topic_label") or "").strip()
+        if not group_id or not topic_label:
+            continue
+        for block_index in group.get("block_indices") or []:
+            try:
+                normalized_block_index = int(block_index)
+            except (TypeError, ValueError):
+                continue
+            group_by_block_index[normalized_block_index] = {
+                "group_id": group_id,
+                "topic_label": topic_label,
+            }
+    rows: list[dict[str, Any]] = []
+    for row in (pass2_input_payload.get("rows") or []):
+        if not isinstance(row, dict) or row.get("block_index") is None:
+            continue
+        block_index = int(row.get("block_index"))
+        group = group_by_block_index.get(block_index)
+        if group is None:
+            group = {"group_id": f"g{len(rows) + 1:02d}", "topic_label": "Ungrouped"}
+        rows.append(
+            {
+                "block_index": block_index,
+                "group_id": group["group_id"],
+                "topic_label": group["topic_label"],
+            }
+        )
+    return {"phase": "pass2", "rows": rows}
+
+
+def _run_workspace_helper_command(
+    *,
+    workspace_root: Path,
+    args: tuple[str, ...],
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        list(args),
+        cwd=workspace_root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
 def _infer_exec_pipeline_id(prompt_text: str, *, output_schema_path: str) -> str:
     if output_schema_path:
         return _pipeline_id_for_exec_schema(output_schema_path)
@@ -165,21 +249,76 @@ def _run_workspace_worker_exec(
     in_dir = workspace_root / "in"
     out_dir = workspace_root / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
+    knowledge_helper_path = workspace_root / "tools" / "knowledge_worker.py"
+    current_phase_path = workspace_root / "current_phase.json"
 
     processed_any = False
-    for row in assigned_payload:
-        shard_id = str(row.get("task_id") or row.get("shard_id") or "").strip()
-        if not shard_id:
-            continue
-        input_payload = _read_json(in_dir / f"{shard_id}.json")
-        if input_payload is None:
-            continue
-        output_payload = build_structural_pipeline_output(pipeline_id, input_payload)
-        (out_dir / f"{shard_id}.json").write_text(
-            json.dumps(output_payload, sort_keys=True),
-            encoding="utf-8",
-        )
-        processed_any = True
+    if (
+        pipeline_id in {"recipe.knowledge.v1", "recipe.knowledge.compact.v1", "recipe.knowledge.packet.v1"}
+        and knowledge_helper_path.is_file()
+        and current_phase_path.is_file()
+    ):
+        helper_args = (sys.executable, "tools/knowledge_worker.py")
+        for row in assigned_payload:
+            shard_id = str(row.get("task_id") or row.get("shard_id") or "").strip()
+            if not shard_id:
+                continue
+            input_payload = _read_json(in_dir / f"{shard_id}.json")
+            if input_payload is None:
+                continue
+            output_payload = build_structural_pipeline_output(pipeline_id, input_payload)
+            _write_workspace_json(
+                workspace_root / "work" / f"{shard_id}.pass1.json",
+                _build_knowledge_pass1_work_payload(
+                    input_payload=input_payload,
+                    output_payload=output_payload,
+                ),
+            )
+            for command in ("check-phase", "install-phase"):
+                completed = _run_workspace_helper_command(
+                    workspace_root=workspace_root,
+                    args=(*helper_args, command),
+                )
+                if completed.returncode != 0:
+                    raise SystemExit(
+                        "fake workspace knowledge helper failed during "
+                        f"{command}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+                    )
+            pass2_input_payload = _read_json(in_dir / f"{shard_id}.pass2.json")
+            if pass2_input_payload is None:
+                raise SystemExit(f"missing generated pass2 input for {shard_id}")
+            _write_workspace_json(
+                workspace_root / "work" / f"{shard_id}.pass2.json",
+                _build_knowledge_pass2_work_payload(
+                    pass2_input_payload=pass2_input_payload,
+                    output_payload=output_payload,
+                ),
+            )
+            for command in ("check-phase", "install-phase"):
+                completed = _run_workspace_helper_command(
+                    workspace_root=workspace_root,
+                    args=(*helper_args, command),
+                )
+                if completed.returncode != 0:
+                    raise SystemExit(
+                        "fake workspace knowledge helper failed during "
+                        f"{command}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+                    )
+            processed_any = True
+    else:
+        for row in assigned_payload:
+            shard_id = str(row.get("task_id") or row.get("shard_id") or "").strip()
+            if not shard_id:
+                continue
+            input_payload = _read_json(in_dir / f"{shard_id}.json")
+            if input_payload is None:
+                continue
+            output_payload = build_structural_pipeline_output(pipeline_id, input_payload)
+            (out_dir / f"{shard_id}.json").write_text(
+                json.dumps(output_payload, sort_keys=True),
+                encoding="utf-8",
+            )
+            processed_any = True
 
     if not processed_any:
         return False

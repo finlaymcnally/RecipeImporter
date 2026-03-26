@@ -227,6 +227,7 @@ def test_labelstudio_import_routes_freeform_focus_and_target_options(
     assert captured["segment_overlap"] == 5
     assert captured["segment_focus_blocks"] == 28
     assert captured["target_task_count"] == 55
+    assert captured["upload_batch_size"] == 200
     assert captured["prelabel_timeout_seconds"] == cli.DEFAULT_PRELABEL_TIMEOUT_SECONDS
 
 def test_discover_freeform_gold_exports_orders_newest_first(tmp_path: Path) -> None:

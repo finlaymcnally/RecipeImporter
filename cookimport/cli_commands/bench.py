@@ -90,7 +90,11 @@ def register(app: typer.Typer) -> dict[str, object]:
         model: str | None = typer.Option(
             None,
             "--model",
-            help="Oracle model used for browser uploads. Defaults to the genuine model lane, or the test lane when helper-mode env is set.",
+            help=(
+                "Oracle lane or literal model override for browser uploads. "
+                "Preferred values are instant, pro, or thinking. "
+                "Defaults to pro, or instant when helper-mode env is set."
+            ),
         ),
         profile: str = typer.Option(
             "all",
@@ -176,7 +180,10 @@ def register(app: typer.Typer) -> dict[str, object]:
         model: str | None = typer.Option(
             None,
             "--model",
-            help="Oracle model used for the follow-up continuation turn. Defaults to the genuine model lane.",
+            help=(
+                "Oracle lane or literal model override for the follow-up continuation turn. "
+                "Preferred values are instant, pro, or thinking. Defaults to pro."
+            ),
         ),
     ) -> None:
         """Build a follow-up packet from an Oracle review and continue the same chat."""
@@ -230,7 +237,9 @@ def register(app: typer.Typer) -> dict[str, object]:
         model: str | None = typer.Option(
             None,
             "--model",
-            help="Oracle model used for the automatic follow-up continuation turn.",
+            help=(
+                "Oracle lane or literal model override for the automatic follow-up continuation turn."
+            ),
         ),
     ) -> None:
         """Internal worker that chains Oracle turn 2 after a completed benchmark review."""

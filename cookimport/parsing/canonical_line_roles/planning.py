@@ -517,6 +517,7 @@ def _build_line_role_workspace_worker_prompt(
         "- The normal path is repo-written already: open the current work ledger named in `current_phase.json`, then `hints/<shard_id>.md`; open `in/<shard_id>.json` only when the work ledger or hint is insufficient.\n"
         "- Run `python3 tools/line_role_worker.py check-phase` after editing the work ledger. If `CURRENT_PHASE_FEEDBACK.md` names a repair file, fix only those unresolved rows in the existing work ledger.\n"
         "- Run `python3 tools/line_role_worker.py install-phase` only after the current work ledger validates cleanly. Installing advances the phase surface to the next shard when one remains.\n"
+        "- There is no separate repo-owned repair model pass for line-role. The active workspace ledger is the authoritative fix loop.\n"
         "- Accepted rows are meant to stay frozen. Do not reopen already-installed shard ledgers just to hunt for novelty.\n"
         "- After the last shard is installed, send one brief completion message naming the finished outputs and then stop.\n"
         "- If `tools/line_role_worker.py` exists, use it as the paved road before inventing ad hoc shell helpers.\n"

@@ -370,6 +370,12 @@ def register(app: typer.Typer) -> dict[str, object]:
         sample: int | None = typer.Option(
             None, "--sample", min=1, help="Randomly sample N chunks."
         ),
+        upload_batch_size: int = typer.Option(
+            200,
+            "--upload-batch-size",
+            min=1,
+            help="Maximum number of tasks to send per Label Studio upload request.",
+        ),
         prelabel: bool = typer.Option(
             False,
             "--prelabel/--no-prelabel",
@@ -512,6 +518,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         label_studio_api_key = _unwrap_typer_option_default(label_studio_api_key)
         limit = _unwrap_typer_option_default(limit)
         sample = _unwrap_typer_option_default(sample)
+        upload_batch_size = _unwrap_typer_option_default(upload_batch_size)
         prelabel = _unwrap_typer_option_default(prelabel)
         prelabel_provider = _unwrap_typer_option_default(prelabel_provider)
         codex_cmd = _unwrap_typer_option_default(codex_cmd)
@@ -604,6 +611,7 @@ def register(app: typer.Typer) -> dict[str, object]:
                     label_studio_api_key=api_key,
                     limit=limit,
                     sample=sample,
+                    upload_batch_size=upload_batch_size,
                     progress_callback=update_progress,
                     prelabel=prelabel,
                     prelabel_provider=prelabel_provider,

@@ -46,6 +46,7 @@ def run_labelstudio_import(
     label_studio_api_key: str,
     limit: int | None,
     sample: int | None,
+    upload_batch_size: int = 200,
     progress_callback: Callable[[str], None] | None = None,
     workers: int = 1,
     pdf_split_workers: int = 1,
@@ -254,6 +255,8 @@ def run_labelstudio_import(
     tasks = pred["tasks"]
     label_config = pred["label_config"]
     upload_as = _normalize_prelabel_upload_as(prelabel_upload_as)
+    if int(upload_batch_size) < 1:
+        raise ValueError("upload_batch_size must be a positive integer.")
 
     # Label Studio upload
     client = LabelStudioClient(label_studio_url, label_studio_api_key)
@@ -334,7 +337,7 @@ def run_labelstudio_import(
         else:
             upload_tasks.append(task)
 
-    batch_size = 200
+    batch_size = int(upload_batch_size)
     uploaded_count = 0
     inline_annotation_fallback = False
     inline_annotation_fallback_error: str | None = None
@@ -439,6 +442,7 @@ def run_labelstudio_import(
         "project_name": project_title,
         "project_id": project_id,
         "uploaded_task_count": uploaded_count,
+        "upload_batch_size": batch_size,
         "resume_source": resume_source,
         "label_studio_url": label_studio_url,
         "prelabel_enabled": bool(prelabel),
@@ -469,6 +473,7 @@ def run_labelstudio_import(
         "label_studio_project_name": project_title,
         "label_studio_project_id": project_id,
         "uploaded_task_count": uploaded_count,
+        "upload_batch_size": batch_size,
         "prelabel_enabled": bool(prelabel),
         "prelabel_upload_as": upload_as if prelabel else None,
         "prelabel_inline_annotations_fallback": inline_annotation_fallback,
@@ -576,5 +581,6 @@ def run_labelstudio_import(
         "prelabel_post_import_annotation_errors": post_import_annotation_errors,
         "tasks_total": pred["tasks_total"],
         "tasks_uploaded": uploaded_count,
+        "upload_batch_size": batch_size,
         "manifest_path": manifest_path,
     }

@@ -179,6 +179,7 @@ Convergence point:
 - `cookimport/core/source_model.py` owns source-model normalization, merge-safe block rebasing, and writes `raw/source/<workbook_slug>/source_blocks.jsonl` plus `source_support.json`.
 - Importers may emit proposal support such as candidate regions, but those proposals are persisted as non-authoritative support only.
 - The text multi-recipe splitter still detects likely recipe regions, including explicit divider lines such as `==== RECIPE ====`, but those regions now survive only as proposal `source_support`.
+- Text importer `candidate_recipe_region` support now carries truthful one-based `start_line` / `end_line` values and block ids for regex-delimited, markdown-header, numbered-title, and shard-span splits; blank lines and delimiter rows are excluded from `referencedBlockIds` instead of being faked as contiguous recipe content.
 - Final recipe normalization converges in `write_draft_outputs(...)` where `recipe_candidate_to_draft_v1(...)` runs shared parsing/linking transforms.
 - Knowledge chunking happens after conversion from authoritative final `non_recipe_blocks`.
 

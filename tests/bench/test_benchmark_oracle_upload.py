@@ -16,6 +16,8 @@ from cookimport.bench import oracle_upload
 
 
 runner = CliRunner()
+INSTANT_LANE = oracle_upload.ORACLE_MODEL_LANE_INSTANT
+INSTANT_MODEL = "instant-browser-model"
 
 
 @pytest.fixture(autouse=True)
@@ -23,6 +25,7 @@ def _speed_up_background_oracle_polling(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(oracle_upload, "ORACLE_BACKGROUND_SESSION_POLL_SECONDS", 0.01)
     monkeypatch.setattr(oracle_upload, "ORACLE_BACKGROUND_SESSION_POLL_INTERVAL_SECONDS", 0.0)
     monkeypatch.setattr(oracle_upload, "_detect_oracle_version", lambda: "0.8.6-test")
+    monkeypatch.setenv("ORACLE_INSTANT_MODEL", INSTANT_MODEL)
 
 
 def _make_bundle(
@@ -349,20 +352,36 @@ def test_build_oracle_benchmark_prompt_marks_test_helpers_clearly(
 def test_resolve_oracle_benchmark_model_uses_test_lane_for_helper_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("ORACLE_TEST_MODEL", "gpt-5.3-instant-test")
-    monkeypatch.setenv("ORACLE_GENUINE_MODEL", "gpt-5.4-pro-real")
+    monkeypatch.setenv("ORACLE_TEST_MODEL", INSTANT_MODEL)
     monkeypatch.setenv(oracle_upload.ORACLE_TEST_HELPER_ENV, "1")
 
-    assert oracle_upload.resolve_oracle_benchmark_model() == "gpt-5.3-instant-test"
+    assert oracle_upload.resolve_oracle_benchmark_model() == INSTANT_LANE
     assert (
-        oracle_upload.resolve_oracle_benchmark_model("gpt-explicit-override")
-        == "gpt-explicit-override"
+        oracle_upload.resolve_oracle_benchmark_model("instant")
+        == INSTANT_LANE
+    )
+    assert (
+        oracle_upload.resolve_oracle_benchmark_model("instant-explicit-override")
+        == "instant-explicit-override"
     )
 
 
-def test_oracle_browser_upload_defaults_to_explicit_pro_selection() -> None:
+def test_oracle_browser_upload_accepts_explicit_instant_selection() -> None:
     assert oracle_upload.ORACLE_BROWSER_MODEL_STRATEGY == "select"
-    assert oracle_upload.ORACLE_DEFAULT_MODEL == "gpt-5-pro"
+    assert oracle_upload.resolve_oracle_benchmark_model("instant") == INSTANT_LANE
+
+
+def test_oracle_model_helpers_keep_instant_selector_and_raw_overrides_distinct(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ORACLE_INSTANT_MODEL", INSTANT_MODEL)
+
+    assert (
+        oracle_upload.normalize_oracle_model_selector("test")
+        == INSTANT_LANE
+    )
+    assert oracle_upload.normalize_oracle_browser_model("instant") == INSTANT_MODEL
+    assert oracle_upload.normalize_oracle_browser_model("instant-browser-raw") == "instant-browser-raw"
 
 
 def test_resolve_oracle_browser_profile_dir_uses_current_profile_only(
@@ -388,7 +407,6 @@ def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -
         tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
-
     captured: dict[str, object] = {}
 
     def fake_runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -399,7 +417,7 @@ def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -
             0,
             stdout="\n".join(
                 [
-                    "oracle (gpt-5.2)",
+                    f"oracle ({INSTANT_MODEL})",
                     "Answer:",
                     f"Top regressions\n- Benchmark root: {target.source_root}",
                     "- run_count = 1",
@@ -414,6 +432,7 @@ def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -
     result = oracle_upload.run_oracle_benchmark_upload(
         target=target,
         mode="browser",
+        model="instant",
         runner=fake_runner,
     )
 
@@ -447,7 +466,7 @@ def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -
         "--browser-bundle-files",
         "--model",
     ]
-    assert command[command.index("--model") + 1] == "gpt-5.2-pro"
+    assert command[command.index("--model") + 1] == INSTANT_MODEL
     assert command.count("--file") == 4
     assert any(arg.endswith("oracle_quality_focus.md") for arg in command)
     assert any(arg.endswith("upload_bundle_overview.md") for arg in command)
@@ -474,8 +493,7 @@ def test_run_oracle_benchmark_upload_helper_mode_uses_test_model(
         tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
-    monkeypatch.setenv("ORACLE_TEST_MODEL", "gpt-5.3-instant-test")
-    monkeypatch.setenv("ORACLE_GENUINE_MODEL", "gpt-5.4-pro-real")
+    monkeypatch.setenv("ORACLE_TEST_MODEL", INSTANT_MODEL)
     monkeypatch.setenv(oracle_upload.ORACLE_TEST_HELPER_ENV, "1")
     monkeypatch.setenv(oracle_upload.ORACLE_TEST_HELPER_LABEL_ENV, "pytest helper")
 
@@ -488,7 +506,7 @@ def test_run_oracle_benchmark_upload_helper_mode_uses_test_model(
             0,
             stdout="\n".join(
                 [
-                    "oracle (gpt-5.3)",
+                    f"oracle ({INSTANT_MODEL})",
                     "Answer:",
                     "Top regressions\n- helper",
                     "Likely cause buckets\n- helper",
@@ -509,7 +527,7 @@ def test_run_oracle_benchmark_upload_helper_mode_uses_test_model(
     assert result.success is True
     command = captured["command"]
     assert isinstance(command, list)
-    assert "gpt-5.3-instant-test" in command
+    assert INSTANT_MODEL in command
     prompt = command[command.index("-p") + 1]
     assert prompt.startswith("TEST HELPER ONLY.")
     assert "pytest helper" in prompt
@@ -527,6 +545,7 @@ def test_run_oracle_benchmark_upload_adds_chatgpt_target_url_when_configured(
         "COOKIMPORT_ORACLE_CHATGPT_URL",
         "https://chatgpt.com/g/g-123/project",
     )
+    monkeypatch.setenv("ORACLE_INSTANT_MODEL", INSTANT_MODEL)
     captured: dict[str, object] = {}
 
     def fake_runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -536,7 +555,7 @@ def test_run_oracle_benchmark_upload_adds_chatgpt_target_url_when_configured(
             0,
             stdout="\n".join(
                 [
-                    "oracle (gpt-5.2)",
+                    f"oracle ({INSTANT_MODEL})",
                     "Answer:",
                     f"Top regressions\n- Benchmark root: {target.source_root}",
                     "- run_count = 1",
@@ -551,6 +570,7 @@ def test_run_oracle_benchmark_upload_adds_chatgpt_target_url_when_configured(
     result = oracle_upload.run_oracle_benchmark_upload(
         target=target,
         mode="browser",
+        model="instant",
         runner=fake_runner,
     )
 
@@ -582,6 +602,7 @@ def test_run_oracle_benchmark_upload_assembles_dry_run_command(tmp_path: Path) -
     result = oracle_upload.run_oracle_benchmark_upload(
         target=target,
         mode="dry-run",
+        model="instant",
         runner=fake_runner,
     )
 
@@ -591,7 +612,7 @@ def test_run_oracle_benchmark_upload_assembles_dry_run_command(tmp_path: Path) -
     assert isinstance(command, list)
     assert command[:6] == list(oracle_upload.ORACLE_DRY_RUN_BASE_COMMAND)
     assert "--model" in command
-    assert oracle_upload.ORACLE_DEFAULT_MODEL in command
+    assert command[command.index("--model") + 1] == "instant"
     assert command.count("--file") == 4
     assert any(arg.endswith("oracle_quality_focus.md") for arg in command)
     assert any(arg.endswith("upload_bundle_payload.jsonl") for arg in command)
@@ -620,6 +641,7 @@ def test_run_oracle_benchmark_upload_dry_run_falls_back_to_local_preview_for_lar
     result = oracle_upload.run_oracle_benchmark_upload(
         target=target,
         mode="dry-run",
+        model="instant",
     )
 
     assert result.success is True
@@ -698,7 +720,7 @@ def test_run_oracle_benchmark_upload_browser_shards_oversized_payload(
             0,
             stdout="\n".join(
                 [
-                    "oracle (gpt-5.2)",
+                    f"oracle ({INSTANT_MODEL})",
                     "Answer:",
                     f"Top regressions\n- Benchmark root: {target.source_root}",
                     "- run_count = 1",
@@ -713,6 +735,7 @@ def test_run_oracle_benchmark_upload_browser_shards_oversized_payload(
     result = oracle_upload.run_oracle_benchmark_upload(
         target=target,
         mode="browser",
+        model="instant",
         review_profile="quality",
         runner=fake_runner,
     )
@@ -778,7 +801,7 @@ def test_run_oracle_benchmark_upload_browser_stages_quality_profile_subset(
             0,
             stdout="\n".join(
                 [
-                    "oracle (gpt-5.2)",
+                    f"oracle ({INSTANT_MODEL})",
                     "Answer:",
                     f"Top regressions\n- Benchmark root: {target.source_root}",
                     "- run_count = 1",
@@ -793,6 +816,7 @@ def test_run_oracle_benchmark_upload_browser_stages_quality_profile_subset(
     result = oracle_upload.run_oracle_benchmark_upload(
         target=target,
         mode="browser",
+        model="instant",
         review_profile="quality",
         runner=fake_runner,
     )
@@ -802,7 +826,7 @@ def test_run_oracle_benchmark_upload_browser_stages_quality_profile_subset(
     assert "Prepared Oracle quality review packet" in result.stdout
     command = captured["command"]
     assert isinstance(command, list)
-    assert command[command.index("--model") + 1] == "gpt-5.2-pro"
+    assert command[command.index("--model") + 1] == INSTANT_MODEL
     file_args = captured["file_args"]
     assert isinstance(file_args, list)
     assert len(file_args) == 4
@@ -844,13 +868,14 @@ def test_run_oracle_benchmark_upload_browser_stages_token_profile_subset(
         return subprocess.CompletedProcess(
             command,
             0,
-            stdout="oracle (gpt-5.2)\nAnswer:\nTop spend sinks\n- none\nLikely waste buckets\n- none\nLowest-risk cuts\n- none\nRequested follow-up data\nNone\n",
+            stdout=f"oracle ({INSTANT_MODEL})\nAnswer:\nTop spend sinks\n- none\nLikely waste buckets\n- none\nLowest-risk cuts\n- none\nRequested follow-up data\nNone\n",
             stderr="",
         )
 
     result = oracle_upload.run_oracle_benchmark_upload(
         target=target,
         mode="browser",
+        model="instant",
         review_profile="token",
         runner=fake_runner,
     )
@@ -860,7 +885,7 @@ def test_run_oracle_benchmark_upload_browser_stages_token_profile_subset(
     assert result.review_profile_display_name == "Token"
     command = captured["command"]
     assert isinstance(command, list)
-    assert command[command.index("--model") + 1] == "gpt-5.2-pro"
+    assert command[command.index("--model") + 1] == INSTANT_MODEL
 
 
 def test_run_oracle_benchmark_upload_browser_persists_launch_artifacts_and_session_metadata(
@@ -896,7 +921,7 @@ def test_run_oracle_benchmark_upload_browser_persists_launch_artifacts_and_sessi
             0,
             stdout="\n".join(
                 [
-                    "oracle (gpt-5.4)",
+                    f"oracle ({INSTANT_MODEL})",
                     "Answer:",
                     f"Top regressions\n- Benchmark root: {target.source_root}",
                     "- run_count = 1",
@@ -912,6 +937,7 @@ def test_run_oracle_benchmark_upload_browser_persists_launch_artifacts_and_sessi
     result = oracle_upload.run_oracle_benchmark_upload(
         target=target,
         mode="browser",
+        model="instant",
         runner=fake_runner,
     )
 
@@ -1013,6 +1039,7 @@ def test_run_oracle_benchmark_upload_browser_duplicate_guard_backfills_conversat
     result = oracle_upload.run_oracle_benchmark_upload(
         target=target,
         mode="browser",
+        model="instant",
         runner=fake_runner,
     )
 
@@ -1118,6 +1145,7 @@ def test_start_oracle_benchmark_upload_background_persists_sharded_inputs(
     launch = oracle_upload.start_oracle_benchmark_upload_background(
         target=target,
         mode="browser",
+        model="instant",
         review_profile="quality",
         popen=FakePopen,
     )
@@ -1208,17 +1236,18 @@ def test_start_oracle_benchmark_upload_background_stages_profile_packet(
     launch = oracle_upload.start_oracle_benchmark_upload_background(
         target=target,
         mode="browser",
+        model="instant",
         review_profile="token",
         popen=FakePopen,
     )
 
     assert launch.pid == 5252
     assert launch.review_profile == "token"
-    assert launch.model == "gpt-5.2-pro"
+    assert launch.model == INSTANT_LANE
     assert "Prepared Oracle token review packet" in launch.note
     command = captured["command"]
     assert isinstance(command, list)
-    assert command[command.index("--model") + 1] == "gpt-5.2-pro"
+    assert command[command.index("--model") + 1] == INSTANT_MODEL
     file_args = [
         Path(command[index + 1])
         for index, arg in enumerate(command)
@@ -1253,7 +1282,7 @@ def test_start_oracle_benchmark_upload_background_marks_running_when_process_ali
             assert log_handle is not None
             log_handle.write(
                 "🧿 oracle 0.8.6 — Background magic with foreground receipts.\n"
-                "Launching browser mode (gpt-5.2) with ~123 tokens.\n"
+                f"Launching browser mode ({INSTANT_MODEL}) with ~123 tokens.\n"
             )
             log_handle.flush()
             self.pid = 4243
@@ -1264,6 +1293,7 @@ def test_start_oracle_benchmark_upload_background_marks_running_when_process_ali
     launch = oracle_upload.start_oracle_benchmark_upload_background(
         target=target,
         mode="browser",
+        model="instant",
         popen=FakePopen,
     )
 
@@ -1305,7 +1335,7 @@ def test_start_oracle_benchmark_upload_background_recovers_session_from_oracle_s
             assert log_handle is not None
             log_handle.write(
                 "🧿 oracle 0.8.6 — Background magic with foreground receipts.\n"
-                "Launching browser mode (gpt-5.2) with ~123 tokens.\n"
+                f"Launching browser mode ({INSTANT_MODEL}) with ~123 tokens.\n"
             )
             log_handle.flush()
             self.pid = 4244
@@ -1316,6 +1346,7 @@ def test_start_oracle_benchmark_upload_background_recovers_session_from_oracle_s
     launch = oracle_upload.start_oracle_benchmark_upload_background(
         target=target,
         mode="browser",
+        model="instant",
         popen=FakePopen,
     )
 
@@ -1342,8 +1373,8 @@ def test_print_background_oracle_upload_summary_points_to_log_without_full_comma
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
     launch = oracle_upload.OracleBackgroundUploadLaunch(
         mode="browser",
-        model="gpt-5.2",
-        command=["oracle", "--engine", "browser", "--model", "gpt-5.2"],
+        model=INSTANT_LANE,
+        command=["oracle", "--engine", "browser", "--model", INSTANT_MODEL],
         bundle_dir=bundle_dir,
         launch_dir=bundle_dir / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME / "2026-03-17_17.05.00",
         log_path=bundle_dir / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME / "2026-03-17_17.05.00" / oracle_upload.ORACLE_UPLOAD_LOG_FILE_NAME,
@@ -1402,8 +1433,8 @@ def test_print_background_oracle_upload_summary_shows_profile_and_note(
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
     launch = oracle_upload.OracleBackgroundUploadLaunch(
         mode="browser",
-        model="gpt-5.4",
-        command=["oracle", "--engine", "browser", "--model", "gpt-5.4"],
+        model=INSTANT_LANE,
+        command=["oracle", "--engine", "browser", "--model", INSTANT_MODEL],
         bundle_dir=bundle_dir,
         launch_dir=bundle_dir / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME / "2026-03-21_16.17.50",
         log_path=bundle_dir
@@ -1460,8 +1491,8 @@ def test_start_background_oracle_followup_worker_does_not_forward_launch_default
     launch_dir.mkdir(parents=True, exist_ok=True)
     launch = oracle_upload.OracleBackgroundUploadLaunch(
         mode="browser",
-        model="gpt-5.4",
-        command=["oracle", "--engine", "browser", "--model", "gpt-5.4"],
+        model=INSTANT_LANE,
+        command=["oracle", "--engine", "browser", "--model", INSTANT_MODEL],
         bundle_dir=bundle_dir,
         launch_dir=launch_dir,
         log_path=launch_dir / oracle_upload.ORACLE_UPLOAD_LOG_FILE_NAME,
@@ -1489,7 +1520,7 @@ def test_start_background_oracle_followup_worker_does_not_forward_launch_default
     status_payload = json.loads(
         (launch_dir / cli.ORACLE_AUTO_FOLLOWUP_STATUS_NAME).read_text(encoding="utf-8")
     )
-    assert status_payload["model"] == "gpt-5.4"
+    assert status_payload["model"] == INSTANT_LANE
     assert updated_launch.auto_followup_worker_pid == 4243
 
 
@@ -1507,8 +1538,8 @@ def test_start_benchmark_bundle_oracle_upload_background_reports_followup_launch
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
     launch = oracle_upload.OracleBackgroundUploadLaunch(
         mode="browser",
-        model="gpt-5.4",
-        command=["oracle", "--engine", "browser", "--model", "gpt-5.4"],
+        model=INSTANT_LANE,
+        command=["oracle", "--engine", "browser", "--model", INSTANT_MODEL],
         bundle_dir=bundle_dir,
         launch_dir=bundle_dir / oracle_upload.ORACLE_UPLOAD_RUNS_DIR_NAME / "2026-03-21_11.27.35",
         log_path=bundle_dir
@@ -1568,7 +1599,7 @@ def test_oracle_upload_log_audit_accepts_grounded_single_profile_answer(tmp_path
         target=target,
         log_text="\n".join(
             [
-                "oracle (gpt-5.2)",
+                f"oracle ({INSTANT_MODEL})",
                 "Reattach via: oracle session grounded-123",
                 "Answer:",
                 f"Top regressions\n- Benchmark root: {target.source_root}",
@@ -1599,7 +1630,7 @@ def test_oracle_upload_log_audit_rejects_wrong_bundle_identity(tmp_path: Path) -
         target=target,
         log_text="\n".join(
             [
-                "oracle (gpt-5.2)",
+                f"oracle ({INSTANT_MODEL})",
                 "Answer:",
                 "Top regressions",
                 "- I could not verify the requested 2026-03-18_21.10.12/single-book-benchmark root.",
@@ -1631,7 +1662,7 @@ def test_oracle_upload_log_audit_rejects_same_book_different_timestamp_root(
         target=target,
         log_text="\n".join(
             [
-                "oracle (gpt-5.4)",
+                f"oracle ({INSTANT_MODEL})",
                 "Answer:",
                 "Top regressions",
                 (
@@ -1664,7 +1695,7 @@ def test_oracle_upload_log_audit_marks_disconnect_as_reattachable_when_session_i
         target=target,
         log_text="\n".join(
             [
-                "oracle (gpt-5.2)",
+                f"oracle ({INSTANT_MODEL})",
                 "Reattach via: oracle session disconnected-123",
                 "ERROR: Chrome window closed before oracle finished. Please keep it open until completion.",
                 "Chrome disconnected before completion; keeping session running for reattach.",

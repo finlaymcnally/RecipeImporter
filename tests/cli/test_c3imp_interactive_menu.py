@@ -1192,6 +1192,50 @@ def test_choose_run_settings_codex_profile_filters_reasoning_efforts_by_model(
     assert selected.codex_farm_reasoning_effort is CodexReasoningEffort.high
 
 
+def test_choose_run_settings_codex_profile_does_not_invent_fallback_model(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict({}, warn_context="test global defaults")
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "list_codex_farm_models",
+        lambda **_kwargs: [],
+    )
+    model_choice_values: list[str] = []
+
+    def _menu_select(message, *args, **kwargs):
+        if message == "Codex Farm model override:":
+            model_choice_values.extend(
+                [str(choice.value) for choice in kwargs.get("choices", [])]
+            )
+            return "__pipeline_default__"
+        if message == "Codex Farm reasoning effort override:":
+            return "__default__"
+        pytest.fail(f"unexpected menu prompt: {message}")
+
+    selected = run_settings_flow.choose_run_settings(
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=_menu_select,
+        back_action=object(),
+        prompt_confirm=lambda *_args, **_kwargs: True,
+        prompt_text=lambda *_args, **_kwargs: pytest.fail(
+            "freeform model text prompt should not be used"
+        ),
+        prompt_codex_ai_settings=True,
+    )
+
+    assert selected is not None
+    assert model_choice_values == ["__pipeline_default__"]
+    assert selected.codex_farm_model is None
+
+
 def test_build_codex_farm_reasoning_effort_choices_resets_invalid_saved_default() -> None:
     choices, default = run_settings_flow.build_codex_farm_reasoning_effort_choices(
         selected_model="gpt-5.1-codex-mini",

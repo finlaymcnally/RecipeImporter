@@ -120,17 +120,6 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
                         for block in blocks
                         if isinstance(block, dict)
                     ],
-                    "snippets": [
-                        {
-                            "body": "Fake knowledge snippet.",
-                            "evidence": [
-                                {
-                                    "block_index": block_index,
-                                    "quote": quote,
-                                }
-                            ],
-                        }
-                    ],
                 }
             ],
         }

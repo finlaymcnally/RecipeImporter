@@ -13,7 +13,7 @@ from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1, run_phase_
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan
 
 
-def test_build_knowledge_jobs_emits_packet_shard_entries(tmp_path: Path) -> None:
+def test_build_knowledge_jobs_emits_shard_entries(tmp_path: Path) -> None:
     report = build_knowledge_jobs(
         full_blocks=[
             {"index": 0, "text": "Always whisk constantly when adding butter."},
@@ -37,34 +37,25 @@ def test_build_knowledge_jobs_emits_packet_shard_entries(tmp_path: Path) -> None
     )
 
     assert report.shards_written == 1
-    assert [entry.shard_id for entry in report.shard_entries] == ["book.kp0000.nr"]
-    assert report.shard_entries[0].owned_ids == ("book.kp0000.nr",)
-    assert report.shard_entries[0].metadata["owned_block_indices"] == [0, 1, 2]
-    assert report.shard_entries[0].metadata["source_span_ids"] == ["nr.knowledge.0.3"]
-    payload = json.loads((tmp_path / "in" / "book.kp0000.nr.json").read_text(encoding="utf-8"))
-    assert payload["v"] == "1"
-    assert payload["bid"] == "book.kp0000.nr"
+    assert [entry.shard_id for entry in report.shard_entries] == ["book.ks0000.nr"]
+    assert report.shard_entries[0].owned_ids == ("book.ks0000.nr",)
+    payload = json.loads((tmp_path / "in" / "book.ks0000.nr.json").read_text(encoding="utf-8"))
+    assert payload["bid"] == "book.ks0000.nr"
     assert [row["i"] for row in payload["b"]] == [0, 1, 2]
 
 
-def test_knowledge_phase_workers_reject_off_surface_packet_outputs(tmp_path: Path) -> None:
+def test_knowledge_phase_workers_reject_off_surface_group_outputs(tmp_path: Path) -> None:
     runtime_root = tmp_path / "runtime"
     runner = FakeCodexFarmRunner(
         output_builders={
             "recipe.knowledge.packet.v1": lambda shard_payload: {
                 "packet_id": shard_payload["bid"],
-                "block_decisions": [{"block_index": 99, "category": "knowledge"}],
+                "block_decisions": [{"block_index": 4, "category": "knowledge"}],
                 "idea_groups": [
                     {
-                        "group_id": "idea-1",
+                        "group_id": "g01",
                         "topic_label": "bad",
-                        "block_indices": [99],
-                        "snippets": [
-                            {
-                                "body": "This should be rejected.",
-                                "evidence": [{"block_index": 99, "quote": "bad"}],
-                            }
-                        ],
+                        "block_indices": [4, 99],
                     }
                 ],
             }
@@ -77,12 +68,12 @@ def test_knowledge_phase_workers_reject_off_surface_packet_outputs(tmp_path: Pat
         run_root=runtime_root,
         shards=[
             ShardManifestEntryV1(
-                shard_id="book.kp0000.nr",
-                owned_ids=("book.kp0000.nr",),
+                shard_id="book.ks0000.nr",
+                owned_ids=("book.ks0000.nr",),
                 evidence_refs=("block:4",),
                 input_payload={
                     "v": "1",
-                    "bid": "book.kp0000.nr",
+                    "bid": "book.ks0000.nr",
                     "b": [{"i": 4, "t": "Whisk constantly."}],
                 },
                 metadata={"owned_block_indices": [4]},
@@ -98,7 +89,7 @@ def test_knowledge_phase_workers_reject_off_surface_packet_outputs(tmp_path: Pat
     )
     failures = json.loads((Path(manifest.run_root) / "failures.json").read_text(encoding="utf-8"))
     proposal = json.loads(
-        (Path(manifest.run_root) / "proposals" / "book.kp0000.nr.json").read_text(
+        (Path(manifest.run_root) / "proposals" / "book.ks0000.nr.json").read_text(
             encoding="utf-8"
         )
     )
@@ -109,25 +100,15 @@ def test_knowledge_phase_workers_reject_off_surface_packet_outputs(tmp_path: Pat
     assert failures == [
         {
             "reason": "proposal_validation_failed",
-            "shard_id": "book.kp0000.nr",
-            "validation_errors": [
-                "missing_owned_block_decisions",
-                "unexpected_block_decisions",
-                "idea_group_out_of_surface",
-                "snippet_evidence_out_of_surface",
-            ],
+            "shard_id": "book.ks0000.nr",
+            "validation_errors": ["group_contains_other_block"],
             "worker_id": "worker-001",
         }
     ]
-    assert proposal["validation_errors"] == [
-        "missing_owned_block_decisions",
-        "unexpected_block_decisions",
-        "idea_group_out_of_surface",
-        "snippet_evidence_out_of_surface",
-    ]
+    assert proposal["validation_errors"] == ["group_contains_other_block"]
 
 
-def test_knowledge_phase_workers_accept_valid_packet_outputs(tmp_path: Path) -> None:
+def test_knowledge_phase_workers_accept_valid_shard_outputs(tmp_path: Path) -> None:
     runtime_root = tmp_path / "runtime"
     runner = FakeCodexFarmRunner()
 
@@ -137,12 +118,12 @@ def test_knowledge_phase_workers_accept_valid_packet_outputs(tmp_path: Path) -> 
         run_root=runtime_root,
         shards=[
             ShardManifestEntryV1(
-                shard_id="book.kp0000.nr",
-                owned_ids=("book.kp0000.nr",),
+                shard_id="book.ks0000.nr",
+                owned_ids=("book.ks0000.nr",),
                 evidence_refs=("block:4",),
                 input_payload={
                     "v": "1",
-                    "bid": "book.kp0000.nr",
+                    "bid": "book.ks0000.nr",
                     "b": [{"i": 4, "t": "Whisk constantly."}],
                 },
                 metadata={"owned_block_indices": [4]},
@@ -154,12 +135,12 @@ def test_knowledge_phase_workers_accept_valid_packet_outputs(tmp_path: Path) -> 
     )
 
     proposal = json.loads(
-        (Path(manifest.run_root) / "proposals" / "book.kp0000.nr.json").read_text(
+        (Path(manifest.run_root) / "proposals" / "book.ks0000.nr.json").read_text(
             encoding="utf-8"
         )
     )
 
     assert reports[0].failure_count == 0
     assert proposal["validation_errors"] == []
-    assert proposal["payload"]["packet_id"] == "book.kp0000.nr"
-    assert proposal["validation_metadata"]["bundle_id"] == "book.kp0000.nr"
+    assert proposal["payload"]["packet_id"] == "book.ks0000.nr"
+    assert proposal["validation_metadata"]["bundle_id"] == "book.ks0000.nr"

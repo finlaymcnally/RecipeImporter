@@ -8,6 +8,11 @@ from typing import Any, Mapping, Sequence
 
 from cookimport.core.models import RecipeCandidate
 from cookimport.core.slug import slugify_name
+from cookimport.labelstudio.prelabel import (
+    default_codex_model,
+    default_codex_reasoning_effort,
+    default_codex_reasoning_effort_for_model,
+)
 from cookimport.llm.canonical_line_role_prompt import (
     build_canonical_line_role_file_prompt,
 )
@@ -62,6 +67,41 @@ _DEFAULT_KNOWLEDGE_SURFACE = "codex-knowledge-shard-v1"
 _DEFAULT_LINE_ROLE_PIPELINE_ID = "line-role.canonical.v1"
 _DEFAULT_LINE_ROLE_SURFACE = "codex-line-role-shard-v1"
 
+
+def _resolved_preview_model_label(
+    *,
+    model_override: str | None,
+    pipeline_payload: Mapping[str, Any],
+    codex_cmd: str | None,
+) -> str | None:
+    override = str(model_override or "").strip()
+    if override:
+        return override
+    pipeline_model = str(pipeline_payload.get("codex_model") or "").strip()
+    if pipeline_model:
+        return pipeline_model
+    return default_codex_model(cmd=codex_cmd) or "pipeline/default"
+
+
+def _resolved_preview_reasoning_effort_label(
+    *,
+    reasoning_effort_override: str | None,
+    pipeline_payload: Mapping[str, Any],
+    codex_cmd: str | None,
+    resolved_model: str | None,
+) -> str | None:
+    override = str(reasoning_effort_override or "").strip()
+    if override:
+        return override
+    pipeline_effort = str(pipeline_payload.get("codex_reasoning_effort") or "").strip()
+    if pipeline_effort:
+        return pipeline_effort
+    return default_codex_reasoning_effort(cmd=codex_cmd) or default_codex_reasoning_effort_for_model(
+        resolved_model,
+        cmd=codex_cmd,
+    )
+
+
 def _serialize_compact_prompt_json(payload: Any) -> str:
     return json.dumps(
         payload,
@@ -106,6 +146,7 @@ def write_prompt_preview_for_existing_run(
     llm_knowledge_pipeline: str = _DEFAULT_KNOWLEDGE_SURFACE,
     line_role_pipeline: str = _DEFAULT_LINE_ROLE_SURFACE,
     codex_farm_root: Path | None = None,
+    codex_farm_cmd: str | None = None,
     codex_farm_model: str | None = None,
     codex_farm_reasoning_effort: str | None = None,
     codex_farm_context_blocks: int = 30,
@@ -120,6 +161,11 @@ def write_prompt_preview_for_existing_run(
     line_role_shard_target_lines: int | None = None,
 ) -> Path:
     context = _load_existing_run_preview_context(run_path=run_path)
+    effective_codex_cmd = str(
+        codex_farm_cmd
+        or context.run_config.get("codex_farm_cmd")
+        or ""
+    ).strip() or None
     prompts_dir = out_dir / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
     resolved_recipe_prompt_target_count = (
@@ -155,6 +201,7 @@ def write_prompt_preview_for_existing_run(
             surface_pipeline=llm_recipe_pipeline,
             model_override=codex_farm_model,
             reasoning_effort_override=codex_farm_reasoning_effort,
+            codex_cmd=effective_codex_cmd,
             prompt_target_count=resolved_recipe_prompt_target_count,
         )
         stage_plans["recipe_llm_correct_and_link"] = _build_direct_shard_phase_plan(
@@ -186,6 +233,7 @@ def write_prompt_preview_for_existing_run(
             surface_pipeline=llm_knowledge_pipeline,
             model_override=codex_farm_model,
             reasoning_effort_override=codex_farm_reasoning_effort,
+            codex_cmd=effective_codex_cmd,
             context_blocks=codex_farm_knowledge_context_blocks,
             prompt_target_count=resolved_knowledge_prompt_target_count,
         )
@@ -215,6 +263,7 @@ def write_prompt_preview_for_existing_run(
             surface_pipeline=line_role_pipeline,
             model_override=codex_farm_model,
             reasoning_effort_override=codex_farm_reasoning_effort,
+            codex_cmd=effective_codex_cmd,
             atomic_block_splitter=atomic_block_splitter,
             prompt_target_count=resolved_line_role_prompt_target_count,
             shard_target_lines=line_role_shard_target_lines,
@@ -282,6 +331,7 @@ def write_prompt_preview_for_existing_run(
             "line_role_pipeline": line_role_pipeline,
         },
         "codex_farm_root": str(pipeline_root),
+        "codex_farm_cmd": effective_codex_cmd,
         "codex_farm_model": codex_farm_model,
         "codex_farm_reasoning_effort": codex_farm_reasoning_effort,
         "codex_farm_context_blocks": int(codex_farm_context_blocks),
@@ -418,6 +468,7 @@ def _build_recipe_preview_rows(
     surface_pipeline: str,
     model_override: str | None,
     reasoning_effort_override: str | None,
+    codex_cmd: str | None,
     prompt_target_count: int | None,
 ) -> list[dict[str, Any]]:
     pipeline_assets = _load_pipeline_assets(
@@ -487,6 +538,7 @@ def _build_recipe_preview_rows(
         surface_pipeline=surface_pipeline,
         model_override=model_override,
         reasoning_effort_override=reasoning_effort_override,
+        codex_cmd=codex_cmd,
         prompt_target_count=prompt_target_count,
         recipe_inputs=recipe_inputs,
     )
@@ -501,6 +553,7 @@ def _build_recipe_shard_preview_rows(
     surface_pipeline: str,
     model_override: str | None,
     reasoning_effort_override: str | None,
+    codex_cmd: str | None,
     prompt_target_count: int | None,
     recipe_inputs: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -572,6 +625,7 @@ def _build_recipe_shard_preview_rows(
                 surface_pipeline=surface_pipeline,
                 model_override=model_override,
                 reasoning_effort_override=reasoning_effort_override,
+                codex_cmd=codex_cmd,
                 task_prompt_text=serialized_input,
                 rendered_prompt_override=render_recipe_direct_prompt(
                     pipeline_assets=pipeline_assets,
@@ -592,6 +646,7 @@ def _build_knowledge_preview_rows(
     surface_pipeline: str,
     model_override: str | None,
     reasoning_effort_override: str | None,
+    codex_cmd: str | None,
     context_blocks: int,
     prompt_target_count: int | None,
 ) -> list[dict[str, Any]]:
@@ -642,6 +697,7 @@ def _build_knowledge_preview_rows(
                 surface_pipeline=surface_pipeline,
                 model_override=model_override,
                 reasoning_effort_override=reasoning_effort_override,
+                codex_cmd=codex_cmd,
                 task_prompt_text=build_knowledge_direct_prompt(input_payload),
                 rendered_prompt_override=build_knowledge_direct_prompt(input_payload),
                 prompt_input_mode_override="inline",
@@ -678,6 +734,7 @@ def _build_line_role_preview_rows(
     surface_pipeline: str,
     model_override: str | None,
     reasoning_effort_override: str | None,
+    codex_cmd: str | None,
     atomic_block_splitter: str,
     prompt_target_count: int | None,
     shard_target_lines: int | None,
@@ -793,6 +850,7 @@ def _build_line_role_preview_rows(
                 surface_pipeline=surface_pipeline,
                 model_override=model_override,
                 reasoning_effort_override=reasoning_effort_override,
+                codex_cmd=codex_cmd,
                 task_prompt_text=input_text,
                 rendered_prompt_override=prompt_text,
                 prompt_input_mode_override="inline",
@@ -950,6 +1008,7 @@ def _prompt_row(
     surface_pipeline: str,
     model_override: str | None,
     reasoning_effort_override: str | None,
+    codex_cmd: str | None,
     rendered_prompt_override: str | None = None,
     prompt_input_mode_override: str | None = None,
 ) -> dict[str, Any]:
@@ -968,11 +1027,16 @@ def _prompt_row(
     )
     effective_pipeline_payload = _coerce_dict(pipeline_assets.get("pipeline_payload"))
     output_schema_payload = _coerce_dict(pipeline_assets.get("output_schema_payload"))
-    model_value = model_override or str(effective_pipeline_payload.get("codex_model") or "").strip() or None
-    reasoning_effort_value = (
-        reasoning_effort_override
-        or str(effective_pipeline_payload.get("codex_reasoning_effort") or "").strip()
-        or None
+    model_value = _resolved_preview_model_label(
+        model_override=model_override,
+        pipeline_payload=effective_pipeline_payload,
+        codex_cmd=codex_cmd,
+    )
+    reasoning_effort_value = _resolved_preview_reasoning_effort_label(
+        reasoning_effort_override=reasoning_effort_override,
+        pipeline_payload=effective_pipeline_payload,
+        codex_cmd=codex_cmd,
+        resolved_model=None if model_value == "pipeline/default" else model_value,
     )
     response_format = None
     if output_schema_payload:

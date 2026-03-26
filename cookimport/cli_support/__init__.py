@@ -1598,7 +1598,7 @@ def _require_labelstudio_write_consent(allow_labelstudio_write: bool) -> None:
 
 
 _PROGRESS_STAGE_COUNTER_SUFFIX_RE = re.compile(
-    r"\s+(?:task|item|config|phase)\s+\d+/\d+\s*$",
+    r"\s+(?:task|item|config|phase|row|shard)\s+\d+/\d+\s*$",
     re.IGNORECASE,
 )
 

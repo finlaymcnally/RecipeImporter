@@ -155,14 +155,6 @@ class KnowledgeIdeaGroupV1(BaseModel):
             raise ValueError("idea_groups must not repeat block indices.")
         return value
 
-    @field_validator("snippets")
-    @classmethod
-    def _require_snippets(cls, value: list[KnowledgeSnippetV1]) -> list[KnowledgeSnippetV1]:
-        if not value:
-            raise ValueError("idea_groups must include at least one snippet.")
-        return value
-
-
 class KnowledgeBundleOutputV2(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 

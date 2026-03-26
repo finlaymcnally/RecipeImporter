@@ -115,8 +115,7 @@ Per workbook (slugified file stem):
 - `chunks/<workbook_slug>/c{index}.json` (if any; deterministic fallback when knowledge review is off)
 - `chunks/<workbook_slug>/chunks.md` (same condition as `c{index}.json`)
 - `tables/<workbook_slug>/tables.jsonl` and `tables/<workbook_slug>/tables.md` (always written for stage/prediction runs; `tables.md` skipped with `stage --no-write-markdown`)
-- `knowledge/<workbook_slug>/snippets.jsonl` (if optional knowledge extraction is enabled and wrote snippet outputs)
-- `knowledge/<workbook_slug>/knowledge.md` (same condition as `snippets.jsonl`)
+- `knowledge/<workbook_slug>/knowledge.md` (if optional knowledge extraction is enabled and wrote reviewer-facing knowledge output)
 - `knowledge/knowledge_index.json` (if any knowledge artifacts were written in the run)
 - `.bench/<workbook_slug>/stage_block_predictions.json` (deterministic block-level benchmark evidence)
 - `.bench/<workbook_slug>/p6_metadata_debug.jsonl` (internal-only Priority 6 diagnostics; Bucket 1 no longer exposes `p6_emit_metadata_debug` as a normal run setting)
@@ -179,7 +178,7 @@ Stage-block `KNOWLEDGE` label contract:
 - `09_nonrecipe_knowledge_groups.json` is the explicit promoted-group artifact for packet-reviewed related ideas. It is reviewer/debug context, not the category-authority file.
 - `09_nonrecipe_review_status.json` is the runtime-status artifact for reviewed, skipped, changed, and unresolved review-eligible rows. It keeps unreviewed fallback metadata out of the authority file while still making incompleteness visible.
 - `08_nonrecipe_review_exclusions.jsonl` is the row-level explanation ledger for the upstream obvious-junk veto. When knowledge input looks too large or a row seems to have disappeared before review, inspect this file before changing scorer math or knowledge prompts.
-- Optional knowledge groups and snippets are reviewer-facing evidence; Codex `block_decisions` are what refine final `KNOWLEDGE` versus `OTHER`, and the promoted group artifact records how the model grouped those kept blocks.
+- Optional knowledge groups are reviewer-facing context; Codex `block_decisions` are what refine final `KNOWLEDGE` versus `OTHER`, and the promoted group artifact records how the model grouped those kept blocks.
 - Review-eligible rows that remain unreviewed now stay explicit in benchmark/Label Studio metadata as `unresolved_review_eligible_*`; semantic scoring excludes them instead of flattening them into `OTHER`.
 - `ConversionResult.non_recipe_blocks` mirrors strict final outside-recipe authority only.
 - Table extraction and deterministic knowledge-off chunk generation use a separate late-output block list. When knowledge review runs and produces reviewed authority, that late-output list is the authoritative outside-recipe rows; when knowledge review is off or falls back, it is the surviving outside-recipe review queue.

@@ -5,7 +5,14 @@ from pathlib import Path
 import docx
 
 from cookimport.config.run_settings import RunSettings
-from cookimport.plugins.text import TextImporter, _extract_sections_from_blob
+from cookimport.plugins.text import (
+    TextImporter,
+    _MARKDOWN_HEADER_RE,
+    _NUMBERED_TITLE_RE,
+    _SPLIT_DELIMITER_RE,
+    _chunk_source_support,
+    _extract_sections_from_blob,
+)
 from tests.paths import FIXTURES_DIR as TESTS_FIXTURES_DIR
 
 
@@ -196,6 +203,93 @@ def test_text_importer_preserves_split_candidates_as_non_authoritative_support(
     assert not any(
         artifact.location_id == "recipe_scoring_debug" for artifact in result.raw_artifacts
     )
+
+
+def test_text_importer_regex_split_support_tracks_real_line_ranges_and_block_ids() -> None:
+    text = "\n".join(
+        [
+            "Recipe One",
+            "Ingredients",
+            "1 cup rice",
+            "",
+            "==== RECIPE ====",
+            "",
+            "Recipe Two",
+            "Ingredients",
+            "2 eggs",
+        ]
+    )
+
+    importer = TextImporter()
+    chunks = importer._split_by_regex(text, _SPLIT_DELIMITER_RE)
+    support = _chunk_source_support(chunks, raw_lines=text.splitlines())
+
+    assert [item.payload for item in support] == [
+        {"chunk_index": 0, "start_line": 1, "end_line": 3},
+        {"chunk_index": 1, "start_line": 7, "end_line": 9},
+    ]
+    assert [item.referenced_block_ids for item in support] == [
+        ["b0", "b1", "b2"],
+        ["b4", "b5", "b6"],
+    ]
+
+
+def test_text_importer_markdown_header_split_support_skips_blank_lines_in_block_ids() -> None:
+    text = "\n".join(
+        [
+            "# Recipe One",
+            "Ingredients",
+            "1 cup rice",
+            "",
+            "# Recipe Two",
+            "Ingredients",
+            "2 eggs",
+        ]
+    )
+
+    importer = TextImporter()
+    chunks = importer._split_by_positions(
+        text,
+        [match.start() for match in _MARKDOWN_HEADER_RE.finditer(text)],
+    )
+    support = _chunk_source_support(chunks, raw_lines=text.splitlines())
+
+    assert [item.payload for item in support] == [
+        {"chunk_index": 0, "start_line": 1, "end_line": 3},
+        {"chunk_index": 1, "start_line": 5, "end_line": 7},
+    ]
+    assert [item.referenced_block_ids for item in support] == [
+        ["b0", "b1", "b2"],
+        ["b3", "b4", "b5"],
+    ]
+
+
+def test_text_importer_numbered_title_split_support_tracks_line_ranges() -> None:
+    text = "\n".join(
+        [
+            "1. Recipe One",
+            "1 cup rice",
+            "",
+            "2. Recipe Two",
+            "2 eggs",
+        ]
+    )
+
+    importer = TextImporter()
+    chunks = importer._split_by_positions(
+        text,
+        [match.start() for match in _NUMBERED_TITLE_RE.finditer(text)],
+    )
+    support = _chunk_source_support(chunks, raw_lines=text.splitlines())
+
+    assert [item.payload for item in support] == [
+        {"chunk_index": 0, "start_line": 1, "end_line": 2},
+        {"chunk_index": 1, "start_line": 4, "end_line": 5},
+    ]
+    assert [item.referenced_block_ids for item in support] == [
+        ["b0", "b1"],
+        ["b2", "b3"],
+    ]
 
 
 def test_text_blob_section_extraction_keeps_for_component_headers() -> None:

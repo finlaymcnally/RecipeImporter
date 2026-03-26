@@ -17,6 +17,7 @@ from cookimport.bench.oracle_followup import (
 )
 from cookimport.bench.oracle_followup import OracleFollowupWorkspace
 from cookimport.bench.oracle_upload import (
+    ORACLE_MODEL_LANE_INSTANT,
     OracleUploadResult,
     audit_oracle_upload_log,
     resolve_oracle_benchmark_bundle,
@@ -29,6 +30,7 @@ def _stub_oracle_version(monkeypatch: pytest.MonkeyPatch) -> None:
         "cookimport.bench.oracle_followup._detect_oracle_version",
         lambda: "0.8.6-test",
     )
+    monkeypatch.setenv("ORACLE_INSTANT_MODEL", "instant-browser-model")
 
 
 def _copy_sample_bundle_root(destination_root: Path) -> Path:
@@ -316,7 +318,7 @@ def test_run_oracle_benchmark_followup_reuses_source_browser_profile_for_continu
     assert metadata_payload["browser_profile_dir"] == str(browser_profile_dir)
 
 
-def test_run_oracle_benchmark_followup_maps_explicit_gpt_alias_to_browser_visible_label(
+def test_run_oracle_benchmark_followup_maps_explicit_instant_selector_to_browser_visible_label(
     tmp_path: Path,
 ) -> None:
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
@@ -379,14 +381,14 @@ def test_run_oracle_benchmark_followup_maps_explicit_gpt_alias_to_browser_visibl
     result, _workspace = run_oracle_benchmark_followup(
         target=target,
         from_run="latest",
-        model="gpt-5-pro",
+        model="instant",
         runner=fake_runner,
     )
 
     assert result.success is True
     command = captured["command"]
     assert "--model" in command
-    assert command[command.index("--model") + 1] == "gpt-5.2-pro"
+    assert command[command.index("--model") + 1] == "instant-browser-model"
 
 
 def test_run_oracle_benchmark_followup_dry_run_accepts_recipe_stage_filters_from_oracle(
@@ -456,7 +458,7 @@ def _run_completed_turn1_followup_fixture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
-    model: str | None = "gpt-5.3",
+    model: str | None = ORACLE_MODEL_LANE_INSTANT,
 ) -> dict[str, object]:
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
@@ -577,7 +579,7 @@ def test_auto_followup_worker_waits_for_completed_turn1_and_launches_turn2(
     source_run = fixture["source_run"]
 
     assert captured["from_run"] == source_run
-    assert captured["model"] == "gpt-5.3"
+    assert captured["model"] == ORACLE_MODEL_LANE_INSTANT
     assert result["status"] == "succeeded"
     assert result["followup_session_id"] == "you-are-reviewing-a-benchmark-390-turn-2"
 
@@ -635,7 +637,7 @@ def test_auto_followup_worker_marks_missing_requested_section_explicitly(tmp_pat
     result = run_oracle_benchmark_followup_background_worker(
         target=target,
         from_run=source_run,
-        model="gpt-5.3",
+        model=ORACLE_MODEL_LANE_INSTANT,
         poll_interval_seconds=0.01,
         timeout_seconds=1.0,
     )
@@ -818,7 +820,7 @@ def _run_followup_timeout_recovery_fixture(
     result = run_oracle_benchmark_followup_background_worker(
         target=target,
         from_run=source_run,
-        model="gpt-5.3",
+        model=ORACLE_MODEL_LANE_INSTANT,
         runner=fake_runner,
         poll_interval_seconds=0.01,
         timeout_seconds=1.0,
@@ -1031,7 +1033,7 @@ def _run_followup_dead_controller_recovery_fixture(
     result = run_oracle_benchmark_followup_background_worker(
         target=target,
         from_run=source_run,
-        model="gpt-5.3",
+        model=ORACLE_MODEL_LANE_INSTANT,
         runner=fake_runner,
         poll_interval_seconds=0.01,
         timeout_seconds=1.0,
@@ -1242,7 +1244,7 @@ def _run_followup_stale_running_recovery_fixture(
     result = run_oracle_benchmark_followup_background_worker(
         target=target,
         from_run=source_run,
-        model="gpt-5.3",
+        model=ORACLE_MODEL_LANE_INSTANT,
         runner=fake_runner,
         poll_interval_seconds=0.01,
         timeout_seconds=1.0,
@@ -1421,7 +1423,7 @@ def _run_invalid_grounding_followup_fixture(
     result = run_oracle_benchmark_followup_background_worker(
         target=target,
         from_run=source_run,
-        model="gpt-5.4",
+        model=ORACLE_MODEL_LANE_INSTANT,
         poll_interval_seconds=0.01,
         timeout_seconds=1.0,
     )
