@@ -58,6 +58,7 @@ from cookimport.parsing.canonical_line_roles import (
 )
 from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel, RecipeSpan
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
+from cookimport.staging.nonrecipe_seed import normalize_nonrecipe_stage_category
 from cookimport.staging.nonrecipe_stage import build_nonrecipe_stage_result
 
 _DEFAULT_RECIPE_PIPELINE_ID = "recipe.correction.compact.v1"
@@ -135,6 +136,39 @@ class ExistingRunPreviewContext:
     final_draft_by_index: dict[int, dict[str, Any]]
     labeled_line_rows: list[dict[str, Any]]
     run_config: dict[str, Any]
+
+
+def _preview_sanitized_nonrecipe_block_labels(
+    *,
+    block_labels: Sequence[AuthoritativeBlockLabel],
+    recipe_spans: Sequence[RecipeSpan],
+) -> list[AuthoritativeBlockLabel]:
+    recipe_block_indices = {
+        int(block_index)
+        for span in recipe_spans
+        for block_index in span.block_indices
+    }
+    sanitized: list[AuthoritativeBlockLabel] = []
+    for block_label in block_labels:
+        if int(block_label.source_block_index) in recipe_block_indices:
+            sanitized.append(block_label)
+            continue
+        _, warning = normalize_nonrecipe_stage_category(block_label.final_label)
+        if warning is None:
+            sanitized.append(block_label)
+            continue
+        sanitized.append(
+            block_label.model_copy(
+                update={
+                    "final_label": "OTHER",
+                    "review_exclusion_reason": (
+                        str(block_label.review_exclusion_reason or "").strip()
+                        or "prompt_preview_invalid_nonrecipe_label"
+                    ),
+                }
+            )
+        )
+    return sanitized
 
 
 def write_prompt_preview_for_existing_run(
@@ -660,7 +694,10 @@ def _build_knowledge_preview_rows(
 
     nonrecipe_stage_result = build_nonrecipe_stage_result(
         full_blocks=context.full_blocks,
-        final_block_labels=context.block_labels,
+        final_block_labels=_preview_sanitized_nonrecipe_block_labels(
+            block_labels=context.block_labels,
+            recipe_spans=context.recipe_spans,
+        ),
         recipe_spans=context.recipe_spans,
     )
     build_knowledge_jobs(

@@ -643,6 +643,55 @@ def test_prompt_preview_knowledge_uses_review_eligible_spans_not_seed_spans(
     assert knowledge_rows[0]["request_input_payload"]["b"][0]["i"] == 2
 
 
+def test_prompt_preview_knowledge_excludes_stale_recipe_like_nonrecipe_labels(
+    tmp_path: Path,
+) -> None:
+    run_dir = _build_existing_run(tmp_path)
+    labels_path = (
+        run_dir
+        / "group_recipe_spans"
+        / "fixturebook"
+        / "authoritative_block_labels.json"
+    )
+    labels_payload = json.loads(labels_path.read_text(encoding="utf-8"))
+    for row in labels_payload["block_labels"]:
+        if row["source_block_index"] == 3:
+            row["final_label"] = "RECIPE_TITLE"
+            row["review_exclusion_reason"] = None
+            break
+    labels_path.write_text(
+        json.dumps(labels_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    out_dir = tmp_path / "preview"
+    manifest_path = write_prompt_preview_for_existing_run(
+        run_path=run_dir,
+        out_dir=out_dir,
+        repo_root=REPO_ROOT,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    knowledge_phase = manifest["phase_plans"]["nonrecipe_knowledge_review"]
+    full_prompt_rows = [
+        json.loads(line)
+        for line in (out_dir / "prompts" / "full_prompt_log.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    ]
+    knowledge_rows = [
+        row for row in full_prompt_rows if row["stage_key"] == "nonrecipe_knowledge_review"
+    ]
+
+    assert knowledge_phase["owned_id_count"] == 1
+    assert knowledge_phase["shard_count"] == 1
+    assert len(knowledge_rows) == 1
+    assert knowledge_rows[0]["request_input_payload"]["b"] == [
+        {"i": 2, "t": "Pan heat matters."}
+    ]
+
+
 def test_prompt_preview_rebuilds_recipe_prompt_and_input_payload(tmp_path: Path) -> None:
     fixture = _run_prompt_preview_fixture(tmp_path)
     rows_by_stage = fixture["rows_by_stage"]
