@@ -143,41 +143,6 @@ def build_pass1_work_ledger(input_payload: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def migrate_legacy_pass1_work_ledger(
-    *,
-    input_payload: Mapping[str, Any],
-    payload: Any,
-) -> dict[str, Any] | None:
-    if not isinstance(payload, Mapping):
-        return None
-    decisions = payload.get("block_decisions")
-    if not isinstance(decisions, list):
-        return None
-    category_by_index: dict[int, str] = {}
-    for decision in decisions:
-        if not isinstance(decision, Mapping) or decision.get("block_index") is None:
-            continue
-        try:
-            block_index = int(decision.get("block_index"))
-        except (TypeError, ValueError):
-            continue
-        category = str(decision.get("category") or "").strip()
-        category_by_index[block_index] = (
-            category if category in {"knowledge", "other"} else "other"
-        )
-    return {
-        "phase": "pass1",
-        "rows": [
-            {
-                "block_index": int(block.get("i")),
-                "category": category_by_index.get(int(block.get("i")), "other"),
-            }
-            for block in _input_blocks(input_payload)
-            if block.get("i") is not None
-        ],
-    }
-
-
 def build_pass2_input_ledger(
     *,
     input_payload: Mapping[str, Any],
@@ -867,38 +832,6 @@ def build_pass1_seed(input_payload):
         ],
     }}
 
-
-def migrate_legacy_pass1_work(input_payload, payload):
-    if not isinstance(payload, dict):
-        return None
-    decisions = payload.get("block_decisions")
-    if not isinstance(decisions, list):
-        return None
-    category_by_index = {{}}
-    for decision in decisions:
-        if not isinstance(decision, dict) or decision.get("block_index") is None:
-            continue
-        try:
-            block_index = int(decision.get("block_index"))
-        except (TypeError, ValueError):
-            continue
-        category = str(decision.get("category") or "").strip()
-        category_by_index[block_index] = (
-            category if category in {{"knowledge", "other"}} else "other"
-        )
-    return {{
-        "phase": "pass1",
-        "rows": [
-            {{
-                "block_index": int(block.get("i")),
-                "category": category_by_index.get(int(block.get("i")), "other"),
-            }}
-            for block in input_blocks(input_payload)
-            if block.get("i") is not None
-        ],
-    }}
-
-
 def build_pass2_input(input_payload, pass1_payload):
     text_by_index = {{
         int(block.get("i")): str(block.get("t") or "").strip()
@@ -1430,10 +1363,7 @@ def ensure_pass1_work(phase_row):
             and isinstance(existing_payload.get("rows"), list)
         ):
             return
-        migrated = migrate_legacy_pass1_work(load_phase_input(phase_row), existing_payload)
-        if migrated is not None:
-            save_json(work_path, migrated)
-            return
+        save_json(work_path, build_pass1_seed(load_phase_input(phase_row)))
         return
     save_json(work_path, build_pass1_seed(load_phase_input(phase_row)))
 

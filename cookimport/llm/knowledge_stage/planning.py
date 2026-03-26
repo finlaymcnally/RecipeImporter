@@ -60,240 +60,22 @@ def _build_knowledge_task_manifest_entry(
     )
 
 
-def _build_knowledge_task_plans(
-    shard: ShardManifestEntryV1,
-) -> tuple[_KnowledgeTaskPlan, ...]:
-    payload = _coerce_dict(shard.input_payload)
-    packet_payloads = _knowledge_packet_payloads(payload)
-    if not packet_payloads:
-        return ()
-    task_count = len(packet_payloads)
-    task_plans: list[_KnowledgeTaskPlan] = []
-    for task_index, packet_payload in enumerate(packet_payloads, start=1):
-        task_id = str(packet_payload.get("bid") or packet_payload.get("packet_id") or "").strip()
-        if not task_id:
-            continue
-        blocks = [
-            dict(row) for row in (packet_payload.get("b") or []) if isinstance(row, Mapping)
-        ]
-        owned_block_indices = [
-            int(block.get("i"))
-            for block in blocks
-            if isinstance(block, Mapping) and block.get("i") is not None
-        ]
-        task_manifest = ShardManifestEntryV1(
-            shard_id=task_id,
-            owned_ids=(task_id,),
-            evidence_refs=tuple(f"block:{index}" for index in owned_block_indices),
-            input_payload=dict(packet_payload),
-            input_text=None,
-            metadata={
-                **dict(shard.metadata or {}),
-                "parent_shard_id": shard.shard_id,
-                "task_id": task_id,
-                "task_index": task_index,
-                "task_count": task_count,
-                "packet_count": 1,
-                "owned_packet_ids": [task_id],
-                "owned_packet_count": 1,
-                "owned_block_indices": owned_block_indices,
-                "owned_block_count": len(owned_block_indices),
-            },
-        )
-        task_plans.append(
-            _KnowledgeTaskPlan(
-                task_id=task_id,
-                parent_shard_id=shard.shard_id,
-                manifest_entry=task_manifest,
-            )
-        )
-    return tuple(task_plans)
-
-
-def _build_knowledge_task_runtime_manifest_entry(
-    task_plan: _KnowledgeTaskPlan,
-) -> TaskManifestEntryV1:
-    task_manifest = task_plan.manifest_entry
-    return TaskManifestEntryV1(
-        task_id=task_plan.task_id,
-        task_kind="knowledge_review_packet_task",
-        parent_shard_id=task_plan.parent_shard_id,
-        owned_ids=tuple(task_manifest.owned_ids),
-        input_payload=task_manifest.input_payload,
-        input_text=task_manifest.input_text,
-        metadata=dict(task_manifest.metadata or {}),
-    )
-
-
-def _decorate_knowledge_workspace_task_runtime_entry(
-    task_entry: TaskManifestEntryV1,
-    *,
-    task_sequence: int,
-    task_total: int,
-) -> TaskManifestEntryV1:
-    task_id = str(task_entry.task_id).strip()
-    metadata = dict(task_entry.metadata or {})
-    metadata.update(
-        {
-            "input_path": str(Path("in") / f"{task_id}.json"),
-            "hint_path": str(Path("hints") / f"{task_id}.md"),
-            "result_path": str(Path("out") / f"{task_id}.json"),
-            "task_sequence": int(task_sequence),
-            "task_total": int(task_total),
-            "lease_sequence": int(task_sequence),
-            "lease_total": int(task_total),
-            "workspace_processing_contract": "ordered_task_micro_batch_v1",
-        }
-    )
-    return replace(task_entry, metadata=metadata)
-
-
-def _build_knowledge_workspace_task_runtime_entries(
-    task_plans: Sequence[_KnowledgeTaskPlan],
-) -> tuple[TaskManifestEntryV1, ...]:
-    total = len(task_plans)
-    return tuple(
-        _decorate_knowledge_workspace_task_runtime_entry(
-            _build_knowledge_task_runtime_manifest_entry(task_plan),
-            task_sequence=index,
-            task_total=total,
-        )
-        for index, task_plan in enumerate(task_plans, start=1)
-    )
-
-
-def _knowledge_task_runtime_entries_for_shard(
-    *,
-    shard: ShardManifestEntryV1,
-    task_plans_by_shard_id: Mapping[str, Sequence[_KnowledgeTaskPlan]],
-) -> tuple[TaskManifestEntryV1, ...]:
-    task_plans = tuple(task_plans_by_shard_id.get(shard.shard_id) or ())
-    if task_plans:
-        return tuple(
-            _build_knowledge_task_runtime_manifest_entry(task_plan)
-            for task_plan in task_plans
-        )
-    return (_build_knowledge_task_manifest_entry(shard),)
-
-
-def _progress_task_ids_for_knowledge_shard(
-    *,
-    shard_id: str,
-    task_plans_by_shard_id: Mapping[str, Sequence[_KnowledgeTaskPlan]],
-) -> tuple[str, ...]:
-    task_ids = tuple(
-        str(task_plan.task_id).strip()
-        for task_plan in tuple(task_plans_by_shard_id.get(shard_id) or ())
-        if str(task_plan.task_id).strip()
-    )
-    return task_ids or (str(shard_id).strip(),)
-
-
-def _summarize_knowledge_task_packet_distribution(
+def _summarize_knowledge_shard_distribution(
     *,
     assignments: Sequence[WorkerAssignmentV1],
-    task_plans_by_shard_id: Mapping[str, Sequence[_KnowledgeTaskPlan]],
 ) -> dict[str, Any]:
-    worker_task_packet_counts: dict[str, int] = {}
-    for assignment in assignments:
-        worker_task_packet_counts[assignment.worker_id] = sum(
-            len(
-                _progress_task_ids_for_knowledge_shard(
-                    shard_id=shard_id,
-                    task_plans_by_shard_id=task_plans_by_shard_id,
-                )
-            )
-            for shard_id in assignment.shard_ids
-        )
-    counts = list(worker_task_packet_counts.values())
+    worker_task_counts = {
+        assignment.worker_id: len(assignment.shard_ids)
+        for assignment in assignments
+    }
+    counts = list(worker_task_counts.values())
     return {
-        "bundle_policy": "shard_round_robin_packet_bundle_tasks_v1",
+        "bundle_policy": "shard_round_robin_phase_workers_v1",
         "task_total": sum(counts),
-        "worker_task_counts": dict(sorted(worker_task_packet_counts.items())),
+        "worker_task_counts": dict(sorted(worker_task_counts.items())),
         "max_tasks_per_worker": max(counts) if counts else 0,
         "min_tasks_per_worker": min(counts) if counts else 0,
-        "worker_task_packet_counts": dict(sorted(worker_task_packet_counts.items())),
-        "max_task_packets_per_worker": max(counts) if counts else 0,
-        "min_task_packets_per_worker": min(counts) if counts else 0,
     }
-
-
-def _aggregate_knowledge_task_payloads(
-    *,
-    shard: ShardManifestEntryV1,
-    task_payloads_by_task_id: Mapping[str, dict[str, Any] | None],
-    task_validation_errors_by_task_id: Mapping[str, Sequence[str]],
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    expected_packet_ids = [
-        str(value).strip() for value in shard.owned_ids if str(value).strip()
-    ]
-    accepted_task_ids: list[str] = []
-    accepted_payloads_by_task_id: dict[str, dict[str, Any]] = {}
-    for task_id, payload in task_payloads_by_task_id.items():
-        if not isinstance(payload, Mapping):
-            continue
-        cleaned_task_id = str(task_id).strip()
-        if not cleaned_task_id:
-            continue
-        accepted_task_ids.append(cleaned_task_id)
-        accepted_payloads_by_task_id[cleaned_task_id] = dict(payload)
-    all_task_ids = sorted(
-        {
-            str(task_id).strip()
-            for task_id in [*task_payloads_by_task_id.keys(), *task_validation_errors_by_task_id.keys()]
-            if str(task_id).strip()
-        }
-    )
-    fallback_task_ids = sorted(
-        {
-            str(task_id).strip()
-            for task_id, errors in task_validation_errors_by_task_id.items()
-            if errors or task_id not in accepted_task_ids
-        }
-    )
-    accepted_payloads = [
-        accepted_payloads_by_task_id[packet_id]
-        for packet_id in expected_packet_ids
-        if packet_id in accepted_payloads_by_task_id
-    ]
-    missing_packet_ids = [
-        packet_id
-        for packet_id in expected_packet_ids
-        if packet_id not in accepted_payloads_by_task_id
-    ]
-    metadata = {
-        "task_count": len(all_task_ids),
-        "accepted_task_count": len(accepted_task_ids),
-        "accepted_task_ids": sorted(accepted_task_ids),
-        "fallback_task_count": len(fallback_task_ids),
-        "fallback_task_ids": fallback_task_ids,
-        "missing_packet_ids": missing_packet_ids,
-        "task_ids": all_task_ids,
-        "task_validation_errors_by_task_id": {
-            task_id: list(errors)
-            for task_id, errors in task_validation_errors_by_task_id.items()
-            if errors
-        },
-        "task_id_by_packet_id": {
-            packet_id: packet_id
-            for packet_id in expected_packet_ids
-            if packet_id in accepted_payloads_by_task_id
-        },
-    }
-    if len(expected_packet_ids) <= 1:
-        accepted_payload = accepted_payloads[0] if accepted_payloads else None
-        return dict(
-            accepted_payload
-            or {
-                "packet_id": expected_packet_ids[0] if expected_packet_ids else shard.shard_id,
-                "block_decisions": [],
-                "idea_groups": [],
-            }
-        ), metadata
-    return {
-        "shard_id": shard.shard_id,
-        "packet_results": accepted_payloads,
-    }, metadata
 
 
 def _effort_override_value(value: object | None) -> str | None:
@@ -387,7 +169,7 @@ class _KnowledgeWorkerProgressState:
             return base_label
         return (
             f"{base_label} "
-            f"({self.visible_task_packets()}/{self.total_task_packets} tasks)"
+            f"({self.visible_task_packets()}/{self.total_task_packets} shards)"
         )
 
     def worker_session_completed(self) -> bool:
@@ -565,7 +347,7 @@ class _KnowledgePhaseProgressState:
         detail_lines = [
             f"configured workers: {self.worker_total}",
             f"completed shards: {len(self.completed_shard_ids)}/{self.total_shards}",
-            f"queued tasks: {max(0, self.total_task_packets - completed_task_packets)}",
+            f"queued shards: {max(0, self.total_task_packets - completed_task_packets)}",
         ]
         repair_running = int(self.running_followup_counts.get("repair") or 0)
         retry_running = int(self.running_followup_counts.get("retry") or 0)
@@ -625,14 +407,6 @@ class _DirectKnowledgeWorkerResult:
     failures: tuple[dict[str, Any], ...]
     stage_rows: tuple[dict[str, Any], ...]
     worker_runner_payload: dict[str, Any]
-
-
-@dataclass(frozen=True, slots=True)
-class _KnowledgeTaskPlan:
-    task_id: str
-    parent_shard_id: str
-    manifest_entry: ShardManifestEntryV1
-
 
 @dataclass(slots=True)
 class _KnowledgeCohortWatchdogState:

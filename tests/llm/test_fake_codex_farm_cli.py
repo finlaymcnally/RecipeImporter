@@ -541,11 +541,25 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
     worker_root = phase_dir / "workers" / "worker-001"
     status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
     current_phase = json.loads((worker_root / "current_phase.json").read_text(encoding="utf-8"))
+    pass1_work_ledgers = sorted((worker_root / "work").glob("*.pass1.json"))
 
     assert status["runtime_mode_audit"]["output_schema_enforced"] is False
     assert status["runtime_mode_audit"]["tool_affordances_requested"] is True
+    assert {
+        (row.get("supervision_state"), row.get("supervision_reason_code"))
+        for row in status["telemetry"]["rows"]
+    } == {("completed", "workspace_validated_task_queue_completed")}
+    assert (worker_root / "assigned_shards.json").exists()
+    assert not (worker_root / "assigned_tasks.json").exists()
+    assert not (worker_root / "current_task.json").exists()
     assert sorted(path.name for path in (worker_root / "out").glob("*.json"))
     assert sorted(path.name for path in (worker_root / "in").glob("*.pass2.json"))
+    assert pass1_work_ledgers
+    for path in pass1_work_ledgers:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert payload["phase"] == "pass1"
+        assert "rows" in payload
+        assert "packet_id" not in payload
     assert current_phase["status"] == "completed"
 
 

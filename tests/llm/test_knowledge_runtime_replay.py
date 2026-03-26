@@ -106,29 +106,29 @@ def _run_synthetic_knowledge_replay_fixture(tmp_path: Path):
         knowledge_root / "task_manifest.jsonl",
         [
             {
-                "task_id": "book.ks0000.nr.task-001",
+                "task_id": "book.ks0000.nr",
                 "parent_shard_id": "book.ks0000.nr",
-                "owned_ids": ["chunk-001"],
+                "owned_ids": ["book.ks0000.nr"],
             },
             {
-                "task_id": "book.ks0000.nr.task-002",
-                "parent_shard_id": "book.ks0000.nr",
-                "owned_ids": ["chunk-002"],
-            },
-            {
-                "task_id": "book.ks0001.nr.task-001",
+                "task_id": "book.ks0001.nr",
                 "parent_shard_id": "book.ks0001.nr",
-                "owned_ids": ["chunk-101"],
+                "owned_ids": ["book.ks0001.nr"],
             },
             {
-                "task_id": "book.ks0001.nr.task-002",
-                "parent_shard_id": "book.ks0001.nr",
-                "owned_ids": ["chunk-102"],
-            },
-            {
-                "task_id": "book.ks0002.nr.task-001",
+                "task_id": "book.ks0002.nr",
                 "parent_shard_id": "book.ks0002.nr",
-                "owned_ids": ["chunk-201"],
+                "owned_ids": ["book.ks0002.nr"],
+            },
+            {
+                "task_id": "book.ks0003.nr",
+                "parent_shard_id": "book.ks0003.nr",
+                "owned_ids": ["book.ks0003.nr"],
+            },
+            {
+                "task_id": "book.ks0004.nr",
+                "parent_shard_id": "book.ks0004.nr",
+                "owned_ids": ["book.ks0004.nr"],
             },
         ],
     )
@@ -138,14 +138,22 @@ def _run_synthetic_knowledge_replay_fixture(tmp_path: Path):
             {"shard_id": "book.ks0000.nr"},
             {"shard_id": "book.ks0001.nr"},
             {"shard_id": "book.ks0002.nr"},
+            {"shard_id": "book.ks0003.nr"},
+            {"shard_id": "book.ks0004.nr"},
         ],
     )
     _write_json(
         knowledge_root / "worker_assignments.json",
         [
             {"worker_id": "worker-001", "shard_ids": ["book.ks0000.nr"]},
-            {"worker_id": "worker-002", "shard_ids": ["book.ks0001.nr"]},
-            {"worker_id": "worker-003", "shard_ids": ["book.ks0002.nr"]},
+            {
+                "worker_id": "worker-002",
+                "shard_ids": ["book.ks0001.nr", "book.ks0002.nr"],
+            },
+            {
+                "worker_id": "worker-003",
+                "shard_ids": ["book.ks0003.nr", "book.ks0004.nr"],
+            },
         ],
     )
 
@@ -154,29 +162,12 @@ def _run_synthetic_knowledge_replay_fixture(tmp_path: Path):
         {"state": "completed", "reason_code": "workspace_outputs_stabilized"},
     )
     _write_json(
-        knowledge_root / "workers" / "worker-001" / "assigned_tasks.json",
-        [
-            {"task_id": "book.ks0000.nr.task-001"},
-            {"task_id": "book.ks0000.nr.task-002"},
-        ],
+        knowledge_root / "workers" / "worker-001" / "assigned_shards.json",
+        [{"shard_id": "book.ks0000.nr"}],
     )
     _write_json(
-        knowledge_root / "workers" / "worker-001" / "out" / "book.ks0000.nr.task-001.json",
-        {"v": "2", "bid": "book.ks0000.nr.task-001", "r": []},
-    )
-    malformed_path = (
-        knowledge_root / "workers" / "worker-001" / "out" / "book.ks0000.nr.task-002.json"
-    )
-    malformed_path.parent.mkdir(parents=True, exist_ok=True)
-    malformed_path.write_text('{"v":"2","bid":"book.ks0000.nr.task-002"}EOF', encoding="utf-8")
-    _write_json(
-        knowledge_root
-        / "workers"
-        / "worker-001"
-        / "shards"
-        / "book.ks0000.nr.task-002"
-        / "repair_status.json",
-        {"status": "failed"},
+        knowledge_root / "workers" / "worker-001" / "out" / "book.ks0000.nr.json",
+        {"packet_id": "book.ks0000.nr", "block_decisions": [], "idea_groups": []},
     )
 
     _write_json(
@@ -187,18 +178,15 @@ def _run_synthetic_knowledge_replay_fixture(tmp_path: Path):
         },
     )
     _write_json(
-        knowledge_root / "workers" / "worker-002" / "assigned_tasks.json",
-        [
-            {"task_id": "book.ks0001.nr.task-001"},
-            {"task_id": "book.ks0001.nr.task-002"},
-        ],
+        knowledge_root / "workers" / "worker-002" / "assigned_shards.json",
+        [{"shard_id": "book.ks0001.nr"}, {"shard_id": "book.ks0002.nr"}],
     )
     _write_json(
         knowledge_root
         / "workers"
         / "worker-002"
         / "shards"
-        / "book.ks0001.nr.task-001"
+        / "book.ks0001.nr"
         / "watchdog_retry"
         / "status.json",
         {"status": "validated"},
@@ -208,7 +196,7 @@ def _run_synthetic_knowledge_replay_fixture(tmp_path: Path):
         / "workers"
         / "worker-002"
         / "shards"
-        / "book.ks0001.nr.task-002"
+        / "book.ks0002.nr"
         / "watchdog_retry"
         / "live_status.json",
         {"state": "running"},
@@ -222,17 +210,20 @@ def _run_synthetic_knowledge_replay_fixture(tmp_path: Path):
         },
     )
     _write_json(
-        knowledge_root / "workers" / "worker-003" / "assigned_tasks.json",
-        [{"task_id": "book.ks0002.nr.task-001"}],
+        knowledge_root / "workers" / "worker-003" / "assigned_shards.json",
+        [{"shard_id": "book.ks0003.nr"}, {"shard_id": "book.ks0004.nr"}],
     )
+    malformed_path = knowledge_root / "workers" / "worker-003" / "out" / "book.ks0003.nr.json"
+    malformed_path.parent.mkdir(parents=True, exist_ok=True)
+    malformed_path.write_text('{"packet_id":"book.ks0003.nr"}EOF', encoding="utf-8")
     _write_json(
         knowledge_root
         / "workers"
         / "worker-003"
         / "shards"
-        / "book.ks0002.nr.task-001"
-        / "repair_live_status.json",
-        {"state": "running"},
+        / "book.ks0004.nr"
+        / "repair_status.json",
+        {"status": "failed"},
     )
 
     _write_json(benchmark_root / "processing_timeseries_prediction.jsonl", {"ok": True})
@@ -246,7 +237,7 @@ def _run_synthetic_knowledge_replay_fixture(tmp_path: Path):
 
 def test_replay_knowledge_runtime_classifies_synthetic_artifacts(tmp_path: Path) -> None:
     summary = _run_synthetic_knowledge_replay_fixture(tmp_path)
-    assert summary.shard_total == 3
+    assert summary.shard_total == 5
     assert summary.rollup.packet_total == 5
     assert summary.rollup.worker_output_count == 2
     assert summary.rollup.malformed_worker_output_count == 1
@@ -256,12 +247,13 @@ def test_replay_knowledge_runtime_classifies_synthetic_artifacts(tmp_path: Path)
         "watchdog_command_forbidden": 1,
     }
     assert summary.rollup.follow_up_attempt_counts == {
-        "repair": 2,
+        "repair": 1,
         "watchdog_retry": 2,
     }
-    assert summary.rollup.stale_follow_up_count == 2
+    assert summary.rollup.stale_follow_up_count == 1
     assert summary.rollup.packet_state_counts == {
-        "follow_up_stale": 2,
+        "follow_up_stale": 1,
+        "main_output_malformed": 1,
         "main_output_written": 1,
         "repair_failed": 1,
         "retry_recovered": 1,
@@ -294,38 +286,33 @@ def test_replay_knowledge_runtime_matches_large_generated_fixture(tmp_path: Path
         "worker-004",
         "worker-005",
     ]
-    shard_ids = [
-        "book.ks0000.nr",
-        "book.ks0001.nr",
-        "book.ks0002.nr",
-        "book.ks0003.nr",
-        "book.ks0004.nr",
-    ]
     task_rows: list[dict[str, object]] = []
     worker_assignments: list[dict[str, object]] = []
-    task_counter = 1
+    shard_counter = 0
     for worker_index, worker_id in enumerate(worker_ids):
-        shard_id = shard_ids[worker_index]
-        worker_assignments.append({"worker_id": worker_id, "shard_ids": [shard_id]})
-        assigned_tasks: list[dict[str, object]] = []
+        worker_shard_ids: list[str] = []
         task_count = 89 if worker_index < 2 else 88
         for _ in range(task_count):
-            task_id = f"{shard_id}.task-{task_counter:03d}"
-            task_counter += 1
+            task_id = f"book.ks{shard_counter:04d}.nr"
+            shard_counter += 1
             task_rows.append(
                 {
                     "task_id": task_id,
-                    "parent_shard_id": shard_id,
-                    "owned_ids": [f"chunk-{task_id}"],
+                    "parent_shard_id": task_id,
+                    "owned_ids": [task_id],
                 }
             )
-            assigned_tasks.append({"task_id": task_id})
-        _write_json(knowledge_root / "workers" / worker_id / "assigned_tasks.json", assigned_tasks)
+            worker_shard_ids.append(task_id)
+        worker_assignments.append({"worker_id": worker_id, "shard_ids": worker_shard_ids})
+        _write_json(
+            knowledge_root / "workers" / worker_id / "assigned_shards.json",
+            [{"shard_id": shard_id} for shard_id in worker_shard_ids],
+        )
 
     _write_jsonl(knowledge_root / "task_manifest.jsonl", task_rows)
     _write_jsonl(
         knowledge_root / "shard_manifest.jsonl",
-        [{"shard_id": shard_id} for shard_id in shard_ids],
+        [{"shard_id": row["task_id"]} for row in task_rows],
     )
     _write_json(knowledge_root / "worker_assignments.json", worker_assignments)
     _write_json(knowledge_root / "phase_manifest.json", {"ok": True})
@@ -353,7 +340,7 @@ def test_replay_knowledge_runtime_matches_large_generated_fixture(tmp_path: Path
     for task_id in output_task_ids:
         _write_json(
             knowledge_root / "workers" / _worker_id_for_task(task_id, worker_assignments) / "out" / f"{task_id}.json",
-            {"v": "2", "bid": task_id, "r": []},
+            {"packet_id": task_id, "block_decisions": [], "idea_groups": []},
         )
     for task_id in repair_failed_task_ids:
         _write_json(
@@ -376,7 +363,7 @@ def test_replay_knowledge_runtime_matches_large_generated_fixture(tmp_path: Path
         benchmark_root=benchmark_root,
     )
 
-    assert summary.shard_total == 5
+    assert summary.shard_total == 442
     assert summary.rollup.packet_total == 442
     assert summary.rollup.worker_output_count == 354
     assert summary.rollup.malformed_worker_output_count == 0
@@ -419,9 +406,8 @@ def _worker_id_for_task(
     worker_assignments: list[dict[str, object]],
 ) -> str:
     cleaned_task_id = str(task_id)
-    parent_shard_id = cleaned_task_id.rsplit(".task-", 1)[0]
     for row in worker_assignments:
         shard_ids = row.get("shard_ids")
-        if isinstance(shard_ids, list) and parent_shard_id in shard_ids:
+        if isinstance(shard_ids, list) and cleaned_task_id in shard_ids:
             return str(row["worker_id"])
     raise AssertionError(f"missing worker assignment for task {cleaned_task_id}")

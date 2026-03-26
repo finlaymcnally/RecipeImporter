@@ -23,11 +23,11 @@ KNOWLEDGE_MANIFEST_FILE_NAME = "knowledge_manifest.json"
 KNOWLEDGE_STAGE_STATUS_FILE_NAME = "stage_status.json"
 KNOWLEDGE_STAGE_STATUS_SCHEMA_VERSION = "knowledge_stage_status.v1"
 KNOWLEDGE_STAGE_SUMMARY_FILE_NAME = "knowledge_stage_summary.json"
-KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v1"
+KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v2"
 RECIPE_STAGE_SUMMARY_FILE_NAME = "recipe_stage_summary.json"
-RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v2"
+RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v3"
 LINE_ROLE_STAGE_SUMMARY_FILE_NAME = "line_role_stage_summary.json"
-LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION = "line_role_stage_summary.v1"
+LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION = "line_role_stage_summary.v2"
 
 _KNOWLEDGE_STAGE_ARTIFACT_KEYS: tuple[str, ...] = (
     "phase_manifest.json",
@@ -85,6 +85,7 @@ class StageWorkbookObservation(BaseModel):
     stage_dir: str | None = None
     input_dir: str | None = None
     output_dir: str | None = None
+    attention_summary: dict[str, Any] | None = None
     artifact_paths: dict[str, str] = Field(default_factory=dict)
 
 
@@ -358,6 +359,204 @@ def _count_metadata_value_rows(
     return dict(sorted(counts.items()))
 
 
+def _int_count(value: Any) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _sorted_int_map(payload: Mapping[str, Any] | None) -> dict[str, int]:
+    if not isinstance(payload, Mapping):
+        return {}
+    normalized: dict[str, int] = {}
+    for key, value in payload.items():
+        cleaned = str(key or "").strip()
+        if not cleaned:
+            continue
+        normalized[cleaned] = _int_count(value)
+    return dict(sorted(normalized.items()))
+
+
+def _build_attention_summary(
+    *,
+    zero_target_counts: Mapping[str, Any] | None = None,
+    context_counts: Mapping[str, Any] | None = None,
+    reason_counts: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized_zero_target_counts = _sorted_int_map(zero_target_counts)
+    payload: dict[str, Any] = {
+        "needs_attention": any(
+            _int_count(value) > 0 for value in normalized_zero_target_counts.values()
+        ),
+        "zero_target_counts": normalized_zero_target_counts,
+    }
+    normalized_context_counts = _sorted_int_map(context_counts)
+    if normalized_context_counts:
+        payload["context_counts"] = normalized_context_counts
+    normalized_reason_counts: dict[str, Any] = {}
+    if isinstance(reason_counts, Mapping):
+        for key, value in reason_counts.items():
+            cleaned = str(key or "").strip()
+            if not cleaned:
+                continue
+            if isinstance(value, Mapping):
+                normalized_reason_counts[cleaned] = _sorted_int_map(value)
+            else:
+                normalized_reason_counts[cleaned] = _int_count(value)
+    if normalized_reason_counts:
+        payload["reason_counts"] = dict(sorted(normalized_reason_counts.items()))
+    return payload
+
+
+def _line_role_run_root(stage_root: Path) -> Path:
+    try:
+        return stage_root.parents[2]
+    except IndexError:
+        return stage_root
+
+
+def _count_codex_policy_rejections_in_label_rows(
+    labeled_line_rows: list[dict[str, Any]],
+) -> tuple[int, dict[str, int]]:
+    rejected_total = 0
+    reason_counts: Counter[str] = Counter()
+    for row in labeled_line_rows:
+        reason_tags = row.get("reason_tags")
+        if not isinstance(reason_tags, list):
+            continue
+        saw_rejection = False
+        for raw_tag in reason_tags:
+            tag = str(raw_tag or "").strip()
+            if not tag:
+                continue
+            if tag == "codex_policy_rejected":
+                saw_rejection = True
+                continue
+            if tag.startswith("codex_policy_rejected:"):
+                saw_rejection = True
+                reason = tag.split(":", 1)[1].strip()
+                if reason:
+                    reason_counts[reason] += 1
+        if saw_rejection:
+            rejected_total += 1
+    return rejected_total, dict(sorted(reason_counts.items()))
+
+
+def _load_all_label_llm_rows(run_root: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    label_root = run_root / "label_llm_correct"
+    if not label_root.exists() or not label_root.is_dir():
+        return rows
+    for workbook_dir in sorted(path for path in label_root.iterdir() if path.is_dir()):
+        rows.extend(_load_jsonl_dicts(workbook_dir / "labeled_lines.jsonl"))
+    return rows
+
+
+def _build_label_llm_attention_summary(workbook_dir: Path) -> dict[str, Any]:
+    labeled_line_rows = _load_jsonl_dicts(workbook_dir / "labeled_lines.jsonl")
+    fallback_line_count = sum(
+        1
+        for row in labeled_line_rows
+        if str(row.get("decided_by") or "").strip() == "fallback"
+    )
+    codex_policy_rejected_row_count, codex_policy_rejection_reason_counts = (
+        _count_codex_policy_rejections_in_label_rows(labeled_line_rows)
+    )
+    context_counts = {
+        "line_total": len(labeled_line_rows),
+        "codex_line_count": sum(
+            1 for row in labeled_line_rows if str(row.get("decided_by") or "").strip() == "codex"
+        ),
+        "rule_line_count": sum(
+            1 for row in labeled_line_rows if str(row.get("decided_by") or "").strip() == "rule"
+        ),
+    }
+    return _build_attention_summary(
+        zero_target_counts={
+            "fallback_line_count": fallback_line_count,
+            "codex_policy_rejected_row_count": codex_policy_rejected_row_count,
+        },
+        context_counts=context_counts,
+        reason_counts={
+            "codex_policy_rejection_reason_counts": codex_policy_rejection_reason_counts,
+        },
+    )
+
+
+def _build_recipe_boundary_attention_summary(workbook_dir: Path) -> dict[str, Any]:
+    span_decisions_payload = _load_json_dict(workbook_dir / "span_decisions.json") or {}
+    span_decisions = span_decisions_payload.get("span_decisions")
+    if not isinstance(span_decisions, list):
+        span_decisions = []
+    accepted_count = 0
+    rejected_count = 0
+    rejection_reason_counts: Counter[str] = Counter()
+    for row in span_decisions:
+        if not isinstance(row, Mapping):
+            continue
+        decision = str(row.get("decision") or "").strip()
+        if decision == "accepted_recipe_span":
+            accepted_count += 1
+            continue
+        if decision == "rejected_pseudo_recipe_span":
+            rejected_count += 1
+            rejection_reason = str(row.get("rejection_reason") or "").strip()
+            if rejection_reason:
+                rejection_reason_counts[rejection_reason] += 1
+    return _build_attention_summary(
+        zero_target_counts={
+            "rejected_pseudo_recipe_span_count": rejected_count,
+        },
+        context_counts={
+            "accepted_recipe_span_count": accepted_count,
+            "span_decision_count": accepted_count + rejected_count,
+        },
+        reason_counts={
+            "span_rejection_reason_counts": dict(sorted(rejection_reason_counts.items())),
+        },
+    )
+
+
+def _build_nonrecipe_route_attention_summary(run_root: Path) -> dict[str, Any]:
+    exclusion_rows = _load_jsonl_dicts(run_root / NONRECIPE_REVIEW_EXCLUSIONS_FILE_NAME)
+    reason_counts: Counter[str] = Counter()
+    for row in exclusion_rows:
+        reason = str(row.get("review_exclusion_reason") or "").strip()
+        if reason:
+            reason_counts[reason] += 1
+    return _build_attention_summary(
+        zero_target_counts={},
+        context_counts={
+            "review_excluded_row_count": len(exclusion_rows),
+        },
+        reason_counts={
+            "review_exclusion_reason_counts": dict(sorted(reason_counts.items())),
+        },
+    )
+
+
+def _build_final_recipe_attention_summary(workbook_dir: Path) -> dict[str, Any]:
+    manifest_payload = _load_json_dict(workbook_dir / RECIPE_MANIFEST_FILE_NAME) or {}
+    counts = manifest_payload.get("counts")
+    if not isinstance(counts, Mapping):
+        counts = {}
+    return _build_attention_summary(
+        zero_target_counts={
+            "recipe_correction_error_count": counts.get("recipe_correction_error"),
+            "final_recipe_not_promoted_count": counts.get(
+                "final_recipe_authority_not_promoted"
+            ),
+            "final_recipe_error_count": counts.get("final_recipe_authority_error"),
+        },
+        context_counts={
+            "final_recipe_promoted_count": counts.get("final_recipe_authority_promoted"),
+            "build_final_recipe_ok_count": counts.get("build_final_recipe_ok"),
+            "build_final_recipe_skipped_count": counts.get("build_final_recipe_skipped"),
+        },
+    )
+
+
 def _count_followup_statuses(
     task_rows: list[dict[str, Any]],
 ) -> tuple[dict[str, int], dict[str, int], dict[str, int], dict[str, int]]:
@@ -553,7 +752,8 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
     replay_summary = replay_knowledge_runtime(knowledge_root=stage_root)
     packet_total = len(task_rows) if task_rows else int(replay_summary.rollup.packet_total)
     deterministic_bypass_total = int(packet_attempt_type_counts.get("deterministic_bypass") or 0)
-    return {
+    failed_followup_total = sum(_int_count(value) for value in followup_failed_counts.values())
+    summary = {
         "authoritative": bool(status_payload),
         "schema_version": KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION,
         "status_schema_version": (
@@ -632,6 +832,40 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
         "pre_kill_failure_counts": dict(pre_kill_failure_counts),
         "pre_kill_failures_observed": _count_nested_positive_values(pre_kill_failure_counts) > 0,
     }
+    summary["attention_summary"] = _build_attention_summary(
+        zero_target_counts={
+            "invalid_shard_count": packet_state_counts.get("invalid_output"),
+            "missing_output_shard_count": packet_state_counts.get("missing_output"),
+            "failed_packet_count": summary["packets"]["topline"].get("failed"),
+            "cancelled_due_to_interrupt_packet_count": summary["packets"]["topline"].get(
+                "cancelled_due_to_interrupt"
+            ),
+            "semantic_rejection_shard_count": salvage_counts.get(
+                "semantic_rejection_shard_count"
+            ),
+            "unreviewed_shard_count": salvage_counts.get("unreviewed_shard_count"),
+            "unreviewed_packet_count": salvage_counts.get("unreviewed_packet_count"),
+            "unreviewed_block_count": salvage_counts.get("unreviewed_block_count"),
+            "failed_followup_count": failed_followup_total,
+            "pre_kill_failure_count": _count_nested_positive_values(pre_kill_failure_counts),
+        },
+        context_counts={
+            "packet_total": packet_total,
+            "llm_review_total": max(packet_total - deterministic_bypass_total, 0),
+            "deterministic_bypass_total": deterministic_bypass_total,
+            "validated_packet_count": packet_state_counts.get("validated"),
+            "retry_recovered_packet_count": packet_state_counts.get("retry_recovered"),
+            "repair_recovered_packet_count": packet_state_counts.get("repair_recovered"),
+        },
+        reason_counts={
+            "terminal_reason_code_counts": terminal_reason_code_counts,
+            "deterministic_bypass_reason_code_counts": dict(
+                sorted(deterministic_bypass_reason_code_counts.items())
+            ),
+            "followup_failed_counts": followup_failed_counts,
+        },
+    )
+    return summary
 
 
 def summarize_knowledge_stage_artifacts(stage_root: Path) -> dict[str, Any]:
@@ -719,6 +953,11 @@ def _stage_summary_state(
 
 def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
     phase_manifest = _load_json_dict(stage_root / "phase_manifest.json") or {}
+    promotion_report = _load_json_dict(stage_root / "promotion_report.json") or {}
+    recipe_manifest = _load_json_dict(stage_root.parent / RECIPE_MANIFEST_FILE_NAME) or {}
+    recipe_manifest_counts = recipe_manifest.get("counts")
+    if not isinstance(recipe_manifest_counts, Mapping):
+        recipe_manifest_counts = {}
     worker_state_counts, worker_reason_code_counts = _collect_worker_status_counts(stage_root)
     shard_status_paths = sorted(stage_root.glob("workers/*/shards/*/status.json"))
     shard_status_counts = _count_status_values(shard_status_paths)
@@ -746,7 +985,10 @@ def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
         "failures_json": "failures.json",
         "proposals_dir": "proposals",
     }
-    return {
+    recipe_result_counts = promotion_report.get("recipe_result_counts")
+    if not isinstance(recipe_result_counts, Mapping):
+        recipe_result_counts = {}
+    summary = {
         "schema_version": RECIPE_STAGE_SUMMARY_SCHEMA_VERSION,
         "stage_key": "recipe_llm_correct_and_link",
         "stage_state": _stage_summary_state(
@@ -782,6 +1024,40 @@ def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
         },
         "important_artifacts": important_artifacts,
     }
+    summary["attention_summary"] = _build_attention_summary(
+        zero_target_counts={
+            "invalid_shard_count": promotion_report.get("invalid_shards"),
+            "missing_output_shard_count": promotion_report.get("missing_output_shards"),
+            "fragmentary_recipe_count": recipe_result_counts.get("fragmentary"),
+            "not_a_recipe_recipe_count": recipe_result_counts.get("not_a_recipe"),
+            "recipe_correction_error_count": recipe_manifest_counts.get("recipe_correction_error"),
+            "final_recipe_not_promoted_count": recipe_manifest_counts.get(
+                "final_recipe_authority_not_promoted"
+            ),
+            "final_recipe_error_count": recipe_manifest_counts.get(
+                "final_recipe_authority_error"
+            ),
+            "same_session_fix_escalated_count": same_session_rollup["escalated_count"],
+            "same_session_fix_budget_exhausted_count": same_session_rollup[
+                "budget_exhausted_count"
+            ],
+            "repair_attempted_count": repair_attempted,
+        },
+        context_counts={
+            "recipe_total": recipe_manifest_counts.get("recipes_total"),
+            "repaired_recipe_count": recipe_result_counts.get("repaired"),
+            "promoted_recipe_count": recipe_manifest_counts.get(
+                "final_recipe_authority_promoted"
+            ),
+            "same_session_fix_attempted_count": same_session_rollup["attempted_count"],
+            "same_session_fix_recovered_count": same_session_rollup["recovered_count"],
+            "repair_completed_count": repair_completed,
+        },
+        reason_counts={
+            "recipe_result_counts": recipe_result_counts,
+        },
+    )
+    return summary
 
 
 def write_recipe_stage_summary(
@@ -800,8 +1076,10 @@ def write_recipe_stage_summary(
 
 def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
     phase_manifest = _load_json_dict(stage_root / "phase_manifest.json") or {}
+    promotion_report = _load_json_dict(stage_root / "promotion_report.json") or {}
     task_rows = _load_jsonl_dicts(stage_root / "shard_status.jsonl")
     line_rows = _load_jsonl_dicts(stage_root / "canonical_line_table.jsonl")
+    labeled_line_rows = _load_all_label_llm_rows(_line_role_run_root(stage_root))
     worker_state_counts, worker_reason_code_counts = _collect_worker_status_counts(stage_root)
     shard_status_paths = sorted(stage_root.glob("workers/*/shards/*/status.json"))
     shard_status_counts = _count_status_values(shard_status_paths)
@@ -853,7 +1131,10 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
         for row in task_rows
         if isinstance(row, dict)
     )
-    return {
+    codex_policy_rejected_row_count, codex_policy_rejection_reason_counts = (
+        _count_codex_policy_rejections_in_label_rows(labeled_line_rows)
+    )
+    summary = {
         "schema_version": LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION,
         "stage_key": "line_role",
         "stage_state": _stage_summary_state(
@@ -895,6 +1176,29 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
         },
         "important_artifacts": important_artifacts,
     }
+    summary["attention_summary"] = _build_attention_summary(
+        zero_target_counts={
+            "invalid_shard_count": promotion_report.get("invalid_shards"),
+            "missing_output_shard_count": promotion_report.get("missing_output_shards"),
+            "fallback_row_count": fallback_row_count,
+            "codex_policy_rejected_row_count": codex_policy_rejected_row_count,
+            "suspicious_shard_count": suspicious_packet_count,
+            "suspicious_row_count": suspicious_row_count,
+            "repair_attempted_count": repair_attempted,
+            "watchdog_retry_shard_count": packet_attempt_type_counts.get("watchdog_retry"),
+        },
+        context_counts={
+            "canonical_line_total": len(line_rows),
+            "llm_authoritative_row_count": llm_authoritative_row_count,
+            "repair_completed_count": repair_completed,
+            "repair_running_count": repair_running,
+        },
+        reason_counts={
+            "codex_policy_rejection_reason_counts": codex_policy_rejection_reason_counts,
+            "terminal_outcome_counts": packet_terminal_outcome_counts,
+        },
+    )
+    return summary
 
 
 def write_line_role_stage_summary(
@@ -984,6 +1288,11 @@ def build_stage_observability_report(
                         stage_order=stage_order(key),
                     ),
                 )
+                attention_summary = (
+                    _build_final_recipe_attention_summary(workbook_dir)
+                    if key == "build_final_recipe" and recipe_manifest_path.exists()
+                    else None
+                )
                 workbook_observation = StageWorkbookObservation(
                     workbook_slug=workbook_slug,
                     pipeline_id=recipe_pipeline_id,
@@ -993,6 +1302,7 @@ def build_stage_observability_report(
                     stage_dir=_relative_to(run_root, stage_dir) if stage_dir.exists() else None,
                     input_dir=_relative_to(run_root, input_dir) if input_dir.exists() else None,
                     output_dir=_relative_to(run_root, output_dir) if output_dir.exists() else None,
+                    attention_summary=attention_summary,
                 )
                 stage_rows[key].workbooks.append(workbook_observation)
 
@@ -1069,10 +1379,16 @@ def build_stage_observability_report(
                 for path in sorted(workbook_dir.iterdir())
                 if path.is_file()
             }
+            attention_summary = None
+            if stage_key == "label_llm_correct":
+                attention_summary = _build_label_llm_attention_summary(workbook_dir)
+            elif stage_key == "group_recipe_spans":
+                attention_summary = _build_recipe_boundary_attention_summary(workbook_dir)
             stage_rows[stage_key].workbooks.append(
                 StageWorkbookObservation(
                     workbook_slug=workbook_dir.name,
                     stage_dir=_relative_to(run_root, workbook_dir),
+                    attention_summary=attention_summary,
                     artifact_paths={
                         key: value
                         for key, value in artifact_paths.items()
@@ -1104,6 +1420,12 @@ def build_stage_observability_report(
                 artifact_paths=artifact_paths,
             ),
         )
+        stage_rows[stage_key].workbooks = [
+            StageWorkbookObservation(
+                workbook_slug=run_root.name,
+                attention_summary=_build_nonrecipe_route_attention_summary(run_root),
+            )
+        ]
     nonrecipe_authority_path = run_root / NONRECIPE_AUTHORITY_FILE_NAME
     nonrecipe_review_status_path = run_root / NONRECIPE_REVIEW_STATUS_FILE_NAME
     if nonrecipe_authority_path.exists() or nonrecipe_review_status_path.exists():
@@ -1242,13 +1564,25 @@ def write_stage_observability_report(
             if stage_dir is None or not stage_dir.exists() or not stage_dir.is_dir():
                 continue
             if stage_key == "nonrecipe_knowledge_review":
-                summary_path = write_knowledge_stage_summary(stage_root=stage_dir)
+                summary_payload = build_knowledge_stage_summary(stage_root=stage_dir)
+                summary_path = write_knowledge_stage_summary(
+                    stage_root=stage_dir,
+                    summary=summary_payload,
+                )
                 artifact_key = "knowledge_stage_summary_json"
             elif stage_key == "recipe_llm_correct_and_link":
-                summary_path = write_recipe_stage_summary(stage_root=stage_dir)
+                summary_payload = build_recipe_stage_summary(stage_root=stage_dir)
+                summary_path = write_recipe_stage_summary(
+                    stage_root=stage_dir,
+                    summary=summary_payload,
+                )
                 artifact_key = "recipe_stage_summary_json"
             else:
-                summary_path = write_line_role_stage_summary(stage_root=stage_dir)
+                summary_payload = build_line_role_stage_summary(stage_root=stage_dir)
+                summary_path = write_line_role_stage_summary(
+                    stage_root=stage_dir,
+                    summary=summary_payload,
+                )
                 artifact_key = "line_role_stage_summary_json"
             artifact_paths = workbook_payload.get("artifact_paths")
             if not isinstance(artifact_paths, dict):
@@ -1257,6 +1591,9 @@ def write_stage_observability_report(
                 summary_path
             )
             workbook_payload["artifact_paths"] = artifact_paths
+            workbook_payload["attention_summary"] = dict(
+                summary_payload.get("attention_summary") or {}
+            )
     tmp_path.write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

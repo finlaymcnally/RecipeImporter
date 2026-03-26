@@ -362,3 +362,45 @@ def test_generated_knowledge_worker_script_names_rows_for_order_only_mismatches(
         {"block_index": 4, "text": "Whisk."},
         {"block_index": 5, "text": "Rest."},
     ]
+
+
+def test_generated_knowledge_worker_script_reseeds_invalid_pass1_shape(
+    tmp_path: Path,
+) -> None:
+    workspace_root = _make_workspace(
+        tmp_path,
+        input_payload={
+            "bid": "book.ks0000.nr",
+            "b": [
+                {"i": 4, "t": "Whisk."},
+                {"i": 5, "t": "Rest."},
+            ],
+        },
+    )
+    _write_workspace_json(
+        workspace_root / "work" / "book.ks0000.nr.pass1.json",
+        {
+            "packet_id": "book.ks0000.nr",
+            "block_decisions": [
+                {"block_index": 4, "category": "knowledge", "reviewer_category": "knowledge"},
+                {"block_index": 5, "category": "other", "reviewer_category": "other"},
+            ],
+            "idea_groups": [],
+        },
+    )
+
+    scaffold_result = _run_worker_command(workspace_root, "scaffold-phase")
+    reseeded_payload = json.loads(
+        (workspace_root / "work" / "book.ks0000.nr.pass1.json").read_text(encoding="utf-8")
+    )
+    check_result = _run_worker_command(workspace_root, "check-phase")
+
+    assert scaffold_result.returncode == 0, scaffold_result.stderr or scaffold_result.stdout
+    assert reseeded_payload == {
+        "phase": "pass1",
+        "rows": [
+            {"block_index": 4, "category": "other"},
+            {"block_index": 5, "category": "other"},
+        ],
+    }
+    assert check_result.returncode == 0, check_result.stderr or check_result.stdout

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import cookimport.cli as cli
+import cookimport.cli_support.bench_oracle as bench_oracle_support
 from cookimport.cli_support.test_safety import HeavyTestSideEffectBlocked
 
 
@@ -35,6 +36,37 @@ def test_dashboard_refresh_is_blocked_by_default_under_pytest(tmp_path: Path) ->
             golden_root=tmp_path / "golden",
             reason="test",
         )
+
+
+def test_foreground_oracle_upload_is_blocked_by_default_under_pytest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = tmp_path / "single-book-benchmark" / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    for file_name in cli.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES:
+        (bundle_dir / file_name).write_text("{}", encoding="utf-8")
+
+    calls: list[dict[str, object]] = []
+    messages: list[str] = []
+    monkeypatch.setattr(
+        bench_oracle_support,
+        "run_oracle_benchmark_upload",
+        lambda **kwargs: calls.append(dict(kwargs)),
+    )
+    monkeypatch.setattr(cli.typer, "secho", lambda message, **_kwargs: messages.append(str(message)))
+
+    cli._maybe_upload_benchmark_bundle_to_oracle(
+        bundle_dir=bundle_dir,
+        scope="single_book",
+        review_profile="quality",
+    )
+
+    assert calls == []
+    assert any(
+        "Blocked foreground Oracle benchmark upload during pytest" in message
+        for message in messages
+    )
 
 
 @pytest.mark.heavy_side_effects

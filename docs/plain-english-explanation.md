@@ -104,6 +104,7 @@ It starts with `label_det`, which creates the deterministic line and block label
 That deterministic pass still matters even when LLM stages are on. It gives the run a reproducible baseline and a clear artifact trail.
 
 If line-role Codex review is enabled, `label_llm_correct` reviews those labels. The safety rule is simple: accepted Codex labels survive after structural validation, and rejected rows fall back to the deterministic baseline with an explicit reason.
+> ARENT REJECTED ROWS FIXED? I DONT JUST WANT DETERMINISTIC FALLBACK
 
 After labeling, `group_recipe_spans` groups the accepted recipe lines into candidate spans and decides which of those spans count as real recipes.
 
@@ -168,11 +169,11 @@ This stage handles routing and bookkeeping for outside-recipe material.
 
 Its job is to:
 
-- exclude obvious junk immediately
+- exclude rows that the upstream line-label stage already marked as obvious junk
 - keep worthwhile survivors alive for later review
 - record why each row survived or was excluded
 
-Some rows become final right here. Navigation, publishing junk, endorsements, page furniture, and similar obvious noise can be excluded immediately as final `other`.
+Some rows become final right here. The line-label stage can already mark outside-recipe `OTHER` rows with exclusion reasons such as navigation, front matter, publishing junk, endorsements, copyright/legal text, publisher promos, or page furniture. `nonrecipe-route` does not invent those calls on its own. It honors them and excludes those rows immediately as final `other`.
 
 Surviving outside-recipe text then moves into one category-neutral review queue for the later knowledge stage, where the harder semantic judgment happens.
 
@@ -251,13 +252,3 @@ If knowledge review is off or falls back, that late-output list is instead the s
 `stage_block_predictions.json` matters because it is the run's block-level benchmark evidence after the real authority decisions have already happened.
 
 So the end of the run is: write recipes, write outside-recipe authority, write the downstream artifacts built from those decisions, and write enough observability to explain the run later.
-
-## Easy-to-miss rules
-
-- Importers read the source, preserve structure, and hand the shared stage pipeline the material it needs.
-- The deterministic label-first path still runs even when recipe and knowledge LLM stages are both off.
-- Accepted recipe spans are the recipe ownership boundary. Later stages refine those recipes into final structured outputs.
-- `nonrecipe-route` routes and records. `knowledge-final` decides the final meaning of reviewable outside-recipe rows.
-- For knowledge review, `knowledge_prompt_target_count` is really a shard-count knob now. It is no longer a disguised packet-count setting.
-- `ConversionResult.non_recipe_blocks` mirrors strict final outside-recipe authority only.
-- Split PDF and EPUB jobs do early conversion in pieces, but semantic authority still happens once on the merged whole-book view.

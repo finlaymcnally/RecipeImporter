@@ -92,7 +92,7 @@ def test_knowledge_orchestrator_progress_detail_lines_track_live_shards(
     ]
 
     assert any(
-        "book.ks0001.nr (2/2 tasks)" in (payload.get("active_tasks") or [])
+        "book.ks0001.nr (2/2 shards)" in (payload.get("active_tasks") or [])
         for payload in live_payloads
     )
     assert any(

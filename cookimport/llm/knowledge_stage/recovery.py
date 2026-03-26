@@ -528,6 +528,104 @@ class _KnowledgeWorkspaceTaskQueueController:
         return self.worker_root / result_path
 
 
+@dataclass(slots=True)
+class _KnowledgeWorkspacePhaseQueueController:
+    worker_root: Path
+    shard_ids: tuple[str, ...]
+    current_phase_path: Path | None = None
+    validated_shard_ids: set[str] = field(default_factory=set)
+    current_shard_id_value: str | None = None
+    current_validation_errors: tuple[str, ...] = ()
+    queue_complete: bool = False
+
+    def __post_init__(self) -> None:
+        if self.current_phase_path is None:
+            self.current_phase_path = self.worker_root / "current_phase.json"
+        self.observe_current_output()
+
+    @property
+    def total_task_count(self) -> int:
+        return len(self.shard_ids)
+
+    @property
+    def validated_task_count(self) -> int:
+        return len(self.validated_shard_ids)
+
+    def is_complete(self) -> bool:
+        return self.queue_complete
+
+    def current_task_id(self) -> str | None:
+        return self.current_shard_id_value
+
+    def status_payload(self) -> dict[str, Any]:
+        return {
+            "queue_total_task_count": self.total_task_count,
+            "queue_validated_task_count": self.validated_task_count,
+            "queue_remaining_task_count": max(
+                self.total_task_count - self.validated_task_count,
+                0,
+            ),
+            "queue_complete": self.is_complete(),
+            "current_task_id": self.current_task_id(),
+            "current_validation_errors": list(self.current_validation_errors),
+        }
+
+    def observe_current_output(self) -> dict[str, Any]:
+        previous_current_shard_id = self.current_shard_id_value
+        previous_validated_count = self.validated_task_count
+        previous_queue_complete = self.queue_complete
+
+        self.validated_shard_ids = {
+            shard_id
+            for shard_id in self.shard_ids
+            if (self.worker_root / "out" / f"{shard_id}.json").exists()
+        }
+        current_phase_payload = _load_json_dict(self.current_phase_path or Path())
+        phase_status = str(current_phase_payload.get("status") or "").strip()
+        current_shard_id = str(current_phase_payload.get("shard_id") or "").strip() or None
+        self.current_validation_errors = tuple(
+            str(error).strip()
+            for error in (current_phase_payload.get("validation_errors") or [])
+            if str(error).strip()
+        )
+        self.queue_complete = (
+            phase_status == "completed"
+            and self.validated_task_count >= self.total_task_count
+        )
+        if self.queue_complete:
+            self.current_shard_id_value = None
+            self.current_validation_errors = ()
+        elif current_shard_id in self.shard_ids:
+            self.current_shard_id_value = current_shard_id
+        else:
+            self.current_shard_id_value = next(
+                (
+                    shard_id
+                    for shard_id in self.shard_ids
+                    if shard_id not in self.validated_shard_ids
+                ),
+                None,
+            )
+
+        current_output_present = (
+            bool(self.validated_shard_ids)
+            if self.current_shard_id_value is None
+            else self.current_shard_id_value in self.validated_shard_ids
+        )
+        return {
+            "current_task_id": self.current_task_id(),
+            "current_output_present": current_output_present,
+            "advanced": (
+                previous_current_shard_id != self.current_shard_id_value
+                or previous_validated_count != self.validated_task_count
+                or previous_queue_complete != self.queue_complete
+            ),
+            "valid": self.queue_complete or current_output_present,
+            "validation_errors": self.current_validation_errors,
+            "queue_complete": self.queue_complete,
+        }
+
+
 def _detect_knowledge_workspace_premature_clean_exit(
     *,
     run_result: CodexExecRunResult,
@@ -1075,8 +1173,7 @@ def _write_knowledge_worker_hint(
                     "Use only block text from the owned packet in `in/<shard_id>.json` as evidence in the final output. Nearby context is only for grounding.",
                     "A short packet can still be real knowledge if it is genuinely technical, diagnostic, or reference-like.",
                     "Do not keep a packet merely because it is true or cooking-adjacent; keep it only if it would materially improve future cooking decisions.",
-                    "Good snippet body: a shorter grounded claim. Bad snippet body: copied evidence quote text.",
-                    "Do not treat the task as finished until `python3 tools/knowledge_worker.py check-batch` passes for the active batch.",
+                    "Do not treat the shard as finished until `python3 tools/knowledge_worker.py check-phase` passes for the active phase.",
                 ],
             ),
             ("Packet summary", packet_summary or ["No packet summary available."]),
@@ -1810,40 +1907,20 @@ def _detect_knowledge_workspace_stage_violation(
     normalized_command = re.sub(r"\s+", " ", cleaned_command.lower())
 
     if re.search(
-        r"\bpython3?\s+tools/knowledge_worker\.py\s+debug\s+"
-        r"(?:current|next|show-batch|show|scaffold|complete-current|check|check-current)\b",
+        r"\bpython3?\s+tools/knowledge_worker\.py\s+"
+        r"(?:scaffold-phase|check-phase|install-phase|write-static)\b",
         normalized_command,
     ):
         return None
 
-    if re.search(
-        r"\bpython3?\s+tools/knowledge_worker\.py\s+"
-        r"(?:complete-current|check-current|install-current|current|next)\b",
-        normalized_command,
-    ) or re.search(
-        r"\bpython3?\s+tools/knowledge_worker\.py\s+debug\s+install-current\b",
-        normalized_command,
-    ):
+    if "assigned_shards.json" in normalized_command:
         return _KnowledgeWorkspaceStageCommandViolation(
-            policy="knowledge_single_task_helper_during_batch",
-            reason_code="watchdog_batch_contract_bypass_single_task_helper",
+            policy="knowledge_assigned_shards_inventory_dump",
+            reason_code="watchdog_phase_contract_bypass_inventory_dump",
             reason=(
-                "knowledge batch workers should prefer the repo-owned batch loop; "
-                "single-task helpers such as `complete-current`, `check-current`, "
-                "`install-current`, `current`, and `next` are a slower recovery path "
-                "while a batch is active, not the preferred happy path"
-            ),
-            enforce=False,
-        )
-
-    if "assigned_tasks.json" in normalized_command:
-        return _KnowledgeWorkspaceStageCommandViolation(
-            policy="knowledge_assigned_tasks_inventory_dump",
-            reason_code="watchdog_batch_contract_bypass_inventory_dump",
-            reason=(
-                "knowledge batch workers should not dump or script broadly against "
-                "`assigned_tasks.json`; use the repo-written batch sidecars first and "
-                "treat `assigned_tasks.json` as fallback queue/progress context only"
+                "knowledge phase workers should not dump or script broadly against "
+                "`assigned_shards.json`; use the repo-written phase sidecars first and "
+                "treat `assigned_shards.json` as fallback ownership/progress context only"
             ),
             enforce=False,
         )
@@ -1854,67 +1931,64 @@ def _detect_knowledge_workspace_stage_violation(
             marker in normalized_command
             for marker in (
                 "out/",
-                "current_task.json",
-                "assigned_tasks.json",
+                "current_phase.json",
+                "assigned_shards.json",
             )
         )
     ):
         return _KnowledgeWorkspaceStageCommandViolation(
-            policy="knowledge_shell_scheduler_bypass",
-            reason_code="watchdog_batch_contract_bypass_shell_scheduler",
+            policy="knowledge_phase_shell_scheduler_bypass",
+            reason_code="watchdog_phase_contract_bypass_shell_scheduler",
             reason=(
-                "knowledge batch workers should avoid inventing queue/output schedulers "
+                "knowledge phase workers should avoid inventing queue/output schedulers "
                 "or broad validation loops over queue/output files; prefer the "
-                "repo-written `complete-batch`, `check-batch`, and `install-batch` loop "
-                "and keep any local automation bounded to the active batch drafts"
+                "repo-written `check-phase` and `install-phase` loop and keep any local "
+                "automation bounded to the active phase ledger"
             ),
             enforce=False,
         )
 
-    writes_current_batch_json = any(
+    writes_current_phase_json = any(
         marker in normalized_command
         for marker in (
-            "> current_batch.json",
-            ">> current_batch.json",
-            "path('current_batch.json').write_text(",
-            'path("current_batch.json").write_text(',
-            "path(\"current_batch.json\").write_text(",
-            'path(\'current_batch.json\').write_text(',
-            "open('current_batch.json', 'w')",
-            'open("current_batch.json", "w")',
+            "> current_phase.json",
+            ">> current_phase.json",
+            "path('current_phase.json').write_text(",
+            'path("current_phase.json").write_text(',
+            "path(\"current_phase.json\").write_text(",
+            'path(\'current_phase.json\').write_text(',
+            "open('current_phase.json', 'w')",
+            'open("current_phase.json", "w")',
         )
     )
     if any(
         marker in normalized_command
         for marker in (
-            "_build_current_batch_payload",
-            "_write_current_batch_sidecars",
-            "write_current_batch_sidecars",
-            "write_current_task_sidecars",
+            "_write_phase_surface",
+            "write_phase_surface",
         )
-    ) or writes_current_batch_json:
+    ) or writes_current_phase_json:
         return _KnowledgeWorkspaceStageCommandViolation(
-            policy="knowledge_runtime_control_rewrite",
-            reason_code="watchdog_batch_contract_bypass_runtime_control_rewrite",
+            policy="knowledge_phase_runtime_control_rewrite",
+            reason_code="watchdog_phase_contract_bypass_runtime_control_rewrite",
             reason=(
-                "knowledge batch workers must not rewrite repo-owned queue-control "
-                "files such as `current_batch.json`; the repo owns batch advancement"
+                "knowledge phase workers must not rewrite repo-owned queue-control "
+                "files such as `current_phase.json`; the repo owns phase advancement"
             ),
         )
 
     if "tools/knowledge_worker.py" in normalized_command:
         allowed_helper_command = re.search(
             r"\bpython3?\s+tools/knowledge_worker\.py\s+"
-            r"(?:complete-batch|check-batch|install-batch|current-batch|next-batch|"
-            r"show-batch|overview|explain-failure|show)\b",
+            r"(?:scaffold-phase|check-phase|install-phase|write-static)\b",
             normalized_command,
         )
         if allowed_helper_command is None:
             return _KnowledgeWorkspaceStageCommandViolation(
                 policy="knowledge_helper_source_spelunking",
-                reason_code="watchdog_batch_contract_bypass_helper_source_read",
+                reason_code="watchdog_phase_contract_bypass_helper_source_read",
                 reason=(
-                    "knowledge batch workers should use the repo-written helper CLI "
+                    "knowledge phase workers should use the repo-written helper CLI "
                     "and sidecars instead of rereading helper source or probing ad hoc "
                     "helper commands during the main loop"
                 ),

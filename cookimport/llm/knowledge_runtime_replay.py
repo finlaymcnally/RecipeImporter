@@ -178,12 +178,18 @@ def _collect_packet_artifacts(knowledge_root: Path) -> dict[str, _PacketArtifact
     workers_root = knowledge_root / "workers"
     if not workers_root.exists():
         return packet_artifacts
+    assigned_ids_by_worker_id = _load_worker_assignment_ids(
+        knowledge_root / "worker_assignments.json"
+    )
     for worker_root in sorted(path for path in workers_root.iterdir() if path.is_dir()):
         worker_id = worker_root.name
         worker_outcome = _load_worker_outcome(worker_root / "live_status.json")
-        for task_id in _load_assigned_task_ids(worker_root / "assigned_tasks.json"):
-            packet_artifacts.setdefault(task_id, _PacketArtifacts()).worker_id = worker_id
-            packet_artifacts[task_id].worker_outcome = worker_outcome
+        assigned_ids = assigned_ids_by_worker_id.get(worker_id) or _load_assigned_shard_ids(
+            worker_root / "assigned_shards.json"
+        )
+        for shard_id in assigned_ids:
+            packet_artifacts.setdefault(shard_id, _PacketArtifacts()).worker_id = worker_id
+            packet_artifacts[shard_id].worker_outcome = worker_outcome
         for output_path in sorted((worker_root / "out").glob("*.json")):
             task_id = output_path.stem
             entry = packet_artifacts.setdefault(task_id, _PacketArtifacts())
@@ -226,18 +232,37 @@ def _follow_up_live_status_is_stale(payload: Mapping[str, Any] | None) -> bool:
     return state in {"running", "pending"}
 
 
-def _load_assigned_task_ids(path: Path) -> tuple[str, ...]:
+def _load_worker_assignment_ids(path: Path) -> dict[str, tuple[str, ...]]:
     payload = _load_json(path)
     if not isinstance(payload, list):
-        return ()
-    task_ids: list[str] = []
+        return {}
+    assignments: dict[str, tuple[str, ...]] = {}
     for row in payload:
         if not isinstance(row, Mapping):
             continue
-        task_id = str(row.get("task_id") or "").strip()
-        if task_id:
-            task_ids.append(task_id)
-    return tuple(task_ids)
+        worker_id = str(row.get("worker_id") or "").strip()
+        shard_ids = tuple(
+            str(value).strip()
+            for value in (row.get("shard_ids") or [])
+            if str(value).strip()
+        )
+        if worker_id and shard_ids:
+            assignments[worker_id] = shard_ids
+    return assignments
+
+
+def _load_assigned_shard_ids(path: Path) -> tuple[str, ...]:
+    payload = _load_json(path)
+    if not isinstance(payload, list):
+        return ()
+    shard_ids: list[str] = []
+    for row in payload:
+        if not isinstance(row, Mapping):
+            continue
+        shard_id = str(row.get("shard_id") or row.get("task_id") or "").strip()
+        if shard_id:
+            shard_ids.append(shard_id)
+    return tuple(shard_ids)
 
 
 def _count_worker_outputs(knowledge_root: Path) -> tuple[int, int]:

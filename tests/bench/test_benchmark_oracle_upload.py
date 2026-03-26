@@ -12,6 +12,7 @@ from typer.testing import CliRunner
 import cookimport.cli as cli
 import cookimport.cli_commands.bench as bench_cli
 import cookimport.cli_support as cli_support
+import cookimport.cli_support.bench_oracle as bench_oracle_support
 from cookimport.bench import oracle_upload
 
 
@@ -1813,7 +1814,9 @@ def test_bench_oracle_upload_command_defaults_to_all_profiles(
     assert captured_profiles == ["quality", "token"]
 
 
+@pytest.mark.heavy_side_effects
 def test_maybe_upload_benchmark_bundle_to_oracle_is_best_effort(
+    allow_heavy_test_side_effects: None,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1821,15 +1824,24 @@ def test_maybe_upload_benchmark_bundle_to_oracle_is_best_effort(
         tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+    messages: list[str] = []
 
-    monkeypatch.setattr(bench_cli, "resolve_oracle_benchmark_bundle", lambda _path: target)
-    monkeypatch.setattr(
-        cli,
-        "run_oracle_benchmark_upload",
-        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("oracle broke")),
-    )
+    runtime = sys.modules["cookimport.cli_support.bench"]
+    for module in (cli, cli_support, runtime, bench_oracle_support, bench_cli):
+        if hasattr(module, "resolve_oracle_benchmark_bundle"):
+            monkeypatch.setattr(module, "resolve_oracle_benchmark_bundle", lambda _path: target)
+        if hasattr(module, "run_oracle_benchmark_upload"):
+            monkeypatch.setattr(
+                module,
+                "run_oracle_benchmark_upload",
+                lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("oracle broke")),
+            )
+    monkeypatch.setattr(cli.typer, "secho", lambda message, **_kwargs: messages.append(str(message)))
 
     cli._maybe_upload_benchmark_bundle_to_oracle(
         bundle_dir=bundle_dir,
         scope="single_book",
     )
+
+    assert any("Oracle quality upload skipped" in message for message in messages)
+    assert any("Oracle token upload skipped" in message for message in messages)

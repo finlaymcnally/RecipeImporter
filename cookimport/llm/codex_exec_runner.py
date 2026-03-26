@@ -785,24 +785,78 @@ class FakeCodexExecRunner:
                 continue
             input_payload = json.loads(input_path.read_text(encoding="utf-8"))
             output_payload = self.output_builder(input_payload)
-            pass1_payload = self._build_knowledge_pass1_work_payload(
-                input_payload=input_payload,
-                output_payload=output_payload,
+            current_phase_path = execution_working_dir / _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME
+            current_phase_payload = None
+            if current_phase_path.exists():
+                try:
+                    loaded_phase_payload = json.loads(
+                        current_phase_path.read_text(encoding="utf-8")
+                    )
+                except json.JSONDecodeError:
+                    loaded_phase_payload = None
+                if isinstance(loaded_phase_payload, Mapping):
+                    current_phase_payload = loaded_phase_payload
+            current_phase_matches_shard = (
+                isinstance(current_phase_payload, Mapping)
+                and str(current_phase_payload.get("status") or "").strip() == "active"
+                and str(current_phase_payload.get("phase") or "").strip() == "pass1"
+                and str(current_phase_payload.get("shard_id") or "").strip() == shard_id
             )
-            self._write_workspace_json(
-                execution_working_dir / _DIRECT_EXEC_WORK_DIR_NAME / f"{shard_id}.pass1.json",
-                pass1_payload,
-            )
-            for command in ("check-phase", "install-phase"):
+            if current_phase_matches_shard:
                 completed = self._run_workspace_helper_command(
                     execution_working_dir=execution_working_dir,
-                    args=(*helper_args, command),
+                    args=(*helper_args, "check-phase"),
                 )
-                if completed.returncode != 0:
-                    raise CodexFarmRunnerError(
-                        "fake knowledge workspace helper failed: "
-                        f"{command}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+                if completed.returncode == 0:
+                    completed = self._run_workspace_helper_command(
+                        execution_working_dir=execution_working_dir,
+                        args=(*helper_args, "install-phase"),
                     )
+                    if completed.returncode != 0:
+                        raise CodexFarmRunnerError(
+                            "fake knowledge workspace helper failed: "
+                            f"install-phase\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+                        )
+                else:
+                    pass1_payload = self._build_knowledge_pass1_work_payload(
+                        input_payload=input_payload,
+                        output_payload=output_payload,
+                    )
+                    self._write_workspace_json(
+                        execution_working_dir
+                        / _DIRECT_EXEC_WORK_DIR_NAME
+                        / f"{shard_id}.pass1.json",
+                        pass1_payload,
+                    )
+                    for command in ("check-phase", "install-phase"):
+                        completed = self._run_workspace_helper_command(
+                            execution_working_dir=execution_working_dir,
+                            args=(*helper_args, command),
+                        )
+                        if completed.returncode != 0:
+                            raise CodexFarmRunnerError(
+                                "fake knowledge workspace helper failed: "
+                                f"{command}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+                            )
+            else:
+                pass1_payload = self._build_knowledge_pass1_work_payload(
+                    input_payload=input_payload,
+                    output_payload=output_payload,
+                )
+                self._write_workspace_json(
+                    execution_working_dir / _DIRECT_EXEC_WORK_DIR_NAME / f"{shard_id}.pass1.json",
+                    pass1_payload,
+                )
+                for command in ("check-phase", "install-phase"):
+                    completed = self._run_workspace_helper_command(
+                        execution_working_dir=execution_working_dir,
+                        args=(*helper_args, command),
+                    )
+                    if completed.returncode != 0:
+                        raise CodexFarmRunnerError(
+                            "fake knowledge workspace helper failed: "
+                            f"{command}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+                        )
             pass2_input_path = (
                 execution_working_dir / _DIRECT_EXEC_INPUT_DIR_NAME / f"{shard_id}.pass2.json"
             )
@@ -1026,9 +1080,6 @@ class FakeCodexExecRunner:
             source_working_dir=working_dir,
             execution_working_dir=execution_working_dir,
             relative_paths=(
-                _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
-                _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME,
-                _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME,
                 _DIRECT_EXEC_INPUT_DIR_NAME,
                 _DIRECT_EXEC_OUTPUT_DIR_NAME,
                 _DIRECT_EXEC_SCRATCH_DIR_NAME,

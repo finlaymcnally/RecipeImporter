@@ -481,6 +481,7 @@ def _maybe_upload_benchmark_bundle_to_oracle(
     review_profile: str = "all",
 ) -> None:
     try:
+        require_heavy_test_side_effect_permission("foreground Oracle benchmark upload")
         target = resolve_oracle_benchmark_bundle(bundle_dir)
         target = replace(target, scope=scope)
         profiles = resolve_oracle_benchmark_review_profiles(review_profile)

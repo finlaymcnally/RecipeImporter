@@ -265,6 +265,7 @@ def preview_prompts(
         "--line-role-pipeline",
     ),
     codex_farm_root: Path | None = typer.Option(None, "--codex-farm-root"),
+    codex_farm_cmd: str | None = typer.Option(None, "--codex-farm-cmd"),
     codex_farm_model: str | None = typer.Option(None, "--codex-farm-model"),
     codex_farm_reasoning_effort: str | None = typer.Option(
         None,
@@ -309,6 +310,7 @@ def preview_prompts(
         llm_knowledge_pipeline=llm_knowledge_pipeline,
         line_role_pipeline=line_role_pipeline,
         codex_farm_root=codex_farm_root,
+        codex_farm_cmd=codex_farm_cmd,
         codex_farm_model=codex_farm_model,
         codex_farm_reasoning_effort=codex_farm_reasoning_effort,
         codex_farm_context_blocks=codex_farm_context_blocks,
@@ -456,6 +458,7 @@ def preview_shard_sweep(
         "--line-role-pipeline",
     ),
     codex_farm_root: Path | None = typer.Option(None, "--codex-farm-root"),
+    codex_farm_cmd: str | None = typer.Option(None, "--codex-farm-cmd"),
     codex_farm_model: str | None = typer.Option(None, "--codex-farm-model"),
     codex_farm_reasoning_effort: str | None = typer.Option(
         None,
@@ -494,6 +497,7 @@ def preview_shard_sweep(
                 experiment.get("line_role_pipeline") or line_role_pipeline
             ),
             codex_farm_root=codex_farm_root,
+            codex_farm_cmd=codex_farm_cmd,
             codex_farm_model=codex_farm_model,
             codex_farm_reasoning_effort=codex_farm_reasoning_effort,
             codex_farm_context_blocks=codex_farm_context_blocks,

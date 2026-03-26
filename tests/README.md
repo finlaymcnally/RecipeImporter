@@ -7,7 +7,7 @@ Durable low-noise and modularity contracts live in `tests/CONVENTIONS.md`.
 For agent/day-to-day loops, do not run raw `pytest` directly because it can become a long-running full-suite loop. Use `./scripts/test-suite.sh` domain batches instead: `smoke`, `domain <domain>`, `all-fast`, `fast`, and `full` only when intentionally required.
 `make test-smoke`, `make test-fast`, `make test-domain DOMAIN=<domain>`, `make test-all-fast`, and `make test-full` are equivalent entry points.
 Bench Oracle and `cf-debug` fast tests now use tiny synthetic `upload_bundle_v1` fixtures under `tmp_path`; do not reintroduce copied large benchmark roots into routine fast slices.
-When a CLI wiring test patches helpers used inside `cookimport.cli` command callables, patch `cookimport.cli` globals directly; patch `cookimport.cli_support` only for helpers whose `__module__` actually lives there (for example the background Oracle support helpers).
+When a CLI wiring test patches helpers used inside `cookimport.cli` command callables, patch `cookimport.cli` globals directly; patch `cookimport.cli_support` only for helpers whose `__module__` actually lives there (for example the background Oracle support helpers). Direct calls to foreground Oracle helpers such as `_maybe_upload_benchmark_bundle_to_oracle()` resolve through `cookimport.cli_support.bench_oracle`, so patch that module too when testing those seams.
 
 ## Folder Layout
 
