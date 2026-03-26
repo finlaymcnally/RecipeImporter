@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 
+from .bench_all_method import _report_optional_metric
 from .bench_single_book import (
     _extract_codex_farm_runtime_from_llm_manifest,
     _extract_codex_farm_token_usage_from_llm_manifest,
@@ -19,6 +20,13 @@ globals().update(
         if not name.startswith("__")
     }
 )
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass(frozen=True)

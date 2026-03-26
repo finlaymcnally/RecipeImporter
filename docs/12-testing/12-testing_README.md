@@ -111,9 +111,11 @@ Current contracts:
 - Prefer moving proven heavy helper-internal suites into `_SLOW_FILES` before changing production code for test speed; production edits need a stronger reason than loop runtime alone.
 - Bench-side Oracle upload tests that only care about command or metadata shape should clamp the background audit poll constants inside the test so they do not pay the default production wait window.
 - The benchmark smoke slice includes the real interactive single-book benchmark path while stubbing `labelstudio_benchmark(...)` so smoke runs catch routing and artifact regressions without spending tokens.
+- Benchmark smoke now has a second boundary: offline simulated whole-run single-book vanilla and codex-shaped flows should execute the real `labelstudio_benchmark(...)` runtime while stubbing only leaf prediction-generation/evaluation seams, so routine smoke runs catch benchmark-helper `NameError` regressions without spending live LLM tokens.
 - Label Studio benchmark-helper tests now have two safety layers:
   - low-level heavy helpers fail fast under pytest unless the test opts in with `@pytest.mark.heavy_side_effects` plus `allow_heavy_test_side_effects`
   - `tests/labelstudio/benchmark_helper_support.py` provides shared lightweight benchmark publishers for routine single-book, single-profile, and smoke coverage
+- Split benchmark helper bindings that can break during `cli_support.bench` bootstrap should keep a direct fast regression in `tests/labelstudio/test_labelstudio_benchmark_helpers_artifacts.py` or another non-slow helper file; do not rely only on the slow single-book helper suite for missing-import/name coverage.
 - Tests that only care about benchmark computation or routing should use those lightweight publishers instead of patching `_write_benchmark_upload_bundle(...)`, `_refresh_dashboard_after_history_write(...)`, and `_start_benchmark_bundle_oracle_upload_background(...)` one by one.
 - for shard-shape assertions, set `line_role_prompt_target_count=None` or an explicit `line_role_shard_target_lines`; otherwise current defaults will legally regroup several rows into one shard
 - Before the Label Studio fast-slice cleanup, `tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py` was about `121s` and `tests/labelstudio/test_labelstudio_benchmark_helpers_single_book_run.py` was about `79s`; keep interactive routing tests at the handoff boundary unless you intentionally want full helper coverage in the slow slice.
@@ -169,6 +171,7 @@ Design intent:
 - 2026-03-15: `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` is a scoped deep-debug tool for one explicit file or nodeid, not a broad-run mode switch.
 - 2026-03-15: benchmark-helper tests that only need local artifact wiring should stub the offline execute path directly, and mixed `RunSettings` payloads must be projected to live model fields before `RunSettings.from_dict(...)`.
 - 2026-03-16: direct helper seams on live Codex paths need their own fast regression anchors; relying only on slow benchmark coverage leaves routine `fast` runs blind to simple import/env crashes.
+- 2026-03-26: the benchmark stack should keep one static undefined-name guard (`ruff --select F821`) plus offline simulated whole-run single-book smoke coverage; routing-only smoke is not enough for split-helper binding regressions.
 - 2026-03-16: CLI tests like `tests/bench/test_benchmark_oracle_upload.py` should build a minimal `upload_bundle_v1` fixture under `tmp_path` rather than pinning to one checked-in benchmark directory.
 - 2026-03-22: the next maintainability wins came from splitting long mixed-concern tests into local builders plus narrower assertion families; keep those seams local unless several files truly share the same support contract.
 - 2026-03-23: fast stage helper names should match the source-job runtime (`install_fake_source_job_stage`), not the removed `stage_one_file` path.

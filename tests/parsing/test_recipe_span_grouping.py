@@ -232,6 +232,45 @@ def test_group_recipe_spans_from_labels_rejects_title_only_note_span_without_bod
     assert "span_missing_recipe_body" in span_decisions[0].decision_notes
 
 
+def test_group_recipe_spans_from_labels_demotes_rejected_title_only_blocks_to_other() -> None:
+    labeled_lines = [
+        AuthoritativeLabeledLine(
+            source_block_id="block:40",
+            source_block_index=40,
+            atomic_index=40,
+            text="Using Acid",
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+            reason_tags=["title_like"],
+        ),
+    ]
+    block_labels = [
+        AuthoritativeBlockLabel(
+            source_block_id="block:40",
+            source_block_index=40,
+            supporting_atomic_indices=[40],
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+            reason_tags=["title_like"],
+        ),
+    ]
+
+    spans, span_decisions, normalized_blocks = group_recipe_spans_from_labels(
+        block_labels,
+        labeled_lines,
+    )
+
+    assert spans == []
+    assert len(span_decisions) == 1
+    assert span_decisions[0].decision == "rejected_pseudo_recipe_span"
+    assert span_decisions[0].rejection_reason == "rejected_missing_recipe_body"
+    assert normalized_blocks[0].deterministic_label == "RECIPE_TITLE"
+    assert normalized_blocks[0].final_label == "OTHER"
+    assert "recipe_span_rejected_to_other" in normalized_blocks[0].reason_tags
+
+
 def test_group_recipe_spans_from_labels_accepts_title_plus_yield_stub() -> None:
     labeled_lines = [
         AuthoritativeLabeledLine(

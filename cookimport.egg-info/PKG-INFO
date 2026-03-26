@@ -31,6 +31,7 @@ Requires-Dist: fast-diff-match-patch; extra == "benchaccel"
 Provides-Extra: dev
 Requires-Dist: pytest>=7.4; extra == "dev"
 Requires-Dist: psycopg[binary]>=3.1; extra == "dev"
+Requires-Dist: ruff>=0.11; extra == "dev"
 Provides-Extra: segmentation-eval
 Requires-Dist: segeval>=2.0.11; extra == "segmentation-eval"
 Provides-Extra: epubdebug

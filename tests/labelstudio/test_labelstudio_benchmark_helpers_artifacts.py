@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import cookimport.cli_support.bench_artifacts as bench_artifacts
 import tests.labelstudio.benchmark_helper_support as _support
 from cookimport.llm import prompt_artifacts
 
@@ -10,6 +11,69 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
+
+
+def test_bench_artifacts_loads_string_block_indices_via_shared_int_helper(
+    tmp_path: Path,
+) -> None:
+    extracted_archive_path = tmp_path / "extracted_archive.json"
+    extracted_archive_path.write_text(
+        json.dumps(
+            [
+                {
+                    "index": "7",
+                    "text": "Use the finishing salt.",
+                    "location": {"features": {"heading_level": "2"}},
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    indexed = bench_artifacts._load_extracted_archive_blocks(extracted_archive_path)
+
+    assert callable(bench_artifacts._coerce_int)
+    assert bench_artifacts._coerce_int("7") == 7
+    assert bench_artifacts._coerce_int("not-an-int") is None
+    assert indexed == {
+        7: {
+            "text": "Use the finishing salt.",
+            "features": {"heading_level": "2"},
+        }
+    }
+
+
+def test_bench_artifacts_rebuilds_prediction_bundle_with_string_timing_metrics(
+    tmp_path: Path,
+) -> None:
+    prediction_record = make_prediction_record(
+        example_id="labelstudio-benchmark:test:block:0",
+        example_index=0,
+        prediction={
+            "block_index": "0",
+            "pred_label": "OTHER",
+            "block_text": "Toast the spices.",
+            "block_features": {"heading_level": "2"},
+        },
+        predict_meta={
+            "source_file": str(tmp_path / "book.epub"),
+            "source_hash": "source-hash",
+            "recipes": "3",
+            "timing": {"prediction_seconds": "1.25"},
+        },
+    )
+
+    bundle = bench_artifacts._build_prediction_bundle_from_records(
+        predictions_in=tmp_path / "predictions.jsonl",
+        prediction_records=[prediction_record],
+        replay_output_dir=tmp_path / "replay",
+    )
+
+    assert callable(bench_artifacts._report_optional_metric)
+    assert bundle.prediction_phase_seconds == pytest.approx(1.25)
+    assert bundle.pred_context.recipes == 3
+    assert bundle.stage_predictions_path.exists()
+    assert bundle.extracted_archive_path.exists()
 
 
 def test_source_debug_artifact_status_reads_recipe_phase_runtime_paths(

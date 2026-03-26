@@ -93,7 +93,11 @@ def group_recipe_spans_from_labels(
             warning = "recipe_span_started_without_title"
         flush_pending(warning=warning)
 
-    return spans, span_decisions, ordered_blocks
+    normalized_blocks = _normalize_nonaccepted_recipe_local_block_labels(
+        ordered_blocks=ordered_blocks,
+        accepted_spans=spans,
+    )
+    return spans, span_decisions, normalized_blocks
 
 
 def _build_span_decision(
@@ -235,3 +239,37 @@ def _decision_to_recipe_span(decision: RecipeSpanDecision) -> RecipeSpan:
         exclude={"decision", "rejection_reason"},
     )
     return RecipeSpan.model_validate(payload)
+
+
+def _normalize_nonaccepted_recipe_local_block_labels(
+    *,
+    ordered_blocks: Sequence[AuthoritativeBlockLabel],
+    accepted_spans: Sequence[RecipeSpan],
+) -> list[AuthoritativeBlockLabel]:
+    accepted_block_indices = {
+        int(block_index)
+        for span in accepted_spans
+        for block_index in span.block_indices
+    }
+    normalized_blocks: list[AuthoritativeBlockLabel] = []
+    for block in ordered_blocks:
+        block_index = int(block.source_block_index)
+        label = str(block.final_label or "OTHER")
+        if block_index in accepted_block_indices or label not in _RECIPE_LOCAL_LABELS:
+            normalized_blocks.append(block)
+            continue
+        normalized_blocks.append(
+            block.model_copy(
+                update={
+                    "final_label": "OTHER",
+                    "decided_by": "fallback",
+                    "reason_tags": [*list(block.reason_tags), "recipe_span_rejected_to_other"],
+                    "escalation_reasons": [
+                        *list(block.escalation_reasons),
+                        "recipe_span_rejected_to_other",
+                    ],
+                    "review_exclusion_reason": None,
+                }
+            )
+        )
+    return normalized_blocks

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 from pathlib import Path
 
 from cookimport.config.run_settings import RunSettings
@@ -11,6 +12,7 @@ from cookimport.core.models import (
     SourceBlock,
     SourceSupport,
 )
+from cookimport.parsing.canonical_line_roles import CanonicalLineRolePrediction
 from cookimport.parsing.label_source_of_truth import (
     AuthoritativeBlockLabel,
     LabelFirstStageResult,
@@ -346,6 +348,131 @@ def test_execute_stage_import_session_uses_reviewable_nonrecipe_rows_for_late_ou
         1
     ]
     assert session.conversion_result.non_recipe_blocks == []
+
+
+def test_execute_stage_import_session_demotes_rejected_pseudo_recipe_title_before_nonrecipe_stage(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _no_op_writers(monkeypatch)
+    source = tmp_path / "book.txt"
+    source.write_text("book", encoding="utf-8")
+
+    result = ConversionResult(
+        sourceBlocks=[
+            SourceBlock(
+                blockId="b0",
+                orderIndex=0,
+                text="Acid and Flavor",
+                sourceText="Acid and Flavor",
+                location={"line_index": 0},
+            ),
+            SourceBlock(
+                blockId="b1",
+                orderIndex=1,
+                text="How Acid Works",
+                sourceText="How Acid Works",
+                location={"line_index": 1},
+            ),
+            SourceBlock(
+                blockId="b2",
+                orderIndex=2,
+                text="Using Acid",
+                sourceText="Using Acid",
+                location={"line_index": 2},
+            ),
+            SourceBlock(
+                blockId="b3",
+                orderIndex=3,
+                text="HEAT",
+                sourceText="HEAT",
+                location={"line_index": 3},
+            ),
+            SourceBlock(
+                blockId="b4",
+                orderIndex=4,
+                text="What is Heat?",
+                sourceText="What is Heat?",
+                location={"line_index": 4},
+            ),
+        ],
+        nonRecipeBlocks=[],
+        rawArtifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath=str(source),
+    )
+
+    predicted_labels = {
+        "Acid and Flavor": "OTHER",
+        "How Acid Works": "OTHER",
+        "Using Acid": "RECIPE_TITLE",
+        "HEAT": "OTHER",
+        "What is Heat?": "OTHER",
+    }
+
+    def _fake_label_atomic_lines_with_baseline(candidates, _settings, **_kwargs):
+        predictions = []
+        for candidate in candidates:
+            label = predicted_labels[str(candidate.text)]
+            reason_tags = ["title_like"] if label == "RECIPE_TITLE" else ["outside_recipe_span"]
+            predictions.append(
+                CanonicalLineRolePrediction(
+                    recipe_id=candidate.recipe_id,
+                    block_id=candidate.block_id,
+                    block_index=candidate.block_index,
+                    atomic_index=candidate.atomic_index,
+                    text=str(candidate.text),
+                    label=label,
+                    decided_by="rule",
+                    reason_tags=reason_tags,
+                )
+            )
+        return predictions, predictions
+
+    monkeypatch.setattr(
+        "cookimport.parsing.label_source_of_truth.label_atomic_lines_with_baseline",
+        _fake_label_atomic_lines_with_baseline,
+    )
+    monkeypatch.setattr(import_session, "extract_and_annotate_tables", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        output_stage_flow,
+        "chunks_from_non_recipe_blocks",
+        lambda *args, **kwargs: [],
+    )
+
+    session = import_session.execute_stage_import_session_from_result(
+        result=result,
+        source_file=source,
+        run_root=tmp_path / "out",
+        run_dt=dt.datetime(2026, 3, 26, 8, 25, 0),
+        importer_name="text",
+        run_settings=RunSettings.from_dict({}, warn_context="test"),
+        run_config={},
+        run_config_hash=None,
+        run_config_summary=None,
+        write_raw_artifacts_enabled=False,
+    )
+
+    assert session.recipe_boundary_result is not None
+    assert session.nonrecipe_route_result is not None
+    assert session.recipe_boundary_result.label_first_result.recipe_spans == []
+    block_labels_by_index = {
+        row.source_block_index: row.final_label
+        for row in session.recipe_boundary_result.label_first_result.block_labels
+    }
+    assert block_labels_by_index[2] == "OTHER"
+    assert session.nonrecipe_route_result.stage_result.seed.seed_block_category_by_index[2] == "other"
+
+    payload = json.loads(
+        session.label_artifact_paths["authoritative_block_labels_path"].read_text(
+            encoding="utf-8"
+        )
+    )
+    authoritative_by_index = {
+        row["source_block_index"]: row["final_label"] for row in payload["block_labels"]
+    }
+    assert authoritative_by_index[2] == "OTHER"
 
 
 def test_execute_stage_import_session_writes_source_model_artifacts(
