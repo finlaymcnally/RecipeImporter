@@ -12,6 +12,7 @@ from cookimport.cli_support import (
     BenchmarkPredictionBundle,
     CODEX_FARM_RECIPE_MODE_EXTRACT,
     Callable,
+    DEFAULT_GOLDEN,
     DEFAULT_GOLDEN_BENCHMARK,
     DEFAULT_GOLDEN_PULLED_FROM_LABELSTUDIO,
     DEFAULT_GOLDEN_SENT_TO_LABELSTUDIO,

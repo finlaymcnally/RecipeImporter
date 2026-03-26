@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 import sys
 
+from .stage import _require_importer
+
 runtime = sys.modules["cookimport.cli_support.bench"]
 globals().update(
     {

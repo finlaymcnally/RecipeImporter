@@ -3,6 +3,18 @@ from __future__ import annotations
 import importlib
 import sys
 
+from .bench_all_method import (
+    _all_method_apply_baseline_contract,
+    _all_method_apply_codex_contract_from_baseline,
+    _report_metric,
+    _report_optional_metric,
+    _resolve_benchmark_gold_and_source,
+)
+from .bench_cache import (
+    _build_single_book_split_cache_key,
+    _normalize_single_book_split_cache_mode,
+)
+
 runtime = sys.modules["cookimport.cli_support.bench"]
 globals().update(
     {

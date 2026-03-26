@@ -11,6 +11,17 @@ globals().update(
     }
 )
 
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 def _normalize_single_book_split_cache_mode(value: str) -> str:
     normalized = str(value or "").strip().lower().replace("_", "-")
     if normalized in {"", "off", "none", "disabled", "false", "0"}:

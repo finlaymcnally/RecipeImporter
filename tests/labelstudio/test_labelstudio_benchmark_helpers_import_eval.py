@@ -388,6 +388,49 @@ def test_resolve_benchmark_gold_and_source_auto_uses_inferred_source(
 
     assert resolved == (gold_path, inferred_source)
 
+def test_bench_all_method_resolve_benchmark_gold_and_source_uses_stage_importer_helper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gold_path = tmp_path / "exports" / "freeform_span_labels.jsonl"
+    gold_path.parent.mkdir(parents=True, exist_ok=True)
+    gold_path.write_text("{}\n", encoding="utf-8")
+    inferred_source = tmp_path / "data" / "input" / "saltfatacidheatCUTDOWN.epub"
+    inferred_source.parent.mkdir(parents=True, exist_ok=True)
+    inferred_source.write_text("x", encoding="utf-8")
+
+    _patch_cli_attr(
+        monkeypatch,
+        "_infer_source_file_from_freeform_gold",
+        lambda _path: inferred_source,
+    )
+    _patch_cli_attr(
+        monkeypatch,
+        "_menu_select",
+        lambda *_args, **_kwargs: pytest.fail("should not prompt for source selection"),
+    )
+    _patch_cli_attr(
+        monkeypatch,
+        "_list_importable_files",
+        lambda *_args, **_kwargs: pytest.fail("should not list importable files"),
+    )
+
+    import cookimport.cli_support.stage as stage_support
+
+    monkeypatch.setattr(
+        stage_support.registry,
+        "best_importer_for_path",
+        lambda path: (object(), 1) if path == inferred_source else (None, 0),
+    )
+
+    resolved = bench_all_method._resolve_benchmark_gold_and_source(
+        gold_spans=gold_path,
+        source_file=None,
+        output_dir=tmp_path,
+        allow_cancel=False,
+    )
+
+    assert resolved == (gold_path, inferred_source)
+
 def test_resolve_benchmark_gold_and_source_prompts_when_inference_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -595,6 +638,24 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
         _capture_append,
     )
     _patch_cli_attr(monkeypatch, "stats_dashboard", lambda **kwargs: captured_dashboard.update(kwargs))
+    _patch_cli_attr(
+        monkeypatch,
+        "_refresh_dashboard_after_history_write",
+        lambda *,
+        csv_path,
+        output_root=None,
+        golden_root,
+        dashboard_out_dir=None,
+        reason=None: cli.stats_dashboard(
+            output_root=output_root,
+            golden_root=golden_root,
+            out_dir=dashboard_out_dir or (csv_path.parent / "dashboard"),
+            open_browser=False,
+            since_days=None,
+            scan_reports=False,
+            scan_benchmark_reports=False,
+        ),
+    )
 
     cli.labelstudio_eval(
         pred_run=pred_run,

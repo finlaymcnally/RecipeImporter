@@ -13,6 +13,7 @@ from cookimport.core.models import (
 )
 from cookimport.core.source_model import (
     normalize_source_support,
+    offset_source_support,
     resolve_conversion_source_model,
     write_source_model_artifacts,
 )
@@ -64,6 +65,23 @@ def test_normalize_source_support_forces_non_authoritative_metadata() -> None:
     )
 
     assert support.metadata == {"authoritative": False, "source": "test"}
+
+
+def test_offset_source_support_rebases_known_block_id_formats() -> None:
+    [support] = offset_source_support(
+        [
+            SourceSupport(
+                hintClass="evidence",
+                kind="structured_recipe_object",
+                referencedBlockIds=["b0", "block:2", "custom-id"],
+                payload={"name": "Title"},
+            )
+        ],
+        3,
+    )
+
+    assert support.referenced_block_ids == ["b3", "b5", "custom-id"]
+    assert support.metadata == {"authoritative": False}
 
 
 def test_source_support_does_not_create_recipe_authority(tmp_path: Path) -> None:

@@ -2,6 +2,15 @@ from __future__ import annotations
 
 import sys
 
+from .bench_single_book import (
+    _extract_codex_farm_runtime_from_llm_manifest,
+    _extract_codex_farm_token_usage_from_llm_manifest,
+    _extract_line_role_token_usage_from_manifest,
+    _resolve_single_book_reasoning_effort,
+    _single_book_text_or_none,
+    _sum_token_usage,
+)
+
 runtime = sys.modules["cookimport.cli_support.bench"]
 globals().update(
     {

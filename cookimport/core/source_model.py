@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from cookimport.core.models import ConversionResult, SourceBlock, SourceSupport
 
 _RAW_OUTPUT_CATEGORY = "rawArtifacts"
+_BLOCK_ID_RE = re.compile(r"^(?:b|block:)(\d+)$")
 _SOURCE_BLOCK_KNOWN_KEYS = {
     "block_id",
     "blockId",

@@ -9,6 +9,19 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
+
+
+def test_single_book_module_binds_cross_owner_helpers() -> None:
+    assert callable(bench_single_book._all_method_apply_baseline_contract)
+    assert callable(bench_single_book._all_method_apply_codex_contract_from_baseline)
+    assert (
+        bench_single_book._resolve_benchmark_gold_and_source
+        is bench_all_method._resolve_benchmark_gold_and_source
+    )
+    assert callable(bench_single_book._normalize_single_book_split_cache_mode)
+    assert callable(bench_single_book._build_single_book_split_cache_key)
+
+
 def _run_single_book_codex_enabled_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

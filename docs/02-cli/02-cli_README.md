@@ -20,6 +20,7 @@ Current package note:
 - `cookimport/cli_support/stage.py` now owns the shared stage manifest/merge/report helpers that were previously buried at the end of the root support file
 - `cookimport/cli_commands/stage.py`, `cookimport/cli_commands/bench.py`, and `cookimport/cli_commands/labelstudio.py` now use explicit `cli_support` imports instead of `from cookimport.cli_support import *`
 - `cookimport/cli_support/__init__.py` is now the small internal export hub for shared CLI helpers, not the Typer composition root and not a runtime compatibility relay
+- benchmark split modules should explicitly import cross-owner helpers they call (for example stage-owned importer checks) instead of assuming late-added `cli_support.__init__` exports are present in the bench facade snapshot
 
 ## Entry Points
 
