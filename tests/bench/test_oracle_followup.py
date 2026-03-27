@@ -648,6 +648,65 @@ def test_auto_followup_worker_marks_missing_requested_section_explicitly(tmp_pat
     assert source_status["status"] == "succeeded"
 
 
+def test_auto_followup_worker_treats_zombie_turn1_pid_as_exited(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
+    bundle_dir = _copy_sample_bundle_root(copied_root)
+    source_run = "2026-03-26_21.36.05-quality"
+    launch_dir = bundle_dir / ".oracle_upload_runs" / source_run
+    launch_dir.mkdir(parents=True, exist_ok=True)
+    (launch_dir / "oracle_upload.json").write_text(
+        json.dumps(
+            {
+                "bundle_dir": str(bundle_dir),
+                "session_id": "you-are-the-quality-lane-42",
+                "status": "running",
+                "status_reason": "Initial launch state.",
+                "pid": 643997,
+                "prompt": "Benchmark turn 1 prompt.",
+                "launch_started_at_utc": "2026-03-27T01:36:05.759864+00:00",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (launch_dir / "oracle_upload.log").write_text(
+        "\n".join(
+            [
+                "Oracle command: oracle ...",
+                'ERROR: Unable to find model option matching "GPT-5 Pro" in the model switcher. Available: Search chats, Search chatsCtrlK, Projects, Your chats, ChatGPT, Pro. No cookies were applied; log in to ChatGPT in Chrome or provide inline cookies (--browser-inline-cookies[(-file)] or ORACLE_BROWSER_COOKIES_JSON).',
+                'User error (browser-automation): Unable to find model option matching "GPT-5 Pro" in the model switcher. Available: Search chats, Search chatsCtrlK, Projects, Your chats, ChatGPT, Pro. No cookies were applied; log in to ChatGPT in Chrome or provide inline cookies (--browser-inline-cookies[(-file)] or ORACLE_BROWSER_COOKIES_JSON).',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "cookimport.bench.oracle_followup._pid_is_running",
+        lambda pid: False if pid == 643997 else True,
+    )
+
+    target = resolve_oracle_benchmark_bundle(bundle_dir)
+    result = run_oracle_benchmark_followup_background_worker(
+        target=target,
+        from_run=source_run,
+        model=ORACLE_MODEL_LANE_INSTANT,
+        poll_interval_seconds=0.01,
+        timeout_seconds=0.1,
+    )
+
+    assert result["status"] == "skipped"
+    assert "did not finish with an answer usable for follow-up" in result["status_reason"]
+    source_status = json.loads((launch_dir / "oracle_upload_status.json").read_text(encoding="utf-8"))
+    assert source_status["status"] == "failed"
+    assert source_status["status_reason"] == "Oracle did not produce a grounded answer or recovery path."
+
+
 def _run_followup_timeout_recovery_fixture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

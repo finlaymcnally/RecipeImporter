@@ -120,7 +120,7 @@ def test_projection_artifacts_preserve_projected_labels(tmp_path) -> None:
     assert '"label": "OTHER"' in projected_rows[1]
 
 
-def test_stage_projection_payload_aggregates_atomic_rows_by_source_block() -> None:
+def test_stage_projection_payload_uses_dense_canonical_line_indices() -> None:
     projected_spans = project_line_roles_to_freeform_spans(
         [
             CanonicalLineRolePrediction(
@@ -154,9 +154,53 @@ def test_stage_projection_payload_aggregates_atomic_rows_by_source_block() -> No
         workbook_slug="book",
     )
 
-    assert stage_payload["block_count"] == 8
-    assert stage_payload["block_labels"]["7"] == "RECIPE_TITLE"
-    assert stage_payload["label_blocks"]["RECIPE_TITLE"] == [7]
-    assert stage_payload["conflicts"] == [
-        {"block_index": 7, "labels": ["RECIPE_TITLE", "YIELD_LINE"]}
-    ]
+    assert stage_payload["block_count"] == 2
+    assert stage_payload["block_labels"] == {
+        "0": "RECIPE_TITLE",
+        "1": "YIELD_LINE",
+    }
+    assert stage_payload["label_blocks"]["RECIPE_TITLE"] == [0]
+    assert stage_payload["label_blocks"]["YIELD_LINE"] == [1]
+    assert stage_payload["conflicts"] == []
+
+
+def test_stage_projection_payload_does_not_expand_sparse_source_block_indices() -> None:
+    projected_spans = project_line_roles_to_freeform_spans(
+        [
+            CanonicalLineRolePrediction(
+                recipe_id=None,
+                block_id="b100",
+                block_index=100,
+                atomic_index=0,
+                text="Title",
+                within_recipe_span=False,
+                label="RECIPE_TITLE",
+                decided_by="rule",
+                reason_tags=["test"],
+            ),
+            CanonicalLineRolePrediction(
+                recipe_id=None,
+                block_id="b200",
+                block_index=200,
+                atomic_index=1,
+                text="Useful note",
+                within_recipe_span=False,
+                label="OTHER",
+                decided_by="rule",
+                reason_tags=["test"],
+            ),
+        ]
+    )
+    stage_payload = build_line_role_stage_prediction_payload(
+        projected_spans,
+        source_file="book.epub",
+        source_hash="hash",
+        workbook_slug="book",
+    )
+
+    assert stage_payload["block_count"] == 2
+    assert stage_payload["block_labels"] == {
+        "0": "RECIPE_TITLE",
+        "1": "OTHER",
+    }
+    assert "200" not in stage_payload["block_labels"]

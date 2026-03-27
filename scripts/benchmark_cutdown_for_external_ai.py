@@ -10663,6 +10663,8 @@ def _upload_bundle_triage_packet_row_has_signal(row: dict[str, Any]) -> bool:
 def _upload_bundle_select_triage_packet_sample_rows(
     triage_packet_rows: list[dict[str, Any]],
     *,
+    pair_count: int = 0,
+    active_recipe_span_breakout: dict[str, Any] | None = None,
     limit: int = 40,
 ) -> tuple[list[dict[str, Any]], str]:
     signal_rows = [
@@ -10672,6 +10674,34 @@ def _upload_bundle_select_triage_packet_sample_rows(
     ]
     if signal_rows:
         return signal_rows[:limit], ""
+    active_recipe_span_breakout = (
+        active_recipe_span_breakout
+        if isinstance(active_recipe_span_breakout, dict)
+        else {}
+    )
+    if int(pair_count) <= 0:
+        recipe_span_count = int(
+            _coerce_int(active_recipe_span_breakout.get("recipe_span_count")) or 0
+        )
+        if recipe_span_count > 0:
+            return (
+                [],
+                (
+                    "No comparison pair was available, so recipe-local triage rows were not "
+                    "built. Recipe spans were discovered in the single run, so use "
+                    "`analysis.active_recipe_span_breakout`, "
+                    "`analysis.recipe_pipeline_context`, and "
+                    "`analysis.stage_observability_summary` first."
+                ),
+            )
+        return (
+            [],
+            (
+                "No comparison pair was available, so recipe-local triage rows were not "
+                "built. Use `analysis.recipe_pipeline_context`, "
+                "`analysis.stage_observability_summary`, and per-run summaries first."
+            ),
+        )
     return (
         [],
         (
@@ -10683,8 +10713,79 @@ def _upload_bundle_select_triage_packet_sample_rows(
     )
 
 
+def _upload_bundle_single_run_recipe_span_fallback(
+    run_dirs: list[Path] | None,
+) -> dict[str, Any] | None:
+    unique_run_dirs = _upload_bundle_iter_unique_run_dirs(run_dirs=run_dirs, run_dir_by_id=None)
+    if len(unique_run_dirs) != 1:
+        return None
+    run_dir = unique_run_dirs[0]
+    telemetry_path = run_dir / "line-role-pipeline" / "telemetry_summary.json"
+    telemetry_payload = (
+        _upload_bundle_load_json_object(telemetry_path)
+        if telemetry_path.is_file()
+        else {}
+    )
+    benchmark_manifest_path = run_dir / "manifest.json"
+    benchmark_manifest_payload = (
+        _upload_bundle_load_json_object(benchmark_manifest_path)
+        if benchmark_manifest_path.is_file()
+        else {}
+    )
+    projection_payload = (
+        benchmark_manifest_payload.get("line_role_pipeline_recipe_projection")
+        if isinstance(benchmark_manifest_payload.get("line_role_pipeline_recipe_projection"), dict)
+        else {}
+    )
+    projection_payload = projection_payload if isinstance(projection_payload, dict) else {}
+
+    recipe_span_count = _coerce_int(telemetry_payload.get("recipe_span_count"))
+    signal_source = ""
+    if recipe_span_count is not None:
+        signal_source = "line_role_projection_telemetry"
+    else:
+        recipe_span_count = _coerce_int(projection_payload.get("recipes_applied"))
+        if recipe_span_count is not None:
+            signal_source = "benchmark_manifest_projection"
+
+    labeled_line_count = _coerce_int(telemetry_payload.get("labeled_line_count"))
+    if labeled_line_count is None:
+        labeled_line_count = _coerce_int(projection_payload.get("span_count"))
+    unresolved_review_eligible_line_count = _coerce_int(
+        telemetry_payload.get("unresolved_review_eligible_line_count")
+    )
+    if unresolved_review_eligible_line_count is None:
+        unresolved_review_eligible_line_count = _coerce_int(
+            projection_payload.get("unresolved_review_eligible_line_count")
+        )
+
+    if (
+        recipe_span_count is None
+        and labeled_line_count is None
+        and unresolved_review_eligible_line_count is None
+    ):
+        return None
+
+    return {
+        "schema_version": "upload_bundle_single_run_recipe_spans.v1",
+        "run_dir": str(run_dir),
+        "signal_source": signal_source or "single_run_manifest",
+        "recipe_span_count": int(recipe_span_count or 0),
+        "labeled_line_count": (
+            int(labeled_line_count) if labeled_line_count is not None else None
+        ),
+        "unresolved_review_eligible_line_count": (
+            int(unresolved_review_eligible_line_count)
+            if unresolved_review_eligible_line_count is not None
+            else None
+        ),
+    }
+
+
 def _upload_bundle_build_active_recipe_span_breakout(
     pair_breakdown_rows: list[dict[str, Any]],
+    *,
+    run_dirs: list[Path] | None = None,
 ) -> dict[str, Any]:
     region_totals = {
         "inside_active_recipe_span": {
@@ -10744,7 +10845,32 @@ def _upload_bundle_build_active_recipe_span_breakout(
             "delta_codex_minus_baseline": _delta(codex_accuracy, baseline_accuracy),
         }
 
+    single_run_fallback = None
+    if pair_count <= 0:
+        single_run_fallback = _upload_bundle_single_run_recipe_span_fallback(run_dirs)
+        if isinstance(single_run_fallback, dict):
+            fallback_recipe_span_count = int(
+                _coerce_int(single_run_fallback.get("recipe_span_count")) or 0
+            )
+            if fallback_recipe_span_count > 0:
+                total_recipe_span_count = fallback_recipe_span_count
+
     all_scored_lines_outside = total_scored_lines > 0 and inside_total <= 0 and outside_total > 0
+    if all_scored_lines_outside:
+        turn1_note = "All scored comparison mass is outside active recipe spans."
+    elif pairs_with_zero_recipe_spans > 0:
+        turn1_note = "No active recipe spans were discovered for one or more compared pairs."
+    elif pair_count <= 0 and isinstance(single_run_fallback, dict):
+        turn1_note = (
+            "No compared pairs were available. Recipe span count was derived from "
+            "single-run line-role telemetry."
+        )
+    elif pair_count <= 0:
+        turn1_note = (
+            "No compared pairs were available, so pairwise span breakout is unavailable."
+        )
+    else:
+        turn1_note = ""
     return {
         "schema_version": "upload_bundle_active_recipe_span_breakout.v1",
         "pair_count": pair_count,
@@ -10770,15 +10896,8 @@ def _upload_bundle_build_active_recipe_span_breakout(
         "outside_active_recipe_span": _finalize(
             region_totals["outside_active_recipe_span"]
         ),
-        "turn1_note": (
-            "All scored comparison mass is outside active recipe spans."
-            if all_scored_lines_outside
-            else (
-                "No active recipe spans were discovered for one or more compared pairs."
-                if pairs_with_zero_recipe_spans > 0
-                else ""
-            )
-        ),
+        "turn1_note": turn1_note,
+        "single_run_fallback": single_run_fallback,
     }
 
 
@@ -11103,18 +11222,30 @@ def _upload_bundle_build_turn1_summary(
             if isinstance(row, dict)
         ]
     )
-
-    return {
-        "schema_version": "upload_bundle_turn1_summary.v1",
-        "diagnosis_flags": diagnosis_flags,
-        "recommended_read_order": [
+    pair_count = int(_coerce_int(active_recipe_span_breakout.get("pair_count")) or 0)
+    if pair_count > 0:
+        recommended_read_order = [
             "analysis.benchmark_pair_inventory",
             "analysis.active_recipe_span_breakout",
             "analysis.net_error_blame_summary",
             "analysis.top_confusion_deltas",
             "analysis.changed_lines_stratified_sample",
             "analysis.triage_packet",
-        ],
+        ]
+    else:
+        recommended_read_order = [
+            "analysis.active_recipe_span_breakout",
+            "analysis.recipe_pipeline_context",
+            "analysis.stage_observability_summary",
+            "analysis.top_confusion_deltas",
+            "analysis.call_inventory_runtime",
+            "analysis.triage_packet",
+        ]
+
+    return {
+        "schema_version": "upload_bundle_turn1_summary.v1",
+        "diagnosis_flags": diagnosis_flags,
+        "recommended_read_order": recommended_read_order,
         "severity": {
             "changed_lines_total_topline_context": int(
                 _coerce_int(sum(
@@ -12999,30 +13130,6 @@ def _write_upload_bundle_three_files(
         changed_line_rows
     )
     triage_packet_rows = _upload_bundle_build_triage_packet_rows(recipe_triage_rows)
-    (
-        triage_packet_sample_rows,
-        triage_packet_sample_note,
-    ) = _upload_bundle_select_triage_packet_sample_rows(
-        triage_packet_rows,
-    )
-    triage_packet_summary = {
-        "schema_version": UPLOAD_BUNDLE_TRIAGE_PACKET_SCHEMA_VERSION,
-        "row_count": len(triage_packet_rows),
-        "empty_packet_note": (
-            ""
-            if triage_packet_rows
-            else "No triage rows were available from source or derived comparison artifacts."
-        ),
-        "signal_row_count": len(
-            [
-                row
-                for row in triage_packet_rows
-                if isinstance(row, dict) and _upload_bundle_triage_packet_row_has_signal(row)
-            ]
-        ),
-        "sample_rows_note": triage_packet_sample_note,
-        "sample_rows": triage_packet_sample_rows,
-    }
     net_error_blame_summary = _upload_bundle_build_net_error_blame_summary(
         changed_line_rows=changed_line_rows,
         recipe_triage_rows=recipe_triage_rows,
@@ -13961,8 +14068,39 @@ def _write_upload_bundle_three_files(
     )
     pair_delta_summary = _upload_bundle_build_pair_delta_summary(pair_inventory)
     active_recipe_span_breakout = _upload_bundle_build_active_recipe_span_breakout(
-        pair_breakdown_rows
+        pair_breakdown_rows,
+        run_dirs=run_dirs_for_analysis,
     )
+    (
+        triage_packet_sample_rows,
+        triage_packet_sample_note,
+    ) = _upload_bundle_select_triage_packet_sample_rows(
+        triage_packet_rows,
+        pair_count=len(comparison_pairs),
+        active_recipe_span_breakout=active_recipe_span_breakout,
+    )
+    triage_packet_summary = {
+        "schema_version": UPLOAD_BUNDLE_TRIAGE_PACKET_SCHEMA_VERSION,
+        "row_count": len(triage_packet_rows),
+        "empty_packet_note": (
+            ""
+            if triage_packet_rows
+            else (
+                "No comparison pair was available, so recipe-local triage rows were not built."
+                if len(comparison_pairs) <= 0
+                else "No triage rows were available from source or derived comparison artifacts."
+            )
+        ),
+        "signal_row_count": len(
+            [
+                row
+                for row in triage_packet_rows
+                if isinstance(row, dict) and _upload_bundle_triage_packet_row_has_signal(row)
+            ]
+        ),
+        "sample_rows_note": triage_packet_sample_note,
+        "sample_rows": triage_packet_sample_rows,
+    }
     prompt_log_summary = _upload_bundle_bundle_prompt_log_summary(
         process_manifest_payload=process_manifest_payload,
         run_rows=run_rows,
@@ -14051,30 +14189,56 @@ def _write_upload_bundle_three_files(
         run_dir_by_id=run_dir_by_id,
     )
 
-    default_initial_views = [
-        "topline",
-        "self_check",
-        "analysis.turn1_summary",
-        "analysis.benchmark_pair_inventory",
-        "analysis.active_recipe_span_breakout",
-        "analysis.net_error_blame_summary",
-        "analysis.top_confusion_deltas",
-        "analysis.changed_lines_stratified_sample",
-        "analysis.triage_packet",
-        "analysis.config_version_metadata",
-        "analysis.recipe_pipeline_context",
-        "analysis.stage_observability_summary",
-        "analysis.structure_label_report",
-        "analysis.knowledge",
-        "analysis.per_label_metrics",
-        "analysis.per_recipe_breakdown",
-        "analysis.stage_separated_comparison",
-        "analysis.failure_ledger",
-        "analysis.regression_casebook",
-        "analysis.explicit_escalation_changed_lines_packet",
-        "analysis.call_inventory_runtime",
-        "analysis.line_role_escalation",
-    ]
+    if pair_count_verified_count > 0:
+        default_initial_views = [
+            "topline",
+            "self_check",
+            "analysis.turn1_summary",
+            "analysis.benchmark_pair_inventory",
+            "analysis.active_recipe_span_breakout",
+            "analysis.net_error_blame_summary",
+            "analysis.top_confusion_deltas",
+            "analysis.changed_lines_stratified_sample",
+            "analysis.triage_packet",
+            "analysis.config_version_metadata",
+            "analysis.recipe_pipeline_context",
+            "analysis.stage_observability_summary",
+            "analysis.structure_label_report",
+            "analysis.knowledge",
+            "analysis.per_label_metrics",
+            "analysis.per_recipe_breakdown",
+            "analysis.stage_separated_comparison",
+            "analysis.failure_ledger",
+            "analysis.regression_casebook",
+            "analysis.explicit_escalation_changed_lines_packet",
+            "analysis.call_inventory_runtime",
+            "analysis.line_role_escalation",
+        ]
+    else:
+        default_initial_views = [
+            "topline",
+            "self_check",
+            "analysis.turn1_summary",
+            "analysis.active_recipe_span_breakout",
+            "analysis.recipe_pipeline_context",
+            "analysis.stage_observability_summary",
+            "analysis.net_error_blame_summary",
+            "analysis.top_confusion_deltas",
+            "analysis.changed_lines_stratified_sample",
+            "analysis.triage_packet",
+            "analysis.benchmark_pair_inventory",
+            "analysis.config_version_metadata",
+            "analysis.structure_label_report",
+            "analysis.knowledge",
+            "analysis.per_label_metrics",
+            "analysis.per_recipe_breakdown",
+            "analysis.stage_separated_comparison",
+            "analysis.failure_ledger",
+            "analysis.regression_casebook",
+            "analysis.explicit_escalation_changed_lines_packet",
+            "analysis.call_inventory_runtime",
+            "analysis.line_role_escalation",
+        ]
     if high_level_only:
         default_initial_views.insert(2, "analysis.group_high_level")
     if multi_book_run_level:
@@ -14253,7 +14417,11 @@ def _write_upload_bundle_three_files(
         "",
         "1. Read `topline` and `self_check` in `upload_bundle_index.json`.",
         "2. Read `analysis.turn1_summary` for the one-screen severity, span, blame, runtime, and targeted-regression summary.",
-        "3. Read `analysis.benchmark_pair_inventory` and `analysis.active_recipe_span_breakout` for the pair-delta and span story.",
+        (
+            "3. Read `analysis.benchmark_pair_inventory` and `analysis.active_recipe_span_breakout` for the pair-delta and span story."
+            if int(_coerce_int(topline.get("pair_count")) or 0) > 0
+            else "3. Read `analysis.active_recipe_span_breakout`, `analysis.recipe_pipeline_context`, and `analysis.stage_observability_summary` for the single-run span and stage story."
+        ),
         "4. Use `analysis.net_error_blame_summary`, `analysis.top_confusion_deltas`, and `analysis.changed_lines_stratified_sample` before drilling into recipe rows.",
         "5. Open `navigation.default_initial_views` in order for first-pass triage.",
         "6. Use `navigation.row_locators` to jump into `upload_bundle_payload.jsonl` rows.",

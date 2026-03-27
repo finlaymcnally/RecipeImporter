@@ -137,6 +137,7 @@ Current interactive contracts:
   - `single_book_summary.md`
   - `upload_bundle_v1/`
 - single-book `upload_bundle_v1` is now a curated first-pass packet by default, capped to about 30 MB via the existing high-level bundle mode instead of embedding the full lossless payload dump; deeper evidence is expected to move through `cf-debug` follow-up packets when needed
+- vanilla-only single-book `upload_bundle_v1` runs still leave pair-only sections empty, but they now preserve single-run recipe-span counts from `line-role-pipeline/telemetry_summary.json` / benchmark `manifest.json` and avoid misleading “no spans discovered” triage notes
 - upload-bundle recipe-correction accounting must parse both legacy single-recipe outputs and compact shard outputs (`payload.r[].cr` / `payload.r[].m`); `empty_output_signal` now means the parsed correction payload was actually empty, not just that the mapping object was empty
 - upload-bundle warning summaries now keep empty-mapping counts separate from actual empty-output counts, and recipe-correction status rollups prefer output-aware labels such as `nonempty_output_without_manifest_status` when manifest/runtime status is missing but parsed outputs exist
 - upload-bundle recipe-stage observability now reads recipe manifest diagnostics from `processed_output_run_dir` / `stage_run_dir` (and explicit `recipe_manifest_json`) when no `pred_run_dir` exists, so final mapping / structural statuses are not silently downgraded to generic projection gaps

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import cookimport.cli_support.bench_oracle as bench_oracle
 import tests.labelstudio.benchmark_helper_support as _support
 
 # Reuse shared imports/helpers from the benchmark helper support module.
@@ -355,7 +356,7 @@ def test_single_book_comparison_artifacts_trigger_starter_pack(
     assert starter_calls == [session_root]
 
 @pytest.mark.heavy_side_effects
-def test_single_book_starter_pack_fallback_loader_registers_module(
+def test_benchmark_helper_fallback_uses_repo_root_script_path(
     allow_heavy_test_side_effects: None,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -363,6 +364,8 @@ def test_single_book_starter_pack_fallback_loader_registers_module(
     session_root = tmp_path / "session"
     session_root.mkdir(parents=True, exist_ok=True)
     helper_script_path = tmp_path / "fake_benchmark_helper.py"
+    bundle_output_dir = session_root / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    bundle_file_names = sorted(cli.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES)
     helper_script_path.write_text(
         "\n".join(
             [
@@ -377,6 +380,12 @@ def test_single_book_starter_pack_fallback_loader_registers_module(
                 "    starter_dir.mkdir(parents=True, exist_ok=True)",
                 "    if write_flattened_summary:",
                 "        (output_dir / 'benchmark_summary.md').write_text('# summary\\n', encoding='utf-8')",
+                "    return {'ok': True}",
+                "",
+                "def build_upload_bundle_for_existing_output(*, source_dir, output_dir, overwrite=False, prune_output_dir=False, high_level_only=False, target_bundle_size_bytes=None):",
+                "    output_dir.mkdir(parents=True, exist_ok=True)",
+                f"    for file_name in {bundle_file_names!r}:",
+                "        (output_dir / file_name).write_text('{}', encoding='utf-8')",
                 "    return {'ok': True}",
                 "",
             ]
@@ -394,8 +403,17 @@ def test_single_book_starter_pack_fallback_loader_registers_module(
     monkeypatch.setattr(builtins, "__import__", _fake_import)
 
     real_spec_from_file_location = cli.importlib.util.spec_from_file_location
+    expected_helper_path = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "benchmark_cutdown_for_external_ai.py"
+    ).resolve()
+    observed_locations: list[Path] = []
 
     def _fake_spec_from_file_location(name, location, *args, **kwargs):  # type: ignore[no-untyped-def]
+        observed_location = Path(location).resolve()
+        observed_locations.append(observed_location)
+        assert observed_location == expected_helper_path
         return real_spec_from_file_location(name, helper_script_path, *args, **kwargs)
 
     monkeypatch.setattr(
@@ -404,11 +422,21 @@ def test_single_book_starter_pack_fallback_loader_registers_module(
         _fake_spec_from_file_location,
     )
 
-    starter_dir = cli._write_single_book_starter_pack(session_root=session_root)
+    starter_dir = bench_oracle._write_single_book_starter_pack(session_root=session_root)
+    bundle_dir = bench_oracle._write_benchmark_upload_bundle(
+        source_root=session_root,
+        output_dir=bundle_output_dir,
+        suppress_summary=False,
+    )
 
     assert starter_dir == session_root / "starter_pack_v1"
     assert (session_root / "starter_pack_v1").is_dir()
     assert (session_root / "benchmark_summary.md").is_file()
+    assert bundle_dir == bundle_output_dir
+    assert {path.name for path in bundle_output_dir.iterdir() if path.is_file()} == set(
+        cli.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES
+    )
+    assert observed_locations == [expected_helper_path, expected_helper_path]
 
 def test_single_book_comparison_includes_codex_runtime_from_llm_manifest_fallback(
     monkeypatch: pytest.MonkeyPatch,

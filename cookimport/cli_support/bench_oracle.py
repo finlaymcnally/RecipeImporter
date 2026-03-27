@@ -15,6 +15,11 @@ globals().update(
     }
 )
 
+_BENCHMARK_CUTDOWN_HELPER_PATH = (
+    REPO_ROOT / "scripts" / "benchmark_cutdown_for_external_ai.py"
+)
+
+
 def _write_single_book_starter_pack(*, session_root: Path) -> Path | None:
     require_heavy_test_side_effect_permission("single-book starter pack generation")
     build_starter_pack_for_existing_runs = None
@@ -24,11 +29,7 @@ def _write_single_book_starter_pack(*, session_root: Path) -> Path | None:
             build_starter_pack_for_existing_runs,
         )
     except Exception as import_exc:  # noqa: BLE001
-        script_path = (
-            Path(__file__).resolve().parents[1]
-            / "scripts"
-            / "benchmark_cutdown_for_external_ai.py"
-        )
+        script_path = _BENCHMARK_CUTDOWN_HELPER_PATH
         try:
             module_spec = importlib.util.spec_from_file_location(
                 "cookimport_benchmark_cutdown_for_external_ai",
@@ -106,11 +107,7 @@ def _write_benchmark_upload_bundle(
             build_upload_bundle_for_existing_output,
         )
     except Exception as import_exc:  # noqa: BLE001
-        script_path = (
-            Path(__file__).resolve().parents[1]
-            / "scripts"
-            / "benchmark_cutdown_for_external_ai.py"
-        )
+        script_path = _BENCHMARK_CUTDOWN_HELPER_PATH
         try:
             module_spec = importlib.util.spec_from_file_location(
                 "cookimport_benchmark_cutdown_for_external_ai",

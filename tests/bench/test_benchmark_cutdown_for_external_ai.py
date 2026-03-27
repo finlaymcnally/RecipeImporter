@@ -2972,7 +2972,8 @@ def test_upload_bundle_select_triage_packet_sample_rows_omits_zero_signal_rows()
     ]
 
     sample_rows, sample_note = module._upload_bundle_select_triage_packet_sample_rows(
-        triage_packet_rows
+        triage_packet_rows,
+        pair_count=1,
     )
 
     assert sample_rows == []
@@ -3394,6 +3395,178 @@ def test_build_upload_bundle_merges_prompt_budget_summary_when_call_rows_lack_ru
         == 1141186
     )
     assert int(runtime_summary["by_stage"]["line_role"]["total_tokens"]) == 6535006
+
+
+def test_build_upload_bundle_merges_realistic_codex_call_telemetry_with_prompt_budget_summary(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-book-benchmark"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id="vanilla",
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+        source_path="/tmp/book.epub",
+        source_hash="fixture-hash",
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id="codexfarm",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=[
+            {
+                "stage_key": "recipe_llm_correct_and_link",
+                "call_id": "recipe-001",
+                "recipe_id": "recipe:c0",
+                "timestamp_utc": "2026-03-03T10:00:05Z",
+                "model": "gpt-test",
+                "parsed_response": {"canonical_recipe": {"ingredients": [], "steps": []}},
+                "request_input_payload": {"evidence_rows": [[0, "Dish Title"]]},
+                "request_telemetry": {
+                    "duration_ms": 1200,
+                    "status": "ok",
+                    "attempt_index": 0,
+                    "usage_json": {
+                        "input_tokens": 1000,
+                        "cached_input_tokens": 500,
+                        "output_tokens": 300,
+                        "total_tokens": 1800,
+                        "output_tokens_details": {"reasoning_tokens": 120},
+                        "cost_usd": 0.42,
+                    },
+                },
+            },
+            {
+                "stage_key": "build_final_recipe",
+                "call_id": "final-001",
+                "recipe_id": "recipe:c0",
+                "timestamp_utc": "2026-03-03T10:00:09Z",
+                "model": "gpt-test",
+                "parsed_response": {"draft_v1": {"recipe": {"title": "Dish Title"}}},
+                "request_input_payload": {"blocks_candidate": [{"text": "Mix gently"}]},
+                "request_telemetry": {
+                    "duration_ms": 900,
+                    "status": "ok",
+                    "attempt_index": 0,
+                    "usage_json": {
+                        "input_tokens": 800,
+                        "output_tokens": 250,
+                        "completion_tokens_details": {"reasoning_tokens": 75},
+                    },
+                },
+            },
+        ],
+        source_path="/tmp/book.epub",
+        source_hash="fixture-hash",
+    )
+    codex_run_dir = session_root / "codexfarm"
+    _write_prediction_run(codex_run_dir, with_extracted_archive=True)
+    _write_json(
+        codex_run_dir / "prediction-run" / "manifest.json",
+        {
+            "llm_codex_farm": {
+                "process_runs": {
+                    "recipe_correction": {
+                        "telemetry_report": {
+                            "summary": {
+                                "tokens_total": 120000,
+                                "duration_total_ms": 4000,
+                                "status_counts": {"ok": 5},
+                            }
+                        }
+                    },
+                    "nonrecipe_knowledge_review": {
+                        "telemetry_report": {
+                            "summary": {
+                                "tokens_total": 25000,
+                                "duration_total_ms": 1500,
+                                "status_counts": {"ok": 2},
+                            }
+                        }
+                    },
+                }
+            }
+        },
+    )
+    _write_json(
+        codex_run_dir / "prediction-run" / "prompt_budget_summary.json",
+        {
+            "schema_version": "prompt_budget_summary.v1",
+            "by_stage": {
+                "recipe_correction": {
+                    "call_count": 5,
+                    "duration_total_ms": 4000,
+                    "tokens_total": 120000,
+                },
+                "knowledge": {
+                    "call_count": 2,
+                    "duration_total_ms": 1500,
+                    "tokens_total": 25000,
+                },
+                "line_role": {
+                    "call_count": 7,
+                    "duration_total_ms": 2100,
+                    "tokens_total": 6535006,
+                },
+            },
+        },
+    )
+    _write_json(
+        session_root / "codex_vs_vanilla_comparison.json",
+        {"schema_version": "codex_vs_vanilla_comparison.v2"},
+    )
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    runtime_payload = index_payload["analysis"]["call_inventory_runtime"]
+    runtime_summary = runtime_payload["summary"]
+
+    assert (
+        runtime_summary["runtime_source"]
+        == "call_inventory_rows_plus_prediction_run_prompt_budget_summary"
+    )
+    assert int(runtime_summary["call_count"]) == 14
+    assert int(runtime_summary["calls_with_runtime"]) == 14
+    assert int(runtime_summary["total_tokens"]) == 6680006
+    assert runtime_summary["cost_signal"]["available"] is True
+    assert runtime_summary["estimated_cost_signal"]["available"] is True
+    assert float(runtime_summary["total_cost_usd"]) == 0.42
+    assert float(runtime_summary["total_estimated_cost_usd"]) > 0.42
+    assert set(runtime_summary["by_stage"].keys()) == {
+        "recipe_llm_correct_and_link",
+        "nonrecipe_knowledge_review",
+        "line_role",
+    }
+    assert (
+        int(runtime_summary["by_stage"]["recipe_llm_correct_and_link"]["total_tokens"])
+        == 120000
+    )
+    assert (
+        int(runtime_summary["by_stage"]["nonrecipe_knowledge_review"]["total_tokens"])
+        == 25000
+    )
+    assert int(runtime_summary["by_stage"]["line_role"]["total_tokens"]) == 6535006
+
+    top_slowest_calls = runtime_payload["top_slowest_calls"]
+    assert top_slowest_calls[0]["call_id"] == "recipe-001"
+    assert int(top_slowest_calls[0]["duration_ms"]) == 1200
+    top_estimated_cost_calls = runtime_payload["top_estimated_cost_calls"]
+    assert top_estimated_cost_calls[0]["call_id"] == "recipe-001"
+    assert float(top_estimated_cost_calls[0]["estimated_cost_usd"]) >= 0.42
 
 
 def test_build_upload_bundle_surfaces_knowledge_summary_and_locators(
@@ -4280,6 +4453,82 @@ def test_build_upload_bundle_critical_row_locator_coverage_gate(tmp_path: Path) 
     coverage = float(self_check.get("critical_row_locators_coverage_ratio") or 0.0)
     # Keep a small floor so future changes don't silently null out every critical locator.
     assert coverage >= 0.14
+
+
+def test_build_upload_bundle_single_run_preserves_span_signal_and_pairless_notes(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-book-benchmark"
+
+    run_record = _make_run_record(
+        module,
+        run_root=session_root,
+        run_id="2026-03-03_10.23.00",
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+    )
+    run_dir = Path(str(run_record.run_dir))
+    _write_json(
+        run_dir / "line-role-pipeline" / "telemetry_summary.json",
+        {
+            "schema_version": "line_role_final_authority_projection.v1",
+            "recipe_span_count": 29,
+            "labeled_line_count": 1471,
+            "unresolved_review_eligible_line_count": 863,
+        },
+    )
+    _write_json(
+        run_dir / "manifest.json",
+        {
+            "line_role_pipeline_recipe_projection": {
+                "recipes_applied": 29,
+                "span_count": 1471,
+                "unresolved_review_eligible_line_count": 863,
+            }
+        },
+    )
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    active_span_breakout = index_payload["analysis"]["active_recipe_span_breakout"]
+    assert active_span_breakout["pair_count"] == 0
+    assert active_span_breakout["recipe_span_count"] == 29
+    assert (
+        active_span_breakout["single_run_fallback"]["signal_source"]
+        == "line_role_projection_telemetry"
+    )
+    assert "single-run line-role telemetry" in active_span_breakout["turn1_note"]
+
+    triage_packet = index_payload["analysis"]["triage_packet"]
+    assert triage_packet["row_count"] == 0
+    assert "No comparison pair was available" in triage_packet["empty_packet_note"]
+    assert "Recipe spans were discovered in the single run" in triage_packet["sample_rows_note"]
+
+    turn1_summary = index_payload["analysis"]["turn1_summary"]
+    assert turn1_summary["recommended_read_order"][0] == "analysis.active_recipe_span_breakout"
+
+    default_views = index_payload["navigation"]["default_initial_views"]
+    assert default_views.index("analysis.active_recipe_span_breakout") < default_views.index(
+        "analysis.benchmark_pair_inventory"
+    )
+    assert default_views.index("analysis.recipe_pipeline_context") < default_views.index(
+        "analysis.benchmark_pair_inventory"
+    )
+
+    overview_text = (bundle_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME).read_text(
+        encoding="utf-8"
+    )
+    assert "single-run span and stage story" in overview_text
+    assert "- recipe_span_count: 29" in overview_text
 
 
 def test_select_starter_pack_recipe_cases_uses_blended_policy() -> None:

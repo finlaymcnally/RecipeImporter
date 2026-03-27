@@ -1,6 +1,6 @@
 THIS IS A SOLO PROJECT. I DO NOT NEED ENTERPRISE-GRAD SOLUTIONS, AND ONLY I WILL EVER BE TOUCHING THIS CODE, SO WE DON'T NEED TO WORRY ABOUT COORDINATION PROBLEMS AND STUFF HERE. ITS JUST YOU AND I MY FRIEND.
 
-AGENTS MUST NOT SPEND TOKENS WITHOUT EXPLICIT USER APPROVAL
+AGENTS MUST NOT RUN CODEXFARM ENABLED BOOK PROCESSING/BENCHMARKS WITHOUT EXPLICIT USER APPROVAL
 
 You will frequently encounter changes to the workspace not made by you. That is not an error, me or another AI coder was just tinkering in the background. Unless the changes seem "close" i.e. similar files to what you're working on and you're worried about save conflicts (if you are worried, please say something!) then don't sweat it 
 

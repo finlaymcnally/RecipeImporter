@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import cookimport.cli_support.progress as progress_support
 from cookimport.core.progress_messages import format_stage_progress
 import tests.labelstudio.benchmark_helper_support as _base
 
@@ -10,6 +11,69 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
+
+
+def test_progress_split_module_appends_processing_timeseries_marker_with_json_safe(
+    tmp_path: Path,
+) -> None:
+    telemetry_path = tmp_path / "processing_timeseries.jsonl"
+
+    progress_support._append_processing_timeseries_marker(
+        telemetry_path=telemetry_path,
+        event="started",
+        payload={
+            "processed_run_root": tmp_path / "processed",
+            "nested": {"report_path": tmp_path / "report.json"},
+        },
+    )
+
+    rows = [
+        json.loads(line)
+        for line in telemetry_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert rows == [
+        {
+            "event": "started",
+            "nested": {"report_path": str(tmp_path / "report.json")},
+            "processed_run_root": str(tmp_path / "processed"),
+            "timestamp": rows[0]["timestamp"],
+        }
+    ]
+
+
+def test_processing_timeseries_writer_serializes_path_payloads(
+    tmp_path: Path,
+) -> None:
+    telemetry_path = tmp_path / "processing_timeseries.jsonl"
+    writer = cli._ProcessingTimeseriesWriter(path=telemetry_path, heartbeat_seconds=0.05)
+
+    writer.write_row(
+        snapshot="stage task 1/1",
+        force=True,
+        payload={
+            "event": "update",
+            "run_dir": tmp_path / "run",
+            "worker_status": [{"artifact_path": tmp_path / "artifact.json"}],
+        },
+    )
+
+    rows = [
+        json.loads(line)
+        for line in telemetry_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert rows == [
+        {
+            "cpu_utilization_pct": rows[0]["cpu_utilization_pct"],
+            "event": "update",
+            "monotonic_seconds": rows[0]["monotonic_seconds"],
+            "run_dir": str(tmp_path / "run"),
+            "snapshot": "stage task 1/1",
+            "timestamp": rows[0]["timestamp"],
+            "worker_status": [{"artifact_path": str(tmp_path / "artifact.json")}],
+        }
+    ]
 
 def test_format_status_progress_message_appends_elapsed_after_threshold() -> None:
     assert (

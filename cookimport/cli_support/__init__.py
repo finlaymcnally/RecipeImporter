@@ -1670,6 +1670,19 @@ class _HostCpuUtilizationSampler:
         return max(0.0, min(100.0, (float(busy_delta) / float(total_delta)) * 100.0))
 
 
+def _processing_timeseries_json_safe(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        return {
+            str(key): _processing_timeseries_json_safe(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_processing_timeseries_json_safe(item) for item in value]
+    return value
+
+
 @dataclass
 class _ProcessingTimeseriesWriter:
     path: Path
@@ -1710,7 +1723,13 @@ class _ProcessingTimeseriesWriter:
             try:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 with self.path.open("a", encoding="utf-8") as handle:
-                    handle.write(json.dumps(row, sort_keys=True) + "\n")
+                    handle.write(
+                        json.dumps(
+                            _processing_timeseries_json_safe(row),
+                            sort_keys=True,
+                        )
+                        + "\n"
+                    )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "Ignoring processing time-series write failure for %s: %s",

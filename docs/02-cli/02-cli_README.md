@@ -112,6 +112,7 @@ Current spinner/status rule:
 - stage-specific emitters for recipe shard work, line-role, non-recipe knowledge review, label-first authority building, and staged-output writing should prefer structured payloads so benchmark/import status panels keep the active-stage context visible
 - recipe shard work should report outer worker-bucket truth from `phase_worker_runtime.py` (configured workers, queued shards, active worker buckets, current first shard), not pretend the CLI can see true inner per-shard Codex progress once one worker hands a whole bucket to a single classic `process` call
 - `processing_timeseries*.jsonl` is the durable machine-readable history of those progress snapshots and should retain stage label, work-unit label, active tasks, typed worker/follow-up counts, artifact counts, and detail lines when present
+- progress/timeseries writers must coerce nested `Path` values to strings before JSON serialization so benchmark and stage telemetry does not silently drop rows when payloads include filesystem paths
 - ETA/rate sampling is stage-local, so a new structured `stage_label` must reset avg-per-task history instead of inheriting timings from the previous stage even when the next stage reuses the same `task X/Y` shape
 - bootstrap ETA for structured parallel stages should use active/configured worker count to estimate remaining worker-waves, instead of treating all remaining tasks as fully serial work
 

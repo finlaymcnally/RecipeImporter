@@ -380,10 +380,11 @@ def _resolve_line_role_prompt_format() -> LineRolePromptFormat:
 
 
 def _looks_like_codex_exec_command(command_text: str) -> bool:
-    command = str(command_text or "").strip()
-    if not command:
+    tokens = str(command_text or "").strip().split()
+    if not tokens:
         return False
-    return "codex" in Path(command.split()[0]).name.lower()
+    executable = Path(tokens[0]).name.lower()
+    return executable in _CODEX_EXECUTABLES
 
 
 def _resolve_line_role_codex_exec_cmd(

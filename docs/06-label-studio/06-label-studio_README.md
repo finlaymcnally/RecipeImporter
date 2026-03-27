@@ -229,7 +229,7 @@ New eval manifests should record the prediction-run root under `artifacts.artifa
 
 Canonical line-role projection note:
 - `line_role_predictions.jsonl` remains the diagnostic/provisional line-role view after any final-authority overwrite that actually exists.
-- `line-role-pipeline/stage_block_predictions.json` is the scored benchmark view. It aggregates projected canonical rows back to source `block_index`, preserves recipe-local Stage 2 labels there, and records unresolved outside-recipe review rows explicitly under `unresolved_review_eligible_*` metadata.
+- `line-role-pipeline/stage_block_predictions.json` is the scored benchmark view. It stays in dense canonical `line_index` coordinates for scoring, while `projected_spans.jsonl` / `extracted_archive.json` preserve source block provenance, and it records unresolved outside-recipe review rows explicitly under `unresolved_review_eligible_*` metadata.
 - In other words, an unreviewed outside-recipe row may still appear as provisional `KNOWLEDGE` in diagnostic artifacts and in projected block labels, but benchmark scoring excludes that row via the unresolved metadata until explicit final non-recipe authority exists.
 
 - upload path (prediction import + eval)

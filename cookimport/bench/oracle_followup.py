@@ -171,6 +171,19 @@ def _write_oracle_auto_followup_status(
 def _pid_is_running(pid: int) -> bool:
     if pid <= 0:
         return False
+    proc_status_path = Path("/proc") / str(pid) / "status"
+    try:
+        proc_status_text = proc_status_path.read_text(encoding="utf-8")
+    except OSError:
+        proc_status_text = ""
+    if proc_status_text:
+        for raw_line in proc_status_text.splitlines():
+            if not raw_line.startswith("State:"):
+                continue
+            state_fields = raw_line.split(":", 1)[1].strip().split(None, 1)
+            if state_fields and state_fields[0].upper() == "Z":
+                return False
+            break
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

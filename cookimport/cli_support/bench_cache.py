@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import sys
 
 runtime = sys.modules["cookimport.cli_support.bench"]
@@ -10,6 +11,11 @@ globals().update(
         if not name.startswith("__")
     }
 )
+
+
+def _report_count(value: Any) -> int:
+    all_method = importlib.import_module("cookimport.cli_support.bench_all_method")
+    return all_method._report_count(value)
 
 
 def _json_safe(value: Any) -> Any:
@@ -33,6 +39,7 @@ def _normalize_single_book_split_cache_mode(value: str) -> str:
         "Expected one of: off, auto."
     )
     return "off"
+
 
 def _stable_json_sha256(payload: Any) -> str:
     canonical = json.dumps(

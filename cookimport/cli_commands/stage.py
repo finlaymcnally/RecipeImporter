@@ -5,6 +5,7 @@ import typer
 from cookimport.cli_support import (
     Any,
     BarColumn,
+    DEFAULT_GOLDEN,
     DEFAULT_OUTPUT,
     EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
     JobSpec,

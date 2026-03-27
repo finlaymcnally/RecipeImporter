@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import sys
 
 from .bench_all_method import _report_optional_metric
@@ -11,6 +12,7 @@ from .bench_single_book import (
     _single_book_text_or_none,
     _sum_token_usage,
 )
+from .stage import _path_for_manifest, _write_eval_run_manifest
 
 runtime = sys.modules["cookimport.cli_support.bench"]
 globals().update(
@@ -20,6 +22,26 @@ globals().update(
         if not name.startswith("__")
     }
 )
+
+
+def _all_method_support_module():
+    return importlib.import_module("cookimport.cli_support.bench_all_method")
+
+
+def _benchmark_selective_retry_manifest_summary(run_config: dict[str, Any] | None):
+    labelstudio_commands = importlib.import_module("cookimport.cli_commands.labelstudio")
+    return getattr(
+        labelstudio_commands,
+        "_benchmark_selective_retry_manifest_summary",
+    )(run_config)
+
+
+def _normalize_timing_payload(payload: Any) -> dict[str, Any]:
+    return _all_method_support_module()._normalize_timing_payload(payload)
+
+
+def _timing_with_updates(*args, **kwargs):
+    return _all_method_support_module()._timing_with_updates(*args, **kwargs)
 
 
 def _coerce_int(value: Any) -> int | None:
@@ -63,6 +85,7 @@ class BenchmarkPredictionStageResult:
     prediction_records: list[PredictionRecord]
     codexfarm_prompt_response_log_path: Path | None
     single_book_split_cache_metadata: dict[str, Any] | None
+
 
 def _load_pred_run_recipe_context(
     pred_run: Path,

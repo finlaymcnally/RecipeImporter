@@ -228,13 +228,15 @@ def _build_scored_line_role_projection_spans(
         int(index)
         for index in nonrecipe_stage_result.review_status.unreviewed_review_eligible_block_indices
     }
-    unresolved_block_indices: set[int] = set()
+    unresolved_line_indices: set[int] = set()
+    unresolved_line_category_by_index: dict[int, str] = {}
     scored_spans: list[FreeformSpanPrediction] = []
     for span in spans:
         if span.within_recipe_span or span.label not in {"KNOWLEDGE", "OTHER"}:
             scored_spans.append(span)
             continue
         block_index = int(span.block_index)
+        line_index = int(span.line_index)
         authoritative_category = authoritative_categories.get(block_index)
         if authoritative_category in {"knowledge", "other"}:
             target_label = (
@@ -245,17 +247,19 @@ def _build_scored_line_role_projection_spans(
             scored_spans.append(span)
             continue
         if block_index in unreviewed_block_index_set:
-            unresolved_block_indices.add(block_index)
+            unresolved_line_indices.add(line_index)
+            raw_category = nonrecipe_stage_result.review_status.unreviewed_block_category_by_index.get(
+                block_index
+            )
+            if raw_category is not None:
+                unresolved_line_category_by_index[line_index] = str(raw_category)
         scored_spans.append(span)
     return scored_spans, {
-        "unresolved_review_eligible_line_count": len(unresolved_block_indices),
-        "unresolved_review_eligible_block_indices": sorted(unresolved_block_indices),
+        "unresolved_review_eligible_line_count": len(unresolved_line_indices),
+        "unresolved_review_eligible_block_indices": sorted(unresolved_line_indices),
         "unresolved_review_eligible_block_category_by_index": {
-            int(block_index): str(
-                nonrecipe_stage_result.review_status.unreviewed_block_category_by_index[int(block_index)]
-            )
-            for block_index in sorted(unresolved_block_indices)
-            if int(block_index) in nonrecipe_stage_result.review_status.unreviewed_block_category_by_index
+            int(line_index): category
+            for line_index, category in sorted(unresolved_line_category_by_index.items())
         },
     }
 

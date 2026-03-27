@@ -29,6 +29,11 @@ def _labelstudio_benchmark_command():
     labelstudio_commands = importlib.import_module("cookimport.cli_commands.labelstudio")
     return getattr(labelstudio_commands, "labelstudio_benchmark")
 
+
+def _resolve_artifact_path(base_dir: Path, value: Any) -> Path | None:
+    bench_compare = importlib.import_module("cookimport.cli_support.bench_compare")
+    return bench_compare._resolve_artifact_path(base_dir, value)
+
 def _write_single_book_summary_markdown(
     *,
     run_timestamp: str,
@@ -1371,8 +1376,6 @@ def _sum_token_usage(
 def _load_single_book_codex_farm_runtime(
     eval_output_dir: Path,
 ) -> dict[str, Any] | None:
-    from cookimport.cli_support.bench_compare import _resolve_artifact_path
-
     manifest_payload = _load_json_dict(eval_output_dir / "run_manifest.json")
     if not isinstance(manifest_payload, dict):
         return None

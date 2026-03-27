@@ -3,7 +3,8 @@ from __future__ import annotations
 import importlib
 import sys
 
-from .stage import _require_importer
+from .bench_cache import _json_safe
+from .stage import _path_for_manifest, _require_importer
 
 runtime = sys.modules["cookimport.cli_support.bench"]
 globals().update(
@@ -18,6 +19,28 @@ globals().update(
 def _labelstudio_benchmark_command():
     labelstudio_commands = importlib.import_module("cookimport.cli_commands.labelstudio")
     return getattr(labelstudio_commands, "labelstudio_benchmark")
+
+
+def _bench_artifacts_module():
+    return importlib.import_module("cookimport.cli_support.bench_artifacts")
+
+
+def _bench_single_book_module():
+    return importlib.import_module("cookimport.cli_support.bench_single_book")
+
+
+def _benchmark_report_metric_bundle(*args, **kwargs):
+    return _bench_single_book_module()._benchmark_report_metric_bundle(*args, **kwargs)
+
+
+def _load_pred_run_recipe_context(*args, **kwargs):
+    return _bench_artifacts_module()._load_pred_run_recipe_context(*args, **kwargs)
+
+
+def _run_offline_benchmark_prediction_stage(*args, **kwargs):
+    return _bench_artifacts_module()._run_offline_benchmark_prediction_stage(
+        *args, **kwargs
+    )
 
 
 @dataclass(frozen=True)
