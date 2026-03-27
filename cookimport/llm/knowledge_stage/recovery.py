@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from . import _shared as _shared_module
-from .planning import _knowledge_packet_payloads
+from .planning import (
+    _KnowledgeFollowupDecision,
+    _KnowledgeWorkspaceStageCommandViolation,
+    _knowledge_packet_payloads,
+)
 
 globals().update(
     {

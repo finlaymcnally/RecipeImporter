@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import sys
 
+from .command_resolution import resolve_registered_command
 from .bench_all_method import (
     _all_method_apply_baseline_contract,
     _all_method_apply_codex_contract_from_baseline,
@@ -26,8 +27,9 @@ globals().update(
 
 
 def _labelstudio_benchmark_command():
-    labelstudio_commands = importlib.import_module("cookimport.cli_commands.labelstudio")
-    return getattr(labelstudio_commands, "labelstudio_benchmark")
+    return resolve_registered_command(
+        "cookimport.cli_commands.labelstudio", "labelstudio_benchmark"
+    )
 
 
 def _resolve_artifact_path(base_dir: Path, value: Any) -> Path | None:

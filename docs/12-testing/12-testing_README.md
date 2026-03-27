@@ -63,10 +63,12 @@ Current layout exceptions and intentional split seams:
   - `tests/llm/test_codex_farm_orchestrator.py`
   - `tests/llm/test_codex_farm_orchestrator_runner_transport.py`
   - `tests/llm/test_codex_farm_orchestrator_stage_integration.py`
+- `tests/llm/test_llm_module_bindings.py` now provides one broad offline import/unresolved-global audit across `cookimport.llm.*`; keep it cheap and let focused files like `test_knowledge_stage_bindings.py` cover package-local failure modes in more detail.
 - Knowledge orchestrator coverage is split into:
   - `tests/llm/test_codex_farm_knowledge_orchestrator.py` for the broad knowledge-stage behavior suite
   - `tests/llm/test_codex_farm_knowledge_orchestrator_runtime.py` for progress, concurrency, and packet-leasing runtime coverage
   - `tests/llm/test_knowledge_runtime_replay.py` for packet-ledger and saved-artifact replay coverage
+  - `tests/llm/test_knowledge_stage_bindings.py` for fast split-module binding guards around knowledge-stage recovery/planning seams
 - Direct Codex exec runner coverage is split into:
   - `tests/llm/test_codex_exec_runner.py` for helper/classification coverage
   - `tests/llm/test_codex_exec_runner_workspace.py` for sterile workspace preparation and subprocess/workspace-worker runtime coverage
@@ -83,6 +85,7 @@ Current layout exceptions and intentional split seams:
   - `tests/parsing/test_canonical_line_roles.py` for the heavy behavior suite
 - tests that assert exact line-role shard ids, proposal filenames, or worker assignments must opt out of the default `line_role_prompt_target_count=5`; `codex_batch_size=1` alone no longer means one line per shard
 - Small live Codex env/import helpers should keep one direct non-slow regression test even when broader slow integration coverage already exists.
+- Split LLM stage packages should keep one direct unresolved-name/binding guard close to the package when the main smoke path would only hit the seam after a long offline run or a live Codex stage.
 - CLI path-resolution tests should prefer synthesizing the minimal artifact contract they need under `tmp_path` instead of depending on repo-local sample benchmark roots.
 - Bench Oracle / follow-up / `cf-debug` tests should prefer tiny synthetic `upload_bundle_v1` fixtures under `tmp_path`; copying large checked-in benchmark roots is reserved for an explicit slow realism slice only.
 - When one test starts mixing giant fixture setup, one command/helper invocation, and several unrelated output families, split it into file-local builders plus narrower tests before adding more assertions. Prefer domain-local support modules and helper functions over a new repo-wide fixture framework.
@@ -114,6 +117,7 @@ Current contracts:
 - Benchmark smoke now has a second boundary: offline simulated whole-run single-book vanilla and codex-shaped flows should execute the real `labelstudio_benchmark(...)` runtime while stubbing only leaf prediction-generation/evaluation seams, so routine smoke runs catch benchmark-helper `NameError` regressions without spending live LLM tokens.
 - `tests/core/test_benchmark_undefined_names.py` now has two benchmark guards: Ruff `F821` for the explicit benchmark command surface, and a bootstrapped `LOAD_GLOBAL` audit for split benchmark modules (`bench_artifacts`, `bench_all_method`, `bench_cache`, `bench_single_book`, `bench_single_profile`, `bench_oracle`, `bench_compare`) after `cli_support.bench` finishes wiring them together.
 - That same file now also keeps a small interactive-CLI unresolved-global audit for the no-subcommand flow owners (`interactive_flow`, `settings_flow`, and `cli_commands.stage`) so direct command-module binding mistakes fail before manual CLI use.
+- That file now also runs a broader auto-discovered audit across `cookimport.cli_support.*` and `cookimport.cli_commands.*`, so newly split CLI modules inherit the same unresolved-name guard without a second maintenance checklist.
 - Label Studio benchmark-helper tests now have two safety layers:
   - low-level heavy helpers fail fast under pytest unless the test opts in with `@pytest.mark.heavy_side_effects` plus `allow_heavy_test_side_effects`
   - `tests/labelstudio/benchmark_helper_support.py` provides shared lightweight benchmark publishers for routine single-book, single-profile, and smoke coverage
@@ -176,6 +180,7 @@ Design intent:
 - 2026-03-16: direct helper seams on live Codex paths need their own fast regression anchors; relying only on slow benchmark coverage leaves routine `fast` runs blind to simple import/env crashes.
 - 2026-03-26: the benchmark stack should keep both layers of undefined-name coverage: `ruff --select F821` for the explicit command surface and a bootstrapped benchmark-module `LOAD_GLOBAL` audit for the split helper files, including shared split support like `cookimport.cli_support.progress`. Keep the offline simulated whole-run single-book smoke coverage too; routing-only smoke is not enough for split-helper binding regressions.
 - 2026-03-26: undefined-name guardrails also need a small non-benchmark interactive slice; `cookimport.cli_commands.stage` can still ship a live `NameError` if command modules rely on facade/import-order bindings instead of importing shared names directly.
+- 2026-03-26: once the CLI surface is heavily split, unresolved-name audits should discover modules automatically; hand-maintained module lists age badly and let newly split files escape until a manual run hits them.
 - 2026-03-16: CLI tests like `tests/bench/test_benchmark_oracle_upload.py` should build a minimal `upload_bundle_v1` fixture under `tmp_path` rather than pinning to one checked-in benchmark directory.
 - 2026-03-22: the next maintainability wins came from splitting long mixed-concern tests into local builders plus narrower assertion families; keep those seams local unless several files truly share the same support contract.
 - 2026-03-23: fast stage helper names should match the source-job runtime (`install_fake_source_job_stage`), not the removed `stage_one_file` path.

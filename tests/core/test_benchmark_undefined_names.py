@@ -4,6 +4,7 @@ import builtins
 import dis
 import importlib
 import inspect
+import pkgutil
 import subprocess
 import sys
 import types
@@ -72,6 +73,19 @@ def _collect_module_unresolved_globals(module_names: tuple[str, ...]) -> list[st
     return sorted(set(failures))
 
 
+def _discover_cli_module_names() -> tuple[str, ...]:
+    package_names = (
+        "cookimport.cli_support",
+        "cookimport.cli_commands",
+    )
+    discovered: set[str] = set()
+    for package_name in package_names:
+        package = importlib.import_module(package_name)
+        for module_info in pkgutil.iter_modules(package.__path__, package_name + "."):
+            discovered.add(module_info.name)
+    return tuple(sorted(discovered))
+
+
 def _collect_bootstrapped_benchmark_unresolved_globals() -> list[str]:
     import cookimport.cli_support.bench  # noqa: F401
 
@@ -103,3 +117,10 @@ def test_interactive_cli_modules_have_no_unresolved_global_loads() -> None:
         )
     )
     assert not failures, "Unresolved interactive CLI globals:\n" + "\n".join(failures)
+
+
+def test_all_cli_modules_have_no_unresolved_global_loads() -> None:
+    import cookimport.cli_support.bench  # noqa: F401
+
+    failures = _collect_module_unresolved_globals(_discover_cli_module_names())
+    assert not failures, "Unresolved CLI globals:\n" + "\n".join(failures)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import sys
 
+from .command_resolution import resolve_registered_command
 from .bench_cache import _json_safe
 from .stage import _path_for_manifest, _require_importer
 
@@ -17,8 +18,9 @@ globals().update(
 
 
 def _labelstudio_benchmark_command():
-    labelstudio_commands = importlib.import_module("cookimport.cli_commands.labelstudio")
-    return getattr(labelstudio_commands, "labelstudio_benchmark")
+    return resolve_registered_command(
+        "cookimport.cli_commands.labelstudio", "labelstudio_benchmark"
+    )
 
 
 def _bench_artifacts_module():

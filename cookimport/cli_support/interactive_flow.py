@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import importlib
 import sys
+
+from .command_resolution import resolve_registered_command
 
 runtime = sys.modules["cookimport.cli_support"]
 from cookimport.cli_support.bench import (
@@ -22,13 +23,13 @@ globals().update(
 
 
 def _stats_dashboard_command():
-    analytics_commands = importlib.import_module("cookimport.cli_commands.analytics")
-    return getattr(analytics_commands, "stats_dashboard")
+    return resolve_registered_command(
+        "cookimport.cli_commands.analytics", "stats_dashboard"
+    )
 
 
 def _stage_command():
-    stage_commands = importlib.import_module("cookimport.cli_commands.stage")
-    return getattr(stage_commands, "stage")
+    return resolve_registered_command("cookimport.cli_commands.stage", "stage")
 
 def _interactive_mode(*, limit: int | None = None) -> None:
     """Run the interactive guided flow."""
