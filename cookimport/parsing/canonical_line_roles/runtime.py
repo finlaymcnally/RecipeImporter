@@ -241,6 +241,10 @@ def _label_atomic_lines_internal(
             progress_callback=progress_callback,
         )
         predictions.update(runtime_result.predictions_by_atomic_index)
+        _write_line_role_telemetry_summary(
+            artifact_root=artifact_root,
+            runtime_result=runtime_result,
+        )
         if live_llm_allowed:
             _raise_if_line_role_runtime_incomplete(
                 ordered_candidates=ordered,
@@ -282,11 +286,6 @@ def _label_atomic_lines_internal(
             baseline_prediction=baseline,
         )
         sanitized_by_index[candidate.atomic_index] = current
-    if mode == LINE_ROLE_PIPELINE_SHARD_V1:
-        _write_line_role_telemetry_summary(
-            artifact_root=artifact_root,
-            runtime_result=runtime_result,
-        )
     sanitized = [sanitized_by_index[candidate.atomic_index] for candidate in ordered]
     sanitized_baseline = [
         deterministic_baseline[candidate.atomic_index] for candidate in ordered
@@ -1029,6 +1028,9 @@ def _run_line_role_workspace_worker_assignment_v1(
         if shard_row is None:
             continue
         work_path = work_dir / f"{shard_id}.json"
+        repair_state_path = repair_dir / f"{shard_id}.status.json"
+        if repair_state_path.exists():
+            repair_state_path.unlink()
         if not work_path.exists():
             _write_runtime_json(
                 work_path,
@@ -1173,6 +1175,7 @@ def _run_line_role_workspace_worker_assignment_v1(
         debug_path = debug_dir / f"{shard_id}.json"
         work_path = work_dir / f"{shard_id}.json"
         repair_request_path = repair_dir / f"{shard_id}.json"
+        repair_state_path = repair_dir / f"{shard_id}.status.json"
         output_path = out_dir / f"{shard_id}.json"
         response_source_path = (
             output_path if output_path.exists() else resumed_output_path_by_shard_id.get(shard_id)
@@ -1290,7 +1293,7 @@ def _run_line_role_workspace_worker_assignment_v1(
             )
         watchdog_retry_attempted = False
         watchdog_retry_status = "not_attempted"
-        repair_attempted = repair_request_path.exists()
+        repair_attempted = repair_request_path.exists() or repair_state_path.exists()
         repair_status = "not_attempted"
         raw_output_status = proposal_status
         final_validation_errors = tuple(validation_errors)
@@ -1517,6 +1520,12 @@ def _run_line_role_workspace_worker_assignment_v1(
         proposal_status = "validated" if row_resolution_payload is not None else "invalid"
         if repair_attempted:
             repair_status = "repaired" if proposal_status == "validated" else "failed"
+        if primary_row is not None:
+            primary_row["repair_attempted"] = repair_attempted
+            primary_row["repair_status"] = repair_status
+        if primary_runner_row is not None:
+            primary_runner_row["repair_attempted"] = repair_attempted
+            primary_runner_row["repair_status"] = repair_status
         final_validation_metadata = {
             **dict(final_validation_metadata or {}),
             "raw_output_status": raw_output_status,
@@ -1533,6 +1542,11 @@ def _run_line_role_workspace_worker_assignment_v1(
                 "repair_request_path": (
                     _relative_runtime_path(run_root, repair_request_path)
                     if repair_request_path.exists()
+                    else None
+                ),
+                "repair_state_path": (
+                    _relative_runtime_path(run_root, repair_state_path)
+                    if repair_state_path.exists()
                     else None
                 ),
                 "work_path": _relative_runtime_path(run_root, work_path),
@@ -1666,6 +1680,8 @@ def _run_line_role_workspace_worker_assignment_v1(
             _annotate_line_role_final_outcome_row(
                 row,
                 normalized_outcome=normalized_outcome,
+                repair_attempted=repair_attempted,
+                repair_status=repair_status,
             )
         for payload_row in worker_runner_results:
             if not isinstance(payload_row, dict):
@@ -1681,6 +1697,8 @@ def _run_line_role_workspace_worker_assignment_v1(
                 payload_row,
                 shard_id=shard.shard_id,
                 normalized_outcome=normalized_outcome,
+                repair_attempted=repair_attempted,
+                repair_status=repair_status,
             )
         _write_runtime_json(
             shard_root / "status.json",
@@ -2002,8 +2020,28 @@ def _run_line_role_direct_workers_v1(
             repair_request_path = (
                 run_root / "workers" / worker_id / "repair" / f"{task_id}.json"
             )
-            if repair_request_path.exists():
+            repair_state_path = (
+                run_root / "workers" / worker_id / "repair" / f"{task_id}.status.json"
+            )
+            repair_state = {}
+            if repair_state_path.exists():
+                try:
+                    loaded_state = json.loads(
+                        repair_state_path.read_text(encoding="utf-8")
+                    )
+                except (OSError, json.JSONDecodeError):
+                    loaded_state = None
+                if isinstance(loaded_state, Mapping):
+                    repair_state = dict(loaded_state)
+            repair_state_status = str(repair_state.get("status") or "").strip().lower()
+            if repair_request_path.exists() or repair_state_path.exists():
                 repair_attempted += 1
+            if repair_state_status == "installed_clean":
+                repair_completed += 1
+            elif repair_request_path.exists() or repair_state_status in {
+                "requested",
+                "validated_clean",
+            }:
                 repair_running += 1
         return repair_attempted, repair_completed, repair_running
 

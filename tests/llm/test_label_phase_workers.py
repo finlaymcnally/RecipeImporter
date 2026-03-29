@@ -11,6 +11,7 @@ import pytest
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
+import cookimport.parsing.canonical_line_roles as canonical_line_roles_module
 from cookimport.parsing.canonical_line_roles import label_atomic_lines
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 
@@ -21,9 +22,11 @@ def _settings(**kwargs) -> RunSettings:
 
 @pytest.fixture(autouse=True)
 def _set_codex_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv(
         "COOKIMPORT_CODEX_FARM_CODEX_HOME",
-        str(tmp_path / "codex-home"),
+        str(codex_home),
     )
 
 
@@ -152,7 +155,7 @@ def test_line_role_phase_workers_write_runtime_artifacts_and_reuse_workers(
     assert "rule_tags" in debug_input["rows"][0]
 
 
-def test_line_role_phase_workers_reject_unowned_rows_and_fall_back(
+def test_line_role_phase_workers_reject_unowned_rows_and_fail_closed(
     tmp_path: Path,
 ) -> None:
     runner = FakeCodexExecRunner(
@@ -161,18 +164,18 @@ def test_line_role_phase_workers_reject_unowned_rows_and_fall_back(
         }
     )
 
-    predictions = label_atomic_lines(
-        [_candidate(0)],
-        _settings(line_role_worker_count=1),
-        artifact_root=tmp_path,
-        codex_batch_size=1,
-        codex_runner=runner,
-        live_llm_allowed=True,
-    )
-
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by == "fallback"
-    assert "deterministic_unavailable" in predictions[0].reason_tags
+    with pytest.raises(
+        canonical_line_roles_module.LineRoleRepairFailureError,
+        match="failed closed",
+    ):
+        label_atomic_lines(
+            [_candidate(0)],
+            _settings(line_role_worker_count=1),
+            artifact_root=tmp_path,
+            codex_batch_size=1,
+            codex_runner=runner,
+            live_llm_allowed=True,
+        )
 
     failures = json.loads(
         (
@@ -221,18 +224,18 @@ def test_line_role_phase_workers_reject_unowned_rows_and_fall_back(
 
     assert [row["reason"] for row in failures] == ["proposal_validation_failed"]
     assert failures[0]["validation_errors"] == [
+        "row_order_mismatch",
         "unowned_atomic_index:999",
         "missing_owned_atomic_indices:0",
     ]
     assert parse_errors["parse_error_count"] == 1
     assert proposal["validation_errors"] == [
+        "row_order_mismatch",
         "unowned_atomic_index:999",
         "missing_owned_atomic_indices:0",
     ]
-    assert (
-        proposal["validation_metadata"]["repair_validation_errors"]
-        == ["unowned_atomic_index:999", "missing_owned_atomic_indices:0"]
-    )
+    assert proposal["payload"] is None
+    assert proposal["validation_metadata"]["row_resolution"]["unresolved_atomic_indices"] == [0]
     shard_status_rows = [
         json.loads(line)
         for line in (
@@ -245,7 +248,7 @@ def test_line_role_phase_workers_reject_unowned_rows_and_fall_back(
         if line.strip()
     ]
     assert not task_status_rows
-    assert [row["state"] for row in shard_status_rows] == ["repair_failed"]
+    assert [row["state"] for row in shard_status_rows] == ["invalid_output"]
 
 
 def test_line_role_phase_workers_emit_runtime_telemetry_summary(

@@ -103,8 +103,7 @@ It starts with `label_det`, which creates the deterministic line and block label
 
 That deterministic pass still matters even when LLM stages are on. It gives the run a reproducible baseline and a clear artifact trail.
 
-If line-role Codex review is enabled, `label_llm_correct` reviews those labels. The safety rule is simple: accepted Codex labels survive after structural validation, and rejected rows fall back to the deterministic baseline with an explicit reason.
-> ARENT REJECTED ROWS FIXED? I DONT JUST WANT DETERMINISTIC FALLBACK
+If line-role Codex review is enabled, `label_llm_correct` reviews those labels through the worker-local `check-phase` / `install-phase` loop. The safety rule is now simple: the worker installs a clean repaired shard and that installed ledger becomes authoritative, or the shard fails closed with explicit repair artifacts. There is no hidden deterministic row fallback on the live worker path.
 
 After labeling, `group_recipe_spans` groups the accepted recipe lines into candidate spans and decides which of those spans count as real recipes.
 

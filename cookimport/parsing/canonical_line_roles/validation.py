@@ -643,6 +643,8 @@ def _annotate_line_role_final_outcome_row(
     row: dict[str, Any],
     *,
     normalized_outcome: Mapping[str, Any],
+    repair_attempted: bool | None = None,
+    repair_status: str | None = None,
 ) -> None:
     row["final_supervision_state"] = normalized_outcome.get("state")
     row["final_supervision_reason_code"] = normalized_outcome.get("reason_code")
@@ -659,6 +661,10 @@ def _annotate_line_role_final_outcome_row(
     row["raw_supervision_retryable"] = normalized_outcome.get(
         "raw_supervision_retryable"
     )
+    if repair_attempted is not None:
+        row["repair_attempted"] = bool(repair_attempted)
+    if repair_status is not None:
+        row["repair_status"] = str(repair_status or "not_attempted")
 
 
 def _annotate_line_role_final_proposal_status(
@@ -676,6 +682,8 @@ def _apply_line_role_final_outcome_to_runner_payload(
     *,
     shard_id: str,
     normalized_outcome: Mapping[str, Any],
+    repair_attempted: bool | None = None,
+    repair_status: str | None = None,
 ) -> None:
     telemetry = payload.get("telemetry")
     row_payloads = telemetry.get("rows") if isinstance(telemetry, dict) else None
@@ -691,6 +699,8 @@ def _apply_line_role_final_outcome_to_runner_payload(
             _annotate_line_role_final_outcome_row(
                 row_payload,
                 normalized_outcome=normalized_outcome,
+                repair_attempted=repair_attempted,
+                repair_status=repair_status,
             )
             changed = True
         if changed:

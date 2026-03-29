@@ -218,6 +218,26 @@ def _build_codex_farm_prompt_log_fixture(tmp_path: Path) -> dict[str, object]:
                     {
                         "type": "item.completed",
                         "item": {
+                            "id": "item_0b",
+                            "type": "file_change",
+                            "changes": [
+                                {
+                                    "kind": "update",
+                                    "path": str(
+                                        correction_worker_root
+                                        / "scratch"
+                                        / "recipe-correction.json"
+                                    ),
+                                }
+                            ],
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
                             "id": "item_1",
                             "type": "agent_message",
                             "text": "Final activity trace message.",
@@ -482,10 +502,21 @@ def test_build_codex_farm_prompt_response_log_backfills_full_prompt_rows_from_te
     assert correction_row["activity_trace"]["command_count"] == 1
     assert correction_row["activity_trace"]["agent_message_count"] == 1
     assert correction_row["activity_trace"]["reasoning_event_count"] == 1
-    assert correction_row["activity_trace"]["entries"][1]["summary"].startswith("Ran `rg -n")
-    assert correction_row["activity_trace"]["entries"][2]["summary"] == (
-        "Reasoning summary: candidate span tightened"
+    activity_trace_entries = correction_row["activity_trace"]["entries"]
+    assert any(
+        str(entry.get("summary") or "").startswith("Ran `rg -n")
+        for entry in activity_trace_entries
     )
+    assert any(
+        entry.get("summary") == "Reasoning summary: candidate span tightened"
+        for entry in activity_trace_entries
+    )
+    file_change_entry = next(
+        entry
+        for entry in activity_trace_entries
+        if entry.get("kind") == "file_change"
+    )
+    assert "recipe-correction.json" in str(file_change_entry.get("summary") or "")
     assert correction_row["parsed_response"] == {"result": "recipe correction response"}
     assert correction_row["raw_response"]["output_file"].endswith("r0000.json")
 
@@ -546,6 +577,87 @@ def test_build_codex_farm_prompt_response_log_writes_activity_trace_summary(
     assert "# CodexFarm Activity Trace Summary" in trace_summary_md
     assert "- total_rows: `2`" in trace_summary_md
     assert "## recipe_llm_correct_and_link (Recipe Correction)" in trace_summary_md
+
+
+def test_build_codex_farm_activity_trace_summary_reads_exported_trace_json(
+    tmp_path: Path,
+) -> None:
+    prompts_dir = tmp_path / "prompts"
+    activity_traces_dir = prompts_dir / "activity_traces"
+    activity_traces_dir.mkdir(parents=True, exist_ok=True)
+
+    exported_trace_path = activity_traces_dir / "r0000.json"
+    exported_trace_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "prompt_activity_trace.v1",
+                "path": str(exported_trace_path),
+                "available": True,
+                "call_id": "r0000",
+                "stage_key": "recipe_llm_correct_and_link",
+                "command_count": 3,
+                "agent_message_count": 1,
+                "reasoning_event_count": 0,
+                "event_count": 5,
+                "entries": [
+                    {"summary": "Updated `.../out/r0000.json`"},
+                    {"summary": "Agent message: done"},
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    full_prompt_log_path = prompts_dir / "full_prompt_log.jsonl"
+    full_prompt_log_path.write_text(
+        json.dumps(
+            {
+                "call_id": "r0000",
+                "recipe_id": "recipe:0",
+                "stage_key": "recipe_llm_correct_and_link",
+                "activity_trace": {
+                    "path": str(exported_trace_path),
+                    "available": False,
+                    "command_count": 0,
+                    "agent_message_count": 0,
+                    "reasoning_event_count": 9,
+                    "entries": [{"summary": "stale embedded payload"}],
+                },
+                "request_telemetry": {
+                    "activity_trace_path": str(exported_trace_path),
+                },
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    output_jsonl_path = prompts_dir / "activity_trace_summary.jsonl"
+    output_md_path = prompts_dir / "activity_trace_summary.md"
+    prompt_artifacts.build_codex_farm_activity_trace_summaries(
+        full_prompt_log_path=full_prompt_log_path,
+        output_jsonl_path=output_jsonl_path,
+        output_md_path=output_md_path,
+    )
+
+    summary_rows = [
+        json.loads(line)
+        for line in output_jsonl_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(summary_rows) == 1
+    summary_row = summary_rows[0]
+    assert summary_row["activity_trace_exists"] is True
+    assert summary_row["command_count"] == 3
+    assert summary_row["agent_message_count"] == 1
+    assert summary_row["reasoning_event_count"] == 0
+    assert summary_row["entry_excerpt_lines"] == [
+        "Updated `.../out/r0000.json`",
+        "Agent message: done",
+    ]
 
 
 def test_build_codex_farm_prompt_response_log_backfills_direct_runtime_telemetry_without_csv(

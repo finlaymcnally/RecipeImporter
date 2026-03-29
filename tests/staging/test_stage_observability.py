@@ -475,7 +475,7 @@ def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: 
                 "last_attempt_type": "resume_existing_output",
                 "metadata": {
                     "llm_authoritative_row_count": 2,
-                    "fallback_row_count": 0,
+                    "unresolved_row_count": 0,
                     "suspicious_row_count": 2,
                     "suspicious_shard": True,
                 },
@@ -526,10 +526,10 @@ def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: 
 
     summary = build_line_role_stage_summary(stage_root)
 
-    assert summary["schema_version"] == "line_role_stage_summary.v2"
+    assert summary["schema_version"] == "line_role_stage_summary.v3"
     assert summary["lines"]["canonical_line_total"] == 2
     assert summary["lines"]["llm_authoritative_row_count"] == 2
-    assert summary["lines"]["fallback_row_count"] == 0
+    assert summary["lines"]["unresolved_row_count"] == 0
     assert summary["shards"]["shard_total"] == 1
     assert summary["shards"]["state_counts"] == {"validated": 1}
     assert summary["shards"]["attempt_type_counts"] == {"resume_existing_output": 1}

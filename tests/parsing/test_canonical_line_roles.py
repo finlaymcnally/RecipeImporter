@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import time
 from pathlib import Path
 
@@ -40,9 +41,11 @@ def _settings(mode: str = "off", **kwargs):
 @pytest.fixture(autouse=True)
 def _isolate_default_line_role_runtime_root(tmp_path, monkeypatch) -> None:
     original = canonical_line_roles_module._resolve_line_role_codex_farm_workspace_root
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv(
         "COOKIMPORT_CODEX_FARM_CODEX_HOME",
-        str(tmp_path / "codex-home"),
+        str(codex_home),
     )
 
     def _patched(*, settings):
@@ -3131,7 +3134,7 @@ def test_codex_exact_variations_other_rows_stay_codex_other(tmp_path) -> None:
     )
 
 
-def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
+def test_label_atomic_lines_codex_parse_error_fails_closed_and_writes_flag(
     tmp_path,
 ) -> None:
     candidates = [
@@ -4724,26 +4727,32 @@ def test_label_atomic_lines_keeps_unrecovered_forbidden_watchdog_kill_visible(
                 supervision_retryable=False,
             )
 
-    predictions = label_atomic_lines(
-        candidates,
-        _settings(
-            "codex-line-role-shard-v1",
-            line_role_prompt_target_count=1,
-            line_role_worker_count=1,
-        ),
-        artifact_root=tmp_path,
-        codex_runner=_ForbiddenWorkspaceRunner(
-            output_builder=lambda payload: {"rows": []}
-        ),
-        live_llm_allowed=True,
-    )
-
-    assert len(predictions) == 1
+    with pytest.raises(
+        canonical_line_roles_module.LineRoleRepairFailureError,
+        match="failed closed",
+    ):
+        label_atomic_lines(
+            candidates,
+            _settings(
+                "codex-line-role-shard-v1",
+                line_role_prompt_target_count=1,
+                line_role_worker_count=1,
+            ),
+            artifact_root=tmp_path,
+            codex_runner=_ForbiddenWorkspaceRunner(
+                output_builder=lambda payload: {"rows": []}
+            ),
+            live_llm_allowed=True,
+        )
 
     telemetry_payload = json.loads(
-        (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
-            encoding="utf-8"
-        )
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "telemetry.json"
+        ).read_text(encoding="utf-8")
     )
     assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 1
     assert telemetry_payload["summary"]["watchdog_recovered_shard_count"] == 0
@@ -4814,7 +4823,7 @@ def test_label_atomic_lines_accepts_valid_workspace_outputs_without_final_messag
     assert rows[0]["final_agent_message_reason"] is None
 
 
-def test_label_atomic_lines_near_miss_invalid_shard_falls_back_without_second_model_pass(
+def test_label_atomic_lines_near_miss_invalid_shard_fails_closed_without_second_model_pass(
     tmp_path,
 ) -> None:
     candidates = [
@@ -4829,20 +4838,21 @@ def test_label_atomic_lines_near_miss_invalid_shard_falls_back_without_second_mo
         )
     ]
 
-    predictions = label_atomic_lines(
-        candidates,
-        _settings(
-            "codex-line-role-shard-v1",
-            line_role_prompt_target_count=1,
-            line_role_worker_count=1,
-        ),
-        artifact_root=tmp_path,
-        codex_runner=FakeCodexExecRunner(output_builder=lambda _payload: {"rows": []}),
-        live_llm_allowed=True,
-    )
-
-    assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
+    with pytest.raises(
+        canonical_line_roles_module.LineRoleRepairFailureError,
+        match="failed closed",
+    ):
+        label_atomic_lines(
+            candidates,
+            _settings(
+                "codex-line-role-shard-v1",
+                line_role_prompt_target_count=1,
+                line_role_worker_count=1,
+            ),
+            artifact_root=tmp_path,
+            codex_runner=FakeCodexExecRunner(output_builder=lambda _payload: {"rows": []}),
+            live_llm_allowed=True,
+        )
 
     telemetry_payload = json.loads(
         (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
@@ -4851,7 +4861,7 @@ def test_label_atomic_lines_near_miss_invalid_shard_falls_back_without_second_mo
     )
     assert telemetry_payload["summary"]["attempt_count"] == 1
     assert telemetry_payload["summary"]["repaired_shard_count"] == 0
-    assert telemetry_payload["summary"]["invalid_output_shard_count"] == 0
+    assert telemetry_payload["summary"]["invalid_output_shard_count"] == 1
 
     proposal_payload = json.loads(
         (
@@ -4865,9 +4875,7 @@ def test_label_atomic_lines_near_miss_invalid_shard_falls_back_without_second_mo
     )
     assert proposal_payload["repair_attempted"] is False
     assert proposal_payload["repair_status"] == "not_attempted"
-    assert not list(
-        (tmp_path / "line-role-pipeline" / "runtime").rglob("repair_status.json")
-    )
+    assert list((tmp_path / "line-role-pipeline" / "runtime").rglob("repair_status.json"))
 
     runtime_telemetry = json.loads(
         (
@@ -4881,10 +4889,10 @@ def test_label_atomic_lines_near_miss_invalid_shard_falls_back_without_second_mo
     ]
     assert workspace_rows
     assert workspace_rows[0]["proposal_status"] == "invalid"
-    assert workspace_rows[0]["final_proposal_status"] == "validated"
+    assert workspace_rows[0]["final_proposal_status"] == "invalid"
 
 
-def test_label_atomic_lines_salvages_meaningful_work_ledger_when_output_missing(
+def test_label_atomic_lines_fails_closed_when_output_missing_even_if_work_ledger_has_partial_progress(
     tmp_path: Path,
 ) -> None:
     candidates = [
@@ -4921,30 +4929,29 @@ def test_label_atomic_lines_salvages_meaningful_work_ledger_when_output_missing(
             )
             return result
 
-    predictions = label_atomic_lines(
-        candidates,
-        _settings(
-            "codex-line-role-shard-v1",
-            line_role_prompt_target_count=1,
-            line_role_worker_count=1,
-        ),
-        artifact_root=tmp_path,
-        codex_batch_size=2,
-        codex_runner=_WorkOnlyRunner(
-            output_builder=lambda _payload: {
-                "rows": [
-                    {"atomic_index": 0, "label": "OTHER"},
-                    {"atomic_index": 1, "label": "OTHER"},
-                ]
-            }
-        ),
-        live_llm_allowed=True,
-    )
-
-    assert predictions[0].label == "INGREDIENT_LINE"
-    assert predictions[0].decided_by == "codex"
-    assert predictions[1].label == "OTHER"
-    assert predictions[1].decided_by != "codex"
+    with pytest.raises(
+        canonical_line_roles_module.LineRoleRepairFailureError,
+        match="failed closed",
+    ):
+        label_atomic_lines(
+            candidates,
+            _settings(
+                "codex-line-role-shard-v1",
+                line_role_prompt_target_count=1,
+                line_role_worker_count=1,
+            ),
+            artifact_root=tmp_path,
+            codex_batch_size=2,
+            codex_runner=_WorkOnlyRunner(
+                output_builder=lambda _payload: {
+                    "rows": [
+                        {"atomic_index": 0, "label": "OTHER"},
+                        {"atomic_index": 1, "label": "OTHER"},
+                    ]
+                }
+            ),
+            live_llm_allowed=True,
+        )
 
     proposal_payload = json.loads(
         (
@@ -4961,13 +4968,14 @@ def test_label_atomic_lines_salvages_meaningful_work_ledger_when_output_missing(
     assert proposal_payload["validation_metadata"]["row_resolution"] == {
         "accepted_atomic_indices": [0],
         "accepted_row_count": 1,
-        "fallback_atomic_indices": [1],
-        "fallback_row_count": 1,
+        "all_rows_resolved": False,
         "semantic_rejected": False,
+        "unresolved_atomic_indices": [1],
+        "unresolved_row_count": 1,
     }
 
 
-def test_label_atomic_lines_ignores_untouched_seed_work_ledger_when_output_missing(
+def test_label_atomic_lines_fails_closed_when_output_missing_and_only_seed_work_ledger_exists(
     tmp_path: Path,
 ) -> None:
     candidates = [
@@ -4990,23 +4998,25 @@ def test_label_atomic_lines_ignores_untouched_seed_work_ledger_when_output_missi
                 output_path.unlink()
             return result
 
-    predictions = label_atomic_lines(
-        candidates,
-        _settings(
-            "codex-line-role-shard-v1",
-            line_role_prompt_target_count=1,
-            line_role_worker_count=1,
-        ),
-        artifact_root=tmp_path,
-        codex_runner=_NoOutputRunner(
-            output_builder=lambda _payload: {
-                "rows": [{"atomic_index": 0, "label": "INGREDIENT_LINE"}]
-            }
-        ),
-        live_llm_allowed=True,
-    )
-
-    assert predictions[0].decided_by == "fallback"
+    with pytest.raises(
+        canonical_line_roles_module.LineRoleRepairFailureError,
+        match="failed closed",
+    ):
+        label_atomic_lines(
+            candidates,
+            _settings(
+                "codex-line-role-shard-v1",
+                line_role_prompt_target_count=1,
+                line_role_worker_count=1,
+            ),
+            artifact_root=tmp_path,
+            codex_runner=_NoOutputRunner(
+                output_builder=lambda _payload: {
+                    "rows": [{"atomic_index": 0, "label": "INGREDIENT_LINE"}]
+                }
+            ),
+            live_llm_allowed=True,
+        )
     proposal_payload = json.loads(
         (
             tmp_path
@@ -5021,7 +5031,258 @@ def test_label_atomic_lines_ignores_untouched_seed_work_ledger_when_output_missi
     assert proposal_payload["validation_metadata"]["raw_output_missing"] is True
 
 
-def test_label_atomic_lines_rejects_uniform_shard_output_and_falls_back(
+def test_label_atomic_lines_promotes_clean_same_session_repair_install(
+    tmp_path: Path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:repair-success:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"Ambiguous repair success line {index}",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        )
+        for index in range(2)
+    ]
+
+    class _SameSessionRepairRunner(FakeCodexExecRunner):
+        def run_workspace_worker(self, **kwargs):  # noqa: ANN003
+            result = super().run_workspace_worker(**kwargs)
+            worker_root = Path(kwargs["working_dir"])
+            output_path = next((worker_root / "out").glob("*.json"))
+            output_path.unlink()
+            work_path = next((worker_root / "work").glob("*.json"))
+            work_path.write_text(
+                json.dumps(
+                    {
+                        "rows": [
+                            {"atomic_index": 0, "label": "OTHER"},
+                            {"atomic_index": 999, "label": "OTHER"},
+                        ]
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            first_check = subprocess.run(
+                ["python3", "tools/line_role_worker.py", "check-phase"],
+                cwd=worker_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            assert first_check.returncode == 1
+            repair_path = next((worker_root / "repair").glob("*.json"))
+            repair_payload = json.loads(repair_path.read_text(encoding="utf-8"))
+            assert repair_payload["unresolved_atomic_indices"] == [1]
+            work_path.write_text(
+                json.dumps(
+                    {
+                        "rows": [
+                            {"atomic_index": 0, "label": "OTHER"},
+                            {"atomic_index": 1, "label": "OTHER"},
+                        ]
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["python3", "tools/line_role_worker.py", "check-phase"],
+                cwd=worker_root,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            subprocess.run(
+                ["python3", "tools/line_role_worker.py", "install-phase"],
+                cwd=worker_root,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return result
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-shard-v1",
+            line_role_prompt_target_count=1,
+            line_role_worker_count=1,
+        ),
+        artifact_root=tmp_path,
+        codex_batch_size=2,
+        codex_runner=_SameSessionRepairRunner(
+            output_builder=lambda _payload: {
+                "rows": [
+                    {"atomic_index": 0, "label": "OTHER"},
+                    {"atomic_index": 1, "label": "OTHER"},
+                ]
+            }
+        ),
+        live_llm_allowed=True,
+    )
+
+    assert [prediction.label for prediction in predictions] == ["OTHER", "OTHER"]
+    assert all(prediction.decided_by == "codex" for prediction in predictions)
+    proposal_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "proposals"
+            / "line-role-canonical-0001-a000000-a000001.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert proposal_payload["repair_attempted"] is True
+    assert proposal_payload["repair_status"] == "repaired"
+    assert proposal_payload["validation_metadata"]["row_resolution"] == {
+        "accepted_atomic_indices": [0, 1],
+        "accepted_row_count": 2,
+        "all_rows_resolved": True,
+        "semantic_rejected": False,
+        "unresolved_atomic_indices": [],
+        "unresolved_row_count": 0,
+    }
+    telemetry_payload = json.loads(
+        (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert telemetry_payload["summary"]["repaired_shard_count"] == 1
+    shard_status_rows = [
+        json.loads(line)
+        for line in (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "shard_status.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert shard_status_rows[0]["state"] == "repair_recovered"
+    repair_status_payload = json.loads(
+        next((tmp_path / "line-role-pipeline" / "runtime").rglob("repair_status.json")).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert repair_status_payload["status"] == "repaired"
+
+
+def test_label_atomic_lines_fails_closed_after_same_session_repair_request_if_worker_never_installs(
+    tmp_path: Path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:repair-failure:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"Ambiguous repair failure line {index}",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        )
+        for index in range(2)
+    ]
+
+    class _RepairRequestOnlyRunner(FakeCodexExecRunner):
+        def run_workspace_worker(self, **kwargs):  # noqa: ANN003
+            result = super().run_workspace_worker(**kwargs)
+            worker_root = Path(kwargs["working_dir"])
+            output_path = next((worker_root / "out").glob("*.json"))
+            output_path.unlink()
+            work_path = next((worker_root / "work").glob("*.json"))
+            work_path.write_text(
+                json.dumps(
+                    {
+                        "rows": [
+                            {"atomic_index": 0, "label": "OTHER"},
+                            {"atomic_index": 999, "label": "OTHER"},
+                        ]
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(
+                ["python3", "tools/line_role_worker.py", "check-phase"],
+                cwd=worker_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return result
+
+    with pytest.raises(
+        canonical_line_roles_module.LineRoleRepairFailureError,
+        match="failed closed",
+    ):
+        label_atomic_lines(
+            candidates,
+            _settings(
+                "codex-line-role-shard-v1",
+                line_role_prompt_target_count=1,
+                line_role_worker_count=1,
+            ),
+            artifact_root=tmp_path,
+            codex_batch_size=2,
+            codex_runner=_RepairRequestOnlyRunner(
+                output_builder=lambda _payload: {
+                    "rows": [
+                        {"atomic_index": 0, "label": "OTHER"},
+                        {"atomic_index": 1, "label": "OTHER"},
+                    ]
+                }
+            ),
+            live_llm_allowed=True,
+        )
+
+    proposal_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "proposals"
+            / "line-role-canonical-0001-a000000-a000001.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert proposal_payload["repair_attempted"] is True
+    assert proposal_payload["repair_status"] == "failed"
+    assert proposal_payload["payload"] is None
+    assert proposal_payload["validation_metadata"]["row_resolution"] == {
+        "accepted_atomic_indices": [0],
+        "accepted_row_count": 1,
+        "all_rows_resolved": False,
+        "semantic_rejected": False,
+        "unresolved_atomic_indices": [1],
+        "unresolved_row_count": 1,
+    }
+    shard_status_rows = [
+        json.loads(line)
+        for line in (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "shard_status.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert shard_status_rows[0]["state"] == "repair_failed"
+    repair_status_payload = json.loads(
+        next((tmp_path / "line-role-pipeline" / "runtime").rglob("repair_status.json")).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert repair_status_payload["status"] == "failed"
+
+
+def test_label_atomic_lines_rejects_uniform_shard_output_and_fails_closed(
     tmp_path,
 ) -> None:
     candidates = [
@@ -5071,25 +5332,21 @@ def test_label_atomic_lines_rejects_uniform_shard_output_and_falls_back(
             ]
         }
 
-    predictions = label_atomic_lines(
-        candidates,
-        _settings(
-            "codex-line-role-shard-v1",
-            line_role_prompt_target_count=1,
-            line_role_worker_count=1,
-        ),
-        artifact_root=tmp_path,
-        codex_runner=FakeCodexExecRunner(output_builder=_output_builder),
-        live_llm_allowed=True,
-    )
-
-    assert [prediction.label for prediction in predictions] == [
-        "OTHER",
-        "OTHER",
-        "INSTRUCTION_LINE",
-        "RECIPE_NOTES",
-    ]
-    assert all(prediction.decided_by in {"fallback", "rule"} for prediction in predictions)
+    with pytest.raises(
+        canonical_line_roles_module.LineRoleRepairFailureError,
+        match="failed closed",
+    ):
+        label_atomic_lines(
+            candidates,
+            _settings(
+                "codex-line-role-shard-v1",
+                line_role_prompt_target_count=1,
+                line_role_worker_count=1,
+            ),
+            artifact_root=tmp_path,
+            codex_runner=FakeCodexExecRunner(output_builder=_output_builder),
+            live_llm_allowed=True,
+        )
 
     telemetry_payload = json.loads(
         (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
@@ -5109,7 +5366,7 @@ def test_label_atomic_lines_rejects_uniform_shard_output_and_falls_back(
         "pathological_uniform_label_output:INGREDIENT_LINE"
     ]
     assert proposal_payload["validation_metadata"]["semantic_rejected"] is True
-    assert proposal_payload["validation_metadata"]["row_resolution"]["fallback_row_count"] == 4
+    assert proposal_payload["validation_metadata"]["row_resolution"]["unresolved_row_count"] == 4
 
 
 def test_validate_line_role_payload_semantics_reports_uniform_diagnostic_against_diverse_baseline() -> None:
@@ -5176,7 +5433,7 @@ def test_validate_line_role_payload_semantics_reports_uniform_diagnostic_against
     assert "pathological_uniform_label_output:INGREDIENT_LINE" in semantic_errors
 
 
-def test_label_atomic_lines_invalid_shard_ledgers_fall_back_without_structured_repair(
+def test_label_atomic_lines_invalid_shard_ledgers_fail_closed_without_structured_repair(
     tmp_path,
 ) -> None:
     candidates = [
@@ -5192,20 +5449,22 @@ def test_label_atomic_lines_invalid_shard_ledgers_fall_back_without_structured_r
         for index in range(4)
     ]
 
-    predictions = label_atomic_lines(
-        candidates,
-        _settings(
-            "codex-line-role-shard-v1",
-            line_role_prompt_target_count=1,
-            line_role_worker_count=1,
-        ),
-        artifact_root=tmp_path,
-        codex_batch_size=4,
-        codex_runner=FakeCodexExecRunner(output_builder=lambda _payload: {"rows": []}),
-        live_llm_allowed=True,
-    )
-
-    assert [prediction.label for prediction in predictions] == ["OTHER"] * 4
+    with pytest.raises(
+        canonical_line_roles_module.LineRoleRepairFailureError,
+        match="failed closed",
+    ):
+        label_atomic_lines(
+            candidates,
+            _settings(
+                "codex-line-role-shard-v1",
+                line_role_prompt_target_count=1,
+                line_role_worker_count=1,
+            ),
+            artifact_root=tmp_path,
+            codex_batch_size=4,
+            codex_runner=FakeCodexExecRunner(output_builder=lambda _payload: {"rows": []}),
+            live_llm_allowed=True,
+        )
 
     proposal_payload = json.loads(
         (
@@ -5219,10 +5478,8 @@ def test_label_atomic_lines_invalid_shard_ledgers_fall_back_without_structured_r
     )
     assert proposal_payload["repair_attempted"] is False
     assert proposal_payload["repair_status"] == "not_attempted"
-    assert proposal_payload["validation_metadata"]["row_resolution"]["fallback_row_count"] == 4
-    assert not list(
-        (tmp_path / "line-role-pipeline" / "runtime").rglob("repair_status.json")
-    )
+    assert proposal_payload["validation_metadata"]["row_resolution"]["unresolved_row_count"] == 4
+    assert list((tmp_path / "line-role-pipeline" / "runtime").rglob("repair_status.json"))
 
 
 def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_changes(
@@ -5659,7 +5916,7 @@ def test_label_atomic_lines_writes_one_shard_owned_ledger_without_line_role_task
     )
     assert proposal_payload["validation_errors"] == []
     assert len(proposal_payload["payload"]["rows"]) == 4
-    assert proposal_payload["validation_metadata"]["row_resolution"]["fallback_row_count"] == 0
+    assert proposal_payload["validation_metadata"]["row_resolution"]["unresolved_row_count"] == 0
 
 
 def test_label_atomic_lines_writes_canonical_line_table_and_shard_status(
@@ -5707,7 +5964,7 @@ def test_label_atomic_lines_writes_canonical_line_table_and_shard_status(
     ]
     assert all(row["state"] == "validated" for row in shard_status_rows)
     assert sum(row["metadata"]["llm_authoritative_row_count"] for row in shard_status_rows) == 2
-    assert sum(row["metadata"]["fallback_row_count"] for row in shard_status_rows) == 0
+    assert sum(row["metadata"]["unresolved_row_count"] for row in shard_status_rows) == 0
 
 
 def test_label_atomic_lines_resume_existing_valid_shard_outputs_without_rerunning_worker(
@@ -5765,34 +6022,35 @@ def test_label_atomic_lines_resume_existing_valid_shard_outputs_without_rerunnin
     assert shard_status_rows[0]["metadata"]["resumed_from_existing_output"] is True
 
 
-def test_line_role_workspace_worker_invalid_shard_ledger_falls_back_without_promoting_it(
+def test_line_role_workspace_worker_invalid_shard_ledger_fails_closed_without_promoting_it(
     tmp_path,
 ) -> None:
-    predictions = label_atomic_lines(
-        [
-            AtomicLineCandidate(
-                recipe_id="recipe:0",
-                block_id="block:task-invalid:0",
-                block_index=0,
-                atomic_index=0,
-                text="Ambiguous line 0",
-                within_recipe_span=True,
-                rule_tags=["recipe_span_fallback"],
-            )
-        ],
-        _settings("codex-line-role-shard-v1", line_role_worker_count=1),
-        artifact_root=tmp_path,
-        codex_batch_size=1,
-        codex_runner=FakeCodexExecRunner(
-            output_builder=lambda _payload: {
-                "rows": [{"atomic_index": 999, "label": "OTHER"}]
-            }
-        ),
-        live_llm_allowed=True,
-    )
-
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by != "codex"
+    with pytest.raises(
+        canonical_line_roles_module.LineRoleRepairFailureError,
+        match="failed closed",
+    ):
+        label_atomic_lines(
+            [
+                AtomicLineCandidate(
+                    recipe_id="recipe:0",
+                    block_id="block:task-invalid:0",
+                    block_index=0,
+                    atomic_index=0,
+                    text="Ambiguous line 0",
+                    within_recipe_span=True,
+                    rule_tags=["recipe_span_fallback"],
+                )
+            ],
+            _settings("codex-line-role-shard-v1", line_role_worker_count=1),
+            artifact_root=tmp_path,
+            codex_batch_size=1,
+            codex_runner=FakeCodexExecRunner(
+                output_builder=lambda _payload: {
+                    "rows": [{"atomic_index": 999, "label": "OTHER"}]
+                }
+            ),
+            live_llm_allowed=True,
+        )
     proposal_payload = json.loads(
         (
             tmp_path
@@ -5808,10 +6066,8 @@ def test_line_role_workspace_worker_invalid_shard_ledger_falls_back_without_prom
         "unowned_atomic_index:999",
         "missing_owned_atomic_indices:0",
     ]
-    assert proposal_payload["payload"] == {
-        "rows": [{"atomic_index": 0, "label": "OTHER"}]
-    }
-    assert proposal_payload["validation_metadata"]["row_resolution"]["fallback_atomic_indices"] == [0]
+    assert proposal_payload["payload"] is None
+    assert proposal_payload["validation_metadata"]["row_resolution"]["unresolved_atomic_indices"] == [0]
 
 
 def test_line_role_prompt_format_defaults_to_compact_when_env_unset(
@@ -5822,7 +6078,7 @@ def test_line_role_prompt_format_defaults_to_compact_when_env_unset(
     assert canonical_line_roles_module._resolve_line_role_prompt_format() == "compact_v1"
 
 
-def test_label_atomic_lines_preserves_accepted_rows_when_only_part_of_shard_falls_back(
+def test_label_atomic_lines_fails_closed_when_only_part_of_shard_validates(
     tmp_path: Path,
 ) -> None:
     candidates = [
@@ -5838,28 +6094,29 @@ def test_label_atomic_lines_preserves_accepted_rows_when_only_part_of_shard_fall
         for index in range(2)
     ]
 
-    predictions = label_atomic_lines(
-        candidates,
-        _settings(
-            "codex-line-role-shard-v1",
-            line_role_worker_count=1,
-            line_role_prompt_target_count=1,
-        ),
-        artifact_root=tmp_path,
-        codex_batch_size=2,
-        codex_runner=FakeCodexExecRunner(
-            output_builder=lambda _payload: {
-                "rows": [
-                    {"atomic_index": 0, "label": "OTHER"},
-                    {"atomic_index": 999, "label": "OTHER"},
-                ]
-            }
-        ),
-        live_llm_allowed=True,
-    )
-
-    assert predictions[0].decided_by == "codex"
-    assert predictions[1].decided_by != "codex"
+    with pytest.raises(
+        canonical_line_roles_module.LineRoleRepairFailureError,
+        match="failed closed",
+    ):
+        label_atomic_lines(
+            candidates,
+            _settings(
+                "codex-line-role-shard-v1",
+                line_role_worker_count=1,
+                line_role_prompt_target_count=1,
+            ),
+            artifact_root=tmp_path,
+            codex_batch_size=2,
+            codex_runner=FakeCodexExecRunner(
+                output_builder=lambda _payload: {
+                    "rows": [
+                        {"atomic_index": 0, "label": "OTHER"},
+                        {"atomic_index": 999, "label": "OTHER"},
+                    ]
+                }
+            ),
+            live_llm_allowed=True,
+        )
     proposal_payload = json.loads(
         (
             tmp_path
@@ -5873,9 +6130,10 @@ def test_label_atomic_lines_preserves_accepted_rows_when_only_part_of_shard_fall
     assert proposal_payload["validation_metadata"]["row_resolution"] == {
         "accepted_atomic_indices": [0],
         "accepted_row_count": 1,
-        "fallback_atomic_indices": [1],
-        "fallback_row_count": 1,
+        "all_rows_resolved": False,
         "semantic_rejected": False,
+        "unresolved_atomic_indices": [1],
+        "unresolved_row_count": 1,
     }
 
 

@@ -1051,6 +1051,10 @@ def cmd_check_phase(workspace_root: Path, shard_id: str | None):
     resolved_work_path = (workspace_root / work_path).resolve()
     payload = load_json(resolved_work_path)
     existing_repair_request = load_existing_repair_request(workspace_root, shard_row)
+    repair_state_path = None
+    repair_path = str(metadata.get("repair_path") or "").strip()
+    if repair_path:
+        repair_state_path = (workspace_root / repair_path).resolve().with_suffix(".status.json")
     frozen_rows = (
         existing_repair_request.get("frozen_rows")
         if isinstance(existing_repair_request, dict)
@@ -1063,7 +1067,6 @@ def cmd_check_phase(workspace_root: Path, shard_id: str | None):
         frozen_rows_by_atomic_index=frozen_rows,
     )
     repair_written = False
-    repair_path = str(metadata.get("repair_path") or "").strip()
     if errors and repair_path:
         input_row_by_atomic_index = {{
             int(row[0]): [int(row[0]), str(row[1]), str(row[2])]
@@ -1102,11 +1105,39 @@ def cmd_check_phase(workspace_root: Path, shard_id: str | None):
             ],
         }}
         save_json((workspace_root / repair_path).resolve(), repair_payload)
+        if repair_state_path is not None:
+            save_json(
+                repair_state_path,
+                {
+                    "repair_attempted": True,
+                    "status": "requested",
+                    "accepted_atomic_indices": repair_payload["accepted_atomic_indices"],
+                    "unresolved_atomic_indices": repair_payload["unresolved_atomic_indices"],
+                },
+            )
         repair_written = True
     elif repair_path:
         candidate = (workspace_root / repair_path).resolve()
         if candidate.exists():
             candidate.unlink()
+        if repair_state_path is not None and repair_state_path.exists():
+            existing_state = load_json(repair_state_path)
+            if isinstance(existing_state, dict) and bool(
+                existing_state.get("repair_attempted")
+            ):
+                save_json(
+                    repair_state_path,
+                    {
+                        **existing_state,
+                        "status": "validated_clean",
+                        "accepted_atomic_indices": [
+                            int(value)
+                            for value in validation_metadata.get("accepted_atomic_indices", [])
+                            if str(value).strip()
+                        ],
+                        "unresolved_atomic_indices": [],
+                    },
+                )
     feedback_text = render_feedback(
         shard_row,
         errors,
@@ -1125,6 +1156,12 @@ def cmd_install_phase(workspace_root: Path, shard_id: str | None):
     metadata = coerce_metadata(shard_row)
     work_path = str(metadata.get("work_path") or "").strip()
     result_path = str(metadata.get("result_path") or "").strip()
+    repair_path = str(metadata.get("repair_path") or "").strip()
+    repair_state_path = (
+        (workspace_root / repair_path).resolve().with_suffix(".status.json")
+        if repair_path
+        else None
+    )
     if not work_path or not result_path:
         raise SystemExit("current phase is missing work_path or result_path")
     resolved_work_path = (workspace_root / work_path).resolve()
@@ -1153,6 +1190,20 @@ def cmd_install_phase(workspace_root: Path, shard_id: str | None):
         raise SystemExit(1)
     destination = (workspace_root / result_path).resolve()
     save_json(destination, payload)
+    if repair_state_path is not None and repair_state_path.exists():
+        existing_state = load_json(repair_state_path)
+        if isinstance(existing_state, dict) and bool(existing_state.get("repair_attempted")):
+            save_json(
+                repair_state_path,
+                {
+                    **existing_state,
+                    "status": "installed_clean",
+                    "installed_output_path": workspace_relative_path(
+                        workspace_root,
+                        destination,
+                    ),
+                },
+            )
     next_shard = next_pending_shard(
         workspace_root,
         str(shard_row.get("shard_id") or "").strip(),

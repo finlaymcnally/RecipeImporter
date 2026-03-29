@@ -1024,6 +1024,18 @@ def _activity_excerpt(value: Any, *, max_chars: int = 220) -> str | None:
     return None
 
 
+def _activity_path_excerpt(value: Any, *, max_parts: int = 4, max_chars: int = 160) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    path_parts = [part for part in Path(cleaned).parts if part not in {"/", "\\"}]
+    if path_parts and len(path_parts) > max_parts:
+        cleaned = ".../" + "/".join(path_parts[-max_parts:])
+    return _activity_excerpt(cleaned, max_chars=max_chars)
+
+
 def _extract_visible_reasoning_text(payload: Mapping[str, Any]) -> str | None:
     for key in ("summary_text", "summary", "text", "delta", "content"):
         excerpt = _activity_excerpt(payload.get(key))
@@ -1064,6 +1076,106 @@ def _build_activity_trace_from_events(
     def _append_entry(entry: dict[str, Any]) -> None:
         if len(entries) < _ACTIVITY_TRACE_MAX_ENTRIES:
             entries.append(entry)
+
+    def _append_visible_item_entry(item: Mapping[str, Any], *, payload_type: str) -> None:
+        item_type = str(item.get("type") or "").strip()
+        if not item_type:
+            return
+        if item_type not in seen_action_event_types:
+            seen_action_event_types.add(item_type)
+            action_event_types.append(item_type)
+        if item_type == "file_change":
+            changes = item.get("changes")
+            normalized_changes = (
+                [change for change in changes if isinstance(change, Mapping)]
+                if isinstance(changes, list)
+                else []
+            )
+            if not normalized_changes:
+                _append_entry(
+                    {
+                        "kind": "file_change",
+                        "event_type": payload_type,
+                        "summary": "Updated files",
+                    }
+                )
+                return
+            verb_map = {
+                "add": "Created",
+                "create": "Created",
+                "delete": "Deleted",
+                "remove": "Deleted",
+                "rename": "Renamed",
+                "update": "Updated",
+            }
+            if len(normalized_changes) == 1:
+                change = normalized_changes[0]
+                raw_kind = _clean_text(change.get("kind")) or "update"
+                summary_verb = verb_map.get(raw_kind, raw_kind.capitalize())
+                path_excerpt = _activity_path_excerpt(change.get("path"))
+                summary = (
+                    f"{summary_verb} `{path_excerpt}`"
+                    if path_excerpt is not None
+                    else f"{summary_verb} file"
+                )
+                _append_entry(
+                    {
+                        "kind": "file_change",
+                        "event_type": payload_type,
+                        "summary": summary,
+                        "changes": [dict(change)],
+                    }
+                )
+                return
+            rendered_changes: list[str] = []
+            for change in normalized_changes[:3]:
+                raw_kind = _clean_text(change.get("kind")) or "update"
+                summary_verb = verb_map.get(raw_kind, raw_kind.capitalize())
+                path_excerpt = _activity_path_excerpt(change.get("path"))
+                if path_excerpt is not None:
+                    rendered_changes.append(f"{summary_verb.lower()} `{path_excerpt}`")
+                else:
+                    rendered_changes.append(summary_verb.lower())
+            if len(normalized_changes) > 3:
+                rendered_changes.append(f"... ({len(normalized_changes) - 3} more)")
+            _append_entry(
+                {
+                    "kind": "file_change",
+                    "event_type": payload_type,
+                    "summary": "File changes: " + ", ".join(rendered_changes),
+                    "changes": [dict(change) for change in normalized_changes],
+                }
+            )
+            return
+
+        descriptor = (
+            _activity_excerpt(item.get("text"))
+            or _activity_excerpt(item.get("summary"))
+            or _activity_excerpt(item.get("delta"))
+            or _activity_excerpt(item.get("content"))
+            or _activity_excerpt(item.get("query"))
+            or _activity_path_excerpt(item.get("path"))
+            or _activity_excerpt(item.get("url"))
+            or _activity_excerpt(item.get("title"))
+        )
+        summary = (
+            f"Completed `{item_type}`: {descriptor}"
+            if descriptor is not None
+            else f"Completed `{item_type}`"
+        )
+        entry: dict[str, Any] = {
+            "kind": "visible_item",
+            "event_type": payload_type,
+            "item_type": item_type,
+            "summary": summary,
+        }
+        path_excerpt = _activity_path_excerpt(item.get("path"))
+        if path_excerpt is not None:
+            entry["path"] = path_excerpt
+        query_excerpt = _activity_excerpt(item.get("query"))
+        if query_excerpt is not None:
+            entry["query"] = query_excerpt
+        _append_entry(entry)
 
     for event in events:
         payload_type = str(event.get("type") or "").strip()
@@ -1197,6 +1309,9 @@ def _build_activity_trace_from_events(
                         "summary": f"Reasoning summary: {excerpt}",
                     }
                 )
+            continue
+        if payload_type == "item.completed":
+            _append_visible_item_entry(item, payload_type=payload_type)
 
     if agent_message_count <= 0 and last_message_text is not None:
         agent_message_count = 1
@@ -1327,6 +1442,47 @@ def _export_prompt_activity_trace(
     return payload
 
 
+def _resolve_prompt_local_activity_trace_path(*, raw_path: str | None, prompts_dir: Path) -> Path | None:
+    cleaned = _clean_text(raw_path)
+    if cleaned is None:
+        return None
+    candidate = Path(cleaned).expanduser()
+    if not candidate.is_absolute():
+        candidate = (prompts_dir / candidate).resolve(strict=False)
+    return candidate.resolve(strict=False)
+
+
+def _load_exported_activity_trace_payload(
+    *,
+    trace_path: Path | None,
+) -> dict[str, Any] | None:
+    if trace_path is None or not trace_path.exists() or not trace_path.is_file():
+        return None
+    parsed = _parse_json_text(_safe_read_text(trace_path))
+    if not isinstance(parsed, dict):
+        return None
+    return dict(parsed)
+
+
+def _effective_activity_trace_payload(
+    *,
+    row: Mapping[str, Any],
+    prompts_dir: Path,
+) -> dict[str, Any]:
+    row_payload = row.get("activity_trace") if isinstance(row.get("activity_trace"), dict) else {}
+    request_telemetry = (
+        row.get("request_telemetry") if isinstance(row.get("request_telemetry"), dict) else {}
+    )
+    raw_path = _clean_text(row_payload.get("path")) or _clean_text(
+        request_telemetry.get("activity_trace_path")
+    )
+    exported_path = _resolve_prompt_local_activity_trace_path(raw_path=raw_path, prompts_dir=prompts_dir)
+    exported_payload = _load_exported_activity_trace_payload(trace_path=exported_path)
+    if isinstance(exported_payload, dict):
+        return exported_payload
+    return dict(row_payload) if isinstance(row_payload, Mapping) else {}
+
+
 def _extract_reasoning_excerpt(
     reasoning_events: list[dict[str, Any]],
     *,
@@ -1421,9 +1577,10 @@ def build_codex_farm_prompt_type_samples_markdown(
                         prompt_text = user_prompt
                 prompt_text = str(prompt_text or "")
 
-                activity_trace_payload = row.get("activity_trace")
-                if not isinstance(activity_trace_payload, dict):
-                    activity_trace_payload = {}
+                activity_trace_payload = _effective_activity_trace_payload(
+                    row=row,
+                    prompts_dir=full_prompt_log_path.parent,
+                )
                 activity_trace_path: str | None = None
                 activity_trace_available = False
                 activity_trace_command_count: int | None = None
@@ -1601,8 +1758,9 @@ def build_codex_farm_activity_trace_summaries(
         stage_metadata = _prompt_stage_metadata_from_row(row)
         stage_key = str(stage_metadata.get("heading_key") or stage_metadata.get("stage_key") or "stage")
         stage_label = str(stage_metadata.get("label") or "Prompt Stage")
-        activity_trace_payload = (
-            row.get("activity_trace") if isinstance(row.get("activity_trace"), dict) else {}
+        activity_trace_payload = _effective_activity_trace_payload(
+            row=row,
+            prompts_dir=full_prompt_log_path.parent,
         )
         activity_trace_path = _clean_text(activity_trace_payload.get("path"))
         activity_trace_exists = bool(
