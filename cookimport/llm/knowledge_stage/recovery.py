@@ -358,180 +358,6 @@ def _build_knowledge_task_status_tracker(
     return _KnowledgeTaskStatusTracker(path=path, rows_by_task_id=rows_by_task_id)
 
 
-@dataclass
-class _KnowledgeWorkspaceTaskQueueController:
-    worker_root: Path
-    task_entries: tuple[TaskManifestEntryV1, ...]
-    worker_id: str | None = None
-    task_status_tracker: _KnowledgeTaskStatusTracker | None = None
-    current_index: int = 0
-    validated_task_ids: set[str] = field(default_factory=set)
-    current_validation_errors: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        self._write_current_sidecars()
-
-    @property
-    def total_task_count(self) -> int:
-        return len(self.task_entries)
-
-    @property
-    def validated_task_count(self) -> int:
-        return len(self.validated_task_ids)
-
-    def is_complete(self) -> bool:
-        return self.current_index >= len(self.task_entries)
-
-    def current_task_entry(self) -> TaskManifestEntryV1 | None:
-        if self.is_complete():
-            return None
-        return self.task_entries[self.current_index]
-
-    def current_task_id(self) -> str | None:
-        entry = self.current_task_entry()
-        if entry is None:
-            return None
-        cleaned = str(entry.task_id).strip()
-        return cleaned or None
-
-    def status_payload(self) -> dict[str, Any]:
-        return {
-            "queue_total_task_count": self.total_task_count,
-            "queue_validated_task_count": self.validated_task_count,
-            "queue_remaining_task_count": max(
-                self.total_task_count - self.validated_task_count,
-                0,
-            ),
-            "queue_complete": self.is_complete(),
-            "current_task_id": self.current_task_id(),
-            "current_validation_errors": list(self.current_validation_errors),
-        }
-
-    def observe_current_output(self) -> dict[str, Any]:
-        advanced = False
-        saw_output = False
-        last_validation_errors: tuple[str, ...] = ()
-        while True:
-            entry = self.current_task_entry()
-            if entry is None:
-                self.current_validation_errors = ()
-                self._write_current_sidecars()
-                return {
-                    "current_task_id": None,
-                    "current_output_present": saw_output,
-                    "advanced": advanced,
-                    "valid": True,
-                    "validation_errors": (),
-                    "queue_complete": True,
-                }
-            task_row = build_workspace_inventory_task_row(asdict(entry))
-            output_path = self._output_path(entry)
-            if not output_path.exists():
-                self.current_validation_errors = ()
-                return {
-                    "current_task_id": str(entry.task_id),
-                    "current_output_present": saw_output,
-                    "advanced": advanced,
-                    "valid": False,
-                    "validation_errors": last_validation_errors,
-                    "queue_complete": False,
-                }
-            saw_output = True
-            try:
-                check_result = check_workspace_draft(
-                    workspace_root=self.worker_root,
-                    draft_path=output_path,
-                )
-            except Exception as exc:  # noqa: BLE001
-                self.current_validation_errors = ("draft_validation_exception",)
-                write_current_task_sidecars(
-                    workspace_root=self.worker_root,
-                    task_row=task_row,
-                    current_draft_path=output_path,
-                )
-                feedback_path = self.worker_root / "CURRENT_TASK_FEEDBACK.md"
-                feedback_path.write_text(
-                    "\n".join(
-                        [
-                            "# Current Task Feedback",
-                            "",
-                            f"Task id: `{task_row.get('task_id')}`",
-                            "Validation status: FAILED.",
-                            "",
-                            "Validator errors:",
-                            f"- `draft_validation_exception`",
-                            "",
-                            "How to fix it:",
-                            f"- {str(exc).strip() or 'Fix the JSON shape and re-run check-current.'}",
-                        ]
-                    )
-                    + "\n",
-                    encoding="utf-8",
-                )
-                return {
-                    "current_task_id": str(entry.task_id),
-                    "current_output_present": True,
-                    "advanced": advanced,
-                    "valid": False,
-                    "validation_errors": ("draft_validation_exception",),
-                    "queue_complete": False,
-                }
-            self.current_validation_errors = tuple(check_result.errors)
-            if not check_result.valid:
-                write_current_task_sidecars(
-                    workspace_root=self.worker_root,
-                    task_row=task_row,
-                    check_result=check_result,
-                    current_draft_path=output_path,
-                )
-                return {
-                    "current_task_id": str(entry.task_id),
-                    "current_output_present": True,
-                    "advanced": advanced,
-                    "valid": False,
-                    "validation_errors": tuple(check_result.errors),
-                    "queue_complete": False,
-                }
-            task_id = str(entry.task_id).strip()
-            if task_id:
-                self.validated_task_ids.add(task_id)
-            if self.task_status_tracker is not None and task_id:
-                self.task_status_tracker.mark_main_output_written(
-                    task_id=task_id,
-                    metadata={
-                        "leased_packet_result_path": str(
-                            (entry.metadata or {}).get("result_path") or ""
-                        ).strip()
-                        or None,
-                        "live_validated": True,
-                    },
-                )
-            self.current_index += 1
-            self.current_validation_errors = ()
-            advanced = True
-            last_validation_errors = ()
-            self._write_current_sidecars()
-
-    def _write_current_sidecars(self) -> None:
-        task_rows = [
-            build_workspace_inventory_task_row(asdict(entry))
-            for entry in self.task_entries
-        ]
-        write_current_batch_and_task_sidecars(
-            workspace_root=self.worker_root,
-            task_rows=task_rows,
-            current_index=self.current_index,
-            current_draft_path=current_task_draft_path(workspace_root=self.worker_root),
-        )
-
-    def _output_path(self, entry: TaskManifestEntryV1) -> Path:
-        metadata = dict(entry.metadata or {})
-        result_path = str(metadata.get("result_path") or "").strip()
-        if not result_path:
-            raise ValueError(f"task {entry.task_id!r} is missing metadata.result_path")
-        return self.worker_root / result_path
-
-
 @dataclass(slots=True)
 class _KnowledgeWorkspacePhaseQueueController:
     worker_root: Path
@@ -628,113 +454,6 @@ class _KnowledgeWorkspacePhaseQueueController:
             "validation_errors": self.current_validation_errors,
             "queue_complete": self.queue_complete,
         }
-
-
-def _detect_knowledge_workspace_premature_clean_exit(
-    *,
-    run_result: CodexExecRunResult,
-    task_queue_controller: _KnowledgeWorkspaceTaskQueueController,
-    current_task_id_before_run: str | None,
-    validated_task_count_before_run: int,
-) -> dict[str, Any] | None:
-    if str(run_result.supervision_state or "completed").strip() != "completed":
-        return None
-    if task_queue_controller.is_complete():
-        return None
-    current_task_id_after_run = task_queue_controller.current_task_id()
-    validated_task_count_after_run = task_queue_controller.validated_task_count
-    if validated_task_count_after_run <= validated_task_count_before_run:
-        return None
-    if (
-        not current_task_id_before_run
-        or not current_task_id_after_run
-        or current_task_id_before_run == current_task_id_after_run
-    ):
-        return None
-    final_agent_message = assess_final_agent_message(
-        run_result.response_text,
-        workspace_mode="workspace_worker",
-    )
-    reason_detail = (
-        "knowledge workspace worker validated repo-owned output, advanced the "
-        f"current task from {current_task_id_before_run} to {current_task_id_after_run}, "
-        "then exited cleanly before the queue completed; relaunching the remaining queue"
-    )
-    if final_agent_message.text:
-        reason_detail = (
-            f"{reason_detail}; final message: {final_agent_message.text}"
-        )
-    return {
-        "state": "retrying",
-        "reason_code": "workspace_validated_task_queue_premature_clean_exit",
-        "reason_detail": reason_detail,
-        "retryable": True,
-        "watchdog_policy": "workspace_worker_v1",
-        **task_queue_controller.status_payload(),
-    }
-
-
-def _knowledge_workspace_relaunch_history_entry(
-    payload: Mapping[str, Any],
-) -> dict[str, Any]:
-    return {
-        "reason_code": str(payload.get("reason_code") or "").strip() or None,
-        "reason_detail": str(payload.get("reason_detail") or "").strip() or None,
-        "state": str(payload.get("state") or "").strip() or None,
-    }
-
-
-def _knowledge_workspace_relaunch_metadata(
-    relaunch_history: Sequence[Mapping[str, Any]],
-    *,
-    cap_reached: bool = False,
-) -> dict[str, Any]:
-    history = [dict(row) for row in relaunch_history if isinstance(row, Mapping)]
-    reason_codes = [
-        str(row.get("reason_code") or "").strip()
-        for row in history
-        if str(row.get("reason_code") or "").strip()
-    ]
-    return {
-        "workspace_relaunch_count": len(history),
-        "workspace_relaunch_max": _KNOWLEDGE_WORKSPACE_PREMATURE_EXIT_MAX_RELAUNCHES,
-        "workspace_relaunch_cap_reached": bool(cap_reached),
-        "workspace_relaunch_reason_codes": reason_codes,
-        "workspace_premature_clean_exit_count": sum(
-            1
-            for code in reason_codes
-            if code == "workspace_validated_task_queue_premature_clean_exit"
-        ),
-        "workspace_relaunch_history": history,
-    }
-
-
-def _build_knowledge_workspace_relaunch_cap_reached_payload(
-    *,
-    premature_clean_exit_payload: Mapping[str, Any],
-    task_queue_controller: _KnowledgeWorkspaceTaskQueueController,
-) -> dict[str, Any]:
-    reason_detail = str(premature_clean_exit_payload.get("reason_detail") or "").strip()
-    if reason_detail:
-        reason_detail = (
-            f"{reason_detail}; automatic relaunch cap "
-            f"({_KNOWLEDGE_WORKSPACE_PREMATURE_EXIT_MAX_RELAUNCHES}) reached"
-        )
-    else:
-        reason_detail = (
-            "knowledge workspace worker kept exiting cleanly after visible queue "
-            "advancement, and the automatic relaunch cap was reached"
-        )
-    return {
-        "state": "completed_with_failures",
-        "reason_code": (
-            "workspace_validated_task_queue_premature_clean_exit_cap_reached"
-        ),
-        "reason_detail": reason_detail,
-        "retryable": False,
-        "watchdog_policy": "workspace_worker_v1",
-        **task_queue_controller.status_payload(),
-    }
 
 
 def _merge_live_status_metadata(path: Path, *, payload: Mapping[str, Any]) -> None:
@@ -1061,35 +780,35 @@ def _build_knowledge_workspace_worker_prompt(
         if str(getattr(shard, "shard_id", "") or "").strip()
     ]
     lines = [
-        "You are a non-recipe knowledge review worker in a bounded local workspace.",
+        "You are processing non-recipe knowledge-review shards inside one bounded local workspace.",
         "Keep only durable cooking leverage. The positive class is not broad cooking-related factuality; it is information worth preserving because it improves future cooking decisions, diagnosis, or technique.",
         "",
-        "Process the repo-written ordered shard queue in this workspace through one active phase at a time. Each shard runs Pass 1 first, then Pass 2 in the same session. The current working directory is already the workspace root.",
+        "Process the repo-written ordered shard queue through one active phase at a time. Each shard runs Pass 1 first, then Pass 2 in the same session. The current working directory is already the workspace root.",
         "The assignment is complete only when `current_phase.json` says the queue is completed.",
-        "Do not inspect the repository or explore beyond this workspace.",
         "",
-        "Required local loop:",
-        "1. Open `worker_manifest.json`, then `CURRENT_PHASE.md`, then `CURRENT_PHASE_FEEDBACK.md`, then `OUTPUT_CONTRACT.md`.",
-        "2. Treat `CURRENT_PHASE.md`, `CURRENT_PHASE_FEEDBACK.md`, and `current_phase.json` as the authoritative active-phase surface. `assigned_shards.json` is ordered ownership/progress context only.",
-        "3. If `hints/<shard_id>.md` exists, open it before `in/<shard_id>.json`. Treat the hint as guidance, the phase-named input file as authoritative, and `examples/` as calibration only.",
-        "4. Use the paved road: edit only the active work ledger named in `CURRENT_PHASE.md`, run `python3 tools/knowledge_worker.py check-phase`, and run `python3 tools/knowledge_worker.py install-phase` after the checker says OK.",
-        "5. Pass 1 is block-local classification only: one row per owned block with `knowledge` or `other`.",
-        "6. Pass 2 runs only after Pass 1 installs. Pass 2 assigns `group_id` and `topic_label` only for the kept knowledge rows.",
-        "7. After each validation failure, re-open `CURRENT_PHASE_FEEDBACK.md`. After each successful install, re-open `CURRENT_PHASE.md` and `CURRENT_PHASE_FEEDBACK.md` immediately and continue with the newly active phase or shard. Do not ask for permission to continue, summarize progress as a stopping point, or invent your own queue advancement.",
-        "8. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
+        "Worker contract:",
+        "- Start by opening `worker_manifest.json`, then `CURRENT_PHASE.md`.",
+        "- Re-open `CURRENT_PHASE_FEEDBACK.md` after each checker result. Open `current_phase.json` only when you need the exact metadata fields or named file paths.",
+        "- Treat `CURRENT_PHASE.md`, `CURRENT_PHASE_FEEDBACK.md`, and `current_phase.json` as the authoritative active-phase surface. `assigned_shards.json` is ordered ownership/progress context only.",
+        "- Then open the active work ledger named there and `hints/<shard_id>.md`.",
+        "- Open `in/<shard_id>.json` only when the phase brief, feedback, hint, and active work ledger are still insufficient.",
+        "- Edit only the active work ledger named in `CURRENT_PHASE.md`.",
+        "- Run `python3 tools/knowledge_worker.py check-phase` after editing the active work ledger. If `CURRENT_PHASE_FEEDBACK.md` names a repair file, fix only those unresolved rows in the existing work ledger.",
+        "- Run `python3 tools/knowledge_worker.py install-phase` only after the current work ledger validates cleanly. Installing advances the phase surface to the next phase or shard when one remains.",
+        "- The helper owns the installed shard output. Think in terms of the active work ledger, not the final installed JSON object.",
+        "- Do not reconstruct `packet_id`, `block_decisions`, or `idea_groups` by hand.",
+        "- `OUTPUT_CONTRACT.md`, `examples/`, and `tools/knowledge_worker.py` are fallback contract/debug surfaces, not the default first read.",
+        "- If `tools/knowledge_worker.py` exists, use it as the paved road before inventing ad hoc shell helpers.",
+        "- Prefer opening the named files directly. If you still need shell helpers, keep them narrow and grounded on the named local files only.",
+        "- After each successful install, re-open `CURRENT_PHASE.md` and `CURRENT_PHASE_FEEDBACK.md` immediately and continue with the newly active phase or shard. Do not ask for permission to continue, summarize progress as a stopping point, or invent your own queue advancement.",
+        "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "",
-        "Installed result contract for each shard:",
-        "- Write exactly one JSON object.",
-        "- Top level keys: `packet_id`, `block_decisions`, `idea_groups`.",
-        "- `packet_id` must equal the current shard id.",
-        "- Cover every owned block exactly once in `block_decisions`, in input order.",
-        "- `idea_groups` may be empty only when every block stays `other`.",
-        "- Each block decision uses `block_index`, `category`, and optional `reviewer_category`.",
-        "- Each idea group uses `group_id`, `topic_label`, and `block_indices`.",
-        f"- `category` must be exactly one of `{'`, `'.join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)}`.",
+        "Phase semantics:",
+        "- Pass 1 is block-local classification only: one row per owned block with `knowledge` or `other`.",
+        "- Pass 2 runs only after Pass 1 installs. Pass 2 assigns `group_id` and `topic_label` only for the kept knowledge rows.",
+        f"- Final categories must be exactly one of `{'`, `'.join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)}`.",
         f"- `reviewer_category` may be omitted or must be one of `{'`, `'.join(ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES)}`.",
-        "- If `category` is `knowledge`, `reviewer_category` must be `knowledge`.",
-        "- Every `knowledge` block must appear in exactly one idea group.",
+        "- If a block ends as `knowledge`, it must appear in exactly one idea group.",
         "- No `other` block may appear in an idea group.",
         "- Use concise group labels that describe reusable cooking guidance, not source-text echoes.",
         "- The owned block rows under `b[*]` are authoritative. Nearby `x` context is informational only.",
@@ -1097,8 +816,6 @@ def _build_knowledge_workspace_worker_prompt(
         "- If the text is technically true but low-value prose, generic memoir-like framing, or just navigation, keep it `other`.",
         "- If the owned shard mixes memoir, praise, or book-framing with a few useful cooking sentences, do not mark the whole shard `knowledge` by inertia.",
         "- Keep memoir/framing blocks `other`; only mark a block `knowledge` when that block itself stands alone as reusable cooking guidance.",
-        "- If every block is `other`, return an empty `idea_groups` list.",
-        "- Treat the phase-named hint file as guidance and the phase-named input file as the authoritative owned input.",
         "",
         (
             "Assigned shards in this worker: "
@@ -1645,7 +1362,7 @@ def _build_strict_json_watchdog_callback(
     forbid_inline_python_heredocs: bool = False,
     silence_timeout_seconds: float | None = None,
     expected_workspace_output_paths: Sequence[Path] | None = None,
-    task_queue_controller: _KnowledgeWorkspaceTaskQueueController | None = None,
+    task_queue_controller: _KnowledgeWorkspacePhaseQueueController | None = None,
     workspace_output_observer: Callable[[int, int], None] | None = None,
 ) -> Callable[[CodexExecLiveSnapshot], CodexExecSupervisionDecision | None]:
     target_paths: list[Path] = []

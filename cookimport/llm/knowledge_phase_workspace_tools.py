@@ -24,6 +24,7 @@ KNOWLEDGE_VALID_OUTPUT_EXAMPLE_PAYLOAD = {
 KNOWLEDGE_OUTPUT_CONTRACT_MARKDOWN = """# Knowledge Ledger Contract
 
 Use this contract for every installed `out/<shard_id>.json`.
+The normal loop still starts from `CURRENT_PHASE.md` and the active `work/<shard_id>.pass{1,2}.json` ledger. Open this file only when you need the installed output shape.
 
 Required shape:
 
@@ -660,8 +661,9 @@ def render_knowledge_current_phase_brief(
         "",
         f"Shard id: `{phase_row.get('shard_id') or '[unknown shard]'}`",
         f"Phase: `{phase_row.get('phase') or '[unknown phase]'}`",
+        f"Hint file: `{phase_row.get('hint_path') or '?'}`",
         f"Input file: `{phase_row.get('input_path') or '?'}`",
-        f"Work file: `{phase_row.get('work_path') or '?'}`",
+        f"Active work ledger: `{phase_row.get('work_path') or '?'}`",
         f"Repair file: `{phase_row.get('repair_path') or '?'}`",
         f"Result file: `{phase_row.get('result_path') or '?'}`",
         "",
@@ -683,12 +685,14 @@ def render_knowledge_current_phase_brief(
     lines.extend(
         [
             "",
-            "Recommended loop:",
-            "1. Open `CURRENT_PHASE.md`, then the named work file.",
-            "2. Read the named input and hint files only when needed.",
-            "3. Run `python3 tools/knowledge_worker.py check-phase`.",
-            "4. If `CURRENT_PHASE_FEEDBACK.md` names a repair file, fix only those unresolved rows.",
-            "5. Run `python3 tools/knowledge_worker.py install-phase` after the current work ledger validates cleanly.",
+            "Preferred loop:",
+            "1. Open `CURRENT_PHASE.md`, then the named active work ledger.",
+            f"2. Open `{phase_row.get('hint_path') or '?'}` before `{phase_row.get('input_path') or '?'}`.",
+            f"3. Open `{phase_row.get('input_path') or '?'}` only if the phase brief, feedback, hint, and work ledger are still insufficient.",
+            "4. Run `python3 tools/knowledge_worker.py check-phase`.",
+            "5. If `CURRENT_PHASE_FEEDBACK.md` names a repair file, fix only those unresolved rows in the same active work ledger.",
+            "6. Run `python3 tools/knowledge_worker.py install-phase` after the current work ledger validates cleanly.",
+            "7. Treat `OUTPUT_CONTRACT.md`, `examples/`, and `tools/knowledge_worker.py` as fallback contract/debug surfaces, not the normal first read.",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -709,7 +713,9 @@ def render_knowledge_current_phase_feedback(
         return (
             "# Current Phase Feedback\n\n"
             "Current work ledger validates cleanly.\n"
+            f"Active work ledger: `{phase_row.get('work_path') or '<missing>'}`\n"
             f"Install target: `{phase_row.get('result_path') or '<missing>'}`\n"
+            "Next command: `python3 tools/knowledge_worker.py install-phase`.\n"
         )
     unresolved = []
     if isinstance(validation_metadata, Mapping):
@@ -722,6 +728,7 @@ def render_knowledge_current_phase_feedback(
         "# Current Phase Feedback",
         "",
         "Current work ledger is still unresolved.",
+        f"Edit only `{phase_row.get('work_path') or '<missing>'}`.",
         "Validation errors:",
     ]
     lines.extend(f"- `{error}`" for error in validation_errors if str(error).strip())
@@ -748,6 +755,9 @@ def render_knowledge_current_phase_feedback(
             "Frozen accepted block indices: "
             f"`{', '.join(str(value) for value in accepted)}`"
         )
+    lines.append(
+        "Next command after fixes: `python3 tools/knowledge_worker.py check-phase`."
+    )
     return "\n".join(lines) + "\n"
 
 

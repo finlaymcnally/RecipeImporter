@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cookimport.llm.codex_farm_knowledge_orchestrator import _preflight_knowledge_shard
+from cookimport.llm.knowledge_stage import _shared as knowledge_stage_shared
 from cookimport.llm.knowledge_stage.recovery import (
     _build_knowledge_workspace_worker_prompt,
     _write_knowledge_worker_hint,
@@ -55,12 +56,31 @@ def test_worker_prompt_describes_phase_contract() -> None:
     )
 
     assert "CURRENT_PHASE.md" in prompt
+    assert (
+        "Start by opening `worker_manifest.json`, then `CURRENT_PHASE.md`."
+        in prompt
+    )
+    assert (
+        "Then open the active work ledger named there and `hints/<shard_id>.md`."
+        in prompt
+    )
+    assert (
+        "Open `in/<shard_id>.json` only when the phase brief, feedback, hint, and active work ledger are still insufficient."
+        in prompt
+    )
     assert "Pass 1 is block-local classification only" in prompt
     assert "Pass 2 runs only after Pass 1 installs" in prompt
     assert "python3 tools/knowledge_worker.py check-phase" in prompt
     assert "python3 tools/knowledge_worker.py install-phase" in prompt
-    assert "If `hints/<shard_id>.md` exists, open it before `in/<shard_id>.json`." in prompt
-    assert "`examples/` as calibration only" in prompt
+    assert (
+        "Do not reconstruct `packet_id`, `block_decisions`, or `idea_groups` by hand."
+        in prompt
+    )
+    assert (
+        "`OUTPUT_CONTRACT.md`, `examples/`, and `tools/knowledge_worker.py` are fallback contract/debug surfaces"
+        in prompt
+    )
+    assert "Top level keys: `packet_id`, `block_decisions`, `idea_groups`." not in prompt
     assert "snippets" not in prompt
 
 
@@ -102,3 +122,9 @@ def test_knowledge_worker_hint_includes_profile_examples_and_attention_rows(
     assert "`examples/valid_heading_with_useful_body_packet.json`" in rendered
     assert "gap_from_prev=14" in rendered
     assert "table_hint" in rendered
+
+
+def test_knowledge_stage_shared_no_longer_imports_legacy_workspace_helper_surface() -> None:
+    shared_source = Path(knowledge_stage_shared.__file__).read_text(encoding="utf-8")
+
+    assert "knowledge_workspace_tools" not in shared_source

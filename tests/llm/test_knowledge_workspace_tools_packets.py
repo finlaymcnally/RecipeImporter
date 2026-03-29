@@ -107,6 +107,7 @@ def test_render_knowledge_phase_sidecars_reference_current_phase_loop() -> None:
         "status": "active",
         "phase": "pass1",
         "shard_id": "book.ks0000.nr",
+        "hint_path": "hints/book.ks0000.nr.md",
         "input_path": "in/book.ks0000.nr.json",
         "work_path": "work/book.ks0000.nr.pass1.json",
         "repair_path": "repair/book.ks0000.nr.pass1.json",
@@ -117,8 +118,39 @@ def test_render_knowledge_phase_sidecars_reference_current_phase_loop() -> None:
     feedback = render_knowledge_current_phase_feedback(phase_row=phase_row)
 
     assert "Pass 1 contract" in brief
+    assert "Active work ledger: `work/book.ks0000.nr.pass1.json`" in brief
+    assert "Preferred loop" in brief
+    assert "Open `hints/book.ks0000.nr.md` before `in/book.ks0000.nr.json`." in brief
+    assert "Open `in/book.ks0000.nr.json` only if the phase brief, feedback, hint, and work ledger are still insufficient." in brief
     assert "python3 tools/knowledge_worker.py check-phase" in brief
+    assert "Next command: `python3 tools/knowledge_worker.py install-phase`." in feedback
     assert "Install target" in feedback
+
+
+def test_render_knowledge_phase_feedback_names_repair_loop() -> None:
+    phase_row = {
+        "status": "active",
+        "phase": "pass1",
+        "shard_id": "book.ks0000.nr",
+        "hint_path": "hints/book.ks0000.nr.md",
+        "input_path": "in/book.ks0000.nr.json",
+        "work_path": "work/book.ks0000.nr.pass1.json",
+        "repair_path": "repair/book.ks0000.nr.pass1.json",
+        "result_path": "out/book.ks0000.nr.json",
+    }
+
+    feedback = render_knowledge_current_phase_feedback(
+        phase_row=phase_row,
+        validation_errors=("missing_owned_block_decisions",),
+        validation_metadata={
+            "unresolved_block_indices": [11],
+            "frozen_block_indices": [10],
+        },
+    )
+
+    assert "Edit only `work/book.ks0000.nr.pass1.json`." in feedback
+    assert "Repair request: `repair/book.ks0000.nr.pass1.json`" in feedback
+    assert "Next command after fixes: `python3 tools/knowledge_worker.py check-phase`." in feedback
 
 
 def test_generated_knowledge_worker_script_uses_phase_contract() -> None:
