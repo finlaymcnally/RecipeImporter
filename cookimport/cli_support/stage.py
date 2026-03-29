@@ -218,6 +218,20 @@ def _write_stage_run_manifest(
             artifacts["prompt_type_samples_from_full_prompt_log_md"] = str(
                 prompt_type_samples_path.relative_to(run_root)
             )
+        activity_trace_summary_jsonl_path = (
+            prompt_artifacts_dir / llm_prompt_artifacts.ACTIVITY_TRACE_SUMMARY_JSONL_NAME
+        )
+        if activity_trace_summary_jsonl_path.exists() and activity_trace_summary_jsonl_path.is_file():
+            artifacts["activity_trace_summary_jsonl"] = str(
+                activity_trace_summary_jsonl_path.relative_to(run_root)
+            )
+        activity_trace_summary_md_path = (
+            prompt_artifacts_dir / llm_prompt_artifacts.ACTIVITY_TRACE_SUMMARY_MD_NAME
+        )
+        if activity_trace_summary_md_path.exists() and activity_trace_summary_md_path.is_file():
+            artifacts["activity_trace_summary_md"] = str(
+                activity_trace_summary_md_path.relative_to(run_root)
+            )
         thinking_trace_summary_jsonl_path = (
             prompt_artifacts_dir / llm_prompt_artifacts.THINKING_TRACE_SUMMARY_JSONL_NAME
         )

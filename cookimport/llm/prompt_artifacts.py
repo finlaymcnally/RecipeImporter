@@ -20,9 +20,14 @@ PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION = "prompt_run_descriptor.v1"
 PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION = "prompt_stage_descriptor.v1"
 PROMPT_CALL_RECORD_SCHEMA_VERSION = "prompt_call_record.v1"
 PROMPT_LOG_SUMMARY_SCHEMA_VERSION = "prompt_log_summary.v1"
+PROMPT_ACTIVITY_TRACE_SCHEMA_VERSION = "prompt_activity_trace.v1"
+PROMPT_ACTIVITY_TRACE_SUMMARY_SCHEMA_VERSION = "prompt_activity_trace_summary.v1"
 PROMPT_THINKING_TRACE_SUMMARY_SCHEMA_VERSION = "prompt_thinking_trace_summary.v1"
 PROMPT_LOG_SUMMARY_JSON_NAME = "prompt_log_summary.json"
 PROMPT_TYPE_SAMPLES_MD_NAME = "prompt_type_samples_from_full_prompt_log.md"
+ACTIVITY_TRACES_DIR_NAME = "activity_traces"
+ACTIVITY_TRACE_SUMMARY_JSONL_NAME = "activity_trace_summary.jsonl"
+ACTIVITY_TRACE_SUMMARY_MD_NAME = "activity_trace_summary.md"
 THINKING_TRACE_SUMMARY_JSONL_NAME = "thinking_trace_summary.jsonl"
 THINKING_TRACE_SUMMARY_MD_NAME = "thinking_trace_summary.md"
 
@@ -66,6 +71,9 @@ _TEXT_ATTACHMENT_SUFFIXES = {
     ".yml",
     ".csv",
 }
+
+_ACTIVITY_TRACE_MAX_ENTRIES = 25
+_ACTIVITY_TRACE_SUMMARY_ENTRY_LIMIT = 3
 
 
 def summarize_prompt_log(*, full_prompt_log_path: Path) -> dict[str, Any] | None:
@@ -1042,6 +1050,418 @@ def _load_thinking_trace_payload(*, trace_path: Path | None) -> dict[str, Any] |
     }
 
 
+def _resolve_saved_artifact_path(*, raw_path: str | None, repo_root: Path) -> Path | None:
+    cleaned = _clean_text(raw_path)
+    if cleaned is None:
+        return None
+    candidate = Path(cleaned).expanduser()
+    if not candidate.is_absolute():
+        candidate = (repo_root / candidate).resolve()
+    resolved = candidate.resolve(strict=False)
+    if resolved.exists() and resolved.is_file():
+        return resolved
+    return None
+
+
+def _load_jsonl_events(*, events_path: Path | None) -> list[dict[str, Any]]:
+    if events_path is None or not events_path.exists() or not events_path.is_file():
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        for raw_line in events_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            parsed = _parse_json_text(line)
+            if isinstance(parsed, dict):
+                rows.append(parsed)
+    except OSError:
+        return []
+    return rows
+
+
+def _load_message_text(*, message_path: Path | None) -> str | None:
+    if message_path is None or not message_path.exists() or not message_path.is_file():
+        return None
+    parsed = _parse_json_text(_safe_read_text(message_path))
+    if isinstance(parsed, dict):
+        text = _clean_text(parsed.get("text"))
+        if text is not None:
+            return text
+    raw_text = _safe_read_text(message_path).strip()
+    return raw_text or None
+
+
+def _activity_excerpt(value: Any, *, max_chars: int = 220) -> str | None:
+    if isinstance(value, str):
+        cleaned = " ".join(value.strip().split())
+        if not cleaned:
+            return None
+        if len(cleaned) > max_chars:
+            return cleaned[: max_chars - 3].rstrip() + "..."
+        return cleaned
+    return None
+
+
+def _extract_visible_reasoning_text(payload: Mapping[str, Any]) -> str | None:
+    for key in ("summary_text", "summary", "text", "delta", "content"):
+        excerpt = _activity_excerpt(payload.get(key))
+        if excerpt is not None:
+            return excerpt
+    return None
+
+
+def _summarize_activity_entry_lines(
+    entries: Sequence[Mapping[str, Any]],
+    *,
+    max_entries: int = _ACTIVITY_TRACE_SUMMARY_ENTRY_LIMIT,
+) -> list[str]:
+    lines: list[str] = []
+    for entry in entries[:max_entries]:
+        summary = _clean_text(entry.get("summary")) if isinstance(entry, Mapping) else None
+        if summary is not None:
+            lines.append(summary)
+    return lines
+
+
+def _build_activity_trace_from_events(
+    *,
+    events: Sequence[Mapping[str, Any]],
+    last_message_text: str | None,
+) -> dict[str, Any]:
+    entries: list[dict[str, Any]] = []
+    reasoning_events: list[dict[str, Any]] = []
+    action_event_types: list[str] = []
+    reasoning_event_types: list[str] = []
+    seen_action_event_types: set[str] = set()
+    seen_reasoning_event_types: set[str] = set()
+    command_count = 0
+    agent_message_count = 0
+    reasoning_event_count = 0
+    lifecycle_event_count = 0
+
+    def _append_entry(entry: dict[str, Any]) -> None:
+        if len(entries) < _ACTIVITY_TRACE_MAX_ENTRIES:
+            entries.append(entry)
+
+    for event in events:
+        payload_type = str(event.get("type") or "").strip()
+        if not payload_type:
+            continue
+        if payload_type in {"thread.started", "thread.completed", "turn.completed", "turn.failed"}:
+            lifecycle_event_count += 1
+            if payload_type not in seen_action_event_types:
+                seen_action_event_types.add(payload_type)
+                action_event_types.append(payload_type)
+            if payload_type == "thread.started":
+                _append_entry(
+                    {
+                        "kind": "lifecycle",
+                        "event_type": payload_type,
+                        "summary": "Session started",
+                    }
+                )
+            elif payload_type == "turn.completed":
+                _append_entry(
+                    {
+                        "kind": "lifecycle",
+                        "event_type": payload_type,
+                        "summary": "Turn completed",
+                    }
+                )
+            elif payload_type == "turn.failed":
+                error_payload = event.get("error")
+                error_excerpt = None
+                if isinstance(error_payload, Mapping):
+                    error_excerpt = _activity_excerpt(
+                        error_payload.get("message") or error_payload.get("detail")
+                    )
+                elif isinstance(error_payload, str):
+                    error_excerpt = _activity_excerpt(error_payload)
+                summary = (
+                    f"Turn failed: {error_excerpt}"
+                    if error_excerpt is not None
+                    else "Turn failed"
+                )
+                _append_entry(
+                    {
+                        "kind": "lifecycle",
+                        "event_type": payload_type,
+                        "summary": summary,
+                    }
+                )
+            continue
+        if "reasoning_summary" in payload_type or payload_type.startswith("response.reasoning"):
+            reasoning_event_count += 1
+            if payload_type not in seen_reasoning_event_types:
+                seen_reasoning_event_types.add(payload_type)
+                reasoning_event_types.append(payload_type)
+            reasoning_payload = dict(event)
+            reasoning_events.append(reasoning_payload)
+            excerpt = _extract_visible_reasoning_text(reasoning_payload)
+            if excerpt is not None:
+                _append_entry(
+                    {
+                        "kind": "reasoning_summary",
+                        "event_type": payload_type,
+                        "summary": f"Reasoning summary: {excerpt}",
+                    }
+                )
+            continue
+        if payload_type not in {"item.started", "item.completed"}:
+            continue
+        item = event.get("item")
+        if not isinstance(item, Mapping):
+            continue
+        item_type = str(item.get("type") or "").strip()
+        if not item_type:
+            continue
+        if payload_type == "item.completed" and item_type == "command_execution":
+            command_count += 1
+            if item_type not in seen_action_event_types:
+                seen_action_event_types.add(item_type)
+                action_event_types.append(item_type)
+            command_text = _activity_excerpt(item.get("command"), max_chars=260)
+            exit_code = _coerce_int(item.get("exit_code"))
+            if command_text is None:
+                summary = "Ran command"
+            elif exit_code is not None and exit_code != 0:
+                summary = f"Ran `{command_text}` (exit {exit_code})"
+            else:
+                summary = f"Ran `{command_text}`"
+            _append_entry(
+                {
+                    "kind": "command",
+                    "event_type": payload_type,
+                    "summary": summary,
+                    "command": _clean_text(item.get("command")),
+                    "exit_code": exit_code,
+                }
+            )
+            continue
+        if payload_type == "item.completed" and item_type == "agent_message":
+            agent_message_count += 1
+            if item_type not in seen_action_event_types:
+                seen_action_event_types.add(item_type)
+                action_event_types.append(item_type)
+            excerpt = _activity_excerpt(item.get("text"))
+            summary = (
+                f"Agent message: {excerpt}"
+                if excerpt is not None
+                else "Agent message emitted"
+            )
+            _append_entry(
+                {
+                    "kind": "agent_message",
+                    "event_type": payload_type,
+                    "summary": summary,
+                    "excerpt": excerpt,
+                }
+            )
+            continue
+        if payload_type == "item.completed" and item_type == "reasoning":
+            reasoning_event_count += 1
+            if item_type not in seen_reasoning_event_types:
+                seen_reasoning_event_types.add(item_type)
+                reasoning_event_types.append(item_type)
+            reasoning_payload = dict(item)
+            reasoning_payload.setdefault("type", item_type)
+            reasoning_events.append(reasoning_payload)
+            excerpt = _extract_visible_reasoning_text(reasoning_payload)
+            if excerpt is not None:
+                _append_entry(
+                    {
+                        "kind": "reasoning_summary",
+                        "event_type": payload_type,
+                        "summary": f"Reasoning summary: {excerpt}",
+                    }
+                )
+
+    if agent_message_count <= 0 and last_message_text is not None:
+        agent_message_count = 1
+        excerpt = _activity_excerpt(last_message_text)
+        _append_entry(
+            {
+                "kind": "agent_message",
+                "event_type": "last_message.json",
+                "summary": (
+                    f"Final agent message: {excerpt}"
+                    if excerpt is not None
+                    else "Final agent message captured"
+                ),
+                "excerpt": excerpt,
+            }
+        )
+
+    return {
+        "event_count": len(events),
+        "command_count": command_count,
+        "agent_message_count": agent_message_count,
+        "reasoning_event_count": reasoning_event_count,
+        "lifecycle_event_count": lifecycle_event_count,
+        "action_event_count": command_count + agent_message_count + lifecycle_event_count,
+        "action_event_types": action_event_types,
+        "reasoning_event_types": reasoning_event_types,
+        "reasoning_events": reasoning_events,
+        "entries": entries,
+        "entries_truncated": len(entries) >= _ACTIVITY_TRACE_MAX_ENTRIES,
+    }
+
+
+def _build_activity_trace_from_legacy_trace(
+    legacy_trace_payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    raw_reasoning_events = legacy_trace_payload.get("reasoning_events")
+    reasoning_events = (
+        [dict(event) for event in raw_reasoning_events if isinstance(event, Mapping)]
+        if isinstance(raw_reasoning_events, list)
+        else []
+    )
+    entries: list[dict[str, Any]] = []
+    for event in reasoning_events[:_ACTIVITY_TRACE_MAX_ENTRIES]:
+        excerpt = _extract_visible_reasoning_text(event)
+        if excerpt is None:
+            continue
+        entries.append(
+            {
+                "kind": "reasoning_summary",
+                "event_type": _clean_text(event.get("type")) or "legacy_reasoning_event",
+                "summary": f"Reasoning summary: {excerpt}",
+            }
+        )
+    command_count = _coerce_int(legacy_trace_payload.get("action_event_count")) or 0
+    reasoning_event_count = (
+        _coerce_int(legacy_trace_payload.get("reasoning_event_count")) or len(reasoning_events)
+    )
+    return {
+        "event_count": _coerce_int(legacy_trace_payload.get("event_count")) or 0,
+        "command_count": 0,
+        "agent_message_count": 0,
+        "reasoning_event_count": reasoning_event_count,
+        "lifecycle_event_count": 0,
+        "action_event_count": command_count,
+        "action_event_types": list(legacy_trace_payload.get("action_event_types") or [])
+        if isinstance(legacy_trace_payload.get("action_event_types"), list)
+        else [],
+        "reasoning_event_types": list(legacy_trace_payload.get("reasoning_event_types") or [])
+        if isinstance(legacy_trace_payload.get("reasoning_event_types"), list)
+        else [],
+        "reasoning_events": reasoning_events,
+        "entries": entries,
+        "entries_truncated": len(reasoning_events) > _ACTIVITY_TRACE_MAX_ENTRIES,
+    }
+
+
+def _export_prompt_activity_trace(
+    *,
+    row_payload: dict[str, Any],
+    prompts_dir: Path,
+    repo_root: Path,
+) -> dict[str, Any] | None:
+    request_telemetry = (
+        row_payload.get("request_telemetry")
+        if isinstance(row_payload.get("request_telemetry"), dict)
+        else {}
+    )
+    call_id = _clean_text(row_payload.get("call_id")) or "call"
+    stage_key = _clean_text(row_payload.get("stage_key"))
+    events_path = _resolve_saved_artifact_path(
+        raw_path=_clean_text(request_telemetry.get("events_path")),
+        repo_root=repo_root,
+    )
+    last_message_path = _resolve_saved_artifact_path(
+        raw_path=_clean_text(request_telemetry.get("last_message_path")),
+        repo_root=repo_root,
+    )
+    usage_path = _resolve_saved_artifact_path(
+        raw_path=_clean_text(request_telemetry.get("usage_path")),
+        repo_root=repo_root,
+    )
+    live_status_path = _resolve_saved_artifact_path(
+        raw_path=_clean_text(request_telemetry.get("live_status_path")),
+        repo_root=repo_root,
+    )
+    workspace_manifest_path = _resolve_saved_artifact_path(
+        raw_path=_clean_text(request_telemetry.get("workspace_manifest_path")),
+        repo_root=repo_root,
+    )
+    stdout_path = _resolve_saved_artifact_path(
+        raw_path=_clean_text(request_telemetry.get("stdout_path")),
+        repo_root=repo_root,
+    )
+    stderr_path = _resolve_saved_artifact_path(
+        raw_path=_clean_text(request_telemetry.get("stderr_path")),
+        repo_root=repo_root,
+    )
+    legacy_trace_path = _resolve_saved_artifact_path(
+        raw_path=_clean_text(request_telemetry.get("trace_resolved_path"))
+        or _clean_text(request_telemetry.get("trace_path")),
+        repo_root=repo_root,
+    )
+
+    legacy_trace_payload = _load_thinking_trace_payload(trace_path=legacy_trace_path)
+    events = _load_jsonl_events(events_path=events_path)
+    last_message_text = _load_message_text(message_path=last_message_path)
+    if events:
+        computed = _build_activity_trace_from_events(
+            events=events,
+            last_message_text=last_message_text,
+        )
+    elif legacy_trace_payload is not None:
+        computed = _build_activity_trace_from_legacy_trace(legacy_trace_payload)
+    elif last_message_text is not None:
+        computed = _build_activity_trace_from_events(events=(), last_message_text=last_message_text)
+    else:
+        return None
+
+    activity_traces_dir = prompts_dir / ACTIVITY_TRACES_DIR_NAME
+    activity_traces_dir.mkdir(parents=True, exist_ok=True)
+    exported_path = activity_traces_dir / f"{slugify_name(call_id)}.json"
+    payload = {
+        "schema_version": PROMPT_ACTIVITY_TRACE_SCHEMA_VERSION,
+        "path": str(exported_path),
+        "available": True,
+        "call_id": call_id,
+        "run_id": _clean_text(row_payload.get("run_id")),
+        "recipe_id": _clean_text(row_payload.get("recipe_id")),
+        "stage_key": stage_key,
+        "stage_label": _clean_text(row_payload.get("stage_label")),
+        "model": _clean_text(row_payload.get("model"))
+        or _clean_text(request_telemetry.get("model")),
+        "reasoning_effort": _clean_text(request_telemetry.get("reasoning_effort"))
+        or _clean_text((row_payload.get("decoding_params") or {}).get("reasoning_effort"))
+        if isinstance(row_payload.get("decoding_params"), dict)
+        else _clean_text(request_telemetry.get("reasoning_effort")),
+        "task_id": _clean_text(request_telemetry.get("task_id")),
+        "worker_id": _clean_text(row_payload.get("runtime_worker_id"))
+        or _clean_text(request_telemetry.get("worker_id")),
+        "runtime_shard_id": _clean_text(row_payload.get("runtime_shard_id"))
+        or _clean_text(request_telemetry.get("shard_id")),
+        "source_events_path": str(events_path) if events_path is not None else None,
+        "source_last_message_path": (
+            str(last_message_path) if last_message_path is not None else None
+        ),
+        "source_usage_path": str(usage_path) if usage_path is not None else None,
+        "source_live_status_path": (
+            str(live_status_path) if live_status_path is not None else None
+        ),
+        "source_workspace_manifest_path": (
+            str(workspace_manifest_path) if workspace_manifest_path is not None else None
+        ),
+        "source_stdout_path": str(stdout_path) if stdout_path is not None else None,
+        "source_stderr_path": str(stderr_path) if stderr_path is not None else None,
+        "source_legacy_trace_path": (
+            str(legacy_trace_path) if legacy_trace_path is not None else None
+        ),
+        **computed,
+    }
+    exported_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return payload
+
+
 def _extract_reasoning_excerpt(
     reasoning_events: list[dict[str, Any]],
     *,
@@ -1136,27 +1556,38 @@ def build_codex_farm_prompt_type_samples_markdown(
                         prompt_text = user_prompt
                 prompt_text = str(prompt_text or "")
 
-                thinking_trace_payload = row.get("thinking_trace")
-                reasoning_events: list[dict[str, Any]] = []
-                thinking_trace_path: str | None = None
-                thinking_trace_available = False
-                thinking_trace_reasoning_count: int | None = None
-                if isinstance(thinking_trace_payload, dict):
-                    raw_reasoning_events = thinking_trace_payload.get("reasoning_events")
-                    if isinstance(raw_reasoning_events, list):
-                        reasoning_events = [
-                            event
-                            for event in raw_reasoning_events
-                            if isinstance(event, dict)
-                        ]
-                    trace_path = thinking_trace_payload.get("path")
+                activity_trace_payload = row.get("activity_trace")
+                if not isinstance(activity_trace_payload, dict):
+                    activity_trace_payload = (
+                        row.get("thinking_trace")
+                        if isinstance(row.get("thinking_trace"), dict)
+                        else {}
+                    )
+                activity_trace_path: str | None = None
+                activity_trace_available = False
+                activity_trace_command_count: int | None = None
+                activity_trace_agent_message_count: int | None = None
+                activity_trace_reasoning_count: int | None = None
+                activity_trace_excerpt_lines: list[str] = []
+                if isinstance(activity_trace_payload, dict):
+                    trace_path = activity_trace_payload.get("path")
                     if isinstance(trace_path, str) and trace_path.strip():
-                        thinking_trace_path = trace_path.strip()
-                    thinking_trace_available = bool(thinking_trace_payload.get("available"))
-                    reasoning_count = thinking_trace_payload.get("reasoning_event_count")
+                        activity_trace_path = trace_path.strip()
+                    activity_trace_available = bool(activity_trace_payload.get("available"))
+                    command_count = activity_trace_payload.get("command_count")
+                    if isinstance(command_count, int):
+                        activity_trace_command_count = command_count
+                    agent_message_count = activity_trace_payload.get("agent_message_count")
+                    if isinstance(agent_message_count, int):
+                        activity_trace_agent_message_count = agent_message_count
+                    reasoning_count = activity_trace_payload.get("reasoning_event_count")
                     if isinstance(reasoning_count, int):
-                        thinking_trace_reasoning_count = reasoning_count
-                thinking_trace_excerpt = _extract_reasoning_excerpt(reasoning_events)
+                        activity_trace_reasoning_count = reasoning_count
+                    raw_entries = activity_trace_payload.get("entries")
+                    if isinstance(raw_entries, list):
+                        activity_trace_excerpt_lines = _summarize_activity_entry_lines(
+                            [entry for entry in raw_entries if isinstance(entry, Mapping)]
+                        )
 
                 call_id = str(row.get("call_id") or "").strip() or "<unknown>"
                 recipe_id = str(row.get("recipe_id") or "").strip() or "<unknown>"
@@ -1165,10 +1596,12 @@ def build_codex_farm_prompt_type_samples_markdown(
                         "call_id": call_id,
                         "recipe_id": recipe_id,
                         "prompt": prompt_text.rstrip("\n"),
-                        "thinking_trace_available": thinking_trace_available,
-                        "thinking_trace_path": thinking_trace_path,
-                        "thinking_trace_reasoning_count": thinking_trace_reasoning_count,
-                        "thinking_trace_excerpt": thinking_trace_excerpt,
+                        "activity_trace_available": activity_trace_available,
+                        "activity_trace_path": activity_trace_path,
+                        "activity_trace_command_count": activity_trace_command_count,
+                        "activity_trace_agent_message_count": activity_trace_agent_message_count,
+                        "activity_trace_reasoning_count": activity_trace_reasoning_count,
+                        "activity_trace_excerpt_lines": activity_trace_excerpt_lines,
                     }
                 )
     except OSError:
@@ -1252,24 +1685,31 @@ def build_codex_farm_prompt_type_samples_markdown(
             lines.append(sample["prompt"])
             lines.append("```")
             lines.append("")
-            lines.append("Thinking Trace:")
-            thinking_trace_available = bool(sample.get("thinking_trace_available"))
-            thinking_trace_reasoning_count = sample.get("thinking_trace_reasoning_count")
-            thinking_trace_path = sample.get("thinking_trace_path")
-            thinking_trace_excerpt = sample.get("thinking_trace_excerpt")
-            if thinking_trace_path:
-                lines.append(f"- trace_path: `{thinking_trace_path}`")
-            if isinstance(thinking_trace_reasoning_count, int):
+            lines.append("Activity Trace:")
+            activity_trace_available = bool(sample.get("activity_trace_available"))
+            activity_trace_path = sample.get("activity_trace_path")
+            activity_trace_command_count = sample.get("activity_trace_command_count")
+            activity_trace_agent_message_count = sample.get("activity_trace_agent_message_count")
+            activity_trace_reasoning_count = sample.get("activity_trace_reasoning_count")
+            activity_trace_excerpt_lines = list(sample.get("activity_trace_excerpt_lines") or [])
+            if activity_trace_path:
+                lines.append(f"- path: `{activity_trace_path}`")
+            if isinstance(activity_trace_command_count, int):
+                lines.append(f"- command_count: `{activity_trace_command_count}`")
+            if isinstance(activity_trace_agent_message_count, int):
                 lines.append(
-                    f"- reasoning_event_count: `{thinking_trace_reasoning_count}`"
+                    f"- agent_message_count: `{activity_trace_agent_message_count}`"
                 )
-            if thinking_trace_excerpt:
-                lines.append("")
-                lines.append("```text")
-                lines.append(str(thinking_trace_excerpt))
-                lines.append("```")
-            elif not thinking_trace_available:
-                lines.append("- _No thinking trace captured for this sample._")
+            if isinstance(activity_trace_reasoning_count, int):
+                lines.append(
+                    f"- reasoning_event_count: `{activity_trace_reasoning_count}`"
+                )
+            if activity_trace_excerpt_lines:
+                lines.append("- sample entries:")
+                for excerpt_line in activity_trace_excerpt_lines:
+                    lines.append(f"  - {excerpt_line}")
+            elif not activity_trace_available:
+                lines.append("- _No exported activity trace available for this sample._")
             lines.append("")
 
     try:
@@ -1279,7 +1719,7 @@ def build_codex_farm_prompt_type_samples_markdown(
     return output_path
 
 
-def build_codex_farm_thinking_trace_summaries(
+def build_codex_farm_activity_trace_summaries(
     *,
     full_prompt_log_path: Path,
     output_jsonl_path: Path,
@@ -1300,58 +1740,75 @@ def build_codex_farm_thinking_trace_summaries(
         stage_metadata = _prompt_stage_metadata_from_row(row)
         stage_key = str(stage_metadata.get("heading_key") or stage_metadata.get("stage_key") or "stage")
         stage_label = str(stage_metadata.get("label") or "Prompt Stage")
-        thinking_trace_payload = (
-            row.get("thinking_trace") if isinstance(row.get("thinking_trace"), dict) else {}
+        activity_trace_payload = (
+            row.get("activity_trace") if isinstance(row.get("activity_trace"), dict) else {}
         )
+        if not activity_trace_payload:
+            activity_trace_payload = (
+                row.get("thinking_trace") if isinstance(row.get("thinking_trace"), dict) else {}
+            )
         request_telemetry = (
             row.get("request_telemetry") if isinstance(row.get("request_telemetry"), dict) else {}
         )
-        trace_path = _clean_text(thinking_trace_payload.get("path"))
-        trace_exists = bool(trace_path and Path(trace_path).exists())
-        reasoning_events = thinking_trace_payload.get("reasoning_events")
-        normalized_reasoning_events = (
-            [event for event in reasoning_events if isinstance(event, dict)]
-            if isinstance(reasoning_events, list)
+        activity_trace_path = _clean_text(activity_trace_payload.get("path"))
+        activity_trace_exists = bool(
+            activity_trace_path and Path(activity_trace_path).exists()
+        )
+        trace_available = bool(activity_trace_payload.get("available"))
+        command_count = _coerce_int(activity_trace_payload.get("command_count")) or 0
+        agent_message_count = (
+            _coerce_int(activity_trace_payload.get("agent_message_count")) or 0
+        )
+        reasoning_event_count = (
+            _coerce_int(activity_trace_payload.get("reasoning_event_count")) or 0
+        )
+        event_count = _coerce_int(activity_trace_payload.get("event_count")) or 0
+        entries = activity_trace_payload.get("entries")
+        normalized_entries = (
+            [dict(entry) for entry in entries if isinstance(entry, Mapping)]
+            if isinstance(entries, list)
             else []
         )
-        reasoning_event_count = _coerce_int(
-            thinking_trace_payload.get("reasoning_event_count")
-        )
-        if reasoning_event_count is None:
-            reasoning_event_count = len(normalized_reasoning_events)
-        action_event_count = _coerce_int(thinking_trace_payload.get("action_event_count"))
-        trace_available = bool(thinking_trace_payload.get("available"))
-        reasoning_excerpt = _extract_reasoning_excerpt(
-            normalized_reasoning_events,
-            max_events=3,
-            max_chars=1200,
+        entry_excerpt_lines = _summarize_activity_entry_lines(
+            normalized_entries,
+            max_entries=_ACTIVITY_TRACE_SUMMARY_ENTRY_LIMIT,
         )
         summary_row = {
-            "schema_version": PROMPT_THINKING_TRACE_SUMMARY_SCHEMA_VERSION,
+            "schema_version": PROMPT_ACTIVITY_TRACE_SUMMARY_SCHEMA_VERSION,
             "run_id": row.get("run_id"),
             "call_id": row.get("call_id"),
             "recipe_id": row.get("recipe_id"),
             "stage_key": stage_key,
             "stage_label": stage_label,
             "stage_order": stage_metadata.get("stage_order"),
-            "trace_path": trace_path,
-            "trace_exists": trace_exists,
+            "activity_trace_path": activity_trace_path,
+            "activity_trace_exists": activity_trace_exists,
+            "activity_trace_available": trace_available,
+            "trace_path": activity_trace_path,
+            "trace_exists": activity_trace_exists,
             "trace_available": trace_available,
-            "trace_resolved_path": _clean_text(request_telemetry.get("trace_resolved_path")),
             "process_run_id": row.get("process_run_id"),
+            "event_count": event_count,
+            "command_count": command_count,
+            "agent_message_count": agent_message_count,
             "reasoning_event_count": reasoning_event_count,
             "reasoning_event_types": list(
-                thinking_trace_payload.get("reasoning_event_types") or []
+                activity_trace_payload.get("reasoning_event_types") or []
             )
-            if isinstance(thinking_trace_payload.get("reasoning_event_types"), list)
+            if isinstance(activity_trace_payload.get("reasoning_event_types"), list)
             else [],
-            "action_event_count": action_event_count,
+            "action_event_count": _coerce_int(activity_trace_payload.get("action_event_count")),
             "action_event_types": list(
-                thinking_trace_payload.get("action_event_types") or []
+                activity_trace_payload.get("action_event_types") or []
             )
-            if isinstance(thinking_trace_payload.get("action_event_types"), list)
+            if isinstance(activity_trace_payload.get("action_event_types"), list)
             else [],
-            "reasoning_excerpt": reasoning_excerpt,
+            "source_events_path": _clean_text(activity_trace_payload.get("source_events_path")),
+            "source_legacy_trace_path": _clean_text(
+                activity_trace_payload.get("source_legacy_trace_path")
+            )
+            or _clean_text(request_telemetry.get("trace_resolved_path")),
+            "entry_excerpt_lines": entry_excerpt_lines,
         }
         summary_rows.append(summary_row)
 
@@ -1361,19 +1818,25 @@ def build_codex_farm_thinking_trace_summaries(
                 "stage_label": stage_label,
                 "stage_order": int(stage_metadata.get("stage_order") or 999),
                 "rows": 0,
-                "trace_path_present": 0,
-                "trace_exists": 0,
-                "trace_available": 0,
+                "activity_trace_present": 0,
+                "activity_trace_exists": 0,
+                "activity_trace_available": 0,
+                "command_rows": 0,
+                "agent_message_rows": 0,
                 "reasoning_event_rows": 0,
             },
         )
         stage_state["rows"] += 1
-        if trace_path is not None:
-            stage_state["trace_path_present"] += 1
-        if trace_exists:
-            stage_state["trace_exists"] += 1
+        if activity_trace_path is not None:
+            stage_state["activity_trace_present"] += 1
+        if activity_trace_exists:
+            stage_state["activity_trace_exists"] += 1
         if trace_available:
-            stage_state["trace_available"] += 1
+            stage_state["activity_trace_available"] += 1
+        if command_count > 0:
+            stage_state["command_rows"] += 1
+        if agent_message_count > 0:
+            stage_state["agent_message_rows"] += 1
         if reasoning_event_count and reasoning_event_count > 0:
             stage_state["reasoning_event_rows"] += 1
 
@@ -1387,19 +1850,25 @@ def build_codex_farm_thinking_trace_summaries(
     )
 
     total_rows = len(summary_rows)
-    total_trace_path_present = sum(
-        int(stage["trace_path_present"]) for stage in stage_summary.values()
+    total_activity_trace_present = sum(
+        int(stage["activity_trace_present"]) for stage in stage_summary.values()
     )
-    total_trace_exists = sum(int(stage["trace_exists"]) for stage in stage_summary.values())
-    total_trace_available = sum(
-        int(stage["trace_available"]) for stage in stage_summary.values()
+    total_activity_trace_exists = sum(
+        int(stage["activity_trace_exists"]) for stage in stage_summary.values()
+    )
+    total_activity_trace_available = sum(
+        int(stage["activity_trace_available"]) for stage in stage_summary.values()
+    )
+    total_command_rows = sum(int(stage["command_rows"]) for stage in stage_summary.values())
+    total_agent_message_rows = sum(
+        int(stage["agent_message_rows"]) for stage in stage_summary.values()
     )
     total_reasoning_event_rows = sum(
         int(stage["reasoning_event_rows"]) for stage in stage_summary.values()
     )
     generated_timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
     lines: list[str] = [
-        "# CodexFarm Thinking Trace Summary",
+        "# CodexFarm Activity Trace Summary",
         "",
         f"Generated: {generated_timestamp}",
         "Source:",
@@ -1407,9 +1876,11 @@ def build_codex_farm_thinking_trace_summaries(
         "",
         "Overall:",
         f"- total_rows: `{total_rows}`",
-        f"- rows_with_trace_path: `{total_trace_path_present}`",
-        f"- rows_with_existing_trace_file: `{total_trace_exists}`",
-        f"- rows_with_available_trace_payload: `{total_trace_available}`",
+        f"- rows_with_activity_trace: `{total_activity_trace_present}`",
+        f"- rows_with_existing_activity_trace_file: `{total_activity_trace_exists}`",
+        f"- rows_with_available_activity_trace_payload: `{total_activity_trace_available}`",
+        f"- rows_with_commands: `{total_command_rows}`",
+        f"- rows_with_agent_messages: `{total_agent_message_rows}`",
         f"- rows_with_reasoning_events: `{total_reasoning_event_rows}`",
         "",
     ]
@@ -1425,9 +1896,11 @@ def build_codex_farm_thinking_trace_summaries(
                 f"## {stage_key} ({stage_state['stage_label']})",
                 "",
                 f"- rows: `{stage_state['rows']}`",
-                f"- rows_with_trace_path: `{stage_state['trace_path_present']}`",
-                f"- rows_with_existing_trace_file: `{stage_state['trace_exists']}`",
-                f"- rows_with_available_trace_payload: `{stage_state['trace_available']}`",
+                f"- rows_with_activity_trace: `{stage_state['activity_trace_present']}`",
+                f"- rows_with_existing_activity_trace_file: `{stage_state['activity_trace_exists']}`",
+                f"- rows_with_available_activity_trace_payload: `{stage_state['activity_trace_available']}`",
+                f"- rows_with_commands: `{stage_state['command_rows']}`",
+                f"- rows_with_agent_messages: `{stage_state['agent_message_rows']}`",
                 f"- rows_with_reasoning_events: `{stage_state['reasoning_event_rows']}`",
                 "",
                 "### Sample Rows",
@@ -1442,24 +1915,43 @@ def build_codex_farm_thinking_trace_summaries(
         for example in examples:
             lines.append(f"- call_id: `{example.get('call_id') or '<unknown>'}`")
             lines.append(f"  recipe_id: `{example.get('recipe_id') or '<unknown>'}`")
-            lines.append(f"  trace_exists: `{example.get('trace_exists')}`")
+            lines.append(
+                f"  activity_trace_exists: `{example.get('activity_trace_exists')}`"
+            )
+            lines.append(f"  command_count: `{example.get('command_count')}`")
+            lines.append(
+                f"  agent_message_count: `{example.get('agent_message_count')}`"
+            )
             lines.append(
                 f"  reasoning_event_count: `{example.get('reasoning_event_count')}`"
             )
-            trace_path = _clean_text(example.get("trace_path"))
-            if trace_path is not None:
-                lines.append(f"  trace_path: `{trace_path}`")
-            excerpt = _clean_text(example.get("reasoning_excerpt"))
-            if excerpt is not None:
-                lines.append("  reasoning_excerpt:")
-                lines.append("")
-                lines.append("```text")
-                lines.append(excerpt)
-                lines.append("```")
+            activity_trace_path = _clean_text(example.get("activity_trace_path"))
+            if activity_trace_path is not None:
+                lines.append(f"  activity_trace_path: `{activity_trace_path}`")
+            excerpt_lines = example.get("entry_excerpt_lines")
+            if isinstance(excerpt_lines, list) and excerpt_lines:
+                lines.append("  sample_entries:")
+                for excerpt_line in excerpt_lines:
+                    lines.append(f"  - {excerpt_line}")
             lines.append("")
 
     output_md_path.write_text("\n".join(lines), encoding="utf-8")
     return output_jsonl_path, output_md_path
+
+
+def build_codex_farm_thinking_trace_summaries(
+    *,
+    full_prompt_log_path: Path,
+    output_jsonl_path: Path,
+    output_md_path: Path,
+    examples_per_stage: int = 3,
+) -> tuple[Path | None, Path | None]:
+    return build_codex_farm_activity_trace_summaries(
+        full_prompt_log_path=full_prompt_log_path,
+        output_jsonl_path=output_jsonl_path,
+        output_md_path=output_md_path,
+        examples_per_stage=examples_per_stage,
+    )
 
 
 def _parse_prompt_index_from_name(name: str) -> int | None:
@@ -2028,12 +2520,40 @@ def _build_line_role_prompt_rows(
                     "worker_id": runtime_context.get("runtime_worker_id"),
                     "shard_id": runtime_context.get("runtime_shard_id"),
                     "owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
+                    "events_path": _clean_text(telemetry_row.get("events_path")),
+                    "last_message_path": _clean_text(telemetry_row.get("last_message_path")),
+                    "usage_path": _clean_text(telemetry_row.get("usage_path")),
+                    "live_status_path": _clean_text(telemetry_row.get("live_status_path")),
+                    "workspace_manifest_path": _clean_text(
+                        telemetry_row.get("workspace_manifest_path")
+                    ),
+                    "stdout_path": _clean_text(telemetry_row.get("stdout_path")),
+                    "stderr_path": _clean_text(telemetry_row.get("stderr_path")),
                 },
                 "runtime_shard_id": runtime_context.get("runtime_shard_id"),
                 "runtime_worker_id": runtime_context.get("runtime_worker_id"),
                 "runtime_owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
+                "activity_trace": None,
                 "thinking_trace": None,
             }
+            activity_trace_payload = _export_prompt_activity_trace(
+                row_payload=row_payload,
+                prompts_dir=prompts_dir,
+                repo_root=repo_root,
+            )
+            row_payload["activity_trace"] = activity_trace_payload
+            row_payload["thinking_trace"] = (
+                dict(activity_trace_payload)
+                if isinstance(activity_trace_payload, dict)
+                else None
+            )
+            if (
+                isinstance(activity_trace_payload, dict)
+                and isinstance(row_payload.get("request_telemetry"), dict)
+            ):
+                row_payload["request_telemetry"]["activity_trace_path"] = (
+                    activity_trace_payload.get("path")
+                )
             if parsed_file.exists():
                 row_payload["parsed_response_file"] = str(exported_parsed_file)
             rows.append(row_payload)
@@ -2668,6 +3188,15 @@ def render_prompt_artifacts_from_descriptors(
                             "worker_id": runtime_context.get("runtime_worker_id"),
                             "shard_id": runtime_context.get("runtime_shard_id"),
                             "owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
+                            "events_path": _clean_text(telemetry_row.get("events_path")),
+                            "last_message_path": _clean_text(telemetry_row.get("last_message_path")),
+                            "usage_path": _clean_text(telemetry_row.get("usage_path")),
+                            "live_status_path": _clean_text(telemetry_row.get("live_status_path")),
+                            "workspace_manifest_path": _clean_text(
+                                telemetry_row.get("workspace_manifest_path")
+                            ),
+                            "stdout_path": _clean_text(telemetry_row.get("stdout_path")),
+                            "stderr_path": _clean_text(telemetry_row.get("stderr_path")),
                         }
 
                     row_payload = {
@@ -2725,8 +3254,29 @@ def render_prompt_artifacts_from_descriptors(
                         "runtime_shard_id": runtime_context.get("runtime_shard_id"),
                         "runtime_worker_id": runtime_context.get("runtime_worker_id"),
                         "runtime_owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
-                        "thinking_trace": thinking_trace_payload,
+                        "activity_trace": None,
+                        "thinking_trace": None,
                     }
+                    activity_trace_payload = _export_prompt_activity_trace(
+                        row_payload=row_payload,
+                        prompts_dir=prompts_dir,
+                        repo_root=repo_root,
+                    )
+                    if activity_trace_payload is None and isinstance(thinking_trace_payload, dict):
+                        activity_trace_payload = dict(thinking_trace_payload)
+                    row_payload["activity_trace"] = activity_trace_payload
+                    row_payload["thinking_trace"] = (
+                        dict(activity_trace_payload)
+                        if isinstance(activity_trace_payload, dict)
+                        else None
+                    )
+                    if (
+                        isinstance(activity_trace_payload, dict)
+                        and isinstance(request_telemetry, dict)
+                    ):
+                        request_telemetry["activity_trace_path"] = activity_trace_payload.get(
+                            "path"
+                        )
                     full_prompt_log_handle.write(
                         json.dumps(
                             PromptCallRecord(
@@ -2812,6 +3362,10 @@ def build_prompt_response_log(
         if isinstance(repo_root, Path)
         else Path.cwd().resolve()
     )
+    prompts_dir = eval_output_dir / "prompts"
+    activity_traces_dir = prompts_dir / ACTIVITY_TRACES_DIR_NAME
+    if activity_traces_dir.exists() and activity_traces_dir.is_dir():
+        shutil.rmtree(activity_traces_dir)
     discovered = (
         list(run_descriptors)
         if run_descriptors is not None
@@ -2828,9 +3382,10 @@ def build_prompt_response_log(
         eval_output_dir=eval_output_dir,
         repo_root=resolved_repo_root,
     )
-    prompts_dir = eval_output_dir / "prompts"
     full_prompt_log_path = prompts_dir / "full_prompt_log.jsonl"
     prompt_log_summary_path = prompts_dir / PROMPT_LOG_SUMMARY_JSON_NAME
+    activity_trace_summary_jsonl_path = prompts_dir / ACTIVITY_TRACE_SUMMARY_JSONL_NAME
+    activity_trace_summary_md_path = prompts_dir / ACTIVITY_TRACE_SUMMARY_MD_NAME
     thinking_trace_summary_jsonl_path = prompts_dir / THINKING_TRACE_SUMMARY_JSONL_NAME
     thinking_trace_summary_md_path = prompts_dir / THINKING_TRACE_SUMMARY_MD_NAME
     if full_prompt_log_path.exists() and full_prompt_log_path.is_file():
@@ -2838,26 +3393,48 @@ def build_prompt_response_log(
             full_prompt_log_path=full_prompt_log_path,
             output_path=prompt_log_summary_path,
         )
-        build_codex_farm_thinking_trace_summaries(
+        build_codex_farm_activity_trace_summaries(
             full_prompt_log_path=full_prompt_log_path,
-            output_jsonl_path=thinking_trace_summary_jsonl_path,
-            output_md_path=thinking_trace_summary_md_path,
+            output_jsonl_path=activity_trace_summary_jsonl_path,
+            output_md_path=activity_trace_summary_md_path,
         )
+        if activity_trace_summary_jsonl_path.exists():
+            shutil.copyfile(
+                activity_trace_summary_jsonl_path,
+                thinking_trace_summary_jsonl_path,
+            )
+        else:
+            thinking_trace_summary_jsonl_path.unlink(missing_ok=True)
+        if activity_trace_summary_md_path.exists():
+            shutil.copyfile(
+                activity_trace_summary_md_path,
+                thinking_trace_summary_md_path,
+            )
+        else:
+            thinking_trace_summary_md_path.unlink(missing_ok=True)
     else:
         prompt_log_summary_path.unlink(missing_ok=True)
+        activity_trace_summary_jsonl_path.unlink(missing_ok=True)
+        activity_trace_summary_md_path.unlink(missing_ok=True)
         thinking_trace_summary_jsonl_path.unlink(missing_ok=True)
         thinking_trace_summary_md_path.unlink(missing_ok=True)
     return prompt_log_path or line_role_prompt_log_path
 
 
 __all__ = [
+    "ACTIVITY_TRACES_DIR_NAME",
+    "ACTIVITY_TRACE_SUMMARY_JSONL_NAME",
+    "ACTIVITY_TRACE_SUMMARY_MD_NAME",
     "PROMPT_CALL_RECORD_SCHEMA_VERSION",
+    "PROMPT_ACTIVITY_TRACE_SCHEMA_VERSION",
+    "PROMPT_ACTIVITY_TRACE_SUMMARY_SCHEMA_VERSION",
     "PROMPT_LOG_SUMMARY_JSON_NAME",
     "PROMPT_LOG_SUMMARY_SCHEMA_VERSION",
     "PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION",
     "PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION",
     "PROMPT_THINKING_TRACE_SUMMARY_SCHEMA_VERSION",
     "PROMPT_TYPE_SAMPLES_MD_NAME",
+    "build_codex_farm_activity_trace_summaries",
     "THINKING_TRACE_SUMMARY_JSONL_NAME",
     "THINKING_TRACE_SUMMARY_MD_NAME",
     "PromptCallRecord",

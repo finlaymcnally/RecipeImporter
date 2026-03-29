@@ -370,6 +370,7 @@ def _run_phase_knowledge_worker_assignment_v1(
             reasoning_effort=reasoning_effort,
             request_input_file=in_dir / f"{shard.shard_id}.json",
             worker_prompt_path=worker_prompt_path,
+            worker_root=worker_root,
             task_count=task_total,
             task_index=task_index,
         )

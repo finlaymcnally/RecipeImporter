@@ -1046,6 +1046,7 @@ def _build_knowledge_workspace_task_runner_payload(
     reasoning_effort: str | None,
     request_input_file: Path,
     worker_prompt_path: Path,
+    worker_root: Path,
     task_count: int,
     task_index: int,
 ) -> dict[str, Any]:
@@ -1091,6 +1092,13 @@ def _build_knowledge_workspace_task_runner_payload(
         row_payload["worker_session_primary_row"] = task_index == 0
         row_payload["runtime_task_id"] = runtime_task_id
         row_payload["runtime_parent_shard_id"] = shard_id
+        row_payload["events_path"] = str(worker_root / "events.jsonl")
+        row_payload["last_message_path"] = str(worker_root / "last_message.json")
+        row_payload["usage_path"] = str(worker_root / "usage.json")
+        row_payload["live_status_path"] = str(worker_root / "live_status.json")
+        row_payload["workspace_manifest_path"] = str(worker_root / "workspace_manifest.json")
+        row_payload["stdout_path"] = str(worker_root / "stdout.txt")
+        row_payload["stderr_path"] = str(worker_root / "stderr.txt")
         if task_index > 0:
             row_payload["command_execution_count"] = 0
             row_payload["command_execution_commands"] = []
@@ -1126,6 +1134,13 @@ def _build_knowledge_inline_attempt_runner_payload(
     model: str | None,
     reasoning_effort: str | None,
     prompt_input_mode: str,
+    events_path: Path | None = None,
+    last_message_path: Path | None = None,
+    usage_path: Path | None = None,
+    live_status_path: Path | None = None,
+    workspace_manifest_path: Path | None = None,
+    stdout_path: Path | None = None,
+    stderr_path: Path | None = None,
 ) -> dict[str, Any]:
     payload = run_result.to_payload(worker_id=worker_id, shard_id=shard_id)
     payload["pipeline_id"] = pipeline_id
@@ -1138,6 +1153,21 @@ def _build_knowledge_inline_attempt_runner_payload(
             row_payload["prompt_input_mode"] = prompt_input_mode
             row_payload["request_input_file"] = None
             row_payload["request_input_file_bytes"] = None
+            row_payload["events_path"] = str(events_path) if events_path is not None else None
+            row_payload["last_message_path"] = (
+                str(last_message_path) if last_message_path is not None else None
+            )
+            row_payload["usage_path"] = str(usage_path) if usage_path is not None else None
+            row_payload["live_status_path"] = (
+                str(live_status_path) if live_status_path is not None else None
+            )
+            row_payload["workspace_manifest_path"] = (
+                str(workspace_manifest_path)
+                if workspace_manifest_path is not None
+                else None
+            )
+            row_payload["stdout_path"] = str(stdout_path) if stdout_path is not None else None
+            row_payload["stderr_path"] = str(stderr_path) if stderr_path is not None else None
     summary_payload = telemetry.get("summary") if isinstance(telemetry, dict) else None
     if isinstance(summary_payload, dict):
         summary_payload["prompt_input_mode"] = prompt_input_mode
