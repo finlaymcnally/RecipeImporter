@@ -804,8 +804,10 @@ def _build_knowledge_workspace_worker_prompt(
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "",
         "Phase semantics:",
-        "- Pass 1 is block-local classification only: one row per owned block with `knowledge` or `other`.",
-        "- Pass 2 runs only after Pass 1 installs. Pass 2 assigns `group_id` and `topic_label` only for the kept knowledge rows.",
+        "- Pass 1 is your first-authority semantic judgment on the owned rows. The repo does not know the `knowledge` versus `other` answer ahead of time.",
+        "- Pass 1 work rows already carry raw block text plus mechanical truth. Fill only `category` with `knowledge` or `other`.",
+        "- Pass 2 runs only after Pass 1 installs, and it continues from the accepted Pass 1 knowledge rows rather than reopening the whole shard.",
+        "- In Pass 2, assign a non-empty local `group_key` plus `topic_label` for each kept knowledge row. The repo canonicalizes final `group_id` values during install.",
         f"- Final categories must be exactly one of `{'`, `'.join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)}`.",
         f"- `reviewer_category` may be omitted or must be one of `{'`, `'.join(ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES)}`.",
         "- If a block ends as `knowledge`, it must appear in exactly one idea group.",
@@ -923,18 +925,19 @@ def _build_knowledge_hint_profile_and_policy(
             large_gap_count += 1
         previous_index = block_index
 
+    owned_block_range = (
+        f"{block_indices[0]}..{block_indices[-1]}" if block_indices else "unknown"
+    )
     profile_lines = [
-        f"Owned blocks: {len(block_indices)}.",
+        f"Owned blocks: {len(block_indices)} (`{owned_block_range}`).",
         (
-            f"Owned block range: {block_indices[0]}..{block_indices[-1]}."
-            if block_indices
-            else "Owned block range: unknown."
+            "Packet shape cues: "
+            f"`heading_like={heading_like_count}`, "
+            f"`explicit_heading={heading_count}`, "
+            f"`table_hint={table_hint_count}`, "
+            f"`long_prose={long_prose_count}`."
         ),
-        f"Heading-like rows: {heading_like_count}.",
-        f"Explicit heading rows: {heading_count}.",
-        f"Table-hint rows: {table_hint_count}.",
-        f"Long prose rows: {long_prose_count}.",
-        f"Large source gaps (>8): {large_gap_count}.",
+        f"Large source gaps (>8 rows): `{large_gap_count}`.",
     ]
     if table_hint_count > 0:
         shard_summary = (
@@ -959,14 +962,14 @@ def _build_knowledge_hint_profile_and_policy(
     interpretation_lines = [
         shard_summary,
         "Default posture: keep only durable cooking leverage; technically true but low-value prose stays `other`.",
-        "Use packet order as weak context, not proof that neighboring blocks belong to the same idea.",
+        "Use packet order and neighboring rows as weak context only, not as proof that blocks belong together.",
     ]
     decision_policy = [
-        "Classify each block on its own merits before thinking about idea groups.",
+        "Decide `knowledge` versus `other` block-by-block before thinking about grouping.",
         "If the shard mixes framing with useful guidance, keep only the guidance blocks as `knowledge`.",
         "Keep short headings only when nearby explanatory body clearly earns preservation.",
-        "Table/reference rows can be real knowledge, but only when they would materially help future cooking decisions.",
-        "Use `examples/` for calibration, not as content to copy.",
+        "Keep tables/reference rows only when they would materially help future cooking decisions.",
+        "Open `examples/` only when you need a contrast case or tie-breaker.",
     ]
     return profile_lines, interpretation_lines, decision_policy
 
@@ -994,29 +997,6 @@ def _write_knowledge_worker_hint(
         for block in packet_blocks
         if block.get("i") is not None
     ]
-    heading_count = sum(1 for block in packet_blocks if block.get("hl") is not None)
-    table_hint_count = sum(1 for block in packet_blocks if isinstance(block.get("th"), Mapping))
-    preview_rows = [
-        f"`{preview_text(block.get('t'), max_chars=90)}`"
-        for block in packet_blocks[:6]
-        if preview_text(block.get("t"), max_chars=90)
-    ]
-    packet_summary = [
-        f"Packet id: `{packet_id}`",
-        (
-            f"Owned block range: `{block_indices[0]}..{block_indices[-1]}`"
-            if block_indices
-            else "Owned block range: unknown"
-        ),
-        f"Owned block count: `{len(packet_blocks)}`",
-        f"Heading rows in packet: `{heading_count}`",
-        f"Table-hint rows in packet: `{table_hint_count}`",
-        (
-            "Packet preview: " + " / ".join(preview_rows)
-            if preview_rows
-            else "Packet preview: `[empty]`"
-        ),
-    ]
     shard_profile, shard_interpretation, decision_policy = (
         _build_knowledge_hint_profile_and_policy(packet_blocks)
     )
@@ -1026,32 +1006,23 @@ def _write_knowledge_worker_hint(
         path,
         title=f"Knowledge review hints for {shard.shard_id}",
         summary_lines=[
-            "This sidecar is worker guidance only.",
-            "Open this file first, then open the authoritative `in/<shard_id>.json` file.",
-            f"Packet id: {packet_id}. Owned blocks: {len(packet_blocks)}.",
-            "Keep only durable cooking leverage. Technically true but low-value prose should stay `other`.",
+            "This sidecar is worker guidance only; `in/<shard_id>.json` remains authoritative.",
+            f"Packet id: `{packet_id}`. Owned blocks: `{len(packet_blocks)}`.",
             (
-                "Nearby recipe guardrail block indices: "
-                + (", ".join(str(value) for value in nearby_recipe_blocks[:12]) if nearby_recipe_blocks else "none")
-                + "."
+                "Nearby recipe guardrail block indices: `"
+                + (
+                    ", ".join(str(value) for value in nearby_recipe_blocks[:12])
+                    if nearby_recipe_blocks
+                    else "none"
+                )
+                + "`."
             ),
         ],
         sections=[
-            (
-                "How to use this task",
-                [
-                    "Use the hint file to understand the packet shape, then let the owned block text drive the judgment.",
-                    "Use only block text from the owned packet in `in/<shard_id>.json` as evidence in the final output. Nearby context is only for grounding.",
-                    "A short packet can still be real knowledge if it is genuinely technical, diagnostic, or reference-like.",
-                    "Do not keep a packet merely because it is true or cooking-adjacent; keep it only if it would materially improve future cooking decisions.",
-                    "Do not treat the shard as finished until `python3 tools/knowledge_worker.py check-phase` passes for the active phase.",
-                ],
-            ),
             ("Shard profile", shard_profile),
             ("Shard interpretation", shard_interpretation),
             ("Decision policy", decision_policy),
             ("Shard examples", shard_examples),
-            ("Packet summary", packet_summary or ["No packet summary available."]),
             ("Attention rows", attention_lines),
         ],
     )

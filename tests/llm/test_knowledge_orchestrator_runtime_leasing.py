@@ -134,7 +134,7 @@ def test_knowledge_orchestrator_uses_phase_surface_not_task_queue_surface(
     assert "check-phase" in runner.initial_phase_brief
 
 
-def test_knowledge_orchestrator_seeds_valid_pass1_ledgers_before_worker_edits(
+def test_knowledge_orchestrator_seeds_raw_pass1_ledgers_before_worker_edits(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -143,16 +143,14 @@ def test_knowledge_orchestrator_seeds_valid_pass1_ledgers_before_worker_edits(
     worker_root = fixture["worker_root"]
 
     assert runner.initial_check_phase is not None
-    assert runner.initial_check_phase.returncode == 0, (
-        runner.initial_check_phase.stderr or runner.initial_check_phase.stdout
-    )
+    assert runner.initial_check_phase.returncode == 1
     assert runner.initial_pass1_ledgers == {
         "book.ks0000.nr.pass1.json": {
             "phase": "pass1",
-            "rows": [{"block_index": 0, "category": "other"}],
+            "rows": [{"block_index": 0, "text": "Knowledge zero.", "category": ""}],
         },
         "book.ks0001.nr.pass1.json": {
             "phase": "pass1",
-            "rows": [{"block_index": 2, "category": "other"}],
+            "rows": [{"block_index": 2, "text": "Knowledge two.", "category": ""}],
         },
     }

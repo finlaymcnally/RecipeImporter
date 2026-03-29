@@ -38,6 +38,7 @@ Rules:
 - `block_decisions` must cover every owned block exactly once and keep the same block order as `in/<shard_id>.json`.
 - Each block decision must use `block_index` plus `category`, with optional `reviewer_category`.
 - `category` must be `knowledge` or `other`.
+- The active Pass 2 work ledger may use any non-empty local `group_key`; the helper canonicalizes final `group_id` values during install.
 - Each `knowledge` block must appear in exactly one idea group.
 - `idea_groups` rows must use `group_id`, `topic_label`, and `block_indices`.
 - Group ids may span more than one kept block, but one `group_id` must keep one `topic_label`.
@@ -86,6 +87,52 @@ def _input_blocks(input_payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     return [dict(block) for block in blocks if isinstance(block, Mapping)]
 
 
+def _truth_row_from_input_block(block: Mapping[str, Any]) -> dict[str, Any] | None:
+    if block.get("i") is None:
+        return None
+    row = {
+        "block_index": int(block.get("i")),
+        "text": str(block.get("t") or "").strip(),
+    }
+    if block.get("hl") is not None:
+        row["heading_level"] = block.get("hl")
+    if isinstance(block.get("th"), Mapping):
+        row["table_hint"] = dict(block["th"])
+    return row
+
+
+def _pass1_row_from_input_block(block: Mapping[str, Any]) -> dict[str, Any] | None:
+    truth_row = _truth_row_from_input_block(block)
+    if truth_row is None:
+        return None
+    return {
+        **truth_row,
+        "category": "",
+    }
+
+
+def _pass2_group_key_from_row(row: Mapping[str, Any]) -> str:
+    return str(row.get("group_key") or row.get("group_id") or "").strip()
+
+
+def _pass2_row_from_input_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
+    if row.get("block_index") is None:
+        return None
+    block_index = int(row.get("block_index"))
+    projected = {
+        "block_index": block_index,
+        "category": "knowledge",
+        "text": str(row.get("text") or "").strip(),
+        "group_key": "",
+        "topic_label": "",
+    }
+    if row.get("heading_level") is not None:
+        projected["heading_level"] = row.get("heading_level")
+    if isinstance(row.get("table_hint"), Mapping):
+        projected["table_hint"] = dict(row["table_hint"])
+    return projected
+
+
 def build_knowledge_workspace_shard_metadata(
     *,
     shard_id: str,
@@ -131,16 +178,14 @@ def build_knowledge_seed_output(
 
 
 def build_pass1_work_ledger(input_payload: Mapping[str, Any]) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    for block in _input_blocks(input_payload):
+        row = _pass1_row_from_input_block(block)
+        if row is not None:
+            rows.append(row)
     return {
         "phase": "pass1",
-        "rows": [
-            {
-                "block_index": int(block.get("i")),
-                "category": "other",
-            }
-            for block in _input_blocks(input_payload)
-            if block.get("i") is not None
-        ],
+        "rows": rows,
     }
 
 
@@ -149,11 +194,12 @@ def build_pass2_input_ledger(
     input_payload: Mapping[str, Any],
     pass1_payload: Mapping[str, Any],
 ) -> dict[str, Any]:
-    text_by_index = {
-        int(block.get("i")): str(block.get("t") or "").strip()
-        for block in _input_blocks(input_payload)
-        if block.get("i") is not None
-    }
+    rows_by_index = {}
+    for block in _input_blocks(input_payload):
+        truth_row = _truth_row_from_input_block(block)
+        if truth_row is None:
+            continue
+        rows_by_index[int(truth_row["block_index"])] = truth_row
     kept_indices = [
         int(row.get("block_index"))
         for row in (pass1_payload.get("rows") or [])
@@ -164,7 +210,22 @@ def build_pass2_input_ledger(
         "rows": [
             {
                 "block_index": block_index,
-                "text": text_by_index.get(block_index, ""),
+                "category": "knowledge",
+                "text": str(rows_by_index.get(block_index, {}).get("text") or ""),
+                **(
+                    {
+                        "heading_level": rows_by_index[block_index]["heading_level"],
+                    }
+                    if rows_by_index.get(block_index, {}).get("heading_level") is not None
+                    else {}
+                ),
+                **(
+                    {
+                        "table_hint": dict(rows_by_index[block_index]["table_hint"]),
+                    }
+                    if isinstance(rows_by_index.get(block_index, {}).get("table_hint"), Mapping)
+                    else {}
+                ),
             }
             for block_index in kept_indices
         ],
@@ -176,16 +237,13 @@ def build_pass2_work_ledger(pass2_input_payload: Mapping[str, Any]) -> dict[str,
     if not isinstance(rows, list):
         rows = []
     work_rows: list[dict[str, Any]] = []
-    for index, row in enumerate(rows, start=1):
-        if not isinstance(row, Mapping) or row.get("block_index") is None:
+    for row in rows:
+        if not isinstance(row, Mapping):
             continue
-        work_rows.append(
-            {
-                "block_index": int(row.get("block_index")),
-                "group_id": f"g{index:02d}",
-                "topic_label": "",
-            }
-        )
+        projected = _pass2_row_from_input_row(row)
+        if projected is None:
+            continue
+        work_rows.append(projected)
     return {"phase": "pass2", "rows": work_rows}
 
 
@@ -208,18 +266,18 @@ def build_final_output(
         for row in (pass1_payload.get("rows") or [])
         if isinstance(row, Mapping) and row.get("block_index") is not None
     ]
-    groups_by_id: dict[str, dict[str, Any]] = {}
+    groups_by_key: dict[str, dict[str, Any]] = {}
     for row in (pass2_payload.get("rows") or []):
         if not isinstance(row, Mapping) or row.get("block_index") is None:
             continue
-        group_id = str(row.get("group_id") or "").strip()
+        group_key = _pass2_group_key_from_row(row)
         topic_label = str(row.get("topic_label") or "").strip()
-        if not group_id or not topic_label:
+        if not group_key or not topic_label:
             continue
-        group = groups_by_id.setdefault(
-            group_id,
+        group = groups_by_key.setdefault(
+            group_key,
             {
-                "group_id": group_id,
+                "group_key": group_key,
                 "topic_label": topic_label,
                 "block_indices": [],
             },
@@ -227,11 +285,11 @@ def build_final_output(
         group["block_indices"].append(int(row.get("block_index")))
     ordered_groups = [
         {
-            "group_id": group["group_id"],
+            "group_id": f"g{index:02d}",
             "topic_label": group["topic_label"],
             "block_indices": group["block_indices"],
         }
-        for group in groups_by_id.values()
+        for index, group in enumerate(groups_by_key.values(), start=1)
     ]
     return {
         "packet_id": shard_id,
@@ -260,8 +318,9 @@ def _normalize_frozen_rows_by_block_index(
         normalized_row = {"block_index": block_index}
         if row.get("category") is not None:
             normalized_row["category"] = str(row.get("category") or "").strip()
-        if row.get("group_id") is not None:
-            normalized_row["group_id"] = str(row.get("group_id") or "").strip()
+        group_key = _pass2_group_key_from_row(row)
+        if group_key:
+            normalized_row["group_key"] = group_key
         if row.get("topic_label") is not None:
             normalized_row["topic_label"] = str(row.get("topic_label") or "").strip()
         normalized[block_index] = normalized_row
@@ -271,14 +330,13 @@ def _normalize_frozen_rows_by_block_index(
 def _pass1_input_rows_by_block_index(
     input_payload: Mapping[str, Any],
 ) -> dict[int, dict[str, Any]]:
-    return {
-        int(block.get("i")): {
-            "block_index": int(block.get("i")),
-            "text": str(block.get("t") or "").strip(),
-        }
-        for block in _input_blocks(input_payload)
-        if block.get("i") is not None
-    }
+    rows_by_block_index: dict[int, dict[str, Any]] = {}
+    for block in _input_blocks(input_payload):
+        row = _pass1_row_from_input_block(block)
+        if row is None:
+            continue
+        rows_by_block_index[int(row["block_index"])] = row
+    return rows_by_block_index
 
 
 def _pass2_input_rows_by_block_index(
@@ -287,14 +345,15 @@ def _pass2_input_rows_by_block_index(
     rows = pass2_input_payload.get("rows")
     if not isinstance(rows, list):
         rows = []
-    return {
-        int(row.get("block_index")): {
-            "block_index": int(row.get("block_index")),
-            "text": str(row.get("text") or "").strip(),
-        }
-        for row in rows
-        if isinstance(row, Mapping) and row.get("block_index") is not None
-    }
+    rows_by_block_index: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        projected = _pass2_row_from_input_row(row)
+        if projected is None:
+            continue
+        rows_by_block_index[int(projected["block_index"])] = projected
+    return rows_by_block_index
 
 
 def _resolved_unresolved_block_indices(
@@ -328,7 +387,7 @@ def _merge_frozen_rows_by_block_index(
         merged[block_index] = {
             key: value
             for key, value in dict(row).items()
-            if key in {"block_index", "category", "group_id", "topic_label"}
+            if key in {"block_index", "category", "group_key", "topic_label"}
         }
         merged[block_index]["block_index"] = block_index
     return [merged[block_index] for block_index in sorted(merged)]
@@ -545,7 +604,7 @@ def validate_pass2_work_ledger(
         return ("rows_not_list",), metadata
     actual_indices: list[int] = []
     errors: list[str] = []
-    group_id_to_topic: dict[str, str] = {}
+    group_key_to_topic: dict[str, str] = {}
     invalid_block_indices: list[int] = []
     unresolved_block_indices: set[int] = set()
     row_error_map: dict[int, list[str]] = {}
@@ -563,16 +622,16 @@ def validate_pass2_work_ledger(
         block_index = int(row.get("block_index"))
         actual_indices.append(block_index)
         row_errors: list[str] = []
-        group_id = str(row.get("group_id") or "").strip()
+        group_key = _pass2_group_key_from_row(row)
         topic_label = str(row.get("topic_label") or "").strip()
-        if not group_id or not topic_label:
+        if not group_key or not topic_label:
             row_errors.append("knowledge_block_missing_group")
-        previous_topic = group_id_to_topic.get(group_id)
-        if group_id and previous_topic is None:
-            group_id_to_topic[group_id] = topic_label
-        elif group_id and previous_topic != topic_label:
+        previous_topic = group_key_to_topic.get(group_key)
+        if group_key and previous_topic is None:
+            group_key_to_topic[group_key] = topic_label
+        elif group_key and previous_topic != topic_label:
             row_errors.append("knowledge_block_group_conflict")
-            metadata.setdefault("group_id_topic_conflicts", []).append(group_id)
+            metadata.setdefault("group_key_topic_conflicts", []).append(group_key)
         if block_index in seen_block_indices:
             duplicate_block_indices.add(block_index)
             row_errors.append("duplicate_block_index")
@@ -584,7 +643,7 @@ def validate_pass2_work_ledger(
         parsed_rows.append(
             {
                 "block_index": block_index,
-                "group_id": group_id,
+                "group_key": group_key,
                 "topic_label": topic_label,
             }
         )
@@ -633,7 +692,8 @@ def validate_pass2_work_ledger(
             continue
         accepted_block_indices.append(expected_block_index)
         accepted_rows.append(dict(parsed_row))
-    metadata["group_ids"] = sorted(group_id_to_topic)
+    metadata["group_keys"] = sorted(group_key_to_topic)
+    metadata["group_ids"] = list(metadata["group_keys"])
     metadata["accepted_block_indices"] = accepted_block_indices
     metadata["accepted_rows"] = accepted_rows
     metadata["row_errors_by_block_index"] = {
@@ -671,15 +731,18 @@ def render_knowledge_current_phase_brief(
     if str(phase_row.get("phase") or "").strip() == "pass1":
         lines.extend(
             [
-                "Pass 1 contract: return one row per owned block with `knowledge` or `other`.",
-                "Do not create topic labels or group ids in Pass 1.",
+                "Pass 1 contract: make the first-authority semantic judgment on the owned rows.",
+                "The repo does not know the `knowledge` versus `other` answer ahead of time.",
+                "Each work row carries raw block text plus mechanical truth; fill only `category` with `knowledge` or `other`.",
+                "Do not create topic labels or grouping keys in Pass 1.",
             ]
         )
     else:
         lines.extend(
             [
-                "Pass 2 contract: return one row per kept knowledge block with `group_id` and `topic_label`.",
-                "Use the same `group_id` on blocks that belong in the same knowledge group.",
+                "Pass 2 contract: continue from the accepted Pass 1 knowledge rows only.",
+                "Assign each kept row a non-empty local `group_key` and `topic_label`.",
+                "Use the same `group_key` on rows that belong in the same idea group; the repo will canonicalize final `group_id` values later.",
             ]
         )
     lines.extend(
@@ -832,22 +895,68 @@ def input_blocks(input_payload):
     return [dict(block) for block in blocks if isinstance(block, dict)]
 
 
+def truth_row_from_input_block(block):
+    if block.get("i") is None:
+        return None
+    row = {{
+        "block_index": int(block.get("i")),
+        "text": str(block.get("t") or "").strip(),
+    }}
+    if block.get("hl") is not None:
+        row["heading_level"] = block.get("hl")
+    if isinstance(block.get("th"), dict):
+        row["table_hint"] = dict(block["th"])
+    return row
+
+
+def build_pass1_row(block):
+    truth_row = truth_row_from_input_block(block)
+    if truth_row is None:
+        return None
+    return {{
+        **truth_row,
+        "category": "",
+    }}
+
+
+def pass2_group_key(row):
+    return str(row.get("group_key") or row.get("group_id") or "").strip()
+
+
+def build_pass2_row(row):
+    if row.get("block_index") is None:
+        return None
+    projected = {{
+        "block_index": int(row.get("block_index")),
+        "category": "knowledge",
+        "text": str(row.get("text") or "").strip(),
+        "group_key": "",
+        "topic_label": "",
+    }}
+    if row.get("heading_level") is not None:
+        projected["heading_level"] = row.get("heading_level")
+    if isinstance(row.get("table_hint"), dict):
+        projected["table_hint"] = dict(row["table_hint"])
+    return projected
+
+
 def build_pass1_seed(input_payload):
     return {{
         "phase": "pass1",
         "rows": [
-            {{"block_index": int(block.get("i")), "category": "other"}}
-            for block in input_blocks(input_payload)
-            if block.get("i") is not None
+            row
+            for row in (build_pass1_row(block) for block in input_blocks(input_payload))
+            if row is not None
         ],
     }}
 
 def build_pass2_input(input_payload, pass1_payload):
-    text_by_index = {{
-        int(block.get("i")): str(block.get("t") or "").strip()
-        for block in input_blocks(input_payload)
-        if block.get("i") is not None
-    }}
+    rows_by_index = {{}}
+    for block in input_blocks(input_payload):
+        truth_row = truth_row_from_input_block(block)
+        if truth_row is None:
+            continue
+        rows_by_index[int(truth_row["block_index"])] = truth_row
     kept = [
         int(row.get("block_index"))
         for row in (pass1_payload.get("rows") or [])
@@ -856,7 +965,21 @@ def build_pass2_input(input_payload, pass1_payload):
     return {{
         "phase": "pass2",
         "rows": [
-            {{"block_index": block_index, "text": text_by_index.get(block_index, "")}}
+            {{
+                "block_index": block_index,
+                "category": "knowledge",
+                "text": str(rows_by_index.get(block_index, {{}}).get("text") or ""),
+                **(
+                    {{"heading_level": rows_by_index[block_index]["heading_level"]}}
+                    if rows_by_index.get(block_index, {{}}).get("heading_level") is not None
+                    else {{}}
+                ),
+                **(
+                    {{"table_hint": dict(rows_by_index[block_index]["table_hint"])}}
+                    if isinstance(rows_by_index.get(block_index, {{}}).get("table_hint"), dict)
+                    else {{}}
+                ),
+            }}
             for block_index in kept
         ],
     }}
@@ -869,13 +992,13 @@ def build_pass2_seed(pass2_input_payload):
     return {{
         "phase": "pass2",
         "rows": [
-            {{
-                "block_index": int(row.get("block_index")),
-                "group_id": f"g{{index:02d}}",
-                "topic_label": "",
-            }}
-            for index, row in enumerate(rows, start=1)
-            if isinstance(row, dict) and row.get("block_index") is not None
+            projected
+            for projected in (
+                build_pass2_row(row)
+                for row in rows
+                if isinstance(row, dict)
+            )
+            if projected is not None
         ],
     }}
 
@@ -898,8 +1021,9 @@ def normalize_frozen_rows(frozen_rows):
         normalized_row = {{"block_index": block_index}}
         if row.get("category") is not None:
             normalized_row["category"] = str(row.get("category") or "").strip()
-        if row.get("group_id") is not None:
-            normalized_row["group_id"] = str(row.get("group_id") or "").strip()
+        group_key = pass2_group_key(row)
+        if group_key:
+            normalized_row["group_key"] = group_key
         if row.get("topic_label") is not None:
             normalized_row["topic_label"] = str(row.get("topic_label") or "").strip()
         normalized[block_index] = normalized_row
@@ -915,8 +1039,9 @@ def merge_frozen_rows(frozen_rows, accepted_rows):
         normalized_row = {{"block_index": block_index}}
         if row.get("category") is not None:
             normalized_row["category"] = str(row.get("category") or "").strip()
-        if row.get("group_id") is not None:
-            normalized_row["group_id"] = str(row.get("group_id") or "").strip()
+        group_key = pass2_group_key(row)
+        if group_key:
+            normalized_row["group_key"] = group_key
         if row.get("topic_label") is not None:
             normalized_row["topic_label"] = str(row.get("topic_label") or "").strip()
         merged[block_index] = normalized_row
@@ -924,28 +1049,28 @@ def merge_frozen_rows(frozen_rows, accepted_rows):
 
 
 def pass1_input_rows_by_block_index(input_payload):
-    return {{
-        int(block.get("i")): {{
-            "block_index": int(block.get("i")),
-            "text": str(block.get("t") or "").strip(),
-        }}
-        for block in input_blocks(input_payload)
-        if block.get("i") is not None
-    }}
+    rows_by_block_index = {{}}
+    for block in input_blocks(input_payload):
+        row = build_pass1_row(block)
+        if row is None:
+            continue
+        rows_by_block_index[int(row["block_index"])] = row
+    return rows_by_block_index
 
 
 def pass2_input_rows_by_block_index(pass2_input_payload):
     rows = pass2_input_payload.get("rows")
     if not isinstance(rows, list):
         rows = []
-    return {{
-        int(row.get("block_index")): {{
-            "block_index": int(row.get("block_index")),
-            "text": str(row.get("text") or "").strip(),
-        }}
-        for row in rows
-        if isinstance(row, dict) and row.get("block_index") is not None
-    }}
+    rows_by_block_index = {{}}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        projected = build_pass2_row(row)
+        if projected is None:
+            continue
+        rows_by_block_index[int(projected["block_index"])] = projected
+    return rows_by_block_index
 
 
 def resolved_unresolved_block_indices(metadata):
@@ -1146,7 +1271,7 @@ def validate_pass2(pass2_input_payload, payload, *, frozen_rows_by_block_index=N
     if not isinstance(rows, list):
         return ["rows_not_list"], metadata
     actual = []
-    group_id_to_topic = {{}}
+    group_key_to_topic = {{}}
     errors = []
     invalid = []
     unresolved = set()
@@ -1163,16 +1288,16 @@ def validate_pass2(pass2_input_payload, payload, *, frozen_rows_by_block_index=N
         block_index = int(row.get("block_index"))
         actual.append(block_index)
         row_errors = []
-        group_id = str(row.get("group_id") or "").strip()
+        group_key = pass2_group_key(row)
         topic_label = str(row.get("topic_label") or "").strip()
-        if not group_id or not topic_label:
+        if not group_key or not topic_label:
             row_errors.append("knowledge_block_missing_group")
-        previous = group_id_to_topic.get(group_id)
-        if group_id and previous is None:
-            group_id_to_topic[group_id] = topic_label
-        elif group_id and previous != topic_label:
+        previous = group_key_to_topic.get(group_key)
+        if group_key and previous is None:
+            group_key_to_topic[group_key] = topic_label
+        elif group_key and previous != topic_label:
             row_errors.append("knowledge_block_group_conflict")
-            metadata.setdefault("group_id_topic_conflicts", []).append(group_id)
+            metadata.setdefault("group_key_topic_conflicts", []).append(group_key)
         if block_index in seen:
             duplicates.add(block_index)
             row_errors.append("duplicate_block_index")
@@ -1184,7 +1309,7 @@ def validate_pass2(pass2_input_payload, payload, *, frozen_rows_by_block_index=N
         parsed_rows.append(
             {{
                 "block_index": block_index,
-                "group_id": group_id,
+                "group_key": group_key,
                 "topic_label": topic_label,
             }}
         )
@@ -1233,6 +1358,8 @@ def validate_pass2(pass2_input_payload, payload, *, frozen_rows_by_block_index=N
         accepted_rows.append(dict(parsed_row))
     metadata["accepted_block_indices"] = accepted_block_indices
     metadata["accepted_rows"] = accepted_rows
+    metadata["group_keys"] = sorted(group_key_to_topic)
+    metadata["group_ids"] = list(metadata["group_keys"])
     metadata["row_errors_by_block_index"] = {{
         str(block_index): sorted(set(row_errors))
         for block_index, row_errors in sorted(row_error_map.items())
@@ -1262,13 +1389,16 @@ def render_phase_brief(phase_row):
     ]
     if str(phase_row.get("phase") or "").strip() == "pass1":
         lines.extend([
-            "Pass 1 contract: return one row per owned block with `knowledge` or `other`.",
-            "Do not create topic labels or group ids in Pass 1.",
+            "Pass 1 contract: make the first-authority semantic judgment on the owned rows.",
+            "The repo does not know the `knowledge` versus `other` answer ahead of time.",
+            "Each work row carries raw block text plus mechanical truth; fill only `category` with `knowledge` or `other`.",
+            "Do not create topic labels or grouping keys in Pass 1.",
         ])
     else:
         lines.extend([
-            "Pass 2 contract: return one row per kept knowledge block with `group_id` and `topic_label`.",
-            "Use the same `group_id` on blocks that belong in the same knowledge group.",
+            "Pass 2 contract: continue from the accepted Pass 1 knowledge rows only.",
+            "Assign each kept row a non-empty local `group_key` and `topic_label`.",
+            "Use the same `group_key` on rows that belong in the same idea group; the repo will canonicalize final `group_id` values later.",
         ])
     return "\\n".join(lines) + "\\n"
 
@@ -1362,6 +1492,7 @@ def write_phase_surface(
 
 def ensure_pass1_work(phase_row):
     work_path = workspace_root() / str(phase_row.get("work_path") or "")
+    expected_seed = build_pass1_seed(load_phase_input(phase_row))
     if work_path.exists():
         try:
             existing_payload = load_json(work_path)
@@ -1372,10 +1503,96 @@ def ensure_pass1_work(phase_row):
             and str(existing_payload.get("phase") or "").strip() == "pass1"
             and isinstance(existing_payload.get("rows"), list)
         ):
-            return
-        save_json(work_path, build_pass1_seed(load_phase_input(phase_row)))
+            existing_rows = existing_payload.get("rows") or []
+            expected_rows_by_block_index = {{
+                int(row["block_index"]): dict(row)
+                for row in expected_seed["rows"]
+                if row.get("block_index") is not None
+            }}
+            migrated_rows = []
+            for existing_row in existing_rows:
+                if not isinstance(existing_row, dict):
+                    migrated_rows = []
+                    break
+                try:
+                    block_index = int(existing_row.get("block_index"))
+                except (TypeError, ValueError):
+                    migrated_rows = []
+                    break
+                migrated_row = dict(
+                    expected_rows_by_block_index.get(
+                        block_index,
+                        {{
+                            "block_index": block_index,
+                            "text": "",
+                            "category": "",
+                        }},
+                    )
+                )
+                if existing_row.get("category") is not None:
+                    migrated_row["category"] = str(existing_row.get("category") or "").strip()
+                migrated_rows.append(migrated_row)
+            if migrated_rows:
+                save_json(work_path, {{"phase": "pass1", "rows": migrated_rows}})
+                return
+        save_json(work_path, expected_seed)
         return
-    save_json(work_path, build_pass1_seed(load_phase_input(phase_row)))
+    save_json(work_path, expected_seed)
+
+
+def ensure_pass2_work(phase_row):
+    work_path = workspace_root() / str(phase_row.get("work_path") or "")
+    expected_seed = build_pass2_seed(load_phase_input(phase_row))
+    if work_path.exists():
+        try:
+            existing_payload = load_json(work_path)
+        except Exception:
+            existing_payload = None
+        if (
+            isinstance(existing_payload, dict)
+            and str(existing_payload.get("phase") or "").strip() == "pass2"
+            and isinstance(existing_payload.get("rows"), list)
+        ):
+            existing_rows = existing_payload.get("rows") or []
+            expected_rows_by_block_index = {{
+                int(row["block_index"]): dict(row)
+                for row in expected_seed["rows"]
+                if row.get("block_index") is not None
+            }}
+            migrated_rows = []
+            for existing_row in existing_rows:
+                if not isinstance(existing_row, dict):
+                    migrated_rows = []
+                    break
+                try:
+                    block_index = int(existing_row.get("block_index"))
+                except (TypeError, ValueError):
+                    migrated_rows = []
+                    break
+                migrated_row = dict(
+                    expected_rows_by_block_index.get(
+                        block_index,
+                        {{
+                            "block_index": block_index,
+                            "category": "knowledge",
+                            "text": "",
+                            "group_key": "",
+                            "topic_label": "",
+                        }},
+                    )
+                )
+                group_key = pass2_group_key(existing_row)
+                if group_key:
+                    migrated_row["group_key"] = group_key
+                if existing_row.get("topic_label") is not None:
+                    migrated_row["topic_label"] = str(existing_row.get("topic_label") or "").strip()
+                migrated_rows.append(migrated_row)
+            if migrated_rows:
+                save_json(work_path, {{"phase": "pass2", "rows": migrated_rows}})
+                return
+        save_json(work_path, expected_seed)
+        return
+    save_json(work_path, expected_seed)
 
 
 def build_final_output(phase_row, pass1_payload, pass2_payload):
@@ -1393,23 +1610,30 @@ def build_final_output(phase_row, pass1_payload, pass2_payload):
         for row in (pass1_payload.get("rows") or [])
         if isinstance(row, dict) and row.get("block_index") is not None
     ]
-    groups_by_id = {{}}
+    groups_by_key = {{}}
     for row in (pass2_payload.get("rows") or []):
         if not isinstance(row, dict) or row.get("block_index") is None:
             continue
-        group_id = str(row.get("group_id") or "").strip()
+        group_key = pass2_group_key(row)
         topic_label = str(row.get("topic_label") or "").strip()
-        if not group_id or not topic_label:
+        if not group_key or not topic_label:
             continue
-        group = groups_by_id.setdefault(
-            group_id,
-            {{"group_id": group_id, "topic_label": topic_label, "block_indices": []}},
+        group = groups_by_key.setdefault(
+            group_key,
+            {{"group_key": group_key, "topic_label": topic_label, "block_indices": []}},
         )
         group["block_indices"].append(int(row.get("block_index")))
     return {{
         "packet_id": shard_id,
         "block_decisions": decisions,
-        "idea_groups": list(groups_by_id.values()),
+        "idea_groups": [
+            {{
+                "group_id": f"g{{index:02d}}",
+                "topic_label": group["topic_label"],
+                "block_indices": group["block_indices"],
+            }}
+            for index, group in enumerate(groups_by_key.values(), start=1)
+        ],
     }}
 
 
@@ -1450,9 +1674,7 @@ def scaffold_current_phase():
     if str(phase_row.get("phase") or "").strip() == "pass1":
         ensure_pass1_work(phase_row)
     else:
-        work_path = workspace_root() / str(phase_row.get("work_path") or "")
-        if not work_path.exists():
-            save_json(work_path, build_pass2_seed(load_phase_input(phase_row)))
+        ensure_pass2_work(phase_row)
     print(str(phase_row.get("work_path") or ""))
     return 0
 
@@ -1467,6 +1689,8 @@ def check_current_phase():
         return 0
     if str(phase_row.get("phase") or "").strip() == "pass1":
         ensure_pass1_work(phase_row)
+    else:
+        ensure_pass2_work(phase_row)
     work_payload = load_phase_work(phase_row)
     input_payload = load_phase_input(phase_row)
     frozen_rows = phase_row.get("frozen_rows")

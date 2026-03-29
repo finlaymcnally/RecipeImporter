@@ -68,8 +68,10 @@ def test_worker_prompt_describes_phase_contract() -> None:
         "Open `in/<shard_id>.json` only when the phase brief, feedback, hint, and active work ledger are still insufficient."
         in prompt
     )
-    assert "Pass 1 is block-local classification only" in prompt
-    assert "Pass 2 runs only after Pass 1 installs" in prompt
+    assert "Pass 1 is your first-authority semantic judgment" in prompt
+    assert "The repo does not know the `knowledge` versus `other` answer ahead of time." in prompt
+    assert "Pass 2 runs only after Pass 1 installs, and it continues from the accepted Pass 1 knowledge rows" in prompt
+    assert "assign a non-empty local `group_key` plus `topic_label`" in prompt
     assert "python3 tools/knowledge_worker.py check-phase" in prompt
     assert "python3 tools/knowledge_worker.py install-phase" in prompt
     assert (
@@ -84,7 +86,7 @@ def test_worker_prompt_describes_phase_contract() -> None:
     assert "snippets" not in prompt
 
 
-def test_knowledge_worker_hint_includes_profile_examples_and_attention_rows(
+def test_knowledge_worker_hint_stays_compact_and_keeps_high_signal_sections(
     tmp_path: Path,
 ) -> None:
     hint_path = tmp_path / "hint.md"
@@ -116,12 +118,17 @@ def test_knowledge_worker_hint_includes_profile_examples_and_attention_rows(
     rendered = hint_path.read_text(encoding="utf-8")
 
     assert "## Shard profile" in rendered
+    assert "## Shard interpretation" in rendered
     assert "## Decision policy" in rendered
     assert "## Shard examples" in rendered
     assert "## Attention rows" in rendered
+    assert "## How to use this task" not in rendered
+    assert "## Packet summary" not in rendered
     assert "`examples/valid_heading_with_useful_body_packet.json`" in rendered
+    assert "Nearby recipe guardrail block indices: `2, 3`." in rendered
     assert "gap_from_prev=14" in rendered
     assert "table_hint" in rendered
+    assert rendered.count("## ") == 5
 
 
 def test_knowledge_stage_shared_no_longer_imports_legacy_workspace_helper_surface() -> None:

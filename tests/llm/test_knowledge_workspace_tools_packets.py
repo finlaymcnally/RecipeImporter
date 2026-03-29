@@ -56,7 +56,13 @@ def test_pass1_and_pass2_ledgers_round_trip_into_final_output() -> None:
     pass2 = {
         "phase": "pass2",
         "rows": [
-            {"block_index": 8, "group_id": "g01", "topic_label": "Heat control"},
+            {
+                "block_index": 8,
+                "category": "knowledge",
+                "text": "Use low heat and whisk steadily.",
+                "group_key": "heat-control",
+                "topic_label": "Heat control",
+            },
         ],
     }
     final_output = build_final_output(
@@ -67,7 +73,13 @@ def test_pass1_and_pass2_ledgers_round_trip_into_final_output() -> None:
 
     assert pass2_input == {
         "phase": "pass2",
-        "rows": [{"block_index": 8, "text": "Use low heat and whisk steadily."}],
+        "rows": [
+            {
+                "block_index": 8,
+                "category": "knowledge",
+                "text": "Use low heat and whisk steadily.",
+            }
+        ],
     }
     assert final_output == {
         "packet_id": "book.ks0000.nr",
@@ -117,11 +129,12 @@ def test_render_knowledge_phase_sidecars_reference_current_phase_loop() -> None:
     brief = render_knowledge_current_phase_brief(phase_row)
     feedback = render_knowledge_current_phase_feedback(phase_row=phase_row)
 
-    assert "Pass 1 contract" in brief
+    assert "first-authority semantic judgment" in brief
     assert "Active work ledger: `work/book.ks0000.nr.pass1.json`" in brief
     assert "Preferred loop" in brief
     assert "Open `hints/book.ks0000.nr.md` before `in/book.ks0000.nr.json`." in brief
     assert "Open `in/book.ks0000.nr.json` only if the phase brief, feedback, hint, and work ledger are still insufficient." in brief
+    assert "The repo does not know the `knowledge` versus `other` answer ahead of time." in brief
     assert "python3 tools/knowledge_worker.py check-phase" in brief
     assert "Next command: `python3 tools/knowledge_worker.py install-phase`." in feedback
     assert "Install target" in feedback
@@ -163,24 +176,44 @@ def test_generated_knowledge_worker_script_uses_phase_contract() -> None:
     assert "idea_groups" in script
 
 
-def test_build_pass2_work_ledger_scaffolds_one_row_per_kept_block() -> None:
+def test_build_pass2_work_ledger_carries_forward_kept_rows_without_final_ids() -> None:
     payload = build_pass2_work_ledger(
-        {"phase": "pass2", "rows": [{"block_index": 4, "text": "Whisk"}, {"block_index": 5, "text": "Rest"}]}
+        {
+            "phase": "pass2",
+            "rows": [
+                {"block_index": 4, "category": "knowledge", "text": "Whisk"},
+                {"block_index": 5, "category": "knowledge", "text": "Rest"},
+            ],
+        }
     )
 
     assert payload["phase"] == "pass2"
-    assert [row["block_index"] for row in payload["rows"]] == [4, 5]
-    assert [row["group_id"] for row in payload["rows"]] == ["g01", "g02"]
+    assert payload["rows"] == [
+        {
+            "block_index": 4,
+            "category": "knowledge",
+            "text": "Whisk",
+            "group_key": "",
+            "topic_label": "",
+        },
+        {
+            "block_index": 5,
+            "category": "knowledge",
+            "text": "Rest",
+            "group_key": "",
+            "topic_label": "",
+        },
+    ]
 
 
-def test_build_pass1_work_ledger_scaffolds_one_row_per_owned_block() -> None:
+def test_build_pass1_work_ledger_scaffolds_raw_owned_rows_without_semantic_default() -> None:
     payload = build_pass1_work_ledger({"b": [{"i": 4, "t": "Whisk"}, {"i": 5, "t": "Rest"}]})
 
     assert payload == {
         "phase": "pass1",
         "rows": [
-            {"block_index": 4, "category": "other"},
-            {"block_index": 5, "category": "other"},
+            {"block_index": 4, "text": "Whisk", "category": ""},
+            {"block_index": 5, "text": "Rest", "category": ""},
         ],
     }
 
@@ -263,7 +296,13 @@ def test_generated_knowledge_worker_script_round_trips_pass1_to_pass2_same_sessi
         (workspace_root / "in" / "book.ks0000.nr.pass2.json").read_text(encoding="utf-8")
     ) == {
         "phase": "pass2",
-        "rows": [{"block_index": 11, "text": "Use low heat and whisk steadily."}],
+        "rows": [
+            {
+                "block_index": 11,
+                "category": "knowledge",
+                "text": "Use low heat and whisk steadily.",
+            }
+        ],
     }
     assert json.loads(
         (workspace_root / "current_phase.json").read_text(encoding="utf-8")
@@ -274,7 +313,13 @@ def test_generated_knowledge_worker_script_round_trips_pass1_to_pass2_same_sessi
         {
             "phase": "pass2",
             "rows": [
-                {"block_index": 11, "group_id": "g01", "topic_label": "Heat control"},
+                {
+                    "block_index": 11,
+                    "category": "knowledge",
+                    "text": "Use low heat and whisk steadily.",
+                    "group_key": "heat-control",
+                    "topic_label": "Heat control",
+                },
             ],
         },
     )
@@ -391,8 +436,8 @@ def test_generated_knowledge_worker_script_names_rows_for_order_only_mismatches(
     assert check_result.returncode == 1
     assert repair_payload["unresolved_block_indices"] == [4, 5]
     assert repair_payload["rows"] == [
-        {"block_index": 4, "text": "Whisk."},
-        {"block_index": 5, "text": "Rest."},
+        {"block_index": 4, "text": "Whisk.", "category": ""},
+        {"block_index": 5, "text": "Rest.", "category": ""},
     ]
 
 
@@ -431,8 +476,8 @@ def test_generated_knowledge_worker_script_reseeds_invalid_pass1_shape(
     assert reseeded_payload == {
         "phase": "pass1",
         "rows": [
-            {"block_index": 4, "category": "other"},
-            {"block_index": 5, "category": "other"},
+            {"block_index": 4, "text": "Whisk.", "category": ""},
+            {"block_index": 5, "text": "Rest.", "category": ""},
         ],
     }
-    assert check_result.returncode == 0, check_result.stderr or check_result.stdout
+    assert check_result.returncode == 1
