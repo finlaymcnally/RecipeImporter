@@ -115,6 +115,7 @@ def _build_line_role_canonical_plans(
         codex_batch_size=codex_batch_size,
         total_candidates=len(ordered_candidates),
     )
+    by_atomic_index = build_atomic_index_lookup(ordered_candidates)
     book_context = _build_line_role_book_context(candidates=ordered_candidates)
     prompt_format = _resolve_line_role_prompt_format()
     plans: list[_LineRoleShardPlan] = []
@@ -141,6 +142,7 @@ def _build_line_role_canonical_plans(
             shard_id=shard_id,
             candidates=shard_candidates,
             deterministic_baseline=deterministic_baseline,
+            by_atomic_index=by_atomic_index,
             book_context=book_context,
         )
         manifest_entry = ShardManifestEntryV1(
@@ -156,6 +158,7 @@ def _build_line_role_canonical_plans(
                 candidates=shard_candidates,
                 deterministic_baseline=deterministic_baseline,
                 debug_rows=list(debug_input_payload.get("rows") or []),
+                by_atomic_index=by_atomic_index,
                 book_context=book_context,
             ),
             metadata={

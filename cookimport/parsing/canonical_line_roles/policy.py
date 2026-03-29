@@ -118,6 +118,7 @@ def build_line_role_debug_input_payload(
     shard_id: str,
     candidates: Sequence[AtomicLineCandidate],
     deterministic_baseline: Mapping[int, CanonicalLineRolePrediction],
+    by_atomic_index: Mapping[int, AtomicLineCandidate] | None = None,
     book_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     rows = [
@@ -137,12 +138,25 @@ def build_line_role_debug_input_payload(
         rows=rows,
         book_context=book_context,
     )
-    return {
+    payload = {
         "shard_id": shard_id,
         "phase_key": "line_role",
         **shard_context,
         "rows": rows,
     }
+    context_before_candidate, context_after_candidate = _build_line_role_boundary_context_candidates(
+        candidates=candidates,
+        by_atomic_index=by_atomic_index,
+    )
+    if context_before_candidate is not None:
+        payload["context_before_rows"] = [
+            serialize_line_role_debug_context_row(candidate=context_before_candidate)
+        ]
+    if context_after_candidate is not None:
+        payload["context_after_rows"] = [
+            serialize_line_role_debug_context_row(candidate=context_after_candidate)
+        ]
+    return payload
 
 
 def build_line_role_model_input_payload(
@@ -151,6 +165,7 @@ def build_line_role_model_input_payload(
     candidates: Sequence[AtomicLineCandidate],
     deterministic_baseline: Mapping[int, CanonicalLineRolePrediction],
     debug_rows: Sequence[Mapping[str, Any]] | None = None,
+    by_atomic_index: Mapping[int, AtomicLineCandidate] | None = None,
     book_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     label_code_by_label = build_line_role_label_code_by_label(FREEFORM_LABELS)
@@ -158,7 +173,7 @@ def build_line_role_model_input_payload(
         rows=debug_rows or (),
         book_context=book_context,
     )
-    return {
+    payload = {
         "v": _LINE_ROLE_MODEL_PAYLOAD_VERSION,
         "shard_id": shard_id,
         **shard_context,
@@ -175,6 +190,35 @@ def build_line_role_model_input_payload(
             for candidate in candidates
         ],
     }
+    context_before_candidate, context_after_candidate = _build_line_role_boundary_context_candidates(
+        candidates=candidates,
+        by_atomic_index=by_atomic_index,
+    )
+    if context_before_candidate is not None:
+        payload["context_before_rows"] = [
+            serialize_line_role_model_context_row(candidate=context_before_candidate)
+        ]
+    if context_after_candidate is not None:
+        payload["context_after_rows"] = [
+            serialize_line_role_model_context_row(candidate=context_after_candidate)
+        ]
+    return payload
+
+
+def _build_line_role_boundary_context_candidates(
+    *,
+    candidates: Sequence[AtomicLineCandidate],
+    by_atomic_index: Mapping[int, AtomicLineCandidate] | None = None,
+) -> tuple[AtomicLineCandidate | None, AtomicLineCandidate | None]:
+    if not candidates:
+        return None, None
+    resolved_lookup = by_atomic_index or build_atomic_index_lookup(candidates)
+    first_atomic_index = int(candidates[0].atomic_index)
+    last_atomic_index = int(candidates[-1].atomic_index)
+    return (
+        resolved_lookup.get(first_atomic_index - 1),
+        resolved_lookup.get(last_atomic_index + 1),
+    )
 
 
 def _build_line_role_shard_context(

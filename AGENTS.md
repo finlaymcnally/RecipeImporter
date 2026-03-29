@@ -6,34 +6,24 @@ You will frequently encounter changes to the workspace not made by you. That is 
 
 All timestamps for files and such should be: YYYY-MM-DD_HH.MM.SS
 
+## Processing logic, LLM vs derministic
+  - Deterministic code should package evidence.
+  - LLMs should make fuzzy semantic calls.
+  - Deterministic code should validate outputs and keep authority boundaries clean.
+  - Deterministic code should not try to “get smarter” about ambiguous cookbook semantics. IT IS VERY, VERY BAD AT THIS.
+
 ## DOCUMENTATION
 Update Agents.md files (at any level) only when ABSOLUTELY NEEDED ONLY. Agents.md precious, instructions only.
 
 When you build stuff, leave a small relevant note in the folder explaining how it works. very short. if there is already documentation present, update as needed, very short.
 
-Start: run docs list (`npm run docs:list`, or `bin/docs-list` here if present; ignore if not installed); open docs before coding.
+Start: run docs list (`npm run docs:list`); open relevant docs before coding.
 Follow links until domain makes sense; honor Read when hints.
 Keep notes short; update docs when behavior/API changes (no ship w/o docs).
 Add read_when hints on cross-cutting docs.
 
-
-
-## A DOCUMENTATION GOAL:
-Documentation should be prepared as something is build. It should be context for Reviewers: When reviewer open a Pull Request, the documentation changes serve as excellent context for  reviewers. 
-REMEMBER AGENTS.md SPACE IS VERY PRECIOUS and anything that can be written elsewhere always should be. 
-
 # ExecPlans
 When writing complex features or significant refactors, use an ExecPlan (as described in docs/PLANS.md) from design to implementation. Save exec plans to /docs/plans/. - do a filename with a timestamp + descriptive short title, be consistent with other files in folder. REMEMBER TO UPDATE THE EXECPLAN YOU ARE WORKING OUT OF. BY THE TIME IT IS FULLY IMPLEMENTED, THE EXECPLAN SHOULD JUST BE A DOCUMENT THAT EXPLAINS HOW IT WORKS AND KEY CHOICES/DESIGN.
-
-# Speed Regression
-When touching runtime performance, use `cookimport bench speed-discover`, `cookimport bench speed-run`, and `cookimport bench speed-compare` for baseline-vs-candidate checks (default gold source: `data/golden/pulled-from-labelstudio`).
-
-# input file folder: 
-/recipeimport/data/input
-
-# output file folder: 
-/recipeimport/data/output
-
 
 ## Python
 Always run tests inside a project-local virtual environment.

@@ -57,7 +57,11 @@ from cookimport.parsing.canonical_line_roles import (
     build_line_role_model_input_payload,
 )
 from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel, RecipeSpan
-from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
+from cookimport.parsing.recipe_block_atomizer import (
+    AtomicLineCandidate,
+    atomize_blocks,
+    build_atomic_index_lookup,
+)
 from cookimport.staging.nonrecipe_seed import normalize_nonrecipe_stage_category
 from cookimport.staging.nonrecipe_stage import build_nonrecipe_stage_result
 
@@ -790,6 +794,7 @@ def _build_line_role_preview_rows(
         labeled_line_rows=context.labeled_line_rows,
         atomic_block_splitter=atomic_block_splitter,
     )
+    by_atomic_index = build_atomic_index_lookup(candidates)
     rows: list[dict[str, Any]] = []
     deterministic_labels_by_atomic_index = _line_role_preview_deterministic_labels(
         labeled_line_rows=context.labeled_line_rows,
@@ -852,11 +857,13 @@ def _build_line_role_preview_rows(
             shard_id=shard_id,
             candidates=batch_candidates,
             deterministic_baseline=deterministic_baseline,
+            by_atomic_index=by_atomic_index,
         )
         debug_payload = build_line_role_debug_input_payload(
             shard_id=shard_id,
             candidates=batch_candidates,
             deterministic_baseline=deterministic_baseline,
+            by_atomic_index=by_atomic_index,
         )
         input_text = json.dumps(shard_payload, ensure_ascii=False, indent=2)
         debug_input_path = debug_in_dir / f"line_role_input_{prompt_index:04d}.json"

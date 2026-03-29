@@ -3434,6 +3434,73 @@ def test_line_role_shard_plans_keep_owned_rows_without_hidden_task_splits() -> N
     assert [row[0] for row in shard_plan.manifest_entry.input_payload["rows"]] == list(range(8))
 
 
+def test_line_role_shard_plans_include_boundary_neighbor_context_when_neighbors_exist() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"Line {index}",
+            within_recipe_span=True,
+            rule_tags=[],
+        )
+        for index in range(9)
+    ]
+    deterministic_baseline = {
+        index: canonical_line_roles_module.CanonicalLineRolePrediction(
+            recipe_id=candidate.recipe_id,
+            block_id=str(candidate.block_id),
+            block_index=int(candidate.block_index),
+            atomic_index=int(candidate.atomic_index),
+            text=str(candidate.text),
+            within_recipe_span=candidate.within_recipe_span,
+            label="OTHER",
+            decided_by="rule",
+            reason_tags=[],
+        )
+        for index, candidate in enumerate(candidates)
+    }
+
+    plans = canonical_line_roles_module._build_line_role_canonical_plans(  # noqa: SLF001
+        ordered_candidates=candidates,
+        deterministic_baseline=deterministic_baseline,
+        settings=_settings(
+            "codex-line-role-shard-v1",
+            line_role_shard_target_lines=3,
+        ),
+        codex_batch_size=3,
+    )
+
+    assert len(plans) == 3
+
+    first_plan = plans[0]
+    assert "context_before_rows" not in first_plan.manifest_entry.input_payload
+    assert first_plan.manifest_entry.input_payload["context_after_rows"] == [[3, "Line 3"]]
+    assert "context_before_rows" not in first_plan.debug_input_payload
+    assert first_plan.debug_input_payload["context_after_rows"] == [
+        {"atomic_index": 3, "current_line": "Line 3"}
+    ]
+
+    middle_plan = plans[1]
+    assert middle_plan.manifest_entry.input_payload["context_before_rows"] == [[2, "Line 2"]]
+    assert middle_plan.manifest_entry.input_payload["context_after_rows"] == [[6, "Line 6"]]
+    assert middle_plan.debug_input_payload["context_before_rows"] == [
+        {"atomic_index": 2, "current_line": "Line 2"}
+    ]
+    assert middle_plan.debug_input_payload["context_after_rows"] == [
+        {"atomic_index": 6, "current_line": "Line 6"}
+    ]
+
+    last_plan = plans[2]
+    assert last_plan.manifest_entry.input_payload["context_before_rows"] == [[5, "Line 5"]]
+    assert "context_after_rows" not in last_plan.manifest_entry.input_payload
+    assert last_plan.debug_input_payload["context_before_rows"] == [
+        {"atomic_index": 5, "current_line": "Line 5"}
+    ]
+    assert "context_after_rows" not in last_plan.debug_input_payload
+
+
 def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> None:
     prompt = build_canonical_line_role_file_prompt(
         input_path=Path("/tmp/line_role_input_0001.json"),
