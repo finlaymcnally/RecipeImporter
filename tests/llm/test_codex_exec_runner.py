@@ -298,7 +298,7 @@ def test_codex_exec_run_result_payload_marks_missing_usage_unavailable() -> None
                 "item": {
                     "id": "item_0",
                     "type": "command_execution",
-                    "command": "/bin/bash -lc 'python3 tools/knowledge_worker.py install-batch'",
+                    "command": "/bin/bash -lc 'python3 tools/knowledge_worker.py install-phase'",
                     "exit_code": 0,
                 },
             },

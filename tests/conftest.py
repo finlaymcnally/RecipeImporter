@@ -80,7 +80,6 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_knowledge_phase_workers_packets.py": ("llm",),
     "test_knowledge_prompt_builder.py": ("llm",),
     "test_knowledge_runtime_replay.py": ("llm",),
-    "test_knowledge_workspace_tools.py": ("llm",),
     "test_knowledge_workspace_tools_packets.py": ("llm",),
     "test_knowledge_writer.py": ("llm",),
     "test_label_phase_workers.py": ("llm", "parsing"),

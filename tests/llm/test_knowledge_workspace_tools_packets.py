@@ -7,7 +7,6 @@ from pathlib import Path
 
 from cookimport.llm.knowledge_phase_workspace_tools import (
     build_final_output,
-    build_knowledge_seed_output,
     build_pass1_semantic_audit,
     build_pass1_work_ledger,
     build_pass2_input_ledger,
@@ -18,24 +17,6 @@ from cookimport.llm.knowledge_phase_workspace_tools import (
     validate_pass1_work_ledger,
     validate_pass2_work_ledger,
 )
-
-
-def test_build_knowledge_seed_output_defaults_every_block_to_other() -> None:
-    payload = build_knowledge_seed_output(
-        {
-            "bid": "book.ks0000.nr",
-            "b": [{"i": 1, "t": "PRAISE"}, {"i": 2, "t": "Use low heat."}],
-        }
-    )
-
-    assert payload == {
-        "packet_id": "book.ks0000.nr",
-        "block_decisions": [
-            {"block_index": 1, "category": "other", "reviewer_category": "other"},
-            {"block_index": 2, "category": "other", "reviewer_category": "other"},
-        ],
-        "idea_groups": [],
-    }
 
 
 def test_pass1_and_pass2_ledgers_round_trip_into_final_output() -> None:

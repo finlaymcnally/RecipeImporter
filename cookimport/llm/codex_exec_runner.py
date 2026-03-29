@@ -36,9 +36,6 @@ _DIRECT_EXEC_SHARDS_DIR_NAME = "shards"
 _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME = "assigned_shards.json"
 _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME = "assigned_tasks.json"
 _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME = "worker_manifest.json"
-_DIRECT_EXEC_CURRENT_BATCH_FILE_NAME = "current_batch.json"
-_DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME = "CURRENT_BATCH.md"
-_DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME = "CURRENT_BATCH_FEEDBACK.md"
 _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME = "current_phase.json"
 _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME = "CURRENT_PHASE.md"
 _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME = "CURRENT_PHASE_FEEDBACK.md"
@@ -65,9 +62,6 @@ _WORKSPACE_ALLOWED_PATH_ROOTS = {
     _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
     _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
     _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
-    _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME,
-    _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME,
-    _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME,
@@ -102,9 +96,6 @@ _WORKSPACE_ALLOWED_TEMP_ROOTS = (
 )
 _DIRECT_EXEC_RUNTIME_CONTROL_PATHS = (
     _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
-    _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME,
-    _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME,
-    _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME,
@@ -1213,9 +1204,6 @@ def build_direct_exec_workspace_manifest(
         "assigned_shards_path": None,
         "assigned_tasks_path": None,
         "worker_manifest_path": None,
-        "current_batch_path": None,
-        "current_batch_brief_path": None,
-        "current_batch_feedback_path": None,
         "current_phase_path": None,
         "current_phase_brief_path": None,
         "current_phase_feedback_path": None,
@@ -1258,15 +1246,6 @@ def build_direct_exec_workspace_manifest(
     worker_manifest_path = execution_root / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME
     if worker_manifest_path.exists():
         payload["worker_manifest_path"] = str(worker_manifest_path)
-    current_batch_path = execution_root / _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME
-    if current_batch_path.exists():
-        payload["current_batch_path"] = str(current_batch_path)
-    current_batch_brief_path = execution_root / _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME
-    if current_batch_brief_path.exists():
-        payload["current_batch_brief_path"] = str(current_batch_brief_path)
-    current_batch_feedback_path = execution_root / _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME
-    if current_batch_feedback_path.exists():
-        payload["current_batch_feedback_path"] = str(current_batch_feedback_path)
     current_phase_path = execution_root / _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME
     if current_phase_path.exists():
         payload["current_phase_path"] = str(current_phase_path)
@@ -1418,18 +1397,6 @@ def _populate_direct_exec_workspace(
         execution_working_dir / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
     )
     _copy_if_present(
-        source_working_dir / _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME,
-        execution_working_dir / _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME,
-    )
-    _copy_if_present(
-        source_working_dir / _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME,
-        execution_working_dir / _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME,
-    )
-    _copy_if_present(
-        source_working_dir / _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME,
-        execution_working_dir / _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME,
-    )
-    _copy_if_present(
         source_working_dir / _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
         execution_working_dir / _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
     )
@@ -1570,7 +1537,6 @@ def _build_direct_exec_agents_text(
             "When `OUTPUT_CONTRACT.md` or `examples/` exists, treat those repo-written files as the authoritative output-shape reference.\n"
             "When `tools/` exists, prefer its repo-written helper CLI or scripts before inventing ad hoc local transforms.\n"
             "When the workspace includes `current_phase.json`, `CURRENT_PHASE.md`, or `CURRENT_PHASE_FEEDBACK.md`, treat that repo-written phase surface as authoritative and open it before the broader queue.\n"
-            "When the workspace includes `current_batch.json`, `CURRENT_BATCH.md`, or `CURRENT_BATCH_FEEDBACK.md`, treat that repo-written batch surface as authoritative and open it before the single-task surface or the broader queue.\n"
             "When the workspace includes `current_task.json`, `CURRENT_TASK.md`, or `CURRENT_TASK_FEEDBACK.md`, treat that repo-written current-task surface as authoritative and open it before touching the broader queue.\n"
             "When the workspace includes `current_packet.json`, `current_hint.md`, and `current_result_path.txt`, treat only those current-packet files as authoritative until the repo advances the lease.\n"
             "If `assigned_tasks.json` exists, use it as a lightweight ordered queue/progress reference after the current task surface unless the prompt says otherwise.\n"
@@ -1580,7 +1546,6 @@ def _build_direct_exec_agents_text(
             "Do not run repo-specific commands such as `npm run docs:list` or `git`.\n"
             "Prefer opening the named files directly instead of exploring the workspace or dumping whole manifests just to orient yourself.\n"
             "If a named JSON file needs structure extraction, prefer a short local `python3` helper or one direct query against that file over a broad shell scheduler.\n"
-            "For knowledge batch workspaces, bounded automation over only the active batch drafts is acceptable; queue/output control scripting and queue-control rewrites are not.\n"
             "Workspace-local shell commands are broadly allowed when they materially help, including searches, filters, redirections, and local file writes under `scratch/`, approved result paths, or short-lived local temp roots such as `/tmp`.\n"
             "The watchdog is boundary-based: stay inside this workspace, keep every visible path local or in approved temp roots, and avoid repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
             "Do not inspect parent directories or the repository, and do not leave this workspace.\n"
@@ -2650,10 +2615,6 @@ def _write_direct_exec_worker_manifest(
         workspace_root / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
     ).exists()
     has_packet_leasing = (workspace_root / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME).exists()
-    has_current_batch = (
-        not has_packet_leasing
-        and (workspace_root / _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME).exists()
-    )
     has_current_phase = (
         not has_packet_leasing
         and (workspace_root / _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME).exists()
@@ -2672,12 +2633,6 @@ def _write_direct_exec_worker_manifest(
     entry_files = [_DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME]
     if (workspace_root / _DIRECT_EXEC_SHARD_PACKET_FILE_NAME).exists():
         entry_files.append(_DIRECT_EXEC_SHARD_PACKET_FILE_NAME)
-    if has_current_batch:
-        entry_files.append(_DIRECT_EXEC_CURRENT_BATCH_FILE_NAME)
-        if (workspace_root / _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME).exists():
-            entry_files.append(_DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME)
-        if (workspace_root / _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME).exists():
-            entry_files.append(_DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME)
     if has_current_phase:
         entry_files.append(_DIRECT_EXEC_CURRENT_PHASE_FILE_NAME)
         if (workspace_root / _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME).exists():
@@ -2714,21 +2669,6 @@ def _write_direct_exec_worker_manifest(
         ),
         "assigned_tasks_file": (
             _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME if has_assigned_tasks else None
-        ),
-        "current_batch_file": (
-            _DIRECT_EXEC_CURRENT_BATCH_FILE_NAME if has_current_batch else None
-        ),
-        "current_batch_brief_file": (
-            _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME
-            if has_current_batch
-            and (workspace_root / _DIRECT_EXEC_CURRENT_BATCH_BRIEF_FILE_NAME).exists()
-            else None
-        ),
-        "current_batch_feedback_file": (
-            _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME
-            if has_current_batch
-            and (workspace_root / _DIRECT_EXEC_CURRENT_BATCH_FEEDBACK_FILE_NAME).exists()
-            else None
         ),
         "current_phase_file": (
             _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME if has_current_phase else None
@@ -2820,16 +2760,9 @@ def _write_direct_exec_worker_manifest(
                     if has_packet_leasing
                     else "Treat `CURRENT_PHASE.md`, `current_phase.json`, and `CURRENT_PHASE_FEEDBACK.md` as the authoritative phase surface when present. Treat `assigned_shards.json` as the ordered ownership/queue reference."
                     if has_current_phase
-                    else "Treat `CURRENT_BATCH.md`, `current_batch.json`, and `CURRENT_BATCH_FEEDBACK.md` as the authoritative batch surface when present. Treat `CURRENT_TASK.md` / `current_task.json` only as fallback recovery for the first active task, and treat `assigned_tasks.json` as background queue/progress context rather than a file to dump directly."
-                    if has_current_batch
                     else "Treat `SHARD_PACKET.md`, `current_task.json`, `CURRENT_TASK.md`, and `CURRENT_TASK_FEEDBACK.md` as the authoritative recipe/task surface when present, and `assigned_tasks.json` as the ordered queue/progress reference."
                     if has_current_task
                     else "If assigned_tasks.json exists, it defines the ordered task loop for this worker."
-                ),
-                (
-                    "For knowledge batch workspaces, use the repo-written batch helper commands during the main loop. `assigned_tasks.json` dumps and single-task helper detours are discouraged fallback moves, not ideal startup behavior, but only queue/output control scripting and queue-control rewrites are truly off-contract. If you automate, keep it bounded to the active batch drafts named in `current_batch.json`."
-                    if has_current_batch and "knowledge_worker.py" in mirrored_tool_files
-                    else None
                 ),
                 (
                     "Use `work/`, `repair/`, or short-lived local temp roots such as `/tmp` for helper work, and the approved `out/` path for final results."
@@ -2866,17 +2799,6 @@ def _write_direct_exec_worker_manifest(
                 )
                 + (
                     [
-                        "sed -n '1,120p' CURRENT_BATCH.md",
-                        "sed -n '1,120p' CURRENT_BATCH_FEEDBACK.md",
-                        "python3 tools/knowledge_worker.py complete-batch",
-                        "python3 tools/knowledge_worker.py check-batch",
-                        "python3 tools/knowledge_worker.py install-batch",
-                    ]
-                    if has_current_batch and "knowledge_worker.py" in mirrored_tool_files
-                    else []
-                )
-                + (
-                    [
                         "sed -n '1,120p' SHARD_PACKET.md",
                     ]
                     if (workspace_root / _DIRECT_EXEC_SHARD_PACKET_FILE_NAME).exists()
@@ -2893,13 +2815,16 @@ def _write_direct_exec_worker_manifest(
                 + [
                     (
                         "sed -n '1,80p' hints/<shard_id>.md"
-                        if has_current_phase and "line_role_worker.py" in mirrored_tool_files
+                        if has_current_phase
                         else "sed -n '1,80p' hints/<task>.md"
                     ),
                 ]
                 + (
-                    []
-                    if has_current_batch and "knowledge_worker.py" in mirrored_tool_files
+                    [
+                        "python3 tools/knowledge_worker.py check-phase",
+                        "python3 tools/knowledge_worker.py install-phase",
+                    ]
+                    if has_current_phase and "knowledge_worker.py" in mirrored_tool_files
                     else [
                         "python3 tools/recipe_worker.py current",
                         "python3 tools/recipe_worker.py check-current",
@@ -2921,13 +2846,6 @@ def _write_direct_exec_worker_manifest(
             )
         ),
         "workspace_commands_forbidden": [
-            *(
-                [
-                    "queue/output control scripting or repo-owned queue-control rewrites while a knowledge batch is active"
-                ]
-                if has_current_batch and "knowledge_worker.py" in mirrored_tool_files
-                else []
-            ),
             "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
             "non-temp absolute paths outside approved local temp roots",
             "parent-directory traversal",

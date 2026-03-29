@@ -201,7 +201,6 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_phase_loop(
     assert "When `OUTPUT_CONTRACT.md` or `examples/` exists" in agents_text
     assert "When `tools/` exists, prefer its repo-written helper CLI" in agents_text
     assert "When the workspace includes `current_phase.json`, `CURRENT_PHASE.md`, or `CURRENT_PHASE_FEEDBACK.md`" in agents_text
-    assert "When the workspace includes `current_batch.json`, `CURRENT_BATCH.md`, or `CURRENT_BATCH_FEEDBACK.md`" in agents_text
     assert "When the workspace includes `current_task.json`, `CURRENT_TASK.md`, or `CURRENT_TASK_FEEDBACK.md`" in agents_text
     assert "`current_packet.json`, `current_hint.md`, and `current_result_path.txt`" in agents_text
     assert "Workspace-local shell commands are broadly allowed when they materially help" in agents_text
@@ -210,7 +209,6 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_phase_loop(
     assert "`/tmp` or `/var/tmp` for bounded helper files" in agents_text
     assert "dumping whole manifests just to orient yourself" in agents_text
     assert "prefer a short local `python3` helper" in agents_text
-    assert "bounded automation over only the active batch drafts is acceptable" in agents_text
     assert "start with the smallest prompt-named helper surface first" in agents_text
     current_phase = json.loads(
         (workspace.execution_working_dir / "current_phase.json").read_text(encoding="utf-8")
@@ -282,43 +280,75 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_packet_lease_files(
     assert (workspace.execution_working_dir / "scratch").exists()
 
 
-def test_prepare_direct_exec_workspace_worker_mode_mirrors_current_batch_files(
+def test_prepare_direct_exec_workspace_worker_mode_knows_knowledge_phase_helpers(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
-    (source_root / "scratch" / "current_batch").mkdir(parents=True, exist_ok=True)
-    (source_root / "current_batch.json").write_text(
+    (source_root / "in").mkdir(parents=True, exist_ok=True)
+    (source_root / "hints").mkdir(parents=True, exist_ok=True)
+    (source_root / "tools").mkdir(parents=True, exist_ok=True)
+    (source_root / "work").mkdir(parents=True, exist_ok=True)
+    (source_root / "repair").mkdir(parents=True, exist_ok=True)
+    (source_root / "assigned_shards.json").write_text(
+        json.dumps(
+            [
+                {
+                    "shard_id": "book.ks0000.nr",
+                    "metadata": {
+                        "input_path": "in/book.ks0000.nr.json",
+                        "hint_path": "hints/book.ks0000.nr.md",
+                        "work_path": "work/book.ks0000.nr.pass1.json",
+                        "repair_path": "repair/book.ks0000.nr.pass1.json",
+                        "result_path": "out/book.ks0000.nr.json",
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (source_root / "current_phase.json").write_text(
         json.dumps(
             {
-                "version": 1,
-                "tasks": [
-                    {
-                        "task_id": "task-001",
-                        "draft_path": "scratch/current_batch/task-001.json",
-                        "input_path": "in/task-001.json",
-                        "hint_path": "hints/task-001.md",
-                        "result_path": "out/task-001.json",
-                    }
+                "status": "active",
+                "phase": "pass1",
+                "shard_id": "book.ks0000.nr",
+                "input_path": "in/book.ks0000.nr.json",
+                "hint_path": "hints/book.ks0000.nr.md",
+                "work_path": "work/book.ks0000.nr.pass1.json",
+                "repair_path": "repair/book.ks0000.nr.pass1.json",
+                "result_path": "out/book.ks0000.nr.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (source_root / "CURRENT_PHASE.md").write_text(
+        "# Current Knowledge Phase\n",
+        encoding="utf-8",
+    )
+    (source_root / "CURRENT_PHASE_FEEDBACK.md").write_text(
+        "# Current Phase Feedback\n",
+        encoding="utf-8",
+    )
+    (source_root / "in" / "book.ks0000.nr.json").write_text(
+        json.dumps({"bid": "book.ks0000.nr", "b": [{"i": 1, "t": "Use low heat."}]}),
+        encoding="utf-8",
+    )
+    (source_root / "hints" / "book.ks0000.nr.md").write_text(
+        "# knowledge hint\n",
+        encoding="utf-8",
+    )
+    (source_root / "work" / "book.ks0000.nr.pass1.json").write_text(
+        json.dumps(
+            {
+                "phase": "pass1",
+                "rows": [
+                    {"block_index": 1, "text": "Use low heat.", "category": ""}
                 ],
             }
         ),
         encoding="utf-8",
     )
-    (source_root / "CURRENT_BATCH.md").write_text("# Current Knowledge Batch\n", encoding="utf-8")
-    (source_root / "CURRENT_BATCH_FEEDBACK.md").write_text(
-        "# Current Batch Feedback\n",
-        encoding="utf-8",
-    )
-    (source_root / "current_task.json").write_text(
-        json.dumps({"task_id": "task-001"}),
-        encoding="utf-8",
-    )
-    (source_root / "CURRENT_TASK.md").write_text("# Current Knowledge Task\n", encoding="utf-8")
-    (source_root / "CURRENT_TASK_FEEDBACK.md").write_text(
-        "# Current Task Feedback\n",
-        encoding="utf-8",
-    )
-    (source_root / "tools").mkdir(parents=True, exist_ok=True)
+    (source_root / "OUTPUT_CONTRACT.md").write_text("# contract\n", encoding="utf-8")
     (source_root / "tools" / "knowledge_worker.py").write_text("print('helper')\n", encoding="utf-8")
 
     workspace = prepare_direct_exec_workspace(
@@ -333,35 +363,42 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_current_batch_files(
             encoding="utf-8"
         )
     )
-    assert worker_manifest["current_batch_file"] == "current_batch.json"
-    assert worker_manifest["current_batch_brief_file"] == "CURRENT_BATCH.md"
-    assert worker_manifest["current_batch_feedback_file"] == "CURRENT_BATCH_FEEDBACK.md"
-    assert "current_batch.json" in worker_manifest["entry_files"]
-    assert "CURRENT_BATCH.md" in worker_manifest["entry_files"]
-    assert "CURRENT_BATCH_FEEDBACK.md" in worker_manifest["entry_files"]
-    assert (
-        "For knowledge batch workspaces, use the repo-written batch helper commands during the main loop. `assigned_tasks.json` dumps and single-task helper detours are discouraged fallback moves, not ideal startup behavior, but only queue/output control scripting and queue-control rewrites are truly off-contract. If you automate, keep it bounded to the active batch drafts named in `current_batch.json`."
-        in worker_manifest["notes"]
-    )
-    assert "python3 tools/knowledge_worker.py complete-current" not in worker_manifest[
+    assert worker_manifest["entry_files"] == [
+        "worker_manifest.json",
+        "current_phase.json",
+        "CURRENT_PHASE.md",
+        "CURRENT_PHASE_FEEDBACK.md",
+        "assigned_shards.json",
+    ]
+    assert worker_manifest["current_phase_file"] == "current_phase.json"
+    assert worker_manifest["current_phase_brief_file"] == "CURRENT_PHASE.md"
+    assert worker_manifest["current_phase_feedback_file"] == "CURRENT_PHASE_FEEDBACK.md"
+    assert "current_batch_file" not in worker_manifest
+    assert "current_batch_brief_file" not in worker_manifest
+    assert "current_batch_feedback_file" not in worker_manifest
+    assert "sed -n '1,120p' CURRENT_PHASE.md" in worker_manifest[
         "workspace_local_shell_examples"
     ]
-    assert "sed -n '1,120p' CURRENT_BATCH.md" in worker_manifest[
+    assert "sed -n '1,120p' CURRENT_PHASE_FEEDBACK.md" in worker_manifest[
         "workspace_local_shell_examples"
     ]
-    assert "sed -n '1,120p' CURRENT_BATCH_FEEDBACK.md" in worker_manifest[
+    assert "sed -n '1,80p' hints/<shard_id>.md" in worker_manifest[
         "workspace_local_shell_examples"
     ]
-    assert worker_manifest["workspace_commands_forbidden"][0] == (
-        "queue/output control scripting or repo-owned queue-control rewrites while a knowledge batch is active"
-    )
-    assert (
-        workspace.execution_working_dir / "current_batch.json"
-    ).read_text(encoding="utf-8") == (
-        source_root / "current_batch.json"
-    ).read_text(encoding="utf-8")
-    assert (workspace.execution_working_dir / "CURRENT_BATCH.md").exists()
-    assert (workspace.execution_working_dir / "CURRENT_BATCH_FEEDBACK.md").exists()
+    assert "python3 tools/knowledge_worker.py check-phase" in worker_manifest[
+        "workspace_local_shell_examples"
+    ]
+    assert "python3 tools/knowledge_worker.py install-phase" in worker_manifest[
+        "workspace_local_shell_examples"
+    ]
+    assert worker_manifest["workspace_commands_forbidden"] == [
+        "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
+        "non-temp absolute paths outside approved local temp roots",
+        "parent-directory traversal",
+    ]
+    assert not (workspace.execution_working_dir / "current_batch.json").exists()
+    assert not (workspace.execution_working_dir / "CURRENT_BATCH.md").exists()
+    assert not (workspace.execution_working_dir / "CURRENT_BATCH_FEEDBACK.md").exists()
 
 
 def test_workspace_boundary_detector_allows_jq_fallback_operator_with_output_redirection() -> None:
