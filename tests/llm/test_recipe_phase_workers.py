@@ -548,6 +548,9 @@ def test_recipe_prompt_target_count_balances_multi_recipe_shards(
 
     runtime_dir = apply_result.llm_raw_dir / "recipe_phase_runtime"
     phase_manifest = json.loads((runtime_dir / "phase_manifest.json").read_text(encoding="utf-8"))
+    worker_assignments = json.loads(
+        (runtime_dir / "worker_assignments.json").read_text(encoding="utf-8")
+    )
     shard_manifest = [
         json.loads(line)
         for line in (runtime_dir / "shard_manifest.jsonl").read_text(encoding="utf-8").splitlines()
@@ -556,6 +559,18 @@ def test_recipe_prompt_target_count_balances_multi_recipe_shards(
 
     assert phase_manifest["shard_count"] == 2
     assert phase_manifest["worker_count"] == 2
+    assert worker_assignments == [
+        {
+            "worker_id": "worker-001",
+            "shard_ids": ["recipe-shard-0000-r0000-r0001"],
+            "workspace_root": str(runtime_dir / "workers" / "worker-001"),
+        },
+        {
+            "worker_id": "worker-002",
+            "shard_ids": ["recipe-shard-0001-r0002-r0002"],
+            "workspace_root": str(runtime_dir / "workers" / "worker-002"),
+        },
+    ]
     assert [len(shard["owned_ids"]) for shard in shard_manifest] == [2, 1]
 
 

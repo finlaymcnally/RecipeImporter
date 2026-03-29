@@ -56,7 +56,6 @@ Prompt artifact export now lives in `prompt_artifacts.py`. It has a descriptor b
 - the discoverer also follows benchmark `run_manifest.json` pointers like `stage_run_dir` / `processed_output_run_dir` when the prompt request starts from an eval root instead of the real stage run root.
 - prompt export also supplements recipe/knowledge rows with copied live `line-role-pipeline/prompts/*` artifacts plus `line_role` rows in `prompts/full_prompt_log.jsonl` when a processed run has canonical line-role Codex interactions.
 - prompt export now writes prompt-local visible-activity exports under `prompts/activity_traces/<call_id>.json`, plus `prompts/activity_trace_summary.jsonl` and `prompts/activity_trace_summary.md`; those files are derived from saved worker `events.jsonl` / sidecars and are about visible agent activity, not hidden reasoning.
-- legacy `prompts/thinking_trace_summary.jsonl` and `prompts/thinking_trace_summary.md` remain as compatibility mirrors of the same exported activity content during rollout.
 - `discover_prompt_run_descriptors(...)` is a pluggable dispatcher so future stage/cookbook layouts can provide new discovery adapters without changing rendering.
 - `render_prompt_artifacts_from_descriptors(...)` writes `prompts/` artifacts from normalized stage descriptors.
 - `build_prompt_response_log(...)` is the topology-neutral builder that accepts either explicit descriptors or injected discoverers.

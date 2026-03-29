@@ -77,8 +77,6 @@ from cookimport.parsing.recipe_block_atomizer import (
 )
 from cookimport.parsing.line_role_workspace_tools import (
     LINE_ROLE_OUTPUT_CONTRACT_MARKDOWN,
-    LINE_ROLE_VALID_OUTPUT_EXAMPLE_FILENAME,
-    LINE_ROLE_VALID_OUTPUT_EXAMPLE_PAYLOAD,
     LINE_ROLE_WORKER_TOOL_FILENAME,
     build_line_role_repair_request_payload,
     build_line_role_seed_output,
@@ -150,48 +148,6 @@ _LINE_ROLE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS = 2.0
 _LINE_ROLE_PATHOLOGY_MIN_ROWS = 4
 _LINE_ROLE_PATHOLOGY_MIN_BASELINE_DISTINCT_LABELS = 3
 _LINE_ROLE_PATHOLOGY_NEAR_UNIFORM_MIN_ROWS = 8
-_LINE_ROLE_PACKET_EXAMPLE_FILES: tuple[tuple[str, str], ...] = (
-    (
-        "01-lesson-prose-vs-howto.md",
-        "# Lesson prose vs recipe how-to\n\n"
-        "- Outside recipes, lesson headings such as `Balancing Fat` or `WHAT IS ACID?` stay review-eligible `OTHER`; the knowledge stage decides later whether they become semantic `KNOWLEDGE`.\n"
-        "- Short declarative teaching lines such as `Foods that are too dry can be corrected with a bit more fat.` also stay review-eligible `OTHER` in this stage.\n"
-        "- Declarative lesson prose about reusable cooking rules should stay `OTHER` here even when it looks useful.\n"
-        "- A lone question-style topic heading such as `What is Heat?` also stays review-eligible `OTHER` unless it is obvious junk that should be excluded.\n"
-        "- Upgrade a heading to `HOWTO_SECTION` only when immediate neighboring rows are recipe-local ingredients or method subsections.\n"
-        "- A heading by itself is weak evidence.\n",
-    ),
-    (
-        "02-memoir-vs-knowledge.md",
-        "# Memoir vs knowledge\n\n"
-        "- First-person narrative or autobiographical prose is usually `OTHER`.\n"
-        "- Useful outside-recipe teaching prose still stays review-eligible `OTHER` here; only the later knowledge stage decides `KNOWLEDGE` versus `OTHER`.\n"
-        "- Use `review_exclusion_reason` only for overwhelming obvious junk such as endorsements or front matter.\n"
-        "- Do not turn memoir into recipe structure.\n",
-    ),
-    (
-        "03-recipe-internal-sections.md",
-        "# Recipe-internal section headings\n\n"
-        "- `FOR THE SAUCE`, `FOR SERVING`, or similar headings become `HOWTO_SECTION` only when the shard clearly sits inside one recipe.\n"
-        "- A full sentence beginning with `To make ...` or `To serve ...` is usually variant or procedural prose, not a subsection heading.\n"
-        "- Front-matter or contents title lists such as `Winter: Roasted Radicchio and Roquefort` stay `OTHER` until nearby ingredient or instruction rows prove a live recipe.\n"
-        "- Ingredient lines, yield lines, and imperative steps are strong recipe-local evidence.\n"
-        "- Preserve structured recipe labels when those strong signals are present.\n",
-    ),
-    (
-        "04-book-optional-howto.md",
-        "# HOWTO_SECTION is book-optional\n\n"
-        "- Some books legitimately use zero `HOWTO_SECTION` labels.\n"
-        "- Do not invent subsection structure just because the label exists in the global taxonomy.\n"
-        "- Prefer a conservative non-structural label unless the local shard rows show immediate recipe-local support.\n",
-    ),
-)
-_LINE_ROLE_OUTPUT_EXAMPLE_FILES: tuple[tuple[str, str], ...] = (
-    (
-        LINE_ROLE_VALID_OUTPUT_EXAMPLE_FILENAME,
-        json.dumps(LINE_ROLE_VALID_OUTPUT_EXAMPLE_PAYLOAD, indent=2, sort_keys=True) + "\n",
-    ),
-)
 _TITLE_CONNECTOR_WORDS = {
     "a",
     "an",
@@ -418,6 +374,11 @@ _FRONT_MATTER_EXCLUSION_HEADINGS = {
     "introduction",
     "preface",
 }
+
+
+class LineRoleRepairFailureError(RuntimeError):
+    """Raised when canonical line-role exits without a clean installed shard ledger."""
+
 
 for _module_name in ("policy", "planning", "validation", "runtime"):
     _module = importlib.import_module(f"{__package__}.{_module_name}")

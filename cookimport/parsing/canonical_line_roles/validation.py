@@ -280,8 +280,7 @@ def _build_line_role_row_resolution(
     *,
     shard: ShardManifestEntryV1,
     validation_metadata: Mapping[str, Any] | None,
-    deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
-) -> tuple[dict[str, Any], dict[str, Any]]:
+ ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     ordered_atomic_indices = [int(value) for value in shard.owned_ids]
     accepted_rows = []
     if not bool((validation_metadata or {}).get("semantic_rejected")):
@@ -297,39 +296,31 @@ def _build_line_role_row_resolution(
     }
     final_rows: list[dict[str, Any]] = []
     accepted_atomic_indices: list[int] = []
-    fallback_atomic_indices: list[int] = []
     for atomic_index in ordered_atomic_indices:
         accepted_row = accepted_by_atomic_index.get(atomic_index)
         if accepted_row is not None:
             final_rows.append(dict(accepted_row))
             accepted_atomic_indices.append(atomic_index)
-            continue
-        baseline_prediction = deterministic_baseline_by_atomic_index.get(atomic_index)
-        fallback_row = {
-            "atomic_index": atomic_index,
-            "label": str(
-                (baseline_prediction.label if baseline_prediction is not None else "OTHER")
-                or "OTHER"
-            ).strip()
-            or "OTHER",
-        }
-        normalized_review_exclusion_reason = _normalize_review_exclusion_reason(
-            baseline_prediction.review_exclusion_reason
-            if baseline_prediction is not None
-            else None
-        )
-        if normalized_review_exclusion_reason is not None:
-            fallback_row["review_exclusion_reason"] = normalized_review_exclusion_reason
-        final_rows.append(fallback_row)
-        fallback_atomic_indices.append(atomic_index)
+    unresolved_atomic_indices = [
+        atomic_index
+        for atomic_index in ordered_atomic_indices
+        if atomic_index not in set(accepted_atomic_indices)
+    ]
+    all_rows_resolved = not unresolved_atomic_indices and not bool(
+        (validation_metadata or {}).get("semantic_rejected")
+    )
     resolution_metadata = {
         "accepted_atomic_indices": accepted_atomic_indices,
-        "fallback_atomic_indices": fallback_atomic_indices,
+        "unresolved_atomic_indices": unresolved_atomic_indices,
         "accepted_row_count": len(accepted_atomic_indices),
-        "fallback_row_count": len(fallback_atomic_indices),
+        "unresolved_row_count": len(unresolved_atomic_indices),
         "semantic_rejected": bool((validation_metadata or {}).get("semantic_rejected")),
+        "all_rows_resolved": all_rows_resolved,
     }
-    return {"rows": final_rows}, resolution_metadata
+    return (
+        {"rows": final_rows} if all_rows_resolved else None,
+        resolution_metadata,
+    )
 
 def _build_line_role_shard_status_row(
     *,
@@ -338,6 +329,7 @@ def _build_line_role_shard_status_row(
     state: str,
     last_attempt_type: str,
     output_path: Path | None,
+    repair_path: Path | None,
     validation_errors: Sequence[str],
     validation_metadata: Mapping[str, Any] | None,
     row_resolution_metadata: Mapping[str, Any] | None,
@@ -354,18 +346,19 @@ def _build_line_role_shard_status_row(
     llm_authoritative_row_count = int(
         (row_resolution_metadata or {}).get("accepted_row_count") or 0
     )
-    fallback_row_count = int(
-        (row_resolution_metadata or {}).get("fallback_row_count") or 0
+    unresolved_row_count = int(
+        (row_resolution_metadata or {}).get("unresolved_row_count") or 0
     )
     metadata = {
         "repair_attempted": bool(repair_attempted),
         "repair_status": str(repair_status or "not_attempted"),
         "output_path": str(output_path) if output_path is not None else None,
+        "repair_path": str(repair_path) if repair_path is not None else None,
         "owned_row_count": owned_row_count,
         "llm_authoritative_row_count": llm_authoritative_row_count,
-        "fallback_row_count": fallback_row_count,
+        "unresolved_row_count": unresolved_row_count,
         "suspicious_row_count": (
-            owned_row_count if semantic_diagnostics else fallback_row_count
+            owned_row_count if semantic_diagnostics else unresolved_row_count
         ),
         "suspicious_shard": bool(semantic_diagnostics),
         "semantic_diagnostics": semantic_diagnostics,
@@ -470,44 +463,21 @@ def _normalize_line_role_shard_outcome(
         if run_result is not None
         else False
     )
-    fallback_row_count = int(
-        ((row_resolution_metadata or {}).get("fallback_row_count") or 0)
+    unresolved_row_count = int(
+        ((row_resolution_metadata or {}).get("unresolved_row_count") or 0)
     )
+    unresolved_atomic_indices = [
+        int(value)
+        for value in ((row_resolution_metadata or {}).get("unresolved_atomic_indices") or [])
+        if str(value).strip()
+    ]
+    unresolved_suffix = ""
+    if unresolved_atomic_indices:
+        unresolved_suffix = " Unresolved atomic indices: " + ", ".join(
+            str(value) for value in unresolved_atomic_indices
+        ) + "."
 
     if proposal_status == "validated":
-        if (
-            str(raw_supervision_state or "").lower() == "watchdog_killed"
-            and fallback_row_count > 0
-        ):
-            return {
-                "state": str(raw_supervision_state or "watchdog_killed"),
-                "reason_code": raw_supervision_reason_code,
-                "reason_detail": raw_supervision_reason_detail,
-                "retryable": raw_supervision_retryable,
-                "finalization_path": "session_result",
-                "raw_supervision_state": raw_supervision_state,
-                "raw_supervision_reason_code": raw_supervision_reason_code,
-                "raw_supervision_reason_detail": raw_supervision_reason_detail,
-                "raw_supervision_retryable": raw_supervision_retryable,
-            }
-        if fallback_row_count > 0:
-            return {
-                "state": "completed_with_fallback",
-                "reason_code": (
-                    "repair_partial_fallback"
-                    if str(repair_status).strip() not in {"", "not_attempted"}
-                    else "row_fallback"
-                ),
-                "reason_detail": (
-                    "The final shard ledger preserved validated rows and kept unresolved rows on the deterministic baseline."
-                ),
-                "retryable": False,
-                "finalization_path": "row_fallback",
-                "raw_supervision_state": raw_supervision_state,
-                "raw_supervision_reason_code": raw_supervision_reason_code,
-                "raw_supervision_reason_detail": raw_supervision_reason_detail,
-                "raw_supervision_retryable": raw_supervision_retryable,
-            }
         if str(repair_status).strip() == "repaired":
             detail = "line-role shard validated after a repair attempt corrected the final shard ledger."
             if raw_supervision_reason_code:
@@ -581,18 +551,27 @@ def _normalize_line_role_shard_outcome(
             "finalization_path": "session_completed",
             "raw_supervision_state": raw_supervision_state,
             "raw_supervision_reason_code": raw_supervision_reason_code,
-                "raw_supervision_reason_detail": raw_supervision_reason_detail,
-                "raw_supervision_retryable": raw_supervision_retryable,
-            }
+            "raw_supervision_reason_detail": raw_supervision_reason_detail,
+            "raw_supervision_retryable": raw_supervision_retryable,
+        }
 
     if run_result is None:
-        if fallback_row_count > 0:
+        if unresolved_row_count > 0:
             return {
-                "state": "completed_with_fallback",
-                "reason_code": "resumed_with_row_fallback",
-                "reason_detail": "validated existing workspace outputs with deterministic fallback for unresolved rows",
+                "state": "repair_failed" if str(repair_status).strip() == "failed" else "invalid_output",
+                "reason_code": (
+                    "same_session_repair_failed"
+                    if str(repair_status).strip() == "failed"
+                    else "line_role_install_required"
+                ),
+                "reason_detail": (
+                    "line-role shard stopped without a clean installed ledger."
+                    " The active worker repair loop must install a fully valid `out/<shard_id>.json` ledger"
+                    " before the shard can succeed."
+                    f"{unresolved_suffix}"
+                ),
                 "retryable": False,
-                "finalization_path": "resumed_with_row_fallback",
+                "finalization_path": "fail_closed_missing_install",
                 "raw_supervision_state": raw_supervision_state,
                 "raw_supervision_reason_code": raw_supervision_reason_code,
                 "raw_supervision_reason_detail": raw_supervision_reason_detail,
@@ -607,6 +586,40 @@ def _normalize_line_role_shard_outcome(
             "reason_detail": reason_detail,
             "retryable": False,
             "finalization_path": reason_code,
+            "raw_supervision_state": raw_supervision_state,
+            "raw_supervision_reason_code": raw_supervision_reason_code,
+            "raw_supervision_reason_detail": raw_supervision_reason_detail,
+            "raw_supervision_retryable": raw_supervision_retryable,
+        }
+
+    if unresolved_row_count > 0:
+        detail = (
+            "line-role shard stopped without a clean installed ledger."
+            " The active worker repair loop must install a fully valid `out/<shard_id>.json` ledger"
+            " before the shard can succeed."
+            f"{unresolved_suffix}"
+        )
+        if raw_supervision_reason_detail:
+            detail += f" Workspace detail: {raw_supervision_reason_detail}"
+        return {
+            "state": (
+                "repair_failed"
+                if str(repair_status).strip() == "failed"
+                else (
+                    str(raw_supervision_state)
+                    if str(raw_supervision_state or "").strip()
+                    and str(raw_supervision_state or "").strip() != "completed"
+                    else "invalid_output"
+                )
+            ),
+            "reason_code": (
+                "same_session_repair_failed"
+                if str(repair_status).strip() == "failed"
+                else str(raw_supervision_reason_code or "line_role_install_required")
+            ),
+            "reason_detail": detail,
+            "retryable": raw_supervision_retryable,
+            "finalization_path": "fail_closed_missing_install",
             "raw_supervision_state": raw_supervision_state,
             "raw_supervision_reason_code": raw_supervision_reason_code,
             "raw_supervision_reason_detail": raw_supervision_reason_detail,

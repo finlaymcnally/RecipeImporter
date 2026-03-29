@@ -40,6 +40,10 @@ def _settings(mode: str = "off", **kwargs):
 @pytest.fixture(autouse=True)
 def _isolate_default_line_role_runtime_root(tmp_path, monkeypatch) -> None:
     original = canonical_line_roles_module._resolve_line_role_codex_farm_workspace_root
+    monkeypatch.setenv(
+        "COOKIMPORT_CODEX_FARM_CODEX_HOME",
+        str(tmp_path / "codex-home"),
+    )
 
     def _patched(*, settings):
         resolved = original(settings=settings)
@@ -3145,19 +3149,21 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
         )
     ]
 
-    predictions = label_atomic_lines(
-        candidates,
-        _settings("codex-line-role-shard-v1"),
-        artifact_root=tmp_path,
-        codex_runner=_line_role_runner(
-            output_builder=lambda _payload: {"rows": [{"atomic_index": 999, "label": "OTHER"}]}
-        ),
-        live_llm_allowed=True,
-    )
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by == "fallback"
-    assert "deterministic_unavailable" in predictions[0].reason_tags
-    assert "line_role_row_fallback" in predictions[0].reason_tags
+    with pytest.raises(
+        canonical_line_roles_module.LineRoleRepairFailureError,
+        match="failed closed",
+    ):
+        label_atomic_lines(
+            candidates,
+            _settings("codex-line-role-shard-v1"),
+            artifact_root=tmp_path,
+            codex_runner=_line_role_runner(
+                output_builder=lambda _payload: {
+                    "rows": [{"atomic_index": 999, "label": "OTHER"}]
+                }
+            ),
+            live_llm_allowed=True,
+        )
     parse_errors_path = (
         tmp_path
         / "line-role-pipeline"
@@ -3185,17 +3191,16 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
         "unowned_atomic_index:999",
         "missing_owned_atomic_indices:0",
     ]
-    assert proposal_payload["payload"] == {
-        "rows": [{"atomic_index": 0, "label": "OTHER"}]
-    }
+    assert proposal_payload["payload"] is None
     assert proposal_payload["repair_attempted"] is False
     assert proposal_payload["repair_status"] == "not_attempted"
     assert proposal_payload["validation_metadata"]["row_resolution"] == {
         "accepted_atomic_indices": [],
         "accepted_row_count": 0,
-        "fallback_atomic_indices": [0],
-        "fallback_row_count": 1,
+        "all_rows_resolved": False,
         "semantic_rejected": False,
+        "unresolved_atomic_indices": [0],
+        "unresolved_row_count": 1,
     }
     shard_status_rows = [
         json.loads(line)
@@ -3208,7 +3213,7 @@ def test_label_atomic_lines_codex_parse_error_falls_back_and_writes_flag(
         ).read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    assert shard_status_rows[0]["state"] == "fallback_only"
+    assert shard_status_rows[0]["state"] == "invalid_output"
 
 
 def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
@@ -5382,7 +5387,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line_role_prompt_0001.txt"
     ).read_text(encoding="utf-8")
     assert "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger." in prompt_text
-    assert "Start by opening `worker_manifest.json`, then `CURRENT_PHASE.md`, then `OUTPUT_CONTRACT.md`" in prompt_text
+    assert "Start by opening `worker_manifest.json`, then `CURRENT_PHASE.md`." in prompt_text
     assert "`tools/line_role_worker.py` exists, use it as the paved road" in prompt_text
     assert "python3 tools/line_role_worker.py check-phase" in prompt_text
     assert "python3 tools/line_role_worker.py install-phase" in prompt_text
@@ -5396,7 +5401,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert "start from the prewritten work ledger and hint before reopening the raw input ledger" in prompt_text
     assert "Treat each shard ledger's deterministic label code as a weak hint only." in prompt_text
     assert "do not preserve or prefer a label just because it came from the deterministic seed" in prompt_text
-    assert "If `OUTPUT_CONTRACT.md` or `examples/` exists" in prompt_text
+    assert "Open `OUTPUT_CONTRACT.md` only when the seeded work ledger and validator feedback are insufficient" in prompt_text
     assert "`HOWTO_SECTION` is book-optional" in prompt_text
     assert "Balancing Fat" in prompt_text
     assert "Write and revise the active shard only in `work/<shard_id>.json`." in prompt_text
@@ -5447,19 +5452,13 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
     assert worker_manifest_payload["current_task_file"] is None
     assert worker_manifest_payload["current_task_brief_file"] is None
     assert worker_manifest_payload["output_contract_file"] == "OUTPUT_CONTRACT.md"
-    assert worker_manifest_payload["examples_dir"] == "examples"
+    assert worker_manifest_payload["examples_dir"] is None
     assert worker_manifest_payload["tools_dir"] == "tools"
     assert worker_manifest_payload["hints_dir"] == "hints"
     assert worker_manifest_payload["scratch_dir"] is None
     assert worker_manifest_payload["work_dir"] == "work"
     assert worker_manifest_payload["repair_dir"] == "repair"
-    assert worker_manifest_payload["mirrored_example_files"] == [
-        "01-lesson-prose-vs-howto.md",
-        "02-memoir-vs-knowledge.md",
-        "03-recipe-internal-sections.md",
-        "04-book-optional-howto.md",
-        "valid_line_role_output.json",
-    ]
+    assert worker_manifest_payload["mirrored_example_files"] == []
     assert worker_manifest_payload["mirrored_tool_files"] == ["line_role_worker.py"]
     assert worker_manifest_payload["mirrored_scratch_files"] == []
     assert worker_manifest_payload["mirrored_work_files"] == [
@@ -5578,25 +5577,15 @@ def test_label_atomic_lines_compact_prompt_workspace_mirrors_hint_and_input_arti
         / "line_role"
         / "workers"
         / "worker-001"
-        / "examples"
-        / "01-lesson-prose-vs-howto.md"
-    ).exists()
-    assert (
-        prompt_root
-        / "runtime"
-        / "line_role"
-        / "workers"
-        / "worker-001"
         / "OUTPUT_CONTRACT.md"
     ).exists()
-    assert (
+    assert not (
         prompt_root
         / "runtime"
         / "line_role"
         / "workers"
         / "worker-001"
         / "examples"
-        / "valid_line_role_output.json"
     ).exists()
     assert (
         prompt_root

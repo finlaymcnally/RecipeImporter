@@ -18,17 +18,6 @@ LINE_ROLE_ALLOWED_LABELS: tuple[str, ...] = tuple(
     for label, _ in sorted(_LABEL_CODE_BY_LABEL.items(), key=lambda item: item[1])
 )
 LINE_ROLE_WORKER_TOOL_FILENAME = "line_role_worker.py"
-LINE_ROLE_VALID_OUTPUT_EXAMPLE_FILENAME = "valid_line_role_output.json"
-LINE_ROLE_VALID_OUTPUT_EXAMPLE_PAYLOAD = {
-    "rows": [
-        {"atomic_index": 123, "label": "INGREDIENT_LINE"},
-        {
-            "atomic_index": 124,
-            "label": "OTHER",
-            "review_exclusion_reason": "navigation",
-        },
-    ]
-}
 LINE_ROLE_OUTPUT_CONTRACT_MARKDOWN = """# Line-Role Ledger Contract
 
 Use this contract for every `work/<shard_id>.json` ledger and every installed `out/<shard_id>.json`.

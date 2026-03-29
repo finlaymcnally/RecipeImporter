@@ -232,20 +232,6 @@ def _write_stage_run_manifest(
             artifacts["activity_trace_summary_md"] = str(
                 activity_trace_summary_md_path.relative_to(run_root)
             )
-        thinking_trace_summary_jsonl_path = (
-            prompt_artifacts_dir / llm_prompt_artifacts.THINKING_TRACE_SUMMARY_JSONL_NAME
-        )
-        if thinking_trace_summary_jsonl_path.exists() and thinking_trace_summary_jsonl_path.is_file():
-            artifacts["thinking_trace_summary_jsonl"] = str(
-                thinking_trace_summary_jsonl_path.relative_to(run_root)
-            )
-        thinking_trace_summary_md_path = (
-            prompt_artifacts_dir / llm_prompt_artifacts.THINKING_TRACE_SUMMARY_MD_NAME
-        )
-        if thinking_trace_summary_md_path.exists() and thinking_trace_summary_md_path.is_file():
-            artifacts["thinking_trace_summary_md"] = str(
-                thinking_trace_summary_md_path.relative_to(run_root)
-            )
     history_csv = history_csv_for_output(output_root)
     if history_csv.exists():
         artifacts["history_csv"] = str(history_csv)

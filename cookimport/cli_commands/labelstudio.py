@@ -3358,14 +3358,6 @@ def register(app: typer.Typer) -> dict[str, object]:
                 codexfarm_prompt_response_log_path.parent
                 / llm_prompt_artifacts.PROMPT_TYPE_SAMPLES_MD_NAME
             )
-            thinking_trace_summary_jsonl_path = (
-                codexfarm_prompt_response_log_path.parent
-                / llm_prompt_artifacts.THINKING_TRACE_SUMMARY_JSONL_NAME
-            )
-            thinking_trace_summary_md_path = (
-                codexfarm_prompt_response_log_path.parent
-                / llm_prompt_artifacts.THINKING_TRACE_SUMMARY_MD_NAME
-            )
             activity_trace_summary_jsonl_path = (
                 codexfarm_prompt_response_log_path.parent
                 / llm_prompt_artifacts.ACTIVITY_TRACE_SUMMARY_JSONL_NAME
@@ -3468,26 +3460,6 @@ def register(app: typer.Typer) -> dict[str, object]:
                     _path_for_manifest(
                         eval_output_dir,
                         activity_trace_summary_md_path,
-                    )
-                )
-            if (
-                thinking_trace_summary_jsonl_path.exists()
-                and thinking_trace_summary_jsonl_path.is_file()
-            ):
-                benchmark_artifacts["codexfarm_thinking_trace_summary_jsonl"] = (
-                    _path_for_manifest(
-                        eval_output_dir,
-                        thinking_trace_summary_jsonl_path,
-                    )
-                )
-            if (
-                thinking_trace_summary_md_path.exists()
-                and thinking_trace_summary_md_path.is_file()
-            ):
-                benchmark_artifacts["codexfarm_thinking_trace_summary_md"] = (
-                    _path_for_manifest(
-                        eval_output_dir,
-                        thinking_trace_summary_md_path,
                     )
                 )
         processed_run_root_raw = import_result.get("processed_run_root")

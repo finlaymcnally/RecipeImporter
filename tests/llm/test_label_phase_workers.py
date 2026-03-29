@@ -6,6 +6,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
@@ -15,6 +17,14 @@ from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 
 def _settings(**kwargs) -> RunSettings:
     return RunSettings(line_role_pipeline="codex-line-role-shard-v1", **kwargs)
+
+
+@pytest.fixture(autouse=True)
+def _set_codex_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "COOKIMPORT_CODEX_FARM_CODEX_HOME",
+        str(tmp_path / "codex-home"),
+    )
 
 
 def _candidate(atomic_index: int, *, text: str | None = None) -> AtomicLineCandidate:

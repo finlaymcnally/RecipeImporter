@@ -188,30 +188,6 @@ def _build_codex_farm_prompt_log_fixture(tmp_path: Path) -> dict[str, object]:
         json.dumps({"result": "tags response"}),
         encoding="utf-8",
     )
-    correction_trace_dir = correction_out / ".codex-farm-traces" / "task-recipe-correction"
-    correction_trace_dir.mkdir(parents=True, exist_ok=True)
-    correction_trace = correction_trace_dir / "trace-recipe-correction.trace.json"
-    correction_trace.write_text(
-        json.dumps(
-            {
-                "captured_at_utc": "2026-03-02T23:59:01Z",
-                "run_id": "run-recipe-correction",
-                "pipeline_id": "recipe.correction.compact.v1",
-                "task_id": "task-recipe-correction",
-                "reasoning_event_count": 1,
-                "reasoning_event_types": ["response.reasoning_summary_text.delta"],
-                "reasoning_events": [
-                    {
-                        "type": "response.reasoning_summary_text.delta",
-                        "delta": "candidate span tightened",
-                    }
-                ],
-                "action_event_count": 2,
-                "action_event_types": ["thread.started", "item.completed"],
-            }
-        ),
-        encoding="utf-8",
-    )
     correction_worker_root = recipe_phase_runtime_dir / "workers" / "worker-recipe-correction"
     correction_worker_root.mkdir(parents=True, exist_ok=True)
     correction_events = correction_worker_root / "events.jsonl"
@@ -309,11 +285,6 @@ def _build_codex_farm_prompt_log_fixture(tmp_path: Path) -> dict[str, object]:
                 "tokens_total",
                 "usage_json",
                 "finished_at_utc",
-                "trace_path",
-                "trace_action_count",
-                "trace_action_types_json",
-                "trace_reasoning_count",
-                "trace_reasoning_types_json",
                 "events_path",
                 "last_message_path",
                 "usage_path",
@@ -357,22 +328,6 @@ def _build_codex_farm_prompt_log_fixture(tmp_path: Path) -> dict[str, object]:
                 "tokens_total": "133",
                 "usage_json": "{\"tokens\":123}",
                 "finished_at_utc": "2026-03-02T23:59:00Z",
-                # Simulate stale source-root telemetry paths; loader should resolve
-                # local trace files under the current stage out dir by task id.
-                "trace_path": str(
-                    Path("/tmp/old-run/.codex-farm-traces/task-recipe-correction")
-                    / correction_trace.name
-                ),
-                "trace_action_count": "2",
-                "trace_action_types_json": json.dumps(
-                    ["thread.started", "item.completed"],
-                    sort_keys=True,
-                ),
-                "trace_reasoning_count": "1",
-                "trace_reasoning_types_json": json.dumps(
-                    ["response.reasoning_summary_text.delta"],
-                    sort_keys=True,
-                ),
                 "events_path": str(correction_worker_root / "events.jsonl"),
                 "last_message_path": str(correction_worker_root / "last_message.json"),
                 "usage_path": str(correction_worker_root / "usage.json"),
@@ -440,7 +395,6 @@ def _build_codex_farm_prompt_log_fixture(tmp_path: Path) -> dict[str, object]:
 
     return {
         "attached": attached,
-        "correction_trace": correction_trace,
         "eval_output_dir": eval_output_dir,
         "log_path": log_path,
     }
@@ -486,8 +440,6 @@ def test_build_codex_farm_prompt_response_log_backfills_full_prompt_rows_from_te
     fixture = _build_codex_farm_prompt_log_fixture(tmp_path)
     eval_output_dir = fixture["eval_output_dir"]
     assert isinstance(eval_output_dir, Path)
-    correction_trace = fixture["correction_trace"]
-    assert isinstance(correction_trace, Path)
 
     full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
     assert full_prompt_log_path.exists()
@@ -521,14 +473,8 @@ def test_build_codex_farm_prompt_response_log_backfills_full_prompt_rows_from_te
     assert correction_row["request_telemetry"]["prompt_chars"] == 20
     assert correction_row["request_telemetry"]["tokens_total"] == 133
     assert correction_row["request_telemetry"]["usage_json"] == {"tokens": 123}
-    assert correction_row["request_telemetry"]["trace_action_count"] == 2
-    assert correction_row["request_telemetry"]["trace_reasoning_count"] == 1
-    assert correction_row["request_telemetry"]["trace_reasoning_types"] == [
-        "response.reasoning_summary_text.delta"
-    ]
     assert correction_row["request_telemetry"]["events_path"].endswith("events.jsonl")
     assert correction_row["request_telemetry"]["activity_trace_path"].endswith("r0000.json")
-    assert correction_row["request_telemetry"]["trace_resolved_path"] == str(correction_trace)
     assert correction_row["activity_trace"]["path"].endswith(
         "prompts/activity_traces/r0000.json"
     )
@@ -540,7 +486,6 @@ def test_build_codex_farm_prompt_response_log_backfills_full_prompt_rows_from_te
     assert correction_row["activity_trace"]["entries"][2]["summary"] == (
         "Reasoning summary: candidate span tightened"
     )
-    assert correction_row["thinking_trace"]["path"] == correction_row["activity_trace"]["path"]
     assert correction_row["parsed_response"] == {"result": "recipe correction response"}
     assert correction_row["raw_response"]["output_file"].endswith("r0000.json")
 
@@ -581,16 +526,8 @@ def test_build_codex_farm_prompt_response_log_writes_activity_trace_summary(
     activity_trace_summary_md_path = (
         eval_output_dir / "prompts" / "activity_trace_summary.md"
     )
-    legacy_trace_summary_jsonl_path = (
-        eval_output_dir / "prompts" / "thinking_trace_summary.jsonl"
-    )
-    legacy_trace_summary_md_path = (
-        eval_output_dir / "prompts" / "thinking_trace_summary.md"
-    )
     assert activity_trace_summary_jsonl_path.exists()
     assert activity_trace_summary_md_path.exists()
-    assert legacy_trace_summary_jsonl_path.exists()
-    assert legacy_trace_summary_md_path.exists()
     trace_rows = [
         json.loads(line)
         for line in activity_trace_summary_jsonl_path.read_text(encoding="utf-8").splitlines()
@@ -1584,14 +1521,6 @@ def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> N
         "# activity trace summary\n",
         encoding="utf-8",
     )
-    (prompts_dir / "thinking_trace_summary.jsonl").write_text(
-        "{}\n",
-        encoding="utf-8",
-    )
-    (prompts_dir / "thinking_trace_summary.md").write_text(
-        "# trace summary\n",
-        encoding="utf-8",
-    )
 
     cli._write_stage_run_manifest(
         run_root=run_root,
@@ -1627,12 +1556,6 @@ def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> N
     )
     assert artifacts["activity_trace_summary_md"] == (
         "prompts/activity_trace_summary.md"
-    )
-    assert artifacts["thinking_trace_summary_jsonl"] == (
-        "prompts/thinking_trace_summary.jsonl"
-    )
-    assert artifacts["thinking_trace_summary_md"] == (
-        "prompts/thinking_trace_summary.md"
     )
 
 

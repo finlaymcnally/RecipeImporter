@@ -526,7 +526,7 @@ Problem captured:
 Durable decisions:
 - benchmark prompt export must contain recipe, line-role, and knowledge interactions in one merged `full_prompt_log.jsonl`
 - line-role prompt artifacts should be copied from saved `line-role-pipeline/prompts` artifacts rather than reconstructed through a separate fake path
-- `thinking_trace_summary.jsonl` and `thinking_trace_summary.md` should be built from the merged prompt log so every exported row stays on one authoritative surface
+- `activity_trace_summary.jsonl` and `activity_trace_summary.md` should be built from the merged prompt log so every exported row stays on one authoritative surface
 
 Evidence worth keeping:
 - the target backfill grew the exported prompt log from `231` rows to `233` rows: `175` recipe, `2` line-role, `56` knowledge

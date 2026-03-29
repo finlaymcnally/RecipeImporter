@@ -22,14 +22,11 @@ PROMPT_CALL_RECORD_SCHEMA_VERSION = "prompt_call_record.v1"
 PROMPT_LOG_SUMMARY_SCHEMA_VERSION = "prompt_log_summary.v1"
 PROMPT_ACTIVITY_TRACE_SCHEMA_VERSION = "prompt_activity_trace.v1"
 PROMPT_ACTIVITY_TRACE_SUMMARY_SCHEMA_VERSION = "prompt_activity_trace_summary.v1"
-PROMPT_THINKING_TRACE_SUMMARY_SCHEMA_VERSION = "prompt_thinking_trace_summary.v1"
 PROMPT_LOG_SUMMARY_JSON_NAME = "prompt_log_summary.json"
 PROMPT_TYPE_SAMPLES_MD_NAME = "prompt_type_samples_from_full_prompt_log.md"
 ACTIVITY_TRACES_DIR_NAME = "activity_traces"
 ACTIVITY_TRACE_SUMMARY_JSONL_NAME = "activity_trace_summary.jsonl"
 ACTIVITY_TRACE_SUMMARY_MD_NAME = "activity_trace_summary.md"
-THINKING_TRACE_SUMMARY_JSONL_NAME = "thinking_trace_summary.jsonl"
-THINKING_TRACE_SUMMARY_MD_NAME = "thinking_trace_summary.md"
 
 _CODEXFARM_STAGE_SPECS: tuple[dict[str, Any], ...] = (
     {
@@ -974,82 +971,6 @@ def _collect_prompt_attachments(
     return found
 
 
-def _resolve_telemetry_trace_path(
-    *,
-    telemetry_trace_path: str | None,
-    output_file: Path | None,
-    out_dir: Path,
-    task_id: str | None,
-    repo_root: Path,
-) -> Path | None:
-    candidates: list[Path] = []
-    trace_name: str | None = None
-    if telemetry_trace_path is not None:
-        telemetry_candidate = Path(telemetry_trace_path).expanduser()
-        if not telemetry_candidate.is_absolute():
-            telemetry_candidate = (repo_root / telemetry_candidate).resolve()
-        trace_name = telemetry_candidate.name
-        candidates.append(telemetry_candidate)
-
-    search_roots: list[Path] = [out_dir]
-    if output_file is not None:
-        search_roots.insert(0, output_file.parent)
-
-    for root in search_roots:
-        if task_id is not None:
-            task_dir = root / ".codex-farm-traces" / task_id
-            if trace_name:
-                candidates.append(task_dir / trace_name)
-            if task_dir.exists() and task_dir.is_dir():
-                candidates.extend(sorted(task_dir.glob("*.trace.json")))
-        if trace_name:
-            candidates.append(root / ".codex-farm-traces" / trace_name)
-
-    for candidate in candidates:
-        resolved = candidate.resolve(strict=False)
-        if resolved.exists() and resolved.is_file():
-            return resolved
-    return None
-
-
-def _load_thinking_trace_payload(*, trace_path: Path | None) -> dict[str, Any] | None:
-    if trace_path is None or not trace_path.exists() or not trace_path.is_file():
-        return None
-    parsed = _parse_json_text(_safe_read_text(trace_path))
-    if not isinstance(parsed, dict):
-        return None
-    reasoning_events = parsed.get("reasoning_events")
-    normalized_reasoning_events = reasoning_events if isinstance(reasoning_events, list) else []
-    action_types = parsed.get("action_event_types")
-    reasoning_types = parsed.get("reasoning_event_types")
-    return {
-        "path": str(trace_path),
-        "captured_at_utc": _clean_text(parsed.get("captured_at_utc")),
-        "run_id": _clean_text(parsed.get("run_id")),
-        "pipeline_id": _clean_text(parsed.get("pipeline_id")),
-        "task_id": _clean_text(parsed.get("task_id")),
-        "model": _clean_text(parsed.get("model")),
-        "reasoning_effort": _clean_text(parsed.get("reasoning_effort")),
-        "event_count": _coerce_int(parsed.get("event_count")),
-        "action_event_count": _coerce_int(parsed.get("action_event_count")),
-        "action_event_types": (
-            [str(item) for item in action_types if isinstance(item, str)]
-            if isinstance(action_types, list)
-            else []
-        ),
-        "reasoning_event_count": _coerce_int(parsed.get("reasoning_event_count")),
-        "reasoning_event_types": (
-            [str(item) for item in reasoning_types if isinstance(item, str)]
-            if isinstance(reasoning_types, list)
-            else []
-        ),
-        "reasoning_events": normalized_reasoning_events,
-        "available": bool(
-            _coerce_int(parsed.get("reasoning_event_count")) or normalized_reasoning_events
-        ),
-    }
-
-
 def _resolve_saved_artifact_path(*, raw_path: str | None, repo_root: Path) -> Path | None:
     cleaned = _clean_text(raw_path)
     if cleaned is None:
@@ -1308,50 +1229,6 @@ def _build_activity_trace_from_events(
     }
 
 
-def _build_activity_trace_from_legacy_trace(
-    legacy_trace_payload: Mapping[str, Any],
-) -> dict[str, Any]:
-    raw_reasoning_events = legacy_trace_payload.get("reasoning_events")
-    reasoning_events = (
-        [dict(event) for event in raw_reasoning_events if isinstance(event, Mapping)]
-        if isinstance(raw_reasoning_events, list)
-        else []
-    )
-    entries: list[dict[str, Any]] = []
-    for event in reasoning_events[:_ACTIVITY_TRACE_MAX_ENTRIES]:
-        excerpt = _extract_visible_reasoning_text(event)
-        if excerpt is None:
-            continue
-        entries.append(
-            {
-                "kind": "reasoning_summary",
-                "event_type": _clean_text(event.get("type")) or "legacy_reasoning_event",
-                "summary": f"Reasoning summary: {excerpt}",
-            }
-        )
-    command_count = _coerce_int(legacy_trace_payload.get("action_event_count")) or 0
-    reasoning_event_count = (
-        _coerce_int(legacy_trace_payload.get("reasoning_event_count")) or len(reasoning_events)
-    )
-    return {
-        "event_count": _coerce_int(legacy_trace_payload.get("event_count")) or 0,
-        "command_count": 0,
-        "agent_message_count": 0,
-        "reasoning_event_count": reasoning_event_count,
-        "lifecycle_event_count": 0,
-        "action_event_count": command_count,
-        "action_event_types": list(legacy_trace_payload.get("action_event_types") or [])
-        if isinstance(legacy_trace_payload.get("action_event_types"), list)
-        else [],
-        "reasoning_event_types": list(legacy_trace_payload.get("reasoning_event_types") or [])
-        if isinstance(legacy_trace_payload.get("reasoning_event_types"), list)
-        else [],
-        "reasoning_events": reasoning_events,
-        "entries": entries,
-        "entries_truncated": len(reasoning_events) > _ACTIVITY_TRACE_MAX_ENTRIES,
-    }
-
-
 def _export_prompt_activity_trace(
     *,
     row_payload: dict[str, Any],
@@ -1393,13 +1270,6 @@ def _export_prompt_activity_trace(
         raw_path=_clean_text(request_telemetry.get("stderr_path")),
         repo_root=repo_root,
     )
-    legacy_trace_path = _resolve_saved_artifact_path(
-        raw_path=_clean_text(request_telemetry.get("trace_resolved_path"))
-        or _clean_text(request_telemetry.get("trace_path")),
-        repo_root=repo_root,
-    )
-
-    legacy_trace_payload = _load_thinking_trace_payload(trace_path=legacy_trace_path)
     events = _load_jsonl_events(events_path=events_path)
     last_message_text = _load_message_text(message_path=last_message_path)
     if events:
@@ -1407,8 +1277,6 @@ def _export_prompt_activity_trace(
             events=events,
             last_message_text=last_message_text,
         )
-    elif legacy_trace_payload is not None:
-        computed = _build_activity_trace_from_legacy_trace(legacy_trace_payload)
     elif last_message_text is not None:
         computed = _build_activity_trace_from_events(events=(), last_message_text=last_message_text)
     else:
@@ -1450,9 +1318,6 @@ def _export_prompt_activity_trace(
         ),
         "source_stdout_path": str(stdout_path) if stdout_path is not None else None,
         "source_stderr_path": str(stderr_path) if stderr_path is not None else None,
-        "source_legacy_trace_path": (
-            str(legacy_trace_path) if legacy_trace_path is not None else None
-        ),
         **computed,
     }
     exported_path.write_text(
@@ -1558,11 +1423,7 @@ def build_codex_farm_prompt_type_samples_markdown(
 
                 activity_trace_payload = row.get("activity_trace")
                 if not isinstance(activity_trace_payload, dict):
-                    activity_trace_payload = (
-                        row.get("thinking_trace")
-                        if isinstance(row.get("thinking_trace"), dict)
-                        else {}
-                    )
+                    activity_trace_payload = {}
                 activity_trace_path: str | None = None
                 activity_trace_available = False
                 activity_trace_command_count: int | None = None
@@ -1743,13 +1604,6 @@ def build_codex_farm_activity_trace_summaries(
         activity_trace_payload = (
             row.get("activity_trace") if isinstance(row.get("activity_trace"), dict) else {}
         )
-        if not activity_trace_payload:
-            activity_trace_payload = (
-                row.get("thinking_trace") if isinstance(row.get("thinking_trace"), dict) else {}
-            )
-        request_telemetry = (
-            row.get("request_telemetry") if isinstance(row.get("request_telemetry"), dict) else {}
-        )
         activity_trace_path = _clean_text(activity_trace_payload.get("path"))
         activity_trace_exists = bool(
             activity_trace_path and Path(activity_trace_path).exists()
@@ -1784,9 +1638,6 @@ def build_codex_farm_activity_trace_summaries(
             "activity_trace_path": activity_trace_path,
             "activity_trace_exists": activity_trace_exists,
             "activity_trace_available": trace_available,
-            "trace_path": activity_trace_path,
-            "trace_exists": activity_trace_exists,
-            "trace_available": trace_available,
             "process_run_id": row.get("process_run_id"),
             "event_count": event_count,
             "command_count": command_count,
@@ -1804,10 +1655,6 @@ def build_codex_farm_activity_trace_summaries(
             if isinstance(activity_trace_payload.get("action_event_types"), list)
             else [],
             "source_events_path": _clean_text(activity_trace_payload.get("source_events_path")),
-            "source_legacy_trace_path": _clean_text(
-                activity_trace_payload.get("source_legacy_trace_path")
-            )
-            or _clean_text(request_telemetry.get("trace_resolved_path")),
             "entry_excerpt_lines": entry_excerpt_lines,
         }
         summary_rows.append(summary_row)
@@ -1937,23 +1784,6 @@ def build_codex_farm_activity_trace_summaries(
 
     output_md_path.write_text("\n".join(lines), encoding="utf-8")
     return output_jsonl_path, output_md_path
-
-
-def build_codex_farm_thinking_trace_summaries(
-    *,
-    full_prompt_log_path: Path,
-    output_jsonl_path: Path,
-    output_md_path: Path,
-    examples_per_stage: int = 3,
-) -> tuple[Path | None, Path | None]:
-    return build_codex_farm_activity_trace_summaries(
-        full_prompt_log_path=full_prompt_log_path,
-        output_jsonl_path=output_jsonl_path,
-        output_md_path=output_md_path,
-        examples_per_stage=examples_per_stage,
-    )
-
-
 def _parse_prompt_index_from_name(name: str) -> int | None:
     match = re.search(r"(\d+)", str(name or ""))
     if match is None:
@@ -2545,7 +2375,6 @@ def _build_line_role_prompt_rows(
                 "runtime_worker_id": runtime_context.get("runtime_worker_id"),
                 "runtime_owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
                 "activity_trace": None,
-                "thinking_trace": None,
             }
             activity_trace_payload = _export_prompt_activity_trace(
                 row_payload=row_payload,
@@ -2553,11 +2382,6 @@ def _build_line_role_prompt_rows(
                 repo_root=repo_root,
             )
             row_payload["activity_trace"] = activity_trace_payload
-            row_payload["thinking_trace"] = (
-                dict(activity_trace_payload)
-                if isinstance(activity_trace_payload, dict)
-                else None
-            )
             if (
                 isinstance(activity_trace_payload, dict)
                 and isinstance(row_payload.get("request_telemetry"), dict)
@@ -3075,53 +2899,6 @@ def render_prompt_artifacts_from_descriptors(
                         if isinstance(telemetry_row, dict)
                         else None
                     )
-                    telemetry_trace_path = (
-                        _clean_text(telemetry_row.get("trace_path"))
-                        if isinstance(telemetry_row, dict)
-                        else None
-                    )
-                    telemetry_trace_action_count = (
-                        _coerce_int(telemetry_row.get("trace_action_count"))
-                        if isinstance(telemetry_row, dict)
-                        else None
-                    )
-                    telemetry_trace_action_types = (
-                        _parse_json_string_list(telemetry_row.get("trace_action_types_json"))
-                        if isinstance(telemetry_row, dict)
-                        else []
-                    )
-                    telemetry_trace_reasoning_count = (
-                        _coerce_int(telemetry_row.get("trace_reasoning_count"))
-                        if isinstance(telemetry_row, dict)
-                        else None
-                    )
-                    telemetry_trace_reasoning_types = (
-                        _parse_json_string_list(telemetry_row.get("trace_reasoning_types_json"))
-                        if isinstance(telemetry_row, dict)
-                        else []
-                    )
-                    resolved_trace_path = _resolve_telemetry_trace_path(
-                        telemetry_trace_path=telemetry_trace_path,
-                        output_file=output_file,
-                        out_dir=stage.output_dir,
-                        task_id=telemetry_task_id,
-                        repo_root=repo_root,
-                    )
-                    thinking_trace_payload = _load_thinking_trace_payload(trace_path=resolved_trace_path)
-                    if isinstance(thinking_trace_payload, dict):
-                        if telemetry_trace_action_count is None:
-                            telemetry_trace_action_count = thinking_trace_payload.get("action_event_count")
-                        if not telemetry_trace_action_types:
-                            telemetry_trace_action_types = list(
-                                thinking_trace_payload.get("action_event_types") or []
-                            )
-                        if telemetry_trace_reasoning_count is None:
-                            telemetry_trace_reasoning_count = thinking_trace_payload.get("reasoning_event_count")
-                        if not telemetry_trace_reasoning_types:
-                            telemetry_trace_reasoning_types = list(
-                                thinking_trace_payload.get("reasoning_event_types") or []
-                            )
-
                     request_payload: dict[str, Any] = {
                         "messages": request_messages,
                         "tools": [],
@@ -3186,16 +2963,6 @@ def render_prompt_artifacts_from_descriptors(
                             "ask_for_approval": telemetry_ask_for_approval,
                             "web_search": telemetry_web_search,
                             "output_schema_path": telemetry_output_schema_path,
-                            "trace_path": telemetry_trace_path,
-                            "trace_resolved_path": (
-                                str(resolved_trace_path)
-                                if resolved_trace_path is not None
-                                else None
-                            ),
-                            "trace_action_count": telemetry_trace_action_count,
-                            "trace_action_types": telemetry_trace_action_types,
-                            "trace_reasoning_count": telemetry_trace_reasoning_count,
-                            "trace_reasoning_types": telemetry_trace_reasoning_types,
                             "worker_id": runtime_context.get("runtime_worker_id"),
                             "shard_id": runtime_context.get("runtime_shard_id"),
                             "owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
@@ -3266,21 +3033,13 @@ def render_prompt_artifacts_from_descriptors(
                         "runtime_worker_id": runtime_context.get("runtime_worker_id"),
                         "runtime_owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
                         "activity_trace": None,
-                        "thinking_trace": None,
                     }
                     activity_trace_payload = _export_prompt_activity_trace(
                         row_payload=row_payload,
                         prompts_dir=prompts_dir,
                         repo_root=repo_root,
                     )
-                    if activity_trace_payload is None and isinstance(thinking_trace_payload, dict):
-                        activity_trace_payload = dict(thinking_trace_payload)
                     row_payload["activity_trace"] = activity_trace_payload
-                    row_payload["thinking_trace"] = (
-                        dict(activity_trace_payload)
-                        if isinstance(activity_trace_payload, dict)
-                        else None
-                    )
                     if (
                         isinstance(activity_trace_payload, dict)
                         and isinstance(request_telemetry, dict)
@@ -3397,8 +3156,6 @@ def build_prompt_response_log(
     prompt_log_summary_path = prompts_dir / PROMPT_LOG_SUMMARY_JSON_NAME
     activity_trace_summary_jsonl_path = prompts_dir / ACTIVITY_TRACE_SUMMARY_JSONL_NAME
     activity_trace_summary_md_path = prompts_dir / ACTIVITY_TRACE_SUMMARY_MD_NAME
-    thinking_trace_summary_jsonl_path = prompts_dir / THINKING_TRACE_SUMMARY_JSONL_NAME
-    thinking_trace_summary_md_path = prompts_dir / THINKING_TRACE_SUMMARY_MD_NAME
     if full_prompt_log_path.exists() and full_prompt_log_path.is_file():
         write_prompt_log_summary(
             full_prompt_log_path=full_prompt_log_path,
@@ -3409,26 +3166,10 @@ def build_prompt_response_log(
             output_jsonl_path=activity_trace_summary_jsonl_path,
             output_md_path=activity_trace_summary_md_path,
         )
-        if activity_trace_summary_jsonl_path.exists():
-            shutil.copyfile(
-                activity_trace_summary_jsonl_path,
-                thinking_trace_summary_jsonl_path,
-            )
-        else:
-            thinking_trace_summary_jsonl_path.unlink(missing_ok=True)
-        if activity_trace_summary_md_path.exists():
-            shutil.copyfile(
-                activity_trace_summary_md_path,
-                thinking_trace_summary_md_path,
-            )
-        else:
-            thinking_trace_summary_md_path.unlink(missing_ok=True)
     else:
         prompt_log_summary_path.unlink(missing_ok=True)
         activity_trace_summary_jsonl_path.unlink(missing_ok=True)
         activity_trace_summary_md_path.unlink(missing_ok=True)
-        thinking_trace_summary_jsonl_path.unlink(missing_ok=True)
-        thinking_trace_summary_md_path.unlink(missing_ok=True)
     return prompt_log_path or line_role_prompt_log_path
 
 
@@ -3443,17 +3184,13 @@ __all__ = [
     "PROMPT_LOG_SUMMARY_SCHEMA_VERSION",
     "PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION",
     "PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION",
-    "PROMPT_THINKING_TRACE_SUMMARY_SCHEMA_VERSION",
     "PROMPT_TYPE_SAMPLES_MD_NAME",
     "build_codex_farm_activity_trace_summaries",
-    "THINKING_TRACE_SUMMARY_JSONL_NAME",
-    "THINKING_TRACE_SUMMARY_MD_NAME",
     "PromptCallRecord",
     "PromptRunDescriptorDiscoverer",
     "PromptRunDescriptor",
     "PromptStageDescriptor",
     "build_codex_farm_prompt_response_log",
-    "build_codex_farm_thinking_trace_summaries",
     "build_prompt_response_log",
     "build_codex_farm_prompt_type_samples_markdown",
     "discover_prompt_run_descriptors",

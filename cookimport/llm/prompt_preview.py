@@ -1149,7 +1149,7 @@ def _prompt_row(
         "raw_response": {"output_text": None, "output_file": None},
         "parsed_response": None,
         "request_telemetry": None,
-        "thinking_trace": None,
+        "activity_trace": None,
     }
     if debug_input_payload is not None:
         row["debug_input_payload"] = debug_input_payload

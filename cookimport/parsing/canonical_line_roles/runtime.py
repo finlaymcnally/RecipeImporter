@@ -58,6 +58,71 @@ class _LineRoleCohortWatchdogState:
                 ]
 
 
+def _raise_if_line_role_runtime_incomplete(
+    *,
+    ordered_candidates: Sequence[AtomicLineCandidate],
+    runtime_result: _LineRoleRuntimeResult | None,
+) -> None:
+    if runtime_result is None:
+        return
+    missing_atomic_indices = [
+        int(candidate.atomic_index)
+        for candidate in ordered_candidates
+        if int(candidate.atomic_index)
+        not in runtime_result.predictions_by_atomic_index
+    ]
+    if not missing_atomic_indices:
+        return
+    failed_shards: list[str] = []
+    runtime_roots: list[str] = []
+    for phase_result in runtime_result.phase_results:
+        if phase_result.runtime_root is None:
+            continue
+        runtime_roots.append(str(phase_result.runtime_root))
+        shard_status_path = phase_result.runtime_root / "shard_status.jsonl"
+        if not shard_status_path.exists():
+            continue
+        for line in shard_status_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(row, Mapping):
+                continue
+            state = str(row.get("state") or "").strip()
+            shard_id = str(row.get("shard_id") or "").strip()
+            reason_code = str(
+                (
+                    (row.get("metadata") or {})
+                    if isinstance(row.get("metadata"), Mapping)
+                    else {}
+                ).get("repair_status")
+                or row.get("reason_code")
+                or ""
+            ).strip()
+            if state in {"validated", "repair_recovered"}:
+                continue
+            detail = shard_id or "<unknown-shard>"
+            if state:
+                detail += f" state={state}"
+            if reason_code:
+                detail += f" repair_status={reason_code}"
+            failed_shards.append(detail)
+    detail_suffix = ""
+    if failed_shards:
+        detail_suffix = " Failed shards: " + "; ".join(failed_shards[:5]) + "."
+    runtime_root_suffix = ""
+    if runtime_roots:
+        runtime_root_suffix = " Runtime roots: " + ", ".join(runtime_roots) + "."
+    raise LineRoleRepairFailureError(
+        "canonical line-role failed closed because one or more shards ended without a clean installed ledger."
+        f" Missing atomic indices: {', '.join(str(value) for value in missing_atomic_indices)}."
+        f"{detail_suffix}{runtime_root_suffix}"
+    )
+
+
 def _label_atomic_lines_internal(
     candidates: Sequence[AtomicLineCandidate],
     settings: RunSettings,
@@ -176,12 +241,23 @@ def _label_atomic_lines_internal(
             progress_callback=progress_callback,
         )
         predictions.update(runtime_result.predictions_by_atomic_index)
-
-    for candidate in ordered:
-        if candidate.atomic_index not in predictions:
-            predictions[candidate.atomic_index] = deterministic_baseline[
-                candidate.atomic_index
-            ]
+        if live_llm_allowed:
+            _raise_if_line_role_runtime_incomplete(
+                ordered_candidates=ordered,
+                runtime_result=runtime_result,
+            )
+        else:
+            for candidate in ordered:
+                if candidate.atomic_index not in predictions:
+                    predictions[candidate.atomic_index] = deterministic_baseline[
+                        candidate.atomic_index
+                    ]
+    else:
+        for candidate in ordered:
+            if candidate.atomic_index not in predictions:
+                predictions[candidate.atomic_index] = deterministic_baseline[
+                    candidate.atomic_index
+                ]
 
     sanitized_by_index: dict[int, CanonicalLineRolePrediction] = {}
     for candidate in ordered:
@@ -368,38 +444,15 @@ def _run_line_role_shard_runtime(
         response_payload = phase_result.response_payloads_by_shard_id.get(shard_plan.shard_id)
         if not isinstance(response_payload, dict):
             continue
-        proposal_metadata = dict(
-            phase_result.proposal_metadata_by_shard_id.get(shard_plan.shard_id) or {}
-        )
-        row_resolution_metadata = dict(proposal_metadata.get("row_resolution") or {})
-        fallback_atomic_indices = {
-            int(value)
-            for value in row_resolution_metadata.get("fallback_atomic_indices") or []
-            if str(value).strip()
-        }
         rows = response_payload.get("rows")
         if not isinstance(rows, list):
             continue
-        baseline_by_atomic_index = {
-            int(prediction.atomic_index): prediction
-            for prediction in shard_plan.baseline_predictions
-        }
         candidate_by_atomic_index = {
             int(candidate.atomic_index): candidate for candidate in shard_plan.candidates
         }
         for row in rows:
             atomic_index = int(row["atomic_index"])
             candidate = candidate_by_atomic_index[atomic_index]
-            baseline_prediction = baseline_by_atomic_index[atomic_index]
-            if atomic_index in fallback_atomic_indices:
-                fallback_payload = baseline_prediction.model_dump(mode="python")
-                fallback_payload["reason_tags"] = list(baseline_prediction.reason_tags) + [
-                    "line_role_row_fallback",
-                ]
-                predictions_by_atomic_index[atomic_index] = CanonicalLineRolePrediction.model_validate(
-                    fallback_payload
-                )
-                continue
             predictions_by_atomic_index[atomic_index] = CanonicalLineRolePrediction(
                 recipe_id=candidate.recipe_id,
                 block_id=str(candidate.block_id),
@@ -407,7 +460,7 @@ def _run_line_role_shard_runtime(
                 atomic_index=atomic_index,
                 text=str(candidate.text),
                 within_recipe_span=candidate.within_recipe_span,
-                label=str(row["label"] or baseline_prediction.label or "OTHER"),
+                label=str(row["label"] or "OTHER"),
                 decided_by="codex",
                 reason_tags=["codex_line_role"],
                 review_exclusion_reason=row.get("review_exclusion_reason"),
@@ -968,7 +1021,6 @@ def _run_line_role_workspace_worker_assignment_v1(
         if str(shard_row.get("shard_id") or "").strip()
     }
     _write_runtime_json(worker_root / "assigned_shards.json", assigned_shard_rows)
-    _write_line_role_worker_examples(worker_root=worker_root)
     _write_line_role_output_contract(worker_root=worker_root)
     _write_line_role_worker_tools(worker_root=worker_root)
     for shard in valid_shards:
@@ -1207,15 +1259,26 @@ def _run_line_role_workspace_worker_assignment_v1(
                         **dict(validation_metadata or {}),
                     }
             else:
-                response_source_path = work_path
-                payload, validation_errors, validation_metadata, proposal_status = (
-                    _evaluate_line_role_workspace_response_with_pathology_guard(
-                        shard=shard,
-                        response_text=response_text,
-                        deterministic_baseline_by_atomic_index=baseline_by_atomic_index,
-                        frozen_rows_by_atomic_index=frozen_rows,
-                    )
+                (
+                    _work_payload,
+                    work_validation_errors,
+                    work_validation_metadata,
+                    work_proposal_status,
+                ) = _evaluate_line_role_workspace_response_with_pathology_guard(
+                    shard=shard,
+                    response_text=response_text,
+                    deterministic_baseline_by_atomic_index=baseline_by_atomic_index,
+                    frozen_rows_by_atomic_index=frozen_rows,
                 )
+                validation_metadata = dict(work_validation_metadata or {})
+                validation_metadata["workspace_ledger_status"] = work_proposal_status
+                validation_metadata["workspace_ledger_validation_errors"] = list(
+                    work_validation_errors
+                )
+                validation_metadata["installed_output_required"] = True
+                payload = None
+                validation_errors = ("missing_output_file",)
+                proposal_status = "missing_output"
         else:
             payload, validation_errors, validation_metadata, proposal_status = (
                 _evaluate_line_role_response_with_pathology_guard(
@@ -1227,7 +1290,7 @@ def _run_line_role_workspace_worker_assignment_v1(
             )
         watchdog_retry_attempted = False
         watchdog_retry_status = "not_attempted"
-        repair_attempted = False
+        repair_attempted = repair_request_path.exists()
         repair_status = "not_attempted"
         raw_output_status = proposal_status
         final_validation_errors = tuple(validation_errors)
@@ -1449,10 +1512,11 @@ def _run_line_role_workspace_worker_assignment_v1(
         row_resolution_payload, row_resolution_metadata = _build_line_role_row_resolution(
             shard=shard,
             validation_metadata=final_validation_metadata,
-            deterministic_baseline_by_atomic_index=baseline_by_atomic_index,
         )
         payload = row_resolution_payload
-        proposal_status = "validated"
+        proposal_status = "validated" if row_resolution_payload is not None else "invalid"
+        if repair_attempted:
+            repair_status = "repaired" if proposal_status == "validated" else "failed"
         final_validation_metadata = {
             **dict(final_validation_metadata or {}),
             "raw_output_status": raw_output_status,
@@ -1460,6 +1524,23 @@ def _run_line_role_workspace_worker_assignment_v1(
             "raw_output_missing": raw_output_status == "missing_output",
             "row_resolution": dict(row_resolution_metadata),
         }
+        _write_runtime_json(
+            task_root / "repair_status.json",
+            {
+                "repair_attempted": repair_attempted,
+                "status": repair_status,
+                "repair_status": repair_status,
+                "repair_request_path": (
+                    _relative_runtime_path(run_root, repair_request_path)
+                    if repair_request_path.exists()
+                    else None
+                ),
+                "work_path": _relative_runtime_path(run_root, work_path),
+                "output_path": _relative_runtime_path(run_root, output_path),
+                "validation_errors": list(final_validation_errors),
+                "row_resolution": dict(row_resolution_metadata),
+            },
+        )
         if primary_row is not None:
             _annotate_line_role_final_proposal_status(
                 primary_row,
@@ -1476,17 +1557,14 @@ def _run_line_role_workspace_worker_assignment_v1(
                 worker_id=assignment.worker_id,
                 state=(
                     "repair_recovered"
-                    if repair_status == "repaired"
-                    and int(row_resolution_metadata.get("fallback_row_count") or 0) == 0
+                    if proposal_status == "validated" and repair_status == "repaired"
                     else (
-                        "partial_fallback"
-                        if int(row_resolution_metadata.get("fallback_row_count") or 0) > 0
-                        and int(row_resolution_metadata.get("accepted_row_count") or 0) > 0
+                        "validated"
+                        if proposal_status == "validated"
                         else (
-                            "fallback_only"
-                            if int(row_resolution_metadata.get("fallback_row_count") or 0)
-                            == len(tuple(shard.owned_ids))
-                            else "validated"
+                            "repair_failed"
+                            if repair_attempted
+                            else "invalid_output"
                         )
                     )
                 ),
@@ -1505,6 +1583,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                     )
                 ),
                 output_path=response_source_path,
+                repair_path=repair_request_path if repair_request_path.exists() else None,
                 validation_errors=final_validation_errors,
                 validation_metadata=final_validation_metadata,
                 row_resolution_metadata=row_resolution_metadata,
@@ -1689,10 +1768,7 @@ def _run_line_role_workspace_worker_assignment_v1(
             "raw_supervision_retryable"
         )
         runner_results_by_shard_id[shard.shard_id] = shard_runner_payload
-        if proposal_status != "validated" or shard_state not in {
-            "completed",
-            "completed_with_fallback",
-        }:
+        if proposal_status != "validated" or shard_state != "completed":
             worker_failure_count += 1
             worker_failures.append(
                 {
@@ -2088,8 +2164,8 @@ def _run_line_role_direct_workers_v1(
         for row in task_status_rows
         if isinstance(row, dict)
     )
-    fallback_row_count = sum(
-        int(((row.get("metadata") or {}) if isinstance(row, dict) else {}).get("fallback_row_count") or 0)
+    unresolved_row_count = sum(
+        int(((row.get("metadata") or {}) if isinstance(row, dict) else {}).get("unresolved_row_count") or 0)
         for row in task_status_rows
         if isinstance(row, dict)
     )
@@ -2128,7 +2204,7 @@ def _run_line_role_direct_workers_v1(
             )
         },
         "llm_authoritative_row_count": llm_authoritative_row_count,
-        "fallback_row_count": fallback_row_count,
+        "unresolved_row_count": unresolved_row_count,
         "suspicious_shard_count": suspicious_shard_count,
         "suspicious_row_count": suspicious_row_count,
     }

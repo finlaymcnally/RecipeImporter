@@ -27,7 +27,7 @@ KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v2"
 RECIPE_STAGE_SUMMARY_FILE_NAME = "recipe_stage_summary.json"
 RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v3"
 LINE_ROLE_STAGE_SUMMARY_FILE_NAME = "line_role_stage_summary.json"
-LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION = "line_role_stage_summary.v2"
+LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION = "line_role_stage_summary.v3"
 
 _KNOWLEDGE_STAGE_ARTIFACT_KEYS: tuple[str, ...] = (
     "phase_manifest.json",
@@ -1116,8 +1116,8 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
         for row in task_rows
         if isinstance(row, dict)
     )
-    fallback_row_count = sum(
-        int(((row.get("metadata") or {}) if isinstance(row, dict) else {}).get("fallback_row_count") or 0)
+    unresolved_row_count = sum(
+        int(((row.get("metadata") or {}) if isinstance(row, dict) else {}).get("unresolved_row_count") or 0)
         for row in task_rows
         if isinstance(row, dict)
     )
@@ -1145,7 +1145,7 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
         "lines": {
             "canonical_line_total": len(line_rows),
             "llm_authoritative_row_count": llm_authoritative_row_count,
-            "fallback_row_count": fallback_row_count,
+            "unresolved_row_count": unresolved_row_count,
             "suspicious_row_count": suspicious_row_count,
         },
         "shards": {
@@ -1180,7 +1180,7 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
         zero_target_counts={
             "invalid_shard_count": promotion_report.get("invalid_shards"),
             "missing_output_shard_count": promotion_report.get("missing_output_shards"),
-            "fallback_row_count": fallback_row_count,
+            "unresolved_row_count": unresolved_row_count,
             "codex_policy_rejected_row_count": codex_policy_rejected_row_count,
             "suspicious_shard_count": suspicious_packet_count,
             "suspicious_row_count": suspicious_row_count,

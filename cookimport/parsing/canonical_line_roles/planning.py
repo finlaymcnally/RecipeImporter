@@ -476,7 +476,7 @@ def _build_line_role_workspace_worker_prompt(
         "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger.\n\n"
         "Worker contract:\n"
         "- The current working directory is already the workspace root.\n"
-        "- Start by opening `worker_manifest.json`, then `CURRENT_PHASE.md`, then `OUTPUT_CONTRACT.md`. Open `current_phase.json` when you need the exact metadata fields or file paths.\n"
+        "- Start by opening `worker_manifest.json`, then `CURRENT_PHASE.md`. Open `current_phase.json` when you need the exact metadata fields or file paths.\n"
         "- The normal path is repo-written already: open the current work ledger named in `current_phase.json`, then `hints/<shard_id>.md`; open `in/<shard_id>.json` only when the work ledger or hint is insufficient.\n"
         "- Run `python3 tools/line_role_worker.py check-phase` after editing the work ledger. If `CURRENT_PHASE_FEEDBACK.md` names a repair file, fix only those unresolved rows in the existing work ledger.\n"
         "- Run `python3 tools/line_role_worker.py install-phase` only after the current work ledger validates cleanly. Installing advances the phase surface to the next shard when one remains.\n"
@@ -493,8 +493,7 @@ def _build_line_role_workspace_worker_prompt(
         "- For each assigned shard, start from the prewritten work ledger and hint before reopening the raw input ledger.\n"
         "- Treat `hints/<shard_id>.md` as guidance and `in/<shard_id>.json` as the authoritative shard input for the active phase.\n"
         "- Treat each shard ledger's deterministic label code as a weak hint only. Recompute from the shard rows, hint, and local context; do not preserve or prefer a label just because it came from the deterministic seed.\n"
-        "- If `OUTPUT_CONTRACT.md` or `examples/` exists, use those repo-written files as the authoritative output-shape reference.\n"
-        "- If `examples/*.md` exists, use those contrast examples for calibration only; do not copy them into outputs.\n"
+        "- Open `OUTPUT_CONTRACT.md` only when the seeded work ledger and validator feedback are insufficient to recover the exact output shape.\n"
         "- Write and revise the active shard only in `work/<shard_id>.json`. The helper installs the validated ledger to `out/<shard_id>.json`.\n"
         "- If `out/<shard_id>.json` already exists and is complete, leave it alone and continue.\n"
         "- Do not modify files under `in/`, `debug/`, or `hints/`.\n"
@@ -527,19 +526,6 @@ def _build_line_role_workspace_worker_prompt(
         "Assigned shard files:\n"
         f"{assignments}\n"
     )
-
-
-def _write_line_role_worker_examples(*, worker_root: Path) -> list[str]:
-    examples_dir = worker_root / "examples"
-    examples_dir.mkdir(parents=True, exist_ok=True)
-    written_files: list[str] = []
-    for filename, content in (
-        *_LINE_ROLE_PACKET_EXAMPLE_FILES,
-        *_LINE_ROLE_OUTPUT_EXAMPLE_FILES,
-    ):
-        (examples_dir / filename).write_text(content, encoding="utf-8")
-        written_files.append(filename)
-    return written_files
 
 
 def _write_line_role_output_contract(*, worker_root: Path) -> None:
