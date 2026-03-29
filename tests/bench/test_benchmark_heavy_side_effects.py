@@ -43,9 +43,11 @@ def test_foreground_oracle_upload_is_blocked_by_default_under_pytest(
     tmp_path: Path,
 ) -> None:
     bundle_dir = tmp_path / "single-book-benchmark" / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
-    bundle_dir.mkdir(parents=True, exist_ok=True)
-    for file_name in cli.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES:
-        (bundle_dir / file_name).write_text("{}", encoding="utf-8")
+    for review_dir_name in cli.BENCHMARK_UPLOAD_BUNDLE_REVIEW_DIR_NAMES:
+        review_dir = bundle_dir / review_dir_name
+        review_dir.mkdir(parents=True, exist_ok=True)
+        for file_name in cli.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES:
+            (review_dir / file_name).write_text("{}", encoding="utf-8")
 
     calls: list[dict[str, object]] = []
     messages: list[str] = []

@@ -530,7 +530,7 @@ def _build_line_role_workspace_worker_prompt(
         "- Use `assigned_shards.json` only for ordered ownership/progress context.\n"
         "- For each assigned shard, start from the prewritten work ledger and hint before reopening the raw input ledger.\n"
         "- Treat `hints/<shard_id>.md` as guidance and `in/<shard_id>.json` as the authoritative shard input for the active phase.\n"
-        "- Treat each shard ledger's deterministic label code as a strong prior. Make the smallest safe correction rather than hunting for novelty.\n"
+        "- Treat each shard ledger's deterministic label code as a weak hint only. Recompute from the shard rows, hint, and local context; do not preserve or prefer a label just because it came from the deterministic seed.\n"
         "- If `OUTPUT_CONTRACT.md` or `examples/` exists, use those repo-written files as the authoritative output-shape reference.\n"
         "- If `examples/*.md` exists, use those contrast examples for calibration only; do not copy them into outputs.\n"
         "- Write and revise the active shard only in `work/<shard_id>.json`. The helper installs the validated ledger to `out/<shard_id>.json`.\n"

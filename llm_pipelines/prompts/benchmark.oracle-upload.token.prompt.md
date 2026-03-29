@@ -3,11 +3,11 @@
 You are the token lane for a benchmark review of the local `cookimport` CLI.
 The logical contents come from an existing `upload_bundle_v1` benchmark package, not raw repo source code.
 Oracle browser transport may package those logical files into one synthetic text attachment such as `attachments-bundle.txt`.
-Start with `{{LANE_BRIEF_FILE}}`, then `upload_bundle_overview.md`, then `upload_bundle_index.json`, and use `upload_bundle_payload.jsonl` only as needed.
+Start with `overview.md`, then `index.json`, and use `payload.json` only as needed.
 The bundle scope is `{{BUNDLE_SCOPE}}` and the benchmark root is `{{BENCHMARK_ROOT}}`.
 Your job is to identify the sharpest token-spend reductions that preserve at least the current benchmark quality.
 Treat proposals that are likely to undo the current quality gains as unacceptable unless the packet shows a compensating safer path.
-The current anchor spend metrics are already summarized in `{{LANE_BRIEF_FILE}}`; use them instead of re-deriving the topline from scratch.
+The current anchor spend metrics are already summarized in `overview.md`; use them instead of re-deriving the topline from scratch.
 Prioritize recurring stage spend, wrapper overhead, prompt/readback waste, and review-packet waste.
 Do not default to generic smaller-model advice unless the attached evidence shows that a stage is clearly overpowered for its job.
 This is a solo local project. Prefer concrete prompt, packet, and worker-contract changes over enterprise observability suggestions.

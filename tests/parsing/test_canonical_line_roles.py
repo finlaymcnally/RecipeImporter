@@ -1775,6 +1775,128 @@ def test_label_atomic_lines_front_matter_heading_and_title_list_stay_other() -> 
     assert by_atomic_index[62].label == "OTHER"
 
 
+def test_label_atomic_lines_front_matter_chapter_taxonomy_cluster_is_excluded() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:17",
+            block_index=17,
+            atomic_index=17,
+            text="PART ONE",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:18",
+            block_index=18,
+            atomic_index=18,
+            text="The Four Elements of Good Cooking",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:19",
+            block_index=19,
+            atomic_index=19,
+            text="SALT",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:20",
+            block_index=20,
+            atomic_index=20,
+            text="What is Salt?",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:21",
+            block_index=21,
+            atomic_index=21,
+            text="Salt and Flavor",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:22",
+            block_index=22,
+            atomic_index=22,
+            text="How Salt Works",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:23",
+            block_index=23,
+            atomic_index=23,
+            text="Diffusion Calculus",
+            within_recipe_span=False,
+            rule_tags=[],
+        ),
+    ]
+
+    predictions = label_atomic_lines(candidates, _settings())
+    by_text = {prediction.text: prediction for prediction in predictions}
+
+    assert all(prediction.label == "OTHER" for prediction in predictions)
+    assert by_text["PART ONE"].review_exclusion_reason == "navigation"
+    assert (
+        by_text["The Four Elements of Good Cooking"].review_exclusion_reason
+        == "navigation"
+    )
+    assert by_text["SALT"].review_exclusion_reason == "navigation"
+    assert by_text["What is Salt?"].review_exclusion_reason == "navigation"
+    assert by_text["Salt and Flavor"].review_exclusion_reason == "navigation"
+    assert by_text["How Salt Works"].review_exclusion_reason == "navigation"
+    assert by_text["Diffusion Calculus"].review_exclusion_reason == "navigation"
+
+
+def test_label_atomic_lines_atomized_chapter_taxonomy_heading_trio_stays_other() -> None:
+    candidates = atomize_blocks(
+        [
+            {
+                "block_id": "block:18",
+                "block_index": 18,
+                "text": "The Four Elements of Good Cooking",
+            },
+            {
+                "block_id": "block:19",
+                "block_index": 19,
+                "text": "SALT",
+            },
+            {
+                "block_id": "block:20",
+                "block_index": 20,
+                "text": "What is Salt?",
+            },
+            {
+                "block_id": "block:21",
+                "block_index": 21,
+                "text": "Salt enhances flavor.",
+            },
+        ],
+        recipe_id=None,
+        within_recipe_span=False,
+    )
+
+    predictions = label_atomic_lines(candidates, _settings())
+
+    assert [prediction.label for prediction in predictions] == [
+        "OTHER",
+        "OTHER",
+        "OTHER",
+        "OTHER",
+    ]
+    assert all(prediction.review_exclusion_reason is None for prediction in predictions)
+
+
 def test_label_atomic_lines_exact_variations_block_stays_variant() -> None:
     candidates = [
         AtomicLineCandidate(
@@ -3332,7 +3454,7 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
                 "This book may legitimately use zero `HOWTO_SECTION` labels. Treat the label as optional and require strong local recipe evidence before using it."
             ),
             "flip_policy": [
-                "Treat the deterministic label as a strong prior, not a neutral starting guess.",
+                "Treat the deterministic label as a weak hint only, not a starting truth.",
                 "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should usually stay review-eligible `OTHER` so the knowledge stage can make the semantic call later.",
             ],
             "example_files": [
@@ -3363,7 +3485,8 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert "Do not run shell commands, Python, or any other tools." in prompt
     assert "Do not describe your plan, reasoning, or heuristics." in prompt
     assert "Your first response must be the final JSON object." in prompt
-    assert "Treat the deterministic label as a strong prior" in prompt
+    assert "Treat the deterministic label as a weak hint only" in prompt
+    assert "do not preserve or prefer a label just because it came from the deterministic seed" in prompt
     assert "Each row is `[atomic_index, label_code, current_line]`." in prompt
     assert "Label codes:" in prompt
     assert "Return one result for every owned input row in `rows`." in prompt
@@ -5505,7 +5628,8 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert "Treat `CURRENT_PHASE.md` as the cheapest repo-written first read." in prompt_text
     assert "Use `assigned_shards.json` only for ordered ownership/progress context" in prompt_text
     assert "start from the prewritten work ledger and hint before reopening the raw input ledger" in prompt_text
-    assert "Treat each shard ledger's deterministic label code as a strong prior." in prompt_text
+    assert "Treat each shard ledger's deterministic label code as a weak hint only." in prompt_text
+    assert "do not preserve or prefer a label just because it came from the deterministic seed" in prompt_text
     assert "If `OUTPUT_CONTRACT.md` or `examples/` exists" in prompt_text
     assert "`HOWTO_SECTION` is book-optional" in prompt_text
     assert "Balancing Fat" in prompt_text

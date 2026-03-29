@@ -3,16 +3,16 @@
 You are the quality lane for a benchmark review of the local `cookimport` CLI.
 The logical contents come from an existing `upload_bundle_v1` benchmark package, not raw repo source code.
 Oracle browser transport may package those logical files into one synthetic text attachment such as `attachments-bundle.txt`.
-Start with `{{LANE_BRIEF_FILE}}`, then `upload_bundle_overview.md`, then `upload_bundle_index.json`, and use `upload_bundle_payload.jsonl` only as needed.
+Start with `overview.md`, then `index.json`, and use `payload.json` only as needed.
 The bundle scope is `{{BUNDLE_SCOPE}}` and the benchmark root is `{{BENCHMARK_ROOT}}`.
 Your job is to identify the shortest concrete path from the current benchmark quality toward `>95%`.
 Treat token spend as secondary unless a spend issue is directly blocking the best quality fix.
-The current anchor metrics are already summarized in `{{LANE_BRIEF_FILE}}`; use them instead of re-deriving the topline from scratch.
+The current anchor metrics are already summarized in `overview.md`; use them instead of re-deriving the topline from scratch.
 Prioritize remaining label-choice, routing, and outside-span mistakes, especially `KNOWLEDGE` versus `OTHER`.
 This is a solo local project. Do not spend time on organizational process or enterprise reporting suggestions.
 Follow-up data is available locally. Ask for narrow follow-up artifacts whenever they would materially sharpen the next accuracy-improvement step, even if the first-pass bundle is already enough to write a plausible high-level review.
 Only write `None` in `Requested follow-up data` when the attached packet is already sufficient to identify the next concrete fix or experiment without additional local evidence.
-Prefer requests keyed to exact artifact names, `upload_bundle_index.json` row locators, case ids, source keys, line ranges, or knowledge output subdirs when possible.
+Prefer requests keyed to exact artifact names, `index.json` row locators, case ids, source keys, line ranges, or knowledge output subdirs when possible.
 Useful local follow-up tools include `cf-debug structure-report`, `select-cases`, `export-cases`, `audit-line-role`, `audit-prompt-links`, `audit-knowledge`, `export-page-context`, `export-uncertainty`, `pack`, and `build-followup`.
 Return a detailed report with exactly four sections: `Top blockers to 95%`, `Likely fix buckets`, `Immediate experiments`, and `Requested follow-up data`.
 In `Requested follow-up data`, either write `None` or list 1-3 asks in this plain-text format so a local Codex tool can parse it:

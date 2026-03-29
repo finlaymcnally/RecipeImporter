@@ -31,19 +31,40 @@ def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _resolve_bundle_file(path: Path) -> Path:
+    if path.is_file():
+        return path
+    candidate = path.parent / "quality" / path.name
+    if candidate.is_file():
+        return candidate
+    return path
+
+
 def _read_json(path: Path) -> dict[str, object]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    target_path = _resolve_bundle_file(path)
+    return json.loads(target_path.read_text(encoding="utf-8"))
 
 
 def _read_jsonl(path: Path) -> list[dict[str, object]]:
+    target_path = _resolve_bundle_file(path)
+    if target_path.suffix == ".json":
+        payload = json.loads(target_path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            rows = payload.get("rows")
+            return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+        return [row for row in payload if isinstance(row, dict)] if isinstance(payload, list) else []
     rows: list[dict[str, object]] = []
-    with path.open("r", encoding="utf-8") as handle:
+    with target_path.open("r", encoding="utf-8") as handle:
         for raw_line in handle:
             line = raw_line.strip()
             if not line:
                 continue
             rows.append(json.loads(line))
     return rows
+
+
+def _read_text(path: Path) -> str:
+    return _resolve_bundle_file(path).read_text(encoding="utf-8")
 
 
 def _jsonl_rows_by_path(path: Path) -> dict[str, dict[str, object]]:
@@ -1697,9 +1718,7 @@ def test_main_upload_3_files_only_consolidates_and_preserves_artifacts(tmp_path:
     assert process_manifest_payload["upload_3_files_enabled"] is True
     assert process_manifest_payload["upload_3_files_only"] is True
 
-    overview_text = (output_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME).read_text(
-        encoding="utf-8"
-    )
+    overview_text = _read_text(output_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME)
     assert "## Topline" in overview_text
     assert "## Run Diagnostics" in overview_text
 
@@ -2084,6 +2103,7 @@ def test_main_starter_pack_writes_recipe_triage_and_call_inventory(tmp_path: Pat
     required_call_inventory_keys = {
         "run_id",
         "source_key",
+        "source_file",
         "recipe_id",
         "stage_key",
         "stage_label",
@@ -2099,8 +2119,101 @@ def test_main_starter_pack_writes_recipe_triage_and_call_inventory(tmp_path: Pat
         "mapping_count",
         "input_excerpt",
         "output_excerpt",
+        "duration_ms",
+        "tokens_input",
+        "tokens_cached_input",
+        "tokens_output",
+        "tokens_reasoning",
+        "tokens_total",
+        "cost_usd",
+        "estimated_cost_usd",
+        "cost_source",
+        "retry_attempt",
+        "runtime_status",
     }
     assert required_call_inventory_keys.issubset(call_inventory_rows[0].keys())
+
+
+def test_main_starter_pack_call_inventory_includes_line_role_rows_with_runtime_fields(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-book-benchmark"
+
+    line_role_row = {
+        "stage_key": "line_role",
+        "call_id": "line-role-001",
+        "recipe_id": "line_role_001",
+        "timestamp_utc": "2026-03-03T10:00:01Z",
+        "model": "gpt-test",
+        "parsed_response": {
+            "response_payload": {
+                "rows": [
+                    {"atomic_index": 0, "label": "OTHER"},
+                    {"atomic_index": 1, "label": "RECIPE_TITLE"},
+                ]
+            }
+        },
+        "request_input_payload": {
+            "rows": [
+                {"atomic_index": 0, "text": "Front matter"},
+                {"atomic_index": 1, "text": "Dish Title"},
+            ]
+        },
+        "request_telemetry": {
+            "duration_ms": 321,
+            "status": "ok",
+            "attempt_index": 2,
+            "tokens_input": 100,
+            "tokens_cached_input": 25,
+            "tokens_output": 50,
+            "tokens_total": 150,
+        },
+    }
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id="codexfarm",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-shard-v1",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=[line_role_row, *_prompt_rows_for_starter_pack_fixture()],
+        source_path="/tmp/book.epub",
+        source_hash="fixture-hash",
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id="vanilla",
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        source_path="/tmp/book.epub",
+        source_hash="fixture-hash",
+    )
+
+    module.build_starter_pack_for_existing_runs(
+        input_dir=session_root,
+        output_dir=session_root,
+    )
+
+    call_inventory_rows = _read_jsonl(
+        session_root / module.STARTER_PACK_DIR_NAME / module.STARTER_PACK_CALL_INVENTORY_FILE_NAME
+    )
+    assert len(call_inventory_rows) == 4
+    exported_line_role_row = next(
+        row for row in call_inventory_rows if row["stage_key"] == "line_role"
+    )
+    assert exported_line_role_row["input_block_count"] == 2
+    assert exported_line_role_row["duration_ms"] == 321
+    assert exported_line_role_row["tokens_input"] == 100
+    assert exported_line_role_row["tokens_cached_input"] == 25
+    assert exported_line_role_row["tokens_output"] == 50
+    assert exported_line_role_row["tokens_total"] == 150
+    assert exported_line_role_row["cost_usd"] is None
+    assert exported_line_role_row["estimated_cost_usd"] is not None
+    assert exported_line_role_row["cost_source"] == "estimated_from_tokens_default_pricing"
+    assert exported_line_role_row["retry_attempt"] == 2
+    assert exported_line_role_row["runtime_status"] == "ok"
 
 
 def test_main_starter_pack_summarizes_warnings_and_selected_packets(tmp_path: Path) -> None:
@@ -2305,8 +2418,8 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert {
         path.name
         for path in bundle_dir.iterdir()
-        if path.is_file()
-    } == set(module.UPLOAD_BUNDLE_FILE_NAMES)
+        if path.is_dir()
+    } == set(module.UPLOAD_BUNDLE_REVIEW_PROFILE_DIR_NAMES)
     assert f"{codex_run_id}/run_manifest.json" in artifact_paths
     assert f"{baseline_run_id}/run_manifest.json" in artifact_paths
     assert int(index_payload["topline"]["run_count"]) == 2
@@ -2799,9 +2912,7 @@ def test_build_upload_bundle_for_existing_output_surfaces_run_diagnostics_and_ov
     assert baseline_diag["prompt_warning_aggregate_status"] == "not_applicable"
     assert baseline_diag["projection_trace_status"] == "not_applicable"
     assert baseline_diag["preprocess_trace_failures_status"] == "not_applicable"
-    overview_text = (bundle_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME).read_text(
-        encoding="utf-8"
-    )
+    overview_text = _read_text(bundle_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME)
     assert "## Turn-1 Summary" in overview_text
     assert "## Active Recipe Span Breakout" in overview_text
     assert "## Runtime / Cost Snapshot" in overview_text
@@ -3160,9 +3271,7 @@ def test_build_upload_bundle_uses_single_correction_stage_labels_only(
     assert "correction-stage loss" in str(bucket_definitions["recipe_correction"])
     assert "final-stage status" in str(bucket_definitions["final_recipe"])
 
-    overview_text = (bundle_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME).read_text(
-        encoding="utf-8"
-    )
+    overview_text = _read_text(bundle_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME)
     assert "## Recipe Pipeline Context" in overview_text
     assert "codex-recipe-shard-v1" in overview_text
     assert "Build Intermediate Recipe" in overview_text
@@ -3422,6 +3531,36 @@ def test_build_upload_bundle_merges_realistic_codex_call_telemetry_with_prompt_b
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=[
             {
+                "stage_key": "line_role",
+                "call_id": "line-role-001",
+                "recipe_id": "line_role_001",
+                "timestamp_utc": "2026-03-03T10:00:01Z",
+                "model": "gpt-test",
+                "parsed_response": {
+                    "response_payload": {
+                        "rows": [
+                            {"atomic_index": 0, "label": "OTHER"},
+                            {"atomic_index": 1, "label": "RECIPE_TITLE"},
+                        ]
+                    }
+                },
+                "request_input_payload": {
+                    "rows": [
+                        {"atomic_index": 0, "text": "Front matter"},
+                        {"atomic_index": 1, "text": "Dish Title"},
+                    ]
+                },
+                "request_telemetry": {
+                    "duration_ms": 600,
+                    "status": "ok",
+                    "attempt_index": 1,
+                    "tokens_input": 200,
+                    "tokens_cached_input": 50,
+                    "tokens_output": 100,
+                    "tokens_total": 300,
+                },
+            },
+            {
                 "stage_key": "recipe_llm_correct_and_link",
                 "call_id": "recipe-001",
                 "recipe_id": "recipe:c0",
@@ -3563,6 +3702,21 @@ def test_build_upload_bundle_merges_realistic_codex_call_telemetry_with_prompt_b
 
     top_slowest_calls = runtime_payload["top_slowest_calls"]
     assert top_slowest_calls[0]["call_id"] == "recipe-001"
+
+    payload_rows = _jsonl_rows_by_path(bundle_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
+    call_inventory_rows = payload_rows[
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/{module.STARTER_PACK_DIR_NAME}/02_call_inventory.jsonl"
+    ]["content_jsonl_rows"]
+    assert len(call_inventory_rows) == 3
+    line_role_row = next(row for row in call_inventory_rows if row["stage_key"] == "line_role")
+    assert line_role_row["duration_ms"] == 600
+    assert line_role_row["tokens_input"] == 200
+    assert line_role_row["tokens_cached_input"] == 50
+    assert line_role_row["tokens_output"] == 100
+    assert line_role_row["tokens_total"] == 300
+    assert line_role_row["estimated_cost_usd"] is not None
+    assert line_role_row["retry_attempt"] == 1
+    assert line_role_row["runtime_status"] == "ok"
     assert int(top_slowest_calls[0]["duration_ms"]) == 1200
     top_estimated_cost_calls = runtime_payload["top_estimated_cost_calls"]
     assert top_estimated_cost_calls[0]["call_id"] == "recipe-001"
@@ -4119,7 +4273,7 @@ def test_build_upload_bundle_high_level_only_enforces_final_bundle_size(
     assert isinstance(omitted_rows, list)
     assert any(
         isinstance(row, dict)
-        and str(row.get("path") or "") == module.TARGETED_PROMPT_CASES_FILE_NAME
+        and str(row.get("path") or "").endswith(module.TARGETED_PROMPT_CASES_FILE_NAME)
         and str(row.get("reason") or "") == "final_size_trim"
         for row in omitted_rows
     )
@@ -4524,9 +4678,7 @@ def test_build_upload_bundle_single_run_preserves_span_signal_and_pairless_notes
         "analysis.benchmark_pair_inventory"
     )
 
-    overview_text = (bundle_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME).read_text(
-        encoding="utf-8"
-    )
+    overview_text = _read_text(bundle_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME)
     assert "single-run span and stage story" in overview_text
     assert "- recipe_span_count: 29" in overview_text
 

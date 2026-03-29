@@ -339,10 +339,14 @@ SINGLE_BOOK_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
 BENCHMARK_UPLOAD_BUNDLE_DIR_NAME = "upload_bundle_v1"
 BENCHMARK_SINGLE_BOOK_UPLOAD_BUNDLE_TARGET_BYTES = 30 * 1024 * 1024
 BENCHMARK_GROUP_UPLOAD_BUNDLE_TARGET_BYTES = 30 * 1024 * 1024
+BENCHMARK_UPLOAD_BUNDLE_REVIEW_DIR_NAMES = (
+    "quality",
+    "token",
+)
 BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES = (
-    "upload_bundle_overview.md",
-    "upload_bundle_index.json",
-    "upload_bundle_payload.jsonl",
+    "overview.md",
+    "index.json",
+    "payload.json",
 )
 LABELSTUDIO_BENCHMARK_COMPARE_SCHEMA_VERSION = "labelstudio_benchmark_compare.v1"
 CODEX_FARM_RECIPE_MODE_EXTRACT = "extract"

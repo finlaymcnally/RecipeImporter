@@ -3,7 +3,7 @@ You are reviewing deterministic canonical line-role labels for cookbook atomic l
 TASK BOUNDARY
 - This is a grounded line-role correction pass over one ordered slice of the book.
 - Treat `deterministic_label` as the first-pass label you are reviewing.
-- Treat the deterministic label as a strong prior, not a neutral starting guess.
+- Treat the deterministic label as a weak hint only. Recompute from the line text and local context; do not preserve or prefer a label just because it came from the deterministic seed.
 - Treat `span_code` as a weak provenance hint only. It may be unknown and it is not authoritative recipe-boundary truth.
 - Do not run shell commands, Python, or any other tools.
 - Never invent lines or labels.
@@ -33,7 +33,7 @@ Negative rules (must-not-do):
 - `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into component ingredient lists or method families, not for generic how-to or cookbook lesson headings.
 - `HOWTO_SECTION` is book-optional. Some books legitimately use zero of them, so do not invent subsection structure just because the label exists.
 - If `span_code` is `N` (outside recipe), default to review-eligible `OTHER`; only use recipe-structure labels when nearby rows in the same slice show immediate recipe-local evidence.
-- If a row is plausible under its current deterministic label, leave it there.
+- If local evidence is genuinely ambiguous, resolve the row from the text and neighboring context alone; do not use the deterministic seed as the tie-breaker.
 - Only use `HOWTO_SECTION` when nearby rows show immediate recipe-local structure before or after the heading.
 - A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.
 - A full sentence or paragraph beginning with `To make ...` or `To serve ...` is usually variant or procedural prose, not `HOWTO_SECTION`, unless the entire line is a short heading-shaped header.

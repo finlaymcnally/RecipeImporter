@@ -8,6 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from cookimport.bench.oracle_upload import (
+    BENCHMARK_UPLOAD_BUNDLE_INDEX_FILE_NAME,
+    BENCHMARK_UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
+    ORACLE_REVIEW_PROFILE_QUALITY,
+    oracle_benchmark_review_packet_file,
+)
 from cookimport.bench.structure_label_report import build_structure_label_report
 from cookimport.llm.codex_farm_ids import sanitize_for_filename
 
@@ -128,8 +134,15 @@ def _git_sha(repo_root: Path) -> str:
 
 def _bundle_sha256(bundle_dir: Path) -> str:
     digest = hashlib.sha256()
-    for file_name in ("upload_bundle_index.json", "upload_bundle_payload.jsonl"):
-        path = bundle_dir / file_name
+    for file_name in (
+        BENCHMARK_UPLOAD_BUNDLE_INDEX_FILE_NAME,
+        BENCHMARK_UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
+    ):
+        path = oracle_benchmark_review_packet_file(
+            bundle_dir,
+            ORACLE_REVIEW_PROFILE_QUALITY,
+            file_name,
+        )
         digest.update(file_name.encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
@@ -471,21 +484,27 @@ class FollowupBundleContext:
     def __init__(self, *, repo_root: Path, bundle_dir: Path) -> None:
         self.repo_root = repo_root.resolve()
         self.bundle_dir = bundle_dir.resolve()
-        self.index = _read_json(self.bundle_dir / "upload_bundle_index.json")
+        self.index = _read_json(
+            oracle_benchmark_review_packet_file(
+                self.bundle_dir,
+                ORACLE_REVIEW_PROFILE_QUALITY,
+                BENCHMARK_UPLOAD_BUNDLE_INDEX_FILE_NAME,
+            )
+        )
         self.source_root = Path(
             str(self.index.get("source_dir") or self.bundle_dir.parent)
         ).resolve()
         self.payload_artifacts: list[PayloadArtifact] = []
         self.payload_by_path: dict[str, PayloadArtifact] = {}
-        payload_path = self.bundle_dir / "upload_bundle_payload.jsonl"
-        for payload_row, raw_line in enumerate(
-            payload_path.read_text(encoding="utf-8").splitlines(),
-            start=1,
-        ):
-            text = raw_line.strip()
-            if not text:
-                continue
-            payload = json.loads(text)
+        payload_path = oracle_benchmark_review_packet_file(
+            self.bundle_dir,
+            ORACLE_REVIEW_PROFILE_QUALITY,
+            BENCHMARK_UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
+        )
+        payload_packet = _read_json(payload_path)
+        payload_rows = payload_packet.get("rows") if isinstance(payload_packet, dict) else []
+        payload_rows = payload_rows if isinstance(payload_rows, list) else []
+        for payload_row, payload in enumerate(payload_rows, start=1):
             if not isinstance(payload, dict):
                 continue
             path = str(payload.get("path") or "").strip()

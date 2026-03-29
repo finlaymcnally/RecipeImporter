@@ -246,20 +246,33 @@ def build_minimal_upload_bundle(
         "navigation": {"row_locators": {"knowledge_by_run": []}},
     }
 
-    (bundle_dir / "upload_bundle_overview.md").write_text(
-        "\n".join(
-            [
-                "# Upload Bundle Overview",
-                "",
-                f"- benchmark root: `{root}`",
-                "- run_count = 1",
-                "- pair_count = 0",
-                "- changed_lines_total = 0",
-            ]
+    for review_profile in ("quality", "token"):
+        review_dir = bundle_dir / review_profile
+        review_dir.mkdir(parents=True, exist_ok=True)
+        (review_dir / "overview.md").write_text(
+            "\n".join(
+                [
+                    f"# {review_profile.title()} Review Packet",
+                    "",
+                    f"- benchmark root: `{root}`",
+                    "- run_count = 1",
+                    "- pair_count = 0",
+                    "- changed_lines_total = 0",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
         )
-        + "\n",
-        encoding="utf-8",
-    )
-    _write_json(bundle_dir / "upload_bundle_index.json", index_payload)
-    _write_jsonl(bundle_dir / "upload_bundle_payload.jsonl", payload_rows)
+        lane_index_payload = dict(index_payload)
+        lane_index_payload["review_profile"] = review_profile
+        _write_json(review_dir / "index.json", lane_index_payload)
+        _write_json(
+            review_dir / "payload.json",
+            {
+                "schema_version": "upload_bundle.review_payload.v1",
+                "review_profile": review_profile,
+                "row_count": len(payload_rows),
+                "rows": payload_rows,
+            },
+        )
     return bundle_dir

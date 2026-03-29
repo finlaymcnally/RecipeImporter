@@ -172,13 +172,13 @@ def _write_benchmark_upload_bundle(
         return None
 
     output_files = {
-        path.name for path in output_dir.iterdir() if path.is_file()
+        path.name for path in output_dir.iterdir() if path.is_dir()
     }
-    if output_files != set(BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES):
+    if output_files != set(BENCHMARK_UPLOAD_BUNDLE_REVIEW_DIR_NAMES):
         if not suppress_summary:
             typer.secho(
                 (
-                    "Skipped benchmark upload bundle generation: unexpected bundle file set "
+                    "Skipped benchmark upload bundle generation: unexpected bundle directory set "
                     f"({sorted(output_files)})."
                 ),
                 fg=typer.colors.YELLOW,

@@ -1071,11 +1071,12 @@ def _build_knowledge_workspace_worker_prompt(
         "Required local loop:",
         "1. Open `worker_manifest.json`, then `CURRENT_PHASE.md`, then `CURRENT_PHASE_FEEDBACK.md`, then `OUTPUT_CONTRACT.md`.",
         "2. Treat `CURRENT_PHASE.md`, `CURRENT_PHASE_FEEDBACK.md`, and `current_phase.json` as the authoritative active-phase surface. `assigned_shards.json` is ordered ownership/progress context only.",
-        "3. Use the paved road: edit only the active work ledger named in `CURRENT_PHASE.md`, run `python3 tools/knowledge_worker.py check-phase`, and run `python3 tools/knowledge_worker.py install-phase` after the checker says OK.",
-        "4. Pass 1 is block-local classification only: one row per owned block with `knowledge` or `other`.",
-        "5. Pass 2 runs only after Pass 1 installs. Pass 2 assigns `group_id` and `topic_label` only for the kept knowledge rows.",
-        "6. After each validation failure, re-open `CURRENT_PHASE_FEEDBACK.md`. After each successful install, re-open `CURRENT_PHASE.md` and `CURRENT_PHASE_FEEDBACK.md` immediately and continue with the newly active phase or shard. Do not ask for permission to continue, summarize progress as a stopping point, or invent your own queue advancement.",
-        "7. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
+        "3. If `hints/<shard_id>.md` exists, open it before `in/<shard_id>.json`. Treat the hint as guidance, the phase-named input file as authoritative, and `examples/` as calibration only.",
+        "4. Use the paved road: edit only the active work ledger named in `CURRENT_PHASE.md`, run `python3 tools/knowledge_worker.py check-phase`, and run `python3 tools/knowledge_worker.py install-phase` after the checker says OK.",
+        "5. Pass 1 is block-local classification only: one row per owned block with `knowledge` or `other`.",
+        "6. Pass 2 runs only after Pass 1 installs. Pass 2 assigns `group_id` and `topic_label` only for the kept knowledge rows.",
+        "7. After each validation failure, re-open `CURRENT_PHASE_FEEDBACK.md`. After each successful install, re-open `CURRENT_PHASE.md` and `CURRENT_PHASE_FEEDBACK.md` immediately and continue with the newly active phase or shard. Do not ask for permission to continue, summarize progress as a stopping point, or invent your own queue advancement.",
+        "8. Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "",
         "Installed result contract for each shard:",
         "- Write exactly one JSON object.",
@@ -1107,6 +1108,150 @@ def _build_knowledge_workspace_worker_prompt(
         "Do not return shard outputs in your final message. The authoritative result is the set of files written through the repo-written phase helper.",
     ]
     return "\n".join(lines)
+
+
+_KNOWLEDGE_HINT_EXAMPLE_FILES = (
+    "valid_semantic_packet.json",
+    "valid_all_other_low_utility_packet.json",
+    "valid_all_other_framing_packet.json",
+    "valid_heading_with_useful_body_packet.json",
+    "valid_all_other_navigation_packet.json",
+)
+
+
+def _looks_knowledge_hint_heading_like(
+    *,
+    text: str,
+    heading_level: Any,
+) -> bool:
+    cleaned = " ".join(str(text or "").split())
+    if not cleaned:
+        return False
+    if heading_level is not None:
+        return True
+    if len(cleaned) > 80:
+        return False
+    if cleaned.endswith("?"):
+        return True
+    alpha_chars = [char for char in cleaned if char.isalpha()]
+    if alpha_chars and cleaned == cleaned.upper():
+        return True
+    return "." not in cleaned and len(cleaned.split()) <= 8
+
+
+def _build_knowledge_hint_attention_lines(
+    packet_blocks: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    attention_lines: list[str] = []
+    previous_index: int | None = None
+    for block in packet_blocks:
+        try:
+            block_index = int(block.get("i"))
+        except (TypeError, ValueError):
+            continue
+        text = str(block.get("t") or "").strip()
+        if not text:
+            continue
+        heading_level = block.get("hl")
+        cues: list[str] = []
+        if _looks_knowledge_hint_heading_like(text=text, heading_level=heading_level):
+            cues.append("heading_like")
+        if isinstance(block.get("th"), Mapping):
+            cues.append("table_hint")
+        if len(text) >= 240:
+            cues.append("long_prose")
+        if previous_index is not None:
+            gap = int(block_index) - int(previous_index)
+            if gap > 8:
+                cues.append(f"gap_from_prev={gap}")
+        previous_index = block_index
+        if not cues or len(attention_lines) >= 10:
+            continue
+        attention_lines.append(
+            f"`{block_index}` `{preview_text(text, max_chars=90)}` -> cues `{', '.join(cues)}`"
+        )
+    if attention_lines:
+        return attention_lines
+    return [
+        "No special attention rows were flagged. Read the owned block text in order and classify each block on its own merits."
+    ]
+
+
+def _build_knowledge_hint_profile_and_policy(
+    packet_blocks: Sequence[Mapping[str, Any]],
+) -> tuple[list[str], list[str], list[str]]:
+    block_indices: list[int] = []
+    heading_count = 0
+    table_hint_count = 0
+    long_prose_count = 0
+    heading_like_count = 0
+    large_gap_count = 0
+    previous_index: int | None = None
+    for block in packet_blocks:
+        try:
+            block_index = int(block.get("i"))
+        except (TypeError, ValueError):
+            continue
+        block_indices.append(block_index)
+        text = str(block.get("t") or "").strip()
+        if block.get("hl") is not None:
+            heading_count += 1
+        if isinstance(block.get("th"), Mapping):
+            table_hint_count += 1
+        if len(text) >= 240:
+            long_prose_count += 1
+        if _looks_knowledge_hint_heading_like(text=text, heading_level=block.get("hl")):
+            heading_like_count += 1
+        if previous_index is not None and (block_index - previous_index) > 8:
+            large_gap_count += 1
+        previous_index = block_index
+
+    profile_lines = [
+        f"Owned blocks: {len(block_indices)}.",
+        (
+            f"Owned block range: {block_indices[0]}..{block_indices[-1]}."
+            if block_indices
+            else "Owned block range: unknown."
+        ),
+        f"Heading-like rows: {heading_like_count}.",
+        f"Explicit heading rows: {heading_count}.",
+        f"Table-hint rows: {table_hint_count}.",
+        f"Long prose rows: {long_prose_count}.",
+        f"Large source gaps (>8): {large_gap_count}.",
+    ]
+    if table_hint_count > 0:
+        shard_summary = (
+            "Reference-style packet with table cues. Keep true conversion/reference material, "
+            "but do not keep the whole packet just because a table is present."
+        )
+    elif heading_like_count > 0 and long_prose_count > 0:
+        shard_summary = (
+            "Heading-plus-body packet. Short headings can be kept only when the nearby body is "
+            "genuinely useful cooking guidance."
+        )
+    elif long_prose_count >= max(2, len(block_indices) // 2):
+        shard_summary = (
+            "Long-form prose packet. Expect mixed memoir/framing and useful instruction; judge "
+            "block-locally and avoid whole-packet inertia."
+        )
+    else:
+        shard_summary = (
+            "Mixed non-recipe packet. Use nearby rows as weak context only and let each block earn "
+            "its own `knowledge` status."
+        )
+    interpretation_lines = [
+        shard_summary,
+        "Default posture: keep only durable cooking leverage; technically true but low-value prose stays `other`.",
+        "Use packet order as weak context, not proof that neighboring blocks belong to the same idea.",
+    ]
+    decision_policy = [
+        "Classify each block on its own merits before thinking about idea groups.",
+        "If the shard mixes framing with useful guidance, keep only the guidance blocks as `knowledge`.",
+        "Keep short headings only when nearby explanatory body clearly earns preservation.",
+        "Table/reference rows can be real knowledge, but only when they would materially help future cooking decisions.",
+        "Use `examples/` for calibration, not as content to copy.",
+    ]
+    return profile_lines, interpretation_lines, decision_policy
 
 
 def _write_knowledge_worker_hint(
@@ -1155,6 +1300,11 @@ def _write_knowledge_worker_hint(
             else "Packet preview: `[empty]`"
         ),
     ]
+    shard_profile, shard_interpretation, decision_policy = (
+        _build_knowledge_hint_profile_and_policy(packet_blocks)
+    )
+    attention_lines = _build_knowledge_hint_attention_lines(packet_blocks)
+    shard_examples = [f"`examples/{name}`" for name in _KNOWLEDGE_HINT_EXAMPLE_FILES]
     write_worker_hint_markdown(
         path,
         title=f"Knowledge review hints for {shard.shard_id}",
@@ -1180,7 +1330,12 @@ def _write_knowledge_worker_hint(
                     "Do not treat the shard as finished until `python3 tools/knowledge_worker.py check-phase` passes for the active phase.",
                 ],
             ),
+            ("Shard profile", shard_profile),
+            ("Shard interpretation", shard_interpretation),
+            ("Decision policy", decision_policy),
+            ("Shard examples", shard_examples),
             ("Packet summary", packet_summary or ["No packet summary available."]),
+            ("Attention rows", attention_lines),
         ],
     )
 

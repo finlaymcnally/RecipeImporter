@@ -10,7 +10,7 @@ Task boundary:
 - Do not describe your plan, reasoning, or heuristics.
 - Your first response must be the final JSON object.
 - Treat each row's `label_code` as the deterministic first-pass label you are reviewing, not final truth.
-- Treat the deterministic label as a strong prior, not a neutral starting guess.
+- Treat the deterministic label as a weak hint only. Recompute from the row text and local context; do not preserve or prefer a label just because it came from the deterministic seed.
 - Never invent lines or labels.
 
 Return strict JSON as a JSON object with one `rows` array:
@@ -55,7 +55,7 @@ Rules:
   - Short declarative teaching lines about reusable cooking rules should still stay review-eligible `OTHER` in this stage.
   - `HOWTO_SECTION` is book-optional. Some books legitimately use zero of them, so do not invent subsection structure just because the label exists.
   - If the shard rows are outside recipe context, default to review-eligible `OTHER`; only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.
-  - If a row is plausible under its current deterministic label, leave it there.
+  - If local evidence is genuinely ambiguous, resolve the row from the text and neighboring context alone; do not use the deterministic seed as the tie-breaker.
   - Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure before or after the heading.
   - A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.
   - A full sentence or paragraph beginning with `To make ...` or `To serve ...` is usually variant or procedural prose, not `HOWTO_SECTION`, unless the whole line is a short heading-shaped header.

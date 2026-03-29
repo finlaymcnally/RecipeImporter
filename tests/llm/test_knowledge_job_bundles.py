@@ -98,7 +98,6 @@ def test_build_knowledge_jobs_splits_review_queue_by_requested_shard_count(
         [3, 4, 5],
     ]
 
-
 def test_build_knowledge_jobs_is_idempotent(
     tmp_path: Path,
 ) -> None:

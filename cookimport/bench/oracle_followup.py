@@ -37,6 +37,7 @@ from cookimport.bench.oracle_upload import (
     _read_log_text,
     audit_oracle_upload_log,
     normalize_oracle_browser_model,
+    oracle_upload_runs_dir,
     resolve_oracle_benchmark_model,
 )
 
@@ -429,7 +430,11 @@ def _find_followup_source_launch_dir(
     bundle_dir: Path,
     from_run: str,
 ) -> Path:
-    runs_dir = bundle_dir / ORACLE_UPLOAD_RUNS_DIR_NAME
+    runs_dir = oracle_upload_runs_dir(bundle_dir)
+    if not runs_dir.is_dir():
+        legacy_runs_dir = bundle_dir / ORACLE_UPLOAD_RUNS_DIR_NAME
+        if legacy_runs_dir.is_dir():
+            runs_dir = legacy_runs_dir
     if not runs_dir.is_dir():
         raise ValueError(f"No Oracle upload runs found under {runs_dir}.")
     candidates = sorted(

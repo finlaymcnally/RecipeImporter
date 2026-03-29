@@ -462,8 +462,8 @@ def _line_role_flip_policy(
         or "absent_or_unproven"
     )
     policy = [
-        "Treat the deterministic label as a strong prior, not a neutral starting guess.",
-        "Only flip a row when shard-local evidence is clearer than the seed label.",
+        "Treat the deterministic label as a weak hint only, not a starting truth or tie-breaker.",
+        "Recompute from shard-local evidence and do not preserve or prefer a label merely because it came from the seed.",
         "A heading alone is weak evidence; promote to `HOWTO_SECTION` only with immediate recipe-local support.",
         "Generic advice or science explanations are review-eligible `OTHER` here, not `INSTRUCTION_LINE`.",
     ]
@@ -588,6 +588,35 @@ def _looks_navigation_title_list_entry(text: str) -> bool:
     return _looks_recipe_title(stripped) or _looks_compact_heading(stripped)
 
 
+def _looks_chapter_taxonomy_heading_candidate(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    if _looks_front_matter_navigation_heading(stripped):
+        return True
+    if _looks_table_of_contents_entry(stripped):
+        return True
+    if _looks_navigation_title_list_entry(stripped):
+        return True
+    if _looks_note_text(stripped) or _YIELD_PREFIX_RE.match(stripped):
+        return False
+    if _QUANTITY_LINE_RE.match(stripped) or _NUMBERED_STEP_RE.match(stripped):
+        return False
+    if _INSTRUCTION_VERB_RE.match(stripped):
+        return False
+    if _looks_non_heading_howto_prose(stripped):
+        return False
+    if _looks_prose(stripped) and _looks_book_framing_or_exhortation_prose(stripped):
+        return False
+    if stripped.endswith("?"):
+        words = _PROSE_WORD_RE.findall(stripped)
+        if 2 <= len(words) <= 5 and re.match(r"^(what|how|why)\b", stripped, re.IGNORECASE):
+            return True
+    return _looks_obvious_knowledge_heading(stripped) or _looks_knowledge_heading_shape(
+        stripped
+    )
+
+
 def _looks_page_furniture(text: str) -> bool:
     stripped = str(text or "").strip()
     if not stripped:
@@ -650,10 +679,15 @@ def _looks_navigation_exclusion_candidate(
         text
     ):
         return True
-    if by_atomic_index is None or not _looks_navigation_title_list_entry(text):
+    current_is_navigation_title_entry = _looks_navigation_title_list_entry(text)
+    current_is_chapter_taxonomy_heading = _looks_chapter_taxonomy_heading_candidate(text)
+    if by_atomic_index is None or not (
+        current_is_navigation_title_entry or current_is_chapter_taxonomy_heading
+    ):
+        return False
+    if _has_local_knowledge_prose_support(candidate, by_atomic_index=by_atomic_index):
         return False
     navigation_like_neighbors = 0
-    lesson_like_neighbors = 0
     for offset in (-2, -1, 1, 2):
         neighbor = by_atomic_index.get(int(candidate.atomic_index) + offset)
         if neighbor is None or _is_within_recipe_span(neighbor):
@@ -663,17 +697,35 @@ def _looks_navigation_exclusion_candidate(
             _looks_table_of_contents_entry(neighbor_text)
             or _looks_front_matter_navigation_heading(neighbor_text)
             or _looks_navigation_title_list_entry(neighbor_text)
+            or _looks_chapter_taxonomy_heading_candidate(neighbor_text)
         ):
             navigation_like_neighbors += 1
-        if _looks_knowledge_heading_with_context(
-            neighbor,
-            by_atomic_index=by_atomic_index,
-        ) or _looks_knowledge_prose_with_context(
-            neighbor,
-            by_atomic_index=by_atomic_index,
-        ):
-            lesson_like_neighbors += 1
-    return navigation_like_neighbors >= 1 and lesson_like_neighbors == 0
+    required_neighbor_count = 1 if current_is_navigation_title_entry else 2
+    return navigation_like_neighbors >= required_neighbor_count
+
+
+def _has_local_knowledge_prose_support(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate] | None,
+    radius: int = 3,
+) -> bool:
+    if by_atomic_index is None:
+        return False
+    center = int(candidate.atomic_index)
+    for offset in range(1, max(1, int(radius)) + 1):
+        for neighbor_index in (center - offset, center + offset):
+            neighbor = by_atomic_index.get(neighbor_index)
+            if neighbor is None or _is_within_recipe_span(neighbor):
+                continue
+            neighbor_text = str(neighbor.text or "").strip()
+            if (
+                _looks_explicit_knowledge_cue(neighbor_text)
+                or _looks_domain_knowledge_prose(neighbor_text)
+                or _looks_pedagogical_knowledge_prose(neighbor_text)
+            ):
+                return True
+    return False
 
 
 def _neighbor_candidates(
@@ -1296,7 +1348,16 @@ def _outside_span_structured_label_allowed(
             by_atomic_index=by_atomic_index,
         )
     if label == "INGREDIENT_LINE":
-        return _looks_obvious_ingredient(candidate) or has_neighboring_recipe_evidence
+        return _looks_obvious_ingredient(candidate) and (
+            _outside_span_has_neighboring_recipe_scaffold(
+                candidate,
+                by_atomic_index=by_atomic_index,
+            )
+            or _outside_span_has_adjacent_recipe_title(
+                candidate,
+                by_atomic_index=by_atomic_index,
+            )
+        )
     if label == "INSTRUCTION_LINE":
         return _instruction_line_label_allowed(
             candidate,
@@ -1316,6 +1377,60 @@ def _outside_span_nonstructured_fallback_label(
     if _looks_recipe_note_prose(text) or _looks_editorial_note(text):
         return "RECIPE_NOTES"
     return "OTHER"
+
+
+def _outside_span_has_neighboring_recipe_scaffold(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+    radius: int = 2,
+) -> bool:
+    center = int(candidate.atomic_index)
+    lower = center - max(1, int(radius))
+    upper = center + max(1, int(radius))
+    for atomic_index in range(lower, upper + 1):
+        if atomic_index == center:
+            continue
+        row = by_atomic_index.get(atomic_index)
+        if row is None or _is_within_recipe_span(row):
+            continue
+        tags = {str(tag) for tag in row.rule_tags}
+        text = str(row.text or "").strip()
+        if not text:
+            continue
+        if {"yield_prefix", "howto_heading"} & tags:
+            return True
+        if _QUANTITY_LINE_RE.match(text):
+            return True
+        if _looks_quantity_unit_fragment(text):
+            return True
+        if _looks_direct_instruction_start(row):
+            return True
+        if _looks_recipe_start_boundary(row):
+            return True
+    return False
+
+
+def _outside_span_has_adjacent_recipe_title(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> bool:
+    current_text = str(candidate.text or "").strip()
+    if not (
+        _QUANTITY_LINE_RE.match(current_text) or _looks_quantity_unit_fragment(current_text)
+    ):
+        return False
+    for offset in (-1, 1):
+        row = by_atomic_index.get(int(candidate.atomic_index) + offset)
+        if row is None or _is_within_recipe_span(row):
+            continue
+        text = str(row.text or "").strip()
+        if not text:
+            continue
+        if _looks_recipe_title(text):
+            return True
+    return False
 
 
 def _should_rescue_other_to_knowledge_label(
@@ -1911,7 +2026,13 @@ def _looks_recipe_title_with_context(
         if next_candidate is None:
             break
         saw_neighbor = True
-        if _supports_recipe_title_context(next_candidate):
+        if _is_outside_recipe_span(candidate):
+            if _supports_outside_recipe_title_context(
+                next_candidate,
+                by_atomic_index=by_atomic_index,
+            ):
+                return True
+        elif _supports_recipe_title_context(next_candidate):
             return True
         if _is_within_recipe_span(candidate) and _is_recipe_note_context_line(next_candidate):
             return True
@@ -1961,6 +2082,33 @@ def _supports_recipe_title_context(candidate: AtomicLineCandidate) -> bool:
             "howto_heading",
         }
         & tags
+    )
+
+
+def _supports_outside_recipe_title_context(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+) -> bool:
+    tags = {str(tag) for tag in candidate.rule_tags}
+    text = str(candidate.text or "").strip()
+    if not text:
+        return False
+    if _looks_recipe_start_boundary(candidate):
+        return True
+    if _looks_direct_instruction_start(candidate):
+        return True
+    if {"yield_prefix", "howto_heading"} & tags:
+        return True
+    if _looks_table_of_contents_entry(text) or _looks_navigation_title_list_entry(text):
+        return False
+    if _QUANTITY_LINE_RE.match(text):
+        return True
+    if _looks_quantity_unit_fragment(text):
+        return True
+    return _outside_span_has_neighboring_recipe_scaffold(
+        candidate,
+        by_atomic_index=by_atomic_index,
     )
 
 

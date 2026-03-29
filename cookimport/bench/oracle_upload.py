@@ -68,6 +68,7 @@ ORACLE_BROWSER_AUTO_REATTACH_TIMEOUT = "120s"
 ORACLE_BACKGROUND_SESSION_POLL_SECONDS = 3.0
 ORACLE_BACKGROUND_SESSION_POLL_INTERVAL_SECONDS = 0.1
 ORACLE_CHATGPT_URL_ENV = "COOKIMPORT_ORACLE_CHATGPT_URL"
+ORACLE_DEFAULT_CHATGPT_URL = "https://chatgpt.com/"
 ORACLE_TEST_HELPER_ENV = "COOKIMPORT_ORACLE_TEST_HELPER"
 ORACLE_TEST_HELPER_LABEL_ENV = "COOKIMPORT_ORACLE_TEST_HELPER_LABEL"
 ORACLE_DRY_RUN_BASE_COMMAND = (
@@ -78,8 +79,22 @@ ORACLE_DRY_RUN_BASE_COMMAND = (
     "summary",
     "--files-report",
 )
+ORACLE_REVIEW_PROFILE_QUALITY = "quality"
+ORACLE_REVIEW_PROFILE_TOKEN = "token"
 BENCHMARK_UPLOAD_BUNDLE_DIR_NAME = "upload_bundle_v1"
+BENCHMARK_UPLOAD_BUNDLE_OVERVIEW_FILE_NAME = "overview.md"
+BENCHMARK_UPLOAD_BUNDLE_INDEX_FILE_NAME = "index.json"
+BENCHMARK_UPLOAD_BUNDLE_PAYLOAD_FILE_NAME = "payload.json"
 BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES = (
+    BENCHMARK_UPLOAD_BUNDLE_OVERVIEW_FILE_NAME,
+    BENCHMARK_UPLOAD_BUNDLE_INDEX_FILE_NAME,
+    BENCHMARK_UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
+)
+BENCHMARK_UPLOAD_BUNDLE_REVIEW_DIR_NAMES = (
+    ORACLE_REVIEW_PROFILE_QUALITY,
+    ORACLE_REVIEW_PROFILE_TOKEN,
+)
+LEGACY_BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES = (
     "upload_bundle_overview.md",
     "upload_bundle_index.json",
     "upload_bundle_payload.jsonl",
@@ -106,11 +121,11 @@ ORACLE_BENCHMARK_QUALITY_PROMPT_TEMPLATE_FALLBACK = "\n".join(
         "You are the quality lane for a benchmark review of the local `cookimport` CLI.",
         "The logical contents come from an existing `upload_bundle_v1` benchmark package, not raw repo source code.",
         "Oracle browser transport may package those logical files into one synthetic text attachment such as `attachments-bundle.txt`.",
-        "Start with `{{LANE_BRIEF_FILE}}`, then `upload_bundle_overview.md`, then `upload_bundle_index.json`, and use `upload_bundle_payload.jsonl` only as needed.",
+        "Start with `overview.md`, then `index.json`, and use `payload.json` only as needed.",
         "The bundle scope is `{{BUNDLE_SCOPE}}` and the benchmark root is `{{BENCHMARK_ROOT}}`.",
         "Your job is to identify the shortest concrete path from the current benchmark quality toward `>95%`.",
         "Treat token spend as secondary unless it is directly blocking the best quality fix.",
-        "The current anchor metrics are already summarized in `{{LANE_BRIEF_FILE}}`; use them instead of re-deriving the topline from scratch.",
+        "The current anchor metrics are already summarized in `overview.md`; use them instead of re-deriving the topline from scratch.",
         "Prioritize remaining label-choice, routing, and outside-span mistakes, especially `KNOWLEDGE` versus `OTHER`.",
         "This is a solo local project. Do not spend time on organizational process or enterprise reporting suggestions.",
         "Follow-up data is available locally. Ask for narrow follow-up artifacts whenever they would materially sharpen the next quality-improvement step.",
@@ -125,11 +140,11 @@ ORACLE_BENCHMARK_TOKEN_PROMPT_TEMPLATE_FALLBACK = "\n".join(
         "You are the token lane for a benchmark review of the local `cookimport` CLI.",
         "The logical contents come from an existing `upload_bundle_v1` benchmark package, not raw repo source code.",
         "Oracle browser transport may package those logical files into one synthetic text attachment such as `attachments-bundle.txt`.",
-        "Start with `{{LANE_BRIEF_FILE}}`, then `upload_bundle_overview.md`, then `upload_bundle_index.json`, and use `upload_bundle_payload.jsonl` only as needed.",
+        "Start with `overview.md`, then `index.json`, and use `payload.json` only as needed.",
         "The bundle scope is `{{BUNDLE_SCOPE}}` and the benchmark root is `{{BENCHMARK_ROOT}}`.",
         "Your job is to identify the sharpest token-spend reductions that preserve at least the current benchmark quality.",
         "Treat proposals that are likely to undo the current quality gains as unacceptable unless the packet shows a compensating safer path.",
-        "The current anchor spend metrics are already summarized in `{{LANE_BRIEF_FILE}}`; use them instead of re-deriving the topline from scratch.",
+        "The current anchor spend metrics are already summarized in `overview.md`; use them instead of re-deriving the topline from scratch.",
         "Prioritize recurring stage spend, wrapper overhead, prompt/readback waste, and review-packet waste.",
         "Do not default to generic smaller-model advice unless the attached evidence shows that a stage is clearly overpowered for its job.",
         "This is a solo local project. Prefer concrete prompt, packet, and worker-contract changes over enterprise observability suggestions.",
@@ -139,8 +154,6 @@ ORACLE_BENCHMARK_TOKEN_PROMPT_TEMPLATE_FALLBACK = "\n".join(
         "Keep the response factual and grounded in the attached packet. Do not ask for a rerun unless the packet is missing evidence required to choose the next step.",
     ]
 )
-ORACLE_REVIEW_PROFILE_QUALITY = "quality"
-ORACLE_REVIEW_PROFILE_TOKEN = "token"
 _ORACLE_SESSION_RE = re.compile(r"oracle session (?P<session_id>[A-Za-z0-9._-]+)")
 _ORACLE_COUNT_RE = re.compile(
     r"\b(?P<name>run_count|pair_count|changed_lines_total)\s*[:=]\s*(?P<value>\d+)",
@@ -350,11 +363,69 @@ def _current_profile_prompt_template(
 
 
 def _missing_bundle_files(bundle_dir: Path) -> list[str]:
-    return [
-        file_name
-        for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES
-        if not (bundle_dir / file_name).is_file()
-    ]
+    if _bundle_has_lane_layout(bundle_dir):
+        return []
+    if _bundle_has_legacy_layout(bundle_dir):
+        return []
+    missing: list[str] = []
+    for review_dir_name in BENCHMARK_UPLOAD_BUNDLE_REVIEW_DIR_NAMES:
+        review_dir = bundle_dir / review_dir_name
+        for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES:
+            if not (review_dir / file_name).is_file():
+                missing.append(f"{review_dir_name}/{file_name}")
+    return missing
+
+
+def oracle_benchmark_review_packet_dir(bundle_dir: Path, review_profile: str | None) -> Path:
+    normalized = _normalize_review_profile_name(review_profile)
+    if normalized == "all":
+        normalized = ORACLE_REVIEW_PROFILE_QUALITY
+    return bundle_dir / normalized
+
+
+def oracle_upload_runs_dir(bundle_dir: Path) -> Path:
+    return bundle_dir.parent / ORACLE_UPLOAD_RUNS_DIR_NAME
+
+
+def _legacy_oracle_upload_runs_dir(bundle_dir: Path) -> Path:
+    return bundle_dir / ORACLE_UPLOAD_RUNS_DIR_NAME
+
+
+def _bundle_has_lane_layout(bundle_dir: Path) -> bool:
+    for review_dir_name in BENCHMARK_UPLOAD_BUNDLE_REVIEW_DIR_NAMES:
+        review_dir = bundle_dir / review_dir_name
+        if not review_dir.is_dir():
+            return False
+        for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES:
+            if not (review_dir / file_name).is_file():
+                return False
+    return True
+
+
+def _bundle_has_legacy_layout(bundle_dir: Path) -> bool:
+    return all((bundle_dir / file_name).is_file() for file_name in LEGACY_BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES)
+
+
+def _legacy_bundle_file_path(bundle_dir: Path, file_name: str) -> Path:
+    legacy_map = {
+        BENCHMARK_UPLOAD_BUNDLE_OVERVIEW_FILE_NAME: "upload_bundle_overview.md",
+        BENCHMARK_UPLOAD_BUNDLE_INDEX_FILE_NAME: "upload_bundle_index.json",
+        BENCHMARK_UPLOAD_BUNDLE_PAYLOAD_FILE_NAME: "upload_bundle_payload.jsonl",
+    }
+    return bundle_dir / legacy_map[file_name]
+
+
+def oracle_benchmark_review_packet_file(
+    bundle_dir: Path,
+    review_profile: str | None,
+    file_name: str,
+) -> Path:
+    lane_path = oracle_benchmark_review_packet_dir(bundle_dir, review_profile) / file_name
+    if lane_path.is_file():
+        return lane_path
+    if _bundle_has_legacy_layout(bundle_dir):
+        return _legacy_bundle_file_path(bundle_dir, file_name)
+    return lane_path
 
 
 def resolve_oracle_benchmark_bundle(path: Path) -> OracleBenchmarkBundleTarget:
@@ -573,6 +644,20 @@ def _coerce_float(value: Any) -> float | None:
     return float(number)
 
 
+def _coerce_str_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    rows: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        rows.append(text)
+    return rows
+
+
 def _format_metric(value: Any, *, digits: int = 6) -> str:
     number = _coerce_float(value)
     if number is None:
@@ -603,7 +688,10 @@ def _build_quality_lane_brief(
     profile: OracleBenchmarkReviewProfile,
     missing_paths: list[str],
 ) -> str:
-    index_payload = _read_oracle_upload_bundle_index_payload(target.bundle_dir) or {}
+    index_payload = _read_oracle_upload_bundle_index_payload(
+        target.bundle_dir,
+        review_profile=profile.profile_id,
+    ) or {}
     analysis_payload = index_payload.get("analysis") if isinstance(index_payload, dict) else {}
     analysis_payload = analysis_payload if isinstance(analysis_payload, dict) else {}
     comparison_payload = _read_comparison_payload(target)
@@ -658,7 +746,10 @@ def _build_token_lane_brief(
     profile: OracleBenchmarkReviewProfile,
     missing_paths: list[str],
 ) -> str:
-    index_payload = _read_oracle_upload_bundle_index_payload(target.bundle_dir) or {}
+    index_payload = _read_oracle_upload_bundle_index_payload(
+        target.bundle_dir,
+        review_profile=profile.profile_id,
+    ) or {}
     analysis_payload = index_payload.get("analysis") if isinstance(index_payload, dict) else {}
     analysis_payload = analysis_payload if isinstance(analysis_payload, dict) else {}
     runtime_payload = analysis_payload.get("call_inventory_runtime")
@@ -809,8 +900,16 @@ def _stage_browser_upload_text_file(
     return shard_paths, shard_note
 
 
-def _read_oracle_upload_bundle_index_payload(bundle_dir: Path) -> dict[str, Any] | None:
-    index_path = bundle_dir / "upload_bundle_index.json"
+def _read_oracle_upload_bundle_index_payload(
+    bundle_dir: Path,
+    *,
+    review_profile: str | None = None,
+) -> dict[str, Any] | None:
+    index_path = oracle_benchmark_review_packet_file(
+        bundle_dir,
+        review_profile,
+        BENCHMARK_UPLOAD_BUNDLE_INDEX_FILE_NAME,
+    )
     try:
         payload = json.loads(index_path.read_text(encoding="utf-8"))
     except Exception:
@@ -818,8 +917,21 @@ def _read_oracle_upload_bundle_index_payload(bundle_dir: Path) -> dict[str, Any]
     return payload if isinstance(payload, dict) else None
 
 
-def _read_payload_row_map(payload_path: Path) -> dict[str, str]:
-    path_to_line: dict[str, str] = {}
+def _read_payload_rows(payload_path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if payload_path.suffix.lower() == ".json":
+        try:
+            payload = json.loads(payload_path.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+        if isinstance(payload, dict):
+            rows_payload = payload.get("rows")
+            if isinstance(rows_payload, list):
+                return [row for row in rows_payload if isinstance(row, dict)]
+            return []
+        if isinstance(payload, list):
+            return [row for row in payload if isinstance(row, dict)]
+        return []
     try:
         with payload_path.open("r", encoding="utf-8") as handle:
             for line in handle:
@@ -832,35 +944,19 @@ def _read_payload_row_map(payload_path: Path) -> dict[str, str]:
                     continue
                 if not isinstance(payload, dict):
                     continue
-                logical_path = str(payload.get("path") or "").strip()
-                if logical_path and logical_path not in path_to_line:
-                    path_to_line[logical_path] = line
+                rows.append(payload)
     except OSError:
-        return {}
-    return path_to_line
+        return []
+    return rows
 
 
-def _write_selected_payload_paths(
-    *,
-    payload_path: Path,
-    output_path: Path,
-    selected_paths: tuple[str, ...],
-) -> tuple[int, int, list[str]]:
-    path_to_line = _read_payload_row_map(payload_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    selected_count = 0
-    selected_bytes = 0
-    missing_paths: list[str] = []
-    with output_path.open("w", encoding="utf-8") as output_handle:
-        for logical_path in selected_paths:
-            line = path_to_line.get(logical_path)
-            if line is None:
-                missing_paths.append(logical_path)
-                continue
-            output_handle.write(line)
-            selected_count += 1
-            selected_bytes += len(line.encode("utf-8"))
-    return selected_count, selected_bytes, missing_paths
+def _read_payload_row_map(payload_path: Path) -> dict[str, dict[str, Any]]:
+    path_to_row: dict[str, dict[str, Any]] = {}
+    for payload in _read_payload_rows(payload_path):
+        logical_path = str(payload.get("path") or "").strip()
+        if logical_path and logical_path not in path_to_row:
+            path_to_row[logical_path] = payload
+    return path_to_row
 
 
 def _stage_oracle_review_packet(
@@ -871,47 +967,87 @@ def _stage_oracle_review_packet(
     allow_sharding: bool,
 ) -> PreparedOracleUploadInputs:
     prompt = build_oracle_benchmark_prompt(target=target, review_profile=profile.profile_id)
-    subset_source_path = staging_dir / "upload_bundle_payload.selected.jsonl"
-    selected_count, selected_bytes, missing_paths = _write_selected_payload_paths(
-        payload_path=target.bundle_dir / "upload_bundle_payload.jsonl",
-        output_path=subset_source_path,
-        selected_paths=profile.payload_paths,
+    review_packet_dir = oracle_benchmark_review_packet_dir(target.bundle_dir, profile.profile_id)
+    overview_path = oracle_benchmark_review_packet_file(
+        target.bundle_dir,
+        profile.profile_id,
+        BENCHMARK_UPLOAD_BUNDLE_OVERVIEW_FILE_NAME,
     )
-    if selected_count <= 0 or selected_bytes <= 0:
-        raise ValueError(
-            f"Oracle {profile.profile_id} review packet could not select any payload rows from {target.bundle_dir / 'upload_bundle_payload.jsonl'}."
-        )
-
-    lane_brief_path = staging_dir / profile.lane_brief_file_name
-    lane_brief_path.write_text(
-        _build_review_lane_brief(
-            target=target,
-            profile=profile,
-            missing_paths=missing_paths,
-        ),
+    index_path = oracle_benchmark_review_packet_file(
+        target.bundle_dir,
+        profile.profile_id,
+        BENCHMARK_UPLOAD_BUNDLE_INDEX_FILE_NAME,
+    )
+    payload_path = oracle_benchmark_review_packet_file(
+        target.bundle_dir,
+        profile.profile_id,
+        BENCHMARK_UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
+    )
+    payload_rows = _read_payload_rows(payload_path)
+    payload_packet = (
+        _load_json_object_path(payload_path)
+        if payload_path.suffix.lower() == ".json"
+        else {}
+    )
+    path_to_row = _read_payload_row_map(payload_path)
+    selected_rows: list[dict[str, Any]] = []
+    missing_paths: list[str] = []
+    for logical_path in profile.payload_paths:
+        row = path_to_row.get(logical_path)
+        if not isinstance(row, dict):
+            missing_paths.append(logical_path)
+            continue
+        selected_rows.append(row)
+    selected_count = len(selected_rows)
+    staged_payload_packet = {
+        "schema_version": str(payload_packet.get("schema_version") or "upload_bundle.review_payload.v1"),
+        "review_profile": profile.profile_id,
+        "review_profile_display_name": profile.display_name,
+        "generated_at": str(payload_packet.get("generated_at") or ""),
+        "benchmark_root": str(payload_packet.get("benchmark_root") or target.source_root),
+        "bundle_root": str(payload_packet.get("bundle_root") or target.bundle_dir),
+        "selected_paths": list(profile.payload_paths),
+        "missing_paths": list(missing_paths),
+        "selected_row_count": selected_count,
+        "row_count": selected_count,
+        "rows": selected_rows,
+    }
+    staged_payload_source_path = staging_dir / BENCHMARK_UPLOAD_BUNDLE_PAYLOAD_FILE_NAME
+    staged_payload_source_path.write_text(
+        json.dumps(staged_payload_packet, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-
+    selected_bytes = int(staged_payload_source_path.stat().st_size)
+    if selected_count <= 0 or selected_bytes <= 0:
+        raise ValueError(
+            f"Oracle {profile.profile_id} review packet is empty at {payload_path}."
+        )
     staged_paths: list[Path] = []
     shard_notes: list[str] = []
-    for file_name in (profile.lane_brief_file_name, "upload_bundle_overview.md", "upload_bundle_index.json"):
+    for source_path, staged_name in (
+        (overview_path, BENCHMARK_UPLOAD_BUNDLE_OVERVIEW_FILE_NAME),
+        (index_path, BENCHMARK_UPLOAD_BUNDLE_INDEX_FILE_NAME),
+    ):
         file_staged_paths, shard_note = _stage_browser_upload_text_file(
-            source_path=(lane_brief_path if file_name == profile.lane_brief_file_name else target.bundle_dir / file_name),
+            source_path=source_path,
             staging_dir=staging_dir,
-            staged_name=file_name,
+            staged_name=staged_name,
         )
         staged_paths.extend(file_staged_paths)
         if shard_note:
             shard_notes.append(shard_note)
     if allow_sharding:
         payload_staged_paths, payload_shard_note = _stage_browser_upload_text_file(
-            source_path=subset_source_path,
+            source_path=staged_payload_source_path,
             staging_dir=staging_dir,
-            staged_name="upload_bundle_payload.jsonl",
+            staged_name=BENCHMARK_UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
         )
     else:
-        staged_payload_path = staging_dir / "upload_bundle_payload.jsonl"
-        staged_payload_path.write_text(subset_source_path.read_text(encoding="utf-8"), encoding="utf-8")
+        staged_payload_path = staging_dir / BENCHMARK_UPLOAD_BUNDLE_PAYLOAD_FILE_NAME
+        staged_payload_path.write_text(
+            staged_payload_source_path.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
         payload_staged_paths = [staged_payload_path]
         payload_shard_note = ""
     staged_paths.extend(payload_staged_paths)
@@ -927,11 +1063,11 @@ def _stage_oracle_review_packet(
         prompt,
         "",
         "Oracle transport note: browser upload may deliver the logical text files as one synthetic attachment such as `attachments-bundle.txt`.",
-        f"Oracle transport note: the attached `upload_bundle_payload.jsonl` is a `{profile.profile_id}` review subset selected by logical artifact path from the full local bundle.",
-        "Oracle transport note: artifact `path` values in that trimmed payload stay unchanged even though only a selected subset is attached here.",
-        f"If you need evidence outside the attached `{profile.profile_id}` subset, request narrow follow-up data instead of asking for the full bundle again.",
+        f"Oracle transport note: this `{profile.profile_id}` lane packet comes from `{review_packet_dir}`.",
+        "Oracle transport note: artifact `path` values inside `payload.json` still point at the logical benchmark artifacts.",
+        f"If you need evidence outside the attached `{profile.profile_id}` packet, request narrow follow-up data instead of asking for the full bundle again.",
         *shard_notes,
-        f"Read `{profile.lane_brief_file_name}` first, then `upload_bundle_overview.md`, then `upload_bundle_index.json`, and consult the attached payload rows by `path` as needed.",
+        "Read `overview.md` first, then `index.json`, and consult the attached payload rows by `path` as needed.",
     ]
     note = (
         f"Prepared Oracle {profile.profile_id} review packet with {selected_count} payload rows "
@@ -965,7 +1101,7 @@ def _oracle_upload_timestamp() -> str:
 
 
 def _oracle_background_launch_dir(bundle_dir: Path, *, suffix: str = "") -> Path:
-    parent_dir = bundle_dir / ORACLE_UPLOAD_RUNS_DIR_NAME
+    parent_dir = oracle_upload_runs_dir(bundle_dir)
     base_name = _oracle_upload_timestamp()
     normalized_suffix = str(suffix or "").strip()
     candidate_name = f"{base_name}-{normalized_suffix}" if normalized_suffix else base_name
@@ -1013,9 +1149,10 @@ def _oracle_command(
             "-p",
             prompt,
         ]
-        chatgpt_url = str(os.environ.get(ORACLE_CHATGPT_URL_ENV) or "").strip()
-        if chatgpt_url:
-            command.extend(["--chatgpt-url", chatgpt_url])
+        chatgpt_url = str(
+            os.environ.get(ORACLE_CHATGPT_URL_ENV) or ORACLE_DEFAULT_CHATGPT_URL
+        ).strip()
+        command.extend(["--chatgpt-url", chatgpt_url])
         for file_argument in file_arguments:
             command.extend(["--file", file_argument])
         return command
@@ -1081,11 +1218,10 @@ def _detect_oracle_version() -> str:
 
 
 def _read_oracle_upload_bundle_topline(target: OracleBenchmarkBundleTarget) -> dict[str, int]:
-    index_path = target.bundle_dir / "upload_bundle_index.json"
-    try:
-        payload = json.loads(index_path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    payload = _read_oracle_upload_bundle_index_payload(
+        target.bundle_dir,
+        review_profile=ORACLE_REVIEW_PROFILE_QUALITY,
+    )
     topline = payload.get("topline") if isinstance(payload, dict) else None
     if not isinstance(topline, dict):
         return {}
@@ -1523,7 +1659,14 @@ def start_oracle_benchmark_upload_background(
             mode=normalized_mode,
             model=launch_model,
             prompt=session_prompt,
-            file_paths=[target.bundle_dir / file_name for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES],
+            file_paths=[
+                oracle_benchmark_review_packet_file(
+                    target.bundle_dir,
+                    profile.profile_id,
+                    file_name,
+                )
+                for file_name in BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES
+            ],
         )
     else:
         raise ValueError(f"Unsupported Oracle upload mode: {mode}")

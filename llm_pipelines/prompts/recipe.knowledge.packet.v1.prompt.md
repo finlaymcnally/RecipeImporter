@@ -13,6 +13,8 @@ Evidence rules:
 - `x.*` is nearby context only; never cite it.
 - `g.r` marks nearby recipe blocks. Do not let recipe content leak into outside-recipe decisions.
 - If a block has `th`, use it only as structural context; quotes must still come from block text.
+- Block order is preserved, but packet adjacency is not semantic proof. Large `b[*].i` jumps or obvious topic shifts often mean unrelated source regions were packed together.
+- Classify each owned block on its own merits. Use nearby blocks only as weak context, and weaken grouping assumptions across large index jumps or abrupt topic changes.
 
 Decision boundary:
 - `knowledge` means durable cooking leverage: technique, cause-and-effect explanation, troubleshooting, substitution, storage/safety advice, conversion/reference material, sensory guidance, or other knowledge that improves future cooking decisions.
@@ -23,6 +25,7 @@ Decision boundary:
 - If the text is technically true but low-value, too generic, or not worth preserving on its own, keep it as `other`.
 - In mixed packets, keep memoir/framing blocks `other`; only mark a block `knowledge` when that block itself stands on its own as reusable cooking guidance.
 - If a short conceptual heading directly introduces useful explanatory blocks in the same packet, keep that heading with the useful body instead of forcing it to `other`.
+- Do not treat two blocks as one idea just because they are adjacent in the packet; they still need clear topical continuity in the text itself.
 
 Grouping rules:
 - After block decisions, create `idea_groups` only from the blocks you marked `knowledge`.
@@ -33,6 +36,7 @@ Grouping rules:
 - Keep block indices in packet order.
 - Give each idea group a short, plain-English topic label.
 - Every idea group must include at least one grounded snippet with evidence.
+- When there is a large block-index jump or a clear subject change, prefer separate idea groups unless the text itself clearly ties the blocks together.
 
 Internal reviewer categories for `d[*].rc`:
 - `knowledge`

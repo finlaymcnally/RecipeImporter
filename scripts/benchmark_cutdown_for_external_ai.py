@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from cookimport.bench import oracle_upload as oracle_upload_contract
 from cookimport.bench.eval_stage_blocks import (
     compute_block_metrics,
     load_gold_block_labels,
@@ -136,19 +137,24 @@ GROUP_UPLOAD_BUNDLE_RUN_PRIORITY_FILES: tuple[tuple[str, bool], ...] = (
     ("run_manifest.json", True),
     ("eval_report.json", False),
     ("need_to_know_summary.json", False),
+    ("prediction-run/prompt_budget_summary.json", False),
 )
 GROUP_UPLOAD_BUNDLE_RUN_CONTEXT_FILES: tuple[str, ...] = (
     "prompts/prompt_request_response_log.txt",
     "prediction-run/extracted_archive.json",
     "prediction-run/line-role-pipeline/extracted_archive.json",
 )
-UPLOAD_BUNDLE_OVERVIEW_FILE_NAME = "upload_bundle_overview.md"
-UPLOAD_BUNDLE_INDEX_FILE_NAME = "upload_bundle_index.json"
-UPLOAD_BUNDLE_PAYLOAD_FILE_NAME = "upload_bundle_payload.jsonl"
+UPLOAD_BUNDLE_OVERVIEW_FILE_NAME = "overview.md"
+UPLOAD_BUNDLE_INDEX_FILE_NAME = "index.json"
+UPLOAD_BUNDLE_PAYLOAD_FILE_NAME = "payload.json"
 UPLOAD_BUNDLE_FILE_NAMES = (
     UPLOAD_BUNDLE_OVERVIEW_FILE_NAME,
     UPLOAD_BUNDLE_INDEX_FILE_NAME,
     UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
+)
+UPLOAD_BUNDLE_REVIEW_PROFILE_DIR_NAMES = (
+    oracle_upload_contract.ORACLE_REVIEW_PROFILE_QUALITY,
+    oracle_upload_contract.ORACLE_REVIEW_PROFILE_TOKEN,
 )
 UPLOAD_BUNDLE_DERIVED_DIR_NAME = "_upload_bundle_derived"
 STARTER_PACK_DIR_NAME = "starter_pack_v1"
@@ -4780,7 +4786,7 @@ def _build_pair_diagnostics(
     call_inventory_rows: list[dict[str, Any]] = []
     for row in sorted(codex_prompt_rows, key=_prompt_row_identity_key):
         stage_key = _prompt_row_stage_key(row)
-        if stage_key not in LLM_STAGE_MAP:
+        if not _upload_bundle_call_inventory_stage_included(stage_key):
             continue
         parsed_response = _parse_json_like(row.get("parsed_response"))
         parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
@@ -4791,11 +4797,11 @@ def _build_pair_diagnostics(
         extracted_ingredient_count = 0
         step_count = 0
         mapping_count = 0
+        request_input_payload = _parse_json_like(row.get("request_input_payload"))
+        request_input_payload = (
+            request_input_payload if isinstance(request_input_payload, dict) else {}
+        )
         if stage_key == "recipe_llm_correct_and_link":
-            request_input_payload = _parse_json_like(row.get("request_input_payload"))
-            request_input_payload = (
-                request_input_payload if isinstance(request_input_payload, dict) else {}
-            )
             correction_outputs = _upload_bundle_recipe_correction_output_rows(parsed_response)
             input_block_count = _upload_bundle_recipe_correction_input_block_count(
                 request_input_payload
@@ -4821,6 +4827,9 @@ def _build_pair_diagnostics(
                 extracted_ingredient_count = len(canonical_recipe.get("ingredients") or [])
                 step_count = len(canonical_recipe.get("steps") or [])
                 mapping_count = _mapping_count(parsed_response.get("ingredient_step_mapping"))
+        elif stage_key == "line_role":
+            row_payload = request_input_payload.get("rows")
+            input_block_count = len(row_payload) if isinstance(row_payload, list) else 0
         elif stage_key == "build_final_recipe":
             draft_payload = _parse_json_like(parsed_response.get("draft_v1"))
             draft_payload = draft_payload if isinstance(draft_payload, dict) else {}
@@ -4828,10 +4837,23 @@ def _build_pair_diagnostics(
             step_count = len(steps_payload) if isinstance(steps_payload, list) else 0
             mapping_count = _mapping_count(parsed_response.get("ingredient_step_mapping"))
 
+        runtime_payload = _upload_bundle_extract_call_runtime(row)
+        observed_cost_usd = _coerce_float(runtime_payload.get("cost_usd"))
+        estimated_cost_usd = (
+            observed_cost_usd
+            if observed_cost_usd is not None
+            else _upload_bundle_estimate_call_cost_usd(
+                tokens_input=_coerce_int(runtime_payload.get("tokens_input")),
+                tokens_cached_input=_coerce_int(runtime_payload.get("tokens_cached_input")),
+                tokens_output=_coerce_int(runtime_payload.get("tokens_output")),
+            )
+        )
+
         call_inventory_rows.append(
             {
                 "run_id": codex_run.run_id,
                 "source_key": source_key,
+                "source_file": source_file,
                 "recipe_id": _prompt_row_recipe_id(row),
                 "stage_key": stage_key,
                 "stage_label": stage_label(stage_key),
@@ -4847,7 +4869,28 @@ def _build_pair_diagnostics(
                 "mapping_count": mapping_count,
                 "input_excerpt": _input_excerpt_for_prompt_row(row, excerpt_limit=excerpt_limit),
                 "output_excerpt": _output_excerpt_for_prompt_row(row, excerpt_limit=excerpt_limit),
-                "_stage_rank": int(LLM_STAGE_MAP.get(stage_key, {}).get("sort_order") or 99),
+                "duration_ms": _coerce_int(runtime_payload.get("duration_ms")),
+                "tokens_input": _coerce_int(runtime_payload.get("tokens_input")),
+                "tokens_cached_input": _coerce_int(
+                    runtime_payload.get("tokens_cached_input")
+                ),
+                "tokens_output": _coerce_int(runtime_payload.get("tokens_output")),
+                "tokens_reasoning": _coerce_int(runtime_payload.get("tokens_reasoning")),
+                "tokens_total": _coerce_int(runtime_payload.get("tokens_total")),
+                "cost_usd": observed_cost_usd,
+                "estimated_cost_usd": estimated_cost_usd,
+                "cost_source": (
+                    "observed_telemetry"
+                    if observed_cost_usd is not None
+                    else (
+                        "estimated_from_tokens_default_pricing"
+                        if estimated_cost_usd is not None
+                        else None
+                    )
+                ),
+                "retry_attempt": _coerce_int(runtime_payload.get("attempt_index")),
+                "runtime_status": runtime_payload.get("status"),
+                "_stage_rank": _upload_bundle_call_inventory_stage_rank(stage_key),
             }
         )
     call_inventory_rows.sort(
@@ -8707,6 +8750,20 @@ def _upload_bundle_nested_numeric(
     return None
 
 
+def _upload_bundle_call_inventory_stage_included(stage_key: str | None) -> bool:
+    normalized = str(stage_key or "").strip()
+    return bool(normalized) and (
+        normalized == "line_role" or normalized in LLM_STAGE_MAP
+    )
+
+
+def _upload_bundle_call_inventory_stage_rank(stage_key: str | None) -> int:
+    normalized = str(stage_key or "").strip()
+    if normalized == "line_role":
+        return -1
+    return int(LLM_STAGE_MAP.get(normalized, {}).get("sort_order") or 99)
+
+
 def _upload_bundle_extract_call_runtime(row: dict[str, Any]) -> dict[str, Any]:
     request_telemetry = row.get("request_telemetry")
     request_telemetry = request_telemetry if isinstance(request_telemetry, dict) else {}
@@ -8909,7 +8966,10 @@ def _upload_bundle_collect_call_runtime_map(
             stage_key = _prompt_row_stage_key(prompt_row)
             call_id = str(prompt_row.get("call_id") or "").strip()
             recipe_id = _prompt_row_recipe_id(prompt_row)
-            if stage_key not in LLM_STAGE_MAP or not call_id:
+            if (
+                not _upload_bundle_call_inventory_stage_included(stage_key)
+                or not call_id
+            ):
                 continue
             row_run_id = str(prompt_row.get("run_id") or manifest_run_id).strip() or manifest_run_id
             key = (
@@ -12650,6 +12710,11 @@ def _write_upload_bundle_three_files(
         if high_level_only and target_bundle_size_bytes is not None
         else GROUP_UPLOAD_BUNDLE_TARGET_BYTES
     )
+    effective_group_target_size_bytes = (
+        max(group_target_size_bytes // len(UPLOAD_BUNDLE_REVIEW_PROFILE_DIR_NAMES), 1)
+        if high_level_only and UPLOAD_BUNDLE_REVIEW_PROFILE_DIR_NAMES
+        else group_target_size_bytes
+    )
 
     model = source_model or _upload_bundle_build_source_model(source_root=source_root)
     run_index_payload = model.run_index_payload if isinstance(model.run_index_payload, dict) else {}
@@ -12731,7 +12796,7 @@ def _write_upload_bundle_three_files(
         selected_paths, selection_meta = _upload_bundle_select_high_level_artifact_paths(
             source_root=source_root,
             discovered_run_dirs=discovered_run_dirs,
-            target_bundle_size_bytes=group_target_size_bytes,
+            target_bundle_size_bytes=effective_group_target_size_bytes,
         )
         artifact_paths = list(selected_paths)
         group_artifact_selection = dict(selection_meta)
@@ -12744,6 +12809,9 @@ def _write_upload_bundle_three_files(
             if source_root == output_root:
                 if path.parent == output_root and path.name in excluded:
                     continue
+                relative_parts = path.relative_to(source_root).parts
+                if relative_parts and relative_parts[0] in UPLOAD_BUNDLE_REVIEW_PROFILE_DIR_NAMES:
+                    continue
             elif path.is_relative_to(output_root):
                 # Avoid recursively bundling previously written bundle files when the
                 # bundle output lives inside the source tree.
@@ -12753,7 +12821,6 @@ def _write_upload_bundle_three_files(
                 continue
             artifact_paths.append(path)
 
-    payload_path = output_root / UPLOAD_BUNDLE_PAYLOAD_FILE_NAME
     payload_rows: list[dict[str, Any]] = []
     payload_paths_seen: set[str] = set()
 
@@ -13431,7 +13498,7 @@ def _write_upload_bundle_three_files(
             discovered_run_dirs=discovered_run_dirs,
             run_rows=run_rows,
             run_diagnostics=run_diagnostics,
-            target_bundle_size_bytes=group_target_size_bytes,
+            target_bundle_size_bytes=effective_group_target_size_bytes,
             payload_bytes_before_packet=payload_bytes_before_group_packet,
             artifact_selection=group_artifact_selection,
         )
@@ -13442,13 +13509,8 @@ def _write_upload_bundle_three_files(
         )
         group_high_level_packet_summary = {
             "enabled": True,
-            "target_bundle_size_bytes": int(
-                group_high_level_packet.get("target_bundle_size_bytes")
-                or group_target_size_bytes
-            ),
-            "target_bundle_size_mb": _coerce_float(
-                group_high_level_packet.get("target_bundle_size_mb")
-            ),
+            "target_bundle_size_bytes": int(group_target_size_bytes),
+            "target_bundle_size_mb": round(group_target_size_bytes / (1024 * 1024), 3),
             "payload_bytes_before_group_packet": int(
                 _coerce_int(group_high_level_packet.get("payload_bytes_before_group_packet"))
                 or payload_bytes_before_group_packet
@@ -13493,8 +13555,10 @@ def _write_upload_bundle_three_files(
 
     if high_level_only:
         final_payload_target_bytes = max(
-            group_target_size_bytes
-            - _upload_bundle_high_level_final_reserve_bytes(group_target_size_bytes),
+            effective_group_target_size_bytes
+            - _upload_bundle_high_level_final_reserve_bytes(
+                effective_group_target_size_bytes
+            ),
             1,
         )
         payload_rows, trim_meta = _upload_bundle_trim_high_level_payload_rows(
@@ -13508,6 +13572,16 @@ def _write_upload_bundle_three_files(
                 derived_root_paths["comparison_summary_json"],
                 derived_root_paths["process_manifest_json"],
                 derived_root_paths["group_high_level_packet_json"],
+                *{
+                    f"{str(row.get('output_subdir') or '').strip()}/prediction-run/prompt_budget_summary.json"
+                    for row in run_rows
+                    if isinstance(row, dict) and str(row.get("output_subdir") or "").strip()
+                },
+                *{
+                    f"{str(row.get('output_subdir') or '').strip()}/prompt_budget_summary.json"
+                    for row in run_rows
+                    if isinstance(row, dict) and str(row.get("output_subdir") or "").strip()
+                },
             },
         )
         payload_paths_seen = {
@@ -14394,8 +14468,6 @@ def _write_upload_bundle_three_files(
         "artifact_count": len(artifact_index),
         "artifact_index": artifact_index,
     }
-    _write_json(output_root / UPLOAD_BUNDLE_INDEX_FILE_NAME, index_payload)
-
     overview_lines = [
         "# External AI Upload Bundle (3 files)",
         "",
@@ -14415,7 +14487,7 @@ def _write_upload_bundle_three_files(
         "",
         "## Quick Start",
         "",
-        "1. Read `topline` and `self_check` in `upload_bundle_index.json`.",
+        f"1. Read `topline` and `self_check` in `{UPLOAD_BUNDLE_INDEX_FILE_NAME}`.",
         "2. Read `analysis.turn1_summary` for the one-screen severity, span, blame, runtime, and targeted-regression summary.",
         (
             "3. Read `analysis.benchmark_pair_inventory` and `analysis.active_recipe_span_breakout` for the pair-delta and span story."
@@ -14424,7 +14496,7 @@ def _write_upload_bundle_three_files(
         ),
         "4. Use `analysis.net_error_blame_summary`, `analysis.top_confusion_deltas`, and `analysis.changed_lines_stratified_sample` before drilling into recipe rows.",
         "5. Open `navigation.default_initial_views` in order for first-pass triage.",
-        "6. Use `navigation.row_locators` to jump into `upload_bundle_payload.jsonl` rows.",
+        f"6. Use `navigation.row_locators` to jump into `{UPLOAD_BUNDLE_PAYLOAD_FILE_NAME}` rows.",
         "",
         "## Topline",
         "",
@@ -14615,7 +14687,7 @@ def _write_upload_bundle_three_files(
             ),
             (
                 "- prompt navigation: "
-                "`upload_bundle_index.json -> analysis.knowledge` and "
+                f"`{UPLOAD_BUNDLE_INDEX_FILE_NAME} -> analysis.knowledge` and "
                 "`navigation.row_locators.knowledge_by_run`."
             ),
             "",
@@ -15189,17 +15261,156 @@ def _write_upload_bundle_three_files(
             _render_group_final_size_lines()
         )
 
-    def _write_payload_rows_to_disk() -> None:
-        with payload_path.open("w", encoding="utf-8") as handle:
-            for payload_row in payload_rows:
-                handle.write(json.dumps(payload_row, ensure_ascii=False))
-                handle.write("\n")
+    payload_row_by_path = {
+        str(row.get("path") or ""): row
+        for row in payload_rows
+        if isinstance(row, dict) and str(row.get("path") or "").strip()
+    }
+    payload_rows_with_locators = [
+        {
+            **dict(row),
+            "payload_row": int(artifact_row_lookup.get(str(row.get("path") or "")) or 0),
+        }
+        for row in payload_rows
+        if isinstance(row, dict)
+    ]
+    bundle_target = oracle_upload_contract.OracleBenchmarkBundleTarget(
+        requested_path=output_root,
+        source_root=source_root,
+        bundle_dir=output_root,
+        scope=oracle_upload_contract._infer_bundle_scope(source_root),
+    )
+
+    def _review_packet_dir(review_profile: str) -> Path:
+        return output_root / review_profile
+
+    def _selected_review_payload_rows(
+        review_profile: oracle_upload_contract.OracleBenchmarkReviewProfile,
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        selected_rows: list[dict[str, Any]] = []
+        missing_paths: list[str] = []
+        for logical_path in review_profile.payload_paths:
+            payload_row = payload_row_by_path.get(logical_path)
+            if not isinstance(payload_row, dict):
+                missing_paths.append(logical_path)
+                continue
+            row_copy = dict(payload_row)
+            row_copy["payload_row"] = int(artifact_row_lookup.get(logical_path) or 0)
+            selected_rows.append(row_copy)
+        return selected_rows, missing_paths
+
+    def _review_packet_index_payload(
+        review_profile: oracle_upload_contract.OracleBenchmarkReviewProfile,
+        *,
+        selected_rows: list[dict[str, Any]],
+        missing_paths: list[str],
+    ) -> dict[str, Any]:
+        lane_index_payload = json.loads(
+            json.dumps(index_payload, ensure_ascii=False)
+        )
+        lane_index_payload["review_profile"] = review_profile.profile_id
+        lane_index_payload["review_profile_display_name"] = review_profile.display_name
+        lane_index_payload["file_contract"] = {
+            "overview_file": UPLOAD_BUNDLE_OVERVIEW_FILE_NAME,
+            "artifact_index_file": UPLOAD_BUNDLE_INDEX_FILE_NAME,
+            "payload_file": UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
+        }
+        navigation_payload = (
+            lane_index_payload.get("navigation")
+            if isinstance(lane_index_payload.get("navigation"), dict)
+            else {}
+        )
+        navigation_payload["start_here"] = [
+            UPLOAD_BUNDLE_OVERVIEW_FILE_NAME,
+            UPLOAD_BUNDLE_INDEX_FILE_NAME,
+        ]
+        navigation_payload["full_payload_companion"] = UPLOAD_BUNDLE_PAYLOAD_FILE_NAME
+        lane_index_payload["navigation"] = navigation_payload
+        lane_index_payload["review_packet"] = {
+            "schema_version": "upload_bundle.review_packet.v1",
+            "review_profile": review_profile.profile_id,
+            "review_profile_display_name": review_profile.display_name,
+            "review_dir": review_profile.profile_id,
+            "overview_file": UPLOAD_BUNDLE_OVERVIEW_FILE_NAME,
+            "index_file": UPLOAD_BUNDLE_INDEX_FILE_NAME,
+            "payload_file": UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
+            "selected_paths": list(review_profile.payload_paths),
+            "missing_paths": missing_paths,
+            "row_count": len(selected_rows),
+        }
+        return lane_index_payload
+
+    def _review_packet_payload_json(
+        review_profile: oracle_upload_contract.OracleBenchmarkReviewProfile,
+        *,
+        selected_rows: list[dict[str, Any]],
+        missing_paths: list[str],
+    ) -> dict[str, Any]:
+        packet_rows = selected_rows if high_level_only else payload_rows_with_locators
+        return {
+            "schema_version": "upload_bundle.review_payload.v1",
+            "review_profile": review_profile.profile_id,
+            "review_profile_display_name": review_profile.display_name,
+            "generated_at": str(index_payload.get("generated_at") or ""),
+            "benchmark_root": str(source_root),
+            "bundle_root": str(output_root),
+            "selected_paths": list(review_profile.payload_paths),
+            "missing_paths": list(missing_paths),
+            "selected_row_count": len(selected_rows),
+            "row_count": len(packet_rows),
+            "rows": packet_rows,
+        }
+
+    def _write_review_packets() -> list[str]:
+        written_files: list[str] = []
+        for review_profile in oracle_upload_contract.ORACLE_BENCHMARK_REVIEW_PROFILES:
+            review_dir = _review_packet_dir(review_profile.profile_id)
+            review_dir.mkdir(parents=True, exist_ok=True)
+            selected_rows, missing_paths = _selected_review_payload_rows(review_profile)
+            lane_index_payload = _review_packet_index_payload(
+                review_profile,
+                selected_rows=selected_rows,
+                missing_paths=missing_paths,
+            )
+            _write_json(review_dir / UPLOAD_BUNDLE_INDEX_FILE_NAME, lane_index_payload)
+            lane_focus_text = oracle_upload_contract._build_review_lane_brief(
+                target=bundle_target,
+                profile=review_profile,
+                missing_paths=missing_paths,
+            ).strip()
+            combined_overview = (
+                lane_focus_text
+                + "\n\n## Shared Benchmark Overview\n\n"
+                + overview_text.strip()
+                + "\n"
+            )
+            (review_dir / UPLOAD_BUNDLE_OVERVIEW_FILE_NAME).write_text(
+                combined_overview,
+                encoding="utf-8",
+            )
+            _write_json(
+                review_dir / UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
+                _review_packet_payload_json(
+                    review_profile,
+                    selected_rows=selected_rows,
+                    missing_paths=missing_paths,
+                ),
+            )
+            written_files.extend(
+                [
+                    f"{review_profile.profile_id}/{UPLOAD_BUNDLE_OVERVIEW_FILE_NAME}",
+                    f"{review_profile.profile_id}/{UPLOAD_BUNDLE_INDEX_FILE_NAME}",
+                    f"{review_profile.profile_id}/{UPLOAD_BUNDLE_PAYLOAD_FILE_NAME}",
+                ]
+            )
+        return written_files
 
     def _bundle_output_size_bytes() -> int:
         return sum(
             int(candidate.stat().st_size)
-            for candidate in output_root.iterdir()
+            for candidate in output_root.rglob("*")
             if candidate.is_file()
+            and candidate.parent.name in UPLOAD_BUNDLE_REVIEW_PROFILE_DIR_NAMES
             and candidate.name in UPLOAD_BUNDLE_FILE_NAMES
         )
 
@@ -15249,13 +15460,9 @@ def _write_upload_bundle_three_files(
             )
         overview_text = _render_overview_text()
 
+    written_files: list[str] = []
     for _ in range(2 if high_level_only else 1):
-        _write_payload_rows_to_disk()
-        _write_json(output_root / UPLOAD_BUNDLE_INDEX_FILE_NAME, index_payload)
-        (output_root / UPLOAD_BUNDLE_OVERVIEW_FILE_NAME).write_text(
-            overview_text,
-            encoding="utf-8",
-        )
+        written_files = _write_review_packets()
         if not high_level_only:
             break
         actual_bundle_bytes = _bundle_output_size_bytes()
@@ -15275,7 +15482,7 @@ def _write_upload_bundle_three_files(
         overview_text = _render_overview_text()
 
     return {
-        "file_names": list(UPLOAD_BUNDLE_FILE_NAMES),
+        "file_names": written_files,
         "artifact_count": len(artifact_index),
         "payload_rows": len(artifact_index),
         "topline": topline,
@@ -15283,20 +15490,15 @@ def _write_upload_bundle_three_files(
         "final_bundle_bytes": (
             int(_coerce_int(group_high_level_packet_summary.get("final_bundle_bytes")) or 0)
             if high_level_only
-            else (
-                payload_serialized_bytes
-                + len(_json_dump_bytes(index_payload, indent=2, sort_keys=False))
-                + 1
-                + len(overview_text.encode("utf-8"))
-            )
+            else _bundle_output_size_bytes()
         ),
     }
 
 
 def _prune_output_to_upload_bundle_files(*, output_dir: Path) -> None:
-    keep = set(UPLOAD_BUNDLE_FILE_NAMES)
+    keep_dirs = set(UPLOAD_BUNDLE_REVIEW_PROFILE_DIR_NAMES)
     for path in output_dir.iterdir():
-        if path.name in keep and path.is_file():
+        if path.is_dir() and path.name in keep_dirs:
             continue
         if path.is_dir():
             shutil.rmtree(path)
@@ -15313,12 +15515,12 @@ def build_upload_bundle_for_existing_output(
     high_level_only: bool = False,
     target_bundle_size_bytes: int | None = None,
 ) -> dict[str, Any]:
-    """Build a 3-file external-AI upload bundle from an existing artifact tree.
+    """Build lane-local upload packets from an existing artifact tree.
 
     When `output_dir` is omitted, files are written alongside the source tree.
-    When `prune_output_dir` is true and output equals source, only the 3 upload
-    files are retained in that folder. Set `high_level_only=True` to emit a
-    size-budgeted group bundle (target bytes controlled by
+    When `prune_output_dir` is true and output equals source, only the lane
+    upload packet folders are retained in that folder. Set
+    `high_level_only=True` to emit a size-budgeted group bundle (target bytes controlled by
     `target_bundle_size_bytes`).
     """
 
@@ -15775,9 +15977,14 @@ def main() -> int:
         "flatten_script": str(args.flatten_script),
         "upload_3_files_enabled": bool(args.upload_3_files),
         "upload_3_files_only": bool(args.upload_3_files_only),
-        "upload_3_files_contract": list(UPLOAD_BUNDLE_FILE_NAMES)
-        if args.upload_3_files
-        else [],
+        "upload_3_files_contract": (
+            {
+                review_dir: list(UPLOAD_BUNDLE_FILE_NAMES)
+                for review_dir in UPLOAD_BUNDLE_REVIEW_PROFILE_DIR_NAMES
+            }
+            if args.upload_3_files
+            else {}
+        ),
         "changed_lines_total": len(changed_line_rows),
         "comparison_pair_breakdown_count": len(pair_breakdown_rows),
         "full_prompt_log_status": package_full_prompt_status,
@@ -15837,7 +16044,9 @@ def main() -> int:
             if nested_path.is_file():
                 included_files.add(f"{record.output_subdir}/{nested_file_name}")
     if args.upload_3_files:
-        included_files.update(UPLOAD_BUNDLE_FILE_NAMES)
+        for review_dir in UPLOAD_BUNDLE_REVIEW_PROFILE_DIR_NAMES:
+            for file_name in UPLOAD_BUNDLE_FILE_NAMES:
+                included_files.add(f"{review_dir}/{file_name}")
     process_manifest["included_files"] = sorted(included_files)
     _write_json(output_dir / "process_manifest.json", process_manifest)
 
