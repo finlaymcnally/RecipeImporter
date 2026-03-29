@@ -2520,15 +2520,26 @@ def _build_line_role_prompt_rows(
                     "worker_id": runtime_context.get("runtime_worker_id"),
                     "shard_id": runtime_context.get("runtime_shard_id"),
                     "owned_ids": list(runtime_context.get("runtime_owned_ids") or []),
-                    "events_path": _clean_text(telemetry_row.get("events_path")),
-                    "last_message_path": _clean_text(telemetry_row.get("last_message_path")),
-                    "usage_path": _clean_text(telemetry_row.get("usage_path")),
-                    "live_status_path": _clean_text(telemetry_row.get("live_status_path")),
+                    "events_path": _clean_text(runtime_telemetry_row.get("events_path"))
+                    or _clean_text(process_payload.get("events_path")),
+                    "last_message_path": _clean_text(
+                        runtime_telemetry_row.get("last_message_path")
+                    )
+                    or _clean_text(process_payload.get("last_message_path")),
+                    "usage_path": _clean_text(runtime_telemetry_row.get("usage_path"))
+                    or _clean_text(process_payload.get("usage_path")),
+                    "live_status_path": _clean_text(
+                        runtime_telemetry_row.get("live_status_path")
+                    )
+                    or _clean_text(process_payload.get("live_status_path")),
                     "workspace_manifest_path": _clean_text(
-                        telemetry_row.get("workspace_manifest_path")
-                    ),
-                    "stdout_path": _clean_text(telemetry_row.get("stdout_path")),
-                    "stderr_path": _clean_text(telemetry_row.get("stderr_path")),
+                        runtime_telemetry_row.get("workspace_manifest_path")
+                    )
+                    or _clean_text(process_payload.get("workspace_manifest_path")),
+                    "stdout_path": _clean_text(runtime_telemetry_row.get("stdout_path"))
+                    or _clean_text(process_payload.get("stdout_path")),
+                    "stderr_path": _clean_text(runtime_telemetry_row.get("stderr_path"))
+                    or _clean_text(process_payload.get("stderr_path")),
                 },
                 "runtime_shard_id": runtime_context.get("runtime_shard_id"),
                 "runtime_worker_id": runtime_context.get("runtime_worker_id"),

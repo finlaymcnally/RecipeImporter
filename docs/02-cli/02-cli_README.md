@@ -184,6 +184,7 @@ Interactive `Import` and benchmark runs (`single_book` + matched-books) ask:
   - the interactive chooser now caps each per-step prompt/shard count at `20`
   - the stage and benchmark adapter/CLI seams now preserve those values into the live run config, so interactive shard choices survive through execution instead of silently falling back to saved defaults
   - `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count` now all mean requested shard count on the live runtime path; worker count remains a separate concurrency override
+  - for recipe correction specifically, recipe count may be larger than shard count because several contiguous recipe tasks can share one planned shard
 - interactive all-method benchmark callers reuse that same Codex submenu too, so any interactive benchmark flow that exposes CodexFarm now makes the operator pick concrete Codex processes instead of falling back to a separate generic `Include Codex Farm permutations?` prompt
 - the owning seam for that shared per-surface chooser is `choose_interactive_codex_surfaces(...)` in `cookimport/cli_ui/run_settings_flow.py`; if a Codex surface toggle should exist in import, benchmark, and all-method flows, add it there instead of inventing a benchmark-only menu variant
 - this difference is intentional:

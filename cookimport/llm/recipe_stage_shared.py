@@ -780,11 +780,9 @@ def _build_recipe_shard_plans(
     prepared_inputs: Sequence[_PreparedRecipeInput],
     run_settings: RunSettings,
 ) -> list[_RecipeShardPlan]:
-    requested_shard_count = resolve_shard_count(
+    requested_shard_count = _resolve_recipe_shard_count(
         total_items=len(prepared_inputs),
-        prompt_target_count=run_settings.recipe_prompt_target_count,
-        items_per_shard=1,
-        default_items_per_shard=1,
+        run_settings=run_settings,
     )
     plans: list[_RecipeShardPlan] = []
     for shard_index, shard_prepared_inputs_list in enumerate(
@@ -800,6 +798,19 @@ def _build_recipe_shard_plans(
         if plan is not None:
             plans.append(plan)
     return plans
+
+
+def _resolve_recipe_shard_count(
+    *,
+    total_items: int,
+    run_settings: RunSettings,
+) -> int:
+    return resolve_shard_count(
+        total_items=total_items,
+        prompt_target_count=run_settings.recipe_prompt_target_count,
+        items_per_shard=None,
+        default_items_per_shard=1,
+    )
 
 
 def _compact_recipe_candidate_hint(recipe_candidate_hint: Mapping[str, Any]) -> dict[str, Any]:
@@ -1720,6 +1731,15 @@ def _build_recipe_inline_attempt_runner_payload(
         "codex_model": model,
         "codex_reasoning_effort": reasoning_effort,
         "prompt_input_mode": prompt_input_mode,
+        "events_path": str(events_path) if events_path is not None else None,
+        "last_message_path": str(last_message_path) if last_message_path is not None else None,
+        "usage_path": str(usage_path) if usage_path is not None else None,
+        "live_status_path": str(live_status_path) if live_status_path is not None else None,
+        "workspace_manifest_path": (
+            str(workspace_manifest_path) if workspace_manifest_path is not None else None
+        ),
+        "stdout_path": str(stdout_path) if stdout_path is not None else None,
+        "stderr_path": str(stderr_path) if stderr_path is not None else None,
     }
     return payload
 
@@ -2582,6 +2602,13 @@ def _build_recipe_workspace_task_runner_payload(
         "worker_prompt_file": worker_prompt_file_str,
         "runtime_task_id": runtime_task_id,
         "runtime_parent_shard_id": shard_id,
+        "events_path": str(worker_root / "events.jsonl"),
+        "last_message_path": str(worker_root / "last_message.json"),
+        "usage_path": str(worker_root / "usage.json"),
+        "live_status_path": str(worker_root / "live_status.json"),
+        "workspace_manifest_path": str(worker_root / "workspace_manifest.json"),
+        "stdout_path": None,
+        "stderr_path": None,
     }
     return payload
 
@@ -4757,11 +4784,9 @@ def _build_single_correction_execution_plan(
     planned_tasks: list[dict[str, Any]] = []
     planned_shards: list[dict[str, Any]] = []
     shard_ids_by_recipe_id: dict[str, str] = {}
-    requested_shard_count = resolve_shard_count(
+    requested_shard_count = _resolve_recipe_shard_count(
         total_items=len(states),
-        prompt_target_count=run_settings.recipe_prompt_target_count,
-        items_per_shard=1,
-        default_items_per_shard=1,
+        run_settings=run_settings,
     )
     shard_groups = partition_contiguous_items(
         states,

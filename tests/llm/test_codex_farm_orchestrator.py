@@ -77,19 +77,84 @@ def _build_conversion_result(source_path: Path) -> ConversionResult:
     )
 
 
-def _build_run_settings(pack_root: Path, *, llm_recipe_pipeline: str) -> RunSettings:
+def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult:
+    return ConversionResult(
+        recipes=[
+            RecipeCandidate(
+                name="Toast",
+                identifier="urn:recipe:test:toast",
+                recipeIngredient=["1 slice bread"],
+                recipeInstructions=["Toast the bread."],
+                provenance={"location": {"start_block": 1, "end_block": 3}},
+            ),
+            RecipeCandidate(
+                name="Tea",
+                identifier="urn:recipe:test:tea",
+                recipeIngredient=["1 cup water", "1 tea bag"],
+                recipeInstructions=["Boil the water.", "Steep the tea bag."],
+                provenance={"location": {"start_block": 5, "end_block": 8}},
+            ),
+            RecipeCandidate(
+                name="Cereal",
+                identifier="urn:recipe:test:cereal",
+                recipeIngredient=["1 cup cereal", "1/2 cup milk"],
+                recipeInstructions=["Pour cereal into a bowl.", "Add milk."],
+                provenance={"location": {"start_block": 10, "end_block": 13}},
+            ),
+        ],
+        nonRecipeBlocks=[],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": 0, "text": "Preface"},
+                        {"index": 1, "text": "Toast"},
+                        {"index": 2, "text": "1 slice bread"},
+                        {"index": 3, "text": "Toast the bread."},
+                        {"index": 4, "text": "Separator"},
+                        {"index": 5, "text": "Tea"},
+                        {"index": 6, "text": "1 cup water"},
+                        {"index": 7, "text": "1 tea bag"},
+                        {"index": 8, "text": "Boil the water. Steep the tea bag."},
+                        {"index": 9, "text": "Separator"},
+                        {"index": 10, "text": "Cereal"},
+                        {"index": 11, "text": "1 cup cereal"},
+                        {"index": 12, "text": "1/2 cup milk"},
+                        {"index": 13, "text": "Pour cereal into a bowl. Add milk."},
+                    ],
+                    "block_count": 14,
+                },
+                metadata={"artifact_type": "extracted_blocks"},
+            )
+        ],
+        report=ConversionReport(),
+        workbook=source_path.stem,
+        workbookPath=str(source_path),
+    )
+
+
+def _build_run_settings(
+    pack_root: Path,
+    *,
+    llm_recipe_pipeline: str,
+    **overrides: object,
+) -> RunSettings:
     for name in ("pipelines", "prompts", "schemas"):
         (pack_root / name).mkdir(parents=True, exist_ok=True)
-    return RunSettings.model_validate(
-        {
-            "llm_recipe_pipeline": llm_recipe_pipeline,
-            "codex_farm_cmd": "codex-farm",
-            "codex_farm_root": str(pack_root),
-            "codex_farm_context_blocks": 3,
-            "codex_farm_failure_mode": "fail",
-            "codex_farm_recipe_mode": "extract",
-        }
-    )
+    payload: dict[str, object] = {
+        "llm_recipe_pipeline": llm_recipe_pipeline,
+        "codex_farm_cmd": "codex-farm",
+        "codex_farm_root": str(pack_root),
+        "codex_farm_context_blocks": 3,
+        "codex_farm_failure_mode": "fail",
+        "codex_farm_recipe_mode": "extract",
+    }
+    payload.update(overrides)
+    return RunSettings.model_validate(payload)
 
 
 def _build_valid_recipe_task_output(task_payload: dict[str, object]) -> dict[str, object]:
@@ -612,6 +677,36 @@ def test_execution_plan_uses_semantic_single_correction_stages(tmp_path: Path) -
         "build_final_recipe",
     ]
     assert stages[1]["pipeline_id"] == SINGLE_CORRECTION_STAGE_PIPELINE_ID
+
+
+def test_execution_plan_balances_recipe_shards_to_prompt_target(tmp_path: Path) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    result = _build_multi_recipe_conversion_result(source)
+    settings = _build_run_settings(
+        tmp_path / "pack",
+        llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
+        recipe_prompt_target_count=2,
+        recipe_worker_count=2,
+    )
+
+    plan = build_codex_farm_recipe_execution_plan(
+        conversion_result=result,
+        run_settings=settings,
+        workbook_slug="book",
+    )
+
+    assert [shard["shard_id"] for shard in plan["planned_shards"]] == [
+        "recipe-shard-0000-r0000-r0001",
+        "recipe-shard-0001-r0002-r0002",
+    ]
+    assert [shard["recipe_count"] for shard in plan["planned_shards"]] == [2, 1]
+    assert [task["shard_id"] for task in plan["planned_tasks"]] == [
+        "recipe-shard-0000-r0000-r0001",
+        "recipe-shard-0000-r0000-r0001",
+        "recipe-shard-0001-r0002-r0002",
+    ]
+    assert plan["worker_count"] == 2
 
 
 def test_execute_source_job_skips_codex_farm_when_pipeline_off(

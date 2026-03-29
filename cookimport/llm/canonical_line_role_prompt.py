@@ -446,85 +446,8 @@ def _render_reference_context_block(
 
 
 def _render_shard_context_block(input_payload: Mapping[str, Any] | None) -> str:
-    payload = dict(input_payload or {})
-    summary = str(payload.get("shard_summary") or "").strip()
-    default_posture = str(payload.get("default_posture") or "").strip()
-    shard_mode = str(payload.get("shard_mode") or "").strip()
-    context_confidence = str(payload.get("context_confidence") or "").strip()
-    flip_policy = [
-        str(item).strip()
-        for item in (payload.get("flip_policy") or [])
-        if str(item).strip()
-    ]
-    strong_signals = [
-        str(item).strip()
-        for item in (payload.get("strong_signals") or [])
-        if str(item).strip()
-    ]
-    weak_signals = [
-        str(item).strip()
-        for item in (payload.get("weak_signals") or [])
-        if str(item).strip()
-    ]
-    example_files = [
-        str(item).strip()
-        for item in (payload.get("example_files") or [])
-        if str(item).strip()
-    ]
-    howto_availability = str(payload.get("howto_section_availability") or "").strip()
-    howto_policy = str(payload.get("howto_section_policy") or "").strip()
-    raw_howto_evidence_count = payload.get("howto_section_evidence_count")
-    try:
-        howto_evidence_count = int(raw_howto_evidence_count)
-    except (TypeError, ValueError):
-        howto_evidence_count = 0
-    if not any(
-        (
-            summary,
-            default_posture,
-            shard_mode,
-            context_confidence,
-            flip_policy,
-            strong_signals,
-            weak_signals,
-            example_files,
-            howto_availability,
-            howto_policy,
-            howto_evidence_count,
-        )
-    ):
-        return ""
-    lines = ["Shard-local guidance:"]
-    if summary:
-        lines.append(f"- Shard summary: {summary}")
-    if shard_mode or context_confidence:
-        lines.append(
-            "- Shard mode: "
-            f"{shard_mode or 'unknown'}"
-            + (
-                f" (confidence: {context_confidence})"
-                if context_confidence
-                else ""
-            )
-        )
-    if default_posture:
-        lines.append(f"- Default posture: {default_posture}")
-    if howto_availability:
-        lines.append(
-            "- HOWTO_SECTION availability: "
-            f"{howto_availability} (evidence rows: {howto_evidence_count})"
-        )
-    if howto_policy:
-        lines.append(f"- HOWTO_SECTION policy: {howto_policy}")
-    for item in flip_policy:
-        lines.append(f"- Flip policy: {item}")
-    for item in strong_signals:
-        lines.append(f"- Strong signal: {item}")
-    for item in weak_signals:
-        lines.append(f"- Weak signal: {item}")
-    if example_files:
-        lines.append("- Repo-written contrast examples: " + ", ".join(example_files))
-    return "\n".join(lines) + "\n\n"
+    del input_payload
+    return ""
 
 
 def _build_label_code_by_label(labels: Sequence[str]) -> dict[str, str]:

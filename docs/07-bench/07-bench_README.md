@@ -482,7 +482,7 @@ Primary benchmark modules:
   - recipe correction
   - line-role prompt artifacts copied from `line-role-pipeline/prompts`
   - knowledge harvest
-- Reviewer-facing trace summaries should be derived from the merged `prompts/full_prompt_log.jsonl`, not from a second raw-trace discovery path.
+- Reviewer-facing activity traces now live under `prompts/activity_traces/<call_id>.json`, with summary files at `prompts/activity_trace_summary.jsonl` and `prompts/activity_trace_summary.md`. They are derived from saved worker `events.jsonl` / sidecars and describe visible agent activity, not hidden chain-of-thought. Legacy `thinking_trace_summary.*` files are compatibility mirrors of the same exported content.
 - Oracle shared-profile browser failures can look like a fresh-port `ECONNREFUSED` problem even when Chromium is already alive. If upload starts failing after bundle generation succeeds, inspect shared-profile reuse (`DevToolsActivePort`, stale `chrome.pid`, singleton locks, canonical browser profile) before redesigning the bundle or upload flow.
 - Benchmark Oracle upload trust is now multi-layered:
   - empty-composer or launch failures should fail fast

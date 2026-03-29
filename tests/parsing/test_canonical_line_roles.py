@@ -3426,6 +3426,8 @@ def test_line_role_shard_plans_keep_owned_rows_without_hidden_task_splits() -> N
     assert len(plans) == 1
     shard_plan = plans[0]
     assert [candidate.atomic_index for candidate in shard_plan.candidates] == list(range(8))
+    assert set(shard_plan.manifest_entry.input_payload) == {"v", "shard_id", "rows"}
+    assert set(shard_plan.debug_input_payload) == {"shard_id", "phase_key", "rows"}
     assert "context_before_rows" not in shard_plan.manifest_entry.input_payload
     assert "context_after_rows" not in shard_plan.manifest_entry.input_payload
     assert "context_before_rows" not in shard_plan.debug_input_payload
@@ -3507,27 +3509,6 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
         input_payload={
             "v": 1,
             "shard_id": "line-role-canonical-0001-a000123-a000456",
-            "shard_mode": "lesson_prose",
-            "context_confidence": "high",
-            "shard_summary": (
-                "This shard reads like cookbook lesson prose: explanatory teaching around a topic, not recipe-local structure."
-            ),
-            "default_posture": (
-                "Default to review-eligible `OTHER`; useful outside-recipe lesson prose stays `OTHER` here and the knowledge stage decides semantic `KNOWLEDGE` versus `OTHER` later. Only promote to recipe structure when immediate neighboring rows are clearly recipe-local."
-            ),
-            "howto_section_availability": "absent_or_unproven",
-            "howto_section_evidence_count": 0,
-            "howto_section_policy": (
-                "This book may legitimately use zero `HOWTO_SECTION` labels. Treat the label as optional and require strong local recipe evidence before using it."
-            ),
-            "flip_policy": [
-                "Treat the deterministic label as a weak hint only, not a starting truth.",
-                "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should usually stay review-eligible `OTHER` so the knowledge stage can make the semantic call later.",
-            ],
-            "example_files": [
-                "01-lesson-prose-vs-howto.md",
-                "02-memoir-vs-knowledge.md",
-            ],
             "context_before_rows": [[122, "Earlier context"]],
             "context_after_rows": [[124, "Later context"]],
             "rows": [[123, "L4", "1 cup flour"]],
@@ -3567,44 +3548,43 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert "Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`" in prompt
     assert "Publisher signup/download prompts and endorsement quote clusters are usually overwhelming obvious junk" in prompt
     assert "Short declarative teaching lines about reusable cooking rules should still stay review-eligible `OTHER` in this stage." in prompt
-    assert "HOWTO_SECTION availability: absent_or_unproven (evidence rows: 0)" in prompt
-    assert "HOWTO_SECTION policy: This book may legitimately use zero `HOWTO_SECTION` labels." in prompt
     assert "Balancing Fat" in prompt
     assert "WHAT IS ACID?" in prompt
     assert "What is Heat?" in prompt
     assert "Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure" in prompt
     assert "A single outside-recipe heading by itself is not enough" in prompt
     assert "Salt and Pepper" in prompt
-    assert "Shard-local guidance:" in prompt
-    assert "Shard mode: lesson_prose (confidence: high)" in prompt
     assert "Reference-only neighboring context:" in prompt
     assert "These neighboring rows are for context only. Do not label them." in prompt
     assert '<BEGIN_CONTEXT_BEFORE_ROWS>\n[122, "Earlier context"]\n<END_CONTEXT_BEFORE_ROWS>' in prompt
     assert '<BEGIN_CONTEXT_AFTER_ROWS>\n[124, "Later context"]\n<END_CONTEXT_AFTER_ROWS>' in prompt
-    assert "Repo-written contrast examples: 01-lesson-prose-vs-howto.md, 02-memoir-vs-knowledge.md" in prompt
     assert '<BEGIN_AUTHORITATIVE_ROWS>\n[123, "L4", "1 cup flour"]\n<END_AUTHORITATIVE_ROWS>' in prompt
 
 
-def test_canonical_line_role_file_prompt_renders_front_matter_navigation_guidance() -> None:
-    shard_context = canonical_line_roles_module._build_line_role_shard_context(  # noqa: SLF001
-        rows=_load_preserved_line_role_packet_rows(
-            worker_id="worker-001",
-            task_id="line-role-canonical-0001-a000000-a000147.task-002",
-        )
-    )
+def test_canonical_line_role_file_prompt_ignores_removed_shard_context_fields() -> None:
     prompt = build_canonical_line_role_file_prompt(
         input_path=Path("/tmp/line_role_input_0002.json"),
         input_payload={
             "v": 1,
             "shard_id": "line-role-canonical-0001-a000080-a000147",
-            **shard_context,
+            "shard_mode": "front_matter_navigation",
+            "context_confidence": "high",
+            "shard_summary": "This shard reads like front matter.",
+            "default_posture": "Default to `OTHER`.",
+            "flip_policy": ["Do not over-structure recipe-name lists."],
+            "howto_section_availability": "absent_or_unproven",
+            "howto_section_evidence_count": 0,
+            "howto_section_policy": "This book may legitimately use zero `HOWTO_SECTION` labels.",
+            "example_files": ["01-lesson-prose-vs-howto.md"],
             "rows": [[80, "L9", "Blue Cheese Dressing"]],
         },
     )
 
-    assert "Shard mode: front_matter_navigation (confidence: high)" in prompt
-    assert "front matter, navigation, or table-of-contents material" in prompt
-    assert "Do not over-structure recipe-name lists" in prompt
+    assert "Shard-local guidance:" not in prompt
+    assert "Shard mode:" not in prompt
+    assert "HOWTO_SECTION availability:" not in prompt
+    assert "HOWTO_SECTION policy:" not in prompt
+    assert "Repo-written contrast examples:" not in prompt
 
 
 def test_canonical_line_role_inline_prompt_fallback_stays_routing_only(
@@ -3639,287 +3619,6 @@ def test_canonical_line_role_inline_prompt_fallback_stays_routing_only(
         "Line: `Foods that are too dry can be corrected with a bit more fat.`\n    Label: `OTHER`"
         in prompt
     )
-
-
-def test_line_role_shard_context_marks_lesson_heading_shard_as_conservative_knowledge() -> None:
-    book_context = canonical_line_roles_module._build_line_role_book_context(  # noqa: SLF001
-        candidates=[
-            AtomicLineCandidate(
-                recipe_id=None,
-                block_id="block:packet:0",
-                block_index=0,
-                atomic_index=0,
-                text="Balancing Fat",
-                within_recipe_span=None,
-                rule_tags=["title_like"],
-            ),
-            AtomicLineCandidate(
-                recipe_id=None,
-                block_id="block:packet:1",
-                block_index=1,
-                atomic_index=1,
-                text=(
-                    "As with salt, the best way to correct overly fatty food is to rebalance the dish."
-                ),
-                within_recipe_span=None,
-                rule_tags=["instruction_like"],
-            ),
-            AtomicLineCandidate(
-                recipe_id=None,
-                block_id="block:packet:2",
-                block_index=2,
-                atomic_index=2,
-                text="Foods that are too dry can be corrected with a bit more fat.",
-                within_recipe_span=None,
-                rule_tags=["explicit_prose"],
-            ),
-        ]
-    )
-    shard_context = canonical_line_roles_module._build_line_role_shard_context(  # noqa: SLF001
-        rows=[
-            {
-                "atomic_index": 598,
-                "within_recipe_span": None,
-                "deterministic_label": "KNOWLEDGE",
-                "rule_tags": ["title_like"],
-                "current_line": "Balancing Fat",
-            },
-            {
-                "atomic_index": 599,
-                "within_recipe_span": None,
-                "deterministic_label": "KNOWLEDGE",
-                "rule_tags": ["instruction_like"],
-                "current_line": (
-                    "As with salt, the best way to correct overly fatty food is to rebalance the dish."
-                ),
-            },
-            {
-                "atomic_index": 600,
-                "within_recipe_span": None,
-                "deterministic_label": "KNOWLEDGE",
-                "rule_tags": ["explicit_prose"],
-                "current_line": (
-                    "Foods that are too dry can be corrected with a bit more fat."
-                ),
-            },
-        ],
-        book_context=book_context,
-    )
-
-    assert shard_context["shard_mode"] == "lesson_prose"
-    assert shard_context["shard_summary"].startswith(
-        "This shard reads like cookbook lesson prose"
-    )
-    assert shard_context["howto_section_availability"] == "absent_or_unproven"
-    assert shard_context["howto_section_evidence_count"] == 0
-    assert shard_context["howto_section_policy"].startswith(
-        "This book may legitimately use zero"
-    )
-    assert any(
-        "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?`" in line
-        for line in shard_context["flip_policy"]
-    )
-    assert any(
-        "This book may legitimately use zero `HOWTO_SECTION` labels." in line
-        for line in shard_context["flip_policy"]
-    )
-
-
-def test_line_role_shard_context_marks_memoir_shard_as_other_first() -> None:
-    shard_context = canonical_line_roles_module._build_line_role_shard_context(  # noqa: SLF001
-        rows=[
-            {
-                "atomic_index": 10,
-                "within_recipe_span": False,
-                "deterministic_label": "OTHER",
-                "rule_tags": ["explicit_prose"],
-                "current_line": (
-                    "Then I fell in love with Johnny, who introduced me to the culinary delights of his native San Francisco."
-                ),
-            },
-            {
-                "atomic_index": 11,
-                "within_recipe_span": False,
-                "deterministic_label": "OTHER",
-                "rule_tags": ["instruction_like"],
-                "current_line": "I was never patient enough to wait for cake to cool.",
-            },
-        ]
-    )
-
-    assert shard_context["shard_mode"] == "memoir_front_matter"
-    assert shard_context["shard_summary"].startswith(
-        "This shard reads like memoir/front matter"
-    )
-    assert shard_context["default_posture"].startswith("Default to `OTHER`")
-
-
-def test_line_role_shard_context_marks_preserved_front_matter_shard_as_navigation() -> None:
-    shard_context = canonical_line_roles_module._build_line_role_shard_context(  # noqa: SLF001
-        rows=_load_preserved_line_role_packet_rows(
-            worker_id="worker-001",
-            task_id="line-role-canonical-0001-a000000-a000147.task-001",
-        )
-    )
-
-    assert shard_context["shard_mode"] == "front_matter_navigation"
-    assert shard_context["context_confidence"] == "high"
-    assert shard_context["shard_summary"].startswith(
-        "This shard reads like front matter, navigation"
-    )
-    assert shard_context["default_posture"].startswith(
-        "Default to `OTHER`; use `review_exclusion_reason` only"
-    )
-    assert any(
-        "heading alone is weak evidence" in line.lower()
-        for line in shard_context["flip_policy"]
-    )
-
-
-def test_line_role_shard_context_marks_preserved_contents_shard_as_navigation() -> None:
-    shard_context = canonical_line_roles_module._build_line_role_shard_context(  # noqa: SLF001
-        rows=_load_preserved_line_role_packet_rows(
-            worker_id="worker-001",
-            task_id="line-role-canonical-0001-a000000-a000147.task-002",
-        )
-    )
-
-    assert shard_context["shard_mode"] == "front_matter_navigation"
-    assert shard_context["context_confidence"] == "high"
-    assert shard_context["shard_summary"].startswith(
-        "This shard reads like front matter, navigation"
-    )
-    assert shard_context["default_posture"].startswith(
-        "Default to `OTHER`; use `review_exclusion_reason` only"
-    )
-
-
-def test_line_role_shard_mode_does_not_treat_toc_style_title_lists_as_recipe_body() -> None:
-    shard_mode, context_confidence = canonical_line_roles_module._classify_line_role_shard_mode(  # noqa: SLF001
-        rows=[
-            {
-                "atomic_index": 80,
-                "within_recipe_span": None,
-                "deterministic_label": "OTHER",
-                "rule_tags": ["title_like"],
-                "current_line": "Blue Cheese Dressing",
-            },
-            {
-                "atomic_index": 81,
-                "within_recipe_span": None,
-                "deterministic_label": "OTHER",
-                "rule_tags": ["title_like"],
-                "current_line": "Green Goddess Dressing",
-            },
-            {
-                "atomic_index": 82,
-                "within_recipe_span": None,
-                "deterministic_label": "OTHER",
-                "rule_tags": ["title_like"],
-                "current_line": "Six Ways to Cook Vegetables",
-            },
-            {
-                "atomic_index": 83,
-                "within_recipe_span": None,
-                "deterministic_label": "RECIPE_TITLE",
-                "rule_tags": ["title_like"],
-                "current_line": "Steamy Saute: Garlicky Green Beans",
-            },
-            {
-                "atomic_index": 84,
-                "within_recipe_span": None,
-                "deterministic_label": "INSTRUCTION_LINE",
-                "rule_tags": ["instruction_like"],
-                "current_line": "Roast: Butternut Squash and Brussels Sprouts in Agrodolce",
-            },
-            {
-                "atomic_index": 85,
-                "within_recipe_span": None,
-                "deterministic_label": "INGREDIENT_LINE",
-                "rule_tags": ["ingredient_like"],
-                "current_line": "Stock",
-            },
-        ]
-    )
-
-    assert shard_mode in {"front_matter_navigation", "mixed_boundaries"}
-    assert shard_mode != "recipe_body"
-    assert context_confidence in {"low", "medium", "high"}
-
-
-def test_line_role_book_context_marks_sea_and_smoke_style_recipe_as_howto_available() -> None:
-    candidates = [
-        AtomicLineCandidate(
-            recipe_id="recipe:0",
-            block_id="block:0",
-            block_index=0,
-            atomic_index=0,
-            text="SERVES 4",
-            within_recipe_span=True,
-            rule_tags=["yield_prefix"],
-        ),
-        AtomicLineCandidate(
-            recipe_id="recipe:0",
-            block_id="block:1",
-            block_index=1,
-            atomic_index=1,
-            text="FOR THE JUNIPER VINEGAR",
-            within_recipe_span=True,
-            rule_tags=["howto_heading"],
-        ),
-        AtomicLineCandidate(
-            recipe_id="recipe:0",
-            block_id="block:2",
-            block_index=2,
-            atomic_index=2,
-            text="21/2 tablespoons juniper berries",
-            within_recipe_span=True,
-            rule_tags=["ingredient_like"],
-        ),
-        AtomicLineCandidate(
-            recipe_id="recipe:0",
-            block_id="block:3",
-            block_index=3,
-            atomic_index=3,
-            text="JUNIPER VINEGAR",
-            within_recipe_span=True,
-            rule_tags=["title_like"],
-        ),
-        AtomicLineCandidate(
-            recipe_id="recipe:0",
-            block_id="block:4",
-            block_index=4,
-            atomic_index=4,
-            text="Crush the juniper berries and combine with vinegar.",
-            within_recipe_span=True,
-            rule_tags=["instruction_like"],
-        ),
-        AtomicLineCandidate(
-            recipe_id="recipe:0",
-            block_id="block:5",
-            block_index=5,
-            atomic_index=5,
-            text="TO SERVE",
-            within_recipe_span=True,
-            rule_tags=["howto_heading"],
-        ),
-        AtomicLineCandidate(
-            recipe_id="recipe:0",
-            block_id="block:6",
-            block_index=6,
-            atomic_index=6,
-            text="Serve immediately.",
-            within_recipe_span=True,
-            rule_tags=["instruction_like"],
-        ),
-    ]
-
-    book_context = canonical_line_roles_module._build_line_role_book_context(  # noqa: SLF001
-        candidates=candidates
-    )
-
-    assert book_context["howto_section_availability"] == "available"
-    assert book_context["howto_section_evidence_count"] >= 3
 
 
 def test_repo_gold_exposes_no_subsection_and_real_subsection_books() -> None:
@@ -5831,12 +5530,10 @@ def test_label_atomic_lines_compact_prompt_workspace_mirrors_hint_and_input_arti
         / "hints"
         / "line-role-canonical-0001-a000000-a000000.md"
     ).read_text(encoding="utf-8")
-    assert "Shard interpretation" in worker_hint_text
-    assert "Decision policy" in worker_hint_text
-    assert "Shard examples" in worker_hint_text
+    assert "Static reminders" in worker_hint_text
     assert "Label code legend" in worker_hint_text
     assert "Attention rows" in worker_hint_text
-    assert "Make the smallest safe correction" in worker_hint_text
+    assert "Treat each row's deterministic label code as a weak hint only" in worker_hint_text
     worker_input_text = (
         prompt_root
         / "runtime"
@@ -5847,18 +5544,7 @@ def test_label_atomic_lines_compact_prompt_workspace_mirrors_hint_and_input_arti
         / "line-role-canonical-0001-a000000-a000000.json"
     ).read_text(encoding="utf-8")
     worker_input_payload = json.loads(worker_input_text)
-    assert worker_input_payload["shard_summary"]
-    assert worker_input_payload["default_posture"]
-    assert worker_input_payload["flip_policy"]
-    assert worker_input_payload["howto_section_availability"] == "absent_or_unproven"
-    assert worker_input_payload["howto_section_policy"].startswith(
-        "This book may legitimately use zero"
-    )
-    assert worker_input_payload["example_files"] == [
-        "01-lesson-prose-vs-howto.md",
-        "03-recipe-internal-sections.md",
-        "04-book-optional-howto.md",
-    ]
+    assert set(worker_input_payload) == {"v", "shard_id", "rows"}
     assert worker_input_payload["rows"] == [[0, "L9", "Ambiguous line 0"]]
     input_payload = json.loads(
         (

@@ -2297,6 +2297,13 @@ def _build_line_role_workspace_task_runner_payload(
         "request_input_file_bytes": request_input_file_bytes,
         "debug_input_file": debug_input_file_str,
         "worker_prompt_file": worker_prompt_file_str,
+        "events_path": str(worker_root / "events.jsonl"),
+        "last_message_path": str(worker_root / "last_message.json"),
+        "usage_path": str(worker_root / "usage.json"),
+        "live_status_path": str(worker_root / "live_status.json"),
+        "workspace_manifest_path": str(worker_root / "workspace_manifest.json"),
+        "stdout_path": str(worker_root / "stdout.txt"),
+        "stderr_path": str(worker_root / "stderr.txt"),
     }
     return payload
 
@@ -3051,6 +3058,15 @@ def _build_line_role_inline_attempt_runner_payload(
         "codex_model": model,
         "codex_reasoning_effort": reasoning_effort,
         "prompt_input_mode": prompt_input_mode,
+        "events_path": str(events_path) if events_path is not None else None,
+        "last_message_path": str(last_message_path) if last_message_path is not None else None,
+        "usage_path": str(usage_path) if usage_path is not None else None,
+        "live_status_path": str(live_status_path) if live_status_path is not None else None,
+        "workspace_manifest_path": (
+            str(workspace_manifest_path) if workspace_manifest_path is not None else None
+        ),
+        "stdout_path": str(stdout_path) if stdout_path is not None else None,
+        "stderr_path": str(stderr_path) if stderr_path is not None else None,
     }
     return payload
 

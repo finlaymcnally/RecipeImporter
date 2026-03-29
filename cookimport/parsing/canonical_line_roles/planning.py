@@ -64,43 +64,6 @@ def _coerce_mapping_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
-def _build_line_role_book_context(
-    *,
-    candidates: Sequence[AtomicLineCandidate],
-) -> dict[str, Any]:
-    by_atomic_index = {
-        int(candidate.atomic_index): candidate for candidate in candidates
-    }
-    evidence_count = sum(
-        1
-        for candidate in candidates
-        if _has_recipe_local_howto_support(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-    )
-    if evidence_count >= 3:
-        availability = "available"
-        policy = (
-            "`HOWTO_SECTION` is available in this book, but it remains a high-evidence label tied to local recipe structure."
-        )
-    elif evidence_count >= 1:
-        availability = "sparse"
-        policy = (
-            "`HOWTO_SECTION` appears sparse in this book. Prefer non-structural labels unless the local heading clearly splits one recipe into components or step families."
-        )
-    else:
-        availability = "absent_or_unproven"
-        policy = (
-            "This book may legitimately use zero `HOWTO_SECTION` labels. Treat the label as optional and require strong local recipe evidence before using it."
-        )
-    return {
-        "howto_section_availability": availability,
-        "howto_section_evidence_count": evidence_count,
-        "howto_section_policy": policy,
-    }
-
-
 def _build_line_role_canonical_plans(
     *,
     ordered_candidates: Sequence[AtomicLineCandidate],
@@ -116,7 +79,6 @@ def _build_line_role_canonical_plans(
         total_candidates=len(ordered_candidates),
     )
     by_atomic_index = build_atomic_index_lookup(ordered_candidates)
-    book_context = _build_line_role_book_context(candidates=ordered_candidates)
     prompt_format = _resolve_line_role_prompt_format()
     plans: list[_LineRoleShardPlan] = []
     for prompt_index, shard_candidates in enumerate(
@@ -143,7 +105,6 @@ def _build_line_role_canonical_plans(
             candidates=shard_candidates,
             deterministic_baseline=deterministic_baseline,
             by_atomic_index=by_atomic_index,
-            book_context=book_context,
         )
         manifest_entry = ShardManifestEntryV1(
             shard_id=shard_id,
@@ -157,9 +118,7 @@ def _build_line_role_canonical_plans(
                 shard_id=shard_id,
                 candidates=shard_candidates,
                 deterministic_baseline=deterministic_baseline,
-                debug_rows=list(debug_input_payload.get("rows") or []),
                 by_atomic_index=by_atomic_index,
-                book_context=book_context,
             ),
             metadata={
                 "phase_key": "line_role",
@@ -631,7 +590,6 @@ def _write_line_role_worker_hint(
     span_outside = 0
     span_unknown = 0
     attention_lines: list[str] = []
-    shard_context = _build_line_role_shard_context(rows=debug_rows)
     for row in debug_rows:
         if not isinstance(row, Mapping):
             continue
@@ -689,28 +647,12 @@ def _write_line_role_worker_hint(
         f"`{code}` = `{label}`"
         for label, code in sorted(code_by_label.items(), key=lambda item: item[1])
     ]
-    shard_interpretation = [
-        str(shard_context.get("shard_summary") or "No shard summary available."),
-        (
-            "Confidence: "
-            f"{str(shard_context.get('context_confidence') or 'low')}. "
-            f"Shard mode: {str(shard_context.get('shard_mode') or 'mixed_boundaries')}."
-        ),
-        str(shard_context.get("default_posture") or "Make conservative shard-local corrections."),
+    static_reminders = [
+        "Treat each row's deterministic label code as a weak hint only, not starting truth.",
+        "`HOWTO_SECTION` is only for short recipe-internal subsection headings such as `FOR THE SAUCE` or `TO FINISH`.",
+        "Do not use `HOWTO_SECTION` for chapter, topic, lesson, or contents headings.",
+        "Neighbor rows in `context_before_rows` / `context_after_rows` are reference-only and must never appear in output JSON.",
     ]
-    decision_policy = list(shard_context.get("flip_policy") or [])
-    decision_policy.extend(
-        f"Strong signal: {value}"
-        for value in list(shard_context.get("strong_signals") or [])
-    )
-    decision_policy.extend(
-        f"Weak signal: {value}"
-        for value in list(shard_context.get("weak_signals") or [])
-    )
-    shard_examples = [
-        f"`examples/{filename}`"
-        for filename in list(shard_context.get("example_files") or [])
-    ] or ["Worker-local examples are not available for this shard."]
     if not attention_lines:
         attention_lines = [
             "No special attention rows were flagged. Read the authoritative rows in order and use nearby neighbors for disambiguation."
@@ -725,9 +667,7 @@ def _write_line_role_worker_hint(
         ],
         sections=[
             ("Shard profile", shard_profile),
-            ("Shard interpretation", shard_interpretation),
-            ("Decision policy", decision_policy),
-            ("Shard examples", shard_examples),
+            ("Static reminders", static_reminders),
             ("Label code legend", legend_lines),
             ("Attention rows", attention_lines),
         ],

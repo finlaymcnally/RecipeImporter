@@ -95,6 +95,7 @@ cookimport/cli_support/bench_compare.py
 cookimport/cli_support/bench_oracle.py
 cookimport/cli_support/bench_single_book.py
 cookimport/cli_support/bench_single_profile.py
+cookimport/cli_support/command_resolution.py
 cookimport/cli_support/compare_control.py
 cookimport/cli_support/dashboard.py
 cookimport/cli_support/interactive.py

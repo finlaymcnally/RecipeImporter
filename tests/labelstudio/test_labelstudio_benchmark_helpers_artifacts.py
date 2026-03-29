@@ -212,6 +212,65 @@ def _build_codex_farm_prompt_log_fixture(tmp_path: Path) -> dict[str, object]:
         ),
         encoding="utf-8",
     )
+    correction_worker_root = recipe_phase_runtime_dir / "workers" / "worker-recipe-correction"
+    correction_worker_root.mkdir(parents=True, exist_ok=True)
+    correction_events = correction_worker_root / "events.jsonl"
+    correction_events.write_text(
+        "\n".join(
+            [
+                json.dumps({"type": "thread.started"}, sort_keys=True),
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "id": "item_0",
+                            "type": "command_execution",
+                            "command": "rg -n trace_path cookimport/llm/prompt_artifacts.py",
+                            "exit_code": 0,
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                json.dumps(
+                    {
+                        "type": "response.reasoning_summary_text.delta",
+                        "delta": "candidate span tightened",
+                    },
+                    sort_keys=True,
+                ),
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "id": "item_1",
+                            "type": "agent_message",
+                            "text": "Final activity trace message.",
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                json.dumps({"type": "turn.completed"}, sort_keys=True),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (correction_worker_root / "last_message.json").write_text(
+        json.dumps({"text": "Final activity trace message."}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (correction_worker_root / "usage.json").write_text(
+        json.dumps({"input_tokens": 111, "output_tokens": 22}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (correction_worker_root / "live_status.json").write_text(
+        json.dumps({"state": "completed"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (correction_worker_root / "workspace_manifest.json").write_text(
+        json.dumps({"execution_working_dir": "/tmp/workspace"}, sort_keys=True),
+        encoding="utf-8",
+    )
 
     telemetry_csv = tmp_path / "var" / "codex_exec_activity.csv"
     telemetry_csv.parent.mkdir(parents=True, exist_ok=True)
@@ -255,6 +314,13 @@ def _build_codex_farm_prompt_log_fixture(tmp_path: Path) -> dict[str, object]:
                 "trace_action_types_json",
                 "trace_reasoning_count",
                 "trace_reasoning_types_json",
+                "events_path",
+                "last_message_path",
+                "usage_path",
+                "live_status_path",
+                "workspace_manifest_path",
+                "stdout_path",
+                "stderr_path",
             ],
         )
         writer.writeheader()
@@ -307,6 +373,15 @@ def _build_codex_farm_prompt_log_fixture(tmp_path: Path) -> dict[str, object]:
                     ["response.reasoning_summary_text.delta"],
                     sort_keys=True,
                 ),
+                "events_path": str(correction_worker_root / "events.jsonl"),
+                "last_message_path": str(correction_worker_root / "last_message.json"),
+                "usage_path": str(correction_worker_root / "usage.json"),
+                "live_status_path": str(correction_worker_root / "live_status.json"),
+                "workspace_manifest_path": str(
+                    correction_worker_root / "workspace_manifest.json"
+                ),
+                "stdout_path": "",
+                "stderr_path": "",
             }
         )
 
@@ -451,16 +526,21 @@ def test_build_codex_farm_prompt_response_log_backfills_full_prompt_rows_from_te
     assert correction_row["request_telemetry"]["trace_reasoning_types"] == [
         "response.reasoning_summary_text.delta"
     ]
+    assert correction_row["request_telemetry"]["events_path"].endswith("events.jsonl")
+    assert correction_row["request_telemetry"]["activity_trace_path"].endswith("r0000.json")
     assert correction_row["request_telemetry"]["trace_resolved_path"] == str(correction_trace)
-    assert correction_row["thinking_trace"]["path"] == str(correction_trace)
-    assert correction_row["thinking_trace"]["available"] is True
-    assert correction_row["thinking_trace"]["reasoning_event_count"] == 1
-    assert correction_row["thinking_trace"]["reasoning_events"] == [
-        {
-            "type": "response.reasoning_summary_text.delta",
-            "delta": "candidate span tightened",
-        }
-    ]
+    assert correction_row["activity_trace"]["path"].endswith(
+        "prompts/activity_traces/r0000.json"
+    )
+    assert correction_row["activity_trace"]["available"] is True
+    assert correction_row["activity_trace"]["command_count"] == 1
+    assert correction_row["activity_trace"]["agent_message_count"] == 1
+    assert correction_row["activity_trace"]["reasoning_event_count"] == 1
+    assert correction_row["activity_trace"]["entries"][1]["summary"].startswith("Ran `rg -n")
+    assert correction_row["activity_trace"]["entries"][2]["summary"] == (
+        "Reasoning summary: candidate span tightened"
+    )
+    assert correction_row["thinking_trace"]["path"] == correction_row["activity_trace"]["path"]
     assert correction_row["parsed_response"] == {"result": "recipe correction response"}
     assert correction_row["raw_response"]["output_file"].endswith("r0000.json")
 
@@ -483,39 +563,50 @@ def test_build_codex_farm_prompt_response_log_exports_prompt_type_samples(
     assert "## nonrecipe_knowledge_review (Non-Recipe Knowledge Review)" in prompt_samples
     assert "call_id: `r0000`" in prompt_samples
     assert "Telemetry prompt body" in prompt_samples
-    assert "Thinking Trace:" in prompt_samples
+    assert "Activity Trace:" in prompt_samples
+    assert "command_count: `1`" in prompt_samples
     assert "candidate span tightened" in prompt_samples
 
 
-def test_build_codex_farm_prompt_response_log_writes_thinking_trace_summary(
+def test_build_codex_farm_prompt_response_log_writes_activity_trace_summary(
     tmp_path: Path,
 ) -> None:
     fixture = _build_codex_farm_prompt_log_fixture(tmp_path)
     eval_output_dir = fixture["eval_output_dir"]
     assert isinstance(eval_output_dir, Path)
 
-    thinking_trace_summary_jsonl_path = (
+    activity_trace_summary_jsonl_path = (
+        eval_output_dir / "prompts" / "activity_trace_summary.jsonl"
+    )
+    activity_trace_summary_md_path = (
+        eval_output_dir / "prompts" / "activity_trace_summary.md"
+    )
+    legacy_trace_summary_jsonl_path = (
         eval_output_dir / "prompts" / "thinking_trace_summary.jsonl"
     )
-    thinking_trace_summary_md_path = (
+    legacy_trace_summary_md_path = (
         eval_output_dir / "prompts" / "thinking_trace_summary.md"
     )
-    assert thinking_trace_summary_jsonl_path.exists()
-    assert thinking_trace_summary_md_path.exists()
+    assert activity_trace_summary_jsonl_path.exists()
+    assert activity_trace_summary_md_path.exists()
+    assert legacy_trace_summary_jsonl_path.exists()
+    assert legacy_trace_summary_md_path.exists()
     trace_rows = [
         json.loads(line)
-        for line in thinking_trace_summary_jsonl_path.read_text(encoding="utf-8").splitlines()
+        for line in activity_trace_summary_jsonl_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
     assert len(trace_rows) == 2
     correction_trace_row = next(
         row for row in trace_rows if row.get("stage_key") == "recipe_llm_correct_and_link"
     )
-    assert correction_trace_row["trace_exists"] is True
+    assert correction_trace_row["activity_trace_exists"] is True
+    assert correction_trace_row["command_count"] == 1
+    assert correction_trace_row["agent_message_count"] == 1
     assert correction_trace_row["reasoning_event_count"] == 1
-    assert "candidate span tightened" in str(correction_trace_row["reasoning_excerpt"])
-    trace_summary_md = thinking_trace_summary_md_path.read_text(encoding="utf-8")
-    assert "# CodexFarm Thinking Trace Summary" in trace_summary_md
+    assert "candidate span tightened" in str(correction_trace_row["entry_excerpt_lines"])
+    trace_summary_md = activity_trace_summary_md_path.read_text(encoding="utf-8")
+    assert "# CodexFarm Activity Trace Summary" in trace_summary_md
     assert "- total_rows: `2`" in trace_summary_md
     assert "## recipe_llm_correct_and_link (Recipe Correction)" in trace_summary_md
 
@@ -904,6 +995,77 @@ def _build_line_role_only_prompt_log_fixture(tmp_path: Path) -> dict[str, object
                 "phases": [
                     {
                         "phase_key": "line_role",
+                        "rows": [
+                            {
+                                "task_id": "line-role-shard-0001",
+                                "events_path": str(
+                                    processed_run
+                                    / "line-role-pipeline"
+                                    / "runtime"
+                                    / "line_role"
+                                    / "workers"
+                                    / "worker-001"
+                                    / "events.jsonl"
+                                ),
+                                "last_message_path": str(
+                                    processed_run
+                                    / "line-role-pipeline"
+                                    / "runtime"
+                                    / "line_role"
+                                    / "workers"
+                                    / "worker-001"
+                                    / "last_message.json"
+                                ),
+                                "usage_path": str(
+                                    processed_run
+                                    / "line-role-pipeline"
+                                    / "runtime"
+                                    / "line_role"
+                                    / "workers"
+                                    / "worker-001"
+                                    / "usage.json"
+                                ),
+                                "live_status_path": str(
+                                    processed_run
+                                    / "line-role-pipeline"
+                                    / "runtime"
+                                    / "line_role"
+                                    / "workers"
+                                    / "worker-001"
+                                    / "live_status.json"
+                                ),
+                                "workspace_manifest_path": str(
+                                    processed_run
+                                    / "line-role-pipeline"
+                                    / "runtime"
+                                    / "line_role"
+                                    / "workers"
+                                    / "worker-001"
+                                    / "workspace_manifest.json"
+                                ),
+                                "stdout_path": str(
+                                    processed_run
+                                    / "line-role-pipeline"
+                                    / "runtime"
+                                    / "line_role"
+                                    / "workers"
+                                    / "worker-001"
+                                    / "stdout.txt"
+                                ),
+                                "stderr_path": str(
+                                    processed_run
+                                    / "line-role-pipeline"
+                                    / "runtime"
+                                    / "line_role"
+                                    / "workers"
+                                    / "worker-001"
+                                    / "stderr.txt"
+                                ),
+                                "duration_ms": 17,
+                                "tokens_total": 16,
+                                "prompt_input_mode": "workspace_worker",
+                            }
+                        ],
                         "batches": [
                             {
                                 "prompt_index": 1,
@@ -935,6 +1097,69 @@ def _build_line_role_only_prompt_log_fixture(tmp_path: Path) -> dict[str, object
                                                 "pipeline_id": "line-role.canonical.v1",
                                                 "codex_model": "gpt-5.3-codex-spark",
                                                 "codex_reasoning_effort": "low",
+                                                "events_path": str(
+                                                    processed_run
+                                                    / "line-role-pipeline"
+                                                    / "runtime"
+                                                    / "line_role"
+                                                    / "workers"
+                                                    / "worker-001"
+                                                    / "events.jsonl"
+                                                ),
+                                                "last_message_path": str(
+                                                    processed_run
+                                                    / "line-role-pipeline"
+                                                    / "runtime"
+                                                    / "line_role"
+                                                    / "workers"
+                                                    / "worker-001"
+                                                    / "last_message.json"
+                                                ),
+                                                "usage_path": str(
+                                                    processed_run
+                                                    / "line-role-pipeline"
+                                                    / "runtime"
+                                                    / "line_role"
+                                                    / "workers"
+                                                    / "worker-001"
+                                                    / "usage.json"
+                                                ),
+                                                "live_status_path": str(
+                                                    processed_run
+                                                    / "line-role-pipeline"
+                                                    / "runtime"
+                                                    / "line_role"
+                                                    / "workers"
+                                                    / "worker-001"
+                                                    / "live_status.json"
+                                                ),
+                                                "workspace_manifest_path": str(
+                                                    processed_run
+                                                    / "line-role-pipeline"
+                                                    / "runtime"
+                                                    / "line_role"
+                                                    / "workers"
+                                                    / "worker-001"
+                                                    / "workspace_manifest.json"
+                                                ),
+                                                "stdout_path": str(
+                                                    processed_run
+                                                    / "line-role-pipeline"
+                                                    / "runtime"
+                                                    / "line_role"
+                                                    / "workers"
+                                                    / "worker-001"
+                                                    / "stdout.txt"
+                                                ),
+                                                "stderr_path": str(
+                                                    processed_run
+                                                    / "line-role-pipeline"
+                                                    / "runtime"
+                                                    / "line_role"
+                                                    / "workers"
+                                                    / "worker-001"
+                                                    / "stderr.txt"
+                                                ),
                                             },
                                         },
                                     }
@@ -949,6 +1174,63 @@ def _build_line_role_only_prompt_log_fixture(tmp_path: Path) -> dict[str, object
         ),
         encoding="utf-8",
     )
+    line_role_worker_root = (
+        processed_run / "line-role-pipeline" / "runtime" / "line_role" / "workers" / "worker-001"
+    )
+    line_role_worker_root.mkdir(parents=True, exist_ok=True)
+    (line_role_worker_root / "events.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"type": "thread.started"}, sort_keys=True),
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "id": "item_0",
+                            "type": "command_execution",
+                            "command": "sed -n '1,10p' prompt.txt",
+                            "exit_code": 0,
+                        },
+                    },
+                    sort_keys=True,
+                ),
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "id": "item_1",
+                            "type": "agent_message",
+                            "text": '[{"atomic_index": 1, "label": "RECIPE_TITLE"}]',
+                        },
+                    },
+                    sort_keys=True,
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (line_role_worker_root / "last_message.json").write_text(
+        json.dumps(
+            {"text": '[{"atomic_index": 1, "label": "RECIPE_TITLE"}]'},
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (line_role_worker_root / "usage.json").write_text(
+        json.dumps({"tokens_total": 16}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (line_role_worker_root / "live_status.json").write_text(
+        json.dumps({"state": "completed"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (line_role_worker_root / "workspace_manifest.json").write_text(
+        json.dumps({"execution_working_dir": "/tmp/line-role"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (line_role_worker_root / "stdout.txt").write_text("", encoding="utf-8")
+    (line_role_worker_root / "stderr.txt").write_text("", encoding="utf-8")
 
     eval_output_dir = tmp_path / "eval"
     eval_output_dir.mkdir(parents=True, exist_ok=True)
@@ -992,7 +1274,7 @@ def _build_line_role_only_prompt_log_fixture(tmp_path: Path) -> dict[str, object
         ).read_text(encoding="utf-8").splitlines(),
         "trace_rows": [
             json.loads(line)
-            for line in (eval_output_dir / "prompts" / "thinking_trace_summary.jsonl")
+            for line in (eval_output_dir / "prompts" / "activity_trace_summary.jsonl")
             .read_text(encoding="utf-8")
             .splitlines()
             if line.strip()
@@ -1056,11 +1338,16 @@ def test_build_codex_farm_prompt_response_log_records_line_role_only_prompt_rows
     assert row["stage_key"] == "line_role"
     assert row["process_run_id"] == "line-role-run-1"
     assert row["request_telemetry"]["tokens_total"] == 16
+    assert row["request_telemetry"]["events_path"].endswith("events.jsonl")
+    assert row["activity_trace"]["command_count"] == 1
+    assert row["activity_trace"]["agent_message_count"] == 1
     assert row["raw_response"]["output_text"].startswith("[{")
     assert len(trace_rows) == 1
     assert trace_rows[0]["stage_key"] == "line_role"
-    assert trace_rows[0]["trace_exists"] is False
-    assert trace_rows[0]["trace_path"] is None
+    assert trace_rows[0]["activity_trace_exists"] is True
+    assert trace_rows[0]["activity_trace_path"].endswith(
+        "prompts/activity_traces/line_role_prompt_0001.json"
+    )
     assert manifest_lines == [str(eval_output_dir / "prompts" / "prompt_line_role.txt")]
 
 
@@ -1289,6 +1576,14 @@ def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> N
         "# samples\n",
         encoding="utf-8",
     )
+    (prompts_dir / "activity_trace_summary.jsonl").write_text(
+        "{}\n",
+        encoding="utf-8",
+    )
+    (prompts_dir / "activity_trace_summary.md").write_text(
+        "# activity trace summary\n",
+        encoding="utf-8",
+    )
     (prompts_dir / "thinking_trace_summary.jsonl").write_text(
         "{}\n",
         encoding="utf-8",
@@ -1326,6 +1621,12 @@ def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> N
     )
     assert artifacts["prompt_type_samples_from_full_prompt_log_md"] == (
         "prompts/prompt_type_samples_from_full_prompt_log.md"
+    )
+    assert artifacts["activity_trace_summary_jsonl"] == (
+        "prompts/activity_trace_summary.jsonl"
+    )
+    assert artifacts["activity_trace_summary_md"] == (
+        "prompts/activity_trace_summary.md"
     )
     assert artifacts["thinking_trace_summary_jsonl"] == (
         "prompts/thinking_trace_summary.jsonl"
@@ -2592,16 +2893,23 @@ def test_prompt_budget_summary_reports_recipe_run_count_deviation_from_requested
                                         "tokens_output": 22,
                                         "tokens_total": 176,
                                     },
+                                    {
+                                        "duration_ms": 900,
+                                        "tokens_input": 90,
+                                        "tokens_cached_input": 9,
+                                        "tokens_output": 18,
+                                        "tokens_total": 117,
+                                    },
                                 ]
                             },
                             "telemetry_report": {
                                 "summary": {
-                                    "call_count": 2,
-                                    "duration_total_ms": 2300,
-                                    "tokens_input": 240,
-                                    "tokens_cached_input": 24,
-                                    "tokens_output": 42,
-                                    "tokens_total": 296,
+                                    "call_count": 3,
+                                    "duration_total_ms": 3200,
+                                    "tokens_input": 330,
+                                    "tokens_cached_input": 33,
+                                    "tokens_output": 60,
+                                    "tokens_total": 413,
                                 }
                             },
                         }
@@ -2616,6 +2924,7 @@ def test_prompt_budget_summary_reports_recipe_run_count_deviation_from_requested
     recipe_stage = summary["by_stage"]["recipe_correction"]
     assert recipe_stage["requested_run_count"] == 5
     assert recipe_stage["actual_run_count"] == 2
+    assert recipe_stage["call_count"] == 3
     assert recipe_stage["run_count_status"] == "below_target"
     assert "fit into fewer shards" in recipe_stage["run_count_explanation"]
     assert recipe_stage["requested_worker_count"] == 5
