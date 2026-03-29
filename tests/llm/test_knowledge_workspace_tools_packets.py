@@ -8,6 +8,7 @@ from pathlib import Path
 from cookimport.llm.knowledge_phase_workspace_tools import (
     build_final_output,
     build_knowledge_seed_output,
+    build_pass1_semantic_audit,
     build_pass1_work_ledger,
     build_pass2_input_ledger,
     build_pass2_work_ledger,
@@ -123,6 +124,7 @@ def test_render_knowledge_phase_sidecars_reference_current_phase_loop() -> None:
         "input_path": "in/book.ks0000.nr.json",
         "work_path": "work/book.ks0000.nr.pass1.json",
         "repair_path": "repair/book.ks0000.nr.pass1.json",
+        "semantic_audit_path": "shards/book.ks0000.nr/semantic_audit.json",
         "result_path": "out/book.ks0000.nr.json",
     }
 
@@ -149,6 +151,7 @@ def test_render_knowledge_phase_feedback_names_repair_loop() -> None:
         "input_path": "in/book.ks0000.nr.json",
         "work_path": "work/book.ks0000.nr.pass1.json",
         "repair_path": "repair/book.ks0000.nr.pass1.json",
+        "semantic_audit_path": "shards/book.ks0000.nr/semantic_audit.json",
         "result_path": "out/book.ks0000.nr.json",
     }
 
@@ -164,6 +167,69 @@ def test_render_knowledge_phase_feedback_names_repair_loop() -> None:
     assert "Edit only `work/book.ks0000.nr.pass1.json`." in feedback
     assert "Repair request: `repair/book.ks0000.nr.pass1.json`" in feedback
     assert "Next command after fixes: `python3 tools/knowledge_worker.py check-phase`." in feedback
+
+
+def test_build_pass1_semantic_audit_flags_high_signal_keep_and_drop_rows() -> None:
+    audit = build_pass1_semantic_audit(
+        shard_id="book.ks0000.nr",
+        input_payload={
+            "bid": "book.ks0000.nr",
+            "b": [
+                {"i": 10, "t": "WHEN I COOK BEANS", "hl": 2},
+                {"i": 11, "t": "Use low heat so the butter does not break."},
+            ],
+        },
+        pass1_payload={
+            "phase": "pass1",
+            "rows": [
+                {"block_index": 10, "category": "knowledge"},
+                {"block_index": 11, "category": "other"},
+            ],
+        },
+    )
+
+    assert audit["status"] == "repair_required"
+    assert audit["flagged_block_indices"] == [10, 11]
+    assert {flag["code"] for flag in audit["flags"]} == {
+        "guidance_like_other",
+        "heading_like_keep_without_supported_body",
+        "memoir_like_keep",
+    }
+
+
+def test_render_knowledge_phase_feedback_shows_semantic_audit_evidence() -> None:
+    phase_row = {
+        "status": "active",
+        "phase": "pass1",
+        "shard_id": "book.ks0000.nr",
+        "hint_path": "hints/book.ks0000.nr.md",
+        "input_path": "in/book.ks0000.nr.json",
+        "work_path": "work/book.ks0000.nr.pass1.json",
+        "repair_path": "repair/book.ks0000.nr.pass1.json",
+        "semantic_audit_path": "shards/book.ks0000.nr/semantic_audit.json",
+        "result_path": "out/book.ks0000.nr.json",
+    }
+
+    feedback = render_knowledge_current_phase_feedback(
+        phase_row=phase_row,
+        validation_errors=("semantic_suspicion_requires_repair",),
+        validation_metadata={
+            "unresolved_block_indices": [10],
+            "frozen_block_indices": [11],
+            "semantic_audit_path": "shards/book.ks0000.nr/semantic_audit.json",
+            "semantic_audit_flags": [
+                {
+                    "block_index": 10,
+                    "code": "heading_like_keep_without_supported_body",
+                    "evidence": "short heading-like row was marked knowledge without an adjacent kept explanatory body",
+                }
+            ],
+        },
+    )
+
+    assert "semantic suspicion audit flagged rows" in feedback
+    assert "Semantic audit file: `shards/book.ks0000.nr/semantic_audit.json`" in feedback
+    assert "`heading_like_keep_without_supported_body`" in feedback
 
 
 def test_generated_knowledge_worker_script_uses_phase_contract() -> None:
@@ -243,6 +309,7 @@ def _make_workspace(
             "input_path": f"in/{shard_id}.json",
             "work_path": f"work/{shard_id}.pass1.json",
             "repair_path": f"repair/{shard_id}.pass1.json",
+            "semantic_audit_path": f"shards/{shard_id}/semantic_audit.json",
             "result_path": f"out/{shard_id}.json",
             "hint_path": f"hints/{shard_id}.md",
         },
@@ -344,6 +411,70 @@ def test_generated_knowledge_worker_script_round_trips_pass1_to_pass2_same_sessi
             {"group_id": "g01", "topic_label": "Heat control", "block_indices": [11]}
         ],
     }
+
+
+def test_generated_knowledge_worker_script_requires_same_session_semantic_repair(
+    tmp_path: Path,
+) -> None:
+    workspace_root = _make_workspace(
+        tmp_path,
+        input_payload={
+            "bid": "book.ks0000.nr",
+            "b": [
+                {"i": 10, "t": "WHAT IS ACID?", "hl": 2},
+                {"i": 11, "t": "Use low heat so the butter does not break."},
+            ],
+        },
+    )
+    _write_workspace_json(
+        workspace_root / "work" / "book.ks0000.nr.pass1.json",
+        {
+            "phase": "pass1",
+            "rows": [
+                {"block_index": 10, "category": "knowledge"},
+                {"block_index": 11, "category": "other"},
+            ],
+        },
+    )
+
+    first_check = _run_worker_command(workspace_root, "check-phase")
+
+    assert first_check.returncode == 1
+    repair_payload = json.loads(
+        (workspace_root / "repair" / "book.ks0000.nr.pass1.json").read_text(encoding="utf-8")
+    )
+    audit_payload = json.loads(
+        (workspace_root / "shards" / "book.ks0000.nr" / "semantic_audit.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert repair_payload["repair_request_kind"] == "semantic_suspicion"
+    assert repair_payload["unresolved_block_indices"] == [10, 11]
+    assert audit_payload["status"] == "repair_required"
+
+    _write_workspace_json(
+        workspace_root / "work" / "book.ks0000.nr.pass1.json",
+        {
+            "phase": "pass1",
+            "rows": [
+                {"block_index": 10, "category": "other"},
+                {"block_index": 11, "category": "knowledge"},
+            ],
+        },
+    )
+
+    second_check = _run_worker_command(workspace_root, "check-phase")
+
+    assert second_check.returncode == 0
+    cleared_audit_payload = json.loads(
+        (workspace_root / "shards" / "book.ks0000.nr" / "semantic_audit.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    feedback = (workspace_root / "CURRENT_PHASE_FEEDBACK.md").read_text(encoding="utf-8")
+    assert cleared_audit_payload["status"] == "passed_after_repair"
+    assert cleared_audit_payload["repair_cleared"] is True
+    assert "Previous semantic suspicion flags were cleared in this same session." in feedback
 
 
 def test_generated_knowledge_worker_script_freezes_accepted_rows_across_rechecks(

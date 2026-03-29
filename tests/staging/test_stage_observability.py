@@ -735,6 +735,40 @@ def _build_knowledge_stage_rollup_fixture(tmp_path: Path) -> dict[str, object]:
         / "worker-001"
         / "shards"
         / "book.ks0000.nr.task-002"
+        / "semantic_audit.json",
+        {
+            "status": "passed_after_repair",
+            "repair_requested": True,
+            "repair_cleared": True,
+            "flag_count": 0,
+            "flags": [],
+        },
+    )
+    _write_json(
+        stage_root
+        / "workers"
+        / "worker-001"
+        / "shards"
+        / "book.ks0000.nr.task-003"
+        / "semantic_audit.json",
+        {
+            "status": "repair_required",
+            "repair_requested": True,
+            "repair_cleared": False,
+            "flag_count": 2,
+            "flagged_block_indices": [10, 11],
+            "flags": [
+                {"code": "memoir_like_keep"},
+                {"code": "guidance_like_other"},
+            ],
+        },
+    )
+    _write_json(
+        stage_root
+        / "workers"
+        / "worker-001"
+        / "shards"
+        / "book.ks0000.nr.task-002"
         / "watchdog_retry"
         / "status.json",
         {"status": "validated"},
@@ -805,6 +839,9 @@ def test_summarize_knowledge_stage_artifacts_reports_packet_and_worker_rollups(
         "completed_outputs_stabilized": 1,
     }
     assert summary["workers"]["output_count"] == 1
+    assert summary["semantic_audit"]["repair_requested_count"] == 2
+    assert summary["semantic_audit"]["repair_cleared_count"] == 1
+    assert summary["semantic_audit"]["open_flagged_shard_count"] == 1
 
 
 def test_summarize_knowledge_stage_artifacts_reports_followup_and_salvage_rollups(
@@ -826,3 +863,10 @@ def test_summarize_knowledge_stage_artifacts_reports_followup_and_salvage_rollup
     assert summary["followups"]["circuit_breaker_activation_count"] == 1
     assert summary["salvage"]["success_count"] == 1
     assert summary["salvage"]["kind_counts"] == {"trailing_eof_trimmed": 1}
+    assert summary["attention_summary"]["zero_target_counts"]["semantic_audit_open_shard_count"] == 1
+    assert summary["attention_summary"]["context_counts"]["semantic_audit_repair_requested_count"] == 2
+    assert summary["attention_summary"]["context_counts"]["semantic_audit_repair_cleared_count"] == 1
+    assert summary["attention_summary"]["reason_counts"]["semantic_audit_flag_code_counts"] == {
+        "guidance_like_other": 1,
+        "memoir_like_keep": 1,
+    }

@@ -41,6 +41,7 @@ def _phase_row_for_shard(shard_id: str) -> dict[str, Any]:
         "input_path": str(Path("in") / f"{shard_id}.json"),
         "work_path": str(Path("work") / f"{shard_id}.pass1.json"),
         "repair_path": str(Path("repair") / f"{shard_id}.pass1.json"),
+        "semantic_audit_path": str(Path("shards") / shard_id / "semantic_audit.json"),
         "result_path": str(Path("out") / f"{shard_id}.json"),
         "hint_path": str(Path("hints") / f"{shard_id}.md"),
     }

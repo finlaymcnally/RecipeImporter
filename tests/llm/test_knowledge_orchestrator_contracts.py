@@ -70,6 +70,8 @@ def test_worker_prompt_describes_phase_contract() -> None:
     )
     assert "Pass 1 is your first-authority semantic judgment" in prompt
     assert "The repo does not know the `knowledge` versus `other` answer ahead of time." in prompt
+    assert "repo code runs one narrow semantic suspicion audit" in prompt
+    assert "patch only the flagged rows in the existing Pass 1 ledger" in prompt
     assert "Pass 2 runs only after Pass 1 installs, and it continues from the accepted Pass 1 knowledge rows" in prompt
     assert "assign a non-empty local `group_key` plus `topic_label`" in prompt
     assert "python3 tools/knowledge_worker.py check-phase" in prompt
@@ -82,6 +84,7 @@ def test_worker_prompt_describes_phase_contract() -> None:
         "`OUTPUT_CONTRACT.md`, `examples/`, and `tools/knowledge_worker.py` are fallback contract/debug surfaces"
         in prompt
     )
+    assert "Do not let one useful row launder nearby memoir or heading rows into `knowledge`." in prompt
     assert "Top level keys: `packet_id`, `block_decisions`, `idea_groups`." not in prompt
     assert "snippets" not in prompt
 

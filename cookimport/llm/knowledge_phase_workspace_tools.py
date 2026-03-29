@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 from typing import Any, Mapping, Sequence
 
 
 KNOWLEDGE_WORKER_TOOL_FILENAME = "knowledge_worker.py"
 KNOWLEDGE_VALID_OUTPUT_EXAMPLE_FILENAME = "valid_knowledge_output.json"
+PASS1_SEMANTIC_AUDIT_SCHEMA_VERSION = "knowledge_pass1_semantic_audit.v1"
+PASS1_SEMANTIC_SUSPICION_ERROR = "semantic_suspicion_requires_repair"
 KNOWLEDGE_VALID_OUTPUT_EXAMPLE_PAYLOAD = {
     "packet_id": "book.ks0000.nr",
     "block_decisions": [
@@ -25,6 +28,7 @@ KNOWLEDGE_OUTPUT_CONTRACT_MARKDOWN = """# Knowledge Ledger Contract
 
 Use this contract for every installed `out/<shard_id>.json`.
 The normal loop still starts from `CURRENT_PHASE.md` and the active `work/<shard_id>.pass{1,2}.json` ledger. Open this file only when you need the installed output shape.
+Pass 1 only advances after the work ledger is structurally valid and the repo-owned semantic suspicion audit has no open flags. If that audit flags rows, patch only the flagged rows in the existing Pass 1 work ledger before Pass 2 can begin.
 
 Required shape:
 
@@ -44,6 +48,85 @@ Rules:
 - Group ids may span more than one kept block, but one `group_id` must keep one `topic_label`.
 - Do not add markdown, commentary, or extra JSON wrapper keys.
 """
+
+_MEMOIR_LIKE_PHRASES = (
+    "when i ",
+    "i remember",
+    "i learned",
+    "i like",
+    "i love",
+    "i prefer",
+    "growing up",
+    "my mother",
+    "my grandmother",
+    "my wife",
+    "my husband",
+    "my kids",
+    "for me",
+    "reminds me",
+    "in my kitchen",
+    "we always",
+)
+_GUIDANCE_IMPERATIVE_PREFIXES = (
+    "use ",
+    "keep ",
+    "whisk ",
+    "stir ",
+    "salt ",
+    "season ",
+    "preheat ",
+    "cool ",
+    "let ",
+    "rest ",
+    "bake ",
+    "toast ",
+    "simmer ",
+    "boil ",
+    "fold ",
+    "knead ",
+)
+_GUIDANCE_REASON_PHRASES = (
+    "because ",
+    "so that ",
+    "to avoid ",
+    "to prevent ",
+    "helps ",
+    "help ",
+    "prevents ",
+    "keeps ",
+    "means ",
+    "when ",
+    "if ",
+    "until ",
+    "otherwise",
+)
+_GUIDANCE_COOKING_TERMS = (
+    "heat",
+    "pan",
+    "oven",
+    "butter",
+    "salt",
+    "acid",
+    "dough",
+    "batter",
+    "sauce",
+    "stock",
+    "whisk",
+    "stir",
+    "simmer",
+    "boil",
+    "cook",
+    "bake",
+    "toast",
+    "fry",
+    "roast",
+    "season",
+    "flavor",
+    "texture",
+    "refriger",
+    "cool",
+    "rest",
+)
 
 
 def _coerce_metadata(shard_row: Mapping[str, Any]) -> dict[str, Any]:
@@ -133,6 +216,189 @@ def _pass2_row_from_input_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
     return projected
 
 
+def _load_optional_json_object(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        return _load_payload(path)
+    except Exception:
+        return None
+
+
+def _excerpt(text: str, *, limit: int = 120) -> str:
+    cleaned = re.sub(r"\s+", " ", str(text or "").strip())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 3].rstrip() + "..."
+
+
+def _is_heading_like_row(row: Mapping[str, Any]) -> bool:
+    text = str(row.get("text") or "").strip()
+    if not text:
+        return False
+    words = re.findall(r"[A-Za-z0-9']+", text)
+    if len(words) > 8:
+        return False
+    if row.get("heading_level") is not None:
+        return True
+    if text.endswith(":"):
+        return True
+    letters = [char for char in text if char.isalpha()]
+    return bool(letters) and text.upper() == text
+
+
+def _is_memoir_like_text(text: str) -> bool:
+    lowered = f" {str(text or '').strip().lower()} "
+    return any(phrase in lowered for phrase in _MEMOIR_LIKE_PHRASES)
+
+
+def _guidance_drop_signal(text: str) -> str | None:
+    lowered = f" {str(text or '').strip().lower()} "
+    if any(lowered.lstrip().startswith(prefix) for prefix in _GUIDANCE_IMPERATIVE_PREFIXES):
+        return "imperative"
+    if (
+        any(phrase in lowered for phrase in _GUIDANCE_REASON_PHRASES)
+        and any(term in lowered for term in _GUIDANCE_COOKING_TERMS)
+    ):
+        return "explanatory"
+    return None
+
+
+def _pass1_rows_by_block_index(payload: Mapping[str, Any]) -> dict[int, dict[str, Any]]:
+    rows_by_block_index: dict[int, dict[str, Any]] = {}
+    for row in payload.get("rows") or []:
+        if not isinstance(row, Mapping) or row.get("block_index") is None:
+            continue
+        rows_by_block_index[int(row.get("block_index"))] = dict(row)
+    return rows_by_block_index
+
+
+def build_pass1_semantic_audit(
+    *,
+    shard_id: str,
+    input_payload: Mapping[str, Any],
+    pass1_payload: Mapping[str, Any],
+    previous_audit_payload: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    input_rows = [
+        row
+        for row in (
+            _truth_row_from_input_block(block) for block in _input_blocks(input_payload)
+        )
+        if row is not None
+    ]
+    pass1_rows_by_block_index = _pass1_rows_by_block_index(pass1_payload)
+    flags: list[dict[str, Any]] = []
+    ordered_block_indices = [int(row["block_index"]) for row in input_rows]
+    category_by_block_index = {
+        block_index: str(pass1_rows_by_block_index.get(block_index, {}).get("category") or "").strip()
+        for block_index in ordered_block_indices
+    }
+    previous_requested = bool(
+        dict(previous_audit_payload or {}).get("repair_requested")
+    )
+
+    for position, row in enumerate(input_rows):
+        block_index = int(row["block_index"])
+        category = category_by_block_index.get(block_index)
+        text = str(row.get("text") or "").strip()
+        if category == "knowledge":
+            previous_category = (
+                category_by_block_index.get(ordered_block_indices[position - 1])
+                if position > 0
+                else None
+            )
+            next_category = (
+                category_by_block_index.get(ordered_block_indices[position + 1])
+                if position + 1 < len(ordered_block_indices)
+                else None
+            )
+            if (
+                _is_heading_like_row(row)
+                and previous_category != "knowledge"
+                and next_category != "knowledge"
+            ):
+                flags.append(
+                    {
+                        "block_index": block_index,
+                        "category": category,
+                        "code": "heading_like_keep_without_supported_body",
+                        "evidence": (
+                            "short heading-like row was marked knowledge without an adjacent "
+                            "kept explanatory body"
+                        ),
+                        "text_excerpt": _excerpt(text),
+                    }
+                )
+            if _is_memoir_like_text(text):
+                flags.append(
+                    {
+                        "block_index": block_index,
+                        "category": category,
+                        "code": "memoir_like_keep",
+                        "evidence": "first-person or memoir-like prose was marked knowledge",
+                        "text_excerpt": _excerpt(text),
+                    }
+                )
+        elif category == "other":
+            guidance_signal = _guidance_drop_signal(text)
+            if guidance_signal:
+                evidence = (
+                    "actionable cooking instruction was marked other"
+                    if guidance_signal == "imperative"
+                    else "cause-and-effect or troubleshooting cooking guidance was marked other"
+                )
+                flags.append(
+                    {
+                        "block_index": block_index,
+                        "category": category,
+                        "code": "guidance_like_other",
+                        "evidence": evidence,
+                        "signal": guidance_signal,
+                        "text_excerpt": _excerpt(text),
+                    }
+                )
+
+    flagged_block_indices = sorted(
+        {
+            int(flag.get("block_index"))
+            for flag in flags
+            if flag.get("block_index") is not None
+        }
+    )
+    if flagged_block_indices:
+        status = "repair_required"
+    elif previous_requested:
+        status = "passed_after_repair"
+    else:
+        status = "passed_clean"
+    return {
+        "schema_version": PASS1_SEMANTIC_AUDIT_SCHEMA_VERSION,
+        "phase": "pass1",
+        "shard_id": str(shard_id),
+        "status": status,
+        "repair_requested": previous_requested or bool(flagged_block_indices),
+        "repair_cleared": bool(previous_requested and not flagged_block_indices),
+        "flag_count": len(flags),
+        "max_flag_count": max(
+            len(flags),
+            int(dict(previous_audit_payload or {}).get("max_flag_count") or 0),
+        ),
+        "flagged_block_indices": flagged_block_indices,
+        "kept_block_indices": [
+            block_index
+            for block_index in ordered_block_indices
+            if category_by_block_index.get(block_index) == "knowledge"
+        ],
+        "other_block_indices": [
+            block_index
+            for block_index in ordered_block_indices
+            if category_by_block_index.get(block_index) == "other"
+        ],
+        "flags": flags,
+    }
+
+
 def build_knowledge_workspace_shard_metadata(
     *,
     shard_id: str,
@@ -153,6 +419,7 @@ def build_knowledge_workspace_shard_metadata(
         "input_path": str(input_path),
         "hint_path": str(hint_path),
         "result_path": str(result_path),
+        "semantic_audit_path": str(Path("shards") / str(shard_id) / "semantic_audit.json"),
         "owned_row_count": len(block_indices),
         "block_index_start": block_indices[0] if block_indices else None,
         "block_index_end": block_indices[-1] if block_indices else None,
@@ -410,9 +677,17 @@ def build_pass1_repair_request_payload(
             if isinstance(row, Mapping)
         ],
     )
-    return {
+    semantic_flags = [
+        dict(flag)
+        for flag in (metadata.get("semantic_audit_flags") or [])
+        if isinstance(flag, Mapping)
+    ]
+    payload = {
         "repair_mode": "knowledge_phase",
         "phase": "pass1",
+        "repair_request_kind": (
+            "semantic_suspicion" if semantic_flags else "validation"
+        ),
         "accepted_block_indices": [int(row["block_index"]) for row in frozen_rows],
         "unresolved_block_indices": unresolved_block_indices,
         "validation_errors": [
@@ -425,6 +700,13 @@ def build_pass1_repair_request_payload(
             if block_index in input_rows_by_block_index
         ],
     }
+    if metadata.get("semantic_audit_path"):
+        payload["semantic_audit_path"] = str(metadata.get("semantic_audit_path"))
+    if metadata.get("semantic_audit_status"):
+        payload["semantic_audit_status"] = str(metadata.get("semantic_audit_status"))
+    if semantic_flags:
+        payload["semantic_flags"] = semantic_flags
+    return payload
 
 
 def build_pass2_repair_request_payload(
@@ -725,6 +1007,7 @@ def render_knowledge_current_phase_brief(
         f"Input file: `{phase_row.get('input_path') or '?'}`",
         f"Active work ledger: `{phase_row.get('work_path') or '?'}`",
         f"Repair file: `{phase_row.get('repair_path') or '?'}`",
+        f"Semantic audit file: `{phase_row.get('semantic_audit_path') or '?'}`",
         f"Result file: `{phase_row.get('result_path') or '?'}`",
         "",
     ]
@@ -735,6 +1018,8 @@ def render_knowledge_current_phase_brief(
                 "The repo does not know the `knowledge` versus `other` answer ahead of time.",
                 "Each work row carries raw block text plus mechanical truth; fill only `category` with `knowledge` or `other`.",
                 "Do not create topic labels or grouping keys in Pass 1.",
+                "Before Pass 2, repo code runs one narrow semantic suspicion audit over structurally valid Pass 1 rows.",
+                "If that audit flags rows, patch only the flagged rows in the same Pass 1 work ledger. The audit packages evidence; it does not know the right semantic answer for you.",
             ]
         )
     else:
@@ -773,11 +1058,23 @@ def render_knowledge_current_phase_feedback(
     if phase_row is None:
         return "# Current Phase Feedback\n\nNo active knowledge shard.\n"
     if not validation_errors:
+        clean_line = "Current work ledger validates cleanly."
+        semantic_audit_status = ""
+        if isinstance(validation_metadata, Mapping):
+            semantic_audit_status = str(validation_metadata.get("semantic_audit_status") or "").strip()
+        if semantic_audit_status:
+            clean_line = "Current work ledger and Pass 1 semantic suspicion audit validate cleanly."
+        cleared_line = (
+            "Previous semantic suspicion flags were cleared in this same session.\n"
+            if semantic_audit_status == "passed_after_repair"
+            else ""
+        )
         return (
             "# Current Phase Feedback\n\n"
-            "Current work ledger validates cleanly.\n"
+            f"{clean_line}\n"
             f"Active work ledger: `{phase_row.get('work_path') or '<missing>'}`\n"
             f"Install target: `{phase_row.get('result_path') or '<missing>'}`\n"
+            f"{cleared_line}"
             "Next command: `python3 tools/knowledge_worker.py install-phase`.\n"
         )
     unresolved = []
@@ -790,13 +1087,25 @@ def render_knowledge_current_phase_feedback(
     lines = [
         "# Current Phase Feedback",
         "",
-        "Current work ledger is still unresolved.",
+        (
+            "Pass 1 semantic suspicion audit flagged rows for same-session repair."
+            if isinstance(validation_metadata, Mapping)
+            and bool(validation_metadata.get("semantic_audit_flags"))
+            else "Current work ledger is still unresolved."
+        ),
         f"Edit only `{phase_row.get('work_path') or '<missing>'}`.",
         "Validation errors:",
     ]
     lines.extend(f"- `{error}`" for error in validation_errors if str(error).strip())
     if phase_row.get("repair_path"):
         lines.append(f"Repair request: `{phase_row.get('repair_path')}`")
+    if (
+        isinstance(validation_metadata, Mapping)
+        and validation_metadata.get("semantic_audit_path")
+    ):
+        lines.append(
+            f"Semantic audit file: `{validation_metadata.get('semantic_audit_path')}`"
+        )
     if unresolved:
         lines.append(
             "Unresolved block indices: "
@@ -818,6 +1127,20 @@ def render_knowledge_current_phase_feedback(
             "Frozen accepted block indices: "
             f"`{', '.join(str(value) for value in accepted)}`"
         )
+    semantic_flags = []
+    if isinstance(validation_metadata, Mapping):
+        semantic_flags = [
+            dict(flag)
+            for flag in (validation_metadata.get("semantic_audit_flags") or [])
+            if isinstance(flag, Mapping)
+        ]
+    if semantic_flags:
+        lines.append("Semantic suspicion evidence:")
+        for flag in semantic_flags:
+            lines.append(
+                "- block "
+                f"{flag.get('block_index')}: `{flag.get('code')}` {flag.get('evidence')}"
+            )
     lines.append(
         "Next command after fixes: `python3 tools/knowledge_worker.py check-phase`."
     )
@@ -834,10 +1157,91 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 OUTPUT_CONTRACT_MARKDOWN = __OUTPUT_CONTRACT_MARKDOWN__
 VALID_EXAMPLE_JSON = __VALID_EXAMPLE_JSON__
+PASS1_SEMANTIC_AUDIT_SCHEMA_VERSION = "knowledge_pass1_semantic_audit.v1"
+PASS1_SEMANTIC_SUSPICION_ERROR = "semantic_suspicion_requires_repair"
+MEMOIR_LIKE_PHRASES = (
+    "when i ",
+    "i remember",
+    "i learned",
+    "i like",
+    "i love",
+    "i prefer",
+    "growing up",
+    "my mother",
+    "my grandmother",
+    "my wife",
+    "my husband",
+    "my kids",
+    "for me",
+    "reminds me",
+    "in my kitchen",
+    "we always",
+)
+GUIDANCE_IMPERATIVE_PREFIXES = (
+    "use ",
+    "keep ",
+    "whisk ",
+    "stir ",
+    "salt ",
+    "season ",
+    "preheat ",
+    "cool ",
+    "let ",
+    "rest ",
+    "bake ",
+    "toast ",
+    "simmer ",
+    "boil ",
+    "fold ",
+    "knead ",
+)
+GUIDANCE_REASON_PHRASES = (
+    "because ",
+    "so that ",
+    "to avoid ",
+    "to prevent ",
+    "helps ",
+    "help ",
+    "prevents ",
+    "keeps ",
+    "means ",
+    "when ",
+    "if ",
+    "until ",
+    "otherwise",
+)
+GUIDANCE_COOKING_TERMS = (
+    "heat",
+    "pan",
+    "oven",
+    "butter",
+    "salt",
+    "acid",
+    "dough",
+    "batter",
+    "sauce",
+    "stock",
+    "whisk",
+    "stir",
+    "simmer",
+    "boil",
+    "cook",
+    "bake",
+    "toast",
+    "fry",
+    "roast",
+    "season",
+    "flavor",
+    "texture",
+    "refriger",
+    "cool",
+    "rest",
+)
 
 
 def load_json(path: Path):
@@ -870,6 +1274,16 @@ def current_phase():
     if not path.exists():
         return None
     payload = load_json(path)
+    return payload if isinstance(payload, dict) else None
+
+
+def load_optional_json(path: Path):
+    if not path.exists():
+        return None
+    try:
+        payload = load_json(path)
+    except Exception:
+        return None
     return payload if isinstance(payload, dict) else None
 
 
@@ -938,6 +1352,45 @@ def build_pass2_row(row):
     if isinstance(row.get("table_hint"), dict):
         projected["table_hint"] = dict(row["table_hint"])
     return projected
+
+
+def excerpt(text, *, limit=120):
+    cleaned = re.sub(r"\\s+", " ", str(text or "").strip())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 3].rstrip() + "..."
+
+
+def is_heading_like_row(row):
+    text = str(row.get("text") or "").strip()
+    if not text:
+        return False
+    words = re.findall(r"[A-Za-z0-9']+", text)
+    if len(words) > 8:
+        return False
+    if row.get("heading_level") is not None:
+        return True
+    if text.endswith(":"):
+        return True
+    letters = [char for char in text if char.isalpha()]
+    return bool(letters) and text.upper() == text
+
+
+def is_memoir_like_text(text):
+    lowered = f" {{str(text or '').strip().lower()}} "
+    return any(phrase in lowered for phrase in MEMOIR_LIKE_PHRASES)
+
+
+def guidance_drop_signal(text):
+    lowered = f" {{str(text or '').strip().lower()}} "
+    if any(lowered.lstrip().startswith(prefix) for prefix in GUIDANCE_IMPERATIVE_PREFIXES):
+        return "imperative"
+    if (
+        any(phrase in lowered for phrase in GUIDANCE_REASON_PHRASES)
+        and any(term in lowered for term in GUIDANCE_COOKING_TERMS)
+    ):
+        return "explanatory"
+    return None
 
 
 def build_pass1_seed(input_payload):
@@ -1088,6 +1541,129 @@ def resolved_unresolved_block_indices(metadata):
     ]
 
 
+def pass1_rows_by_block_index(pass1_payload):
+    rows_by_block_index = {}
+    for row in pass1_payload.get("rows") or []:
+        if not isinstance(row, dict) or row.get("block_index") is None:
+            continue
+        rows_by_block_index[int(row.get("block_index"))] = dict(row)
+    return rows_by_block_index
+
+
+def build_pass1_semantic_audit(shard_id, input_payload, pass1_payload, *, previous_audit_payload=None):
+    input_rows = [
+        row
+        for row in (
+            truth_row_from_input_block(block) for block in input_blocks(input_payload)
+        )
+        if row is not None
+    ]
+    pass1_rows = pass1_rows_by_block_index(pass1_payload)
+    ordered_block_indices = [int(row["block_index"]) for row in input_rows]
+    category_by_block_index = {
+        block_index: str(pass1_rows.get(block_index, {}).get("category") or "").strip()
+        for block_index in ordered_block_indices
+    }
+    previous_requested = bool(dict(previous_audit_payload or {}).get("repair_requested"))
+    flags = []
+    for position, row in enumerate(input_rows):
+        block_index = int(row["block_index"])
+        category = category_by_block_index.get(block_index)
+        text = str(row.get("text") or "").strip()
+        if category == "knowledge":
+            previous_category = (
+                category_by_block_index.get(ordered_block_indices[position - 1])
+                if position > 0
+                else None
+            )
+            next_category = (
+                category_by_block_index.get(ordered_block_indices[position + 1])
+                if position + 1 < len(ordered_block_indices)
+                else None
+            )
+            if (
+                is_heading_like_row(row)
+                and previous_category != "knowledge"
+                and next_category != "knowledge"
+            ):
+                flags.append(
+                    {
+                        "block_index": block_index,
+                        "category": category,
+                        "code": "heading_like_keep_without_supported_body",
+                        "evidence": (
+                            "short heading-like row was marked knowledge without an adjacent kept explanatory body"
+                        ),
+                        "text_excerpt": excerpt(text),
+                    }
+                )
+            if is_memoir_like_text(text):
+                flags.append(
+                    {
+                        "block_index": block_index,
+                        "category": category,
+                        "code": "memoir_like_keep",
+                        "evidence": "first-person or memoir-like prose was marked knowledge",
+                        "text_excerpt": excerpt(text),
+                    }
+                )
+        elif category == "other":
+            signal = guidance_drop_signal(text)
+            if signal:
+                flags.append(
+                    {
+                        "block_index": block_index,
+                        "category": category,
+                        "code": "guidance_like_other",
+                        "signal": signal,
+                        "evidence": (
+                            "actionable cooking instruction was marked other"
+                            if signal == "imperative"
+                            else "cause-and-effect or troubleshooting cooking guidance was marked other"
+                        ),
+                        "text_excerpt": excerpt(text),
+                    }
+                )
+    flagged_block_indices = sorted(
+        {
+            int(flag.get("block_index"))
+            for flag in flags
+            if flag.get("block_index") is not None
+        }
+    )
+    if flagged_block_indices:
+        status = "repair_required"
+    elif previous_requested:
+        status = "passed_after_repair"
+    else:
+        status = "passed_clean"
+    return {
+        "schema_version": PASS1_SEMANTIC_AUDIT_SCHEMA_VERSION,
+        "phase": "pass1",
+        "shard_id": str(shard_id),
+        "status": status,
+        "repair_requested": previous_requested or bool(flagged_block_indices),
+        "repair_cleared": bool(previous_requested and not flagged_block_indices),
+        "flag_count": len(flags),
+        "max_flag_count": max(
+            len(flags),
+            int(dict(previous_audit_payload or {}).get("max_flag_count") or 0),
+        ),
+        "flagged_block_indices": flagged_block_indices,
+        "kept_block_indices": [
+            block_index
+            for block_index in ordered_block_indices
+            if category_by_block_index.get(block_index) == "knowledge"
+        ],
+        "other_block_indices": [
+            block_index
+            for block_index in ordered_block_indices
+            if category_by_block_index.get(block_index) == "other"
+        ],
+        "flags": flags,
+    }
+
+
 def build_pass1_repair_payload(input_payload, metadata, validation_errors, *, frozen_rows=None):
     unresolved = resolved_unresolved_block_indices(metadata)
     input_rows_by_block_index = pass1_input_rows_by_block_index(input_payload)
@@ -1099,9 +1675,17 @@ def build_pass1_repair_payload(input_payload, metadata, validation_errors, *, fr
             if isinstance(row, dict)
         ],
     )
-    return {{
+    semantic_flags = [
+        dict(flag)
+        for flag in (metadata.get("semantic_audit_flags") or [])
+        if isinstance(flag, dict)
+    ]
+    payload = {{
         "repair_mode": "knowledge_phase",
         "phase": "pass1",
+        "repair_request_kind": (
+            "semantic_suspicion" if semantic_flags else "validation"
+        ),
         "accepted_block_indices": [
             int(row.get("block_index"))
             for row in merged_frozen_rows
@@ -1120,6 +1704,13 @@ def build_pass1_repair_payload(input_payload, metadata, validation_errors, *, fr
             if block_index in input_rows_by_block_index
         ],
     }}
+    if metadata.get("semantic_audit_path"):
+        payload["semantic_audit_path"] = str(metadata.get("semantic_audit_path"))
+    if metadata.get("semantic_audit_status"):
+        payload["semantic_audit_status"] = str(metadata.get("semantic_audit_status"))
+    if semantic_flags:
+        payload["semantic_flags"] = semantic_flags
+    return payload
 
 
 def build_pass2_repair_payload(pass2_input_payload, metadata, validation_errors, *, frozen_rows=None):
@@ -1384,6 +1975,7 @@ def render_phase_brief(phase_row):
         f"Input file: `{{phase_row.get('input_path') or '?'}}`",
         f"Work file: `{{phase_row.get('work_path') or '?'}}`",
         f"Repair file: `{{phase_row.get('repair_path') or '?'}}`",
+        f"Semantic audit file: `{{phase_row.get('semantic_audit_path') or '?'}}`",
         f"Result file: `{{phase_row.get('result_path') or '?'}}`",
         "",
     ]
@@ -1393,6 +1985,8 @@ def render_phase_brief(phase_row):
             "The repo does not know the `knowledge` versus `other` answer ahead of time.",
             "Each work row carries raw block text plus mechanical truth; fill only `category` with `knowledge` or `other`.",
             "Do not create topic labels or grouping keys in Pass 1.",
+            "Before Pass 2, repo code runs one narrow semantic suspicion audit over structurally valid Pass 1 rows.",
+            "If that audit flags rows, patch only the flagged rows in the same Pass 1 work ledger. The audit packages evidence; it does not know the right semantic answer for you.",
         ])
     else:
         lines.extend([
@@ -1409,10 +2003,23 @@ def render_phase_feedback(phase_row, validation_errors=(), validation_metadata=N
     if phase_row is None:
         return "# Current Phase Feedback\\n\\nNo active knowledge shard.\\n"
     if not validation_errors:
+        semantic_audit_status = ""
+        if isinstance(validation_metadata, dict):
+            semantic_audit_status = str(validation_metadata.get("semantic_audit_status") or "").strip()
+        clean_line = "Current work ledger validates cleanly."
+        if semantic_audit_status:
+            clean_line = "Current work ledger and Pass 1 semantic suspicion audit validate cleanly."
+        cleared_line = (
+            "Previous semantic suspicion flags were cleared in this same session.\\n"
+            if semantic_audit_status == "passed_after_repair"
+            else ""
+        )
         return (
             "# Current Phase Feedback\\n\\n"
-            "Current work ledger validates cleanly.\\n"
+            f"{{clean_line}}\\n"
             f"Install target: `{{phase_row.get('result_path') or '<missing>'}}`\\n"
+            f"{{cleared_line}}"
+            "Next command: `python3 tools/knowledge_worker.py install-phase`.\\n"
         )
     unresolved = []
     if isinstance(validation_metadata, dict):
@@ -1424,12 +2031,19 @@ def render_phase_feedback(phase_row, validation_errors=(), validation_metadata=N
     lines = [
         "# Current Phase Feedback",
         "",
-        "Current work ledger is still unresolved.",
+        (
+            "Pass 1 semantic suspicion audit flagged rows for same-session repair."
+            if isinstance(validation_metadata, dict)
+            and bool(validation_metadata.get("semantic_audit_flags"))
+            else "Current work ledger is still unresolved."
+        ),
         "Validation errors:",
     ]
     lines.extend(f"- `{{error}}`" for error in validation_errors if str(error).strip())
     if phase_row.get("repair_path"):
         lines.append(f"Repair request: `{{phase_row.get('repair_path')}}`")
+    if isinstance(validation_metadata, dict) and validation_metadata.get("semantic_audit_path"):
+        lines.append(f"Semantic audit file: `{{validation_metadata.get('semantic_audit_path')}}`")
     if unresolved:
         lines.append(
             "Unresolved block indices: "
@@ -1451,6 +2065,21 @@ def render_phase_feedback(phase_row, validation_errors=(), validation_metadata=N
             "Frozen accepted block indices: "
             f"`{{', '.join(str(value) for value in accepted)}}`"
         )
+    semantic_flags = []
+    if isinstance(validation_metadata, dict):
+        semantic_flags = [
+            dict(flag)
+            for flag in (validation_metadata.get("semantic_audit_flags") or [])
+            if isinstance(flag, dict)
+        ]
+    if semantic_flags:
+        lines.append("Semantic suspicion evidence:")
+        for flag in semantic_flags:
+            lines.append(
+                "- block "
+                f"{{flag.get('block_index')}}: `{{flag.get('code')}}` {{flag.get('evidence')}}"
+            )
+    lines.append("Next command after fixes: `python3 tools/knowledge_worker.py check-phase`.")
     return "\\n".join(lines) + "\\n"
 
 
@@ -1658,6 +2287,7 @@ def next_phase_row(current_phase_row):
             "input_path": f"in/{{shard_id}}.json",
             "work_path": f"work/{{shard_id}}.pass1.json",
             "repair_path": f"repair/{{shard_id}}.pass1.json",
+            "semantic_audit_path": f"shards/{{shard_id}}/semantic_audit.json",
             "result_path": f"out/{{shard_id}}.json",
             "hint_path": f"hints/{{shard_id}}.md",
         }}
@@ -1694,6 +2324,7 @@ def check_current_phase():
     work_payload = load_phase_work(phase_row)
     input_payload = load_phase_input(phase_row)
     frozen_rows = phase_row.get("frozen_rows")
+    semantic_audit_path = workspace_root() / str(phase_row.get("semantic_audit_path") or "")
     if str(phase_row.get("phase") or "").strip() == "pass1":
         errors, metadata = validate_pass1(
             input_payload,
@@ -1706,15 +2337,51 @@ def check_current_phase():
             work_payload,
             frozen_rows_by_block_index=frozen_rows,
         )
-    merged_frozen_rows = merge_frozen_rows(
-        frozen_rows,
-        [
-            dict(row)
-            for row in (metadata.get("accepted_rows") or [])
-            if isinstance(row, dict)
-        ],
-    )
     metadata = dict(metadata)
+    accepted_rows = [
+        dict(row)
+        for row in (metadata.get("accepted_rows") or [])
+        if isinstance(row, dict)
+    ]
+    if str(phase_row.get("phase") or "").strip() == "pass1" and not errors:
+        previous_audit_payload = load_optional_json(semantic_audit_path)
+        semantic_audit_payload = build_pass1_semantic_audit(
+            str(phase_row.get("shard_id") or ""),
+            input_payload,
+            work_payload,
+            previous_audit_payload=previous_audit_payload,
+        )
+        save_json(semantic_audit_path, semantic_audit_payload)
+        metadata["semantic_audit_path"] = relative_path(semantic_audit_path)
+        metadata["semantic_audit_status"] = str(semantic_audit_payload.get("status") or "").strip()
+        metadata["semantic_audit_flags"] = [
+            dict(flag)
+            for flag in (semantic_audit_payload.get("flags") or [])
+            if isinstance(flag, dict)
+        ]
+        metadata["semantic_audit_flagged_block_indices"] = [
+            int(value)
+            for value in (semantic_audit_payload.get("flagged_block_indices") or [])
+            if str(value).strip()
+        ]
+        if metadata["semantic_audit_flagged_block_indices"]:
+            flagged = set(metadata["semantic_audit_flagged_block_indices"])
+            errors = [PASS1_SEMANTIC_SUSPICION_ERROR]
+            accepted_rows = [
+                row
+                for row in accepted_rows
+                if int(row.get("block_index")) not in flagged
+            ]
+            metadata["accepted_rows"] = accepted_rows
+            metadata["accepted_block_indices"] = [
+                int(row.get("block_index"))
+                for row in accepted_rows
+                if row.get("block_index") is not None
+            ]
+            metadata["unresolved_block_indices"] = list(
+                metadata["semantic_audit_flagged_block_indices"]
+            )
+    merged_frozen_rows = merge_frozen_rows(frozen_rows, accepted_rows)
     metadata["frozen_block_indices"] = [
         int(row.get("block_index"))
         for row in merged_frozen_rows

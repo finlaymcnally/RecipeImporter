@@ -806,6 +806,8 @@ def _build_knowledge_workspace_worker_prompt(
         "Phase semantics:",
         "- Pass 1 is your first-authority semantic judgment on the owned rows. The repo does not know the `knowledge` versus `other` answer ahead of time.",
         "- Pass 1 work rows already carry raw block text plus mechanical truth. Fill only `category` with `knowledge` or `other`.",
+        "- After Pass 1 becomes structurally valid, repo code runs one narrow semantic suspicion audit before Pass 2 can begin.",
+        "- If that audit flags rows, patch only the flagged rows in the existing Pass 1 ledger. The audit packages evidence; it does not know the right answer for you.",
         "- Pass 2 runs only after Pass 1 installs, and it continues from the accepted Pass 1 knowledge rows rather than reopening the whole shard.",
         "- In Pass 2, assign a non-empty local `group_key` plus `topic_label` for each kept knowledge row. The repo canonicalizes final `group_id` values during install.",
         f"- Final categories must be exactly one of `{'`, `'.join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)}`.",
@@ -818,6 +820,7 @@ def _build_knowledge_workspace_worker_prompt(
         "- If the text is technically true but low-value prose, generic memoir-like framing, or just navigation, keep it `other`.",
         "- If the owned shard mixes memoir, praise, or book-framing with a few useful cooking sentences, do not mark the whole shard `knowledge` by inertia.",
         "- Keep memoir/framing blocks `other`; only mark a block `knowledge` when that block itself stands alone as reusable cooking guidance.",
+        "- Make the keep/drop decision block by block before you think about idea groups. Do not let one useful row launder nearby memoir or heading rows into `knowledge`.",
         "",
         (
             "Assigned shards in this worker: "

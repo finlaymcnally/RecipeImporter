@@ -19,9 +19,12 @@ def test_build_knowledge_direct_prompt_uses_inline_json_contract() -> None:
     assert "The raw packet block text is authoritative. Only mechanically true structure is provided." in prompt
     assert "packet adjacency is not semantic proof" in prompt
     assert "Classify each owned block on its own merits." in prompt
+    assert "Do the keep/drop judgment block by block before you think about idea groups." in prompt
+    assert "Do not let one useful block launder nearby memoir" in prompt
     assert "durable cooking leverage" in prompt
     assert "materially improve a cook's future decisions, diagnosis, or technique" in prompt
     assert "technically true but low-value" in prompt
+    assert "keep only that block and leave the surrounding framing `other`" in prompt
     assert "keep that heading with the useful body instead of forcing it to `other`" in prompt
     assert "Do not treat two blocks as one idea just because they are adjacent in the packet" in prompt
     assert "Every `knowledge` block must belong to exactly one idea group." in prompt

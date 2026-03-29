@@ -128,6 +128,7 @@ def test_knowledge_orchestrator_uses_phase_surface_not_task_queue_surface(
         "input_path": "in/book.ks0000.nr.json",
         "work_path": "work/book.ks0000.nr.pass1.json",
         "repair_path": "repair/book.ks0000.nr.pass1.json",
+        "semantic_audit_path": "shards/book.ks0000.nr/semantic_audit.json",
         "result_path": "out/book.ks0000.nr.json",
         "hint_path": "hints/book.ks0000.nr.md",
     }

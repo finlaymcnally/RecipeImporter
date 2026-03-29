@@ -79,7 +79,7 @@ Architecture priorities:
 - obvious-junk exclusions become final `other` immediately; `knowledge-final` is the only live semantic owner of review-eligible outside-recipe `knowledge` versus `other`.
 - scalar trust/confidence is no longer part of the label-first line-role contract.
 - line-role Codex escalation now depends on explicit escalation reasons, not score thresholds; that remains an escalation seam, not the main runtime truth boundary.
-- accepted line-role Codex labels now either survive as Codex after structural validation, recover through the same-session worker repair loop, or fail closed if the worker never installs a clean shard ledger; repo code no longer silently substitutes deterministic fallback rows on the live worker path.
+- accepted line-role Codex labels now either survive as Codex after structural validation, recover through the same-session worker repair loop, recover through one bounded watchdog retry after a retryable worker kill, or fail closed if no clean shard result validates; repo code no longer silently substitutes deterministic fallback rows on the live worker path.
 - `decided_by` and `reason_tags` are the persisted decision-trace fields on current labeled rows.
 - authoritative line/block/span artifacts now persist `escalation_reasons` and omit scalar trust/confidence fields entirely.
 

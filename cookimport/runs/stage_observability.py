@@ -698,6 +698,45 @@ def _collect_salvage_counts(stage_root: Path) -> dict[str, Any]:
     }
 
 
+def _collect_knowledge_semantic_audit_counts(stage_root: Path) -> dict[str, Any]:
+    status_counts: Counter[str] = Counter()
+    code_counts: Counter[str] = Counter()
+    repair_requested_count = 0
+    repair_cleared_count = 0
+    open_flagged_shard_count = 0
+    open_flagged_block_count = 0
+    max_flag_count = 0
+    for audit_path in sorted(stage_root.glob("workers/*/shards/*/semantic_audit.json")):
+        payload = _load_json_dict(audit_path) or {}
+        status = str(payload.get("status") or "").strip()
+        if status:
+            status_counts[status] += 1
+        if bool(payload.get("repair_requested")):
+            repair_requested_count += 1
+        if bool(payload.get("repair_cleared")):
+            repair_cleared_count += 1
+        flag_count = int(payload.get("flag_count") or 0)
+        max_flag_count = max(max_flag_count, flag_count)
+        if status == "repair_required":
+            open_flagged_shard_count += 1
+            open_flagged_block_count += len(payload.get("flagged_block_indices") or [])
+        for flag in payload.get("flags") or []:
+            if not isinstance(flag, Mapping):
+                continue
+            code = str(flag.get("code") or "").strip()
+            if code:
+                code_counts[code] += 1
+    return {
+        "status_counts": dict(sorted(status_counts.items())),
+        "flag_code_counts": dict(sorted(code_counts.items())),
+        "repair_requested_count": repair_requested_count,
+        "repair_cleared_count": repair_cleared_count,
+        "open_flagged_shard_count": open_flagged_shard_count,
+        "open_flagged_block_count": open_flagged_block_count,
+        "max_flag_count": max_flag_count,
+    }
+
+
 def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
     status_path = stage_root / KNOWLEDGE_STAGE_STATUS_FILE_NAME
     status_payload = _load_json_dict(status_path) or {}
@@ -749,6 +788,7 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
     }
     worker_state_counts, worker_reason_code_counts = _collect_worker_status_counts(stage_root)
     salvage_counts = _collect_salvage_counts(stage_root)
+    semantic_audit_counts = _collect_knowledge_semantic_audit_counts(stage_root)
     replay_summary = replay_knowledge_runtime(knowledge_root=stage_root)
     packet_total = len(task_rows) if task_rows else int(replay_summary.rollup.packet_total)
     deterministic_bypass_total = int(packet_attempt_type_counts.get("deterministic_bypass") or 0)
@@ -829,6 +869,7 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
             "circuit_breaker_reason_counts": circuit_breaker_reason_counts,
         },
         "salvage": salvage_counts,
+        "semantic_audit": semantic_audit_counts,
         "pre_kill_failure_counts": dict(pre_kill_failure_counts),
         "pre_kill_failures_observed": _count_nested_positive_values(pre_kill_failure_counts) > 0,
     }
@@ -843,6 +884,9 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
             "semantic_rejection_shard_count": salvage_counts.get(
                 "semantic_rejection_shard_count"
             ),
+            "semantic_audit_open_shard_count": semantic_audit_counts.get(
+                "open_flagged_shard_count"
+            ),
             "unreviewed_shard_count": salvage_counts.get("unreviewed_shard_count"),
             "unreviewed_packet_count": salvage_counts.get("unreviewed_packet_count"),
             "unreviewed_block_count": salvage_counts.get("unreviewed_block_count"),
@@ -856,6 +900,12 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
             "validated_packet_count": packet_state_counts.get("validated"),
             "retry_recovered_packet_count": packet_state_counts.get("retry_recovered"),
             "repair_recovered_packet_count": packet_state_counts.get("repair_recovered"),
+            "semantic_audit_repair_requested_count": semantic_audit_counts.get(
+                "repair_requested_count"
+            ),
+            "semantic_audit_repair_cleared_count": semantic_audit_counts.get(
+                "repair_cleared_count"
+            ),
         },
         reason_counts={
             "terminal_reason_code_counts": terminal_reason_code_counts,
@@ -863,6 +913,9 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
                 sorted(deterministic_bypass_reason_code_counts.items())
             ),
             "followup_failed_counts": followup_failed_counts,
+            "semantic_audit_flag_code_counts": semantic_audit_counts.get(
+                "flag_code_counts"
+            ),
         },
     )
     return summary
