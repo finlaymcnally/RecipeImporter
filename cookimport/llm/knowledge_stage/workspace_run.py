@@ -21,6 +21,13 @@ from ..knowledge_phase_workspace_tools import (
     write_knowledge_output_contract,
     write_knowledge_worker_examples,
 )
+from ..editable_task_file import (
+    TASK_FILE_NAME,
+    build_task_file,
+    load_task_file,
+    validate_edited_task_file,
+    write_task_file,
+)
 
 for _module in (
     _shared_module,
@@ -50,6 +57,117 @@ def _load_json_dict_safely(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         return {}
     return dict(payload) if isinstance(payload, Mapping) else {}
+
+
+def _build_knowledge_task_file(
+    *,
+    assignment: WorkerAssignmentV1,
+    shards: Sequence[ShardManifestEntryV1],
+) -> tuple[dict[str, Any], dict[str, str]]:
+    units: list[dict[str, Any]] = []
+    unit_to_shard_id: dict[str, str] = {}
+    for shard in shards:
+        for packet in _knowledge_packet_payloads(shard.input_payload):
+            packet_context = dict(packet.get("x") or {}) if isinstance(packet.get("x"), Mapping) else {}
+            context_before_rows = list(packet_context.get("p") or [])
+            context_after_rows = list(packet_context.get("n") or [])
+            context_before = (
+                str(context_before_rows[-1].get("t") or "").strip()
+                if context_before_rows and isinstance(context_before_rows[-1], Mapping)
+                else None
+            )
+            context_after = (
+                str(context_after_rows[0].get("t") or "").strip()
+                if context_after_rows and isinstance(context_after_rows[0], Mapping)
+                else None
+            )
+            for block in packet.get("b") or []:
+                if not isinstance(block, Mapping):
+                    continue
+                block_index = int(block.get("i") or 0)
+                unit_id = f"knowledge::{block_index}"
+                unit_to_shard_id[unit_id] = shard.shard_id
+                units.append(
+                    {
+                        "unit_id": unit_id,
+                        "owned_id": str(block.get("id") or f"{shard.shard_id}:{block_index}"),
+                        "evidence": {
+                            "block_index": block_index,
+                            "block_id": str(block.get("id") or f"{shard.shard_id}:{block_index}"),
+                            "text": str(block.get("t") or ""),
+                            "context_before": context_before,
+                            "context_after": context_after,
+                            "routing_hints": [],
+                        },
+                        "answer": {},
+                    }
+                )
+    return (
+        build_task_file(
+            stage_key="nonrecipe_finalize",
+            assignment_id=assignment.worker_id,
+            worker_id=assignment.worker_id,
+            units=units,
+        ),
+        unit_to_shard_id,
+    )
+
+
+def _expand_knowledge_task_file_outputs(
+    *,
+    original_task_file: Mapping[str, Any],
+    task_file_path: Path,
+    unit_to_shard_id: Mapping[str, str],
+) -> dict[str, dict[str, Any]]:
+    edited_task_file = load_task_file(task_file_path)
+    answers_by_unit_id, validation_errors, validation_metadata = validate_edited_task_file(
+        original_task_file=original_task_file,
+        edited_task_file=edited_task_file,
+    )
+    if validation_errors or int(validation_metadata.get("changed_unit_count") or 0) <= 0:
+        return {}
+    shard_rows: dict[str, list[tuple[int, dict[str, Any]]]] = {}
+    for unit in edited_task_file.get("units") or []:
+        if not isinstance(unit, Mapping):
+            continue
+        unit_id = str(unit.get("unit_id") or "").strip()
+        shard_id = str(unit_to_shard_id.get(unit_id) or "").strip()
+        if not shard_id:
+            continue
+        evidence = dict(unit.get("evidence") or {})
+        answer = dict((answers_by_unit_id or {}).get(unit_id) or {})
+        block_index = int(evidence.get("block_index") or 0)
+        shard_rows.setdefault(shard_id, []).append((block_index, answer))
+    outputs: dict[str, dict[str, Any]] = {}
+    for shard_id, rows in shard_rows.items():
+        ordered_rows = sorted(rows, key=lambda row: row[0])
+        block_decisions = [
+            {
+                "block_index": block_index,
+                "category": str(answer.get("category") or ""),
+            }
+            for block_index, answer in ordered_rows
+        ]
+        groups_by_identity: dict[tuple[str, str], list[int]] = {}
+        for block_index, answer in ordered_rows:
+            group_key = str(answer.get("group_key") or "").strip()
+            topic_label = str(answer.get("topic_label") or "").strip()
+            if not group_key or not topic_label:
+                continue
+            groups_by_identity.setdefault((group_key, topic_label), []).append(block_index)
+        outputs[shard_id] = {
+            "packet_id": shard_id,
+            "block_decisions": block_decisions,
+            "idea_groups": [
+                {
+                    "group_id": group_key,
+                    "topic_label": topic_label,
+                    "block_indices": block_indices,
+                }
+                for (group_key, topic_label), block_indices in groups_by_identity.items()
+            ],
+        }
+    return outputs
 
 
 def _render_validation_reason_detail(
@@ -826,33 +944,14 @@ def _run_phase_knowledge_worker_assignment_v1(
         if shard_completed_callback is not None:
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
 
-    assigned_shard_rows: list[dict[str, Any]] = []
-    for shard in assigned_shards:
-        shard_id = str(shard.shard_id).strip()
-        input_relpath = str(Path("in") / f"{shard_id}.json")
-        hint_relpath = str(Path("hints") / f"{shard_id}.md")
-        result_relpath = str(Path("out") / f"{shard_id}.json")
-        shard_row = {
-            "shard_id": shard_id,
-            "owned_ids": list(shard.owned_ids),
-            "metadata": build_knowledge_workspace_shard_metadata(
-                shard_id=shard_id,
-                input_payload=shard.input_payload,
-                input_path=input_relpath,
-                hint_path=hint_relpath,
-                result_path=result_relpath,
-            ),
-        }
-        assigned_shard_rows.append(shard_row)
-        _write_worker_input(
-            path=in_dir / f"{shard_id}.json",
-            payload=shard.input_payload,
-            input_text=shard.input_text,
+    task_file_payload: dict[str, Any] | None = None
+    unit_to_shard_id: dict[str, str] = {}
+    if assigned_shards:
+        task_file_payload, unit_to_shard_id = _build_knowledge_task_file(
+            assignment=assignment,
+            shards=assigned_shards,
         )
-        _write_knowledge_worker_hint(path=hints_dir / f"{shard_id}.md", shard=shard)
-    _write_json(assigned_shard_rows, worker_root / "assigned_shards.json")
-    write_knowledge_worker_examples(worker_root=worker_root)
-    write_knowledge_output_contract(worker_root=worker_root)
+        write_task_file(path=worker_root / TASK_FILE_NAME, payload=task_file_payload)
 
     if not assigned_shards:
         _write_json(
@@ -900,9 +999,8 @@ def _run_phase_knowledge_worker_assignment_v1(
                 worker_id=assignment.worker_id,
                 attempt_type="main_worker",
                 metadata={
-                    "input_path": str(Path("in") / f"{shard.shard_id}.json"),
-                    "hint_path": str(Path("hints") / f"{shard.shard_id}.md"),
-                    "workspace_processing_contract": "knowledge_fixed_assignment_v1",
+                    "task_file": TASK_FILE_NAME,
+                    "workspace_processing_contract": "knowledge_editable_task_file_v1",
                 },
             )
 
@@ -950,6 +1048,14 @@ def _run_phase_knowledge_worker_assignment_v1(
     _write_json(run_result.workspace_manifest(), worker_root / "workspace_manifest.json")
     _write_optional_text(worker_root / "stdout.txt", run_result.stdout_text)
     _write_optional_text(worker_root / "stderr.txt", run_result.stderr_text)
+    if task_file_payload is not None:
+        expanded_outputs = _expand_knowledge_task_file_outputs(
+            original_task_file=task_file_payload,
+            task_file_path=worker_root / TASK_FILE_NAME,
+            unit_to_shard_id=unit_to_shard_id,
+        )
+        for shard_id, payload in expanded_outputs.items():
+            _write_json(payload, out_dir / f"{shard_id}.json")
 
     task_total = len(assigned_shards)
     for task_index, shard in enumerate(assigned_shards):

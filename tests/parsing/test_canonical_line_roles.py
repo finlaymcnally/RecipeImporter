@@ -18,6 +18,7 @@ from cookimport.llm.canonical_line_role_prompt import (
 )
 from cookimport.llm.codex_exec_runner import CodexExecLiveSnapshot, FakeCodexExecRunner
 from cookimport.llm.codex_exec_runner import CodexExecRunResult
+from cookimport.llm.editable_task_file import load_task_file
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 from cookimport.parsing import canonical_line_roles as canonical_line_roles_module
 from cookimport.parsing.canonical_line_roles import _preflight_line_role_shard, label_atomic_lines
@@ -5610,15 +5611,11 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line_role_prompt_0001.txt"
     ).read_text(encoding="utf-8")
     assert "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger." in prompt_text
-    assert "Start by opening `worker_manifest.json`, then `assigned_shards.json`." in prompt_text
-    assert "send one brief completion message naming the finished outputs and then stop" in prompt_text
-    assert "`tools/line_role_worker.py`, when present, is fallback/debug help only." in prompt_text
-    assert "keep them narrow and grounded on the named local files only" in prompt_text
+    assert "Open `task.json`, read the whole file once, edit only `/units/*/answer`, save the same file, and stop." in prompt_text
+    assert "Prefer opening the named file directly. If you still need shell helpers, keep them narrow and grounded on `task.json` only." in prompt_text
     assert "Stay inside this workspace" in prompt_text
-    assert "Use `assigned_shards.json` for ordered ownership/progress context." in prompt_text
-    assert "For each assigned shard, read the raw input ledger in order, then write the final output ledger directly." in prompt_text
-    assert "Treat `hints/<shard_id>.md` as optional guidance" in prompt_text
-    assert "Open `OUTPUT_CONTRACT.md` only when the named shard files are insufficient" in prompt_text
+    assert "The task file already contains the immutable row evidence and the editable answer slots." in prompt_text
+    assert "Do not modify immutable evidence fields." in prompt_text
     assert "`HOWTO_SECTION` is book-optional" in prompt_text
     assert "Balancing Fat" in prompt_text
     worker_prompt_text = (
@@ -5632,8 +5629,8 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "prompt.txt"
     ).read_text(encoding="utf-8")
     assert "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger." in worker_prompt_text
-    assert "worker_manifest.json" in worker_prompt_text
-    assert "assigned_shards.json" in worker_prompt_text
+    assert "task.json" in worker_prompt_text
+    assert "assigned_shards.json" not in worker_prompt_text
 
 
 def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_contract(
@@ -5656,6 +5653,7 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
     )
     assert worker_manifest_payload["entry_files"] == [
         "worker_manifest.json",
+        "task.json",
         "assigned_shards.json",
     ]
     assert worker_manifest_payload["current_phase_file"] is None
@@ -5668,9 +5666,20 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
     assert worker_manifest_payload["scratch_dir"] is None
     assert worker_manifest_payload["work_dir"] is None
     assert worker_manifest_payload["repair_dir"] is None
+    assert worker_manifest_payload["task_file"] == "task.json"
     assert worker_manifest_payload["mirrored_example_files"] == []
     assert worker_manifest_payload["mirrored_tool_files"] == []
     assert worker_manifest_payload["mirrored_scratch_files"] == []
+    task_file_payload = load_task_file(
+        prompt_root
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+        / "task.json"
+    )
+    assert task_file_payload["stage_key"] == "line_role"
+    assert task_file_payload["editable_json_pointers"] == ["/units/0/answer"]
     assigned_shards_payload = json.loads(
         (
             prompt_root
@@ -5812,6 +5821,13 @@ def test_label_atomic_lines_writes_one_shard_owned_ledger_without_line_role_task
         / "worker-001"
     )
     assert not (worker_root / "assigned_tasks.json").exists()
+    task_file_payload = load_task_file(worker_root / "task.json")
+    assert task_file_payload["editable_json_pointers"] == [
+        "/units/0/answer",
+        "/units/1/answer",
+        "/units/2/answer",
+        "/units/3/answer",
+    ]
     assigned_shards = json.loads(
         (worker_root / "assigned_shards.json").read_text(encoding="utf-8")
     )
@@ -5940,9 +5956,19 @@ def test_label_atomic_lines_resume_existing_valid_shard_outputs_without_rerunnin
     assert shard_status_rows[0]["metadata"]["resumed_from_existing_output"] is True
 
 
-def test_line_role_workspace_worker_invalid_shard_ledger_fails_closed_without_promoting_it(
+def test_line_role_workspace_worker_invalid_task_file_answer_fails_closed_without_promoting_it(
     tmp_path,
 ) -> None:
+    def _invalid_task_file_builder(payload):
+        edited = dict(payload or {})
+        units = edited.get("units") or []
+        if units and isinstance(units[0], dict):
+            first_unit = dict(units[0])
+            first_unit["answer"] = {"label": "NOT_A_LABEL", "exclusion_reason": None}
+            units = [first_unit, *units[1:]]
+        edited["units"] = units
+        return edited
+
     with pytest.raises(
         canonical_line_roles_module.LineRoleRepairFailureError,
         match="failed closed",
@@ -5963,9 +5989,7 @@ def test_line_role_workspace_worker_invalid_shard_ledger_fails_closed_without_pr
             artifact_root=tmp_path,
             codex_batch_size=1,
             codex_runner=FakeCodexExecRunner(
-                output_builder=lambda _payload: {
-                    "rows": [{"atomic_index": 999, "label": "RECIPE_NOTES"}]
-                }
+                output_builder=_invalid_task_file_builder
             ),
             live_llm_allowed=True,
         )
@@ -5980,9 +6004,7 @@ def test_line_role_workspace_worker_invalid_shard_ledger_fails_closed_without_pr
         ).read_text(encoding="utf-8")
     )
     assert proposal_payload["validation_errors"] == [
-        "row_order_mismatch",
-        "unowned_atomic_index:999",
-        "missing_owned_atomic_indices:0",
+        "invalid_label:0:NOT_A_LABEL",
     ]
     assert proposal_payload["payload"] is None
     assert proposal_payload["validation_metadata"]["row_resolution"]["unresolved_atomic_indices"] == [0]

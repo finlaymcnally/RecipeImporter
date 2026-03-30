@@ -55,6 +55,14 @@ from .codex_exec_runner import (
     should_terminate_workspace_command_loop,
     summarize_direct_telemetry_rows,
 )
+from .editable_task_file import (
+    TASK_FILE_NAME,
+    build_repair_task_file,
+    build_task_file,
+    load_task_file,
+    validate_edited_task_file,
+    write_task_file,
+)
 from .phase_worker_runtime import (
     PhaseManifestV1,
     ShardManifestEntryV1,
@@ -222,6 +230,55 @@ class _RecipeTaskPlan:
     task_id: str
     parent_shard_id: str
     manifest_entry: ShardManifestEntryV1
+
+
+def _build_recipe_task_file_unit(
+    *,
+    task_plan: _RecipeTaskPlan,
+) -> dict[str, Any]:
+    payload = _coerce_dict(task_plan.manifest_entry.input_payload)
+    recipe_row = _coerce_dict((payload.get("r") or [{}])[0])
+    recipe_id = str(recipe_row.get("rid") or "").strip() or task_plan.task_id
+    hint_payload = _coerce_dict(recipe_row.get("h"))
+    source_text = str(recipe_row.get("txt") or payload.get("txt") or "").strip()
+    source_rows = [
+        list(row)
+        for row in (recipe_row.get("ev") or payload.get("ev") or [])
+        if isinstance(row, (list, tuple)) and len(row) >= 2
+    ]
+    return {
+        "unit_id": f"recipe::{recipe_id}",
+        "owned_id": recipe_id,
+        "evidence": {
+            "recipe_id": recipe_id,
+            "source_text": source_text,
+            "source_rows": source_rows,
+            "hint": {
+                "title": hint_payload.get("n"),
+                "ingredients": list(hint_payload.get("i") or []),
+                "steps": list(hint_payload.get("s") or []),
+                "quality_flags": list(hint_payload.get("q") or []),
+                "candidate_tags": list(hint_payload.get("tags") or []),
+            },
+        },
+        "answer": {},
+    }
+
+
+def _build_recipe_task_file(
+    *,
+    assignment: WorkerAssignmentV1,
+    runnable_tasks: Sequence[_RecipeTaskPlan],
+) -> dict[str, Any]:
+    return build_task_file(
+        stage_key="recipe_refine",
+        assignment_id=assignment.worker_id,
+        worker_id=assignment.worker_id,
+        units=[
+            _build_recipe_task_file_unit(task_plan=task_plan)
+            for task_plan in runnable_tasks
+        ],
+    )
 
 
 def _recipe_artifact_filename(recipe_id: str) -> str:
@@ -2218,6 +2275,46 @@ def _build_recipe_assignment_worker_prompt(*, task_count: int) -> str:
     return "\n".join(lines)
 
 
+def _build_recipe_task_file_worker_prompt(*, task_count: int, repair_mode: bool) -> str:
+    lines = [
+        "You are a recipe correction worker in a bounded local workspace.",
+        "",
+        f"Open `{TASK_FILE_NAME}`, read the whole file once, edit only `/units/*/answer`, save the same file, and stop.",
+        "Do not rewrite immutable metadata or evidence fields.",
+        "Do not invent helper ledgers, queue files, or alternate output files.",
+        "The repo will validate the edited task file and expand accepted answers into final artifacts.",
+    ]
+    if repair_mode:
+        lines.extend(
+            [
+                "",
+                "Repair mode:",
+                "- only the units in this file failed the previous validation pass",
+                "- each failed unit includes immutable `previous_answer` and `validation_feedback`",
+                "- fix only the named problems and keep all other immutable fields unchanged",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "",
+                f"This worker session owns {task_count} recipe task units.",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "Recipe answer rules:",
+            "- `status` must be one of `repaired`, `fragmentary`, or `not_a_recipe`.",
+            "- When `status=repaired`, provide `canonical_recipe.title`, `ingredients`, and `steps`.",
+            "- Use `ingredient_step_mapping` only for real ingredient-to-step links.",
+            "- Keep `selected_tags` as a short list of obvious semantic tag labels.",
+            "- Keep `warnings` concise.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _build_recipe_repair_prompt(
     *,
     task_row: Mapping[str, Any],
@@ -2236,6 +2333,161 @@ def _build_recipe_repair_prompt(
     ]
     lines.extend(f"- {error}" for error in validation_errors if str(error).strip())
     return "\n".join(lines) + "\n"
+
+
+def _build_task_validation_feedback(
+    *,
+    validation_errors: Sequence[str],
+    error_details: Sequence[Mapping[str, Any]] | None = None,
+    repair_instruction: str,
+) -> dict[str, Any]:
+    return {
+        "error_codes": [
+            str(error).strip() for error in validation_errors if str(error).strip()
+        ],
+        "error_details": [
+            {
+                "path": str(row.get("path") or "/answer"),
+                "code": str(row.get("code") or "validation_error"),
+                "message": str(row.get("message") or "validation failed"),
+            }
+            for row in (error_details or [])
+            if isinstance(row, Mapping)
+        ],
+        "repair_instruction": repair_instruction,
+    }
+
+
+def _recipe_answer_to_compact_payload(
+    *,
+    task_plan: _RecipeTaskPlan,
+    answer_payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    recipe_row = _coerce_dict((_coerce_dict(task_plan.manifest_entry.input_payload).get("r") or [{}])[0])
+    recipe_id = str(recipe_row.get("rid") or "").strip() or str(task_plan.manifest_entry.owned_ids[0])
+    canonical_recipe = (
+        dict(answer_payload.get("canonical_recipe"))
+        if isinstance(answer_payload.get("canonical_recipe"), Mapping)
+        else None
+    )
+    mapping_rows: list[dict[str, Any]] = []
+    for mapping_row in answer_payload.get("ingredient_step_mapping") or []:
+        if not isinstance(mapping_row, Mapping):
+            continue
+        ingredient_indexes = [
+            int(value)
+            for value in (mapping_row.get("ingredient_indexes") or [])
+            if str(value).strip()
+        ]
+        step_indexes = [
+            int(value)
+            for value in (mapping_row.get("step_indexes") or [])
+            if str(value).strip()
+        ]
+        for ingredient_index in ingredient_indexes:
+            mapping_rows.append({"i": ingredient_index, "s": step_indexes})
+    return {
+        "v": "1",
+        "sid": task_plan.task_id,
+        "r": [
+            {
+                "v": "1",
+                "rid": recipe_id,
+                "st": str(answer_payload.get("status") or "").strip(),
+                "sr": answer_payload.get("status_reason"),
+                "cr": (
+                    {
+                        "t": canonical_recipe.get("title"),
+                        "i": list(canonical_recipe.get("ingredients") or []),
+                        "s": list(canonical_recipe.get("steps") or []),
+                        "d": canonical_recipe.get("description"),
+                        "y": canonical_recipe.get("recipe_yield"),
+                    }
+                    if canonical_recipe is not None
+                    else None
+                ),
+                "m": mapping_rows,
+                "mr": answer_payload.get("ingredient_step_mapping_reason"),
+                "g": [
+                    {"c": "selected", "l": str(tag).strip()}
+                    for tag in (answer_payload.get("selected_tags") or [])
+                    if str(tag).strip()
+                ],
+                "w": [
+                    str(value).strip()
+                    for value in (answer_payload.get("warnings") or [])
+                    if str(value).strip()
+                ],
+            }
+        ],
+    }
+
+
+def _evaluate_recipe_task_file_answers(
+    *,
+    original_task_file: Mapping[str, Any],
+    edited_task_file_path: Path,
+    runnable_tasks: Sequence[_RecipeTaskPlan],
+) -> tuple[
+    dict[str, dict[str, Any]],
+    dict[str, tuple[str, ...]],
+    dict[str, dict[str, Any]],
+    dict[str, dict[str, Any]],
+]:
+    task_by_unit_id = {
+        f"recipe::{str((_coerce_dict(((_coerce_dict(task_plan.manifest_entry.input_payload).get('r') or [{}])[0])).get('rid') or '').strip() or task_plan.task_id)}": task_plan
+        for task_plan in runnable_tasks
+    }
+    edited_task_file = load_task_file(edited_task_file_path)
+    answers_by_unit_id, contract_errors, contract_metadata = validate_edited_task_file(
+        original_task_file=original_task_file,
+        edited_task_file=edited_task_file,
+    )
+    payloads_by_task_id: dict[str, dict[str, Any]] = {}
+    errors_by_task_id: dict[str, tuple[str, ...]] = {}
+    previous_answers_by_unit_id: dict[str, dict[str, Any]] = {}
+    feedback_by_unit_id: dict[str, dict[str, Any]] = {}
+    if contract_errors:
+        feedback = _build_task_validation_feedback(
+            validation_errors=contract_errors,
+            error_details=contract_metadata.get("error_details"),
+            repair_instruction="Restore immutable fields and edit only `/units/*/answer`.",
+        )
+        for unit_id, task_plan in task_by_unit_id.items():
+            errors_by_task_id[task_plan.task_id] = tuple(contract_errors)
+            previous_answers_by_unit_id[unit_id] = {}
+            feedback_by_unit_id[unit_id] = dict(feedback)
+        return payloads_by_task_id, errors_by_task_id, previous_answers_by_unit_id, feedback_by_unit_id
+
+    resolved_answers = answers_by_unit_id or {}
+    for unit_id, task_plan in task_by_unit_id.items():
+        answer_payload = dict(resolved_answers.get(unit_id) or {})
+        previous_answers_by_unit_id[unit_id] = dict(answer_payload)
+        response_payload = _recipe_answer_to_compact_payload(
+            task_plan=task_plan,
+            answer_payload=answer_payload,
+        )
+        payload, validation_errors, validation_metadata, proposal_status = _evaluate_recipe_response(
+            shard=task_plan.manifest_entry,
+            response_text=json.dumps(response_payload, sort_keys=True),
+        )
+        if proposal_status == "validated" and payload is not None:
+            payloads_by_task_id[task_plan.task_id] = payload
+            continue
+        errors_by_task_id[task_plan.task_id] = tuple(validation_errors)
+        feedback_by_unit_id[unit_id] = _build_task_validation_feedback(
+            validation_errors=validation_errors,
+            repair_instruction="Fix the named recipe answer fields and keep ownership exact.",
+            error_details=[
+                {
+                    "path": "/answer",
+                    "code": str(error).strip() or "validation_error",
+                    "message": str(error).strip() or "validation failed",
+                }
+                for error in validation_errors
+            ],
+        )
+    return payloads_by_task_id, errors_by_task_id, previous_answers_by_unit_id, feedback_by_unit_id
 
 
 @dataclass
@@ -2685,29 +2937,20 @@ def _run_recipe_workspace_worker_assignment_v1(
         if shard_has_runnable_task:
             runnable_shards.append(shard)
 
-    for task in all_tasks:
-        task_manifest = task.manifest_entry
-        input_path = in_dir / f"{task_manifest.shard_id}.json"
-        hint_path = hints_dir / f"{task_manifest.shard_id}.md"
-        _write_worker_input(
-            path=input_path,
-            payload=task_manifest.input_payload,
-            input_text=_serialize_compact_prompt_json(task_manifest.input_payload),
-        )
-        _write_recipe_worker_hint(path=hint_path, shard=task_manifest)
-
     run_result = _empty_recipe_workspace_run_result(
         working_dir=worker_root,
         prompt_text=worker_prompt_text,
     )
     if runnable_tasks:
-        task_rows_for_workspace = [
-            asdict(_build_recipe_task_runtime_manifest_entry(task))
-            for task in runnable_tasks
-        ]
-        _write_json(task_rows_for_workspace, worker_root / "assigned_tasks.json")
-        worker_prompt_text = _build_recipe_assignment_worker_prompt(
-            task_count=len(runnable_tasks)
+        task_file_path = worker_root / TASK_FILE_NAME
+        original_task_file = _build_recipe_task_file(
+            assignment=assignment,
+            runnable_tasks=runnable_tasks,
+        )
+        write_task_file(path=task_file_path, payload=original_task_file)
+        worker_prompt_text = _build_recipe_task_file_worker_prompt(
+            task_count=len(runnable_tasks),
+            repair_mode=False,
         )
         worker_prompt_path.write_text(worker_prompt_text, encoding="utf-8")
         for shard in runnable_shards:
@@ -2783,122 +3026,161 @@ def _run_recipe_workspace_worker_assignment_v1(
             for row_payload in telemetry_rows:
                 if isinstance(row_payload, Mapping):
                     stage_rows.append(dict(row_payload))
-        for task in runnable_tasks:
-            output_path = worker_root / _recipe_task_result_path(task)
-            if output_path.exists():
-                try:
-                    response_text = output_path.read_text(encoding="utf-8")
-                except OSError:
-                    response_text = None
-            else:
-                response_text = None
-            payload, validation_errors, _validation_metadata, proposal_status = (
-                _evaluate_recipe_response(
-                    shard=task.manifest_entry,
-                    response_text=response_text,
-                )
+        (
+            first_pass_payloads,
+            first_pass_errors,
+            previous_answers_by_unit_id,
+            feedback_by_unit_id,
+        ) = _evaluate_recipe_task_file_answers(
+            original_task_file=original_task_file,
+            edited_task_file_path=task_file_path,
+            runnable_tasks=runnable_tasks,
+        )
+        task_payloads_by_task_id.update(first_pass_payloads)
+        failed_unit_ids = [
+            unit_id
+            for unit_id, task_plan in {
+                f"recipe::{str((_coerce_dict(((_coerce_dict(task.manifest_entry.input_payload).get('r') or [{}])[0])).get('rid') or '').strip() or task.task_id)}": task
+                for task in runnable_tasks
+            }.items()
+            if task_plan.task_id in first_pass_errors
+        ]
+        if failed_unit_ids:
+            repair_task_file = build_repair_task_file(
+                original_task_file=original_task_file,
+                failed_unit_ids=failed_unit_ids,
+                previous_answers_by_unit_id=previous_answers_by_unit_id,
+                validation_feedback_by_unit_id=feedback_by_unit_id,
             )
-            if proposal_status == "validated" and payload is not None:
-                task_payloads_by_task_id[task.task_id] = payload
-                task_validation_errors_by_task_id[task.task_id] = ()
-                task_packet_status_by_task_id.setdefault(task.task_id, {}).update(
-                    {
-                        "task_packet_status": "validated",
-                        "repair_attempted": False,
-                        "repair_status": "not_needed",
-                        "validation_errors": [],
-                    }
-                )
-                continue
-            task_validation_errors_by_task_id[task.task_id] = tuple(validation_errors)
-            task_status = task_packet_status_by_task_id.setdefault(task.task_id, {})
-            task_status.update(
-                {
-                    "task_packet_status": proposal_status,
-                    "repair_attempted": True,
-                    "repair_status": "failed",
-                    "validation_errors": list(validation_errors),
-                }
+            write_task_file(path=task_file_path, payload=repair_task_file)
+            repair_prompt_text = _build_recipe_task_file_worker_prompt(
+                task_count=len(failed_unit_ids),
+                repair_mode=True,
             )
-            task_root = worker_root / "shards" / task.task_id
-            task_root.mkdir(parents=True, exist_ok=True)
-            repair_prompt_text = _build_recipe_repair_prompt(
-                task_row=asdict(_build_recipe_task_runtime_manifest_entry(task)),
-                validation_errors=validation_errors,
-            )
-            (task_root / "repair_prompt.txt").write_text(
+            (worker_root / "repair_prompt.txt").write_text(
                 repair_prompt_text,
                 encoding="utf-8",
             )
-            repair_input_payload = dict(_coerce_dict(task.manifest_entry.input_payload))
-            repair_input_payload["repair"] = {
-                "validation_errors": list(validation_errors),
-                "previous_output": str(response_text or ""),
-            }
-            repair_run_result = runner.run_structured_prompt(
+            repair_run_result = runner.run_workspace_worker(
                 prompt_text=repair_prompt_text,
-                input_payload=repair_input_payload,
                 working_dir=worker_root,
                 env=env,
-                output_schema_path=output_schema_path,
                 model=model,
                 reasoning_effort=reasoning_effort,
-                workspace_task_label=f"recipe repair {task.task_id}",
+                workspace_task_label="recipe correction repair task-file session",
             )
             _write_json(
                 {"text": repair_run_result.response_text},
-                task_root / "repair_last_message.json",
+                worker_root / "repair_last_message.json",
             )
             _write_json(
                 dict(repair_run_result.usage or {}),
-                task_root / "repair_usage.json",
+                worker_root / "repair_usage.json",
             )
-            repair_payload, repair_validation_errors, _repair_validation_metadata, repair_proposal_status = (
-                _evaluate_recipe_response(
-                    shard=task.manifest_entry,
-                    response_text=repair_run_result.response_text,
-                )
+            (
+                repair_payloads,
+                repair_errors,
+                _repair_previous_answers,
+                _repair_feedback_by_unit_id,
+            ) = _evaluate_recipe_task_file_answers(
+                original_task_file=repair_task_file,
+                edited_task_file_path=task_file_path,
+                runnable_tasks=[
+                    task for task in runnable_tasks if task.task_id in first_pass_errors
+                ],
             )
-            if repair_proposal_status == "validated" and repair_payload is not None:
-                task_payloads_by_task_id[task.task_id] = repair_payload
-                task_validation_errors_by_task_id[task.task_id] = ()
-                task_status.update(
-                    {
-                        "task_packet_status": "validated_after_repair",
-                        "repair_attempted": True,
-                        "repair_status": "repaired",
-                        "validation_errors": [],
-                    }
-                )
-                _write_json(
-                    {
-                        "task_id": task.task_id,
-                        "repair_status": "repaired",
-                        "validation_errors": [],
-                    },
-                    task_root / "repair_status.json",
-                )
-            else:
-                failed_validation_errors = list(repair_validation_errors or validation_errors)
-                task_validation_errors_by_task_id[task.task_id] = tuple(
-                    failed_validation_errors
-                )
-                task_status.update(
-                    {
-                        "task_packet_status": "failed_after_repair",
-                        "repair_attempted": True,
-                        "repair_status": "failed",
-                        "validation_errors": failed_validation_errors,
-                    }
-                )
-                _write_json(
-                    {
-                        "task_id": task.task_id,
-                        "repair_status": "failed",
-                        "validation_errors": failed_validation_errors,
-                    },
-                    task_root / "repair_status.json",
-                )
+            task_payloads_by_task_id.update(repair_payloads)
+            for task in runnable_tasks:
+                task_root = worker_root / "shards" / task.task_id
+                task_root.mkdir(parents=True, exist_ok=True)
+                output_path = worker_root / _recipe_task_result_path(task)
+                if task.task_id in repair_payloads:
+                    _write_recipe_task_payload(
+                        output_path=output_path,
+                        payload=repair_payloads[task.task_id],
+                    )
+                    task_validation_errors_by_task_id[task.task_id] = ()
+                    task_packet_status_by_task_id.setdefault(task.task_id, {}).update(
+                        {
+                            "task_packet_status": "validated_after_repair",
+                            "repair_attempted": True,
+                            "repair_status": "repaired",
+                            "validation_errors": [],
+                        }
+                    )
+                    _write_json(
+                        {
+                            "task_id": task.task_id,
+                            "repair_status": "repaired",
+                            "validation_errors": [],
+                        },
+                        task_root / "repair_status.json",
+                    )
+                elif task.task_id in first_pass_errors:
+                    failed_validation_errors = list(repair_errors.get(task.task_id) or first_pass_errors.get(task.task_id) or ())
+                    task_validation_errors_by_task_id[task.task_id] = tuple(
+                        failed_validation_errors
+                    )
+                    task_packet_status_by_task_id.setdefault(task.task_id, {}).update(
+                        {
+                            "task_packet_status": "failed_after_repair",
+                            "repair_attempted": True,
+                            "repair_status": "failed",
+                            "validation_errors": failed_validation_errors,
+                        }
+                    )
+                    _write_json(
+                        {
+                            "task_id": task.task_id,
+                            "repair_status": "failed",
+                            "validation_errors": failed_validation_errors,
+                        },
+                        task_root / "repair_status.json",
+                    )
+                elif task.task_id in first_pass_payloads:
+                    _write_recipe_task_payload(
+                        output_path=output_path,
+                        payload=first_pass_payloads[task.task_id],
+                    )
+                    task_validation_errors_by_task_id[task.task_id] = ()
+                    task_packet_status_by_task_id.setdefault(task.task_id, {}).update(
+                        {
+                            "task_packet_status": "validated",
+                            "repair_attempted": False,
+                            "repair_status": "not_needed",
+                            "validation_errors": [],
+                        }
+                    )
+        else:
+            for task in runnable_tasks:
+                output_path = worker_root / _recipe_task_result_path(task)
+                if task.task_id in first_pass_payloads:
+                    _write_recipe_task_payload(
+                        output_path=output_path,
+                        payload=first_pass_payloads[task.task_id],
+                    )
+                    task_validation_errors_by_task_id[task.task_id] = ()
+                    task_packet_status_by_task_id.setdefault(task.task_id, {}).update(
+                        {
+                            "task_packet_status": "validated",
+                            "repair_attempted": False,
+                            "repair_status": "not_needed",
+                            "validation_errors": [],
+                        }
+                    )
+                else:
+                    failed_validation_errors = list(first_pass_errors.get(task.task_id) or ())
+                    task_validation_errors_by_task_id[task.task_id] = tuple(
+                        failed_validation_errors
+                    )
+                    task_packet_status_by_task_id.setdefault(task.task_id, {}).update(
+                        {
+                            "task_packet_status": "invalid",
+                            "repair_attempted": False,
+                            "repair_status": "not_attempted",
+                            "validation_errors": failed_validation_errors,
+                        }
+                    )
 
     for shard in processable_shards:
         shard_root = shard_dir / shard.shard_id

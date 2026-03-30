@@ -2,6 +2,14 @@ from __future__ import annotations
 
 import sys
 
+from cookimport.llm.editable_task_file import (
+    TASK_FILE_NAME,
+    build_task_file,
+    load_task_file,
+    validate_edited_task_file,
+    write_task_file,
+)
+
 runtime = sys.modules["cookimport.parsing.canonical_line_roles"]
 globals().update(
     {
@@ -14,6 +22,111 @@ globals().update(
 
 def _runtime_attr(name: str, default: Any) -> Any:
     return getattr(runtime, name, default)
+
+
+def _build_line_role_task_file(
+    *,
+    assignment: WorkerAssignmentV1,
+    shards: Sequence[ShardManifestEntryV1],
+    debug_payload_by_shard_id: Mapping[str, Any],
+    deterministic_baseline_by_shard_id: Mapping[str, Mapping[int, CanonicalLineRolePrediction]],
+) -> tuple[dict[str, Any], dict[str, str]]:
+    units: list[dict[str, Any]] = []
+    unit_to_shard_id: dict[str, str] = {}
+    for shard in shards:
+        debug_rows = list(_coerce_mapping_dict(debug_payload_by_shard_id.get(shard.shard_id)).get("rows") or [])
+        debug_row_by_atomic_index = {
+            int(row.get("atomic_index")): dict(row)
+            for row in debug_rows
+            if isinstance(row, Mapping) and row.get("atomic_index") is not None
+        }
+        baseline_by_atomic_index = dict(deterministic_baseline_by_shard_id.get(shard.shard_id) or {})
+        for row in _coerce_mapping_dict(shard.input_payload).get("rows") or []:
+            if not isinstance(row, (list, tuple)) or len(row) < 2:
+                continue
+            atomic_index = int(row[0])
+            text = str(row[1] or "")
+            debug_row = debug_row_by_atomic_index.get(atomic_index) or {}
+            baseline_prediction = baseline_by_atomic_index.get(atomic_index)
+            unit_id = f"line::{atomic_index}"
+            unit_to_shard_id[unit_id] = shard.shard_id
+            units.append(
+                {
+                    "unit_id": unit_id,
+                    "owned_id": str(atomic_index),
+                    "evidence": {
+                        "atomic_index": atomic_index,
+                        "block_id": str(debug_row.get("block_id") or ""),
+                        "text": text,
+                        "within_recipe_span": debug_row.get("within_recipe_span"),
+                        "deterministic_hint_label": (
+                            baseline_prediction.label if baseline_prediction is not None else None
+                        ),
+                        "reason_hints": [
+                            str(value).strip()
+                            for value in (debug_row.get("escalation_reasons") or [])
+                            if str(value).strip()
+                        ],
+                    },
+                    "answer": {},
+                }
+            )
+    return (
+        build_task_file(
+            stage_key="line_role",
+            assignment_id=assignment.worker_id,
+            worker_id=assignment.worker_id,
+            units=units,
+        ),
+        unit_to_shard_id,
+    )
+
+
+def _expand_line_role_task_file_outputs(
+    *,
+    original_task_file: Mapping[str, Any],
+    task_file_path: Path,
+    unit_to_shard_id: Mapping[str, str],
+) -> dict[str, dict[str, Any]]:
+    edited_task_file = load_task_file(task_file_path)
+    answers_by_unit_id, validation_errors, _validation_metadata = validate_edited_task_file(
+        original_task_file=original_task_file,
+        edited_task_file=edited_task_file,
+    )
+    if validation_errors:
+        return {}
+    shard_rows: dict[str, list[tuple[int, dict[str, Any]]]] = {}
+    for unit in edited_task_file.get("units") or []:
+        if not isinstance(unit, Mapping):
+            continue
+        unit_id = str(unit.get("unit_id") or "").strip()
+        shard_id = str(unit_to_shard_id.get(unit_id) or "").strip()
+        if not shard_id:
+            continue
+        evidence = dict(unit.get("evidence") or {})
+        answer = dict((answers_by_unit_id or {}).get(unit_id) or {})
+        shard_rows.setdefault(shard_id, []).append(
+            (int(evidence.get("atomic_index") or 0), answer)
+        )
+    return {
+        shard_id: {
+            "rows": [
+                {
+                    **{
+                        "atomic_index": atomic_index,
+                        "label": str(answer.get("label") or ""),
+                    },
+                    **(
+                        {"exclusion_reason": answer.get("exclusion_reason")}
+                        if answer.get("exclusion_reason") is not None
+                        else {}
+                    ),
+                }
+                for atomic_index, answer in sorted(rows, key=lambda row: row[0])
+            ]
+        }
+        for shard_id, rows in shard_rows.items()
+    }
 
 
 @dataclass(slots=True)
@@ -851,6 +964,8 @@ def _run_line_role_workspace_worker_assignment_v1(
     worker_prompt_path: Path | None = None
     session_run_result: CodexExecRunResult | None = None
     valid_shards: list[ShardManifestEntryV1] = []
+    task_file_payload: dict[str, Any] | None = None
+    unit_to_shard_id: dict[str, str] = {}
 
     for shard in assigned_shards:
         shard_root = shard_dir / shard.shard_id
@@ -1025,6 +1140,13 @@ def _run_line_role_workspace_worker_assignment_v1(
 
     runnable_shards = [shard for shard in valid_shards if shard.shard_id in runnable_shard_ids]
     if runnable_shards:
+        task_file_payload, unit_to_shard_id = _build_line_role_task_file(
+            assignment=assignment,
+            shards=runnable_shards,
+            debug_payload_by_shard_id=debug_payload_by_shard_id,
+            deterministic_baseline_by_shard_id=deterministic_baseline_by_shard_id,
+        )
+        write_task_file(path=worker_root / TASK_FILE_NAME, payload=task_file_payload)
         worker_prompt_text = _build_line_role_workspace_worker_prompt(
             shards=runnable_shards,
         )
@@ -1090,6 +1212,14 @@ def _run_line_role_workspace_worker_assignment_v1(
         )
         _write_optional_runtime_text(worker_root / "stdout.txt", session_run_result.stdout_text)
         _write_optional_runtime_text(worker_root / "stderr.txt", session_run_result.stderr_text)
+        if task_file_payload is not None:
+            expanded_outputs = _expand_line_role_task_file_outputs(
+                original_task_file=task_file_payload,
+                task_file_path=worker_root / TASK_FILE_NAME,
+                unit_to_shard_id=unit_to_shard_id,
+            )
+            for shard_id, payload in expanded_outputs.items():
+                _write_runtime_json(out_dir / f"{shard_id}.json", payload)
     else:
         _write_runtime_json(
             worker_root / "live_status.json",

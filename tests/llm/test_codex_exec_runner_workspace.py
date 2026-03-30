@@ -73,6 +73,7 @@ def test_prepare_direct_exec_workspace_mirrors_local_inputs_and_writes_agents(
     assert "npm run docs:list" in agents_text
     assert "not working on the RecipeImport repository" in agents_text
     assert "Do not inspect local files or run discovery commands just to orient yourself." in agents_text
+    assert "If `task.json` exists, read it directly" not in agents_text
     assert "Prefer reading the local task file directly" not in agents_text
 
 
@@ -161,10 +162,13 @@ def test_prepare_direct_exec_workspace_worker_mode_uses_fixed_assignment_manifes
         "non-temp absolute paths outside approved local temp roots",
         "parent-directory traversal",
     ]
-    assert "Read the assigned task/shard rows plus the named local input and hint files directly." in agents_text
-    assert "Start by reading `worker_manifest.json`, then the immutable assignment file named there." in agents_text
+    assert worker_manifest["task_file"] is None
+    assert "If `task.json` exists, read it directly" in agents_text
+    assert "If `task.json` is absent, fall back to the repo-written file named in `worker_manifest.json`." in agents_text
     assert "When `OUTPUT_CONTRACT.md` or `examples/` exists" in agents_text
     assert "When `tools/` exists, prefer its repo-written helper CLI" in agents_text
+    assert "Prefer reading the local task file directly instead of opening helper manifests or inventories just to orient yourself." in agents_text
+    assert "The happy path is file-first" in agents_text
     assert "Do not reach for shell on the happy path." in agents_text
     assert "The watchdog is boundary-based" in agents_text
     assert "avoid repo/network/package-manager commands such as `git`, `curl`, or `npm`" in agents_text
@@ -227,6 +231,7 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_assigned_tasks_files(
     ]
     assert worker_manifest["assigned_tasks_file"] == "assigned_tasks.json"
     assert worker_manifest["assigned_shards_file"] is None
+    assert worker_manifest["task_file"] is None
     assert worker_manifest["current_packet_file"] is None
     assert worker_manifest["current_hint_file"] is None
     assert worker_manifest["current_result_path_file"] is None

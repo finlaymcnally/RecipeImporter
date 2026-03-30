@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from cookimport.llm.codex_exec_runner import CodexExecRunResult, FakeCodexExecRunner
+from cookimport.llm.editable_task_file import load_task_file
 from cookimport.llm.codex_farm_knowledge_orchestrator import (
     run_codex_farm_nonrecipe_finalize,
 )
@@ -74,6 +75,7 @@ def _run_runtime_phase_fixture(
             )
             self.initial_assigned_shard_ids: list[str] = []
             self.saw_task_queue_surface = False
+            self.saw_task_file_surface = False
 
         def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
             working_dir = Path(kwargs.get("working_dir"))
@@ -86,14 +88,15 @@ def _run_runtime_phase_fixture(
                     "CURRENT_TASK_FEEDBACK.md",
                 )
             )
-            assigned_shards = json.loads(
-                (working_dir / "assigned_shards.json").read_text(encoding="utf-8")
+            self.saw_task_file_surface = (working_dir / "task.json").exists()
+            task_file = load_task_file(working_dir / "task.json")
+            self.initial_assigned_shard_ids = sorted(
+                {
+                    str(unit.get("owned_id") or "").partition(":")[0]
+                    for unit in task_file.get("units") or []
+                    if isinstance(unit, dict)
+                }
             )
-            self.initial_assigned_shard_ids = [
-                str(row.get("shard_id") or "").strip()
-                for row in assigned_shards
-                if isinstance(row, dict)
-            ]
             assert not (working_dir / "current_packet.json").exists()
             assert not (working_dir / "current_hint.md").exists()
             assert not (working_dir / "current_result_path.txt").exists()
@@ -116,10 +119,12 @@ def test_knowledge_orchestrator_uses_fixed_assignment_surface_not_task_queue_sur
 
     assert isinstance(worker_root, Path)
     assert runner.saw_task_queue_surface is False
+    assert runner.saw_task_file_surface is True
     assert not (worker_root / "assigned_tasks.json").exists()
     assert not (worker_root / "current_task.json").exists()
     assert not (worker_root / "CURRENT_TASK.md").exists()
     assert not (worker_root / "CURRENT_TASK_FEEDBACK.md").exists()
+    assert (worker_root / "task.json").exists()
     assert runner.initial_assigned_shard_ids == ["book.ks0000.nr", "book.ks0001.nr"]
     assert not (worker_root / "current_packet.json").exists()
     assert not (worker_root / "current_hint.md").exists()
@@ -134,6 +139,7 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     fixture = _run_runtime_phase_fixture(monkeypatch, tmp_path)
     worker_root = fixture["worker_root"]
     phase_dir = fixture["phase_dir"]
+    task_file = load_task_file(worker_root / "task.json")
 
     first_output = json.loads(
         (worker_root / "out" / "book.ks0000.nr.json").read_text(encoding="utf-8")
@@ -144,6 +150,11 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert not (worker_root / "current_packet.json").exists()
     assert not (worker_root / "current_hint.md").exists()
     assert not (worker_root / "current_result_path.txt").exists()
+    assert task_file["stage_key"] == "nonrecipe_finalize"
+    assert task_file["editable_json_pointers"] == [
+        "/units/0/answer",
+        "/units/1/answer",
+    ]
     assert first_output["packet_id"] == "book.ks0000.nr"
     assert first_output["block_decisions"] == [
         {"block_index": 0, "category": "knowledge"}
@@ -285,6 +296,7 @@ def test_knowledge_orchestrator_classifies_repair_packet_exhaustion(
     assert repair_status["validation_errors"] == ["schema_invalid"]
     assert (repair_root / "repair_prompt.txt").exists()
     assert (repair_root / "repair_last_message.json").exists()
+    assert (worker_root / "task.json").exists()
 
 
 def test_knowledge_orchestrator_preserves_watchdog_reason_precedence(

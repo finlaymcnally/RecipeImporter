@@ -12,6 +12,7 @@ from cookimport.llm.codex_exec_runner import CodexExecLiveSnapshot
 from cookimport.llm.codex_exec_runner import CodexExecRunResult
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
+from cookimport.llm.editable_task_file import load_task_file
 
 
 def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult:
@@ -359,21 +360,18 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
     worker_manifest = fixture["worker_manifest"]
 
     worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
-    assert "worker_manifest.json" in worker_prompt
-    assert "assigned_tasks.json" in worker_prompt
-    assert "Write the final compact JSON result to the stable `out/*.json` path" in worker_prompt
-    assert "Do not invent queue control files" in worker_prompt
-    assert "Stay inside this workspace" in worker_prompt
-    assert "Legacy keys are invalid here" in worker_prompt
-    assert "SHARD_PACKET.md" not in worker_prompt
+    assert "Open `task.json`, read the whole file once" in worker_prompt
+    assert "edit only `/units/*/answer`" in worker_prompt
+    assert "Do not invent helper ledgers, queue files, or alternate output files." in worker_prompt
+    assert "The repo will validate the edited task file and expand accepted answers into final artifacts." in worker_prompt
+    assert "assigned_tasks.json" not in worker_prompt
     assert "CURRENT_TASK.md" not in worker_prompt
     assert "CURRENT_TASK_FEEDBACK.md" not in worker_prompt
-    assert "scratch/_prepared_drafts.json" not in worker_prompt
     assert worker_manifest["entry_files"] == [
         "worker_manifest.json",
-        "assigned_tasks.json",
+        "task.json",
     ]
-    assert worker_manifest["assigned_tasks_file"] == "assigned_tasks.json"
+    assert worker_manifest["assigned_tasks_file"] is None
     assert worker_manifest["assigned_shards_file"] is None
     assert worker_manifest["current_packet_file"] is None
     assert worker_manifest["current_hint_file"] is None
@@ -383,6 +381,7 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
     assert worker_manifest["examples_dir"] is None
     assert worker_manifest["tools_dir"] is None
     assert worker_manifest["hints_dir"] == "hints"
+    assert worker_manifest["task_file"] == "task.json"
     assert worker_manifest["mirrored_example_files"] == []
     assert worker_manifest["mirrored_tool_files"] == []
 
@@ -391,17 +390,22 @@ def test_recipe_phase_runtime_uses_fixed_assignment_task_manifest(
 ) -> None:
     fixture = _run_multi_recipe_phase_fixture(tmp_path)
     worker_root = fixture["worker_root"]
-    assigned_tasks = json.loads(
-        (worker_root / "assigned_tasks.json").read_text(encoding="utf-8")
-    )
-    assert [row["task_id"] for row in assigned_tasks] == [
-        "recipe-shard-0000-r0000-r0001.task-001",
-        "recipe-shard-0000-r0000-r0001.task-002",
-        "recipe-shard-0001-r0002-r0002",
+    task_file = load_task_file(worker_root / "task.json")
+    assert task_file["stage_key"] == "recipe_refine"
+    assert task_file["mode"] == "initial"
+    assert task_file["editable_json_pointers"] == [
+        "/units/0/answer",
+        "/units/1/answer",
+        "/units/2/answer",
+    ]
+    assert [unit["owned_id"] for unit in task_file["units"]] == [
+        "urn:recipe:test:toast",
+        "urn:recipe:test:tea",
+        "urn:recipe:test:cereal",
     ]
     assert not (worker_root / "CURRENT_TASK.md").exists()
     assert not (worker_root / "CURRENT_TASK_FEEDBACK.md").exists()
-    assert not (worker_root / "current_task.json").exists()
+    assert not (worker_root / "assigned_tasks.json").exists()
     assert not (worker_root / "SHARD_PACKET.md").exists()
     assert not (worker_root / "scratch").exists()
     assert not (worker_root / "current_packet.json").exists()
@@ -415,9 +419,7 @@ def test_recipe_phase_runtime_writes_packet_outputs_and_session_telemetry(
     worker_status = fixture["worker_status"]
     proposal = fixture["proposal"]
 
-    assert (worker_root / "hints" / "recipe-shard-0000-r0000-r0001.task-001.md").exists()
-    assert (worker_root / "hints" / "recipe-shard-0000-r0000-r0001.task-002.md").exists()
-    assert (worker_root / "hints" / "recipe-shard-0001-r0002-r0002.md").exists()
+    assert not any((worker_root / "hints").glob("*.md"))
     assert (worker_root / "out" / "recipe-shard-0000-r0000-r0001.task-001.json").exists()
     assert (worker_root / "out" / "recipe-shard-0000-r0000-r0001.task-002.json").exists()
     assert (worker_root / "out" / "recipe-shard-0001-r0002-r0002.json").exists()
@@ -470,7 +472,11 @@ def test_recipe_phase_runtime_short_circuits_fragmentary_scaffolds_before_worker
     )
 
     assert "recipe-shard-0001-r0001-r0001" not in worker_prompt
-    assert (worker_root / "assigned_tasks.json").exists()
+    assert (worker_root / "task.json").exists()
+    task_file = load_task_file(worker_root / "task.json")
+    assert [unit["owned_id"] for unit in task_file["units"]] == [
+        "urn:recipe:test:toast"
+    ]
     assert (worker_root / "out" / "recipe-shard-0000-r0000-r0000.json").exists()
     assert (worker_root / "out" / "recipe-shard-0001-r0001-r0001.json").exists()
     assert fragmentary_proposal["payload"]["r"][0]["rid"] == "urn:recipe:test:fragmentary"

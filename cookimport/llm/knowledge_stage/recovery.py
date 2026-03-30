@@ -8,6 +8,7 @@ from .planning import (
     _KnowledgeWorkspaceStageCommandViolation,
     _knowledge_packet_payloads,
 )
+from ..editable_task_file import TASK_FILE_NAME
 from ..knowledge_runtime_state import knowledge_reason_is_explicit_no_final_output
 
 globals().update(
@@ -698,40 +699,34 @@ def _build_knowledge_workspace_worker_prompt(
     ]
     lines = [
         "You are processing non-recipe finalize shards inside one bounded local workspace.",
-        "Process every assigned shard exactly once and write one final shard output per owned shard.",
+        f"Open `{TASK_FILE_NAME}`, read it once, edit only `/units/*/answer`, save the same file, and stop.",
         "",
         "The current working directory is already the workspace root.",
-        "The assignment is complete when every shard named in `assigned_shards.json` has a finished `out/<shard_id>.json` file.",
+        "The assignment is complete when every owned unit in the task file has an answer.",
         "",
         "Worker contract:",
-        "- Start by opening `worker_manifest.json`, then `assigned_shards.json`.",
-        "- For each shard row, open the named `in/*.json` payload and `hints/*.md` only if helpful.",
-        "- Write exactly one JSON object to the stable `out/*.json` path named in the shard metadata.",
-        "- Do not invent queue advancement, control files, or broad output sweeps.",
-        "- `OUTPUT_CONTRACT.md` and `examples/` are fallback contract/debug surfaces, not the default first read.",
-        "- Prefer opening the named files directly. Do not use shell helpers on the happy path. If a tiny local helper is truly unavoidable, keep it narrowly grounded on one assigned shard at a time.",
+        "- Start with `task.json`.",
+        "- Edit only the `answer` object inside each unit.",
+        "- Do not invent queue advancement, control files, helper ledgers, or alternate output files.",
+        "- `previous_answer` and `validation_feedback`, when present, are repair-only immutable context.",
+        "- Do not use shell helpers on the happy path. If a tiny local helper is truly unavoidable, keep it narrowly grounded on `task.json` only.",
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "",
         "Shard semantics:",
         "- The repo does not know the `knowledge` versus `other` answer ahead of time; you make that semantic call from the owned shard text.",
-        "- Repo validation checks structure only: ownership, coverage, order, allowed enum values, and grouping shape.",
-        "- Return the final shard shape directly: per-row `knowledge|other` decisions plus idea groups for kept knowledge rows.",
-        "- Assign a non-empty local `group_key` plus `topic_label` for each kept knowledge row. The repo canonicalizes final `group_id` values during final assembly.",
-        "- Repair follow-ups are purely structural. They may say that rows are missing, out of order, or still missing group fields. They do not tell you the semantic answer.",
+        "- Answer each unit with `category`, plus `group_key` and `topic_label` when the category is `knowledge`.",
         f"- Final categories must be exactly one of `{'`, `'.join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)}`.",
-        f"- `reviewer_category` may be omitted or must be one of `{'`, `'.join(ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES)}`.",
-        "- If a block ends as `knowledge`, it must appear in exactly one idea group.",
-        "- No `other` block may appear in an idea group.",
-        "- Use concise group labels; the repo validates grouping structure, not topic wording.",
+        "- If a block ends as `other`, both `group_key` and `topic_label` must be null.",
+        "- If a block ends as `knowledge`, both `group_key` and `topic_label` must be non-empty strings.",
+        "- Use concise group labels; the repo canonicalizes final group ids during deterministic expansion.",
         "- The owned block rows are authoritative. Nearby context is informational only.",
-        "- Make the keep/drop decision block by block before you think about idea groups.",
         "",
         (
-            "Assigned shards in this worker: "
+            "Assigned shard ids represented in this task file: "
             f"`{', '.join(shard_ids) if shard_ids else '[none]'}`."
         ),
         "",
-        "Do not return shard outputs in your final message. The authoritative result is the set of result files written to the repo-owned stable output paths.",
+        "Do not return shard outputs in your final message. The authoritative result is the edited task file.",
     ]
     return "\n".join(lines)
 

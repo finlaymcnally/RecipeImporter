@@ -24,6 +24,12 @@ from .codex_farm_runner import (
     _merge_env,
     _resolve_recipeimport_codex_home,
 )
+from .editable_task_file import (
+    TASK_FILE_NAME,
+    TASK_FILE_SCHEMA_VERSION,
+    load_task_file,
+    write_task_file,
+)
 
 DIRECT_CODEX_EXEC_RUNTIME_MODE_V1 = "direct_codex_exec_v1"
 _DIRECT_EXEC_ISOLATION_ROOT_NAME = "recipeimport-direct-exec-workspaces"
@@ -33,6 +39,7 @@ _DIRECT_EXEC_DEBUG_DIR_NAME = "debug"
 _DIRECT_EXEC_HINTS_DIR_NAME = "hints"
 _DIRECT_EXEC_LOGS_DIR_NAME = "logs"
 _DIRECT_EXEC_SHARDS_DIR_NAME = "shards"
+_DIRECT_EXEC_TASK_FILE_NAME = TASK_FILE_NAME
 _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME = "assigned_tasks.json"
 _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME = "assigned_shards.json"
 _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME = "worker_manifest.json"
@@ -55,6 +62,7 @@ DirectExecWorkspaceMode = Literal["structured_json", "workspace_worker"]
 _WORKSPACE_ALLOWED_PATH_ROOTS = {
     ".",
     "./",
+    _DIRECT_EXEC_TASK_FILE_NAME,
     _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
     _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
     _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
@@ -794,6 +802,165 @@ class FakeCodexExecRunner:
             )
         return dict(output_payload)
 
+    def _build_workspace_task_file_result(
+        self,
+        *,
+        task_file_payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            direct_result = self.output_builder(dict(task_file_payload))
+        except Exception:  # noqa: BLE001
+            direct_result = {}
+        if _looks_like_editable_task_file_payload(direct_result):
+            return dict(direct_result)
+        edited = dict(task_file_payload)
+        units_payload = edited.get("units")
+        if not isinstance(units_payload, list):
+            return edited
+        stage_key = str(task_file_payload.get("stage_key") or "").strip()
+        edited_units: list[dict[str, Any]] = []
+        for unit in units_payload:
+            if not isinstance(unit, Mapping):
+                continue
+            unit_dict = dict(unit)
+            evidence = dict(unit_dict.get("evidence") or {})
+            unit_dict["answer"] = self._build_workspace_task_unit_answer(
+                stage_key=stage_key,
+                evidence=evidence,
+            )
+            edited_units.append(unit_dict)
+        edited["units"] = edited_units
+        return edited
+
+    def _build_workspace_task_unit_answer(
+        self,
+        *,
+        stage_key: str,
+        evidence: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if stage_key == "recipe_refine":
+            hint_payload = dict(evidence.get("hint") or {})
+            legacy_input = {
+                "sid": str(evidence.get("recipe_id") or "task"),
+                "r": [
+                    {
+                        "rid": str(evidence.get("recipe_id") or "recipe"),
+                        "h": {
+                            "n": hint_payload.get("title"),
+                            "i": list(hint_payload.get("ingredients") or []),
+                            "s": list(hint_payload.get("steps") or []),
+                        },
+                        "txt": str(evidence.get("source_text") or ""),
+                        "ev": list(evidence.get("source_rows") or []),
+                    }
+                ],
+            }
+            legacy_output = self.output_builder(legacy_input)
+            recipe_row: dict[str, Any] = {}
+            if isinstance(legacy_output, Mapping):
+                recipe_rows = legacy_output.get("r")
+                if isinstance(recipe_rows, list) and recipe_rows and isinstance(recipe_rows[0], Mapping):
+                    recipe_row = dict(recipe_rows[0])
+                else:
+                    recipe_row = dict(legacy_output)
+            canonical_recipe = recipe_row.get("cr")
+            mapping_rows = recipe_row.get("m")
+            return {
+                "status": str(recipe_row.get("st") or "repaired"),
+                "status_reason": recipe_row.get("sr"),
+                "canonical_recipe": (
+                    {
+                        "title": canonical_recipe.get("t"),
+                        "ingredients": list(canonical_recipe.get("i") or []),
+                        "steps": list(canonical_recipe.get("s") or []),
+                        "description": canonical_recipe.get("d"),
+                        "recipe_yield": canonical_recipe.get("y"),
+                    }
+                    if isinstance(canonical_recipe, Mapping)
+                    else None
+                ),
+                "ingredient_step_mapping": [
+                    {
+                        "ingredient_indexes": [int(mapping_row.get("i"))],
+                        "step_indexes": [
+                            int(value) for value in (mapping_row.get("s") or [])
+                        ],
+                    }
+                    for mapping_row in (mapping_rows or [])
+                    if isinstance(mapping_row, Mapping) and mapping_row.get("i") is not None
+                ],
+                "ingredient_step_mapping_reason": recipe_row.get("mr"),
+                "selected_tags": [
+                    str(tag_row.get("l") or "").strip()
+                    for tag_row in (recipe_row.get("g") or [])
+                    if isinstance(tag_row, Mapping) and str(tag_row.get("l") or "").strip()
+                ],
+                "warnings": [
+                    str(value).strip()
+                    for value in (recipe_row.get("w") or [])
+                    if str(value).strip()
+                ],
+            }
+        if stage_key == "nonrecipe_finalize":
+            block_index = int(evidence.get("block_index") or 0)
+            legacy_input = {
+                "packet_id": str(evidence.get("block_id") or f"block-{block_index}"),
+                "blocks": [
+                    {
+                        "block_index": block_index,
+                        "text": str(evidence.get("text") or ""),
+                    }
+                ],
+            }
+            legacy_output = self.output_builder(legacy_input)
+            decision_row: dict[str, Any] = {}
+            if isinstance(legacy_output, Mapping):
+                for row in legacy_output.get("block_decisions") or []:
+                    if (
+                        isinstance(row, Mapping)
+                        and row.get("block_index") is not None
+                        and int(row.get("block_index")) == block_index
+                    ):
+                        decision_row = dict(row)
+                        break
+            category = str(decision_row.get("category") or "knowledge")
+            group_key = None
+            topic_label = None
+            if category == "knowledge" and isinstance(legacy_output, Mapping):
+                for group in legacy_output.get("idea_groups") or []:
+                    if not isinstance(group, Mapping):
+                        continue
+                    block_indices = [int(value) for value in (group.get("block_indices") or [])]
+                    if block_index in block_indices:
+                        group_key = str(group.get("group_id") or "").strip() or None
+                        topic_label = str(group.get("topic_label") or "").strip() or None
+                        break
+            return {
+                "category": category,
+                "group_key": group_key,
+                "topic_label": topic_label,
+            }
+        if stage_key == "line_role":
+            atomic_index = int(evidence.get("atomic_index") or 0)
+            legacy_output = self.output_builder(
+                {"rows": [[atomic_index, str(evidence.get("text") or "")]]}
+            )
+            row_payload: dict[str, Any] = {}
+            if isinstance(legacy_output, Mapping):
+                for row in legacy_output.get("rows") or []:
+                    if (
+                        isinstance(row, Mapping)
+                        and row.get("atomic_index") is not None
+                        and int(row.get("atomic_index")) == atomic_index
+                    ):
+                        row_payload = dict(row)
+                        break
+            return {
+                "label": str(row_payload.get("label") or "NONRECIPE_CANDIDATE"),
+                "exclusion_reason": row_payload.get("exclusion_reason"),
+            }
+        return {}
+
     def run_structured_prompt(
         self,
         *,
@@ -937,7 +1104,13 @@ class FakeCodexExecRunner:
         assigned_task_rows = _read_workspace_manifest_rows(
             execution_working_dir=execution_working_dir,
         )
-        if (execution_working_dir / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME).exists():
+        task_file_path = execution_working_dir / _DIRECT_EXEC_TASK_FILE_NAME
+        if task_file_path.exists():
+            edited_task_file_payload = self._build_workspace_task_file_result(
+                task_file_payload=load_task_file(task_file_path),
+            )
+            write_task_file(path=task_file_path, payload=edited_task_file_payload)
+        elif (execution_working_dir / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME).exists():
             lease_iterations = 0
             while lease_iterations < 256:
                 lease_iterations += 1
@@ -1042,6 +1215,7 @@ class FakeCodexExecRunner:
             source_working_dir=working_dir,
             execution_working_dir=execution_working_dir,
             relative_paths=(
+                _DIRECT_EXEC_TASK_FILE_NAME,
                 _DIRECT_EXEC_INPUT_DIR_NAME,
                 _DIRECT_EXEC_OUTPUT_DIR_NAME,
                 _DIRECT_EXEC_SCRATCH_DIR_NAME,
@@ -1168,6 +1342,7 @@ def build_direct_exec_workspace_manifest(
         "source_working_dir": str(source_working_dir) if source_working_dir else None,
         "execution_working_dir": str(execution_working_dir) if execution_working_dir else None,
         "execution_agents_path": str(execution_agents_path) if execution_agents_path else None,
+        "task_file_path": None,
         "assigned_tasks_path": None,
         "assigned_shards_path": None,
         "worker_manifest_path": None,
@@ -1201,6 +1376,9 @@ def build_direct_exec_workspace_manifest(
     )
     if execution_root is None or not execution_root.exists():
         return payload
+    task_file_path = execution_root / _DIRECT_EXEC_TASK_FILE_NAME
+    if task_file_path.exists():
+        payload["task_file_path"] = str(task_file_path)
     assigned_tasks_path = execution_root / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
     if assigned_tasks_path.exists():
         payload["assigned_tasks_path"] = str(assigned_tasks_path)
@@ -1340,6 +1518,10 @@ def _populate_direct_exec_workspace(
     mode: DirectExecWorkspaceMode,
 ) -> None:
     _copy_if_present(
+        source_working_dir / _DIRECT_EXEC_TASK_FILE_NAME,
+        execution_working_dir / _DIRECT_EXEC_TASK_FILE_NAME,
+    )
+    _copy_if_present(
         source_working_dir / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
         execution_working_dir / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
     )
@@ -1442,6 +1624,15 @@ def _copy_tree_if_present(source: Path, destination: Path) -> None:
 
 
 def _read_workspace_manifest_rows(*, execution_working_dir: Path) -> list[Any]:
+    task_file_path = execution_working_dir / _DIRECT_EXEC_TASK_FILE_NAME
+    if task_file_path.exists():
+        try:
+            task_file_payload = load_task_file(task_file_path)
+        except Exception:  # noqa: BLE001
+            task_file_payload = {}
+        units_payload = task_file_payload.get("units")
+        if isinstance(units_payload, list):
+            return units_payload
     assigned_tasks_path = execution_working_dir / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
     if assigned_tasks_path.exists():
         try:
@@ -1475,11 +1666,12 @@ def _build_direct_exec_agents_text(
             "You are not working on the RecipeImport repository itself.\n"
             "Use only the files inside this directory.\n"
             "The current working directory is already the workspace root.\n"
-            "Start by reading `worker_manifest.json`, then the immutable assignment file named there.\n"
+            "If `task.json` exists, read it directly, edit only its answer fields in place, save the same file, and stop.\n"
+            "If `task.json` is absent, fall back to the repo-written file named in `worker_manifest.json`.\n"
             "When `OUTPUT_CONTRACT.md` or `examples/` exists, treat those repo-written files as the authoritative output-shape reference.\n"
             "When `tools/` exists, prefer its repo-written helper CLI or scripts before inventing ad hoc local transforms.\n"
-            "Read the assigned task/shard rows plus the named local input and hint files directly.\n"
-            "Write one finished result file per owned unit to the stable `out/` paths named in the assignment metadata, then stop.\n"
+            "Prefer reading the local task file directly instead of opening helper manifests or inventories just to orient yourself.\n"
+            "When the repo gives you only `task.json`, that file already contains the evidence, hints, and editable answer slots you need.\n"
             "Use `scratch/` or short-lived local temp files such as `/tmp` or `/var/tmp` for bounded helper files.\n"
             "Do not inspect parent directories, repository-wide AGENTS files, project docs, or source code.\n"
             "Do not run repo-specific commands such as `npm run docs:list` or `git`.\n"
@@ -1554,6 +1746,12 @@ def _sync_direct_exec_runtime_control_paths_to_execution(
             shutil.rmtree(execution_path)
         elif execution_path.exists():
             execution_path.unlink()
+
+
+def _looks_like_editable_task_file_payload(value: Any) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    return str(value.get("schema_version") or "").strip() == TASK_FILE_SCHEMA_VERSION
 
 
 def _build_codex_exec_command(
@@ -2534,6 +2732,7 @@ def _write_direct_exec_worker_manifest(
     mode: DirectExecWorkspaceMode,
 ) -> None:
     rendered_task_label = str(task_label or "structured shard task").strip()
+    has_task_file = (workspace_root / _DIRECT_EXEC_TASK_FILE_NAME).exists()
     has_assigned_tasks = (
         workspace_root / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
     ).exists()
@@ -2552,6 +2751,8 @@ def _write_direct_exec_worker_manifest(
     has_work_dir = (workspace_root / _DIRECT_EXEC_WORK_DIR_NAME).exists()
     has_repair_dir = (workspace_root / _DIRECT_EXEC_REPAIR_DIR_NAME).exists()
     entry_files = [_DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME]
+    if has_task_file:
+        entry_files.append(_DIRECT_EXEC_TASK_FILE_NAME)
     if has_assigned_tasks:
         entry_files.append(_DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME)
     if has_assigned_shards:
@@ -2562,6 +2763,7 @@ def _write_direct_exec_worker_manifest(
         "workspace_mode": mode,
         "workspace_root": str(workspace_root),
         "entry_files": entry_files,
+        "task_file": _DIRECT_EXEC_TASK_FILE_NAME if has_task_file else None,
         "assigned_tasks_file": (
             _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME if has_assigned_tasks else None
         ),
@@ -2632,6 +2834,11 @@ def _write_direct_exec_worker_manifest(
             for note in [
                 "The current working directory is already the workspace root.",
                 "Open named workspace files directly; do not dump whole inventories just to orient yourself.",
+                (
+                    "Treat `task.json` as the editable worker contract when present: read it once, edit only answer fields in place, save, and stop."
+                    if has_task_file
+                    else None
+                ),
                 (
                     "Treat `assigned_tasks.json` as the immutable ordered ownership reference."
                     if has_assigned_tasks
