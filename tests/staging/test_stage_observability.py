@@ -147,6 +147,37 @@ def test_write_stage_observability_report_writes_knowledge_stage_summary_artifac
             "pre_kill_failure_counts": {},
         },
     )
+    _write_json(
+        stage_root / "telemetry.json",
+        {
+            "summary": {
+                "visible_input_tokens": 90,
+                "visible_output_tokens": 30,
+                "wrapper_overhead_tokens": 60,
+                "tokens_reasoning": 0,
+                "tokens_total": 180,
+                "packet_economics": {
+                    "packet_count_total": 3,
+                    "primary_packet_count_total": 2,
+                    "repair_packet_count_total": 1,
+                    "owned_row_count_total": 3,
+                    "packet_churn_count": 1,
+                    "packets_per_shard": 3.0,
+                    "repair_packet_share": 0.3333,
+                    "packets_per_owned_row": 1.0,
+                    "cost_per_owned_row": 60.0,
+                    "visible_input_tokens_per_owned_row": 30.0,
+                    "visible_output_tokens_per_owned_row": 10.0,
+                    "wrapper_overhead_tokens_per_owned_row": 20.0,
+                    "reasoning_tokens_per_owned_row": 0.0,
+                    "semantic_payload_tokens_total": 120,
+                    "semantic_payload_tokens_per_owned_row": 40.0,
+                    "protocol_overhead_tokens_total": 60,
+                    "protocol_overhead_share": 0.3333,
+                },
+            }
+        },
+    )
     report = build_stage_observability_report(
         run_root=run_root,
         run_kind="stage",
@@ -594,7 +625,7 @@ def test_summarize_knowledge_stage_artifacts_uses_status_file(tmp_path: Path) ->
     summary = summarize_knowledge_stage_artifacts(stage_root)
 
     assert summary["authoritative"] is True
-    assert summary["schema_version"] == "knowledge_stage_summary.v3"
+    assert summary["schema_version"] == "knowledge_stage_summary.v6"
     assert summary["stage_state"] == "interrupted"
     assert summary["termination_cause"] == "operator_interrupt"
     assert summary["finalization_completeness"] == "interrupted_before_finalization"
@@ -633,6 +664,37 @@ def test_summarize_knowledge_stage_artifacts_marks_unexpected_missing(tmp_path: 
                 "proposals/*": "present",
             },
             "pre_kill_failure_counts": {},
+        },
+    )
+    _write_json(
+        stage_root / "telemetry.json",
+        {
+            "summary": {
+                "visible_input_tokens": 90,
+                "visible_output_tokens": 30,
+                "wrapper_overhead_tokens": 60,
+                "tokens_reasoning": 0,
+                "tokens_total": 180,
+                "packet_economics": {
+                    "packet_count_total": 3,
+                    "primary_packet_count_total": 2,
+                    "repair_packet_count_total": 1,
+                    "owned_row_count_total": 3,
+                    "packet_churn_count": 1,
+                    "packets_per_shard": 3.0,
+                    "repair_packet_share": 0.3333,
+                    "packets_per_owned_row": 1.0,
+                    "cost_per_owned_row": 60.0,
+                    "visible_input_tokens_per_owned_row": 30.0,
+                    "visible_output_tokens_per_owned_row": 10.0,
+                    "wrapper_overhead_tokens_per_owned_row": 20.0,
+                    "reasoning_tokens_per_owned_row": 0.0,
+                    "semantic_payload_tokens_total": 120,
+                    "semantic_payload_tokens_per_owned_row": 40.0,
+                    "protocol_overhead_tokens_total": 60,
+                    "protocol_overhead_share": 0.3333,
+                },
+            }
         },
     )
 
@@ -712,6 +774,37 @@ def _build_knowledge_stage_rollup_fixture(tmp_path: Path) -> dict[str, object]:
     _write_json(
         stage_root / "workers" / "worker-001" / "live_status.json",
         {"state": "completed", "reason_code": "workspace_outputs_stabilized"},
+    )
+    _write_json(
+        stage_root / "telemetry.json",
+        {
+            "summary": {
+                "visible_input_tokens": 90,
+                "visible_output_tokens": 30,
+                "wrapper_overhead_tokens": 60,
+                "tokens_reasoning": 0,
+                "tokens_total": 180,
+                "packet_economics": {
+                    "packet_count_total": 3,
+                    "primary_packet_count_total": 2,
+                    "repair_packet_count_total": 1,
+                    "owned_row_count_total": 3,
+                    "packet_churn_count": 1,
+                    "packets_per_shard": 3.0,
+                    "repair_packet_share": 0.3333,
+                    "packets_per_owned_row": 1.0,
+                    "cost_per_owned_row": 60.0,
+                    "visible_input_tokens_per_owned_row": 30.0,
+                    "visible_output_tokens_per_owned_row": 10.0,
+                    "wrapper_overhead_tokens_per_owned_row": 20.0,
+                    "reasoning_tokens_per_owned_row": 0.0,
+                    "semantic_payload_tokens_total": 120,
+                    "semantic_payload_tokens_per_owned_row": 40.0,
+                    "protocol_overhead_tokens_total": 60,
+                    "protocol_overhead_share": 0.3333,
+                },
+            }
+        },
     )
     _write_json(
         stage_root / "workers" / "worker-001" / "assigned_tasks.json",
@@ -813,6 +906,25 @@ def test_summarize_knowledge_stage_artifacts_reports_packet_and_worker_rollups(
         "completed_outputs_stabilized": 1,
     }
     assert summary["workers"]["output_count"] == 1
+    assert summary["packet_economics"] == {
+        "packet_count_total": 3,
+        "primary_packet_count_total": 2,
+        "repair_packet_count_total": 1,
+        "owned_row_count_total": 3,
+        "packet_churn_count": 1,
+        "packets_per_shard": 3.0,
+        "repair_packet_share": 0.3333,
+        "packets_per_owned_row": 1.0,
+        "cost_per_owned_row": 60.0,
+        "visible_input_tokens_per_owned_row": 30.0,
+        "visible_output_tokens_per_owned_row": 10.0,
+        "wrapper_overhead_tokens_per_owned_row": 20.0,
+        "reasoning_tokens_per_owned_row": 0.0,
+        "semantic_payload_tokens_total": 120,
+        "semantic_payload_tokens_per_owned_row": 40.0,
+        "protocol_overhead_tokens_total": 60,
+        "protocol_overhead_share": 0.3333,
+    }
 
 
 def test_summarize_knowledge_stage_artifacts_reports_followup_and_salvage_rollups(

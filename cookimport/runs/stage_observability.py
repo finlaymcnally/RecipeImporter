@@ -8,6 +8,10 @@ from typing import Any, Mapping
 from pydantic import BaseModel, ConfigDict, Field
 
 from cookimport.llm.knowledge_runtime_replay import replay_knowledge_runtime
+from cookimport.llm.knowledge_runtime_state import (
+    KNOWLEDGE_PACKET_EXPLICIT_NO_FINAL_OUTPUT_REASON_CODES,
+    knowledge_reason_is_explicit_no_final_output,
+)
 from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 from cookimport.staging.writer import (
     NONRECIPE_AUTHORITY_FILE_NAME,
@@ -23,7 +27,7 @@ KNOWLEDGE_MANIFEST_FILE_NAME = "knowledge_manifest.json"
 KNOWLEDGE_STAGE_STATUS_FILE_NAME = "stage_status.json"
 KNOWLEDGE_STAGE_STATUS_SCHEMA_VERSION = "knowledge_stage_status.v1"
 KNOWLEDGE_STAGE_SUMMARY_FILE_NAME = "knowledge_stage_summary.json"
-KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v3"
+KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v6"
 RECIPE_STAGE_SUMMARY_FILE_NAME = "recipe_stage_summary.json"
 RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v5"
 LINE_ROLE_STAGE_SUMMARY_FILE_NAME = "line_role_stage_summary.json"
@@ -48,10 +52,21 @@ _KNOWLEDGE_PACKET_TERMINAL_STATES = frozenset(
         "retry_failed",
         "repair_recovered",
         "repair_failed",
-        "missing_output",
+        "no_final_output",
         "watchdog_killed",
         "invalid_output",
+        *KNOWLEDGE_PACKET_EXPLICIT_NO_FINAL_OUTPUT_REASON_CODES,
         "cancelled_due_to_interrupt",
+    }
+)
+_KNOWLEDGE_FAILED_PACKET_STATES = frozenset(
+    {
+        "invalid_output",
+        "retry_failed",
+        "repair_failed",
+        "no_final_output",
+        "watchdog_killed",
+        *KNOWLEDGE_PACKET_EXPLICIT_NO_FINAL_OUTPUT_REASON_CODES,
     }
 )
 _KNOWLEDGE_FOLLOWUP_STATUS_FIELDS: tuple[tuple[str, str], ...] = (
@@ -698,6 +713,16 @@ def _collect_salvage_counts(stage_root: Path) -> dict[str, Any]:
     }
 
 
+def _knowledge_row_is_no_final_output(row: Mapping[str, Any]) -> bool:
+    reason_code = str(row.get("terminal_reason_code") or "").strip()
+    if knowledge_reason_is_explicit_no_final_output(reason_code):
+        return True
+    if reason_code.startswith("watchdog_"):
+        return True
+    state = str(row.get("state") or "").strip()
+    return state in {"no_final_output", "watchdog_killed"}
+
+
 def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
     status_path = stage_root / KNOWLEDGE_STAGE_STATUS_FILE_NAME
     status_payload = _load_json_dict(status_path) or {}
@@ -720,6 +745,18 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
     packet_state_counts = _count_value_rows(task_rows, "state")
     packet_attempt_type_counts = _count_value_rows(task_rows, "last_attempt_type")
     terminal_reason_code_counts = _count_value_rows(task_rows, "terminal_reason_code")
+    no_final_output_shard_count = sum(
+        1 for row in task_rows if _knowledge_row_is_no_final_output(row)
+    )
+    no_final_output_reason_code_counts = dict(
+        sorted(
+            Counter(
+                str(row.get("terminal_reason_code") or "").strip() or str(row.get("state") or "").strip()
+                for row in task_rows
+                if _knowledge_row_is_no_final_output(row)
+            ).items()
+        )
+    )
     deterministic_bypass_reason_code_counts: Counter[str] = Counter()
     for row in task_rows:
         if str(row.get("last_attempt_type") or "").strip() != "deterministic_bypass":
@@ -749,6 +786,17 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
     }
     worker_state_counts, worker_reason_code_counts = _collect_worker_status_counts(stage_root)
     salvage_counts = _collect_salvage_counts(stage_root)
+    telemetry_payload = _load_json_dict(stage_root / "telemetry.json") or {}
+    telemetry_summary = (
+        telemetry_payload.get("summary")
+        if isinstance(telemetry_payload.get("summary"), Mapping)
+        else {}
+    )
+    packet_economics = (
+        dict(telemetry_summary.get("packet_economics") or {})
+        if isinstance(telemetry_summary.get("packet_economics"), Mapping)
+        else {}
+    )
     replay_summary = replay_knowledge_runtime(knowledge_root=stage_root)
     packet_total = len(task_rows) if task_rows else int(replay_summary.rollup.packet_total)
     deterministic_bypass_total = int(packet_attempt_type_counts.get("deterministic_bypass") or 0)
@@ -779,6 +827,8 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
             "terminal_outcome_counts": dict(sorted(terminal_outcome_counts.items())),
             "attempt_type_counts": packet_attempt_type_counts,
             "terminal_reason_code_counts": terminal_reason_code_counts,
+            "no_final_output_shard_count": no_final_output_shard_count,
+            "no_final_output_reason_code_counts": no_final_output_reason_code_counts,
             "deterministic_bypass_total": deterministic_bypass_total,
             "llm_review_total": max(packet_total - deterministic_bypass_total, 0),
             "deterministic_bypass_reason_code_counts": dict(
@@ -790,14 +840,7 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
                 "repair_recovered": int(packet_state_counts.get("repair_recovered") or 0),
                 "deterministic_bypass": deterministic_bypass_total,
                 "failed": sum(
-                    int(packet_state_counts.get(key) or 0)
-                    for key in (
-                        "invalid_output",
-                        "retry_failed",
-                        "repair_failed",
-                        "missing_output",
-                        "watchdog_killed",
-                    )
+                    int(packet_state_counts.get(key) or 0) for key in _KNOWLEDGE_FAILED_PACKET_STATES
                 ),
                 "cancelled_due_to_interrupt": int(
                     packet_state_counts.get("cancelled_due_to_interrupt") or 0
@@ -829,13 +872,14 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
             "circuit_breaker_reason_counts": circuit_breaker_reason_counts,
         },
         "salvage": salvage_counts,
+        "packet_economics": packet_economics,
         "pre_kill_failure_counts": dict(pre_kill_failure_counts),
         "pre_kill_failures_observed": _count_nested_positive_values(pre_kill_failure_counts) > 0,
     }
     summary["attention_summary"] = _build_attention_summary(
         zero_target_counts={
             "invalid_shard_count": packet_state_counts.get("invalid_output"),
-            "missing_output_shard_count": packet_state_counts.get("missing_output"),
+            "no_final_output_shard_count": no_final_output_shard_count,
             "failed_packet_count": summary["packets"]["topline"].get("failed"),
             "cancelled_due_to_interrupt_packet_count": summary["packets"]["topline"].get(
                 "cancelled_due_to_interrupt"
@@ -853,9 +897,12 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
             "validated_packet_count": packet_state_counts.get("validated"),
             "retry_recovered_packet_count": packet_state_counts.get("retry_recovered"),
             "repair_recovered_packet_count": packet_state_counts.get("repair_recovered"),
+            "owned_row_count_total": packet_economics.get("owned_row_count_total"),
+            "repair_packet_count_total": packet_economics.get("repair_packet_count_total"),
         },
         reason_counts={
             "terminal_reason_code_counts": terminal_reason_code_counts,
+            "no_final_output_reason_code_counts": no_final_output_reason_code_counts,
             "deterministic_bypass_reason_code_counts": dict(
                 sorted(deterministic_bypass_reason_code_counts.items())
             ),

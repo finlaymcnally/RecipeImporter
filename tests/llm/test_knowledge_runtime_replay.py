@@ -102,33 +102,91 @@ def test_knowledge_packet_ledger_rollup_counts_packets_followups_and_artifacts()
 def _run_synthetic_knowledge_replay_fixture(tmp_path: Path):
     knowledge_root = tmp_path / "knowledge"
     benchmark_root = tmp_path / "benchmark"
+    task_rows = [
+        {
+            "task_id": "book.ks0000.nr",
+            "parent_shard_id": "book.ks0000.nr",
+            "owned_ids": ["book.ks0000.nr"],
+        },
+        {
+            "task_id": "book.ks0001.nr",
+            "parent_shard_id": "book.ks0001.nr",
+            "owned_ids": ["book.ks0001.nr"],
+        },
+        {
+            "task_id": "book.ks0002.nr",
+            "parent_shard_id": "book.ks0002.nr",
+            "owned_ids": ["book.ks0002.nr"],
+        },
+        {
+            "task_id": "book.ks0003.nr",
+            "parent_shard_id": "book.ks0003.nr",
+            "owned_ids": ["book.ks0003.nr"],
+        },
+        {
+            "task_id": "book.ks0004.nr",
+            "parent_shard_id": "book.ks0004.nr",
+            "owned_ids": ["book.ks0004.nr"],
+        },
+    ]
+    output_task_ids = [row["task_id"] for row in task_rows[:354]]
+    repair_failed_task_ids = output_task_ids[-3:]
+
+    _write_jsonl(knowledge_root / "task_manifest.jsonl", task_rows)
     _write_jsonl(
-        knowledge_root / "task_manifest.jsonl",
+        knowledge_root / "task_status.jsonl",
         [
             {
                 "task_id": "book.ks0000.nr",
-                "parent_shard_id": "book.ks0000.nr",
-                "owned_ids": ["book.ks0000.nr"],
+                "state": "main_output_written",
+                "last_attempt_type": "main_worker",
+                "terminal_reason_code": "validated",
+                "metadata": {
+                    "watchdog_retry_status": "not_attempted",
+                    "repair_status": "not_attempted",
+                },
             },
             {
                 "task_id": "book.ks0001.nr",
-                "parent_shard_id": "book.ks0001.nr",
-                "owned_ids": ["book.ks0001.nr"],
+                "state": "retry_recovered",
+                "terminal_outcome": "retry_recovered",
+                "last_attempt_type": "watchdog_retry",
+                "terminal_reason_code": "validated",
+                "metadata": {
+                    "watchdog_retry_status": "validated",
+                    "repair_status": "not_attempted",
+                },
             },
             {
                 "task_id": "book.ks0002.nr",
-                "parent_shard_id": "book.ks0002.nr",
-                "owned_ids": ["book.ks0002.nr"],
+                "state": "follow_up_stale",
+                "last_attempt_type": "watchdog_retry",
+                "terminal_reason_code": "watchdog_retry_stale",
+                "metadata": {
+                    "watchdog_retry_status": "running",
+                    "repair_status": "not_attempted",
+                },
             },
             {
                 "task_id": "book.ks0003.nr",
-                "parent_shard_id": "book.ks0003.nr",
-                "owned_ids": ["book.ks0003.nr"],
+                "state": "main_output_malformed",
+                "last_attempt_type": "main_worker",
+                "terminal_reason_code": "response_json_invalid",
+                "metadata": {
+                    "watchdog_retry_status": "not_attempted",
+                    "repair_status": "not_attempted",
+                },
             },
             {
                 "task_id": "book.ks0004.nr",
-                "parent_shard_id": "book.ks0004.nr",
-                "owned_ids": ["book.ks0004.nr"],
+                "state": "repair_failed",
+                "terminal_outcome": "repair_failed",
+                "last_attempt_type": "repair",
+                "terminal_reason_code": "repair_failed",
+                "metadata": {
+                    "watchdog_retry_status": "not_attempted",
+                    "repair_status": "failed",
+                },
             },
         ],
     )
@@ -268,6 +326,7 @@ def test_replay_knowledge_runtime_reports_synthetic_artifact_presence(tmp_path: 
     summary = _run_synthetic_knowledge_replay_fixture(tmp_path)
     assert summary.rollup.stage_artifact_states["phase_manifest.json"] == "missing"
     assert summary.rollup.stage_artifact_states["task_manifest.jsonl"] == "present"
+    assert summary.rollup.stage_artifact_states["task_status.jsonl"] == "present"
     assert summary.rollup.benchmark_artifact_states == {
         "eval_report.json": "missing",
         "processing_timeseries_evaluation.jsonl": "missing",
@@ -309,7 +368,50 @@ def test_replay_knowledge_runtime_matches_large_generated_fixture(tmp_path: Path
             [{"shard_id": shard_id} for shard_id in worker_shard_ids],
         )
 
+    output_task_ids = [str(row["task_id"]) for row in task_rows[:354]]
+    repair_failed_task_ids = output_task_ids[-3:]
+
     _write_jsonl(knowledge_root / "task_manifest.jsonl", task_rows)
+    _write_jsonl(
+        knowledge_root / "task_status.jsonl",
+        [
+            (
+                {
+                    "task_id": str(row["task_id"]),
+                    "state": "repair_failed",
+                    "terminal_outcome": "repair_failed",
+                    "last_attempt_type": "repair",
+                    "terminal_reason_code": "repair_failed",
+                    "metadata": {
+                        "watchdog_retry_status": "not_attempted",
+                        "repair_status": "failed",
+                    },
+                }
+                if row["task_id"] in repair_failed_task_ids
+                else {
+                    "task_id": str(row["task_id"]),
+                    "state": "main_output_written",
+                    "last_attempt_type": "main_worker",
+                    "terminal_reason_code": "validated",
+                    "metadata": {
+                        "watchdog_retry_status": "not_attempted",
+                        "repair_status": "not_attempted",
+                    },
+                }
+                if row["task_id"] in output_task_ids
+                else {
+                    "task_id": str(row["task_id"]),
+                    "state": "pending",
+                    "terminal_reason_code": None,
+                    "metadata": {
+                        "watchdog_retry_status": "not_attempted",
+                        "repair_status": "not_attempted",
+                    },
+                }
+            )
+            for row in task_rows
+        ],
+    )
     _write_jsonl(
         knowledge_root / "shard_manifest.jsonl",
         [{"shard_id": row["task_id"]} for row in task_rows],
@@ -333,9 +435,6 @@ def test_replay_knowledge_runtime_matches_large_generated_fixture(tmp_path: Path
             "reason_code": "process_exited_without_watchdog_intervention",
         },
     )
-
-    output_task_ids = [row["task_id"] for row in task_rows[:354]]
-    repair_failed_task_ids = output_task_ids[-3:]
 
     for task_id in output_task_ids:
         _write_json(
@@ -390,6 +489,7 @@ def test_replay_knowledge_runtime_matches_large_generated_fixture(tmp_path: Path
         "proposals/*": "present",
         "shard_manifest.jsonl": "present",
         "task_manifest.jsonl": "present",
+        "task_status.jsonl": "present",
         "telemetry.json": "present",
         "worker_assignments.json": "present",
     }

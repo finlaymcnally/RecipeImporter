@@ -411,7 +411,9 @@ def run_codex_farm_nonrecipe_knowledge_review(
                 ),
                 "validated_shards": int(promotion_report.get("validated_shards") or 0),
                 "invalid_shards": int(promotion_report.get("invalid_shards") or 0),
-                "missing_output_shards": int(promotion_report.get("missing_output_shards") or 0),
+                "no_final_output_shards": int(
+                    promotion_report.get("no_final_output_shards") or 0
+                ),
                 "partially_promoted_shards": review_rollup["partially_promoted_shard_count"],
                 "wholly_unpromoted_invalid_shards": review_rollup[
                     "wholly_unpromoted_invalid_shard_count"
@@ -508,7 +510,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             "stage_status": (
                 "completed_with_failures"
                 if int(promotion_report.get("invalid_shards") or 0) > 0
-                or int(promotion_report.get("missing_output_shards") or 0) > 0
+                or int(promotion_report.get("no_final_output_shards") or 0) > 0
                 else "completed"
             ),
         }

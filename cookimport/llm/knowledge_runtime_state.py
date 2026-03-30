@@ -20,6 +20,7 @@ class KnowledgePacketAttemptType(_StrEnum):
 
 class KnowledgePacketState(_StrEnum):
     PENDING = "pending"
+    LEASED = "leased"
     MAIN_OUTPUT_WRITTEN = "main_output_written"
     MAIN_OUTPUT_MALFORMED = "main_output_malformed"
     FOLLOW_UP_STALE = "follow_up_stale"
@@ -28,7 +29,16 @@ class KnowledgePacketState(_StrEnum):
     REPAIR_RECOVERED = "repair_recovered"
     REPAIR_FAILED = "repair_failed"
     VALIDATED = "validated"
-    MISSING_OUTPUT = "missing_output"
+    WORKER_EXITED_WITH_PACKET_STILL_LEASED = "worker_exited_with_packet_still_leased"
+    PACKET_RESULT_VALIDATION_BLOCKED = "packet_result_validation_blocked"
+    REPAIR_PACKET_EXHAUSTED = "repair_packet_exhausted"
+    QUEUE_COMPLETED_WITHOUT_PROMOTED_OUTPUT = "queue_completed_without_promoted_output"
+    PROCESS_EXITED_WITHOUT_FINAL_PACKET_STATE = (
+        "process_exited_without_final_packet_state"
+    )
+    WATCHDOG_KILLED = "watchdog_killed"
+    INVALID_OUTPUT = "invalid_output"
+    NO_FINAL_OUTPUT = "no_final_output"
     CANCELLED_DUE_TO_INTERRUPT = "cancelled_due_to_interrupt"
 
 
@@ -38,7 +48,16 @@ class KnowledgePacketTerminalOutcome(_StrEnum):
     REPAIR_RECOVERED = "repair_recovered"
     REPAIR_FAILED = "repair_failed"
     VALIDATED = "validated"
-    MISSING_OUTPUT = "missing_output"
+    WORKER_EXITED_WITH_PACKET_STILL_LEASED = "worker_exited_with_packet_still_leased"
+    PACKET_RESULT_VALIDATION_BLOCKED = "packet_result_validation_blocked"
+    REPAIR_PACKET_EXHAUSTED = "repair_packet_exhausted"
+    QUEUE_COMPLETED_WITHOUT_PROMOTED_OUTPUT = "queue_completed_without_promoted_output"
+    PROCESS_EXITED_WITHOUT_FINAL_PACKET_STATE = (
+        "process_exited_without_final_packet_state"
+    )
+    WATCHDOG_KILLED = "watchdog_killed"
+    INVALID_OUTPUT = "invalid_output"
+    NO_FINAL_OUTPUT = "no_final_output"
     CANCELLED_DUE_TO_INTERRUPT = "cancelled_due_to_interrupt"
 
 
@@ -59,6 +78,21 @@ class KnowledgeFollowUpKind(_StrEnum):
 class KnowledgeArtifactState(_StrEnum):
     PRESENT = "present"
     MISSING = "missing"
+
+
+KNOWLEDGE_PACKET_EXPLICIT_NO_FINAL_OUTPUT_REASON_CODES: tuple[str, ...] = (
+    KnowledgePacketTerminalOutcome.WORKER_EXITED_WITH_PACKET_STILL_LEASED.value,
+    KnowledgePacketTerminalOutcome.PACKET_RESULT_VALIDATION_BLOCKED.value,
+    KnowledgePacketTerminalOutcome.REPAIR_PACKET_EXHAUSTED.value,
+    KnowledgePacketTerminalOutcome.QUEUE_COMPLETED_WITHOUT_PROMOTED_OUTPUT.value,
+    KnowledgePacketTerminalOutcome.PROCESS_EXITED_WITHOUT_FINAL_PACKET_STATE.value,
+)
+
+
+def knowledge_reason_is_explicit_no_final_output(reason_code: object) -> bool:
+    return str(reason_code or "").strip() in (
+        KNOWLEDGE_PACKET_EXPLICIT_NO_FINAL_OUTPUT_REASON_CODES
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,4 +204,3 @@ class KnowledgePacketLedger:
             stage_artifact_states=dict(sorted(dict(stage_artifact_states or {}).items())),
             benchmark_artifact_states=dict(sorted(dict(benchmark_artifact_states or {}).items())),
         )
-

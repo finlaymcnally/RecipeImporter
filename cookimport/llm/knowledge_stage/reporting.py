@@ -91,7 +91,7 @@ def _build_review_summary(
         "validated_output_packet_count": int(validated_output_count),
         "validated_shard_count": int(counts.get("validated_shard_count") or 0),
         "invalid_shard_count": int(counts.get("invalid_shard_count") or 0),
-        "missing_output_shard_count": int(counts.get("missing_output_shard_count") or 0),
+        "no_final_output_shard_count": int(counts.get("no_final_output_shard_count") or 0),
         "partially_promoted_shard_count": int(
             counts.get("partially_promoted_shard_count") or 0
         ),
@@ -118,7 +118,7 @@ def _build_knowledge_review_rollup(
     report = dict(promotion_report or {})
     validated_shard_count = int(report.get("validated_shards") or 0)
     invalid_shard_count = int(report.get("invalid_shards") or 0)
-    missing_output_shard_count = int(report.get("missing_output_shards") or 0)
+    no_final_output_shard_count = int(report.get("no_final_output_shards") or 0)
     reviewed_shards_with_useful_packets = int(
         report.get("reviewed_shards_with_useful_packets") or 0
     )
@@ -131,7 +131,7 @@ def _build_knowledge_review_rollup(
         report.get("unreviewed_packet_count")
         or (
             int(getattr(build_report, "packets_written", 0) or 0)
-            if missing_output_shard_count > 0 and not report
+            if no_final_output_shard_count > 0 and not report
             else 0
         )
     )
@@ -139,7 +139,7 @@ def _build_knowledge_review_rollup(
     return {
         "validated_shard_count": validated_shard_count,
         "invalid_shard_count": invalid_shard_count,
-        "missing_output_shard_count": missing_output_shard_count,
+        "no_final_output_shard_count": no_final_output_shard_count,
         "reviewed_shards_with_useful_packets": reviewed_shards_with_useful_packets,
         "reviewed_shards_all_other": reviewed_shards_all_other,
         "partially_promoted_shard_count": partially_promoted_shard_count,
@@ -148,7 +148,7 @@ def _build_knowledge_review_rollup(
             reviewed_shards_with_useful_packets + reviewed_shards_all_other
         ),
         "unreviewed_shard_count": (
-            wholly_unpromoted_invalid_shard_count + missing_output_shard_count
+            wholly_unpromoted_invalid_shard_count + no_final_output_shard_count
         ),
         "unreviewed_packet_count": unreviewed_packet_count,
         "unreviewed_block_count": unreviewed_block_count,
@@ -203,6 +203,84 @@ def _coerce_dict(value: Any) -> dict[str, Any]:
 
 def _summarize_direct_rows(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
     return summarize_direct_telemetry_rows(rows)
+
+
+def _nonnegative_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
+def _ratio_or_none(numerator: int | None, denominator: int | None) -> float | None:
+    if numerator is None or denominator is None or denominator <= 0:
+        return None
+    return round(float(numerator) / float(denominator), 4)
+
+
+def _build_knowledge_packet_economics(
+    *,
+    rows: Sequence[Mapping[str, Any]],
+    telemetry_summary: Mapping[str, Any],
+) -> dict[str, Any]:
+    normalized_rows = [dict(row) for row in rows if isinstance(row, Mapping)]
+    packet_count_total = sum(int(row.get("workspace_packet_count") or 0) for row in normalized_rows)
+    repair_packet_count_total = sum(
+        int(row.get("workspace_repair_packet_count") or 0) for row in normalized_rows
+    )
+    owned_row_count_total = sum(int(row.get("owned_row_count") or 0) for row in normalized_rows)
+    shard_count = len(normalized_rows)
+    primary_packet_count_total = max(packet_count_total - repair_packet_count_total, 0)
+    visible_input_tokens = _nonnegative_int(telemetry_summary.get("visible_input_tokens"))
+    visible_output_tokens = _nonnegative_int(telemetry_summary.get("visible_output_tokens"))
+    wrapper_overhead_tokens = _nonnegative_int(telemetry_summary.get("wrapper_overhead_tokens"))
+    reasoning_tokens = _nonnegative_int(telemetry_summary.get("tokens_reasoning"))
+    billed_total_tokens = _nonnegative_int(telemetry_summary.get("tokens_total"))
+    semantic_payload_tokens_total = (
+        None
+        if visible_input_tokens is None or visible_output_tokens is None
+        else visible_input_tokens + visible_output_tokens
+    )
+    return {
+        "packet_count_total": packet_count_total,
+        "primary_packet_count_total": primary_packet_count_total,
+        "repair_packet_count_total": repair_packet_count_total,
+        "owned_row_count_total": owned_row_count_total,
+        "packet_churn_count": repair_packet_count_total,
+        "packets_per_shard": _ratio_or_none(packet_count_total, shard_count),
+        "repair_packet_share": _ratio_or_none(repair_packet_count_total, packet_count_total),
+        "packets_per_owned_row": _ratio_or_none(packet_count_total, owned_row_count_total),
+        "cost_per_owned_row": _ratio_or_none(billed_total_tokens, owned_row_count_total),
+        "visible_input_tokens_per_owned_row": _ratio_or_none(
+            visible_input_tokens,
+            owned_row_count_total,
+        ),
+        "visible_output_tokens_per_owned_row": _ratio_or_none(
+            visible_output_tokens,
+            owned_row_count_total,
+        ),
+        "wrapper_overhead_tokens_per_owned_row": _ratio_or_none(
+            wrapper_overhead_tokens,
+            owned_row_count_total,
+        ),
+        "reasoning_tokens_per_owned_row": _ratio_or_none(
+            reasoning_tokens,
+            owned_row_count_total,
+        ),
+        "semantic_payload_tokens_total": semantic_payload_tokens_total,
+        "semantic_payload_tokens_per_owned_row": _ratio_or_none(
+            semantic_payload_tokens_total,
+            owned_row_count_total,
+        ),
+        "protocol_overhead_tokens_total": wrapper_overhead_tokens,
+        "protocol_overhead_share": _ratio_or_none(
+            wrapper_overhead_tokens,
+            billed_total_tokens,
+        ),
+    }
 
 
 def _aggregate_worker_runner_payload(
@@ -378,7 +456,7 @@ def _write_knowledge_runtime_summary_artifacts(
         owned_packet_count = int(metadata.get("owned_packet_count") or 1)
         if proposal.status == "validated":
             return 0
-        if proposal.status == "missing_output":
+        if proposal.status == "no_final_output":
             return owned_packet_count
         if not promotion_info or not bool(promotion_info.get("partial")):
             return owned_packet_count
@@ -403,7 +481,7 @@ def _write_knowledge_runtime_summary_artifacts(
         owned_block_count = int(metadata.get("owned_block_count") or 0)
         if proposal.status == "validated":
             return 0
-        if proposal.status == "missing_output":
+        if proposal.status == "no_final_output":
             return owned_block_count
         if not promotion_info or not bool(promotion_info.get("partial")):
             return owned_block_count
@@ -441,14 +519,29 @@ def _write_knowledge_runtime_summary_artifacts(
                 else False,
             }
         )
+    no_final_output_reason_code_counts: dict[str, int] = {}
+    for proposal in all_proposals:
+        if proposal.status != "no_final_output":
+            continue
+        reason_code = str((proposal.metadata or {}).get("terminal_reason_code") or "").strip()
+        if not reason_code:
+            reason_code = "no_final_output"
+        no_final_output_reason_code_counts[reason_code] = (
+            int(no_final_output_reason_code_counts.get(reason_code) or 0) + 1
+        )
 
     promotion_report = {
-        "schema_version": "phase_worker_runtime.promotion_report.v1",
+        "schema_version": "phase_worker_runtime.promotion_report.v2",
         "phase_key": phase_key,
         "pipeline_id": pipeline_id,
         "validated_shards": sum(1 for proposal in all_proposals if proposal.status == "validated"),
         "invalid_shards": sum(1 for proposal in all_proposals if proposal.status == "invalid"),
-        "missing_output_shards": sum(1 for proposal in all_proposals if proposal.status == "missing_output"),
+        "no_final_output_shards": sum(
+            1 for proposal in all_proposals if proposal.status == "no_final_output"
+        ),
+        "no_final_output_reason_code_counts": dict(
+            sorted(no_final_output_reason_code_counts.items())
+        ),
         "partially_promoted_shards": sum(
             1 for row in proposal_promotion_rows if row["partially_promoted"]
         ),
@@ -482,6 +575,10 @@ def _write_knowledge_runtime_summary_artifacts(
         ),
     }
     telemetry_summary = _summarize_direct_rows(list(stage_rows))
+    telemetry_summary["packet_economics"] = _build_knowledge_packet_economics(
+        rows=stage_rows,
+        telemetry_summary=telemetry_summary,
+    )
     telemetry_summary.update(_summarize_knowledge_workspace_relaunches(worker_reports))
     telemetry = {
         "schema_version": "phase_worker_runtime.telemetry.v1",

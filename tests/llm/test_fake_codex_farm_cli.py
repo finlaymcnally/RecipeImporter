@@ -548,8 +548,13 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
     phase_dir = apply_result.llm_raw_dir / "knowledge"
     worker_root = phase_dir / "workers" / "worker-001"
     status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
-    current_phase = json.loads((worker_root / "current_phase.json").read_text(encoding="utf-8"))
-    pass1_work_ledgers = sorted((worker_root / "work").glob("*.pass1.json"))
+    lease_status = json.loads((worker_root / "packet_lease_status.json").read_text(encoding="utf-8"))
+    packet_history = [
+        json.loads(line)
+        for line in (worker_root / "packet_history.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    shard_output = json.loads((worker_root / "out" / "book.ks0000.nr.json").read_text(encoding="utf-8"))
 
     assert status["runtime_mode_audit"]["output_schema_enforced"] is False
     assert status["runtime_mode_audit"]["tool_affordances_requested"] is True
@@ -557,20 +562,41 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
         (row.get("supervision_state"), row.get("supervision_reason_code"))
         for row in status["telemetry"]["rows"]
     } == {("completed", "workspace_validated_task_queue_completed")}
-    assert current_phase["phase"] is None
-    assert pass1_work_ledgers
+    assert lease_status["schema_version"] == "knowledge_packet_lease_status.v1"
+    assert lease_status["worker_state"] == "queue_completed"
+    assert lease_status["last_runtime_action"] == "queue_completed"
+    assert lease_status["completed_shard_count"] == 1
+    assert lease_status["failed_shard_count"] == 0
+    assert lease_status["queue_total_shard_count"] == 1
+    assert lease_status["shard_statuses"]["book.ks0000.nr"]["terminal_status"] == "validated"
+    assert lease_status["shard_statuses"]["book.ks0000.nr"]["terminal_reason_code"] == "validated"
+    assert lease_status["shard_statuses"]["book.ks0000.nr"]["packet_count"] == 2
+    assert lease_status["shard_statuses"]["book.ks0000.nr"]["repair_packet_count"] == 0
     assert (worker_root / "assigned_shards.json").exists()
     assert not (worker_root / "assigned_tasks.json").exists()
     assert not (worker_root / "current_task.json").exists()
+    assert not (worker_root / "current_phase.json").exists()
+    assert not (worker_root / "current_packet.json").exists()
+    assert not (worker_root / "current_hint.md").exists()
+    assert not (worker_root / "current_result_path.txt").exists()
     assert sorted(path.name for path in (worker_root / "out").glob("*.json"))
-    assert sorted(path.name for path in (worker_root / "in").glob("*.pass2.json"))
-    assert pass1_work_ledgers
-    for path in pass1_work_ledgers:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        assert payload["phase"] == "pass1"
-        assert "rows" in payload
-        assert "packet_id" not in payload
-    assert current_phase["status"] == "completed"
+    assert not sorted(path.name for path in (worker_root / "in").glob("*.pass2.json"))
+    assert [event["event"] for event in packet_history] == [
+        "lease_started",
+        "lease_started",
+        "shard_validated",
+    ]
+    assert [event.get("task_id") for event in packet_history if event["event"] == "lease_started"] == [
+        "book.ks0000.nr.pass1",
+        "book.ks0000.nr.pass2",
+    ]
+    assert shard_output["packet_id"] == "book.ks0000.nr"
+    assert shard_output["block_decisions"] == [
+        {"block_index": 4, "category": "knowledge", "reviewer_category": "knowledge"}
+    ]
+    assert shard_output["idea_groups"] == [
+        {"group_id": "g01", "topic_label": "Fake knowledge group", "block_indices": [4]}
+    ]
 
 
 def test_line_role_runtime_can_run_through_fake_codex_farm_subprocess(

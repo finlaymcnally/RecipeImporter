@@ -2209,7 +2209,7 @@ def test_prompt_budget_summary_surfaces_pathological_spend_metrics(
                 "counts": {
                     "validated_shards": 1,
                     "invalid_shards": 0,
-                    "missing_output_shards": 0,
+                    "no_final_output_shards": 0,
                 },
                 "process_run": {
                     "telemetry": {
@@ -2786,6 +2786,40 @@ def _build_knowledge_prompt_budget_summary_fixture(tmp_path: Path) -> dict[str, 
         ),
         encoding="utf-8",
     )
+    (stage_root / "telemetry.json").write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "visible_input_tokens": 90,
+                    "visible_output_tokens": 30,
+                    "wrapper_overhead_tokens": 60,
+                    "tokens_reasoning": 0,
+                    "tokens_total": 180,
+                    "packet_economics": {
+                        "packet_count_total": 3,
+                        "primary_packet_count_total": 2,
+                        "repair_packet_count_total": 1,
+                        "owned_row_count_total": 3,
+                        "packet_churn_count": 1,
+                        "packets_per_shard": 3.0,
+                        "repair_packet_share": 0.3333,
+                        "packets_per_owned_row": 1.0,
+                        "cost_per_owned_row": 60.0,
+                        "visible_input_tokens_per_owned_row": 30.0,
+                        "visible_output_tokens_per_owned_row": 10.0,
+                        "wrapper_overhead_tokens_per_owned_row": 20.0,
+                        "reasoning_tokens_per_owned_row": 0.0,
+                        "semantic_payload_tokens_total": 120,
+                        "semantic_payload_tokens_per_owned_row": 40.0,
+                        "protocol_overhead_tokens_total": 60,
+                        "protocol_overhead_share": 0.3333,
+                    },
+                }
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
     pred_manifest = {
         "llm_codex_farm": {
@@ -2889,6 +2923,11 @@ def test_prompt_budget_summary_surfaces_knowledge_execution_mode_rollups(
         "workspace_worker": 1,
     }
     assert summary["totals"]["structured_followup_call_count"] == 1
+    assert knowledge_stage["packet_count_total"] == 3
+    assert knowledge_stage["repair_packet_count_total"] == 1
+    assert knowledge_stage["cost_per_owned_row"] == 60.0
+    assert knowledge_stage["protocol_overhead_share"] == 0.3333
+    assert knowledge_stage["packet_economics"]["semantic_payload_tokens_total"] == 120
 
 
 def test_prompt_budget_summary_reports_recipe_run_count_deviation_from_requested_target(

@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -144,82 +145,130 @@ def _write_workspace_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _build_knowledge_pass1_work_payload(
+def _build_knowledge_leased_packet_result(
     *,
-    input_payload: dict[str, Any],
+    packet_payload: dict[str, Any],
     output_payload: dict[str, Any],
 ) -> dict[str, Any]:
-    decision_by_block_index = {
-        int(row.get("block_index")): str(row.get("category") or "").strip()
-        for row in (output_payload.get("block_decisions") or [])
-        if isinstance(row, dict) and row.get("block_index") is not None
-    }
-    rows: list[dict[str, Any]] = []
-    for block in (input_payload.get("b") or []):
-        if not isinstance(block, dict) or block.get("i") is None:
-            continue
-        block_index = int(block.get("i"))
-        rows.append(
-            {
-                "block_index": block_index,
-                "category": decision_by_block_index.get(block_index, "other") or "other",
-            }
-        )
-    return {"phase": "pass1", "rows": rows}
+    packet_kind = str(packet_payload.get("packet_kind") or "").strip()
+    task_id = str(packet_payload.get("task_id") or "").strip()
+    shard_id = str(packet_payload.get("shard_id") or "").strip()
+    rows = packet_payload.get("rows")
+    if not isinstance(rows, list):
+        rows = []
 
+    if (
+        str(output_payload.get("packet_kind") or "").strip() == packet_kind
+        and str(output_payload.get("task_id") or "").strip() == task_id
+        and str(output_payload.get("shard_id") or "").strip() == shard_id
+        and isinstance(output_payload.get("rows"), list)
+    ):
+        normalized_rows: list[dict[str, Any]] = []
+        for row in output_payload.get("rows") or []:
+            if not isinstance(row, dict) or row.get("block_index") is None:
+                continue
+            normalized_row = {"block_index": int(row.get("block_index"))}
+            if packet_kind == "pass1":
+                normalized_row["category"] = str(row.get("category") or "").strip()
+            else:
+                normalized_row["group_key"] = str(
+                    row.get("group_key") or row.get("group_id") or ""
+                ).strip()
+                normalized_row["topic_label"] = str(row.get("topic_label") or "").strip()
+            normalized_rows.append(normalized_row)
+        return {
+            "v": str(output_payload.get("v") or "1"),
+            "task_id": task_id,
+            "packet_kind": packet_kind,
+            "shard_id": shard_id,
+            "rows": normalized_rows,
+        }
 
-def _build_knowledge_pass2_work_payload(
-    *,
-    pass2_input_payload: dict[str, Any],
-    output_payload: dict[str, Any],
-) -> dict[str, Any]:
+    if packet_kind == "pass1":
+        decision_by_block_index = {
+            int(row.get("block_index")): str(row.get("category") or "").strip()
+            for row in (output_payload.get("block_decisions") or [])
+            if isinstance(row, dict) and row.get("block_index") is not None
+        }
+        default_category = "knowledge" if not decision_by_block_index else "other"
+        return {
+            "v": "1",
+            "task_id": task_id,
+            "packet_kind": "pass1",
+            "shard_id": shard_id,
+            "rows": [
+                {
+                    "block_index": int(row.get("block_index")),
+                    "category": decision_by_block_index.get(
+                        int(row.get("block_index")),
+                        default_category,
+                    )
+                    or default_category,
+                }
+                for row in rows
+                if isinstance(row, dict) and row.get("block_index") is not None
+            ],
+        }
+
     group_by_block_index: dict[int, dict[str, str]] = {}
-    for group in (output_payload.get("idea_groups") or []):
+    fallback_group_key = None
+    fallback_topic_label = None
+    for group in output_payload.get("idea_groups") or []:
         if not isinstance(group, dict):
             continue
-        group_id = str(group.get("group_id") or "").strip()
+        group_key = str(group.get("group_key") or group.get("group_id") or "").strip()
         topic_label = str(group.get("topic_label") or "").strip()
-        if not group_id or not topic_label:
+        if not group_key or not topic_label:
             continue
+        if fallback_group_key is None:
+            fallback_group_key = group_key
+            fallback_topic_label = topic_label
         for block_index in group.get("block_indices") or []:
             try:
                 normalized_block_index = int(block_index)
             except (TypeError, ValueError):
                 continue
             group_by_block_index[normalized_block_index] = {
-                "group_id": group_id,
+                "group_key": group_key,
                 "topic_label": topic_label,
             }
-    rows: list[dict[str, Any]] = []
-    for row in (pass2_input_payload.get("rows") or []):
-        if not isinstance(row, dict) or row.get("block_index") is None:
-            continue
-        block_index = int(row.get("block_index"))
-        group = group_by_block_index.get(block_index)
-        if group is None:
-            group = {"group_id": f"g{len(rows) + 1:02d}", "topic_label": "Ungrouped"}
-        rows.append(
+    fallback_group_key = fallback_group_key or "group-01"
+    fallback_topic_label = fallback_topic_label or "Fake knowledge group"
+    return {
+        "v": "1",
+        "task_id": task_id,
+        "packet_kind": "pass2",
+        "shard_id": shard_id,
+        "rows": [
             {
-                "block_index": block_index,
-                "group_id": group["group_id"],
-                "topic_label": group["topic_label"],
+                "block_index": int(row.get("block_index")),
+                "group_key": (
+                    group_by_block_index.get(int(row.get("block_index")), {}).get("group_key")
+                    or fallback_group_key
+                ),
+                "topic_label": (
+                    group_by_block_index.get(int(row.get("block_index")), {}).get("topic_label")
+                    or fallback_topic_label
+                ),
             }
-        )
-    return {"phase": "pass2", "rows": rows}
+            for row in rows
+            if isinstance(row, dict) and row.get("block_index") is not None
+        ],
+    }
 
 
-def _run_workspace_helper_command(
+def _build_leased_packet_result(
     *,
-    workspace_root: Path,
-    args: tuple[str, ...],
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        list(args),
-        cwd=workspace_root,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    packet_payload: dict[str, Any],
+    output_payload: dict[str, Any],
+) -> dict[str, Any]:
+    packet_kind = str(packet_payload.get("packet_kind") or "").strip()
+    if packet_kind in {"pass1", "pass2"}:
+        return _build_knowledge_leased_packet_result(
+            packet_payload=packet_payload,
+            output_payload=output_payload,
+        )
+    return dict(output_payload)
 
 
 def _infer_exec_pipeline_id(prompt_text: str, *, output_schema_path: str) -> str:
@@ -249,62 +298,42 @@ def _run_workspace_worker_exec(
     in_dir = workspace_root / "in"
     out_dir = workspace_root / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
-    knowledge_helper_path = workspace_root / "tools" / "knowledge_worker.py"
-    current_phase_path = workspace_root / "current_phase.json"
+    current_packet_path = workspace_root / "current_packet.json"
 
     processed_any = False
-    if (
-        pipeline_id in {"recipe.knowledge.v1", "recipe.knowledge.compact.v1", "recipe.knowledge.packet.v1"}
-        and knowledge_helper_path.is_file()
-        and current_phase_path.is_file()
-    ):
-        helper_args = (sys.executable, "tools/knowledge_worker.py")
-        for row in assigned_payload:
-            shard_id = str(row.get("task_id") or row.get("shard_id") or "").strip()
-            if not shard_id:
-                continue
-            input_payload = _read_json(in_dir / f"{shard_id}.json")
-            if input_payload is None:
-                continue
-            output_payload = build_structural_pipeline_output(pipeline_id, input_payload)
-            _write_workspace_json(
-                workspace_root / "work" / f"{shard_id}.pass1.json",
-                _build_knowledge_pass1_work_payload(
-                    input_payload=input_payload,
+    if current_packet_path.is_file():
+        last_written_task_id: str | None = None
+        lease_wait_started_at = time.monotonic()
+        for _ in range(256):
+            lease_status = _read_json(workspace_root / "packet_lease_status.json") or {}
+            worker_state = str(lease_status.get("worker_state") or "").strip()
+            if worker_state == "queue_completed":
+                processed_any = True
+                break
+
+            packet_payload = _read_json(current_packet_path)
+            if packet_payload is None:
+                break
+            result_path_text = (workspace_root / "current_result_path.txt").read_text(
+                encoding="utf-8"
+            ).strip()
+            if not result_path_text:
+                break
+            task_id = str(packet_payload.get("task_id") or "").strip() or None
+            result_path = workspace_root / result_path_text
+            if task_id != last_written_task_id or not result_path.exists():
+                output_payload = build_structural_pipeline_output(pipeline_id, packet_payload)
+                leased_result = _build_leased_packet_result(
+                    packet_payload=packet_payload,
                     output_payload=output_payload,
-                ),
-            )
-            for command in ("check-phase", "install-phase"):
-                completed = _run_workspace_helper_command(
-                    workspace_root=workspace_root,
-                    args=(*helper_args, command),
                 )
-                if completed.returncode != 0:
-                    raise SystemExit(
-                        "fake workspace knowledge helper failed during "
-                        f"{command}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
-                    )
-            pass2_input_payload = _read_json(in_dir / f"{shard_id}.pass2.json")
-            if pass2_input_payload is None:
-                raise SystemExit(f"missing generated pass2 input for {shard_id}")
-            _write_workspace_json(
-                workspace_root / "work" / f"{shard_id}.pass2.json",
-                _build_knowledge_pass2_work_payload(
-                    pass2_input_payload=pass2_input_payload,
-                    output_payload=output_payload,
-                ),
-            )
-            for command in ("check-phase", "install-phase"):
-                completed = _run_workspace_helper_command(
-                    workspace_root=workspace_root,
-                    args=(*helper_args, command),
-                )
-                if completed.returncode != 0:
-                    raise SystemExit(
-                        "fake workspace knowledge helper failed during "
-                        f"{command}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
-                    )
-            processed_any = True
+                _write_workspace_json(result_path, leased_result)
+                last_written_task_id = task_id
+                lease_wait_started_at = time.monotonic()
+                processed_any = True
+            if time.monotonic() - lease_wait_started_at > 5.0:
+                break
+            time.sleep(0.05)
     else:
         for row in assigned_payload:
             shard_id = str(row.get("task_id") or row.get("shard_id") or "").strip()

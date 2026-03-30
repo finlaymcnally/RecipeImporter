@@ -335,7 +335,6 @@ def test_prepare_direct_exec_workspace_worker_mode_knows_knowledge_packet_lease_
         encoding="utf-8",
     )
     (source_root / "OUTPUT_CONTRACT.md").write_text("# contract\n", encoding="utf-8")
-    (source_root / "tools" / "knowledge_worker.py").write_text("print('helper')\n", encoding="utf-8")
 
     workspace = prepare_direct_exec_workspace(
         source_working_dir=source_root,
@@ -746,7 +745,7 @@ def test_workspace_supervision_pushes_advanced_current_task_bundle_back_to_execu
         event_count=1,
         command_execution_count=1,
         reasoning_item_count=0,
-        last_command="/bin/bash -lc python3 tools/knowledge_worker.py install-current",
+        last_command="/bin/bash -lc python3 tools/recipe_worker.py install-current",
         last_command_repeat_count=1,
         has_final_agent_message=False,
         timeout_seconds=30,

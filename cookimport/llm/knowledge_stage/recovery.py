@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from typing import Protocol
+
 from . import _shared as _shared_module
 from .planning import (
     _KnowledgeFollowupDecision,
     _KnowledgeWorkspaceStageCommandViolation,
     _knowledge_packet_payloads,
 )
+from ..knowledge_runtime_state import knowledge_reason_is_explicit_no_final_output
 
 globals().update(
     {
@@ -358,102 +361,12 @@ def _build_knowledge_task_status_tracker(
     return _KnowledgeTaskStatusTracker(path=path, rows_by_task_id=rows_by_task_id)
 
 
-@dataclass(slots=True)
-class _KnowledgeWorkspacePhaseQueueController:
-    worker_root: Path
-    shard_ids: tuple[str, ...]
-    current_phase_path: Path | None = None
-    validated_shard_ids: set[str] = field(default_factory=set)
-    current_shard_id_value: str | None = None
-    current_validation_errors: tuple[str, ...] = ()
-    queue_complete: bool = False
-
-    def __post_init__(self) -> None:
-        if self.current_phase_path is None:
-            self.current_phase_path = self.worker_root / "current_phase.json"
-        self.observe_current_output()
-
-    @property
-    def total_task_count(self) -> int:
-        return len(self.shard_ids)
-
-    @property
-    def validated_task_count(self) -> int:
-        return len(self.validated_shard_ids)
+class _KnowledgeWorkspaceQueueController(Protocol):
+    def observe_current_output(self) -> dict[str, Any]:
+        ...
 
     def is_complete(self) -> bool:
-        return self.queue_complete
-
-    def current_task_id(self) -> str | None:
-        return self.current_shard_id_value
-
-    def status_payload(self) -> dict[str, Any]:
-        return {
-            "queue_total_task_count": self.total_task_count,
-            "queue_validated_task_count": self.validated_task_count,
-            "queue_remaining_task_count": max(
-                self.total_task_count - self.validated_task_count,
-                0,
-            ),
-            "queue_complete": self.is_complete(),
-            "current_task_id": self.current_task_id(),
-            "current_validation_errors": list(self.current_validation_errors),
-        }
-
-    def observe_current_output(self) -> dict[str, Any]:
-        previous_current_shard_id = self.current_shard_id_value
-        previous_validated_count = self.validated_task_count
-        previous_queue_complete = self.queue_complete
-
-        self.validated_shard_ids = {
-            shard_id
-            for shard_id in self.shard_ids
-            if (self.worker_root / "out" / f"{shard_id}.json").exists()
-        }
-        current_phase_payload = _load_json_dict(self.current_phase_path or Path())
-        phase_status = str(current_phase_payload.get("status") or "").strip()
-        current_shard_id = str(current_phase_payload.get("shard_id") or "").strip() or None
-        self.current_validation_errors = tuple(
-            str(error).strip()
-            for error in (current_phase_payload.get("validation_errors") or [])
-            if str(error).strip()
-        )
-        self.queue_complete = (
-            phase_status == "completed"
-            and self.validated_task_count >= self.total_task_count
-        )
-        if self.queue_complete:
-            self.current_shard_id_value = None
-            self.current_validation_errors = ()
-        elif current_shard_id in self.shard_ids:
-            self.current_shard_id_value = current_shard_id
-        else:
-            self.current_shard_id_value = next(
-                (
-                    shard_id
-                    for shard_id in self.shard_ids
-                    if shard_id not in self.validated_shard_ids
-                ),
-                None,
-            )
-
-        current_output_present = (
-            bool(self.validated_shard_ids)
-            if self.current_shard_id_value is None
-            else self.current_shard_id_value in self.validated_shard_ids
-        )
-        return {
-            "current_task_id": self.current_task_id(),
-            "current_output_present": current_output_present,
-            "advanced": (
-                previous_current_shard_id != self.current_shard_id_value
-                or previous_validated_count != self.validated_task_count
-                or previous_queue_complete != self.queue_complete
-            ),
-            "valid": self.queue_complete or current_output_present,
-            "validation_errors": self.current_validation_errors,
-            "queue_complete": self.queue_complete,
-        }
+        ...
 
 
 def _merge_live_status_metadata(path: Path, *, payload: Mapping[str, Any]) -> None:
@@ -714,10 +627,12 @@ def _terminal_knowledge_task_state(
     *,
     proposal_status: str,
     supervision_state: str | None,
+    terminal_reason_code: str | None = None,
     watchdog_retry_status: str = "not_attempted",
     retry_status: str = "not_attempted",
     repair_status: str = "not_attempted",
 ) -> str:
+    cleaned_terminal_reason_code = str(terminal_reason_code or "").strip()
     if proposal_status == "validated":
         if repair_status == "repaired":
             return "repair_recovered"
@@ -730,8 +645,10 @@ def _terminal_knowledge_task_state(
         return "retry_failed"
     if str(supervision_state or "").strip() == "watchdog_killed":
         return "watchdog_killed"
-    if proposal_status == "missing_output":
-        return "missing_output"
+    if proposal_status == "no_final_output":
+        if knowledge_reason_is_explicit_no_final_output(cleaned_terminal_reason_code):
+            return cleaned_terminal_reason_code
+        return "no_final_output"
     return "invalid_output"
 
 
@@ -1219,7 +1136,7 @@ def _evaluate_knowledge_response(
     proposal_status = "validated"
     cleaned_response_text = str(response_text or "").strip()
     if not cleaned_response_text:
-        return None, ("missing_output_file",), {}, "missing_output"
+        return None, ("missing_output_file",), {}, "no_final_output"
     try:
         parsed_payload, response_parse_metadata = _load_knowledge_response_json_object(
             cleaned_response_text
@@ -1357,7 +1274,7 @@ def _build_strict_json_watchdog_callback(
     forbid_inline_python_heredocs: bool = False,
     silence_timeout_seconds: float | None = None,
     expected_workspace_output_paths: Sequence[Path] | None = None,
-    task_queue_controller: _KnowledgeWorkspacePhaseQueueController | None = None,
+    task_queue_controller: _KnowledgeWorkspaceQueueController | None = None,
     workspace_output_observer: Callable[[int, int], None] | None = None,
 ) -> Callable[[CodexExecLiveSnapshot], CodexExecSupervisionDecision | None]:
     target_paths: list[Path] = []
@@ -1898,7 +1815,7 @@ def _failure_reason_from_run_result(
     return (
         "proposal_validation_failed"
         if proposal_status == "invalid"
-        else "missing_output_file"
+        else "no_final_output_file"
     )
 
 
@@ -1922,6 +1839,8 @@ def _terminal_reason_for_knowledge_task(
     metadata = dict(validation_metadata or {})
     if proposal_status == "validated":
         return "validated", None
+    if proposal_status == "no_final_output":
+        return "no_final_output", None
     if validation_errors:
         return str(validation_errors[0]).strip(), str(metadata.get("parse_error") or "").strip() or None
     return str(proposal_status).strip() or None, None
@@ -2079,7 +1998,7 @@ def _poison_reason_for_failure_signature(
             "poisoned_worker_repeated_boundary_failures",
             "worker repeatedly died on the same watchdog boundary failure before producing usable packets",
         )
-    if normalized == "missing_output":
+    if normalized == "no_final_output":
         return (
             "poisoned_worker_zero_output",
             "worker repeatedly produced no usable packet output",
@@ -2105,8 +2024,13 @@ def _knowledge_failure_signature(
         validation_errors=validation_errors,
         validation_metadata=metadata,
     )
-    if proposal_status == "missing_output" or "missing_output_file" in errors:
-        return "missing_output"
+    terminal_reason_code = str(metadata.get("terminal_reason_code") or "").strip()
+    if terminal_reason_code == "packet_result_validation_blocked":
+        return "validation_blocked"
+    if terminal_reason_code == "repair_packet_exhausted":
+        return "repair_exhausted"
+    if proposal_status == "no_final_output" or "missing_output_file" in errors:
+        return "no_final_output"
     if reason_code == "watchdog_command_execution_forbidden":
         return "watchdog_boundary"
     if reason_code == "watchdog_command_loop_without_output":

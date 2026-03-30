@@ -45,6 +45,7 @@ _PATHOLOGY_KEYS = (
 _STATUS_COUNT_KEYS = (
     "validated_shard_count",
     "invalid_shard_count",
+    "no_final_output_shard_count",
     "missing_output_shard_count",
 )
 _EXECUTION_MODE_COUNT_KEYS = (
@@ -828,6 +829,7 @@ def _attach_knowledge_stage_observability(
     workers = knowledge_summary.get("workers")
     followups = knowledge_summary.get("followups")
     salvage = knowledge_summary.get("salvage")
+    packet_economics = knowledge_summary.get("packet_economics")
     if isinstance(packets, Mapping):
         stage_summary["task_packet_total"] = _nonnegative_int(packets.get("packet_total"))
         stage_summary["parent_shard_total"] = _nonnegative_int(packets.get("parent_shard_total"))
@@ -837,6 +839,9 @@ def _attach_knowledge_stage_observability(
         stage_summary["llm_review_task_packet_total"] = _nonnegative_int(
             packets.get("llm_review_total")
         )
+        stage_summary["no_final_output_shard_count"] = _nonnegative_int(
+            packets.get("no_final_output_shard_count")
+        )
         if isinstance(packets.get("state_counts"), Mapping):
             stage_summary["packet_state_counts"] = dict(
                 sorted(dict(packets.get("state_counts") or {}).items())
@@ -844,6 +849,10 @@ def _attach_knowledge_stage_observability(
         if isinstance(packets.get("terminal_outcome_counts"), Mapping):
             stage_summary["packet_terminal_outcome_counts"] = dict(
                 sorted(dict(packets.get("terminal_outcome_counts") or {}).items())
+            )
+        if isinstance(packets.get("no_final_output_reason_code_counts"), Mapping):
+            stage_summary["no_final_output_reason_code_counts"] = dict(
+                sorted(dict(packets.get("no_final_output_reason_code_counts") or {}).items())
             )
         if isinstance(packets.get("deterministic_bypass_reason_code_counts"), Mapping):
             stage_summary["deterministic_bypass_reason_code_counts"] = dict(
@@ -883,6 +892,34 @@ def _attach_knowledge_stage_observability(
             stage_summary["salvage_kind_counts"] = dict(
                 sorted(dict(salvage.get("kind_counts") or {}).items())
             )
+    if isinstance(packet_economics, Mapping):
+        stage_summary["packet_economics"] = dict(packet_economics)
+        for key in (
+            "packet_count_total",
+            "primary_packet_count_total",
+            "repair_packet_count_total",
+            "owned_row_count_total",
+            "packet_churn_count",
+        ):
+            stage_summary[key] = _nonnegative_int(packet_economics.get(key))
+        for key in (
+            "packets_per_shard",
+            "repair_packet_share",
+            "packets_per_owned_row",
+            "cost_per_owned_row",
+            "visible_input_tokens_per_owned_row",
+            "visible_output_tokens_per_owned_row",
+            "wrapper_overhead_tokens_per_owned_row",
+            "reasoning_tokens_per_owned_row",
+            "semantic_payload_tokens_per_owned_row",
+            "protocol_overhead_share",
+        ):
+            stage_summary[key] = _nonnegative_float(packet_economics.get(key))
+        for key in (
+            "semantic_payload_tokens_total",
+            "protocol_overhead_tokens_total",
+        ):
+            stage_summary[key] = _nonnegative_int(packet_economics.get(key))
 
 
 def _attach_recipe_stage_observability(
@@ -1329,6 +1366,7 @@ def _extract_stage_shard_status_counts(
     result: dict[str, int | None] = {
         "validated_shard_count": None,
         "invalid_shard_count": None,
+        "no_final_output_shard_count": None,
         "missing_output_shard_count": None,
     }
     for path in candidates:
@@ -1343,6 +1381,10 @@ def _extract_stage_shard_status_counts(
         for key, aliases in (
             ("validated_shard_count", ("validated_shards", "validated_shard_count")),
             ("invalid_shard_count", ("invalid_shards", "invalid_shard_count")),
+            (
+                "no_final_output_shard_count",
+                ("no_final_output_shards", "no_final_output_shard_count"),
+            ),
             (
                 "missing_output_shard_count",
                 ("missing_output_shards", "missing_output_shard_count"),

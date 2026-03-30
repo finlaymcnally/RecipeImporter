@@ -184,10 +184,12 @@ def _prepare_partition_input_html(html: str, *, parser_version: str) -> str:
     if parser_version != "v2":
         return html
 
-    try:
-        soup = BeautifulSoup(html, "lxml")
-    except FeatureNotFound:
-        soup = BeautifulSoup(html, "html.parser")
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+        try:
+            soup = BeautifulSoup(html, "lxml")
+        except FeatureNotFound:
+            soup = BeautifulSoup(html, "html.parser")
 
     if soup.find("body", class_="Document") or soup.find("div", class_="Page"):
         return html

@@ -929,11 +929,7 @@ def register(app: typer.Typer) -> dict[str, object]:
 
         from cookimport.cli_worker import execute_source_job
         progress_queue = None
-        try:
-            manager = create_sync_manager()
-            progress_queue = manager.Queue()
-        except Exception:
-            progress_queue = None
+        progress_queue_manager = None
     
         job_specs = plan_source_jobs(
             files_to_process,
@@ -1212,16 +1208,20 @@ def register(app: typer.Typer) -> dict[str, object]:
         # Background thread to consume queue
         stop_event = threading.Event()
         queue_thread = None
-        if progress_queue is not None:
-            def process_queue():
+
+        def _start_progress_queue_consumer() -> None:
+            nonlocal queue_thread
+            if progress_queue is None or queue_thread is not None:
+                return
+
+            def process_queue() -> None:
                 while not stop_event.is_set():
                     try:
-                        # Non-blocking get with short timeout
                         try:
                             record = progress_queue.get(timeout=0.05)
                         except queue.Empty:
                             continue
-                    
+
                         if isinstance(record, (tuple, list)) and len(record) == 4:
                             worker_label, filename, status, updated_at = record
                         elif isinstance(record, (tuple, list)) and len(record) == 2:
@@ -1242,6 +1242,21 @@ def register(app: typer.Typer) -> dict[str, object]:
 
             queue_thread = threading.Thread(target=process_queue, daemon=True)
             queue_thread.start()
+
+        def _ensure_progress_queue(*, process_safe: bool) -> None:
+            nonlocal progress_queue
+            nonlocal progress_queue_manager
+            if progress_queue is not None:
+                return
+            if process_safe:
+                try:
+                    progress_queue_manager = create_sync_manager()
+                    progress_queue = progress_queue_manager.Queue()
+                except Exception:
+                    progress_queue = queue.Queue()
+            else:
+                progress_queue = queue.Queue()
+            _start_progress_queue_consumer()
 
         def _stage_timeseries_tick() -> None:
             while not stage_timeseries_stop.wait(
@@ -1683,6 +1698,7 @@ def register(app: typer.Typer) -> dict[str, object]:
                 )
             stage_worker_backend_effective = str(executor_resolution.backend)
             if executor_resolution.executor is None:
+                _ensure_progress_queue(process_safe=False)
                 _run_jobs_serial()
             else:
                 executor = executor_resolution.executor
@@ -1701,6 +1717,9 @@ def register(app: typer.Typer) -> dict[str, object]:
                         stage_worker_backend_effective = "subprocess"
                         _run_jobs_with_subprocess_executor(executor)
                     else:
+                        _ensure_progress_queue(
+                            process_safe=executor_resolution.backend == "process"
+                        )
                         _run_jobs_with_executor(executor)
                 finally:
                     shutdown_executor(executor, wait=True, cancel_futures=False)

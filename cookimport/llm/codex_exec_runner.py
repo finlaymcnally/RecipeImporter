@@ -676,70 +676,6 @@ class FakeCodexExecRunner:
         )
 
     @staticmethod
-    def _build_knowledge_pass1_work_payload(
-        *,
-        input_payload: Mapping[str, Any],
-        output_payload: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        decision_by_block_index = {
-            int(row.get("block_index")): str(row.get("category") or "").strip()
-            for row in (output_payload.get("block_decisions") or [])
-            if isinstance(row, Mapping) and row.get("block_index") is not None
-        }
-        rows: list[dict[str, Any]] = []
-        for block in (input_payload.get("b") or []):
-            if not isinstance(block, Mapping) or block.get("i") is None:
-                continue
-            block_index = int(block.get("i"))
-            rows.append(
-                {
-                    "block_index": block_index,
-                    "category": decision_by_block_index.get(block_index, "other") or "other",
-                }
-            )
-        return {"phase": "pass1", "rows": rows}
-
-    @staticmethod
-    def _build_knowledge_pass2_work_payload(
-        *,
-        pass2_input_payload: Mapping[str, Any],
-        output_payload: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        group_by_block_index: dict[int, dict[str, str]] = {}
-        for group in (output_payload.get("idea_groups") or []):
-            if not isinstance(group, Mapping):
-                continue
-            group_id = str(group.get("group_id") or "").strip()
-            topic_label = str(group.get("topic_label") or "").strip()
-            if not group_id or not topic_label:
-                continue
-            for block_index in group.get("block_indices") or []:
-                try:
-                    normalized_block_index = int(block_index)
-                except (TypeError, ValueError):
-                    continue
-                group_by_block_index[normalized_block_index] = {
-                    "group_id": group_id,
-                    "topic_label": topic_label,
-                }
-        rows: list[dict[str, Any]] = []
-        for row in (pass2_input_payload.get("rows") or []):
-            if not isinstance(row, Mapping) or row.get("block_index") is None:
-                continue
-            block_index = int(row.get("block_index"))
-            group = group_by_block_index.get(block_index)
-            if group is None:
-                group = {"group_id": f"g{len(rows) + 1:02d}", "topic_label": "Ungrouped"}
-            rows.append(
-                {
-                    "block_index": block_index,
-                    "group_id": group["group_id"],
-                    "topic_label": group["topic_label"],
-                }
-            )
-        return {"phase": "pass2", "rows": rows}
-
-    @staticmethod
     def _build_knowledge_leased_packet_result(
         *,
         packet_payload: Mapping[str, Any],
@@ -869,158 +805,6 @@ class FakeCodexExecRunner:
                 output_payload=output_payload,
             )
         return dict(output_payload)
-
-    @staticmethod
-    def _run_workspace_helper_command(
-        *,
-        execution_working_dir: Path,
-        args: Sequence[str],
-    ) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            list(args),
-            cwd=execution_working_dir,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-
-    def _run_fake_knowledge_phase_workspace(
-        self,
-        *,
-        execution_working_dir: Path,
-        assigned_task_rows: Sequence[Any],
-        supervision_callback: Callable[
-            [CodexExecLiveSnapshot], CodexExecSupervisionDecision | None
-        ]
-        | None,
-        timeout_seconds: int | None,
-    ) -> None:
-        helper_args = ("python3", "tools/knowledge_worker.py")
-        for index, shard_row in enumerate(assigned_task_rows, start=1):
-            if not isinstance(shard_row, Mapping):
-                continue
-            shard_id = str(shard_row.get("shard_id") or shard_row.get("task_id") or "").strip()
-            if not shard_id:
-                continue
-            input_path = execution_working_dir / _DIRECT_EXEC_INPUT_DIR_NAME / f"{shard_id}.json"
-            if not input_path.exists():
-                continue
-            input_payload = json.loads(input_path.read_text(encoding="utf-8"))
-            output_payload = self.output_builder(input_payload)
-            current_phase_path = execution_working_dir / _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME
-            current_phase_payload = None
-            if current_phase_path.exists():
-                try:
-                    loaded_phase_payload = json.loads(
-                        current_phase_path.read_text(encoding="utf-8")
-                    )
-                except json.JSONDecodeError:
-                    loaded_phase_payload = None
-                if isinstance(loaded_phase_payload, Mapping):
-                    current_phase_payload = loaded_phase_payload
-            current_phase_matches_shard = (
-                isinstance(current_phase_payload, Mapping)
-                and str(current_phase_payload.get("status") or "").strip() == "active"
-                and str(current_phase_payload.get("phase") or "").strip() == "pass1"
-                and str(current_phase_payload.get("shard_id") or "").strip() == shard_id
-            )
-            if current_phase_matches_shard:
-                completed = self._run_workspace_helper_command(
-                    execution_working_dir=execution_working_dir,
-                    args=(*helper_args, "check-phase"),
-                )
-                if completed.returncode == 0:
-                    completed = self._run_workspace_helper_command(
-                        execution_working_dir=execution_working_dir,
-                        args=(*helper_args, "install-phase"),
-                    )
-                    if completed.returncode != 0:
-                        raise CodexFarmRunnerError(
-                            "fake knowledge workspace helper failed: "
-                            f"install-phase\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
-                        )
-                else:
-                    pass1_payload = self._build_knowledge_pass1_work_payload(
-                        input_payload=input_payload,
-                        output_payload=output_payload,
-                    )
-                    self._write_workspace_json(
-                        execution_working_dir
-                        / _DIRECT_EXEC_WORK_DIR_NAME
-                        / f"{shard_id}.pass1.json",
-                        pass1_payload,
-                    )
-                    for command in ("check-phase", "install-phase"):
-                        completed = self._run_workspace_helper_command(
-                            execution_working_dir=execution_working_dir,
-                            args=(*helper_args, command),
-                        )
-                        if completed.returncode != 0:
-                            raise CodexFarmRunnerError(
-                                "fake knowledge workspace helper failed: "
-                                f"{command}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
-                            )
-            else:
-                pass1_payload = self._build_knowledge_pass1_work_payload(
-                    input_payload=input_payload,
-                    output_payload=output_payload,
-                )
-                self._write_workspace_json(
-                    execution_working_dir / _DIRECT_EXEC_WORK_DIR_NAME / f"{shard_id}.pass1.json",
-                    pass1_payload,
-                )
-                for command in ("check-phase", "install-phase"):
-                    completed = self._run_workspace_helper_command(
-                        execution_working_dir=execution_working_dir,
-                        args=(*helper_args, command),
-                    )
-                    if completed.returncode != 0:
-                        raise CodexFarmRunnerError(
-                            "fake knowledge workspace helper failed: "
-                            f"{command}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
-                        )
-            pass2_input_path = (
-                execution_working_dir / _DIRECT_EXEC_INPUT_DIR_NAME / f"{shard_id}.pass2.json"
-            )
-            if not pass2_input_path.exists():
-                raise CodexFarmRunnerError(
-                    f"fake knowledge workspace helper did not create {pass2_input_path.name}"
-                )
-            pass2_input_payload = json.loads(pass2_input_path.read_text(encoding="utf-8"))
-            pass2_payload = self._build_knowledge_pass2_work_payload(
-                pass2_input_payload=pass2_input_payload,
-                output_payload=output_payload,
-            )
-            self._write_workspace_json(
-                execution_working_dir / _DIRECT_EXEC_WORK_DIR_NAME / f"{shard_id}.pass2.json",
-                pass2_payload,
-            )
-            for command in ("check-phase", "install-phase"):
-                completed = self._run_workspace_helper_command(
-                    execution_working_dir=execution_working_dir,
-                    args=(*helper_args, command),
-                )
-                if completed.returncode != 0:
-                    raise CodexFarmRunnerError(
-                        "fake knowledge workspace helper failed: "
-                        f"{command}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
-                    )
-            if supervision_callback is not None and index < len(assigned_task_rows):
-                supervision_callback(
-                    CodexExecLiveSnapshot(
-                        elapsed_seconds=index * 0.1,
-                        last_event_seconds_ago=0.0,
-                        event_count=index,
-                        command_execution_count=index * 4,
-                        reasoning_item_count=0,
-                        last_command=f"/bin/bash -lc cat out/{shard_id}.json",
-                        last_command_repeat_count=1,
-                        has_final_agent_message=False,
-                        timeout_seconds=timeout_seconds,
-                        source_working_dir=str(execution_working_dir),
-                        execution_working_dir=str(execution_working_dir),
-                    )
-                )
 
     def run_structured_prompt(
         self,
@@ -1165,17 +949,7 @@ class FakeCodexExecRunner:
         assigned_task_rows = _read_workspace_manifest_rows(
             execution_working_dir=execution_working_dir,
         )
-        if (
-            (execution_working_dir / _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME).exists()
-            and (execution_working_dir / _DIRECT_EXEC_TOOLS_DIR_NAME / "knowledge_worker.py").exists()
-        ):
-            self._run_fake_knowledge_phase_workspace(
-                execution_working_dir=execution_working_dir,
-                assigned_task_rows=assigned_task_rows,
-                supervision_callback=supervision_callback,
-                timeout_seconds=timeout_seconds,
-            )
-        elif (execution_working_dir / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME).exists():
+        if (execution_working_dir / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME).exists():
             lease_iterations = 0
             while lease_iterations < 256:
                 lease_iterations += 1
@@ -2166,6 +1940,7 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
     command_executing_shards: set[str] = set()
     reasoning_heavy_shards: set[str] = set()
     invalid_output_shards: set[str] = set()
+    no_final_output_shards: set[str] = set()
     missing_output_shards: set[str] = set()
     repaired_shards: set[str] = set()
     preflight_rejected_shards: set[str] = set()
@@ -2237,6 +2012,9 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
             if shard_id:
                 invalid_output_shards.add(shard_id)
                 pathological_shards.add(shard_id)
+        if proposal_status == "no_final_output" and shard_id:
+            no_final_output_shards.add(shard_id)
+            pathological_shards.add(shard_id)
         if proposal_status == "missing_output" and shard_id:
             missing_output_shards.add(shard_id)
             pathological_shards.add(shard_id)
@@ -2285,6 +2063,7 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
     summary["command_executing_shard_count"] = len(command_executing_shards)
     summary["reasoning_heavy_shard_count"] = len(reasoning_heavy_shards)
     summary["invalid_output_shard_count"] = len(invalid_output_shards)
+    summary["no_final_output_shard_count"] = len(no_final_output_shards)
     summary["missing_output_shard_count"] = len(missing_output_shards)
     summary["repaired_shard_count"] = len(repaired_shards)
     summary["preflight_rejected_shard_count"] = len(preflight_rejected_shards)
@@ -3019,11 +2798,6 @@ def _write_direct_exec_worker_manifest(
                 ]
                 + (
                     [
-                        "python3 tools/knowledge_worker.py check-phase",
-                        "python3 tools/knowledge_worker.py install-phase",
-                    ]
-                    if has_current_phase and "knowledge_worker.py" in mirrored_tool_files
-                    else [
                         "python3 tools/recipe_worker.py current",
                         "python3 tools/recipe_worker.py check-current",
                         "python3 tools/recipe_worker.py install-current",

@@ -6,24 +6,21 @@ from cookimport.llm.knowledge_phase_workspace_tools import (
     KNOWLEDGE_OUTPUT_CONTRACT_FILENAME,
     KNOWLEDGE_VALID_PASS1_RESULT_EXAMPLE_FILENAME,
     KNOWLEDGE_VALID_PASS2_RESULT_EXAMPLE_FILENAME,
-    build_final_output,
+    assemble_final_output,
     build_knowledge_workspace_shard_metadata,
     build_pass1_packet,
     build_pass1_repair_packet,
-    build_pass1_work_ledger,
-    build_pass2_input_ledger,
     build_pass2_packet,
     build_pass2_repair_packet,
-    build_pass2_work_ledger,
     render_knowledge_packet_hint,
-    validate_pass1_work_ledger,
-    validate_pass2_work_ledger,
+    validate_pass1_packet_result,
+    validate_pass2_packet_result,
     write_knowledge_output_contract,
     write_knowledge_worker_examples,
 )
 
 
-def test_pass1_and_pass2_ledgers_round_trip_into_final_output() -> None:
+def test_pass2_packet_keeps_only_accepted_knowledge_rows() -> None:
     input_payload = {
         "bid": "book.ks0000.nr",
         "b": [
@@ -31,41 +28,56 @@ def test_pass1_and_pass2_ledgers_round_trip_into_final_output() -> None:
             {"i": 8, "t": "Use low heat and whisk steadily."},
         ],
     }
-    pass1 = {
-        "phase": "pass1",
+    pass1_rows = [
+        {
+            "block_index": 7,
+            "category": "other",
+        },
+        {
+            "block_index": 8,
+            "category": "knowledge",
+        },
+    ]
+
+    assert build_pass2_packet(
+        shard_id="book.ks0000.nr",
+        task_id="book.ks0000.nr.pass2",
+        input_payload=input_payload,
+        pass1_rows=pass1_rows,
+    ) == {
+        "v": "1",
+        "task_id": "book.ks0000.nr.pass2",
+        "packet_kind": "pass2",
+        "shard_id": "book.ks0000.nr",
         "rows": [
-            {"block_index": 7, "category": "other"},
-            {"block_index": 8, "category": "knowledge"},
-        ],
-    }
-    pass2_input = build_pass2_input_ledger(input_payload=input_payload, pass1_payload=pass1)
-    pass2 = {
-        "phase": "pass2",
-        "rows": [
-            {
-                "block_index": 8,
-                "category": "knowledge",
-                "text": "Use low heat and whisk steadily.",
-                "group_key": "heat-control",
-                "topic_label": "Heat control",
-            },
+            {"block_index": 8, "text": "Use low heat and whisk steadily."},
         ],
     }
 
-    assert pass2_input == {
-        "phase": "pass2",
-        "rows": [
-            {
-                "block_index": 8,
-                "category": "knowledge",
-                "text": "Use low heat and whisk steadily.",
-            }
-        ],
-    }
-    assert build_final_output(
+def test_assemble_final_output_round_trips_packet_results() -> None:
+    assert assemble_final_output(
         shard_id="book.ks0000.nr",
-        pass1_payload=pass1,
-        pass2_payload=pass2,
+        pass1_result={
+            "task_id": "book.ks0000.nr.pass1",
+            "packet_kind": "pass1",
+            "shard_id": "book.ks0000.nr",
+            "rows": [
+                {"block_index": 7, "category": "other"},
+                {"block_index": 8, "category": "knowledge"},
+            ],
+        },
+        pass2_result={
+            "task_id": "book.ks0000.nr.pass2",
+            "packet_kind": "pass2",
+            "shard_id": "book.ks0000.nr",
+            "rows": [
+                {
+                    "block_index": 8,
+                    "group_key": "heat-control",
+                    "topic_label": "Heat control",
+                }
+            ],
+        },
     ) == {
         "packet_id": "book.ks0000.nr",
         "block_decisions": [
@@ -101,9 +113,18 @@ def test_build_knowledge_workspace_shard_metadata_is_packet_lease_native() -> No
 
 
 def test_pass1_validator_rejects_missing_rows() -> None:
-    errors, metadata = validate_pass1_work_ledger(
-        input_payload={"b": [{"i": 4, "t": "Whisk"}, {"i": 5, "t": "Cool"}]},
-        payload={"phase": "pass1", "rows": [{"block_index": 4, "category": "knowledge"}]},
+    _result, errors, metadata = validate_pass1_packet_result(
+        packet_payload=build_pass1_packet(
+            shard_id="book.ks0000.nr",
+            task_id="book.ks0000.nr.pass1",
+            input_payload={"b": [{"i": 4, "t": "Whisk"}, {"i": 5, "t": "Cool"}]},
+        ),
+        result_payload={
+            "task_id": "book.ks0000.nr.pass1",
+            "packet_kind": "pass1",
+            "shard_id": "book.ks0000.nr",
+            "rows": [{"block_index": 4, "category": "knowledge"}],
+        },
     )
 
     assert errors == ("missing_owned_block_decisions",)
@@ -111,12 +132,19 @@ def test_pass1_validator_rejects_missing_rows() -> None:
 
 
 def test_pass2_validator_rejects_blank_topic_labels() -> None:
-    pass2_input = {"phase": "pass2", "rows": [{"block_index": 4, "text": "Whisk"}]}
-    errors, metadata = validate_pass2_work_ledger(
-        pass2_input_payload=pass2_input,
-        payload={
-            "phase": "pass2",
-            "rows": [{"block_index": 4, "group_id": "g01", "topic_label": ""}],
+    packet = build_pass2_packet(
+        shard_id="book.ks0000.nr",
+        task_id="book.ks0000.nr.pass2",
+        input_payload={"b": [{"i": 4, "t": "Whisk"}]},
+        pass1_rows=[{"block_index": 4, "category": "knowledge"}],
+    )
+    _result, errors, metadata = validate_pass2_packet_result(
+        packet_payload=packet,
+        result_payload={
+            "task_id": "book.ks0000.nr.pass2",
+            "packet_kind": "pass2",
+            "shard_id": "book.ks0000.nr",
+            "rows": [{"block_index": 4, "group_key": "g01", "topic_label": ""}],
         },
     )
 
@@ -124,42 +152,40 @@ def test_pass2_validator_rejects_blank_topic_labels() -> None:
     assert metadata["knowledge_blocks_missing_group"] == [4]
 
 
-def test_build_pass1_and_pass2_work_ledgers_stay_sparse() -> None:
-    pass1_payload = build_pass1_work_ledger({"b": [{"i": 4, "t": "Whisk"}, {"i": 5, "t": "Rest"}]})
-    pass2_payload = build_pass2_work_ledger(
-        {
-            "phase": "pass2",
-            "rows": [
-                {"block_index": 4, "category": "knowledge", "text": "Whisk"},
-                {"block_index": 5, "category": "knowledge", "text": "Rest"},
-            ],
-        }
+def test_build_pass1_and_pass2_packets_stay_sparse() -> None:
+    pass1_packet = build_pass1_packet(
+        shard_id="book.ks0000.nr",
+        task_id="book.ks0000.nr.pass1",
+        input_payload={"b": [{"i": 4, "t": "Whisk"}, {"i": 5, "t": "Rest"}]},
+    )
+    pass2_packet = build_pass2_packet(
+        shard_id="book.ks0000.nr",
+        task_id="book.ks0000.nr.pass2",
+        input_payload={"b": [{"i": 4, "t": "Whisk"}, {"i": 5, "t": "Rest"}]},
+        pass1_rows=[
+            {"block_index": 4, "category": "knowledge"},
+            {"block_index": 5, "category": "knowledge"},
+        ],
     )
 
-    assert pass1_payload == {
-        "phase": "pass1",
+    assert pass1_packet == {
+        "v": "1",
+        "task_id": "book.ks0000.nr.pass1",
+        "packet_kind": "pass1",
+        "shard_id": "book.ks0000.nr",
         "rows": [
-            {"block_index": 4, "text": "Whisk", "category": ""},
-            {"block_index": 5, "text": "Rest", "category": ""},
+            {"block_index": 4, "text": "Whisk"},
+            {"block_index": 5, "text": "Rest"},
         ],
     }
-    assert pass2_payload == {
-        "phase": "pass2",
+    assert pass2_packet == {
+        "v": "1",
+        "task_id": "book.ks0000.nr.pass2",
+        "packet_kind": "pass2",
+        "shard_id": "book.ks0000.nr",
         "rows": [
-            {
-                "block_index": 4,
-                "category": "knowledge",
-                "text": "Whisk",
-                "group_key": "",
-                "topic_label": "",
-            },
-            {
-                "block_index": 5,
-                "category": "knowledge",
-                "text": "Rest",
-                "group_key": "",
-                "topic_label": "",
-            },
+            {"block_index": 4, "text": "Whisk"},
+            {"block_index": 5, "text": "Rest"},
         ],
     }
 

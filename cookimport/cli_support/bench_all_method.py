@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 import sys
 
+from cookimport.core.executor_fallback import preferred_multiprocessing_context
+
 from .command_resolution import resolve_registered_command
 from .bench_cache import _json_safe
 from .stage import _path_for_manifest, _require_importer
@@ -2357,10 +2359,17 @@ def _resolve_all_method_source_parallelism(
     return max(1, min(requested_parallel_sources, total, cpu_cap))
 
 
+def _create_all_method_process_pool_executor(*, max_workers: int):
+    context = preferred_multiprocessing_context()
+    if context is None:
+        return ProcessPoolExecutor(max_workers=max_workers)
+    return ProcessPoolExecutor(max_workers=max_workers, mp_context=context)
+
+
 def _probe_all_method_process_pool_executor() -> tuple[bool, str | None]:
     """Return whether process-based config workers are usable in this runtime."""
     try:
-        with ProcessPoolExecutor(max_workers=1) as executor:
+        with _create_all_method_process_pool_executor(max_workers=1) as executor:
             future = executor.submit(int, 1)
             future.result(timeout=5)
     except Exception as exc:  # noqa: BLE001
@@ -5803,7 +5812,7 @@ def _run_all_method_benchmark_global_queue(
 
         try:
             executor = (
-                ProcessPoolExecutor(max_workers=worker_limit)
+                _create_all_method_process_pool_executor(max_workers=worker_limit)
                 if executor_backend == "process"
                 else ThreadPoolExecutor(max_workers=worker_limit)
             )
@@ -6146,7 +6155,9 @@ def _run_all_method_benchmark_global_queue(
                     except TypeError:
                         shutdown_fn(wait=False)
                 try:
-                    executor = ProcessPoolExecutor(max_workers=worker_limit)
+                    executor = _create_all_method_process_pool_executor(
+                        max_workers=worker_limit
+                    )
                 except (PermissionError, OSError) as exc:
                     if require_process_workers:
                         raise RuntimeError(
@@ -7856,7 +7867,7 @@ def _run_all_method_benchmark(
 
         try:
             executor = (
-                ProcessPoolExecutor(max_workers=worker_limit)
+                _create_all_method_process_pool_executor(max_workers=worker_limit)
                 if executor_backend == "process"
                 else ThreadPoolExecutor(max_workers=worker_limit)
             )
@@ -8218,7 +8229,9 @@ def _run_all_method_benchmark(
                 )
                 _shutdown_parallel_executor(executor, terminate_workers=True)
                 try:
-                    executor = ProcessPoolExecutor(max_workers=worker_limit)
+                    executor = _create_all_method_process_pool_executor(
+                        max_workers=worker_limit
+                    )
                 except (PermissionError, OSError) as exc:
                     if require_process_workers:
                         raise RuntimeError(

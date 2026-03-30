@@ -19,6 +19,7 @@ from .knowledge_runtime_state import (
 EXPECTED_KNOWLEDGE_STAGE_ARTIFACTS: tuple[str, ...] = (
     "shard_manifest.jsonl",
     "task_manifest.jsonl",
+    "task_status.jsonl",
     "worker_assignments.json",
     "phase_manifest.json",
     "promotion_report.json",
@@ -65,6 +66,7 @@ def replay_knowledge_runtime(
     benchmark_root = Path(benchmark_root) if benchmark_root is not None else None
 
     task_entries = _load_task_entries(knowledge_root / "task_manifest.jsonl")
+    task_status_rows = _load_rows_by_task_id(knowledge_root / "task_status.jsonl")
     shard_total = _count_jsonl_rows(knowledge_root / "shard_manifest.jsonl")
     packet_artifacts = _collect_packet_artifacts(knowledge_root)
 
@@ -75,24 +77,45 @@ def replay_knowledge_runtime(
             continue
         parent_shard_id = str(task_entry.get("parent_shard_id") or packet_id).strip() or packet_id
         artifacts = packet_artifacts.get(packet_id, _PacketArtifacts())
-        state, terminal_outcome, latest_attempt_type, latest_reason = _classify_packet_state(
+        task_status_row = task_status_rows.get(packet_id)
+        (
+            state,
+            terminal_outcome,
+            latest_attempt_type,
+            latest_reason,
+        ) = _classify_packet_state(
+            task_status_row=task_status_row,
             artifacts=artifacts,
+        )
+        metadata = (
+            dict(task_status_row.get("metadata") or {})
+            if isinstance(task_status_row, Mapping)
+            else {}
         )
         ledger.add(
             KnowledgePacketRecord(
                 packet_id=packet_id,
                 parent_shard_id=parent_shard_id,
                 owned_ids=_coerce_str_tuple(task_entry.get("owned_ids")),
-                worker_id=artifacts.worker_id,
+                worker_id=(
+                    _clean_string(task_status_row.get("worker_id"))
+                    if isinstance(task_status_row, Mapping)
+                    else None
+                )
+                or artifacts.worker_id,
                 state=state,
                 terminal_outcome=terminal_outcome,
                 latest_attempt_type=latest_attempt_type,
                 latest_reason=latest_reason,
                 main_output_present=artifacts.main_output_present,
                 main_output_malformed=artifacts.main_output_malformed,
-                watchdog_retry_status=artifacts.watchdog_retry_status,
+                watchdog_retry_status=(
+                    _normalize_followup_status(metadata.get("watchdog_retry_status"))
+                    or artifacts.watchdog_retry_status
+                ),
                 watchdog_retry_stale=artifacts.watchdog_retry_stale,
-                repair_status=artifacts.repair_status,
+                repair_status=_normalize_followup_status(metadata.get("repair_status"))
+                or artifacts.repair_status,
                 repair_stale=artifacts.repair_stale,
             )
         )
@@ -165,6 +188,15 @@ def _load_task_entries(path: Path) -> list[dict[str, Any]]:
         if isinstance(payload, Mapping):
             rows.append(dict(payload))
     return rows
+
+
+def _load_rows_by_task_id(path: Path) -> dict[str, dict[str, Any]]:
+    rows_by_task_id: dict[str, dict[str, Any]] = {}
+    for row in _load_task_entries(path):
+        task_id = str(row.get("task_id") or "").strip()
+        if task_id:
+            rows_by_task_id[task_id] = row
+    return rows_by_task_id
 
 
 def _coerce_str_tuple(value: Any) -> tuple[str, ...]:
@@ -308,6 +340,7 @@ def _classify_artifact_states(root: Path | None, expected_artifacts: tuple[str, 
 
 def _classify_packet_state(
     *,
+    task_status_row: Mapping[str, Any] | None,
     artifacts: _PacketArtifacts,
 ) -> tuple[
     KnowledgePacketState,
@@ -315,6 +348,29 @@ def _classify_packet_state(
     KnowledgePacketAttemptType | None,
     str | None,
 ]:
+    if isinstance(task_status_row, Mapping):
+        state = _coerce_enum(
+            KnowledgePacketState,
+            task_status_row.get("state"),
+        )
+        if state is not None:
+            terminal_outcome = _coerce_enum(
+                KnowledgePacketTerminalOutcome,
+                task_status_row.get("terminal_outcome"),
+            )
+            if terminal_outcome is None:
+                terminal_outcome = _coerce_enum(
+                    KnowledgePacketTerminalOutcome,
+                    state.value,
+                )
+            latest_attempt_type = _coerce_enum(
+                KnowledgePacketAttemptType,
+                task_status_row.get("last_attempt_type"),
+            )
+            latest_reason = _clean_string(
+                task_status_row.get("terminal_reason_detail"),
+            ) or _clean_string(task_status_row.get("terminal_reason_code"))
+            return state, terminal_outcome, latest_attempt_type, latest_reason
     if artifacts.repair_stale:
         return (
             KnowledgePacketState.FOLLOW_UP_STALE,
@@ -376,8 +432,8 @@ def _classify_packet_state(
         KnowledgeWorkerOutcomeCategory.WATCHDOG_KILLED_OTHER,
     }:
         return (
-            KnowledgePacketState.MISSING_OUTPUT,
-            KnowledgePacketTerminalOutcome.MISSING_OUTPUT,
+            KnowledgePacketState.PROCESS_EXITED_WITHOUT_FINAL_PACKET_STATE,
+            KnowledgePacketTerminalOutcome.PROCESS_EXITED_WITHOUT_FINAL_PACKET_STATE,
             KnowledgePacketAttemptType.MAIN_WORKER,
             "assigned worker terminated before writing packet output",
         )
@@ -406,3 +462,25 @@ def _load_json(path: Path) -> Any | None:
 def _load_json_dict(path: Path) -> dict[str, Any] | None:
     payload = _load_json(path)
     return dict(payload) if isinstance(payload, Mapping) else None
+
+
+def _coerce_enum(enum_type: type[KnowledgePacketState] | type[KnowledgePacketTerminalOutcome] | type[KnowledgePacketAttemptType], value: Any):
+    cleaned = _clean_string(value)
+    if not cleaned:
+        return None
+    try:
+        return enum_type(cleaned)
+    except ValueError:
+        return None
+
+
+def _clean_string(value: Any) -> str | None:
+    cleaned = str(value or "").strip()
+    return cleaned or None
+
+
+def _normalize_followup_status(value: Any) -> str | None:
+    cleaned = _clean_string(value)
+    if cleaned in {None, "not_attempted", "not_needed"}:
+        return None
+    return cleaned

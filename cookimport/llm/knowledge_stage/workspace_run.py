@@ -42,6 +42,43 @@ def _render_events_jsonl(events: tuple[dict[str, Any], ...]) -> str:
     return "".join(json.dumps(event, sort_keys=True) + "\n" for event in events)
 
 
+def _load_json_dict_safely(path: Path) -> dict[str, Any]:
+    if not path.exists() or not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return dict(payload) if isinstance(payload, Mapping) else {}
+
+
+def _render_validation_reason_detail(
+    *,
+    prefix: str,
+    validation_errors: Sequence[str],
+    validation_metadata: Mapping[str, Any],
+) -> str:
+    cleaned_errors = [
+        str(error).strip() for error in validation_errors if str(error).strip()
+    ]
+    parse_error = str(validation_metadata.get("parse_error") or "").strip()
+    unresolved_block_indices = [
+        int(value)
+        for value in (validation_metadata.get("unresolved_block_indices") or [])
+        if value is not None
+    ]
+    detail_parts = [str(prefix).strip() or "validation blocked promotion"]
+    if cleaned_errors:
+        detail_parts.append("errors=" + ",".join(cleaned_errors))
+    if unresolved_block_indices:
+        detail_parts.append(
+            "unresolved_block_indices=" + ",".join(str(value) for value in unresolved_block_indices)
+        )
+    if parse_error:
+        detail_parts.append(f"parse_error={parse_error}")
+    return "; ".join(part for part in detail_parts if part)
+
+
 @dataclass(slots=True)
 class _KnowledgeLeasedShardState:
     shard: ShardManifestEntryV1
@@ -55,6 +92,14 @@ class _KnowledgeLeasedShardState:
     repair_recovered: bool = False
     last_validation_errors: tuple[str, ...] = ()
     last_validation_metadata: dict[str, Any] = field(default_factory=dict)
+    current_task_id: str | None = None
+    current_packet_kind: str | None = None
+    current_result_relpath: str | None = None
+    current_packet_state: str = "pending"
+    current_result_observed: bool = False
+    promotion_attempted: bool = False
+    promotion_succeeded: bool = False
+    last_runtime_action: str = "pending"
     terminal_status: str = "pending"
     terminal_reason_code: str | None = None
     terminal_reason_detail: str | None = None
@@ -126,6 +171,14 @@ class _KnowledgePacketLeaseController:
             "repair_packet_count": state.repair_packet_count,
             "repair_attempted": state.repair_attempted,
             "repair_recovered": state.repair_recovered,
+            "current_task_id": state.current_task_id,
+            "current_packet_kind": state.current_packet_kind,
+            "current_result_relpath": state.current_result_relpath,
+            "current_packet_state": state.current_packet_state,
+            "current_result_observed": state.current_result_observed,
+            "promotion_attempted": state.promotion_attempted,
+            "promotion_succeeded": state.promotion_succeeded,
+            "last_runtime_action": state.last_runtime_action,
             "terminal_status": state.terminal_status,
             "terminal_reason_code": state.terminal_reason_code,
             "terminal_reason_detail": state.terminal_reason_detail,
@@ -143,6 +196,13 @@ class _KnowledgePacketLeaseController:
             current_result_path = self.worker_root / self.current_result_relpath
             current_output_present = current_result_path.exists() and current_result_path.is_file()
             if current_output_present:
+                shard_id = str(
+                    (self.current_packet or {}).get("shard_id")
+                    or self.current_shard_id_value
+                    or ""
+                ).strip()
+                if shard_id and shard_id in self.shard_states:
+                    self.shard_states[shard_id].current_result_observed = True
                 self._consume_current_result(current_result_path)
         current_task_id = self.current_task_id()
         return {
@@ -261,16 +321,23 @@ class _KnowledgePacketLeaseController:
             state.shard,
             dict(final_payload),
         )
+        state.promotion_attempted = True
         if not valid:
             self._mark_failed(
                 state=state,
                 reason_code=(
-                    str(validation_errors[0]).strip()
-                    if validation_errors
-                    else "final_output_validation_failed"
+                    "repair_packet_exhausted"
+                    if state.repair_attempted
+                    else "packet_result_validation_blocked"
                 ),
-                reason_detail=(
-                    str(validation_metadata.get("parse_error") or "").strip() or None
+                reason_detail=_render_validation_reason_detail(
+                    prefix=(
+                        "repair packet was exhausted without a promotable final output"
+                        if state.repair_attempted
+                        else "packet result existed but structural validation blocked promotion"
+                    ),
+                    validation_errors=validation_errors,
+                    validation_metadata=validation_metadata,
                 ),
                 validation_errors=validation_errors,
                 validation_metadata=validation_metadata,
@@ -280,6 +347,10 @@ class _KnowledgePacketLeaseController:
             dict(final_payload),
             self.worker_root / "out" / f"{state.shard.shard_id}.json",
         )
+        state.current_packet_state = "validated"
+        state.current_result_observed = True
+        state.promotion_succeeded = True
+        state.last_runtime_action = "shard_validated"
         state.terminal_status = "validated"
         state.terminal_reason_code = "validated"
         state.terminal_reason_detail = None
@@ -305,6 +376,9 @@ class _KnowledgePacketLeaseController:
     ) -> None:
         state.last_validation_errors = tuple(validation_errors)
         state.last_validation_metadata = dict(validation_metadata or {})
+        state.current_packet_state = "validation_blocked"
+        state.current_result_observed = True
+        state.last_runtime_action = "validation_blocked"
         self.current_validation_errors = tuple(validation_errors)
         packet_kind = str(packet.get("packet_kind") or "").strip()
         repair_payload = _coerce_dict(packet.get("repair"))
@@ -312,8 +386,12 @@ class _KnowledgePacketLeaseController:
         if repair_attempt:
             self._mark_failed(
                 state=state,
-                reason_code=str(validation_errors[0]).strip() if validation_errors else "validation_failed",
-                reason_detail=str(validation_metadata.get("parse_error") or "").strip() or None,
+                reason_code="repair_packet_exhausted",
+                reason_detail=_render_validation_reason_detail(
+                    prefix="repair packet was exhausted without a promotable final output",
+                    validation_errors=validation_errors,
+                    validation_metadata=validation_metadata,
+                ),
                 validation_errors=validation_errors,
                 validation_metadata=validation_metadata,
             )
@@ -356,6 +434,8 @@ class _KnowledgePacketLeaseController:
         validation_errors: Sequence[str],
         validation_metadata: Mapping[str, Any],
     ) -> None:
+        state.current_packet_state = "failed"
+        state.last_runtime_action = "shard_failed"
         state.terminal_status = "failed"
         state.terminal_reason_code = str(reason_code).strip() or "validation_failed"
         state.terminal_reason_detail = str(reason_detail or "").strip() or None
@@ -415,6 +495,14 @@ class _KnowledgePacketLeaseController:
             state.repair_packet_count += 1
         task_id = str(packet.get("task_id") or "").strip()
         self.current_result_relpath = str(Path("scratch") / f"{task_id}.json")
+        state.current_task_id = task_id
+        state.current_packet_kind = str(packet.get("packet_kind") or "").strip() or None
+        state.current_result_relpath = self.current_result_relpath
+        state.current_packet_state = "leased"
+        state.current_result_observed = False
+        state.promotion_attempted = False
+        state.promotion_succeeded = False
+        state.last_runtime_action = "repair_packet_leased" if repair_packet else "lease_started"
         _write_json(self.current_packet, self.worker_root / "current_packet.json")
         (self.worker_root / "current_result_path.txt").write_text(
             self.current_result_relpath + "\n",
@@ -430,15 +518,28 @@ class _KnowledgePacketLeaseController:
         )
         _write_json(
             {
+                "schema_version": "knowledge_packet_lease_status.v1",
                 "worker_state": "leased_current_packet",
+                "last_runtime_action": state.last_runtime_action,
                 "current_task_id": task_id,
                 "current_shard_id": state.shard.shard_id,
                 "packet_kind": packet.get("packet_kind"),
+                "current_packet_state": state.current_packet_state,
+                "current_result_relpath": self.current_result_relpath,
+                "current_result_observed": state.current_result_observed,
+                "promotion_attempted": state.promotion_attempted,
+                "promotion_succeeded": state.promotion_succeeded,
+                "current_validation_errors": list(state.last_validation_errors),
+                "current_validation_metadata": dict(state.last_validation_metadata),
                 "packet_count_total": state.packet_count,
                 "repair_packet_count": state.repair_packet_count,
                 "completed_shard_count": len(self.completed_shard_ids),
                 "failed_shard_count": len(self.failed_shard_ids),
                 "queue_total_shard_count": len(self.shard_order),
+                "shard_statuses": {
+                    shard_id: self.shard_summary(shard_id)
+                    for shard_id in self.shard_order
+                },
             },
             self.worker_root / "packet_lease_status.json",
         )
@@ -460,12 +561,25 @@ class _KnowledgePacketLeaseController:
             "current_result_path.txt",
         ):
             (self.worker_root / relative_path).unlink(missing_ok=True)
+        for state in self.shard_states.values():
+            if state.terminal_status == "pending":
+                state.current_packet_state = "queue_completed_without_terminal_output"
+                state.last_runtime_action = "queue_completed"
+            state.current_task_id = None
+            state.current_packet_kind = None
+            state.current_result_relpath = None
         _write_json(
             {
+                "schema_version": "knowledge_packet_lease_status.v1",
                 "worker_state": "queue_completed",
                 "completed_shard_count": len(self.completed_shard_ids),
                 "failed_shard_count": len(self.failed_shard_ids),
                 "queue_total_shard_count": len(self.shard_order),
+                "last_runtime_action": "queue_completed",
+                "shard_statuses": {
+                    shard_id: self.shard_summary(shard_id)
+                    for shard_id in self.shard_order
+                },
             },
             self.worker_root / "packet_lease_status.json",
         )
@@ -484,7 +598,7 @@ def _evaluate_knowledge_output_file(
     response_text: str | None,
 ) -> tuple[dict[str, Any] | None, tuple[str, ...], dict[str, Any], str]:
     if response_text is None or not str(response_text).strip():
-        return None, ("missing_output",), {}, "missing_output"
+        return None, ("missing_output",), {}, "no_final_output"
     try:
         payload = json.loads(response_text)
     except json.JSONDecodeError:
@@ -507,6 +621,110 @@ def _evaluate_knowledge_output_file(
         )
         return None, tuple(validation_errors), combined_metadata, "invalid"
     return normalized_payload, (), combined_metadata, "validated"
+
+
+def _classify_missing_packet_result(
+    *,
+    worker_root: Path,
+    shard: ShardManifestEntryV1,
+    run_result: CodexExecRunResult,
+    shard_summary: Mapping[str, Any] | None = None,
+) -> tuple[str, str | None, dict[str, Any]]:
+    live_status = _load_json_dict_safely(worker_root / "live_status.json")
+    workspace_manifest = _load_json_dict_safely(worker_root / "workspace_manifest.json")
+    lease_status = _load_json_dict_safely(worker_root / "packet_lease_status.json")
+    shard_statuses = lease_status.get("shard_statuses")
+    lease_shard_summary = (
+        dict(shard_statuses.get(shard.shard_id))
+        if isinstance(shard_statuses, Mapping)
+        and isinstance(shard_statuses.get(shard.shard_id), Mapping)
+        else {}
+    )
+    summary = {
+        **lease_shard_summary,
+        **dict(shard_summary or {}),
+    }
+    metadata = {
+        "live_status": live_status,
+        "workspace_manifest": workspace_manifest,
+        "packet_lease_status": lease_status,
+        "lease_shard_summary": lease_shard_summary,
+    }
+    supervision_reason_code = str(run_result.supervision_reason_code or "").strip()
+    supervision_reason_detail = str(run_result.supervision_reason_detail or "").strip() or None
+    if (
+        supervision_reason_code
+        and str(run_result.supervision_state or "").strip() == "watchdog_killed"
+    ):
+        return supervision_reason_code, supervision_reason_detail, metadata
+
+    current_task_id = str(summary.get("current_task_id") or "").strip()
+    current_packet_kind = str(summary.get("current_packet_kind") or "").strip()
+    current_packet_state = str(summary.get("current_packet_state") or "").strip()
+    current_result_relpath = str(summary.get("current_result_relpath") or "").strip()
+    current_result_observed = bool(summary.get("current_result_observed"))
+    promotion_attempted = bool(summary.get("promotion_attempted"))
+    repair_attempted = bool(summary.get("repair_attempted"))
+    validation_errors = [
+        str(error).strip()
+        for error in (summary.get("last_validation_errors") or [])
+        if str(error).strip()
+    ]
+    validation_metadata = _coerce_dict(summary.get("last_validation_metadata"))
+    terminal_reason_code = str(summary.get("terminal_reason_code") or "").strip()
+    terminal_reason_detail = str(summary.get("terminal_reason_detail") or "").strip() or None
+    worker_state = str(lease_status.get("worker_state") or "").strip()
+
+    if terminal_reason_code == "repair_packet_exhausted":
+        return terminal_reason_code, terminal_reason_detail, metadata
+    if terminal_reason_code == "packet_result_validation_blocked":
+        return terminal_reason_code, terminal_reason_detail, metadata
+
+    if current_packet_state == "failed" and repair_attempted:
+        return (
+            "repair_packet_exhausted",
+            terminal_reason_detail
+            or _render_validation_reason_detail(
+                prefix="repair packet was exhausted without a promotable final output",
+                validation_errors=validation_errors,
+                validation_metadata=validation_metadata,
+            ),
+            metadata,
+        )
+    if current_packet_state in {"failed", "validation_blocked"} and (
+        current_result_observed or promotion_attempted or validation_errors
+    ):
+        return (
+            "packet_result_validation_blocked",
+            terminal_reason_detail
+            or _render_validation_reason_detail(
+                prefix="packet result existed but structural validation blocked promotion",
+                validation_errors=validation_errors,
+                validation_metadata=validation_metadata,
+            ),
+            metadata,
+        )
+    if current_packet_state == "leased" or (
+        worker_state == "leased_current_packet" and current_task_id
+    ):
+        detail = (
+            "worker exited while the current packet was still leased"
+            f" (task_id={current_task_id or '[unknown]'}, "
+            f"packet_kind={current_packet_kind or '[unknown]'}, "
+            f"result_path={current_result_relpath or '[unknown]'})"
+        )
+        return "worker_exited_with_packet_still_leased", detail, metadata
+    if worker_state == "queue_completed":
+        return (
+            "queue_completed_without_promoted_output",
+            "queue controller recorded completion without a promotable shard output for this packet",
+            metadata,
+        )
+    return (
+        "process_exited_without_final_packet_state",
+        "worker exited without a promotable shard output and without enough lease-state evidence for a stronger classification",
+        metadata,
+    )
 
 
 def _run_phase_knowledge_worker_assignment_v1(
@@ -793,17 +1011,28 @@ def _run_phase_knowledge_worker_assignment_v1(
                 response_text=response_text,
             )
         )
+        explicit_terminal_reason_code: str | None = None
+        explicit_terminal_reason_detail: str | None = None
+        explicit_terminal_reason_metadata: dict[str, Any] = {}
+        if proposal_status == "no_final_output":
+            (
+                explicit_terminal_reason_code,
+                explicit_terminal_reason_detail,
+                explicit_terminal_reason_metadata,
+            ) = _classify_missing_packet_result(
+                worker_root=worker_root,
+                shard=shard,
+                run_result=run_result,
+                shard_summary=shard_summary,
+            )
         validation_metadata = {
             **dict(validation_metadata or {}),
             **dict(shard_summary),
+            **dict(explicit_terminal_reason_metadata or {}),
         }
-        if proposal_status == "missing_output" and shard_summary.get("terminal_reason_code"):
-            validation_metadata["lease_terminal_reason_code"] = shard_summary.get(
-                "terminal_reason_code"
-            )
-            validation_metadata["lease_terminal_reason_detail"] = shard_summary.get(
-                "terminal_reason_detail"
-            )
+        if explicit_terminal_reason_code:
+            validation_metadata["terminal_reason_code"] = explicit_terminal_reason_code
+            validation_metadata["terminal_reason_detail"] = explicit_terminal_reason_detail
         proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
         _write_json(
             {
@@ -834,7 +1063,8 @@ def _run_phase_knowledge_worker_assignment_v1(
                     "worker_id": assignment.worker_id,
                     "shard_id": shard.shard_id,
                     "reason": (
-                        str(shard_summary.get("terminal_reason_code") or "").strip()
+                        str(explicit_terminal_reason_code or "").strip()
+                        or str(shard_summary.get("terminal_reason_code") or "").strip()
                         or _failure_reason_from_run_result(
                             run_result=run_result,
                             proposal_status=proposal_status,
@@ -843,7 +1073,8 @@ def _run_phase_knowledge_worker_assignment_v1(
                     "validation_errors": list(validation_errors),
                     "state": run_result.supervision_state or "completed",
                     "reason_code": (
-                        str(shard_summary.get("terminal_reason_code") or "").strip()
+                        str(explicit_terminal_reason_code or "").strip()
+                        or str(shard_summary.get("terminal_reason_code") or "").strip()
                         or run_result.supervision_reason_code
                     ),
                 }
@@ -868,16 +1099,24 @@ def _run_phase_knowledge_worker_assignment_v1(
                 validation_metadata=validation_metadata,
                 run_result=run_result,
                 repair_skip_reason_code=(
-                    str(shard_summary.get("terminal_reason_code") or "").strip() or None
+                    str(explicit_terminal_reason_code or "").strip()
+                    or str(shard_summary.get("terminal_reason_code") or "").strip()
+                    or None
                 ),
                 repair_skip_reason_detail=(
-                    str(shard_summary.get("terminal_reason_detail") or "").strip() or None
+                    str(explicit_terminal_reason_detail or "").strip()
+                    or str(shard_summary.get("terminal_reason_detail") or "").strip()
+                    or None
                 ),
             )
             task_status_tracker.mark_terminal(
                 task_id=shard.shard_id,
                 worker_id=assignment.worker_id,
-                terminal_state=proposal_status,
+                terminal_state=_terminal_knowledge_task_state(
+                    proposal_status=proposal_status,
+                    supervision_state=run_result.supervision_state,
+                    terminal_reason_code=terminal_reason_code,
+                ),
                 attempt_type="main_worker",
                 proposal_status=proposal_status,
                 validation_errors=validation_errors,

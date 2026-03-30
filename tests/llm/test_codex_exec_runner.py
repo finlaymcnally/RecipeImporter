@@ -298,7 +298,7 @@ def test_codex_exec_run_result_payload_marks_missing_usage_unavailable() -> None
                 "item": {
                     "id": "item_0",
                     "type": "command_execution",
-                    "command": "/bin/bash -lc 'python3 tools/knowledge_worker.py install-phase'",
+                    "command": "/bin/bash -lc 'python3 tools/line_role_worker.py install-phase'",
                     "exit_code": 0,
                 },
             },
@@ -615,7 +615,7 @@ def test_codex_exec_runner_allows_absolute_paths_inside_explicit_execution_root(
     )
     helper_command = (
         '/bin/bash -lc "python3 '
-        f"{execution_root / 'tools' / 'knowledge_worker.py'}"
+        f"{execution_root / 'tools' / 'line_role_worker.py'}"
         ' overview"'
     )
 

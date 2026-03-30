@@ -117,6 +117,7 @@ Benchmark rows (`run_category=benchmark_eval` or `benchmark_prediction`) keep:
   - when a Codex workspace-worker stage has partial or missing usage for some worker runs, `prompt_budget_summary.json` now marks token usage as `complete`, `partial`, or `unavailable` and leaves the affected token totals blank instead of reporting a misleading literal spend
   - canonical line-role telemetry and manifest backfill now use the same fail-closed rule: when line-role usage is incomplete, token totals stay blank instead of silently reporting `0`
   - those prompt-budget summaries should also carry the status context needed to explain the blank totals: how many worker calls had usable usage and how many were missing it
+  - knowledge prompt-budget rollups now also preserve packet terminal reasons from `knowledge_stage_summary.json`: `no_final_output_reason_code_counts` is the explicit failure breakdown, and `no_final_output_shard_count` is the coarse derived topline when analytics wants one “no final output” number
 - Benchmark timing fields: `benchmark_prediction_seconds`, `benchmark_evaluation_seconds`, `benchmark_artifact_write_seconds`, `benchmark_history_append_seconds`, `benchmark_total_seconds`
 - Run-config context: `run_config_hash`, `run_config_summary`, `run_config_json`
 
