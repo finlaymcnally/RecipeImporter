@@ -14,7 +14,7 @@ For versions/build/fix-attempt history and anti-loop notes, read `docs/11-refere
 ## Artifact Inventory
 
 1. `docs/11-reference/2026-02-10_recipe-database-field-inventory.md`
-- Consolidated inventory of recipe-related DB fields and constraints from the live public schema.
+- Dated snapshot of recipe-related DB fields and constraints from the public schema as of `2026-02-10`.
 - This file is a reference snapshot only; runtime code does not import it directly.
 
 2. `docs/11-reference/recipeDraftV1.schema.json`
@@ -43,7 +43,8 @@ For versions/build/fix-attempt history and anti-loop notes, read `docs/11-refere
 - Defines the live merged-repair LLM contract envelopes (`MergedRecipeRepairInput` / `MergedRecipeRepairOutput`) used by the recipe correction stage.
 
 5. `cookimport/llm/codex_farm_orchestrator.py`
-- Normalizes recipe-correction payloads, validates rebuilt `RecipeDraftV1` outputs, and promotes canonical `AuthoritativeRecipeSemantics` payloads for downstream staging writers.
+- Thin public facade for the recipe correction stage.
+- Live normalization, validation, and `AuthoritativeRecipeSemantics` promotion now live behind this facade in `cookimport/llm/recipe_stage/` and `cookimport/llm/recipe_stage_shared.py`.
 
 6. `cookimport/staging/jsonld.py`
 - Deterministic converter for schema.org intermediate recipe payloads used by `write_intermediate_outputs(...)`.
@@ -65,24 +66,21 @@ For versions/build/fix-attempt history and anti-loop notes, read `docs/11-refere
 5. `tests/parsing/test_tip_recipe_notes.py`
 - Recipe-note extraction path into draft payload.
 
-6. `tests/ingestion/test_excel_importer.py`
-- Confirms generated draft outputs include `schema_v == 1` for importer outputs.
+6. `tests/llm/test_writer_overrides.py`
+- Confirms writer accepts current schema.org/draft override seams and authoritative recipe payload projection.
 
-7. `tests/llm/test_writer_overrides.py`
-- Confirms writer accepts and emits current recipe override payloads.
-
-8. `tests/llm/test_codex_farm_contracts.py`
+7. `tests/llm/test_codex_farm_contracts.py`
 - Validates required fields for the live merged-repair contract envelope.
 
-9. `tests/llm/test_codex_farm_orchestrator.py`
+8. `tests/llm/test_codex_farm_orchestrator.py`
 - Exercises the deterministic-build plus single recipe-correction orchestration path.
 
-10. `tests/staging/test_draft_v1_priority6.py`
+9. `tests/staging/test_draft_v1_priority6.py`
 - Covers active priority-6 draft metadata behavior: `recipe.max_oven_temp_f`, per-step `temperature_items`, and writer-sidecar extraction for `_p6_debug`.
 
 ## Guardrails
 
 1. `docs/11-reference/recipeDraftV1.schema.json` and `docs/11-reference/recipeDraftV1.ts` are reference mirrors; Python runtime does not import these files directly.
-2. These mirrors do not currently cover every runtime-emitted field. Current gaps include `recipe.max_oven_temp_f`, step `temperature_items`, and optional `_p6_debug` before writer-sidecar extraction.
+2. These mirrors now cover the active final draft fields emitted by staging, including `recipe.max_oven_temp_f` and step `temperature_items`. The remaining documented non-final gap is optional `_p6_debug` before writer-sidecar extraction.
 3. Python runtime model (`RecipeDraftV1`) currently allows extra fields (`extra="allow"`), while mirror schema/TS validators are strict (`additionalProperties: false` / `.strict()`).
 4. When changing draft output fields, update this folder and stage/LLM docs together (`docs/05-staging`, `docs/10-llm`) so contract docs remain in sync.

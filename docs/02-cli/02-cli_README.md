@@ -109,6 +109,7 @@ Current spinner/status rule:
 - richer `stage_progress` payloads can now carry `work_unit_label`, typed worker-session counts (`worker_running`, `worker_completed`, `worker_failed`), typed repo-follow-up counts (`followup_*` + `followup_label`), compact `artifact_counts`, and `last_activity_at`
 - when those richer fields are present, the shared spinner should render worker-session state separately from repo-owned follow-up/finalization state instead of forcing stages to fake that truth through `active_tasks` labels
 - worker panels no longer cap configured rows at eight when structured stage progress provides a larger `worker_total` or active-task list; a ten-worker knowledge stage should render ten worker lines instead of `10/8`
+- structured worker panels should also stop at the reported slot count; a five-worker phase should not pad fake `worker 06` to `worker 08` idle rows
 - stage-specific emitters for recipe shard work, line-role, non-recipe knowledge review, label-first authority building, and staged-output writing should prefer structured payloads so benchmark/import status panels keep the active-stage context visible
 - recipe shard work should report outer worker-bucket truth from `phase_worker_runtime.py` (configured workers, queued shards, active worker buckets, current first shard), not pretend the CLI can see true inner per-shard Codex progress once one worker hands a whole bucket to a single classic `process` call
 - `processing_timeseries*.jsonl` is the durable machine-readable history of those progress snapshots and should retain stage label, work-unit label, active tasks, typed worker/follow-up counts, artifact counts, and detail lines when present
@@ -269,7 +270,7 @@ The post-Bucket-2 product contract now has two public layers:
 - `codex_farm_context_blocks` (default `30`)
 - `codex_farm_knowledge_context_blocks` (default `0`)
 
-Internal-only settings still load from saved payloads, winner profiles, QualitySuite `run_settings_patch` payloads, and speed-suite settings files, but they are no longer part of the ordinary operator surface. That internal-only set includes the Bucket 2 parser/OCR/scoring knobs (`multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, `codex_farm_failure_mode`) plus transition-only keys like `benchmark_sequence_matcher`, `multi_recipe_trace`, `p6_emit_metadata_debug`, and hidden current-pack ids such as `codex_farm_pipeline_knowledge`. `table_extraction` is retired entirely; new runs always extract tables.
+Internal-only settings still load from saved payloads, winner profiles, QualitySuite `run_settings_patch` payloads, and speed-suite settings files, but they are no longer part of the ordinary operator surface. That internal-only set includes the Bucket 2 parser/OCR/scoring knobs (`multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, `codex_farm_failure_mode`) plus transition-only keys like `benchmark_sequence_matcher`, `multi_recipe_trace`, `p6_emit_metadata_debug`, and hidden current-pack ids such as `codex_farm_pipeline_knowledge`.
 
 Normal stage summaries now render the smaller operator contract first. Raw/full payloads still persist in manifests, reports, saved settings, and benchmark artifacts for reproducibility.
 
@@ -287,7 +288,7 @@ What each setting affects:
 - `epub_unstructured_html_parser_version`: parser version (`v1` or `v2`) passed into Unstructured HTML partitioning.
 - `epub_unstructured_skip_headers_footers`: enables Unstructured `skip_headers_and_footers` for EPUB HTML partitioning.
 - `epub_unstructured_preprocess_mode`: HTML pre-normalization mode before Unstructured (`none` or `br_split_v1`).
-- Tables are always extracted during stage and benchmark prediction generation, and the old `table_extraction` key is accepted only when normalizing older saved payloads.
+- Tables are always extracted during stage and benchmark prediction generation.
 - Bucket 1 fixed behavior is recorded as `bucket1_fixed_behavior_version` in new run configs. Old payloads may still carry older hidden keys such as `section_detector_backend`, `multi_recipe_trace`, or instruction-step fallback settings, but new runs do not expose them as operator choices.
 - `web_schema_extractor`, `web_schema_normalizer`, `web_html_text_extractor`, `web_schema_policy`, `web_schema_min_*`: deterministic local HTML/JSON schema ingestion controls for `webschema` importer (schema backend, normalization mode, fallback text extractor, schema-vs-fallback policy, and confidence/min-line thresholds).
 - `p6_emit_metadata_debug`: internal-only debug toggle for optional Priority 6 sidecar artifacts.
@@ -389,7 +390,7 @@ Developer note:
 3. Falls back to manual project-name entry when project discovery fails (or no projects exist).
 4. Calls export directly (no scope prompt).
    - Detected type is informational only.
-   - Export supports freeform projects only; older scopes are rejected with an explicit error.
+   - Export supports freeform projects only.
 5. Calls `run_labelstudio_export(...)` with `output_dir=data/golden/pulled-from-labelstudio`.
    - By default, export writes to: `data/golden/pulled-from-labelstudio/<source_slug_or_project_slug>/exports/`.
    - When one source file is detectable, export uses the source filename stem slug so repeat pulls overwrite the same folder even if project names gain suffixes like `-2`.
@@ -608,8 +609,6 @@ Options:
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - Internal-only note: stage still accepts hidden codex-farm pipeline-id/debug overrides for experiments and old payload replay, but they are no longer advertised in `--help`.
 - `markitdown` note: EPUB split jobs are disabled for this extractor because conversion is whole-book EPUB -> markdown (no spine-range mode).
-- explicit-choice note: stage no longer supports `--epub-extractor auto`; choose a concrete backend (`unstructured|beautifulsoup|markdown|markitdown`).
-
 Split-merge progress detail:
 - After split workers finish, the worker dashboard `MainProcess` row now advances with explicit `merge phase X/Y: ...` status messages (payload merge, ID reassignment, output writes, raw merge) instead of staying on a single static `Merging ...` label.
 
@@ -877,7 +876,7 @@ Options:
 - `--run-dir PATH`: export from a specific run directory.
 - `--label-studio-url TEXT`: explicit Label Studio URL.
 - `--label-studio-api-key TEXT`: explicit Label Studio API key.
-- Older project scopes (`pipeline`, `canonical-blocks`) are rejected; export supports freeform projects only.
+- Export supports freeform projects only.
 
 ### `cookimport labelstudio-eval`
 
@@ -955,7 +954,7 @@ Options:
 - `--overlap-threshold FLOAT 0..1` (default `0.5`): match threshold.
 - `--force-source-match` (default `false`): ignore source identity checks while matching.
 - `--eval-mode TEXT` (default `stage-blocks`): `stage-blocks|canonical-text`.
-- Canonical-text benchmark matching is fixed to `dmp`; `--sequence-matcher` is no longer part of the normal help surface.
+- Canonical-text benchmark matching is fixed to `dmp`.
 - `--pdf-ocr-policy TEXT` (default `auto`): `off|auto|always` OCR policy for PDF prediction generation.
 - `--pdf-column-gap-ratio FLOAT` (default `0.12`): PDF column-gap threshold ratio for column reconstruction.
 - `--line-role-guardrail-mode TEXT` (default `enforce`): `off|preview|enforce`; controls whether line-role do-no-harm arbitration is disabled, reported-only, or mutating.
@@ -1015,7 +1014,6 @@ Options:
 - `--alignment-cache-dir PATH` (internal/hidden): optional canonical alignment cache directory override for benchmark runs.
 - Internal-only note: hidden benchmark options still exist for pipeline-id and selective-retry experiments, but normal `labelstudio-benchmark --help` no longer advertises them.
 - `markitdown` note: prediction EPUB split jobs are disabled for this extractor for the same reason as stage runs.
-- explicit-choice note: prediction generation no longer supports `--epub-extractor auto`; requested/effective extractor values are the selected concrete backend.
 - `--ocr-device TEXT` (default `auto`): `auto|cpu|cuda|mps`.
 - `--ocr-batch-size INTEGER>=1` (default `1`): pages per OCR model call.
 - `--warm-models` (default `false`): preload OCR/parsing models before prediction import.
@@ -1230,15 +1228,13 @@ Precedence notes:
 - For all-method markdown extractors: `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS=1` gates optional markdown variants.
 - For all-method codex variants: `--include-codex-farm` controls inclusion; `bench speed-run` requires `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`; `bench quality-run` requires `--qualitysuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`.
 - Benchmark sequence matcher is now fixed product behavior (`dmp`) rather than a user setting; manifests record `bucket1_fixed_behavior_version` instead of treating matcher choice as a normal knob.
-- For tag DB URL: `--db-url` wins; env var is fallback.
-
 ## Interactive Seam Notes
 
 - Shared interactive run-settings UX lives in `cookimport/cli_ui/run_settings_flow.py`:
   - top-tier workflow choice
   - the single-screen CodexFarm per-surface submenu
   - shared model / reasoning override prompts
-- Benchmark-only gold/source selection still lives in `cookimport/cli.py`, primarily `_resolve_benchmark_gold_and_source(...)`. Changes there affect benchmark picking flows only, not import/upload/export/dashboard menus.
+- Benchmark-only gold/source selection lives in the benchmark helpers, primarily `_resolve_benchmark_gold_and_source(...)` in `cookimport/cli_support/bench_all_method.py`. Changes there affect benchmark picking flows only, not import/upload/export/dashboard menus.
 - The CodexFarm submenu is intentionally one screen with aligned `[Yes]` / `[No]` columns:
   - up/down changes rows
   - left/right changes the active row in place
@@ -1247,9 +1243,8 @@ Precedence notes:
 - All interactive benchmark callers that expose CodexFarm should reuse that same shared submenu, including all-method benchmark flows.
 - All-method benchmark Codex variants inherit the full benchmark Codex contract, so a generic `Include Codex Farm permutations?` prompt is misleading. The correct surface is explicit recipe / line-role / knowledge selection.
 - Interactive benchmark pickers should reuse one concise book identity across flows. The matched-books picker should not drift back to `source filename + [gold label]` formatting noise.
-- `--codex-execution-policy plan` is not part of the current CLI anymore. The zero-token story is now split cleanly between:
-  - `cf-debug preview-prompts` for predictive prompt/cost inspection
-  - real execute-path rehearsal with `scripts/fake-codex-farm.py` when you need runtime artifact coverage without live spend
+- For prompt/cost inspection, use `cf-debug preview-prompts`.
+- For runtime artifact rehearsal without live spend, use `scripts/fake-codex-farm.py`.
 - Interactive prompt-count entry should be read as a surface request, not one universal planner law:
   - recipe and line-role use the chosen count as a literal shard-count override
   - knowledge still records the chosen count but may exceed it when hard bundle safety caps win

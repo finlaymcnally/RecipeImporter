@@ -63,12 +63,6 @@ Current rule:
 Anti-loop note:
 - if import and benchmark need different runtime fields, share the submenu mechanics but not the exact option list
 
-### 2026-03-15_23.20.00 retained surface only
-
-Cleanup rule:
-- Keep anti-loop notes only for features that still exist in `cookimport/cli.py` or `cookimport/cli_ui/run_settings_flow.py`.
-- Delete merged task/spec history for removed chooser variants, removed command surfaces, and dead helper layers instead of archiving them forever here.
-
 ### 2026-03-06_19.07.00 interactive top-tier chooser source of truth
 
 Preserved finding:
@@ -79,7 +73,6 @@ Current rule:
 - The chooser now resolves exactly two top-tier profile families:
   - `vanilla`: deterministic top-tier contract.
   - `codexfarm`: quality-suite winner settings when available, otherwise built-in codex top-tier.
-- The old `preferred format` profile is gone and should not be re-documented.
 
 ### 2026-03-06_00.30.31 single-profile benchmark terminal noise suppression
 
@@ -161,18 +154,17 @@ Preserved finding:
 - Shortcut numbering and keyboard behavior drift whenever a select prompt bypasses the shared menu helper.
 
 Current rule:
-- Interactive select menus should route through `_menu_select()` in `cookimport/cli.py`.
+- Interactive select menus should route through `_menu_select()` in `cookimport/cli_support/interactive.py`.
 - That helper owns shortcut numbering, explicit shortcut labels, and the shared `Esc` contract.
 
-### 2026-03-13_22.48.50 run-settings public/internal/retired split
+### 2026-03-13_22.48.50 run-settings public/internal split
 
 Preserved finding:
-- CLI docs and summaries kept leaking retired or internal settings back into the public operator surface.
+- CLI docs and summaries kept leaking internal settings back into the public operator surface.
 
 Current rule:
 - Public operator docs should focus on the smaller current run-settings contract.
 - Internal parser/OCR/scoring knobs may still load from saved payloads and hidden flags, but they are not normal operator documentation.
-- `table_extraction` is retired; new runs always extract tables, and docs should not advertise `--table-extraction` as a live feature.
 
 ### 2026-03-14_14.08.00 winner cache boundary
 
@@ -182,14 +174,6 @@ Preserved finding:
 Current rule:
 - Quality-suite winner settings are a disposable cache.
 - Interactive loading should harmonize only real `RunSettings` fields and ignore stale winner payloads with one concise warning.
-
-### 2026-03-15_15.44.51 removed surface stays removed
-
-Preserved finding:
-- Historical docs kept trying to preserve dead CLI seams after the owning feature was deleted.
-
-Current rule:
-- If a CLI surface has been removed from the current code, delete its README/log notes instead of archiving them forever in this file.
 
 ### 2026-03-16_17.50.43 and 2026-03-16_18.26.12 shared CodexFarm submenu everywhere
 
@@ -211,7 +195,7 @@ Preserved finding:
 
 Current rule:
 - shared workflow/Codex choices belong in `choose_run_settings(...)`
-- benchmark-only source/gold selection belongs in benchmark helpers under `cookimport/cli.py`
+- benchmark-only source/gold selection belongs in the benchmark helpers under `cookimport/cli_support/`
 
 Anti-loop note:
 - if an interactive tweak should affect import and benchmark equally, it probably belongs in `run_settings_flow.py`, not in benchmark-only helpers
@@ -253,18 +237,6 @@ Current rule:
 
 Anti-loop note:
 - if a long-running stage still looks blank, fix the stage emitter to publish structured progress rather than adding another spinner-only special case
-
-### 2026-03-18 zero-token Codex plan mode was intentionally removed
-
-Preserved finding:
-- `--codex-execution-policy plan` was duplicating two clearer surfaces and teaching the wrong mental model for current direct-exec work
-
-Current rule:
-- use `cf-debug preview-prompts` when the question is "what would this prompt/cost shape look like?"
-- use execute-path rehearsal with `scripts/fake-codex-farm.py` when the question is "will the real runtime folders, validation, and promotion seams behave correctly without live spend?"
-
-Anti-loop note:
-- if someone asks for plan mode back, first prove that preview plus fake-run rehearsal fails to answer a real operator question. The old mode was removed because it was overlapping and stale, not because it lacked code.
 
 ### 2026-03-18 interactive shard-count selection is split by surface on purpose
 

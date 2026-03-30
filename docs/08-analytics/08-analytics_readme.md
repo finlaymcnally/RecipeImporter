@@ -52,8 +52,10 @@ Primary modules:
   - `templates.py` is now a tiny facade over `html_shell.py`, `style_asset.py`, and `script_asset.py`
 - `cookimport/analytics/compare_control_engine.py`
 - `cookimport/analytics/benchmark_timing.py`
+- `cookimport/cli_commands/analytics.py`
+- `cookimport/cli_commands/compare_control.py`
+- `cookimport/cli_support/dashboard.py`
 - `cookimport/paths.py`
-- `cookimport/cli.py`
 
 Primary CLI entry points:
 - `cookimport stage`
@@ -70,6 +72,8 @@ Primary CLI entry points:
 Regression anchors:
 - `tests/analytics/test_perf_report.py`
 - `tests/analytics/test_stats_dashboard.py`
+- `tests/analytics/test_stats_dashboard_slow.py`
+- `tests/analytics/test_dashboard_state_server.py`
 - `tests/analytics/test_benchmark_csv_backfill_cli.py`
 - `tests/analytics/test_compare_control_engine.py`
 - `tests/analytics/test_compare_control_cli.py`
@@ -132,7 +136,7 @@ Current write behavior:
 
 Schema contract:
 - `cookimport/analytics/dashboard_schema.py`
-- `SCHEMA_VERSION = "13"`
+- `SCHEMA_VERSION = "14"`
 
 Collector behavior (`collect_dashboard_data`):
 - Stage data is CSV-first.
@@ -326,6 +330,8 @@ Current page behavior:
 5. `cookimport/analytics/dashboard_render.py`
 6. `cookimport/analytics/compare_control_engine.py`
 7. `cookimport/paths.py`
-8. Refresh wiring in `cookimport/cli.py`
-9. Analytics tests under `tests/analytics/` plus related CLI/benchmark tests
-10. This README plus `08-analytics_log.md` and `dashboard_readme.md` when dashboard behavior changes
+8. `cookimport/cli_commands/analytics.py`
+9. `cookimport/cli_commands/compare_control.py`
+10. Refresh wiring in `cookimport/cli_support/dashboard.py`
+11. Analytics tests under `tests/analytics/` plus related CLI/benchmark tests
+12. This README plus `08-analytics_log.md` and the short notes under `cookimport/analytics/` when dashboard behavior changes

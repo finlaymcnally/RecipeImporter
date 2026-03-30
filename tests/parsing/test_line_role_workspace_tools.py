@@ -277,6 +277,52 @@ def test_line_role_workspace_helper_cli_check_phase_rejects_wrong_order(
     assert repair_payload["frozen_rows"] == []
 
 
+def test_line_role_workspace_helper_cli_check_phase_rejects_invalid_exclusion_reason(
+    tmp_path: Path,
+) -> None:
+    workspace_root, shard_row = _write_workspace_fixture(tmp_path)
+    script_path = workspace_root / "tools" / LINE_ROLE_WORKER_TOOL_FILENAME
+    shard_id = str(shard_row["shard_id"])
+    bad_payload_path = workspace_root / "work" / f"{shard_id}.json"
+    bad_payload_path.write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "atomic_index": 0,
+                        "label": "NONRECIPE_EXCLUDE",
+                        "exclusion_reason": "obvious non-recipe marketing/junk text",
+                    },
+                    {"atomic_index": 1, "label": "INSTRUCTION_LINE"},
+                ]
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    check = subprocess.run(
+        [sys.executable, str(script_path), "check-phase"],
+        cwd=workspace_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert check.returncode == 1
+    assert "invalid_exclusion_reason" in check.stdout
+    repair_payload = json.loads(
+        (workspace_root / "repair" / f"{shard_id}.json").read_text(encoding="utf-8")
+    )
+    assert repair_payload["accepted_atomic_indices"] == [1]
+    assert repair_payload["unresolved_atomic_indices"] == [0]
+    assert repair_payload["frozen_rows"] == [
+        {"atomic_index": 1, "label": "INSTRUCTION_LINE"},
+    ]
+
+
 def test_line_role_repair_request_payload_freezes_accepted_rows_only() -> None:
     shard_row = {
         "shard_id": "line-role-canonical-0001-a000000-a000002",

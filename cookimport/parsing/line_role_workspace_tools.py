@@ -37,7 +37,7 @@ Rules:
 - `label` must be one of:
   `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `NONRECIPE_CANDIDATE`, `NONRECIPE_EXCLUDE`
 - `exclusion_reason`, when present, must be one of:
-  `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `page_furniture`
+  `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `publisher_promo`, `page_furniture`
 - Only use `exclusion_reason` on rows labeled `NONRECIPE_EXCLUDE`, and only for overwhelmingly obvious non-recipe junk that should skip knowledge.
 - Do not add commentary, markdown, or extra JSON keys.
 - There is no separate repo-owned repair model pass for line-role; the scaffolded work ledger plus `check-phase` is the real repair loop.
@@ -58,6 +58,7 @@ _VALID_EXCLUSION_REASONS = {
     "publishing_metadata",
     "copyright_legal",
     "endorsement",
+    "publisher_promo",
     "page_furniture",
 }
 
@@ -739,6 +740,7 @@ def validate_payload(workspace_root: Path, shard_row, payload, *, frozen_rows_by
             row_errors.append("duplicate_atomic_index")
         seen_atomic_indices.add(atomic_index)
         if row_errors:
+            errors.extend(row_errors)
             invalid_row_atomic_indices.append(atomic_index)
             unresolved_atomic_indices.add(atomic_index)
             row_error_map.setdefault(atomic_index, []).extend(row_errors)

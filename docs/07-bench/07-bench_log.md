@@ -234,16 +234,16 @@ Anti-loop note:
 
 Problem captured:
 
-- quality-run requested-settings validation still had stale assumptions about a separate tags Codex surface
+- quality-run requested-settings validation had drifted from the live Codex surface model
 
 Durable decisions:
 
-- `CodexSurfaceDecision` should track the live surfaces only
-- deterministic `bench quality-run` validation needs to reject Codex recipe and knowledge usage; the removed tags surface should not return as a compatibility alias
+- `CodexSurfaceDecision` should track the current live surfaces only
+- deterministic `bench quality-run` validation needs to reject live Codex recipe and knowledge usage from the requested settings payload
 
 Anti-loop note:
 
-- if a quality-suite fix proposal wants to add `tags_codex_enabled` back, it is restoring a deleted surface instead of aligning to the live model
+- if a quality-suite fix proposal adds validation branches for surfaces that are not part of `CodexSurfaceDecision`, it is regressing away from the live model
 
 ## 12. 2026-03-13 execution semantics and single-root output contract
 
@@ -469,17 +469,7 @@ Anti-loop note:
 
 - if QualitySuite behavior looks inconsistent, debug validation order and payload projection before relaxing strict settings loading
 
-## 18. Retired History Notice
-
-The following removed benchmark workflows were intentionally pruned from this log:
-
-- tournament-based QualitySuite promotion flows
-- `scripts/quality_top_tier_tournament.py`
-- retired `bench run`, `bench sweep`, `bench validate`, and `bench knobs` surfaces
-- line-role projection as the primary scored truth
-- fast canonical alignment production scoring
-
-## 19. 2026-03-16 Codex single-book follow-through
+## 18. 2026-03-16 Codex single-book follow-through
 
 ### 2026-03-16_18.20.49, 2026-03-16_19.01.54, and 2026-03-16_19.18.20 upload-bundle artifact discovery on current layouts
 
@@ -829,7 +819,7 @@ Evidence worth keeping:
 Anti-loop note:
 - if upload-bundle diagnostics disagree again, inspect the normalized bundle model and derived bundle-local rows before blaming scorer logic or the underlying benchmark run
 
-## 20. 2026-03-22 Oracle follow-up recovery must trust recovered grounded answers and reuse the same session home
+## 19. 2026-03-22 Oracle follow-up recovery must trust recovered grounded answers and reuse the same session home
 
 Problem captured:
 - detached Oracle uploads could recover a timed-out turn 1 into `oracle_upload.log`, but the follow-up audit still saw the old timeout text first and left the run stuck in `recovering_turn_1`
@@ -849,7 +839,7 @@ Evidence worth keeping:
 Anti-loop note:
 - if Oracle follow-up stalls after a visible recovered answer, debug audit precedence and session-home reuse before changing request parsing or bundle selection
 
-## 21. 2026-03-22 upload_bundle recipe-correction debug views had to count compact outputs and honest fallbacks
+## 20. 2026-03-22 upload_bundle recipe-correction debug views had to count compact outputs and honest fallbacks
 
 Problem captured:
 - `upload_bundle_v1` recipe-correction debug views were still lying in two ways:
@@ -868,7 +858,7 @@ Evidence worth keeping:
 Anti-loop note:
 - if recipe-correction debug views drift again, inspect compact existing-output parsing and fallback-source selection before changing benchmark scoring or recipe topology metadata
 
-## 22. 2026-03-22 detached Oracle benchmark review converged on explicit dual lanes plus browser-safe model selection
+## 21. 2026-03-22 detached Oracle benchmark review converged on explicit dual lanes plus browser-safe model selection
 
 Problem captured:
 - benchmark-side Oracle review had become half-upgraded:
@@ -897,7 +887,7 @@ Evidence worth keeping:
 Anti-loop note:
 - if Oracle benchmark review drifts again, inspect lane-specific staged artifacts and alias normalization before changing the bundle renderer or restoring one shared review lane
 
-## 23. 2026-03-22 turn-1 Oracle recovery widened beyond explicit timeout handling
+## 22. 2026-03-22 turn-1 Oracle recovery widened beyond explicit timeout handling
 
 Problem captured:
 - turn-1 follow-up recovery originally trusted only two failure shapes:
@@ -921,7 +911,7 @@ Evidence worth keeping:
 Anti-loop note:
 - if benchmark follow-up stalls after a visible turn-1 answer, debug stale-running recovery, recovered-answer precedence, and session-home inheritance before changing request parsing or follow-up bundle generation
 
-## 24. 2026-03-22 canonical-text benchmark reports regained structural segmentation as a first-class contract
+## 23. 2026-03-22 canonical-text benchmark reports regained structural segmentation as a first-class contract
 
 Problem captured:
 - canonical-text `eval_report.json` exposed boundary-overlap counts and classification metrics, but it omitted the structural segmentation payload that the paired single-book comparison code expected

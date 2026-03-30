@@ -2,7 +2,7 @@
 summary: "Tagging architecture/build/fix-attempt log for the current inline recipe-tagging surface."
 read_when:
   - When tagging behavior or contracts start going in circles
-  - When deciding whether tags belong in prompts, staged outputs, or downstream cookbook import seams
+  - When deciding whether tags belong in the recipe prompt, normalized staged outputs, or report metadata
 ---
 
 # Tagging Log
@@ -24,19 +24,6 @@ Durable decisions:
 
 Anti-loop note:
 - do not rebuild a tags-only sidecar pipeline just to project tags into final outputs
-
-### 2026-03-16_15.27.37 cookbook consumer model
-
-Problem captured:
-- it was easy to assume that embedding tags in recipeimport drafts meant cookbook would consume them directly as canonical recipe fields
-
-Durable decisions:
-- cookbook canonical tags stay relational, not embedded in `RecipeDraftV1`
-- recipeimport should emit flat accepted tags plus optional provenance
-- cookbook staging/import approval is the seam that should translate imported tag proposals into canonical tag assignments
-
-Anti-loop note:
-- if a cookbook integration proposal starts by widening `RecipeDraftV1` for tags, it is probably choosing the wrong seam
 
 ### 2026-03-16_15.47.58 prompt-preview boundary
 

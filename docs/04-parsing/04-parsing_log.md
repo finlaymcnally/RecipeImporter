@@ -180,7 +180,7 @@ What stuck:
 - Title-like rows keep a deterministic `RECIPE_TITLE` path.
 - Note-like prose is handled before generic instruction fallback.
 - Yield splitting intentionally avoids bare `serving` prose.
-- `canonical_line_roles.py` uses rule-first labeling with optional codex fallback behind `line_role_pipeline=codex-line-role-v1`.
+- `cookimport/parsing/canonical_line_roles/` uses rule-first labeling with optional Codex routing behind the active line-role pipeline.
 - Codex fallback now uses bounded concurrency, retry/backoff, deterministic merge order, and on-disk cache reuse.
 - Ingest owns the shared inflight-default policy for codex line-role work.
 
@@ -260,28 +260,6 @@ Anti-loop note:
 
 - if preview prompt counts improve but live line-role cost or behavior does not, the change probably landed in the wrong seam
 
-### 2026-03-16: label-first atomizer span hints and reason-only line-role seam
-
-Problem:
-
-- label-first authoritative reuse briefly atomized every archive block as if it were outside a recipe span
-- that caused canonical line-role safety rules to erase legitimate recipe structure before regrouping could recover it
-- the same refactor window also made it easy to leave old confidence/trust score fields on line-role artifacts even after runtime decisions had moved to explicit escalation reasons
-
-What stuck:
-
-- `_atomize_archive_blocks(...)` still needs provisional recipe-span hints derived from existing recipe provenance (`start_block` / `end_block`, with line-index fallback) before authoritative regrouping runs
-- forcing `within_recipe_span=False` for all blocks is a known bad path; on `saltfatacidheatcutdown` it collapsed counts from the healthy shape (`RECIPE_TITLE=27`, `INSTRUCTION_LINE=64`, `HOWTO_SECTION=28`) down to `RECIPE_TITLE=4`, `INSTRUCTION_LINE=35`, `HOWTO_SECTION=0`
-- current line-role artifacts are reason-only:
-  - keep labels, provenance, `decided_by`, `reason_tags`, and `escalation_reasons`
-  - do not keep scalar `confidence`, `trust_score`, or `escalation_score`
-- stage, Label Studio, and reviewer/export surfaces are expected to consume the same reason-only contract; re-adding score fields downstream is a stale-consumer bug, not missing parser output
-
-Anti-loop note:
-
-- if label-first canonical output suddenly turns recipe structure into `OTHER`, debug atomizer span hints before retuning label heuristics or benchmark scorer math
-- if a proposed reviewer/export fix adds score fields back, it is fighting the current runtime contract
-
 ## Things We Know Are Still Bad
 
 - Text-only ingredient identity is still risky when identical ingredient lines are intentionally duplicated.
@@ -318,7 +296,7 @@ Anti-loop note:
 ### Canonical line roles
 
 - Start in `recipe_block_atomizer.py` for candidate-shape problems.
-- Use `canonical_line_roles.py` only after confirming the candidate itself is reasonable.
+- Use `cookimport/parsing/canonical_line_roles/policy.py` and `runtime.py` only after confirming the candidate itself is reasonable.
 - For codex latency, inspect inflight limits, retries, and cache hits before changing heuristics.
 
 ### Docs coverage
@@ -390,7 +368,7 @@ Problem:
 
 What stuck:
 - pre-grouping `AtomicLineCandidate.within_recipe_span` is now three-state and defaults to `None`
-- `label_source_of_truth.py`, `cookimport/labelstudio/ingest.py`, and `cookimport/llm/prompt_preview.py` now share that same span-free contract
+- `label_source_of_truth.py`, Label Studio ingest flows, and `cookimport/llm/prompt_preview.py` now share that same span-free contract
 - prompt text must not advertise prior recipe atomic ranges
 - debugging obvious recipe misses should start with atomizer heuristics, deterministic labeling, and later grouping behavior rather than restoring provenance-backed span hints
 
@@ -482,44 +460,38 @@ Anti-loop note:
 
 Problem:
 - direct line-role follow-up work briefly exposed two related failures:
-  - degenerate packet outputs could collapse toward one repeated label family and still look superficially “complete”
+  - degenerate shard outputs could collapse toward one repeated label family and still look superficially “complete”
   - Codex-style agent behavior could treat wrapper/examples as the real task instead of the owned stored rows
 
 What stuck:
-- parent shards now fail closed when any task packet returns unowned or otherwise invalid rows; baseline rows may still exist for local debugging, but they no longer masquerade as reviewed success
+- parent shards now fail closed when any shard result returns unowned or otherwise invalid rows; baseline rows may still exist for local debugging, but they no longer masquerade as reviewed success
 - the durable authority rule is “stored task files first”: worker-local `in/*.json` plus repo-written `hints/*.md` / `debug/*.json` are the real line-role surface, and structured follow-ups must rebuild from those stored inputs instead of from illustrative wrapper examples
-- the short-lived inline-authority workaround from the one-shot direct-exec phase is history, not the current contract; the later workspace-worker/task-packet runtime kept the anti-loop lesson while moving authority back into named local files
 
 Still true:
 - if line-role output seems clever but wrong, inspect which file or prompt surface the model was actually treating as authoritative before changing labels, retry policy, or watchdog rules
 
-## 2026-03-21 immutable packet authority, packet posture, and boundary context became the stable line-role contract
+## 2026-03-21 shard-owned authority and boundary context became the stable line-role contract
 
 Problem:
-- line-role quality was still being damaged before per-row judgment even started: packet inputs could drift, early front-matter/title-list packets could be framed as `recipe_body`, and split task packets were blind at boundaries
+- line-role quality was still being damaged before per-row judgment even started: worker inputs could drift, early front-matter/title-list shards could be framed as `recipe_body`, and shard boundaries were blind without explicit neighbor context
 
 What stuck:
-- line-role now writes one immutable `canonical_line_table.jsonl`, per-packet `task_status.jsonl`, and packet-first `workers/*/{in,debug,out}/` artifacts; valid packet outputs are authoritative and fallback is row-owned only
-- worker guidance is now repo-written and packet-local:
-  - `packet_summary`
-  - `default_posture`
-  - `flip_policy`
-  - `example_files`
-  - richer `hints/*.md`
-- packet-mode classification must fail closed when all rows are span-unknown; front matter and contents-style title lists now become conservative `front_matter_navigation` packets instead of high-confidence `recipe_body`
-- neighboring context is task-local and reference-only: `context_before_rows` / `context_after_rows` exist to help boundary judgment, but only `rows` is label-authoritative
+- line-role now writes one immutable `canonical_line_table.jsonl`, one `shard_status.jsonl`, and shard-owned `workers/*/{in,debug,out}/` artifacts; valid installed shard outputs are authoritative and fallback is row-owned only
+- worker guidance is repo-written and shard-local through `current_phase.*`, `assigned_shards.json`, `OUTPUT_CONTRACT.md`, and `hints/*.md`
+- shard-mode classification must fail closed when all rows are span-unknown; front matter and contents-style title lists now become conservative `front_matter_navigation` shards instead of high-confidence `recipe_body`
+- neighboring context is shard-local and reference-only: `context_before_rows` / `context_after_rows` exist to help boundary judgment, but only `rows` is label-authoritative
 
 Evidence worth keeping:
-- the preserved March 21 worker-001 front-matter and contents packets were the clearest proof: endorsement blurbs, `CONTENTS`, `Foreword`, and recipe-name lists were being handed to workers as confident recipe-body packets until the packet-mode fix landed
-- the same preserved run also showed why the packet system itself should stay: later lesson packets already benefited from `lesson_prose` posture once the packet story matched the text
+- the preserved March 21 front-matter and contents shards were the clearest proof: endorsement blurbs, `CONTENTS`, `Foreword`, and recipe-name lists were being handed to workers as confident recipe-body slices until the shard-mode fix landed
+- the same preserved run also showed why the shard-local hint system should stay: later lesson shards already benefited from `lesson_prose` posture once the worker story matched the text
 
 Anti-loop note:
-- if early-book packets start reading like recipe bodies again, debug packet classification, packet posture, and owned-vs-context boundaries before touching recipe-span grouping or scorer code
+- if early-book shards start reading like recipe bodies again, debug shard classification, hint posture, and owned-vs-context boundaries before touching recipe-span grouping or scorer code
 
 ## 2026-03-21 to 2026-03-22 over-structuring fixes converged on high-evidence labels plus cross-book canaries
 
 Problem:
-- once the big packet-shape issues were fixed, the remaining line-role regressions moved between three label boundaries:
+- once the big shard-shape issues were fixed, the remaining line-role regressions moved between three label boundaries:
   - `HOWTO_SECTION`
   - outside-recipe `KNOWLEDGE`
   - `RECIPE_VARIANT`
@@ -552,7 +524,7 @@ Problem:
 
 What stuck:
 - treat this as worker-posture plus narrow rescue/demotion work, not as a broad deterministic relabel rewrite
-- lesson-prose packets now explicitly contrast reusable cooking knowledge with memoir/front matter and contents/title lists
+- lesson-prose shards now explicitly contrast reusable cooking knowledge with memoir/front matter and contents/title lists
 - unsupported outside-span Codex `RECIPE_TITLE` labels now demote unless strong local recipe evidence exists
 - Codex `OTHER` can recover to `KNOWLEDGE` or `INSTRUCTION_LINE` only on exact-evidence seams:
   - explanatory cooking-science prose with real knowledge cues or lesson-cluster context
@@ -577,7 +549,7 @@ Problem:
 What stuck:
 - line-role is now routing-only for review-eligible outside-recipe prose:
   - keep recipe-structure labels
-  - exclude only overwhelming obvious junk through `review_exclusion_reason`
+  - exclude only overwhelming obvious junk through `exclusion_reason`
   - leave plausible lesson prose and concept headings as review-eligible `OTHER`
 - the knowledge stage is now the only semantic owner for review-eligible outside-recipe `KNOWLEDGE` versus `OTHER`
 - Stage 7 keeps explicit routing/final-authority bookkeeping instead of pretending every outside-recipe seed row is already semantically decided
@@ -607,7 +579,7 @@ What stuck:
   - strong publisher/signup/download boilerplate
   - patterned publishing/legal metadata
 - keep the veto neighborhood-aware but fail open on mixed packets that still contain plausible teaching prose
-- `review_exclusion_reason` remains the honest explanation seam; stable reason families matter more than a larger taxonomy
+- `exclusion_reason` remains the honest explanation seam; stable reason families matter more than a larger taxonomy
 - benchmark/debug reading for this seam should focus on exclusion ledgers and review-routing counts, not on older line-role `KNOWLEDGE` budget artifacts that predate the routing-only contract
 
 Evidence worth keeping:

@@ -9,12 +9,9 @@ read_when:
 # LLM Build and Fix Log
 
 Use this file for LLM debugging history that still applies to the current codebase. Retired rollout notes, removed UI paths, and old gating experiments were intentionally pruned.
-Entries are dated snapshots. When a later cutover supersedes an older worker surface, older file names and loops are kept here as historical evidence, not as current contract guidance.
+Entries are dated snapshots. When a worker surface or transport is removed, its rollout notes should be pruned instead of preserved as pseudo-current guidance.
 
 ## 2026-03-22 workspace-worker paved-road contract converged across recipe, line-role, and knowledge
-
-Historical note:
-- this entry predates the later packet-first recipe/knowledge cutovers, so `current_task.json` here is historical evidence for the then-live surface rather than current guidance
 
 Problem captured:
 - the first worker-runtime cutover fixed the big transport problems, but the day-to-day worker contract still had too many sharp edges:
@@ -29,18 +26,16 @@ Durable decisions:
   - prose or absent final chat messages are telemetry only
 - the shared worker contract starts from repo-written local files, not broad queue spelunking:
   - `worker_manifest.json`
-  - `current_task.json`
+  - the repo-written current control file for that stage (`current_packet.json` or `CURRENT_PHASE.md`)
   - named `hints/*.md`
   - named `in/*.json`
-  - mirrored `tools/`
-  - `OUTPUT_CONTRACT.md`
-  - `examples/`
+  - the approved local `out/*.json` target
 - boundary-based watchdog policy is the stable main-worker rule:
   - tolerate bounded local shell work
   - tolerate temp roots such as `/tmp`
   - tolerate surfacing the assigned execution root itself
   - keep structured retry/repair on the stricter one-shot policy
-- recipe rejects legacy verbose output keys on the live seam, and the cheap helper path for recipe/line-role is now batch `prepare* -> edit -> finalize*` rather than repeated `scaffold -> check -> install`
+- repo-owned worker prompts should steer the model toward the current control files and validated output path, not toward queue dumps or helper churn
 
 Evidence worth keeping:
 - the March 21 and March 22 Salt Fat runs showed the exact progression:
@@ -50,42 +45,6 @@ Evidence worth keeping:
 
 Anti-loop note:
 - if a future fix proposal starts from final assistant message formatting, stale verbose keys, or prompt wording alone, re-check the worker file/manifest/helper contract first
-
-## 2026-03-22 recipe workspace-worker cost cuts only stuck after the repo prewrote more trustworthy state
-
-Historical note:
-- this entry captures the pre-packet recipe runtime that was later removed on 2026-03-30; `SHARD_PACKET.md`, prepared drafts, and current-task sidecars here are retained as rollout evidence only
-
-Problem captured:
-- removing the false-positive startup kill was necessary but not sufficient: recipe runs were reliable again, yet workers still spent too many session turns rereading manifests, contracts, examples, helper source, hints, and raw inputs before editing the prepared drafts
-- early whole-shard deaths were also recovering through one follow-up per task even when the worker had produced nothing usable yet
-
-Durable decisions:
-- recipe startup/watchdog classification has to understand the real sterile execution root under `~/.codex-recipe/...`, not only the mirrored source worker root
-- early whole-shard deaths recover through one shard-packed retry; mixed-output failures still recover per task
-- at that point, the repo prewrote the state workers were repeatedly rediscovering:
-  - `SHARD_PACKET.md`
-  - `scratch/<task_id>.json`
-  - `scratch/_prepared_drafts.json`
-  - `CURRENT_TASK.md`
-  - `CURRENT_TASK_FEEDBACK.md`
-- at that point, the cheap recipe path was "read `SHARD_PACKET.md`, trust the prepared drafts, edit them, then `finalize-all`"; contract/example/tool-source reads were fallback-only
-- the current-task helper loop was still real and useful, but it had become a recovery/debug seam:
-  - `check-current` writes repo-readable validation feedback
-  - `install-current` advances `current_task.json` plus `CURRENT_TASK*.md`
-  - prepared-draft metadata refreshes after accepted installs
-- the resulting recipe telemetry separated two waste families:
-  - `recipe_contract_lookup_command`
-  - `recipe_task_bundle_read_command`
-
-Evidence worth keeping:
-- the March 22 sequence mattered because it showed three distinct states in order:
-  - a false-positive startup kill under the sterile execution root
-  - a reliable but still chatty batch flow at `47` commands and high session-token overhead
-  - the later shard-packet/current-task flow that finally made the low-readback path explicit in repo-owned files
-
-Anti-loop note:
-- if recipe token spend rises again, inspect readback loops and repo-written worker surfaces first; do not jump straight to more prompt prose or another watchdog rollback
 
 ## 2026-03-22 main workspace-worker watchdog rollback converged on executable-only enforcement
 
@@ -113,85 +72,6 @@ Evidence worth keeping:
 Anti-loop note:
 - if false kills return, inspect the forbidden executable list and live reason codes before reintroducing path policing or helper-specific exceptions
 
-## 2026-03-22 knowledge runtime moved from “helper available” to true single-task authority plus snippet-copy recovery
-
-Historical note:
-- this entry captures the pre-packet knowledge current-task surface that was later replaced by packet leasing and shard-owned packet state; current-task sidecars here are retained as then-live evidence only
-
-Problem captured:
-- knowledge workers still had two expensive failure families after the initial runtime cutover:
-  - they could behave like local queue schedulers instead of one-task-at-a-time workers
-  - snippet-copy outputs could go straight from “worker wrote a file” to poisoned-worker skip without a narrow repair chance
-
-Durable decisions:
-- at that point, the repo owned the live knowledge loop one task at a time:
-  - skinny `assigned_tasks.json`
-  - authoritative `current_task.json`
-  - `CURRENT_TASK.md`
-  - `CURRENT_TASK_FEEDBACK.md`
-  - repo advancement only after validation
-- the current-task bundle must stay authoritative in both places the runtime uses:
-  - the durable worker root
-  - the sterile execution workspace after each validation callback
-- `assigned_tasks.json` stays a queue/progress surface, not the worker's primary source of truth for "what do I do now?"
-- prompt, sidecars, helper stdout, and the generated helper script all have to frame `install-current` as a reopen-and-continue handoff rather than a stopping point
-- clean mid-queue exits after visible queue advancement are deterministic runtime failures, not acceptable conversational pauses; the repo now auto-resumes the remaining queue up to a small cap and persists that rescue history
-- worker-local `check` / `install` and orchestrator recovery now reuse the same validation classification instead of drifting
-- snippet-copy-only failures are their own near-miss family:
-  - full-chunk echoes
-  - copied evidence-quote snippets
-- those snippet-copy-only failures now get one narrow `inline_snippet_repair` before the broad repair ladder or poisoned-worker skip logic can win
-- worker poisoning still exists, but it is for repeated broader low-trust, boundary, or zero-output behavior rather than the first repairable snippet-copy miss
-
-Evidence worth keeping:
-- the March 22 benchmark evidence mattered because it showed all three failure families mechanically:
-  - queue scripting was still happening
-  - one run advanced `live_status.json` to task 2 while the worker-visible current-task sidecars stayed on task 1 until source-to-execution mirroring was fixed
-  - later runs advanced the sidecars correctly but still ended with "If you want, I can continue..." mid-queue
-- the same task family also showed why helper/sidecar wording must be shared: patching prose in one renderer but not in the generated helper script immediately reintroduced drift between `CURRENT_TASK_FEEDBACK.md` and `install-current` output
-
-Anti-loop note:
-- if knowledge workers stop after one or a few valid tasks, do not restore queue spelunking or accept a permission-seeking final message as success; inspect current-task authority/sync first, then the capped auto-resume seam
-- if snippet-copy failures return, do not weaken the validator and do not skip straight to poisoned-worker logic; inspect the shared failure classifier and the narrow repair rung first
-
-## 2026-03-22 recipe workspace spend only stabilized once the repo restored batch finalize as the default loop and failed closed on empty mappings
-
-Historical note:
-- this entry describes the older draft-sidecar recipe runtime that was later superseded by the packet-first recipe cutover on 2026-03-30
-
-Problem captured:
-- the first recipe workspace refactor improved trust surfaces, but it accidentally turned `check-current` / `install-current` into the default loop
-- that created a control-flow regression:
-  - repeated sidecar rereads
-  - repeated per-task helper turns
-  - command count and session-token overhead far above the earlier shard-packet path
-- one more compact-contract gap also stayed too permissive: a repaired recipe could still look "non-empty" while carrying an empty mapping with no reason
-
-Durable decisions:
-- keep the good repo-owned trust surfaces:
-  - `SHARD_PACKET.md`
-  - prewritten `scratch/<task_id>.json`
-  - `scratch/_prepared_drafts.json`
-  - current-task sidecars
-- restore the cheap default loop for healthy recipe shards:
-  - read `SHARD_PACKET.md`
-  - trust the prepared drafts
-  - edit drafts directly
-  - run one `finalize-all scratch/` at the end
-- keep `check-current` / `install-current` as recovery/debug tools only, not the normal happy path
-- recipe empty mappings now fail closed when the canonical recipe clearly has real structure:
-  - if there are 2+ non-empty ingredients or 2+ non-empty steps, empty `m` requires a non-empty `mr` reason such as `unclear_alignment`
-  - otherwise the prepared draft should fall back to `fragmentary` instead of pretending success
-
-Evidence worth keeping:
-- the March 22 regression was mechanical, not subjective:
-  - command-execution count jumped from `47` to `113`
-  - command-execution tokens jumped from about `536k` to about `1.33M`
-  - correctness counters still stayed healthy, which proved the regression was the worker loop, not recipe validity
-
-Anti-loop note:
-- if recipe spend rises again, inspect whether worker-facing docs have drifted back toward per-task helper churn or permissive empty-map acceptance before changing prompts, validators, or watchdog policy
-
 ## 2026-03-22 line-role and knowledge spend reporting had to fail closed on missing usage instead of publishing fake zeroes
 
 Problem captured:
@@ -211,35 +91,6 @@ Evidence worth keeping:
 
 Anti-loop note:
 - if token accounting regresses again, do not coerce missing usage to zero just to keep dashboards full; inspect footer parsing, late-event timing, and worker sidecars first
-
-## 2026-03-22 to 2026-03-23 knowledge runtime simplified around batch-local authority, single-chunk tasks, and utility-first judgment
-
-Problem captured:
-- the knowledge stage had accumulated three different sources of waste and confusion:
-  - current-task loops that encouraged extra turns instead of cheap repo-owned continuation
-  - a multi-chunk packet layer on top of deterministic chunking
-  - a semantic bar that still sounded too much like "cooking-adjacent and true" instead of "durable cooking leverage"
-
-Durable decisions:
-- batch-local repo-owned authority is the cheap path:
-  - `CURRENT_BATCH.md` and `CURRENT_BATCH_FEEDBACK.md` are the first reads
-  - `current_batch.json` is machine-readable batch-local metadata only
-  - `assigned_tasks.json` stays fallback/debug inventory, not the happy-path authority
-- each deterministic knowledge chunk now becomes one shard and one task:
-  - no second semantic packet layer
-  - compatibility-only shard-sizing knobs now warn instead of rebundling
-- the public semantic taxonomy remains binary `knowledge|other`, but the decision boundary is now utility-first and explicitly fail-closed on marginal value
-- accepted outputs must explain that utility judgment with compact reason codes, while richer `utility_profile` cues remain worker-local hints only
-- strong negative utility plus no positive cue can bypass the model entirely as validated repo-owned `other`, but only through the narrow no-LLM fast path
-
-Evidence worth keeping:
-- the March 22 Salt Fat failures showed why this had to change:
-  - mixed memoir/book-framing packets could ride along with one useful sentence
-  - strong-cue scaffolds could masquerade as accepted reviewed-empty work
-  - current-task wording could still spend extra turns even after validation and queue advancement worked
-
-Anti-loop note:
-- if knowledge quality or spend regresses, do not restore semantic packet bundling or broaden the positive class back to generic factuality first; check batch-local authority, one-chunk task truth, and the utility-boundary reason codes
 
 ## 2026-03-21 shared stage-progress contract and summary parity
 
@@ -642,51 +493,6 @@ Durable decisions:
 Anti-loop note:
 - if prompt-preview numbers improve but live costs do not, the change probably landed in a preview-only seam or outside the shared runner/serializer boundary
 
-## 2026-03-16 to 2026-03-17 shard-runtime model, cutover shape, and remaining runner debt
-
-Problem captured:
-- older refactor notes kept drifting toward "bigger prompt bundles" or "brand-new pipeline" language instead of the actual runtime refactor
-- it was also easy to half-migrate only the live runtime and leave preview, prompt exports, upload-bundle context, or legacy-id handling on stale assumptions
-- the repo-local shard runtime shape could be mistaken for proof of true reused multi-shard live sessions even though the underlying transport still shells through CodexFarm `process`
-
-Durable decisions:
-- shard-v1 is a runtime refactor over the existing label-first staged importer, not a new pipeline
-- shards are ownership units and workers are bounded execution contexts; keep those concepts separate in docs, manifests, and review surfaces
-- the implementation split that worked was:
-  - shared runtime/config spine first
-  - phase cutovers for line-role, recipe, and knowledge next
-  - preview/export/upload-bundle and legacy-id cleanup as the final coordinated cutover
-- keep runtime truth separate from compatibility artifacts during cutover:
-  - recipe runtime artifacts live under `recipe_phase_runtime/` while per-recipe compatibility files stay under `recipe_correction/{in,out}/`
-  - knowledge runtime lives in manifests, proposals, and validation, while `knowledge/{in,out}` remains a compatibility bridge for older prompt/debug readers
-  - line-role runtime may need raw prompt-text worker inputs, but reviewer/export surfaces can still keep `line-role-pipeline/prompts/*`
-- reviewer-friendly prompt files should stay prompt-level, but they must annotate `runtime_shard_id`, `runtime_worker_id`, and `runtime_owned_ids`
-- active run-setting surfaces should reject retired pipeline ids instead of silently normalizing them
-- current code landed shard ownership, validation, promotion, and worker/shard observability, but the transport still rides CodexFarm `process`, so true multi-shard live session reuse remains incomplete
-
-Anti-loop note:
-- if a future change claims shard agents are "done," verify whether it changed only RecipeImport-side runtime structure or the underlying CodexFarm runner semantics too
-
-## 2026-03-17 remaining legacy weight after shard-v1 cutover
-
-Problem captured:
-- once active pipeline ids and live shard-worker paths were cleaned up, "legacy" still looked larger than it really was because read-side helpers and retired modules were mixed together with live runtime code
-
-Durable decisions:
-- active run-setting surfaces are already strict; old recipe, knowledge, and line-role ids now fail instead of silently normalizing
-- the main remaining compatibility seams are:
-  - runner support for older codex-farm stderr progress lines and flag sets
-  - compatibility `knowledge/out/` copies for prompt/debug readers
-  - archived artifact readers in benchmark / analytics / external-review tooling
-- the clearest dead weight is still the retired local-LLM stack:
-  - `cookimport/llm/client.py`
-  - `cookimport/llm/prompts.py`
-  - `cookimport/llm/repair.py`
-  - `cookimport/llm/codex_exec.py`
-
-Anti-loop note:
-- if a cleanup sweep needs to choose what to delete next, distinguish read-side historical readers from dead runtime modules instead of treating every `legacy`-shaped file as equally coupled to the live pipeline
-
 ## 2026-03-17 benchmark-root shard preview and zero-token runtime rehearsal
 
 Problem captured:
@@ -734,23 +540,6 @@ Durable decisions:
 
 Anti-loop note:
 - if prompt-target counts or shard counts look honest in preview but not in live execution, verify the real subprocess flags before changing planners again
-
-## 2026-03-17 classic path handoff is still transport-dominated
-
-Problem captured:
-- after prompt-shape trims landed, line-role token totals could still look absurdly high compared with the visible prompt text
-
-Durable decisions:
-- classic path handoff is not opaque workspace context; Codex can reread deposited shard files through shell subturns, and those outputs become part of the counted thread
-- line-role is the clearest current example: most remaining live input inflation comes from repeated file reads and cached thread replay, not from the compact visible prompt text
-- treat `prompt_budget_summary.json` and finished-run telemetry as the truth for actual costs; prompt preview is still the predictive payload estimate
-
-Evidence worth keeping:
-- on the 2026-03-17 `saltfatacidheatcutdown` run, visible line-role prompt text was only modestly larger than the source book, but live line-role input was still about `17.8x` larger because the classic runtime kept replaying shard-file reads
-- earlier March 17 runs also showed recipe correction behaving close to one read per shard while knowledge and especially line-role accumulated extra shell-driven context inside one task
-
-Anti-loop note:
-- if live token totals are still huge after prompt-shape cuts, inspect trace-level file-read behavior before squeezing row serialization again
 
 ## 2026-03-17 knowledge direct-exec transport cutover
 
@@ -810,7 +599,6 @@ Problem captured:
 
 Durable decisions:
 - keep the knowledge planner, validator, and writer intact; replace only the live transport with one direct structured `codex exec` call per shard using an inline prompt built from the existing compact knowledge instructions plus the owned shard JSON
-- treat recipe transport as the highest-value remaining runtime cleanup once line-role and knowledge direct exec were in place
 - the repo-level optimization target is not "teach preview to imitate hidden waste"; it is "make live runtime honor the simple one-shard / one-call operator model, then let preview describe that honest runtime"
 - standardize cost reporting across direct phases around:
   - `visible_input_tokens`
@@ -824,23 +612,6 @@ Evidence worth keeping:
 
 Anti-loop note:
 - if preview and live disagree after call counts match, debug transport shape, cached replay, and output schema width before changing planners again
-
-## 2026-03-17 recipe direct-exec cleanup and legacy mirror removal
-
-Problem captured:
-- recipe live execution had already moved to direct structured shard calls, but compatibility mirrors and a few readers still advertised `recipe_correction/{in,out}` as if that were the active contract
-
-Durable decisions:
-- the live recipe contract is:
-  - immutable shard inputs under `recipe_phase_runtime/inputs/*.json`
-  - validated proposals under `recipe_phase_runtime/proposals/*.json`
-  - human/debug summaries under `recipe_correction_audit/*.json`
-- delete the old `recipe_correction/{in,out}` write path instead of preserving it as a fake second truth
-- move CLI debug-status checks and prompt-artifact discovery onto manifest keys and `recipe_phase_runtime/{inputs,proposals}` fallbacks so local tooling teaches the same contract as the runtime
-- recipe direct-exec should use the same operator model as knowledge and line-role: one shard equals one structured Codex call, plus visible-vs-billed cost breakdown artifacts
-
-Anti-loop note:
-- if a tool claims recipe debug artifacts are missing, check whether it is still probing `recipe_correction/{in,out}` before touching the live writer
 
 ## 2026-03-18 line-role file-backed transport landed, two-phase prototype was retired, and cleanup had to be repo-wide
 
@@ -870,25 +641,6 @@ Evidence worth keeping:
 
 Anti-loop note:
 - if line-role looks "wrong" because a test or preview still shows the older two-phase or inline layout, verify whether the bug is in runtime code, fake-runner/test expectations, or prompt-artifact discovery before reopening the transport design itself
-
-## 2026-03-18 split recipe-region gate prototype was intentionally abandoned
-
-Problem captured:
-- prose-heavy books showed that one mixed line-role prompt was doing two jobs at once, so a two-phase `recipe_region_gate` plus `recipe_structure_label` split looked attractive
-
-Durable decisions:
-- the prototype was useful as a design probe and proved that preview, tests, and runtime artifacts could support multiple internal line-role phases
-- it was intentionally backed out after user review because the extra internal phases increased effective prompt/fresh-agent count beyond the desired public `5 + 5 + 5` shape
-- the active product shape is therefore:
-  - one file-backed `line_role` phase
-  - deterministic grouping afterward
-  - continued work inside the existing stage boundary rather than multiplying line-role passes
-
-Evidence worth keeping:
-- the prototype succeeded technically, then was removed on product-shape grounds, not because the implementation was impossible
-
-Anti-loop note:
-- if someone proposes reviving `recipe_region_gate`, first justify why the gain is worth violating the current single-surface prompt-count mental model
 
 ## 2026-03-18 immutable input -> owned proposal -> deterministic promotion is the seam to keep
 

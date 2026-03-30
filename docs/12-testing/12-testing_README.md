@@ -25,6 +25,7 @@ This section covers:
 
 Primary test folders:
 
+- `tests/architecture`
 - `tests/analytics`
 - `tests/bench`
 - `tests/cli`
@@ -35,9 +36,15 @@ Primary test folders:
 - `tests/parsing`
 - `tests/staging`
 
-Current layout exceptions and intentional split seams:
+Layout and routing notes:
 
 - `tests/test_eval_freeform_practical_metrics.py` intentionally stays at `tests/` root and is marked as both `labelstudio` and `bench`.
+- `tests/architecture/` exists as a real folder, but there is no dedicated `architecture` pytest marker yet; those tests currently fall back to marker `core` unless they are run by explicit path.
+- Do not assume folder name and `-m <domain>` coverage are identical. `tests/conftest.py` is the marker authority, and some newer focused files still use the fallback-to-`core` path.
+- When a split area starts regrowing into one long mixed-concern test, split by seam before adding more assertions.
+
+Active intentional split seams:
+
 - CLI output-structure coverage is split into:
   - `tests/cli/test_cli_output_structure_fast.py`
   - `tests/cli/test_cli_output_structure_epub_fast.py`
@@ -53,7 +60,7 @@ Current layout exceptions and intentional split seams:
   - smoke path: `tests/labelstudio/test_labelstudio_benchmark_smoke.py`
   - interactive/import/export/artifact flows: `..._interactive.py`, `..._import_eval.py`, `..._export_selection.py`, `..._artifacts.py`, `..._progress.py`
   - eval payload seams: `..._eval_payload_compare.py`, `..._eval_payload_execution.py`, `..._eval_payload_pipelined.py`, `..._eval_payload_artifacts.py`
-  - scheduler seams: `..._scheduler_targets.py`, `..._scheduler_planning.py`, `..._scheduler_global_queue.py`, `..._scheduler_prediction_reuse.py`, `..._scheduler_run_reports.py`, `..._scheduler_multi_source.py`
+  - scheduler seams: `..._scheduler_targets.py`, `..._scheduler_planning.py`, `..._scheduler_global_queue.py`, `..._scheduler_prediction_reuse.py`, `..._scheduler_run_reports.py`
   - single-book and single-profile seams: `..._single_book_run.py`, `..._single_book_artifacts.py`, `..._single_profile.py`
 - Shared Label Studio benchmark helper support belongs in `tests/labelstudio/benchmark_helper_support.py`; do not rebuild a large support pseudo-test module.
 - Label Studio prelabel coverage is split into:
@@ -63,16 +70,16 @@ Current layout exceptions and intentional split seams:
   - `tests/llm/test_codex_farm_orchestrator.py`
   - `tests/llm/test_codex_farm_orchestrator_runner_transport.py`
   - `tests/llm/test_codex_farm_orchestrator_stage_integration.py`
+- Knowledge-stage coverage is intentionally split by seam:
+  - `tests/llm/test_knowledge_orchestrator_contracts.py` for owner/facade and contract coverage
+  - `tests/llm/test_knowledge_orchestrator_runtime_progress.py` and `tests/llm/test_knowledge_orchestrator_runtime_leasing.py` for focused runtime behavior
+  - `tests/llm/test_knowledge_runtime_replay.py` for replay and saved-artifact coverage
+  - `tests/llm/test_knowledge_stage_bindings.py` for fast binding/unresolved-name guards
 - `tests/llm/test_llm_module_bindings.py` now provides one broad offline import/unresolved-global audit across `cookimport.llm.*`; keep it cheap and let focused files like `test_knowledge_stage_bindings.py` cover package-local failure modes in more detail.
-- Knowledge orchestrator coverage is split into:
-  - `tests/llm/test_codex_farm_knowledge_orchestrator.py` for the broad knowledge-stage behavior suite
-  - `tests/llm/test_codex_farm_knowledge_orchestrator_runtime.py` for progress, concurrency, and packet-leasing runtime coverage
-  - `tests/llm/test_knowledge_runtime_replay.py` for packet-ledger and saved-artifact replay coverage
-  - `tests/llm/test_knowledge_stage_bindings.py` for fast split-module binding guards around knowledge-stage recovery/planning seams
 - Direct Codex exec runner coverage is split into:
   - `tests/llm/test_codex_exec_runner.py` for helper/classification coverage
   - `tests/llm/test_codex_exec_runner_workspace.py` for sterile workspace preparation and subprocess/workspace-worker runtime coverage
-- workspace/direct-exec runtime tests must patch the direct-exec Codex-home resolver to a temp path; they should not depend on the host `~/.codex-recipe` tree
+- workspace/direct-exec runtime tests must not inherit the host Codex profile; keep them on temp paths and only override the suite-level temp `CODEX_HOME` fixture when the test is asserting explicit home-resolution behavior
 - Bench CLI coverage is split into:
   - `tests/bench/test_bench.py`
   - `tests/bench/test_bench_speed_cli.py`
@@ -95,6 +102,7 @@ Support assets and test-runtime files:
 - `tests/fixtures/*` holds fixture generators and binary fixture assets.
 - `pytest.ini`, `tests/conftest.py`, `tests/paths.py`, `tests/README.md`, `tests/CONVENTIONS.md`, and `tests/AGENTS.md` are active test-runtime control surfaces.
 - `tests/paths.py` is the shared root resolver for `REPO_ROOT`, `FIXTURES_DIR`, and `DOCS_EXAMPLES_DIR`.
+- `tests/conftest.py` also forces a writable temp Codex home for pytest runs so routine tests do not write into the host machine's real profile.
 
 ## Marker and Run Contracts
 
@@ -105,11 +113,11 @@ Current contracts:
 - Markers declared in `pytest.ini` are: `analytics`, `bench`, `cli`, `core`, `heavy_side_effects`, `ingestion`, `labelstudio`, `llm`, `parsing`, `staging`, `slow`, and `smoke`.
 - `slow` and `smoke` routing is controlled centrally by `_SLOW_FILES` and `_SMOKE_FILES` in `tests/conftest.py`.
 - If you add or rename a test file, update `_FILE_MARKERS` and then decide whether the file also belongs in `_SLOW_FILES` or `_SMOKE_FILES`.
+- The marker map is not a perfect mirror of the folder tree right now. Check `tests/conftest.py` before assuming a new file participates in the domain slice you expect.
 - The `slow` slice is intentionally narrow and currently covers only the explicitly high-cost files in `tests/conftest.py`; do not widen it without measuring runtime first.
 - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_book_run.py` is part of `slow`; routine `labelstudio` domain runs should not pay for full single-book comparison/bundle/dashboard helper coverage.
 - Routing-only interactive benchmark tests should stub `_interactive_single_book_benchmark(...)` and assert the handoff arguments instead of re-exercising the helper internals from `test_labelstudio_benchmark_helpers_interactive.py`.
-- Several historically named “fast” integration files are intentionally slow-marked because measured runtime is too high for routine loops: `tests/analytics/test_stats_dashboard.py`, `tests/ingestion/test_performance_features.py`, `tests/cli/test_cli_output_structure_epub_fast.py`, `tests/cli/test_cli_output_structure_text_fast.py`, and `tests/parsing/test_canonical_line_roles.py`.
-- Historical filename hints are not enough to classify cost: measured hotspot files now include roughly `45s` for `tests/analytics/test_stats_dashboard.py`, `15s` for `tests/ingestion/test_performance_features.py`, `11s` each for the EPUB/text CLI output-structure files, and `24s` for `tests/parsing/test_canonical_line_roles.py`, so those files stay slow-marked despite their old names.
+- Several historically named `..._fast.py` integration files are intentionally slow-marked because measured runtime is still too high for routine loops.
 - Broad compact pytest runs are a poor hotspot profiler here; use one-file pytest invocations when measuring candidate slow files because the compact reporter suppresses most useful `--durations` detail in broad runs.
 - Prefer moving proven heavy helper-internal suites into `_SLOW_FILES` before changing production code for test speed; production edits need a stronger reason than loop runtime alone.
 - Bench-side Oracle upload tests that only care about command or metadata shape should clamp the background audit poll constants inside the test so they do not pay the default production wait window.
@@ -125,7 +133,6 @@ Current contracts:
 - Split benchmark helper bindings that can break during `cli_support.bench` bootstrap should keep a direct fast regression in `tests/labelstudio/test_labelstudio_benchmark_helpers_artifacts.py` or another non-slow helper file; do not rely only on the slow single-book helper suite for missing-import/name coverage.
 - Tests that only care about benchmark computation or routing should use those lightweight publishers instead of patching `_write_benchmark_upload_bundle(...)`, `_refresh_dashboard_after_history_write(...)`, and `_start_benchmark_bundle_oracle_upload_background(...)` one by one.
 - for shard-shape assertions, set `line_role_prompt_target_count=None` or an explicit `line_role_shard_target_lines`; otherwise current defaults will legally regroup several rows into one shard
-- Before the Label Studio fast-slice cleanup, `tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py` was about `121s` and `tests/labelstudio/test_labelstudio_benchmark_helpers_single_book_run.py` was about `79s`; keep interactive routing tests at the handoff boundary unless you intentionally want full helper coverage in the slow slice.
 - Broad routine runs should go through `./scripts/test-suite.sh` or the equivalent `make test-*` targets. `scripts/test-suite.sh` exports `COOKIMPORT_TEST_SUITE=1` so pytest can tell wrapper-driven runs from ad hoc broad raw invocations.
 
 Common run patterns:
@@ -164,29 +171,21 @@ Design intent:
 ## Known Risks and Sharp Edges
 
 - Marker mapping is keyed by basename, so duplicate `test_*.py` filenames in different folders would collide.
+- Folder names and marker routing can drift if `_FILE_MARKERS` is not kept current; when a `-m <domain>` run surprises you, inspect `tests/conftest.py` before changing the test.
 - Slow-slice drift is easy to reintroduce if files are classified by intuition instead of measurement.
 - Path-sensitive tests regress easily when files move unless shared helpers in `tests/paths.py` are used consistently.
 - Remaining `print(...)` usage in helper scripts such as fixture generators is intentional and should not be treated as pytest noise.
 
 ## Durable Guardrails
 
-- 2026-02-22: domain-folder layout, centralized marker mapping, and low-noise pytest defaults became the durable baseline.
-- 2026-03-04: mixed-cost and mixed-seam suites were split into focused files; keep fast files fast and isolate expensive EPUB, OCR, browser, and benchmark scheduler/eval coverage explicitly.
-- 2026-03-05: broad default-surface tests should assert durable contracts, not freeze mutable product-policy snapshots.
-- 2026-03-06: broad routine runs should use the wrapper script; raw broad pytest runs warn instead of silently normalizing that path.
-- 2026-03-14: the benchmark smoke boundary is the real interactive single-book flow with only `labelstudio_benchmark(...)` stubbed.
-- 2026-03-15: `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` is a scoped deep-debug tool for one explicit file or nodeid, not a broad-run mode switch.
-- 2026-03-15: benchmark-helper tests that only need local artifact wiring should stub the offline execute path directly, and mixed `RunSettings` payloads must be projected to live model fields before `RunSettings.from_dict(...)`.
-- 2026-03-16: direct helper seams on live Codex paths need their own fast regression anchors; relying only on slow benchmark coverage leaves routine `fast` runs blind to simple import/env crashes.
-- 2026-03-26: the benchmark stack should keep both layers of undefined-name coverage: `ruff --select F821` for the explicit command surface and a bootstrapped benchmark-module `LOAD_GLOBAL` audit for the split helper files, including shared split support like `cookimport.cli_support.progress`. Keep the offline simulated whole-run single-book smoke coverage too; routing-only smoke is not enough for split-helper binding regressions.
-- 2026-03-26: undefined-name guardrails also need a small non-benchmark interactive slice; `cookimport.cli_commands.stage` can still ship a live `NameError` if command modules rely on facade/import-order bindings instead of importing shared names directly.
-- 2026-03-26: once the CLI surface is heavily split, unresolved-name audits should discover modules automatically; hand-maintained module lists age badly and let newly split files escape until a manual run hits them.
-- 2026-03-16: CLI tests like `tests/bench/test_benchmark_oracle_upload.py` should build a minimal `upload_bundle_v1` fixture under `tmp_path` rather than pinning to one checked-in benchmark directory.
-- 2026-03-22: the next maintainability wins came from splitting long mixed-concern tests into local builders plus narrower assertion families; keep those seams local unless several files truly share the same support contract.
-- 2026-03-23: fast stage helper names should match the source-job runtime (`install_fake_source_job_stage`), not the removed `stage_one_file` path.
-- 2026-03-23: bench Oracle follow-up and `cf-debug` fast slices now rely on tiny synthetic `upload_bundle_v1` fixtures; routine `domain bench` should not copy large checked-in benchmark roots just to exercise request parsing, selector generation, or packet writing.
-- 2026-03-23: `tests/bench/test_benchmark_oracle_upload.py` should keep the production background-poll contract covered, but tests that only assert launch metadata must patch the poll window down so fast runs do not burn fixed sleep time.
-- LLM pack/schema tests now carry two important anti-drift contracts:
-  - strict nested JSON-schema validity has to be checked recursively, not only at the top level
-  - prompt-pack tests must assert per-pipeline transport reality (`inline` versus `path`) instead of freezing one legacy `{{INPUT_PATH}}` expectation across every pipeline
-- knowledge/runtime telemetry assertions must distinguish row-level from session-level counters; for example `workspace_worker_row_count` and `workspace_worker_session_count` are intentionally different shapes
+- Keep domain-folder layout, centralized marker routing, and low-noise pytest defaults as the baseline.
+- Keep expensive EPUB, OCR, browser, scheduler, and benchmark-helper paths isolated in explicit slow files instead of broadening routine slices.
+- Broad tests should assert durable contracts, not mutable product-policy snapshots.
+- Broad routine runs should go through `./scripts/test-suite.sh` or the matching `make test-*` wrappers; raw broad `pytest` runs should stay a warned escape hatch, not the default path.
+- `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` is a scoped deep-debug tool for one explicit file or nodeid, not a broad-run mode switch.
+- Benchmark smoke should keep both boundaries: the real interactive single-book route with `labelstudio_benchmark(...)` stubbed, and the offline simulated whole-run single-book path with only leaf prediction/eval seams stubbed.
+- Split benchmark/CLI helper stacks need both unresolved-name audits and direct fast regression anchors; do not rely only on slow end-to-end helper coverage.
+- Bench Oracle, Oracle follow-up, and `cf-debug` tests should use tiny synthetic `upload_bundle_v1` fixtures under `tmp_path` unless a slow realism slice explicitly needs a larger artifact tree.
+- For shard-shape assertions, opt out of the default `line_role_prompt_target_count=5` when the test needs exact per-line planning.
+- LLM pack/schema tests should assert current transport and schema truth per pipeline instead of freezing one legacy shared assumption.
+- Knowledge/runtime telemetry assertions must distinguish row-level from session-level counters; `workspace_worker_row_count` and `workspace_worker_session_count` are intentionally different shapes.

@@ -1,11 +1,12 @@
 ---
-summary: "Complete inventory of recipe-related database fields in the current public schema."
+summary: "2026-02-10 snapshot of recipe-related database fields from the public schema."
 read_when:
   - "When you need the full list of recipe attributes and related recipe tables"
   - "When updating recipe save/search/tagging/sub-recipe behavior"
 ---
 ## Database Model (Consolidated Inventory)
-Source of truth: the live Postgres schema (this repo does not currently include `db/schema.snapshot.sql`).
+Snapshot date: `2026-02-10`.
+Source of truth is the live Postgres schema; this repo does not currently include `db/schema.snapshot.sql`, so treat this file as a dated reference snapshot rather than a guaranteed current schema dump.
 
 ### Enums
 - `public.quantity_kind_t`: `exact | approximate | unquantified`

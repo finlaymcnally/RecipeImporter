@@ -92,24 +92,6 @@ Pipeline assets under `llm_pipelines/pipelines/` no longer pin repo-default `cod
 - `line_role_pipeline`: `off`, `codex-line-role-route-v2`
 - Prelabel is a separate Codex surface routed through CodexFarm pipeline `prelabel.freeform.v1`
 
-Migration note:
-
-- removed pre-shard public pipeline ids are no longer accepted on active run-setting surfaces; active defaults/help now only advertise the shard-v1 ids
-- the shard-v1 work is a runtime refactor over the existing label-first staged importer, not a new pipeline
-- shards are ownership units and workers are bounded execution contexts; preview, prompt exports, and reviewer artifacts should describe both instead of pretending one prompt equals one independent task
-- the foundation plan froze the ids and runtime contracts first; recipe, knowledge, and line-role now all execute through shard-owned runtime artifacts, and the preview/export cutover has landed on top of those artifacts
-- prompt-planning now keeps live shard-count controls for all three shard-backed Codex stages: `recipe_prompt_target_count` for recipe correction, `line_role_prompt_target_count` for canonical line-role, and `knowledge_prompt_target_count` for knowledge review. For knowledge, that knob now maps directly to roughly that many contiguous review-ledger shards.
-- interactive stage/benchmark adapters now preserve those prompt-target values end to end, so an operator-selected triplet stays literal at execution time instead of collapsing back to defaults
-- knowledge no longer uses the path-mode CodexFarm `process` transport. Knowledge worker assignments now start in one long-lived workspace-worker Codex session per worker assignment, and only bounded follow-up recovery still uses inline structured calls.
-- recipe no longer uses the path-mode CodexFarm `process` transport either. Recipe worker assignments now start in one long-lived workspace-worker Codex session per worker assignment, but the live control surface is packet-first rather than draft-first: `current_packet.json`, `current_hint.md`, `current_result_path.txt`, and `packet_lease_status.json` are the only active-task files on the happy path. Each leased packet owns exactly one recipe task. The worker writes one `out/<task_id>.json`, repo code validates it, advances the lease when valid, and writes at most one repair packet for that same task when the first output is invalid. The happy path no longer uses `assigned_tasks.json`, `SHARD_PACKET.md`, `CURRENT_TASK.md`, `CURRENT_TASK_FEEDBACK.md`, `scratch/`, `tools/recipe_worker.py`, `OUTPUT_CONTRACT.md`, or same-session draft-install loops. Recipe telemetry and summaries now separate worker-session counts, leased-packet counts, repair-packet counts, locally skipped packet counts, and final per-recipe outcomes instead of rolling those into same-session fix stories.
-- recipe progress now reports task-file truth rather than only shard buckets when those worker-local task files exist: the shared spinner counter tracks completed `workers/*/out/*.json` task outputs, while detail lines keep shard-finalization context such as completed shards, queued recipe tasks, workers still finalizing shard aggregation, and live recipe-repair follow-up counts when repair attempts are in flight.
-- line-role no longer uses the path-mode CodexFarm `process` transport either. Line-role worker assignments now start in one long-lived workspace-worker Codex session per worker assignment, keep one shard-owned row ledger per shard under `work/<shard_id>.json`, write one immutable `canonical_line_table.jsonl`, and record shard truth in `shard_status.jsonl`; accepted rows now freeze immediately, repair stays in the workspace helper loop, and deterministic fallback applies only to unresolved owned rows that survive that local ledger loop.
-- knowledge now plans one ordered shard input file per shard under `knowledge/in/*.json`, and each shard stays owned by one long-lived worker session through repo-owned Pass 1 and Pass 2 leased packets. The validator still requires exact owned block coverage and exact kept-block-to-group coverage, but the happy path no longer uses worker-edited phase ledgers.
-- knowledge promotion is shard-aware at the handoff: accepted shard outputs promote directly while missing or invalid shard outputs remain unreviewed and the rollups count shard truth explicitly.
-- knowledge no longer ships the deterministic negative-cue bypass on the live review path. Once a row is review-eligible in `nonrecipe-route`, the model owns the semantic `knowledge|other` call and the related-idea grouping.
-- `cookimport/llm/knowledge_runtime_state.py` now defines the shared knowledge runtime vocabulary (`KnowledgePacketRecord`, worker-outcome buckets, follow-up kinds, and `KnowledgeStageRollup`) and `cookimport/llm/knowledge_runtime_replay.py` now rebuilds packet state from authoritative `task_status.jsonl` rows while still replaying worker/follow-up/artifact rollups from the saved knowledge root.
-- recipe shard JSON and recipe shard outputs now use compact aliases on the live model-facing seam (`sid`, `rid`, `cr`, `tg`, etc.), while deterministic promotion still normalizes the result back into the existing staged outputs
-
 ## Policy boundary
 
 - `RunSettings()` defaults are safe/off:
@@ -356,40 +338,6 @@ Prompt/debug artifacts:
 - prompt artifacts are stage-named now (`stage_key`, `stage_label`, `stage_artifact_stem`) and emit stage-named files such as `prompt_nonrecipe_knowledge_review.txt`
 - active knowledge-stage follow-up/debug surfaces should use semantic `knowledge` selectors and audit names. Older numbered stage labels belong only to archived local readers.
 
-Prompt cost notes worth keeping in mind:
-
-- the first 2026-03-16 prompt audit measured about `663k` live-like input tokens on an `~86k` token source book
-- after the current shared line-role and knowledge cuts, the same benchmark preview rebuild measures about `386k` live-like input tokens and `~449k` estimated total tokens
-- after the prompt-target + path-handoff update on 2026-03-17, the same `saltfatacidheatcutdown` preview rebuild measures `15` total prompts (`5` recipe, `5` line-role, `5` knowledge), about `188k` estimated input tokens, and about `224k` estimated total tokens
-- the biggest measured fan-out reductions came from shared builders, not preview-only tricks:
-  - knowledge preview on `saltfatacidheatcutdown` moved from `324` prompts to `91`, then to `40`, after noise routing, local bundling, and soft-gap packing landed in the live knowledge job builder; the later low-signal pruning pass was removed because it silently skipped chunks the reviewer still needed to see
-  - line-role preview on the same run moved from `45` prompts to `15`, then to `8`, after raw-prompt transport, larger shared batch defaults, and compact row serialization landed in the live line-role path
-  - the next cut changed the default control surface from shard size to per-phase prompt target, but knowledge still keeps its hard bundle caps even when that prompt target is explicitly in force
-- the durable shape lessons are:
-  - knowledge prompt count fell because contiguous chunks were packed across neighboring review-queue spans instead of being frozen to deterministic seed `knowledge` versus `other` boundaries
-  - after that, remaining knowledge prompt count was mostly gap-limited by hard breaks between chunk runs
-  - line-role cost after the transport fix mostly lived in repeated per-row keys and duplicated inline neighbor text, so the right seam is one ordered contiguous slice without in-slice line repetition
-  - after those cuts, most remaining prompt budget is real task payload rather than wrapper waste
-- recipe live spend can still be far above the visible prompt text because classic path handoff lets Codex reread deposited shard files through shell commands; treat finished-run `prompt_budget_summary.json` as the authority for actual cost
-- the implemented low-risk trims are:
-  - drop empty recipe `draft_hint`
-  - remove recipe hint provenance from correction payloads
-  - reduce knowledge context blocks from `12 -> 4 -> 2 -> 0`
-  - stop using deterministic semantic lane labels as a reason to skip knowledge review calls
-  - bundle local knowledge review packets instead of over-fragmenting the prompt surface
-  - compact line-role rows into batch-level legends and one ordered contiguous slice with no inline neighbor duplication
-  - remove recipe-range authority from line-role prompts so Codex reviews the deterministic labels without inherited recipe membership
-  - switch active shard-v1 packs to file-path prompt transport so prompt wrapper text only carries instructions plus `INPUT_PATH`, while the task payload already lives in the worker folder on disk
-  - default active shard-v1 phases to `*_prompt_target_count=5`; worker count remains the separate execution override, and the planner no longer carries extra hidden shard-size knobs underneath that surface
-
-Where prompt cuts should live:
-
-- recipe prompt body reductions should usually happen in the shared `MergedRecipeRepairInput` serializer so live recipe runs and preview reconstruction stay aligned
-- knowledge prompt count reductions should usually happen in `build_knowledge_jobs(...)`, because both live harvest and preview reconstruction consume that builder
-- obvious junk suppression for knowledge cost should also live in `chunks.py` lane scoring so live harvest and preview both skip the same blurbs / navigation / attribution fragments
-- packet-count suppression belongs in `build_knowledge_jobs(...)` packet sizing, not in a later semantic skip layer
-- when `build_knowledge_jobs(...)` produces no packets because there is no review-eligible work, `run_codex_farm_nonrecipe_knowledge_review(...)` must short-circuit before invoking Codex or writing misleading empty-output manifests
-
 Run-level observability note:
 - `stage_observability.json` at the run root is the canonical stage index. The recipe and knowledge manifests above are stage-local detail, not a second naming system.
 - relevant workbook entries inside `stage_observability.json` now also carry `attention_summary`, mirroring the compact stage summaries so reviewers can scan rejection/fallback/failure counts in one run-level file before drilling into stage-local artifacts.
@@ -439,7 +387,6 @@ Structured output contract:
 ## Related docs
 
 - `docs/10-llm/10-llm_log.md`
-- `docs/plans/2026-03-22_22.36.45-simplify-knowledge-stage-to-single-chunk-review-tasks.md`
 
 ## Recent Durable Notes
 
@@ -447,9 +394,6 @@ Structured output contract:
 - After shard-v1 cutover, active run-setting surfaces are already strict about pipeline ids. If legacy behavior still shows up, it is more likely to be a reader/fixture/tooling seam than the live recipe, knowledge, or line-role execution path.
 - `prompt_budget_summary.json` must aggregate CodexFarm split tokens from both nested `process_payload.telemetry.rows` and the benchmark single-book top-level `stage_payload.telemetry.rows` layout. Otherwise `tokens_input`, `tokens_cached_input`, and `tokens_output` can drop to null while per-call telemetry still exists.
 - `prompt_budget_summary.json` must also prefer one knowledge telemetry layer when aggregate direct-exec payloads duplicate the same stage totals at both the top level and nested worker/runtime levels. Double-counting that stack makes the knowledge stage look more expensive than it was.
-- Prompt-cost debugging should separate call-count inflation from prompt-size inflation:
-  - call-count inflation on `saltfatacidheatcutdown` came from `175` grouped recipe spans
-  - recipe prompt inflation also came from the constant `tagging_guide` payload plus `selected_tags` instructions
 - The intended operator shape is still surface-level prompt counts such as `3 / 3 / 3` or `5 / 5 / 5`: one planned shard should correspond closely to one real model call for that surface. Preview and live runtime should be judged against that mental model, not against hidden transport/session turns.
 - Line-role transport cost should now be nearly all task prompt, not wrapper overhead. If wrapper chars spike again, inspect raw-prompt transport and compact row serialization before touching the response schema or preview math.
 - Current line-role runtime truth is one file-backed `line_role` phase under `line-role-pipeline/runtime/line_role/`. The abandoned inline path and the brief `recipe_region_gate` / `recipe_structure_label` split are historical only; new docs and prompt exports should describe the single file-backed phase plus its immutable line table, shard-owned row ledger, and worker `in/*.json` payloads.
@@ -465,7 +409,7 @@ Structured output contract:
   `prompt_input_mode=path` is the durable vocabulary for that split.
 - Regenerated prompt preview on an old benchmark root is forward-looking, not retrospective truth. Use a fresh preview to answer "what would this cost now?", and use finished-run `prompt_budget_summary.json` / `cf-debug actual-costs` to answer "what did that old run actually cost?".
 - Large preview-vs-live gaps on current direct-exec runs are usually transport/runtime accounting issues such as cached-input replay, file reads, or larger real outputs than the structural estimate, not evidence that Codex secretly took extra turns or wandered the repo.
-- Recipe direct-exec no longer treats `recipe_correction/{in,out}` as runtime truth. Current readers and debug helpers should start from `recipe_phase_runtime/inputs/*.json`, `recipe_phase_runtime/proposals/*.json`, and `recipe_correction_audit/*.json`.
+- Recipe stage readers should not treat `recipe_correction/{in,out}` as runtime truth. Current readers and debug helpers should start from `recipe_phase_runtime/inputs/*.json`, `recipe_phase_runtime/proposals/*.json`, and `recipe_correction_audit/*.json`.
 - Stage 7 wording cleanup was a label/reporting pass, not a new runtime. The durable knowledge contract is still:
   - deterministic Stage 7 / `nonrecipe-route` review routing
   - deterministic non-recipe routing plus packet planning before review
@@ -473,12 +417,6 @@ Structured output contract:
   - validated `knowledge/proposals/*.json` outputs
   - deterministic promotion into explicit final authority plus reviewer snippets
   Operator-facing clarity now comes from using `non-recipe knowledge review` wording and from richer `knowledge_manifest.json.review_summary` counts/paths.
-- The March 17 repo-wide cost-honesty pass landed the main structural pieces:
-  - recipe moved off classic task-farm transport onto direct exec
-  - recipe payloads and outputs use compact aliases on the model-facing seam
-  - line-role debug payloads were trimmed toward the actual prompt contract
-  - per-shard and per-stage artifacts now expose visible-input / cached-input / visible-output / wrapper-overhead vocabulary
-  The remaining expensive validation step is always a real live benchmark run, not more zero-token plumbing work.
 - RecipeImport-owned CodexFarm subprocesses should inherit `~/.codex-recipe` from `cookimport/llm/codex_farm_runner.py`, not from ad hoc shell aliases or per-command CLI glue. If the wrong Codex home is in use, debug the runner env injection first.
 - `gpt-5.3-codex-spark` plus reasoning effort does not guarantee reasoning-summary events in saved `.trace.json` files. A zero `reasoning_event_count` can be a legitimate upstream Codex CLI event-stream outcome, not an exporter bug.
 - Current line-role transport is intentionally split three ways:

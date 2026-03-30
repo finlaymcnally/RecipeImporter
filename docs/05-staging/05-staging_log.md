@@ -62,7 +62,7 @@ Status now: these edge-case rules are still actively normalized in `draft_v1.py`
 ### 2026-02-15_22.10.59 staging output contract flow map
 
 Preserved outcomes:
-- Single-file stage flow (`cli_worker`) and split-job merge flow (`cli.py`) both converge on the same writer functions for intermediate/final/tips/topic/chunks/report outputs.
+- Single-file stage flow and split-job merge flow still converge on the same staging/session output contract for intermediate/final drafts, non-recipe artifacts, sections, chunks, raw artifacts, and reports.
 - Split jobs add one extra step: move raw artifacts from `.job_parts/<workbook>/job_<index>/raw/...` into run `raw/...`.
 - Cookbook safety normalization remains in `draft_v1.py` (ingredient line shaping), not in writer functions.
 - Historical staging failures were primarily quantity-kind/qty invariant violations, not unresolved ID placeholder handling.
@@ -70,44 +70,8 @@ Preserved outcomes:
 ### 2026-02-15_22.48.59 report metadata flow consistency
 
 Preserved rule:
-- Single-file report writes happen in `cli_worker.stage_one_file`.
-- Split EPUB/PDF report writes happen in `cli._merge_split_jobs`.
+- Single-file and split EPUB/PDF paths both construct report metadata independently before final report write.
 - Metadata fields that downstream tooling depends on (notably `importerName` and `runConfig`) must be set in both paths or split runs will silently drift.
-
-### 2026-02-15_22.59.48 split-merge bottleneck diagnosis from real run data
-
-Preserved diagnosis:
-- Long "idle" periods after worker completion can be real merge output work, not a deadlock.
-- Example captured from `data/output/2026-02-15_22.47.11`: one EPUB merge spent about 172 seconds in `write_topic_candidates_seconds`.
-- Root cause in that run shape was repeated `_resolve_file_hash(...)` fallback hashing for candidates missing `file_hash`.
-
-Anti-loop note:
-- Do not treat post-100%-progress hangs as automatic concurrency bugs until merge-phase timing fields are checked.
-- Do not remove topic-candidate provenance to speed up writes; keep provenance and cache hash lookup instead.
-
-### 2026-02-15_22.59.30 split-merge visibility and topic hash cache
-
-Problem captured:
-- Large split EPUB/PDF runs could look hung after workers completed because merge stayed under a generic MainProcess label while doing long post-merge writes.
-- Topic-candidate writing repeatedly hashed the same source file, inflating merge-time write cost on knowledge-heavy inputs.
-
-Decisions/actions captured:
-- Add phase-level main-process status updates across merge/report/raw/topic-candidate write phases.
-- Cache source hash resolution per source file during topic-candidate ID generation so `_hash_file` runs once per file version, not once per candidate.
-
-Task-spec evidence preserved:
-- Fail-before command recorded:
-  - `. .venv/bin/activate && pytest -q tests/staging/test_tip_writer.py::test_write_topic_candidates_hashes_source_file_once tests/staging/test_split_merge_status.py::test_merge_split_jobs_reports_main_process_phases`
-- Pass-after command recorded:
-  - `. .venv/bin/activate && pytest -q tests/staging/test_tip_writer.py tests/staging/test_split_merge_status.py`
-- Recorded pass-after result: `3 passed`.
-
-Constraints that should remain:
-- Keep split merge output contract unchanged (same files, IDs, and artifact structure).
-- Merge progress/status callbacks must be best-effort and never allowed to fail the merge itself.
-
-Rollback note captured in task:
-- Removing callback plumbing and hash caching reverts to prior behavior where long merges appear stalled and topic-candidate writes can re-hash per candidate.
 
 ## Known Bad Patterns and Anti-Regression Notes
 
@@ -129,13 +93,9 @@ These are the loops we should avoid repeating.
 - Why bad: section headers are structural and invalid as ingredient entries.
 - Keep: remove `section_header` lines before final output.
 
-5. Re-hashing the same source file for every topic candidate
-- Why bad: adds avoidable merge-time write overhead, especially on knowledge-heavy split runs.
-- Keep: source-hash cache behavior in topic-candidate write path.
-
-6. Reporting only a generic merge status after worker completion
+5. Reporting only a generic merge status after worker completion
 - Why bad: long post-merge phases can look like a hang and trigger false debugging loops.
-- Keep: phase-level merge status callbacks for report/raw/topic-candidate stages.
+- Keep: phase-level merge status callbacks for authoritative-output, raw-merge, and report stages.
 
 ### 2026-02-20_12.46.28 staging contract alignment edge cases
 
@@ -154,12 +114,12 @@ Anti-loop note:
 ### 2026-02-27_12.00.28 split-merge outputStats ordering and moved-file accounting
 
 Problem captured:
-- In `_merge_split_jobs(...)`, writing report before `_merge_raw_artifacts(...)` undercounted moved raw files in `report.outputStats`.
+- In `_merge_source_jobs(...)`, writing report before `_merge_raw_artifacts(...)` undercounted moved raw files in `report.outputStats`.
 
 Durable decisions:
 - Keep report emission after raw-merge completion.
 - Record merged `raw/.../full_text.json` and every moved raw destination as output stats are produced.
-- Keep parity coverage in `tests/staging/test_split_merge_status.py::test_merge_split_jobs_output_stats_match_fresh_directory_walk`.
+- Keep parity coverage in `tests/staging/test_split_merge_status.py::test_merge_source_jobs_output_stats_match_fresh_directory_walk`.
 
 Anti-loop note:
 - If analytics or dashboard counts drift on split runs, check merge ordering before changing report aggregation.
@@ -267,12 +227,7 @@ Problem captured:
 
 Durable decisions:
 - Stage 7 is routing plus bookkeeping, not the semantic owner for review-eligible outside-recipe prose.
-- `08_nonrecipe_spans.json` now keeps these seams distinct:
-  - seed routing split
-  - practical fallback category map for artifact readability
-  - explicit `final_authority_block_indices`
-  - derived `authoritative_block_category_by_index`
-  - refinement reporting for unreviewed review-eligible rows
+- `08_nonrecipe_seed_routing.json`, `09_nonrecipe_authority.json`, and `09_nonrecipe_candidate_status.json` now keep these seams distinct across routing, final authority, and unresolved-candidate bookkeeping.
 - `stage_block_predictions.json` and Label Studio projection must read only explicit final authority, not the whole fallback category map.
 - review-excluded obvious-junk rows still remain immediately authoritative final `other`; the ambiguity applies only to review-eligible rows.
 
@@ -286,7 +241,7 @@ Problem captured:
 - obvious-junk pruning needed a row-level explanation surface so operators could tell whether knowledge input was shrinking for the right reason.
 
 Durable decisions:
-- keep `08_nonrecipe_review_exclusions.jsonl` as the row-level ledger for upstream excluded junk, with stable review-exclusion reasons and representative examples.
+- keep `08_nonrecipe_exclusions.jsonl` as the row-level ledger for upstream excluded junk, with stable review-exclusion reasons and representative examples.
 - when knowledge-stage input feels bloated or mysteriously small, inspect the exclusion ledger and Stage 7 routing counts before changing scorer logic, bundle topology, or knowledge prompts.
 - retain the stable external `knowledge|other` output contract, but treat exclusion ledgers and refinement reports as the real explanation layer for how rows moved through Stage 7.
 

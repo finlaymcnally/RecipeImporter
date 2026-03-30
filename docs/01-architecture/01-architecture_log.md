@@ -25,7 +25,7 @@ Key outcomes that remain relevant:
 - history CSV root resolves from the output root parent (`<output_root parent>/.history`), which is `data/.history` for default stage output
 - timestamp folder format is `YYYY-MM-DD_HH.MM.SS` (dot-separated time)
 - stage report JSON is written at the run root (not a `reports/` subfolder)
-- stage run-root artifacts include more than drafts/tips/chunks/raw/report; current writer flow also emits `sections`, `.bench/stage_block_predictions.json`, optional `tables`, optional `knowledge`, embedded recipe tags in draft/JSON-LD outputs, and `run_manifest.json`
+- stage run-root artifacts include more than drafts/tips/chunks/raw/report; current writer flow also emits `sections`, `.bench/stage_block_predictions.json`, `tables`, optional `knowledge`, embedded recipe tags in draft/JSON-LD outputs, and `run_manifest.json`
 - Label Studio split merge must rebase block indices to keep eval alignment
 - `run_manifest.json` is the cross-command traceability join point
 
@@ -99,19 +99,9 @@ Problem captured:
 - Architecture docs under-described stage and Label Studio artifact surfaces.
 
 Durable decisions:
-- Document stage run-root artifacts beyond draft/tip/report (`sections`, `.bench/stage_block_predictions.json`, optional `tables`, optional `knowledge`, embedded recipe tags in draft/JSON-LD outputs, `run_manifest.json`).
+- Document stage run-root artifacts beyond draft/tip/report (`sections`, `.bench/stage_block_predictions.json`, `tables`, optional `knowledge`, embedded recipe tags in draft/JSON-LD outputs, `run_manifest.json`).
 - Document Label Studio prediction/import optional artifacts (`label_studio_tasks.jsonl` in offline mode, optional copied `stage_block_predictions.json`, prelabel report/error/prompt-log files).
 - Keep explicit note that `run_manifest` emission is stage/Label Studio scoped, not universal to every benchmark command.
-
-### 2026-02-27_19.52.19 docs removed-feature prune map
-
-Problem captured:
-- Large docs had historical branches for removed runtime features that were creating debugging loops.
-
-Durable decisions:
-- Keep transition/rejection behavior only where runtime still enforces it.
-- Treat EPUB race fields, Label Studio decorate mode, and older runtime scope execution branches as retired history.
-- Prefer concise retired-feature notes over long archival execution narratives.
 
 ## 2026-02-28 runtime parallelism notes
 
@@ -139,111 +129,6 @@ Durable findings:
 
 Anti-loop note:
 - if benchmark/import behavior diverges, check for duplicate session ownership before patching prompt packs, diagnostic projections, or score interpretation
-
-## 2026-03-16 repo-wide legacy purge map
-
-### 2026-03-16_15.18.08 legacy seam clusters
-
-Problem captured:
-- the remaining `legacy`/`compatibility` code looked monolithic even after most of the old runtime backbone was already gone
-
-Durable decisions:
-- separate the remaining seams into:
-  - pass-slot/internal naming inside current recipe orchestration
-  - compatibility readers/translators for older artifacts and histories
-  - current algorithms that still happen to be named `legacy`
-  - docs/tests/fixtures that carry most of the old terminology weight
-- rename current algorithms that still use `legacy` names instead of silently deleting them
-
-Anti-loop note:
-- if a cleanup proposal treats every `legacy` string the same way, it is too blunt for the remaining seam map
-
-### 2026-03-16_16.05.00 first safe purge batch
-
-Problem captured:
-- the safest first deletions were dormant alternate names and readers that no longer changed the live product shape
-
-Durable decisions:
-- compact line-role prompt formatting is the only live line-role prompt format
-- current runtime names should use their real current names rather than preserve old aliases
-- analytics and preview helpers should stop probing retired layouts when current artifacts already define the contract
-
-Anti-loop note:
-- do not add compatibility aliases back just because one old fixture still mentions them
-
-### 2026-03-16_16.26.00 final live seam clusters
-
-Problem captured:
-- after the first purge batch, the remaining destructive cleanup was mostly compatibility code around the runtime rather than the core recipe algorithm
-
-Durable decisions:
-- current Codex subprocess flows require structured JSON stdout when `--json` is requested; empty-stdout fallback behavior stays deleted
-- upload-bundle helpers should expose semantic counters/models instead of numbered-stage compatibility projections
-- dead transport replay tooling with no live consumer should be removed instead of preserved
-
-Anti-loop note:
-- if a fix proposal wants old transport replay or numbered-stage bundle counters back, it is reviving dead tooling rather than fixing the live product
-
-### 2026-03-16_16.33.01 post-purge audit
-
-Problem captured:
-- after the purge landed, it was still unclear where the remaining legacy burden actually lived
-
-Durable decisions:
-- active runtime legacy seams are now relatively small
-- docs, archival docs, stale test metadata, and checked-in test cruft carry most of the remaining old terminology
-- the next high-yield cleanup passes are:
-  1. narrow live compatibility helpers,
-  2. stale test scaffolding/fixtures,
-  3. docs-only archival cleanup
-
-Anti-loop note:
-- if the repo still feels "full of legacy," prove whether you are looking at live code or docs/fixtures first
-
-### 2026-03-17_14.23.40 docs/task routing after the shard-runtime merge
-
-Problem captured:
-- completed task docs were easy to misfile because many of them touched several folders during implementation but only one long-lived section owned the resulting contract
-
-Durable decisions:
-- merge completed task docs by durable ownership, not by the specific fix branch:
-  - refactor-phase and authority-boundary docs belong in architecture
-  - title/span behavior belongs in parsing
-  - benchmark scoring and reviewer-packet transport belong in bench
-  - runner/prompt-cost/runtime notes belong in llm
-
-Anti-loop note:
-- if a temporary task/spec doc mostly answers "which long-lived section owns this now?", merge it into that owning section instead of keeping a second parallel archive
-
-### 2026-03-17_16.07.53 to 2026-03-17_16.13.03 AI-readiness and shared-runtime seam audit
-
-Problem captured:
-- the repo looked easier to work on than it really was because docs/tests were strong, but important runtime behavior still crossed a few large coordinators and duplicated top-level flows
-
-Durable decisions:
-- keep the numbered docs tree and fast smoke/domain tests healthy; they are a real navigation advantage for future humans and agents
-- treat large coordinator files and mutual package dependencies as current debt, not as proof the docs are wrong
-- `cookimport/staging/import_session.py` is the best existing shared runtime seam, but stage and Label Studio still duplicate some orchestration behavior around it instead of fully owning that logic in one place
-- when moving shared behavior, prefer repo-owned service seams over more "remember the other file too" coordination notes
-
-Evidence worth keeping:
-- the review that produced this note called out `cookimport/cli.py` plus mutual dependencies across `labelstudio`, `parsing`, `llm`, and `staging` as the main remaining understanding bottlenecks
-
-Anti-loop note:
-- if a change feels broader than the local module suggests, check whether the real seam is duplicated orchestration rather than a missing doc update
-
-### 2026-03-17 post-purge legacy seam audit
-
-Problem captured:
-- after the March purge, "legacy" still looked large because read-side compatibility tooling, retired local-LLM files, and live runtime seams were being lumped together
-
-Durable decisions:
-- most remaining live-path legacy risk is read-side or compatibility-only, not core recipe execution
-- `scripts/benchmark_cutdown_for_external_ai.py` is the heaviest still-relevant read-side seam and should stay semantic-stage-first
-- dead local-LLM files are real cleanup candidates, but they are not the same problem as archived readers or narrow CodexFarm compatibility fallbacks
-
-Anti-loop note:
-- if the repo still feels "full of legacy," first prove whether you are looking at current execution code or read-side/docs/tests scaffolding
 
 ## 2026-03-15 to 2026-03-16 refactor closure notes
 
@@ -275,30 +160,31 @@ Durable decisions:
 Anti-loop note:
 - if a fix proposal needs candidate-first fallback or `non_recipe_blocks` as a live decision boundary, it is undoing the refactor
 
-### 2026-03-16_00.35.04 and 2026-03-16_10.40.00 single-correction recipe contract
+### 2026-03-16_00.35.04 and 2026-03-16_10.40.00 recipe-stage authority contract
 
 Problem captured:
 - the canonical Phase 3 runtime had landed, but docs/help/rendering still advertised 3-pass or merged-repair names as if they were current product truth
 
 Durable decisions:
-- public write-time recipe pipeline id is `codex-farm-single-correction-v1`
-- the recipe Codex path is one correction stage plus deterministic final draft rebuild from explicit ingredient-step mappings
-- older ids remain read-time aliases only; new user-facing docs and reviewer surfaces should not present them as primary values
-- later shard-runtime cutover renamed the active public id to `codex-recipe-shard-v1`, but the durable architecture stayed the same: one correction/link stage plus deterministic final assembly
+- the live public recipe pipeline id is `codex-recipe-shard-v1`
+- the recipe Codex path is one correction/link stage plus deterministic final draft rebuild from explicit ingredient-step mappings
+- new user-facing docs and reviewer surfaces should present the semantic recipe trio (`build_intermediate_det`, `recipe_llm_correct_and_link`, `build_final_recipe`) rather than older 3-pass or merged-repair ids
 
-### 2026-03-16_01.13.12 Stage 7 non-recipe authority cutover
+### 2026-03-16_01.13.12 Stage 7 non-recipe authority contract
 
 Problem captured:
 - the first Stage 7 rollout had the right files but still left too much real authority in residue-era helpers and later readers
 
 Durable decisions:
-- `08_nonrecipe_spans.json` is the machine-readable outside-recipe authority seam and keeps both deterministic seed and final authority
-- `09_knowledge_outputs.json` is the companion run-level summary for optional knowledge refinement and snippet evidence
-- Stage 7 ownership must drive downstream tables, chunks, Label Studio knowledge counts, and benchmark evidence; knowledge extraction is scoped to Stage 7 spans rather than whole-residue mining
-- later shard-runtime work may change worker/runtime artifacts, but it should not move non-recipe authority back out of the Stage 7 seam
+- `08_nonrecipe_seed_routing.json` is the route-first candidate/exclude seam
+- `08_nonrecipe_exclusions.jsonl` is the row-level explanation ledger for obvious-junk exclusions
+- `09_nonrecipe_authority.json` is the only final machine-readable `knowledge` versus `other` truth surface
+- `09_nonrecipe_candidate_status.json` keeps unresolved candidate state out of the authority file while still making incompleteness visible
+- Stage 7 ownership must drive downstream tables, chunks, Label Studio knowledge counts, and benchmark evidence; knowledge extraction is scoped to candidate rows only
+- later worker/runtime changes may change implementation details, but they should not move non-recipe authority back out of these stage-owned artifacts
 
 Anti-loop note:
-- if a new doc or UI change reintroduces `codex-farm-3pass-v1` or `codex-farm-2stage-repair-v1` as live options, treat that as naming drift, not product complexity
+- if a doc or scoring surface starts treating candidate or exclusion artifacts as final `knowledge` versus `other` truth, it is regressing the authority seam
 
 ### 2026-03-16_09.03.14, 2026-03-16_12.10.00, and 2026-03-16_14.09.27 trust/escalation boundary
 
@@ -333,73 +219,13 @@ Durable decisions:
 Still-relevant examples:
 - `cookimport/bench/followup_bundle.py` still reads `knowledge_manifest.json` for archived bundles
 
-### 2026-03-16_10.53.31 and 2026-03-16_12.02.26 burn-the-boats cleanup
-
-Problem captured:
-- dead pass-slot recipe code and reviewer-facing older topology were still making the refactor look unfinished even though the main runtime had already moved on
-
-Durable decisions:
-- unreachable first-stage/second-stage/third-stage recipe orchestrator code is deleted; current runtime teaches one single-correction recipe path only
-- current docs/help/rendering should present `codex-farm-single-correction-v1` and the semantic recipe trio, not older 3-pass or merged-repair ids as live product truth
-- external-review benchmark surfaces now use semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics as their primary recipe contract
-- new prompt exports and sampled artifacts now write semantic stage metadata and stage-named files instead of `task1` / `task4` / `task5` names
-- benchmark eval alias artifacts such as `missed_gold_spans.jsonl` and `false_positive_preds.jsonl` are retired for new runs
-- any remaining historical transition read should stay isolated to archived local artifacts and must not leak back into new reviewer-facing output
-
-Anti-loop note:
-- if a fix proposal reintroduces pass-slot names as current runtime truth, it is undoing the cleanup rather than extending the architecture
-
-### 2026-03-16_10.53.31, 2026-03-16_11.01.54, 2026-03-16_13.47.23, and 2026-03-16_13.54.32 remaining cleanup map
-
-Problem captured:
-- once the live stage path was on the new architecture, the remaining drift was scattered across hidden knobs, helper tooling, fixtures, and analytics/history fallbacks rather than one obvious runtime module
-
-Durable decisions:
-- the biggest remaining old-world seam is tooling and hidden defaults, not the stage runtime core
-- the last easy deletions were mostly outside the runtime core:
-  - hidden `first-stage`/`second-stage`/`third-stage` and selective-retry CLI/run-setting knobs
-  - prompt-artifact tests and benchmark helper fixtures that still hand-built `chunking/schemaorg/final` trees
-  - checked-in old recipe pack files under `llm_pipelines/` after transport/tests moved to `recipe.correction.compact.v1`, `recipe.knowledge.compact.v1`, and `recipe.tags.v1`
-- the remaining cleanup clusters are:
-  - label-first bridge naming and transition caches
-  - hidden parser/runtime defaults still called `older`
-  - prompt/bundle tooling that serializes old pass-slot names
-  - benchmark alias writers
-  - analytics/history readers that synthesize current data from retired fields or CSV locations
-- the safest execution order is:
-  - remove runtime bridge naming first
-  - collapse hidden defaults and scheduler knobs next
-  - delete prompt/benchmark aliases after that
-  - cut analytics/history fallbacks last with docs/tests in the same pass
-- analytics/history support was intentionally preserved as the one explicit historical exception during the purge; do not treat that exception as a reason to keep reviving other transition branches
-- historical logs, plans, and archived reports may still mention removed pipeline ids. Keep that material as history, but do not copy those names back into live docs, tests, or reviewer surfaces.
-- validation from this sweep was representative, not exhaustive. For maximum certainty, the full project test suite still needs to run after destructive cleanup passes.
-
-Anti-loop note:
-- if a cleanup proposal starts by patching analytics readers or archived docs before deleting the remaining live seam, it is starting at the wrong end
-
-### 2026-03-16_16.34.56 burn-the-boats final repo purge
-
-Problem captured:
-- after the refactor, the repo still taught two worlds because stale helper fallbacks, checked-in cache junk, dead test domains, and archival docs were still first-class in searches and directory listings
-
-Durable decisions:
-- treat the remaining old-world cleanup as destructive, not as another compatibility-preservation pass
-- remove dormant runtime fallbacks and stale helper aliases instead of preserving them "just in case"
-- remove dead test scaffolding and tracked bytecode when they make deleted domains look alive
-- keep current docs focused on current contracts; historical context belongs in logs/plans/history, not in operator-facing READMEs
-- analytics metrics such as `precision`, `recall`, and `practical_f1` remain live reporting fields; the safe cleanup was removing stale fallback readers around them, not deleting the live metrics themselves
-
-Anti-loop note:
-- if the repo feels legacy-heavy again, prove whether the problem is active code, fixtures, or documentation drift before reviving compatibility branches
-
 ### 2026-03-16_19.54.19 refactor drift can still be authority drift, not surface drift
 
 Problem captured:
 - a post-refactor benchmark can show all the new stage-named artifacts and still diverge from the intended architecture if the authoritative decision seams did not actually move
 
 Durable decisions:
-- do not treat the existence of `label_det`, `label_llm_correct`, `group_recipe_spans`, `08_nonrecipe_spans.json`, and `09_knowledge_outputs.json` as proof that the refactor landed in substance
+- do not treat the existence of `label_det`, `label_llm_correct`, `group_recipe_spans`, `08_nonrecipe_seed_routing.json`, `09_nonrecipe_authority.json`, and `09_nonrecipe_candidate_status.json` as proof that the refactor landed in substance
 - verify the authority seams directly:
   - whether Stage 2 correction actually mutates labels
   - whether Stage 3 grouping still over-accepts titleless spans
@@ -408,26 +234,3 @@ Durable decisions:
 
 Anti-loop note:
 - if a refactor review says "the new folders exist so the architecture is done," verify who actually owns final authority before accepting that conclusion
-
-### 2026-03-17 docs routing and overlapping ExecPlan cleanup
-
-Problem captured:
-- same-day March notes and plans had started to look like parallel long-lived authorities even when they were really:
-  - temporary discovery notes
-  - landed transport plans
-  - one remaining architecture-level parent plan
-
-Durable decisions:
-- merge temporary findings by durable owner, not by the branch or run that exposed them:
-  - architecture/authority-boundary notes here
-  - parser-owned behavior in `docs/04-parsing/`
-  - benchmark transport/reviewer seams in `docs/07-bench/`
-  - Codex runtime and prompt-cost seams in `docs/10-llm/`
-- treat `docs/understandings/` and `docs/tasks/` as temporary inboxes; once merged into the owning README/log they should be deleted
-- when several ExecPlans overlap on the same day:
-  - keep the active parent/architecture plan explicit
-  - mark superseded plans as superseded
-  - treat landed transport plans as history/implementation record, not parallel current guidance
-
-Anti-loop note:
-- if several nearby docs seem contradictory, first ask which one owns the current contract and which ones were only scaffolding for the landed work

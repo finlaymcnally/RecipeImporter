@@ -10,24 +10,21 @@ read_when:
 Read `docs/12-testing/12-testing_README.md` first for current behavior.
 This log keeps only the durable verification and decisions that still match the code.
 
-## Current Verification Snapshot (2026-03-15)
+## Current Verification Snapshot (2026-03-30)
 
-Repository checks rerun against current code:
+Repository inspection against current code:
 
-- `./scripts/test-suite.sh smoke`
-  - `127 passed, 1223 deselected, 1 warning in 7.08s`
-- `./.venv/bin/pytest tests/core/test_pytest_output_guidance.py`
-  - `2 passed in 0.02s`
-- Marker-map inspection via `tests/conftest.py`
-  - `139` `test_*.py` files exist under `tests/`
-  - `135` basenames are explicitly mapped in `_FILE_MARKERS`
-  - Fallback-to-`core` currently applies to:
-    - `test_benchmark_oracle_upload.py`
-    - `test_cf_debug_cli.py`
-    - `test_codex_decision_boundary.py`
-    - `test_upload_bundle_v1_existing_output.py`
-  - `_SLOW_FILES` contains `15` files
-  - `_SMOKE_FILES` contains `21` files
+- `166` `test_*.py` files exist under `tests/`.
+- Physical test folders are now `architecture`, `analytics`, `bench`, `cli`, `core`, `ingestion`, `labelstudio`, `llm`, `parsing`, and `staging`, plus the intentional root-level cross-domain file `tests/test_eval_freeform_practical_metrics.py`.
+- `pytest.ini` still declares the current marker surface: `analytics`, `bench`, `cli`, `core`, `heavy_side_effects`, `ingestion`, `labelstudio`, `llm`, `parsing`, `staging`, `slow`, and `smoke`.
+- `tests/conftest.py` still centralizes `_FILE_MARKERS`, `_SLOW_FILES`, `_SMOKE_FILES`, compact output enforcement, wrapper guidance, heavy-side-effect gating, and the suite-level temp `CODEX_HOME` fixture.
+- `_FILE_MARKERS` has `149` entries, `144` of which currently match live test files.
+- Fallback-to-`core` still covers several live focused suites, including:
+  - the `tests/architecture/` boundary tests,
+  - focused bench/CLI helpers such as `test_benchmark_oracle_upload.py`, `test_cf_debug_cli.py`, `test_codex_decision_boundary.py`, `test_oracle_followup.py`, and `test_upload_bundle_v1_existing_output.py`,
+  - focused LLM and staging/runtime suites such as `test_codex_exec_runner.py`, `test_prompt_preview.py`, `test_phase_worker_runtime.py`, `test_recipe_phase_workers.py`, `test_nonrecipe_stage.py`, and `test_stage_observability.py`.
+- `_SLOW_FILES` currently covers `20` live files.
+- `_SMOKE_FILES` currently covers `23` live files.
 
 Current contract confirmation:
 
@@ -35,10 +32,11 @@ Current contract confirmation:
 - Compact output is still enforced from `pytest_configure(...)` even when callers override `addopts`.
 - `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` is now intentionally narrow: one explicit file or nodeid only.
 - Broad raw pytest runs are nudged toward `./scripts/test-suite.sh` or `make test-*`.
-- Domain folders remain the primary layout, with one intentional root-level cross-domain module: `tests/test_eval_freeform_practical_metrics.py`.
-- Support data surfaces under `tests/fixtures/*`, `tests/tagging_gold/*`, and `tests/paths.py` remain active.
+- Domain folders remain the primary layout, with one intentional root-level cross-domain module and one real-but-unmarked `tests/architecture/` folder.
+- Support data surfaces under `tests/fixtures/*` and `tests/paths.py` remain active.
+- Some marker entries in `tests/conftest.py` still point at removed or renamed files, so docs should treat that file as the authority but not assume it is perfectly synchronized with the tree.
 
-### 2026-03-22 hotspot cleanup switched from "big files" to "big mixed-concern tests"
+### Runtime suites should split by seam, not by raw file length
 
 Still-active outcomes:
 
@@ -58,15 +56,15 @@ Anti-loop note:
 
 - if a test is miserable to read or extend because it proves bundle creation, transport/runtime behavior, and five output surfaces at once, split the test by contract before adding more assertions
 
-### 2026-03-20 split LLM runtime tests by seam and tighten assertions
+### Split runtime coverage should keep direct live-path guards fast
 
 Still-active outcomes:
 
 - direct Codex exec workspace/runtime coverage now lives in `tests/llm/test_codex_exec_runner_workspace.py`, while pure helper/classifier coverage stays in `tests/llm/test_codex_exec_runner.py`
-- knowledge worker-runtime/progress coverage now lives in `tests/llm/test_codex_farm_knowledge_orchestrator_runtime.py`, while the large base orchestrator file keeps broader behavior/integration coverage
-- centralized marker routing in `tests/conftest.py` knows about both new files, so `-m llm` treats them as LLM tests instead of silently falling back to `core`
+- knowledge-stage runtime coverage is now intentionally spread across `tests/llm/test_knowledge_orchestrator_runtime_progress.py`, `tests/llm/test_knowledge_orchestrator_runtime_leasing.py`, `tests/llm/test_knowledge_runtime_replay.py`, and `tests/llm/test_knowledge_stage_bindings.py`
+- centralized marker routing is still the intended owner for those splits, even though the marker map now lags some newer files
 - moved runtime tests now assert the exact contracts they name: sterile execution cwd, worker-manifest entry files, synced workspace outputs, packet totals, packet-lease finalization, and worker/session telemetry shapes
-- runtime tests that create sterile workspaces must patch the direct-exec home resolver to `tmp_path` rather than inheriting the host machine's `~/.codex-recipe` tree
+- runtime tests that create sterile workspaces must stay on temp Codex homes rather than inheriting the host machine's real profile
 
 Anti-loop note:
 
@@ -87,7 +85,7 @@ Anti-loop note:
 
 - If path-sensitive tests break after moving files, check `tests/paths.py` usage before changing test logic.
 
-### 2026-03-04 split high-cost mixed modules by seam
+### High-cost suites stay isolated by seam
 
 Still-active outcomes:
 
@@ -101,7 +99,7 @@ Anti-loop note:
 
 - If targeted runs get broad or slow again, inspect module boundaries before changing marker policy.
 
-### 2026-03-05 default-surface assertions should test contracts, not drifting policy
+### Default-surface assertions should test contracts, not drifting policy
 
 Still-active outcomes:
 
@@ -113,7 +111,7 @@ Anti-loop note:
 
 - When a default changes, first ask whether the broken test was checking contract or product policy.
 
-### 2026-03-06 wrapper-first routine runs
+### Wrapper-first routine runs remain the default
 
 Still-active outcomes:
 
@@ -125,7 +123,7 @@ Anti-loop note:
 
 - If raw-pytest guidance starts firing in the wrong places, fix the gate in `tests/conftest.py` instead of adding more doc-only warnings.
 
-### 2026-03-14 single-book benchmark smoke boundary
+### Single-book benchmark smoke keeps two layers
 
 Still-active outcomes:
 
@@ -137,7 +135,7 @@ Anti-loop note:
 
 - If the smoke path needs live credentials to catch a regression, the smoke boundary has become too wide.
 
-### 2026-03-15 scoped verbose-output guardrail
+### Scoped verbose-output guardrail remains narrow
 
 Still-active outcomes:
 
@@ -149,40 +147,24 @@ Anti-loop note:
 
 - If someone says the env var "stopped working," verify whether they tried to use it on a broad run. That behavior is intentional.
 
-### 2026-03-15 measured fast-slice cleanup hotspots
+### Slow-slice decisions should be measurement-led, not filename-led
 
 Still-active outcomes:
 
-- broad non-slow runtimes were dominated by a small set of integration-heavy files rather than by domain count alone
-- broad compact pytest runs were not useful enough for hotspot timing because the compact reporter suppressed most `--durations` output; one-file invocations were the reliable measurement path
-- measured hotspot files before reclassification were:
-  - `tests/analytics/test_stats_dashboard.py` about `45s`
-  - `tests/ingestion/test_performance_features.py` about `15s`
-  - `tests/cli/test_cli_output_structure_epub_fast.py` about `11s`
-  - `tests/cli/test_cli_output_structure_text_fast.py` about `11s`
-  - `tests/parsing/test_canonical_line_roles.py` about `24s`
-- after moving those files into `_SLOW_FILES`, routine non-slow domain times dropped to about:
-  - analytics `7s`
-  - ingestion `10s`
-  - cli `8s`
-  - parsing `3s`
-- broad non-slow pytest finished in about `70.34s` after the cleanup, with unrelated existing failures still present
+- broad non-slow runtimes are dominated by a small set of integration-heavy files rather than by domain count alone
+- compact broad pytest runs are poor hotspot profilers because the compact reporter suppresses most useful `--durations` detail
+- one-file invocations are the reliable measurement path when deciding whether a file belongs in `_SLOW_FILES`
 - the heavy coverage stayed available in the explicit slow slice instead of being deleted or mocked away broadly
 
 Anti-loop note:
 
 - do not re-open slow-slice arguments from filenames alone; rerun timing first
 
-### 2026-03-15 Label Studio fast-slice hotspot split
+### Label Studio routing tests must stop at the helper boundary
 
 Still-active outcomes:
 
 - `./scripts/test-suite.sh domain labelstudio` is one single-process pytest invocation, so extra cores do not help unless the test strategy changes
-- pre-cleanup measurements showed:
-  - full non-slow `tests/labelstudio`: about `227.82s`
-  - `tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py`: about `121s`
-  - `tests/labelstudio/test_labelstudio_benchmark_helpers_single_book_run.py`: about `79s`
-  - progress/import-eval/artifact helper files were single-digit seconds
 - the heavy cost came from routing tests still reaching the real `_interactive_single_book_benchmark(...)` helper and paying for comparison, bundle, and dashboard work
 - the durable split is:
   - keep full single-book helper coverage in the slow slice
@@ -192,7 +174,7 @@ Anti-loop note:
 
 - if the `labelstudio` domain gets slow again, inspect whether routing tests stopped stubbing the single-book helper before changing global pytest policy
 
-### 2026-03-16 fast Codex-helper regression anchors and synthetic benchmark fixtures
+### Fast Codex-helper anchors and synthetic benchmark fixtures remain required
 
 Still-active outcomes:
 
@@ -204,7 +186,7 @@ Anti-loop note:
 
 - if a test only needs a resolvable artifact contract, build the smallest valid fixture locally instead of depending on historical checked-in run directories
 
-### 2026-03-17 line-role shard-shape test guardrail
+### Line-role shard-shape assertions still need explicit opt-out
 
 Still-active outcomes:
 
@@ -215,7 +197,7 @@ Anti-loop note:
 
 - if a per-line shard test suddenly starts seeing grouped shards, inspect prompt-target defaults before debugging the planner
 
-### 2026-03-18 pack/schema regressions had to guard current LLM transport truth, not legacy prompt markers
+### Pack/schema tests must guard current transport truth
 
 Still-active outcomes:
 

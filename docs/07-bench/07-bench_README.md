@@ -434,22 +434,14 @@ Current rules:
 - any root containing `.gc_keep*`, `.keep`, or `.pinned` is retained
 - pytest temp eval fixtures are excluded so tests can inspect artifacts after command completion
 
-## 7. Retired Surfaces
-
-The following are no longer active benchmark workflows and should not be treated as current guidance:
-
-- tournament-based QualitySuite promotion workflows
-- `scripts/quality_top_tier_tournament.py`
-- `bench run`, `bench sweep`, `bench validate`, and `bench knobs`
-- canonical fast-alignment production scoring
-
-`bench quality-lightweight-series` still exists only to fail fast with a retired message for old scripts and operator muscle memory.
-
-## 8. Core Code Map
+## 7. Core Code Map
 
 Primary benchmark modules:
 
-- `cookimport/cli.py`: bench and `labelstudio-benchmark` command wiring, interactive benchmark flows, GC/pin/oracle-upload entrypoints
+- `cookimport/cli.py`: top-level Typer app that mounts the benchmark and Label Studio command groups
+- `cookimport/cli_commands/bench.py`: `cookimport bench` command registration (`speed-*`, `quality-*`, `gc`, `pin`, `oracle-*`, `eval-stage`)
+- `cookimport/cli_commands/labelstudio.py`: `labelstudio-benchmark` command registration
+- `cookimport/cli_support/bench.py`, `bench_single_book.py`, `bench_single_profile.py`, `bench_all_method.py`, `bench_oracle.py`, `bench_artifacts.py`, `bench_cache.py`: split benchmark implementation owners behind the CLI facade
 - `cookimport/bench/CONVENTIONS.md`: durable benchmark contracts inside the code folder
 - `cookimport/bench/eval_stage_blocks.py`: stage-block scoring
 - `cookimport/bench/eval_canonical_text.py`: canonical-text scoring and alignment telemetry
@@ -462,7 +454,7 @@ Primary benchmark modules:
 - `cookimport/bench/followup_bundle.py`: follow-up packet helpers used by `cf-debug`
 - `scripts/benchmark_cutdown_for_external_ai.py`: existing-output external-review packet builder over semantic stage rows plus current recipe manifests/audits
 
-## 9. See Also
+## 8. See Also
 
 - `docs/07-bench/07-bench_log.md`
 - `docs/07-bench/qualitysuite-agent-sop.md`
@@ -470,7 +462,7 @@ Primary benchmark modules:
 - `cookimport/bench/README.md`
 - `cookimport/bench/CONVENTIONS.md`
 
-## 10. Recent Durable Notes
+## 9. Recent Durable Notes
 
 - In canonical-text benchmarking, `eval_report.json -> per_label.RECIPE_TITLE` is the title-label metric. `eval_report.json -> recipe_counts.predicted_recipe_count` is a separate import-level recipe total and can diverge sharply.
 - When post-refactor CodexFarm canonical-text quality drops toward vanilla, inspect the `KNOWLEDGE` seam first. Stage 7 now only routes outside-recipe review, while the knowledge stage owns review-eligible `KNOWLEDGE` vs `OTHER` for benchmark truth.

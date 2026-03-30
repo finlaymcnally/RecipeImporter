@@ -252,7 +252,6 @@ Execution modes:
 ### 5.4 Codex approval and zero-token checks
 
 - `labelstudio-benchmark` and `labelstudio-import` now only expose live execute mode for Codex-backed surfaces.
-- Use prompt preview when you need the exact prompt text and token-budget estimate.
 - Use the normal execute path with `--codex-farm-cmd scripts/fake-codex-farm.py` when you need a zero-token rehearsal of worker directories, file handoffs, validation, and promotion wiring.
 - `labelstudio-import --prelabel` is a separate Codex-backed surface from recipe/line-role benchmark settings.
   - Do not assume recipe/line-role decision metadata or approval checks automatically cover prelabel behavior.

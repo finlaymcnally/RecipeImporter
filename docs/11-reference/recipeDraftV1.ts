@@ -103,6 +103,16 @@ const IngredientLineStagingSchema = z
     }
   });
 
+const TemperatureItemSchema = z
+  .object({
+    value: z.number(),
+    unit: z.enum(["fahrenheit", "celsius"]),
+    value_f: z.number().int(),
+    original_text: z.string().trim().min(1),
+    is_oven_like: z.boolean(),
+  })
+  .strict();
+
 const StepSchema = z
   .object({
     instruction: z.string().trim().min(1),
@@ -110,6 +120,7 @@ const StepSchema = z
     time_seconds: z.number().nonnegative().optional().nullable(),
     temperature: z.number().optional().nullable(),
     temperature_unit: z.string().trim().min(1).optional().nullable(),
+    temperature_items: z.array(TemperatureItemSchema).optional(),
   })
   .strict();
 
@@ -117,6 +128,7 @@ const RecipeSchema = z
   .object({
     confidence: z.number().min(0).max(1).optional().nullable(),
     cook_time_seconds: z.number().nonnegative().optional().nullable(),
+    max_oven_temp_f: z.number().int().nonnegative().optional().nullable(),
     title: z.string().trim().min(1),
     description: z.string().optional().nullable(),
     notes: z.string().optional().nullable(),

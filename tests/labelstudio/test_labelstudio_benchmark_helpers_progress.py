@@ -1064,6 +1064,68 @@ def test_run_with_progress_status_renders_all_ten_knowledge_workers(
     assert all("active tasks (10/8" not in message for message in capture.messages)
 
 
+def test_run_with_progress_status_respects_structured_five_worker_total(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress(
+            format_stage_progress(
+                "Running canonical line-role pipeline... shard 3/5 | running 2",
+                stage_label="canonical line-role pipeline",
+                work_unit_label="shard",
+                task_current=3,
+                task_total=5,
+                running_workers=2,
+                worker_total=5,
+                worker_running=2,
+                worker_completed=3,
+                worker_failed=0,
+                active_tasks=[
+                    "line-role-canonical-0004-a000883-a001176 (0/1 shards)",
+                    "line-role-canonical-0005-a001177-a001470 (0/1 shards)",
+                ],
+                detail_lines=["configured workers: 5", "queued shards: 2"],
+            )
+        )
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running benchmark...",
+        progress_prefix="Benchmark import (saltfatacidheatCUTDOWN.epub)",
+        run=_run,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert any("worker 05: done" in message for message in capture.messages)
+    assert all("worker 06:" not in message for message in capture.messages)
+    assert all("worker 08:" not in message for message in capture.messages)
+
+
 def test_run_with_progress_status_renders_packet_scale_knowledge_worker_labels(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

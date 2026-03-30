@@ -28,13 +28,20 @@ This file tracks reference-section architecture versions, builds, fix attempts, 
   - strict-vs-permissive guardrail note (`schema/json+ts` strict mirrors vs Python model `extra="allow"`)
 
 3. `2026-03-15_22.41.34_reference-doc-drift-audit`
-- cleaned out stale provenance references to a retired understanding file.
+- cleaned out stale provenance references and tightened wording around what the mirror files cover.
 - tightened README wording so `recipeDraftV1.schema.json` and `recipeDraftV1.ts` are described as useful external mirrors, not a complete source of truth for every current runtime-emitted field.
 - kept active draft-v1 behavior in scope:
-  - transition aliases (`name`, `ingredients`, `instructions`) added by `cookimport/staging/writer.py`
   - priority-6 draft metadata such as `recipe.max_oven_temp_f`, step `temperature_items`, and `_p6_debug` sidecar extraction
-- discovery note recorded in:
-  - `docs/understandings/2026-03-15_22.41.34-reference-doc-drift-audit.md`
+
+4. `2026-03-30_11-reference-doc-prune`
+- removed stale notes about writer-added top-level alias fields; current writer strips legacy `name` / `ingredients` / `instructions` keys from override payloads instead of documenting them as active output behavior.
+- removed an unrelated `tests/ingestion/test_excel_importer.py` reference from the README because it no longer covers draft-v1 output shape.
+- corrected the runtime ownership note so `cookimport/llm/codex_farm_orchestrator.py` is described as the public facade, with the live recipe-stage implementation living behind it.
+
+5. `2026-03-30_11-reference-mirror-alignment`
+- aligned `recipeDraftV1.schema.json` and `recipeDraftV1.ts` with current runtime-emitted final draft fields by adding recipe-level `max_oven_temp_f` and step-level `temperature_items`.
+- removed stale schema wording that described the JSON Schema mirror as a review-metadata/unresolved-text extension.
+- clarified that `2026-02-10_recipe-database-field-inventory.md` is a dated snapshot, not a repo-verifiable claim about the current live schema.
 
 ## Known Gaps and Guardrails
 

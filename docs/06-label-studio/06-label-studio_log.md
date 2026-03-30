@@ -65,11 +65,6 @@ Use this log when debugging starts looping. It is intentionally compact and keep
 - Compare accepts both all-method report roots and direct `eval_report.json` inputs.
 - Compare outputs standardized on `comparison.json` + `comparison.md` plus terminal gate tables.
 
-### 2026-03-05: Codex preview boundary was locked down
-
-- Plan-only benchmark/import previews remain command-boundary features.
-- Deterministic extraction/planning may run, but task generation, upload, benchmark eval, and live Codex work stay skipped.
-
 ### 2026-03-15: prelabel backend identity cleanup
 
 - Freeform prelabel backend identity was standardized on `codex-farm`.
@@ -116,7 +111,6 @@ Anti-loop note:
 - Benchmark eval is dual-mode (`stage-blocks` + `canonical-text`) and both paths remain active runtime contracts.
 - Prediction-record replay/generation (`--predictions-in`, `--predictions-out`) is a supported benchmark contract, not debug-only tooling.
 - Benchmark compare is an active contract for both all-method report roots and single `eval_report.json` inputs.
-- Plan-only previews write manifests plus `codex_execution_plan.json` and stop before task generation/upload/eval/live Codex work.
 
 ## 3) Known Bad Loops To Avoid
 
@@ -127,7 +121,6 @@ Anti-loop note:
 - Do not diagnose benchmark mismatch before checking source-identity constraints.
 - Do not change scorers because a reused project is missing a code label; check project `label_config` freshness first.
 - Do not recover the prediction-run directory from eval-root-relative guesses when `artifact_root_dir` is present.
-- Do not treat plan-only previews as if downstream task/eval artifacts should exist.
 - Do not reintroduce retired prelabel backend aliases (`codex-cli`, direct `codex exec`) into active runtime paths.
 
 ## 4) Still-Relevant Historical Gotchas

@@ -291,12 +291,11 @@ When PDFs/EPUBs are split into jobs, merge flow:
 2. Sorts jobs by start range.
 3. When split jobs include `full_text` raw artifacts, builds merged `raw/.../full_text.json` block payload and offsets per-job block indices in recipe/non-recipe provenance to global coordinates.
 4. Reassigns recipe IDs in source order (`start_spine` first, then `start_page`, then `start_block`).
-5. Updates tip references (`source_recipe_id`, provenance IDs) via remap.
-6. Writes merged outputs through standard writer functions.
-7. Writes stage-block predictions using merged archive blocks so block labels align with global block indices.
-8. Moves raw artifacts from temporary `.job_parts/<workbook_slug>/job_{i}/raw/...` into final `raw/...` path.
+5. Runs the shared stage-session write path against the merged source/archive blocks.
+6. Writes stage-block predictions using merged archive blocks so block labels align with global block indices.
+7. Moves raw artifacts from temporary `.job_parts/<workbook_slug>/job_{i}/raw/...` into final `raw/...` path.
    - Per-job `recipe_scoring_debug.jsonl` collisions are preserved via deterministic `job_{index}_...` prefixing.
-9. Writes report JSON after raw merge so `outputStats` includes moved raw artifacts (plus merged `raw/.../full_text.json`) without a post-write directory scan.
+8. Writes report JSON after raw merge so `outputStats` includes moved raw artifacts (plus merged `raw/.../full_text.json`) without a post-write directory scan.
 
 ### Split-merge outputStats invariants (merged 2026-02-27)
 
@@ -313,13 +312,13 @@ Guardrail test:
 Main-process merge status callback contract:
 
 - Top-level merge milestones are phase-counted as `merge phase X/Y: <label>`.
-- Session-level staging callbacks (for example `Generating knowledge chunks...`, `Writing outputs...`) are forwarded as plain status lines between merge phases.
-- Phase totals are deterministic for emitted merge-phase rows and include optional chunk-write phase when chunk sources exist.
+- Session-level staging callbacks (for example `Generating deterministic non-recipe chunks...`, `Writing outputs...`) are forwarded as plain status lines between merge phases.
+- Phase totals are deterministic for emitted merge-phase rows; chunk generation remains a forwarded session status, not an extra merge-phase counter.
 - Stage live status panels now use shared slot gating (`COOKIMPORT_LIVE_STATUS_SLOTS`, default `1`); when no live slot is available, stage falls back to plain status lines instead of raising a live-display error.
 
 Code pointers:
 
-- `cookimport/cli.py` (`_merge_source_jobs`, `_merge_raw_artifacts`)
+- `cookimport/cli_support/stage.py` (`_merge_source_jobs`, `_merge_raw_artifacts`)
 - `cookimport/staging/pdf_jobs.py` (`reassign_recipe_ids`)
 
 ## Run manifest contract
@@ -340,7 +339,7 @@ Worker-resolution artifact:
 - `run_manifest.json` includes `artifacts.stage_worker_resolution_json` when this file exists.
 
 Code pointers:
-- `cookimport/cli.py` (`_write_stage_run_manifest`, `_write_run_manifest_best_effort`)
+- `cookimport/cli_support/stage.py` (`_write_stage_run_manifest`, `_write_run_manifest_best_effort`)
 - `cookimport/runs/manifest.py` (`RunManifest`, `write_run_manifest`)
 
 ## Current limitations / things we know are not great yet
@@ -352,7 +351,7 @@ Code pointers:
 2. Split-job raw artifact filename collisions are auto-prefixed
 - Merge may rename colliding files with `job_{index}_...` prefixes.
 - Good for loss avoidance, but file names can differ run-to-run when collisions happen.
-- Code pointers: `cookimport/cli.py` (`_merge_raw_artifacts`, `_prefix_collision`).
+- Code pointers: `cookimport/cli_support/stage.py` (`_merge_raw_artifacts`, `_prefix_collision`).
 
 3. Timestamp output folder granularity is seconds
 - Two invocations in the same second could collide on output directory name.
@@ -364,14 +363,17 @@ Code pointers:
 Core tests to keep green when touching staging:
 
 - `tests/cli/test_cli_output_structure_text_fast.py`
+- `tests/cli/test_cli_output_structure_epub_fast.py`
 - `tests/cli/test_cli_output_structure_slow.py`
 - `tests/staging/test_draft_v1_staging_alignment.py`
 - `tests/staging/test_draft_v1_lowercase.py`
 - `tests/staging/test_draft_v1_variants.py`
-- `tests/staging/test_tip_writer.py`
+- `tests/staging/test_import_session.py`
+- `tests/staging/test_nonrecipe_stage.py`
 - `tests/staging/test_split_merge_status.py`
 - `tests/staging/test_section_outputs.py`
 - `tests/staging/test_stage_block_predictions.py`
+- `tests/staging/test_stage_observability.py`
 - `tests/staging/test_run_manifest_parity.py`
 - `tests/parsing/test_source_field.py`
 - `tests/ingestion/test_pdf_job_merge.py`
@@ -384,8 +386,8 @@ When editing staging behavior, confirm:
 1. Path layout and naming in CLI help/docs still match writes.
 2. Draft ingredient-line invariants remain staging-safe.
 3. Unresolved ID handling remains placeholder/null pattern.
-4. Split-job merge still preserves deterministic order and tip references.
-5. Tips/topic candidates/chunks/raw/report outputs still land in expected paths.
+4. Split-job merge still preserves deterministic order, block-index offsets, and raw-artifact accounting.
+5. Non-recipe/chunks/raw/report outputs still land in expected paths.
 6. Output stats reporting remains attached to report (`outputStats`) when files are written.
 7. `run_manifest.json` still captures source identity + artifact paths for this run.
 

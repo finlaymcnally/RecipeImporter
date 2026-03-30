@@ -867,7 +867,6 @@ def _run_with_progress_status(
         completed_slots = max(0, int(worker_completed or 0))
         failed_slots = max(0, int(worker_failed or 0))
         display_slots = max(
-            8,
             configured_slots,
             len(active_tasks or []),
             max(0, int(running_workers or 0)),
