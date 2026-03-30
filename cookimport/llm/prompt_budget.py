@@ -915,6 +915,10 @@ def _attach_knowledge_stage_observability(
             "primary_packet_count_total",
             "repair_packet_count_total",
             "owned_row_count_total",
+            "classification_session_count_total",
+            "grouping_session_count_total",
+            "classification_owned_row_count_total",
+            "grouping_owned_row_count_total",
             "packet_churn_count",
         ):
             stage_summary[key] = _nonnegative_int(packet_economics.get(key))

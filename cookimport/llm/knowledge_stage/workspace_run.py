@@ -23,10 +23,19 @@ from ..knowledge_phase_workspace_tools import (
 )
 from ..editable_task_file import (
     TASK_FILE_NAME,
-    build_task_file,
+    build_repair_task_file,
     load_task_file,
-    validate_edited_task_file,
     write_task_file,
+)
+from .task_file_contracts import (
+    KNOWLEDGE_CLASSIFY_STAGE_KEY,
+    KNOWLEDGE_CLASSIFY_SCHEMA_VERSION,
+    KNOWLEDGE_GROUP_STAGE_KEY,
+    build_knowledge_classification_task_file,
+    build_knowledge_grouping_task_file,
+    combine_knowledge_task_file_outputs,
+    validate_knowledge_classification_task_file,
+    validate_knowledge_grouping_task_file,
 )
 from ..task_file_guardrails import (
     build_task_file_guardrail,
@@ -58,6 +67,7 @@ def _attach_worker_guardrail_summary(
     *,
     worker_runner_payload: dict[str, Any],
     task_file_guardrail: Mapping[str, Any] | None,
+    planned_happy_path_worker_cap: int = 1,
     repair_followup_call_count: int = 0,
 ) -> None:
     telemetry = worker_runner_payload.get("telemetry")
@@ -68,7 +78,7 @@ def _attach_worker_guardrail_summary(
         return
     summary["task_file_guardrails"] = summarize_task_file_guardrails([task_file_guardrail])
     worker_session_guardrails = build_worker_session_guardrails(
-        planned_happy_path_worker_cap=1,
+        planned_happy_path_worker_cap=max(1, int(planned_happy_path_worker_cap)),
         actual_happy_path_worker_sessions=int(summary.get("workspace_worker_session_count") or 0),
         repair_followup_call_count=repair_followup_call_count,
     )
@@ -94,115 +104,34 @@ def _load_json_dict_safely(path: Path) -> dict[str, Any]:
     return dict(payload) if isinstance(payload, Mapping) else {}
 
 
-def _build_knowledge_task_file(
+def _task_file_answer_feedback(
     *,
-    assignment: WorkerAssignmentV1,
-    shards: Sequence[ShardManifestEntryV1],
-) -> tuple[dict[str, Any], dict[str, str]]:
-    units: list[dict[str, Any]] = []
-    unit_to_shard_id: dict[str, str] = {}
-    for shard in shards:
-        for packet in _knowledge_packet_payloads(shard.input_payload):
-            packet_context = dict(packet.get("x") or {}) if isinstance(packet.get("x"), Mapping) else {}
-            context_before_rows = list(packet_context.get("p") or [])
-            context_after_rows = list(packet_context.get("n") or [])
-            context_before = (
-                str(context_before_rows[-1].get("t") or "").strip()
-                if context_before_rows and isinstance(context_before_rows[-1], Mapping)
-                else None
-            )
-            context_after = (
-                str(context_after_rows[0].get("t") or "").strip()
-                if context_after_rows and isinstance(context_after_rows[0], Mapping)
-                else None
-            )
-            for block in packet.get("b") or []:
-                if not isinstance(block, Mapping):
-                    continue
-                block_index = int(block.get("i") or 0)
-                unit_id = f"knowledge::{block_index}"
-                unit_to_shard_id[unit_id] = shard.shard_id
-                units.append(
-                    {
-                        "unit_id": unit_id,
-                        "owned_id": str(block.get("id") or f"{shard.shard_id}:{block_index}"),
-                        "evidence": {
-                            "block_index": block_index,
-                            "block_id": str(block.get("id") or f"{shard.shard_id}:{block_index}"),
-                            "text": str(block.get("t") or ""),
-                            "context_before": context_before,
-                            "context_after": context_after,
-                            "routing_hints": [],
-                        },
-                        "answer": {},
-                    }
-                )
-    return (
-        build_task_file(
-            stage_key="nonrecipe_finalize",
-            assignment_id=assignment.worker_id,
-            worker_id=assignment.worker_id,
-            units=units,
-        ),
-        unit_to_shard_id,
-    )
-
-
-def _expand_knowledge_task_file_outputs(
-    *,
-    original_task_file: Mapping[str, Any],
-    task_file_path: Path,
-    unit_to_shard_id: Mapping[str, str],
+    validation_errors: Sequence[str],
+    validation_metadata: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    edited_task_file = load_task_file(task_file_path)
-    answers_by_unit_id, validation_errors, validation_metadata = validate_edited_task_file(
-        original_task_file=original_task_file,
-        edited_task_file=edited_task_file,
-    )
-    if validation_errors or int(validation_metadata.get("changed_unit_count") or 0) <= 0:
+    failed_unit_ids = {
+        str(unit_id).strip()
+        for unit_id in (validation_metadata.get("failed_unit_ids") or [])
+        if str(unit_id).strip()
+    }
+    if not failed_unit_ids:
         return {}
-    shard_rows: dict[str, list[tuple[int, dict[str, Any]]]] = {}
-    for unit in edited_task_file.get("units") or []:
-        if not isinstance(unit, Mapping):
-            continue
-        unit_id = str(unit.get("unit_id") or "").strip()
-        shard_id = str(unit_to_shard_id.get(unit_id) or "").strip()
-        if not shard_id:
-            continue
-        evidence = dict(unit.get("evidence") or {})
-        answer = dict((answers_by_unit_id or {}).get(unit_id) or {})
-        block_index = int(evidence.get("block_index") or 0)
-        shard_rows.setdefault(shard_id, []).append((block_index, answer))
-    outputs: dict[str, dict[str, Any]] = {}
-    for shard_id, rows in shard_rows.items():
-        ordered_rows = sorted(rows, key=lambda row: row[0])
-        block_decisions = [
-            {
-                "block_index": block_index,
-                "category": str(answer.get("category") or ""),
-            }
-            for block_index, answer in ordered_rows
+    feedback = {
+        "validation_errors": [
+            str(error).strip() for error in validation_errors if str(error).strip()
         ]
-        groups_by_identity: dict[tuple[str, str], list[int]] = {}
-        for block_index, answer in ordered_rows:
-            group_key = str(answer.get("group_key") or "").strip()
-            topic_label = str(answer.get("topic_label") or "").strip()
-            if not group_key or not topic_label:
-                continue
-            groups_by_identity.setdefault((group_key, topic_label), []).append(block_index)
-        outputs[shard_id] = {
-            "packet_id": shard_id,
-            "block_decisions": block_decisions,
-            "idea_groups": [
-                {
-                    "group_id": group_key,
-                    "topic_label": topic_label,
-                    "block_indices": block_indices,
-                }
-                for (group_key, topic_label), block_indices in groups_by_identity.items()
-            ],
-        }
-    return outputs
+    }
+    details = list(validation_metadata.get("error_details") or [])
+    feedback_by_unit_id: dict[str, dict[str, Any]] = {}
+    for unit_id in failed_unit_ids:
+        unit_feedback = dict(feedback)
+        unit_feedback["error_details"] = [
+            dict(detail)
+            for detail in details
+            if f"/units/{unit_id}/" in str(detail.get("path") or "")
+        ]
+        feedback_by_unit_id[unit_id] = unit_feedback
+    return feedback_by_unit_id
 
 
 def _render_validation_reason_detail(
@@ -885,6 +814,278 @@ def _classify_missing_packet_result(
     )
 
 
+def _validate_knowledge_task_file_step(
+    *,
+    original_task_file: Mapping[str, Any],
+    edited_task_file: Mapping[str, Any],
+) -> tuple[dict[str, dict[str, Any]] | None, tuple[str, ...], dict[str, Any]]:
+    stage_key = str(original_task_file.get("stage_key") or "").strip()
+    if stage_key == KNOWLEDGE_CLASSIFY_STAGE_KEY:
+        return validate_knowledge_classification_task_file(
+            original_task_file=original_task_file,
+            edited_task_file=edited_task_file,
+        )
+    if stage_key == KNOWLEDGE_GROUP_STAGE_KEY:
+        return validate_knowledge_grouping_task_file(
+            original_task_file=original_task_file,
+            edited_task_file=edited_task_file,
+        )
+    return None, ("unsupported_stage_key",), {"stage_key": stage_key}
+
+
+def _task_file_prompt_name(task_file_payload: Mapping[str, Any]) -> str:
+    stage_key = str(task_file_payload.get("stage_key") or "").strip()
+    if stage_key == KNOWLEDGE_CLASSIFY_STAGE_KEY:
+        return "classify"
+    if stage_key == KNOWLEDGE_GROUP_STAGE_KEY:
+        return "group"
+    return "task"
+
+
+def _write_task_file_snapshot(
+    *,
+    worker_root: Path,
+    step_name: str,
+    suffix: str,
+    payload: Mapping[str, Any],
+) -> None:
+    _write_json(dict(payload), worker_root / f"task_{step_name}.{suffix}.json")
+
+
+def _run_knowledge_task_file_step(
+    *,
+    runner: CodexExecRunner,
+    worker_root: Path,
+    pipeline_id: str,
+    task_file_payload: Mapping[str, Any],
+    prompt_text: str,
+    env: Mapping[str, str],
+    model: str | None,
+    reasoning_effort: str | None,
+    out_dir: Path,
+    step_name: str,
+    expected_workspace_output_paths: Sequence[Path],
+    progress_state: _KnowledgePhaseProgressState | None,
+    worker_id: str,
+) -> tuple[
+    dict[str, dict[str, Any]] | None,
+    tuple[str, ...],
+    dict[str, Any],
+    list[dict[str, Any]],
+    list[CodexExecRunResult],
+]:
+    write_task_file(path=worker_root / TASK_FILE_NAME, payload=task_file_payload)
+    _write_task_file_snapshot(
+        worker_root=worker_root,
+        step_name=step_name,
+        suffix="initial",
+        payload=task_file_payload,
+    )
+    prompt_path = worker_root / f"prompt_{step_name}.txt"
+    prompt_path.write_text(prompt_text, encoding="utf-8")
+    run_results: list[CodexExecRunResult] = []
+    runner_payloads: list[dict[str, Any]] = []
+    repair_followup_call_count = 0
+
+    def _run_once(*, task_label: str) -> CodexExecRunResult:
+        return runner.run_workspace_worker(
+            prompt_text=prompt_text,
+            working_dir=worker_root,
+            env=env,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            workspace_task_label=task_label,
+            supervision_callback=_build_strict_json_watchdog_callback(
+                live_status_path=worker_root / "live_status.json",
+                allow_workspace_commands=True,
+                execution_workspace_root=worker_root,
+                expected_workspace_output_paths=expected_workspace_output_paths,
+                workspace_output_observer=(
+                    None
+                    if progress_state is None
+                    else lambda present_count, expected_count, _worker_id=worker_id: (
+                        progress_state.observe_workspace_outputs(
+                            worker_id=_worker_id,
+                            present_count=present_count,
+                            expected_count=expected_count,
+                        )
+                    )
+                ),
+            ),
+        )
+
+    initial_run_result = _run_once(
+        task_label=f"knowledge {step_name} worker session"
+    )
+    run_results.append(initial_run_result)
+    _finalize_live_status(
+        worker_root / "live_status.json",
+        run_result=initial_run_result,
+        watchdog_policy="workspace_worker_v1",
+    )
+    edited_task_file = load_task_file(worker_root / TASK_FILE_NAME)
+    answers_by_unit_id, validation_errors, validation_metadata = (
+        _validate_knowledge_task_file_step(
+            original_task_file=task_file_payload,
+            edited_task_file=edited_task_file,
+        )
+    )
+    merged_answers_by_unit_id = dict(
+        validation_metadata.get("validated_answers_by_unit_id") or {}
+    )
+    _write_task_file_snapshot(
+        worker_root=worker_root,
+        step_name=step_name,
+        suffix="edited",
+        payload=edited_task_file,
+    )
+
+    no_task_file_edits_observed = (
+        int(validation_metadata.get("changed_unit_count") or 0) <= 0
+        and not merged_answers_by_unit_id
+    )
+
+    if (
+        not no_task_file_edits_observed
+        and validation_errors
+        and validation_metadata.get("failed_unit_ids")
+    ):
+        repair_followup_call_count = 1
+        repair_task_file = build_repair_task_file(
+            original_task_file=task_file_payload,
+            failed_unit_ids=validation_metadata.get("failed_unit_ids") or (),
+            previous_answers_by_unit_id={
+                str(unit.get("unit_id") or "").strip(): (
+                    dict(unit.get("answer") or {})
+                    if isinstance(unit, Mapping)
+                    else {}
+                )
+                for unit in (edited_task_file.get("units") or [])
+                if isinstance(unit, Mapping) and str(unit.get("unit_id") or "").strip()
+            },
+            validation_feedback_by_unit_id=_task_file_answer_feedback(
+                validation_errors=validation_errors,
+                validation_metadata=validation_metadata,
+            ),
+        )
+        write_task_file(path=worker_root / TASK_FILE_NAME, payload=repair_task_file)
+        _write_task_file_snapshot(
+            worker_root=worker_root,
+            step_name=step_name,
+            suffix="repair_initial",
+            payload=repair_task_file,
+        )
+        repair_prompt = _build_knowledge_workspace_worker_prompt(
+            stage_key=str(repair_task_file.get("stage_key") or ""),
+            shards=(),
+        )
+        prompt_path = worker_root / f"prompt_{step_name}.repair.txt"
+        prompt_path.write_text(repair_prompt, encoding="utf-8")
+        repair_run_result = runner.run_workspace_worker(
+            prompt_text=repair_prompt,
+            working_dir=worker_root,
+            env=env,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            workspace_task_label=f"knowledge {step_name} repair session",
+            supervision_callback=_build_strict_json_watchdog_callback(
+                live_status_path=worker_root / "live_status.json",
+                allow_workspace_commands=True,
+                execution_workspace_root=worker_root,
+                expected_workspace_output_paths=expected_workspace_output_paths,
+            ),
+        )
+        run_results.append(repair_run_result)
+        _finalize_live_status(
+            worker_root / "live_status.json",
+            run_result=repair_run_result,
+            watchdog_policy="workspace_worker_v1",
+        )
+        repaired_task_file = load_task_file(worker_root / TASK_FILE_NAME)
+        repair_answers, repair_errors, repair_metadata = _validate_knowledge_task_file_step(
+            original_task_file=repair_task_file,
+            edited_task_file=repaired_task_file,
+        )
+        _write_task_file_snapshot(
+            worker_root=worker_root,
+            step_name=step_name,
+            suffix="repair_edited",
+            payload=repaired_task_file,
+        )
+        merged_answers_by_unit_id.update(
+            dict(repair_metadata.get("validated_answers_by_unit_id") or {})
+        )
+        if repair_answers is not None:
+            merged_answers_by_unit_id.update(repair_answers)
+        if repair_errors:
+            validation_errors = repair_errors
+            validation_metadata = {
+                **dict(validation_metadata or {}),
+                **dict(repair_metadata or {}),
+                "repair_attempted": True,
+            }
+            answers_by_unit_id = None
+        else:
+            validation_errors = ()
+            validation_metadata = {
+                **dict(validation_metadata or {}),
+                "repair_attempted": True,
+                "validated_answers_by_unit_id": merged_answers_by_unit_id,
+            }
+            answers_by_unit_id = merged_answers_by_unit_id
+    elif answers_by_unit_id is not None:
+        merged_answers_by_unit_id.update(answers_by_unit_id)
+        answers_by_unit_id = merged_answers_by_unit_id
+
+    for run_index, run_result in enumerate(run_results):
+        prompt_ref = (
+            worker_root / f"prompt_{step_name}.txt"
+            if run_index == 0
+            else worker_root / f"prompt_{step_name}.repair.txt"
+        )
+        runner_payload = _build_knowledge_workspace_task_runner_payload(
+            pipeline_id=pipeline_id,
+            worker_id=worker_id,
+            shard_id=f"{worker_id}.{step_name}.{run_index + 1:02d}",
+            runtime_task_id=f"{worker_id}.{step_name}.{run_index + 1:02d}",
+            run_result=run_result,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            request_input_file=worker_root / TASK_FILE_NAME,
+            worker_prompt_path=prompt_ref,
+            worker_root=worker_root,
+            task_count=1,
+            task_index=0,
+        )
+        telemetry = runner_payload.get("telemetry")
+        if isinstance(telemetry, Mapping):
+            rows = telemetry.get("rows")
+            if isinstance(rows, list):
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    row["knowledge_semantic_step"] = step_name
+                    row["knowledge_step_stage_key"] = str(task_file_payload.get("stage_key") or "")
+                    row["is_repair_attempt"] = run_index > 0
+                    row["workspace_packet_count"] = 1
+                    row["workspace_repair_packet_count"] = 1 if run_index > 0 else 0
+                    row["owned_row_count"] = int(len(task_file_payload.get("units") or []))
+        _attach_worker_guardrail_summary(
+            worker_runner_payload=runner_payload,
+            task_file_guardrail=build_task_file_guardrail(
+                payload=task_file_payload,
+                assignment_id=worker_id,
+                worker_id=worker_id,
+            ),
+            planned_happy_path_worker_cap=2,
+            repair_followup_call_count=repair_followup_call_count,
+        )
+        runner_payloads.append(runner_payload)
+    if no_task_file_edits_observed:
+        return None, (), {"no_task_file_edits_observed": True}, runner_payloads, run_results
+    return answers_by_unit_id, validation_errors, validation_metadata, runner_payloads, run_results
+
+
 def _run_phase_knowledge_worker_assignment_v1(
     *,
     run_root: Path,
@@ -983,7 +1184,7 @@ def _run_phase_knowledge_worker_assignment_v1(
     task_file_guardrail: dict[str, Any] | None = None
     unit_to_shard_id: dict[str, str] = {}
     if assigned_shards:
-        task_file_payload, unit_to_shard_id = _build_knowledge_task_file(
+        task_file_payload, unit_to_shard_id = build_knowledge_classification_task_file(
             assignment=assignment,
             shards=assigned_shards,
         )
@@ -992,7 +1193,6 @@ def _run_phase_knowledge_worker_assignment_v1(
             assignment_id=assignment.worker_id,
             worker_id=assignment.worker_id,
         )
-        write_task_file(path=worker_root / TASK_FILE_NAME, payload=task_file_payload)
 
     if not assigned_shards:
         _write_json(
@@ -1007,6 +1207,7 @@ def _run_phase_knowledge_worker_assignment_v1(
         _attach_worker_guardrail_summary(
             worker_runner_payload=worker_runner_payload,
             task_file_guardrail=task_file_guardrail,
+            planned_happy_path_worker_cap=2,
         )
         _write_json(worker_runner_payload, worker_root / "status.json")
         return _DirectKnowledgeWorkerResult(
@@ -1046,64 +1247,151 @@ def _run_phase_knowledge_worker_assignment_v1(
                 attempt_type="main_worker",
                 metadata={
                     "task_file": TASK_FILE_NAME,
-                    "workspace_processing_contract": "knowledge_editable_task_file_v1",
+                    "workspace_processing_contract": "knowledge_split_task_file_v1",
                 },
             )
-
-    worker_prompt_text = _build_knowledge_workspace_worker_prompt(shards=assigned_shards)
-    worker_prompt_path = worker_root / "prompt.txt"
-    worker_prompt_path.write_text(worker_prompt_text, encoding="utf-8")
-    run_result = runner.run_workspace_worker(
-        prompt_text=worker_prompt_text,
-        working_dir=worker_root,
-        env=env,
-        model=model,
-        reasoning_effort=reasoning_effort,
-        workspace_task_label="knowledge fixed-assignment worker session",
-        supervision_callback=_build_strict_json_watchdog_callback(
-            live_status_path=worker_root / "live_status.json",
-            allow_workspace_commands=True,
-            execution_workspace_root=worker_root,
+    classify_answers_by_unit_id: dict[str, dict[str, Any]] | None = None
+    grouping_answers_by_unit_id: dict[str, dict[str, Any]] | None = None
+    classification_validation_errors: tuple[str, ...] = ()
+    classification_validation_metadata: dict[str, Any] = {}
+    grouping_validation_errors: tuple[str, ...] = ()
+    grouping_validation_metadata: dict[str, Any] = {}
+    semantic_run_results: list[CodexExecRunResult] = []
+    if task_file_payload is not None:
+        classification_prompt_text = _build_knowledge_workspace_worker_prompt(
+            stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY,
+            shards=assigned_shards,
+        )
+        (
+            classify_answers_by_unit_id,
+            classification_validation_errors,
+            classification_validation_metadata,
+            classification_runner_payloads,
+            classification_run_results,
+        ) = _run_knowledge_task_file_step(
+            runner=runner,
+            worker_root=worker_root,
+            pipeline_id=pipeline_id,
+            task_file_payload=task_file_payload,
+            prompt_text=classification_prompt_text,
+            env=env,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            out_dir=out_dir,
+            step_name="classification",
             expected_workspace_output_paths=[
                 out_dir / f"{shard.shard_id}.json" for shard in assigned_shards
             ],
-            workspace_output_observer=(
-                None
-                if progress_state is None
-                else lambda present_count, expected_count, _worker_id=assignment.worker_id: (
-                    progress_state.observe_workspace_outputs(
-                        worker_id=_worker_id,
-                        present_count=present_count,
-                        expected_count=expected_count,
-                    )
-                )
-            ),
-        ),
-    )
-    _finalize_live_status(
-        worker_root / "live_status.json",
-        run_result=run_result,
-        watchdog_policy="workspace_worker_v1",
-    )
-    (worker_root / "events.jsonl").write_text(
-        _render_events_jsonl(run_result.events),
-        encoding="utf-8",
-    )
-    _write_json({"text": run_result.response_text}, worker_root / "last_message.json")
-    _write_json(dict(run_result.usage or {}), worker_root / "usage.json")
-    _write_json(run_result.workspace_manifest(), worker_root / "workspace_manifest.json")
-    _write_optional_text(worker_root / "stdout.txt", run_result.stdout_text)
-    _write_optional_text(worker_root / "stderr.txt", run_result.stderr_text)
-    if task_file_payload is not None:
-        expanded_outputs = _expand_knowledge_task_file_outputs(
-            original_task_file=task_file_payload,
-            task_file_path=worker_root / TASK_FILE_NAME,
-            unit_to_shard_id=unit_to_shard_id,
+            progress_state=progress_state,
+            worker_id=assignment.worker_id,
         )
-        for shard_id, payload in expanded_outputs.items():
-            _write_json(payload, out_dir / f"{shard_id}.json")
+        worker_runner_results.extend(classification_runner_payloads)
+        semantic_run_results.extend(classification_run_results)
+        for payload in classification_runner_payloads:
+            telemetry = payload.get("telemetry")
+            if isinstance(telemetry, Mapping):
+                rows = telemetry.get("rows")
+                if isinstance(rows, list):
+                    stage_rows.extend(
+                        dict(row) for row in rows if isinstance(row, Mapping)
+                    )
+        if classify_answers_by_unit_id:
+            grouping_task_file, _grouping_unit_to_shard_id = build_knowledge_grouping_task_file(
+                assignment_id=assignment.worker_id,
+                worker_id=assignment.worker_id,
+                classification_task_file=task_file_payload,
+                classification_answers_by_unit_id=classify_answers_by_unit_id,
+                unit_to_shard_id=unit_to_shard_id,
+            )
+            if grouping_task_file.get("units"):
+                grouping_prompt_text = _build_knowledge_workspace_worker_prompt(
+                    stage_key=KNOWLEDGE_GROUP_STAGE_KEY,
+                    shards=assigned_shards,
+                )
+                (
+                    grouping_answers_by_unit_id,
+                    grouping_validation_errors,
+                    grouping_validation_metadata,
+                    grouping_runner_payloads,
+                    grouping_run_results,
+                ) = _run_knowledge_task_file_step(
+                    runner=runner,
+                    worker_root=worker_root,
+                    pipeline_id=pipeline_id,
+                    task_file_payload=grouping_task_file,
+                    prompt_text=grouping_prompt_text,
+                    env=env,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    out_dir=out_dir,
+                    step_name="grouping",
+                    expected_workspace_output_paths=[
+                        out_dir / f"{shard.shard_id}.json" for shard in assigned_shards
+                    ],
+                    progress_state=progress_state,
+                    worker_id=assignment.worker_id,
+                )
+                worker_runner_results.extend(grouping_runner_payloads)
+                semantic_run_results.extend(grouping_run_results)
+                for payload in grouping_runner_payloads:
+                    telemetry = payload.get("telemetry")
+                    if isinstance(telemetry, Mapping):
+                        rows = telemetry.get("rows")
+                        if isinstance(rows, list):
+                            stage_rows.extend(
+                                dict(row) for row in rows if isinstance(row, Mapping)
+                            )
+            else:
+                grouping_answers_by_unit_id = {}
+                grouping_validation_metadata = {
+                    "semantic_step_skipped": "no_accepted_knowledge_blocks"
+                }
+            if not grouping_validation_errors:
+                expanded_outputs = combine_knowledge_task_file_outputs(
+                    classification_task_file=task_file_payload,
+                    classification_answers_by_unit_id=classify_answers_by_unit_id,
+                    grouping_answers_by_unit_id=grouping_answers_by_unit_id,
+                    unit_to_shard_id=unit_to_shard_id,
+                )
+                for shard_id, payload in expanded_outputs.items():
+                    _write_json(payload, out_dir / f"{shard_id}.json")
+        if semantic_run_results:
+            final_run_result = semantic_run_results[-1]
+            (worker_root / "events.jsonl").write_text(
+                _render_events_jsonl(final_run_result.events),
+                encoding="utf-8",
+            )
+            _write_json({"text": final_run_result.response_text}, worker_root / "last_message.json")
+            _write_json(dict(final_run_result.usage or {}), worker_root / "usage.json")
+            _write_json(
+                final_run_result.workspace_manifest(),
+                worker_root / "workspace_manifest.json",
+            )
+            _write_optional_text(worker_root / "stdout.txt", final_run_result.stdout_text)
+            _write_optional_text(worker_root / "stderr.txt", final_run_result.stderr_text)
 
     task_total = len(assigned_shards)
+    run_result = semantic_run_results[-1]
+    worker_prompt_path = (
+        worker_root / "prompt_grouping.txt"
+        if (worker_root / "prompt_grouping.txt").exists()
+        else worker_root / "prompt_classification.txt"
+    )
+    task_file_errors_by_shard: dict[str, tuple[tuple[str, ...], dict[str, Any]]] = {}
+    for unit_id in classification_validation_metadata.get("failed_unit_ids") or []:
+        shard_id = str(unit_to_shard_id.get(str(unit_id)) or "").strip()
+        if shard_id:
+            task_file_errors_by_shard[shard_id] = (
+                classification_validation_errors,
+                dict(classification_validation_metadata),
+            )
+    for unit_id in grouping_validation_metadata.get("failed_unit_ids") or []:
+        shard_id = str(unit_to_shard_id.get(str(unit_id)) or "").strip()
+        if shard_id:
+            task_file_errors_by_shard[shard_id] = (
+                grouping_validation_errors,
+                dict(grouping_validation_metadata),
+            )
     for task_index, shard in enumerate(assigned_shards):
         response_path = out_dir / f"{shard.shard_id}.json"
         response_text = (
@@ -1150,12 +1438,17 @@ def _run_phase_knowledge_worker_assignment_v1(
             task_count=task_total,
             task_index=task_index,
         )
-        payload, validation_errors, validation_metadata, proposal_status = (
-            _evaluate_knowledge_output_file(
-                shard=shard,
-                response_text=response_text,
+        if shard.shard_id in task_file_errors_by_shard and response_text is None:
+            validation_errors, validation_metadata = task_file_errors_by_shard[shard.shard_id]
+            payload = None
+            proposal_status = "invalid"
+        else:
+            payload, validation_errors, validation_metadata, proposal_status = (
+                _evaluate_knowledge_output_file(
+                    shard=shard,
+                    response_text=response_text,
+                )
             )
-        )
         task_root = worker_root / "shards" / shard.shard_id
         explicit_terminal_reason_code: str | None = None
         explicit_terminal_reason_detail: str | None = None
@@ -1269,28 +1562,6 @@ def _run_phase_knowledge_worker_assignment_v1(
             validation_metadata["terminal_reason_code"] = explicit_terminal_reason_code
             validation_metadata["terminal_reason_detail"] = explicit_terminal_reason_detail
         runner_payload["packet_lease"] = dict(shard_summary)
-        worker_runner_results.append(dict(runner_payload))
-        runner_rows = (
-            runner_payload.get("telemetry", {}).get("rows")
-            if isinstance(runner_payload.get("telemetry"), Mapping)
-            else None
-        )
-        if isinstance(runner_rows, list):
-            for row_payload in runner_rows:
-                if isinstance(row_payload, Mapping):
-                    stage_row = dict(row_payload)
-                    stage_row.update(
-                        {
-                            "workspace_packet_count": int(shard_summary.get("packet_count") or 0),
-                            "workspace_repair_packet_count": int(
-                                shard_summary.get("repair_packet_count") or 0
-                            ),
-                            "owned_row_count": int(
-                                (shard.metadata or {}).get("owned_block_count") or 0
-                            ),
-                        }
-                    )
-                    stage_rows.append(stage_row)
         proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
         _write_json(
             {
@@ -1393,6 +1664,7 @@ def _run_phase_knowledge_worker_assignment_v1(
     _attach_worker_guardrail_summary(
         worker_runner_payload=worker_runner_payload,
         task_file_guardrail=task_file_guardrail,
+        planned_happy_path_worker_cap=2,
         repair_followup_call_count=int(
             worker_runner_payload.get("telemetry", {})
             .get("summary", {})

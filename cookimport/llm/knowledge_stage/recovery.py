@@ -688,6 +688,7 @@ def _relative_path(base: Path, path: Path) -> str:
 
 def _build_knowledge_workspace_worker_prompt(
     *,
+    stage_key: str,
     shards: Sequence[ShardManifestEntryV1] | None = None,
     tasks: Sequence[TaskManifestEntryV1] | None = None,
 ) -> str:
@@ -714,12 +715,31 @@ def _build_knowledge_workspace_worker_prompt(
         "",
         "Shard semantics:",
         "- The repo does not know the `knowledge` versus `other` answer ahead of time; you make that semantic call from the owned shard text.",
-        "- Answer each unit with `category`, plus `group_key` and `topic_label` when the category is `knowledge`.",
-        f"- Final categories must be exactly one of `{'`, `'.join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)}`.",
-        "- If a block ends as `other`, both `group_key` and `topic_label` must be null.",
-        "- If a block ends as `knowledge`, both `group_key` and `topic_label` must be non-empty strings.",
-        "- Use concise group labels; the repo canonicalizes final group ids during deterministic expansion.",
-        "- The owned block rows are authoritative. Nearby context is informational only.",
+    ]
+    if stage_key == "nonrecipe_classify":
+        lines.extend(
+            [
+                "- This is the classification step. Decide each block on its own merits before any grouping happens.",
+                "- Answer each unit with `category` and `reviewer_category` only.",
+                f"- Final categories must be exactly one of `{'`, `'.join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)}`.",
+                "- If `category` is `knowledge`, `reviewer_category` must also be `knowledge`.",
+                "- If `category` is `other`, `reviewer_category` must be a non-knowledge reviewer category or `other`.",
+                "- Do not invent `group_key`, `topic_label`, packet summaries, or cross-unit grouping notes in this step.",
+                "- The owned block rows are authoritative. Nearby context is informational only.",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "- This is the grouping-only step. Every unit already passed classification as `knowledge`.",
+                "- Answer each unit with `group_key` and `topic_label` only.",
+                "- `group_key` and `topic_label` must both be non-empty strings.",
+                "- Use concise group labels; the repo canonicalizes final group ids during deterministic expansion.",
+                "- Do not revisit keep/drop classification in this step.",
+            ]
+        )
+    lines.extend(
+        [
         "",
         (
             "Assigned shard ids represented in this task file: "
@@ -727,7 +747,8 @@ def _build_knowledge_workspace_worker_prompt(
         ),
         "",
         "Do not return shard outputs in your final message. The authoritative result is the edited task file.",
-    ]
+        ]
+    )
     return "\n".join(lines)
 
 

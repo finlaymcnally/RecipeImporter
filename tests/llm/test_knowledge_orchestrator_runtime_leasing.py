@@ -140,6 +140,9 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     worker_root = fixture["worker_root"]
     phase_dir = fixture["phase_dir"]
     task_file = load_task_file(worker_root / "task.json")
+    classify_snapshot = json.loads(
+        (worker_root / "task_classification.initial.json").read_text(encoding="utf-8")
+    )
 
     first_output = json.loads(
         (worker_root / "out" / "book.ks0000.nr.json").read_text(encoding="utf-8")
@@ -150,34 +153,37 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert not (worker_root / "current_packet.json").exists()
     assert not (worker_root / "current_hint.md").exists()
     assert not (worker_root / "current_result_path.txt").exists()
-    assert task_file["stage_key"] == "nonrecipe_finalize"
-    assert task_file["editable_json_pointers"] == [
+    assert classify_snapshot["stage_key"] == "nonrecipe_classify"
+    assert classify_snapshot["editable_json_pointers"] == [
         "/units/0/answer",
         "/units/1/answer",
     ]
+    assert task_file["stage_key"] == "knowledge_group"
     assert first_output["packet_id"] == "book.ks0000.nr"
     assert first_output["block_decisions"] == [
-        {"block_index": 0, "category": "knowledge"}
+        {"block_index": 0, "category": "knowledge", "reviewer_category": "knowledge"}
     ]
     assert first_output["idea_groups"] == [
         {"group_id": "g01", "topic_label": "Fake knowledge group", "block_indices": [0]}
     ]
     assert second_output["packet_id"] == "book.ks0001.nr"
     assert second_output["block_decisions"] == [
-        {"block_index": 2, "category": "knowledge"}
+        {"block_index": 2, "category": "knowledge", "reviewer_category": "knowledge"}
     ]
     phase_manifest = json.loads((phase_dir / "phase_manifest.json").read_text(encoding="utf-8"))
     telemetry = json.loads((phase_dir / "telemetry.json").read_text(encoding="utf-8"))
     assert telemetry["summary"]["packet_economics"]["packet_count_total"] >= 2
     assert telemetry["summary"]["packet_economics"]["repair_packet_count_total"] == 0
     assert telemetry["summary"]["packet_economics"]["owned_row_count_total"] == 2
-    assert telemetry["summary"]["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 1
+    assert telemetry["summary"]["packet_economics"]["classification_session_count_total"] == 1
+    assert telemetry["summary"]["packet_economics"]["grouping_session_count_total"] == 1
+    assert telemetry["summary"]["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 2
     assert telemetry["summary"]["task_file_guardrails"]["assignment_count"] == 1
     assert (
         phase_manifest["runtime_metadata"]["worker_session_guardrails"][
             "actual_happy_path_worker_sessions"
         ]
-        == 1
+        == 2
     )
 
 

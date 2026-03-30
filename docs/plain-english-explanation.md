@@ -103,7 +103,7 @@ It starts with `label_deterministic`, which creates the deterministic line and b
 
 That deterministic pass still matters even when LLM stages are on. It gives the run a reproducible baseline and a clear artifact trail.
 
-If line-role Codex review is enabled, `label_refine` reviews those labels through the worker-local `check-phase` / `install-phase` loop. The safety rule is now simple: same-session repair is the normal path, one bounded LLM watchdog retry is allowed if the worker session is killed for a retryable watchdog reason, and otherwise the shard fails closed with explicit repair artifacts. There is no hidden deterministic row fallback on the live worker path.
+If line-role Codex review is enabled, `label_refine` reviews those labels in bounded worker sessions. Repo code only accepts structurally valid corrected labels, allows narrow repair when possible, and otherwise fails the shard closed with explicit artifacts. There is no hidden deterministic row fallback on the live worker path.
 
 After labeling, `recipe_boundary` groups the accepted recipe lines into candidate spans and decides which of those spans count as real recipes.
 
@@ -192,13 +192,21 @@ If non-recipe finalize is off, the run keeps the routing and status artifacts an
 
 If non-recipe finalize is on, the public knowledge pipeline is `codex-knowledge-candidate-v2`.
 
-Before the model sees anything, the program partitions the surviving candidate queue into roughly the requested number of contiguous candidate shards. Repo code owns shard sizing, ordering, and the exact row ownership for each shard.
+Before the model sees anything, repo code partitions the surviving candidate queue into ordered candidate shards and assigns those shards to workers. Repo code owns shard sizing, ordering, and exact block ownership.
 
-Each shard then stays in one worker session through two repo-owned passes:
+The worker-visible contract is now a repo-written editable `task.json`, not an open-ended workspace dump.
 
-- Pass 1 classifies every owned row as `knowledge` or `other`
-- repo validation freezes accepted rows and only leaves unresolved rows open for fixes
-- Pass 2 groups only the kept `knowledge` rows into related idea groups with topic labels
+The main review is split into two steps:
+
+- classification decides, block by block, whether each owned row is final `knowledge` or final `other`
+- grouping runs only on rows already kept as `knowledge` and groups related rows under topic labels
+
+In practice, one worker assignment means one worker handling its own bundle of assigned shards. The normal path is:
+
+- one classification workspace session over that worker's assigned blocks
+- an optional second grouping workspace session if the classification step kept any knowledge rows
+
+After each step, repo code validates the edited task file and expands accepted answers back into the stage's shard outputs. If structure is wrong, repair is narrow: the repo can issue a smaller repair task covering only the failed rows, and otherwise the shard fails closed.
 
 So the model decides:
 
@@ -220,6 +228,7 @@ In artifact terms:
 - `09_nonrecipe_authority.json` is the final machine-readable truth
 - `09_nonrecipe_knowledge_groups.json` records the promoted model-authored related-idea groups
 - `09_nonrecipe_finalize_status.json` explains what was reviewed, skipped, changed, or left unresolved
+- `raw/llm/<workbook_slug>/nonrecipe_finalize/task_status.jsonl` and `stage_status.json` are the repo-side runtime ledgers for per-shard state and overall stage finalization
 
 If reviewer-facing knowledge output is written, `knowledge.md` is the readable rendering of those promoted authority decisions and groups. Reviewer-facing snippet ledgers are no longer part of the live contract.
 
@@ -232,9 +241,9 @@ That includes:
 - intermediate `schema.org Recipe JSON`
 - final `cookbook3` drafts
 - sections
-- chunks
 - tables
-- reviewer-facing knowledge artifacts
+- deterministic chunks when knowledge finalize is off
+- reviewer-facing knowledge artifacts when knowledge finalize runs
 - raw artifacts
 - reports
 - benchmark-facing `stage_block_predictions.json`
@@ -242,7 +251,9 @@ That includes:
 
 Sections come from the finalized recipe side.
 
-Tables and chunks follow a late-output outside-recipe block list, not the strict authority cache blindly.
+Tables follow a late-output outside-recipe block list, not the strict authority cache blindly.
+
+Deterministic chunks are the fallback late-output lane when knowledge finalize is off. When knowledge finalize runs, the run writes reviewed knowledge artifacts instead of `chunks/` files.
 
 If non-recipe finalize ran and produced reviewed outside-recipe authority, that late-output list is the authoritative outside-recipe rows.
 

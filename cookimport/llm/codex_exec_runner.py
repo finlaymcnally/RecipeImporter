@@ -909,7 +909,7 @@ class FakeCodexExecRunner:
                     if str(value).strip()
                 ],
             }
-        if stage_key == "nonrecipe_finalize":
+        if stage_key in {"nonrecipe_finalize", "nonrecipe_classify"}:
             block_index = int(evidence.get("block_index") or 0)
             legacy_input = {
                 "packet_id": str(evidence.get("block_id") or f"block-{block_index}"),
@@ -932,6 +932,15 @@ class FakeCodexExecRunner:
                         decision_row = dict(row)
                         break
             category = str(decision_row.get("category") or "knowledge")
+            reviewer_category = str(
+                decision_row.get("reviewer_category")
+                or ("knowledge" if category == "knowledge" else "other")
+            ).strip() or ("knowledge" if category == "knowledge" else "other")
+            if stage_key == "nonrecipe_classify":
+                return {
+                    "category": category,
+                    "reviewer_category": reviewer_category,
+                }
             group_key = None
             topic_label = None
             if category == "knowledge" and isinstance(legacy_output, Mapping):
@@ -945,6 +954,33 @@ class FakeCodexExecRunner:
                         break
             return {
                 "category": category,
+                "group_key": group_key,
+                "topic_label": topic_label,
+            }
+        if stage_key == "knowledge_group":
+            block_index = int(evidence.get("block_index") or 0)
+            legacy_input = {
+                "packet_id": str(evidence.get("block_id") or f"block-{block_index}"),
+                "blocks": [
+                    {
+                        "block_index": block_index,
+                        "text": str(evidence.get("text") or ""),
+                    }
+                ],
+            }
+            legacy_output = self.output_builder(legacy_input)
+            group_key = None
+            topic_label = None
+            if isinstance(legacy_output, Mapping):
+                for group in legacy_output.get("idea_groups") or []:
+                    if not isinstance(group, Mapping):
+                        continue
+                    block_indices = [int(value) for value in (group.get("block_indices") or [])]
+                    if block_index in block_indices:
+                        group_key = str(group.get("group_id") or "").strip() or None
+                        topic_label = str(group.get("topic_label") or "").strip() or None
+                        break
+            return {
                 "group_key": group_key,
                 "topic_label": topic_label,
             }
@@ -1801,7 +1837,14 @@ def _sync_direct_exec_runtime_control_paths_to_execution(
 def _looks_like_editable_task_file_payload(value: Any) -> bool:
     if not isinstance(value, Mapping):
         return False
-    return str(value.get("schema_version") or "").strip() == TASK_FILE_SCHEMA_VERSION
+    schema_version = str(value.get("schema_version") or "").strip()
+    if schema_version == TASK_FILE_SCHEMA_VERSION:
+        return True
+    return (
+        schema_version in {"knowledge_block_classify.v1", "knowledge_group_only.v1"}
+        and isinstance(value.get("units"), list)
+        and isinstance(value.get("editable_json_pointers"), list)
+    )
 
 
 def _build_codex_exec_command(

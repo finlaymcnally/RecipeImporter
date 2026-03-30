@@ -560,6 +560,7 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
         (row.get("supervision_state"), row.get("supervision_reason_code"))
         for row in status["telemetry"]["rows"]
     } == {("completed", None)}
+    assert status["telemetry"]["summary"]["workspace_worker_session_count"] == 2
     assert live_status["state"] == "completed"
     assert live_status["reason_code"] == "process_exited_without_watchdog_intervention"
     assert live_status["warning_count"] == 0
@@ -573,11 +574,14 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
     assert not (worker_root / "current_hint.md").exists()
     assert not (worker_root / "current_result_path.txt").exists()
     assert (worker_root / "task.json").exists()
+    assert json.loads((worker_root / "task.json").read_text(encoding="utf-8"))["stage_key"] == (
+        "knowledge_group"
+    )
     assert sorted(path.name for path in (worker_root / "out").glob("*.json"))
     assert not sorted(path.name for path in (worker_root / "in").glob("*.pass2.json"))
     assert shard_output["packet_id"] == "book.ks0000.nr"
     assert shard_output["block_decisions"] == [
-        {"block_index": 4, "category": "knowledge"}
+        {"block_index": 4, "category": "knowledge", "reviewer_category": "knowledge"}
     ]
     assert shard_output["idea_groups"] == [
         {"group_id": "g01", "topic_label": "Fake knowledge group", "block_indices": [4]}

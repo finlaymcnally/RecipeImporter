@@ -191,6 +191,7 @@ cookimport/llm/knowledge_stage/promotion.py
 cookimport/llm/knowledge_stage/recovery.py
 cookimport/llm/knowledge_stage/reporting.py
 cookimport/llm/knowledge_stage/runtime.py
+cookimport/llm/knowledge_stage/task_file_contracts.py
 cookimport/llm/knowledge_stage/workspace_run.py
 cookimport/llm/recipe_stage/__init__.py
 cookimport/llm/recipe_stage/planning.py

@@ -29,10 +29,11 @@ def build_task_file(
     worker_id: str,
     units: Sequence[Mapping[str, Any]],
     mode: str = "initial",
+    schema_version: str = TASK_FILE_SCHEMA_VERSION,
 ) -> dict[str, Any]:
     normalized_units = [dict(unit) for unit in units if isinstance(unit, Mapping)]
     return {
-        "schema_version": TASK_FILE_SCHEMA_VERSION,
+        "schema_version": str(schema_version),
         "stage_key": str(stage_key),
         "assignment_id": str(assignment_id),
         "worker_id": str(worker_id),
@@ -48,15 +49,21 @@ def validate_edited_task_file(
     *,
     original_task_file: Mapping[str, Any],
     edited_task_file: Mapping[str, Any],
+    expected_schema_version: str | None = None,
 ) -> tuple[dict[str, dict[str, Any]] | None, tuple[str, ...], dict[str, Any]]:
     errors: list[str] = []
     error_details: list[dict[str, str]] = []
     original = dict(original_task_file)
     edited = dict(edited_task_file)
+    schema_version = (
+        str(expected_schema_version).strip()
+        if expected_schema_version is not None
+        else TASK_FILE_SCHEMA_VERSION
+    )
 
-    if str(original.get("schema_version") or "").strip() != TASK_FILE_SCHEMA_VERSION:
+    if str(original.get("schema_version") or "").strip() != schema_version:
         errors.append("invalid_original_schema_version")
-    if str(edited.get("schema_version") or "").strip() != TASK_FILE_SCHEMA_VERSION:
+    if str(edited.get("schema_version") or "").strip() != schema_version:
         errors.append("invalid_edited_schema_version")
 
     immutable_top_level_keys = (
@@ -195,4 +202,5 @@ def build_repair_task_file(
         worker_id=str(original_task_file.get("worker_id") or ""),
         mode="repair",
         units=units,
+        schema_version=str(original_task_file.get("schema_version") or TASK_FILE_SCHEMA_VERSION),
     )

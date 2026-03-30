@@ -147,7 +147,7 @@ def test_knowledge_orchestrator_runs_shard_workers_concurrently(
     process_summary = apply_result.llm_report["process_run"]["telemetry"]["summary"]
     assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] == 2
     assert apply_result.llm_report["phase_worker_runtime"]["worker_count"] == 2
-    assert process_summary["workspace_worker_row_count"] == 2
-    assert process_summary["workspace_worker_session_count"] == 2
-    assert process_summary["prompt_input_mode_counts"]["workspace_worker"] == 2
+    assert process_summary["workspace_worker_row_count"] == 4
+    assert process_summary["workspace_worker_session_count"] == 4
+    assert process_summary["prompt_input_mode_counts"]["workspace_worker"] == 4
     assert state["max"] >= 2

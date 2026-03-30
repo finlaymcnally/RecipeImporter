@@ -40,6 +40,7 @@ def test_preflight_knowledge_shard_rejects_missing_bundle_id() -> None:
 
 def test_worker_prompt_describes_task_file_contract() -> None:
     prompt = _build_knowledge_workspace_worker_prompt(
+        stage_key="nonrecipe_classify",
         shards=[
             ShardManifestEntryV1(
                 shard_id="book.ks0000.nr",
@@ -60,7 +61,9 @@ def test_worker_prompt_describes_task_file_contract() -> None:
     assert "- Start with `task.json`." in prompt
     assert "- Edit only the `answer` object inside each unit." in prompt
     assert "Do not invent queue advancement, control files, helper ledgers, or alternate output files." in prompt
-    assert "If a block ends as `knowledge`, both `group_key` and `topic_label` must be non-empty strings." in prompt
+    assert "This is the classification step." in prompt
+    assert "Answer each unit with `category` and `reviewer_category` only." in prompt
+    assert "Do not invent `group_key`, `topic_label`, packet summaries, or cross-unit grouping notes in this step." in prompt
     assert "Do not return shard outputs in your final message." in prompt
     assert "Assigned shard ids represented in this task file: `book.ks0000.nr`." in prompt
     assert "current_packet.json" not in prompt
