@@ -1132,7 +1132,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         ),
     ) -> None:
         """Run all-method quality experiments for a quality suite."""
-        from cookimport.bench.quality_runner import run_quality_suite
+        from cookimport.bench.qualitysuite.runtime import run_quality_suite
         from cookimport.bench.quality_suite import (
             load_quality_suite,
             validate_quality_suite,

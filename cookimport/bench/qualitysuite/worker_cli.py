@@ -74,7 +74,7 @@ def _run_single_experiment_via_subprocess(
     command = [
         sys.executable,
         "-m",
-        "cookimport.bench.quality_runner",
+        "cookimport.bench.qualitysuite.worker_cli",
         _QUALITY_EXPERIMENT_WORKER_REQUEST_ARG,
         str(request_path),
     ]
@@ -219,7 +219,7 @@ def _run_experiment_worker_request(request_path: Path) -> int:
 
 def _build_worker_cli_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m cookimport.bench.quality_runner",
+        prog="python -m cookimport.bench.qualitysuite.worker_cli",
         add_help=True,
     )
     parser.add_argument(

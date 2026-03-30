@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from cookimport.bench.quality_runner import (
+from cookimport.bench.qualitysuite.runtime import (
     QualityExperimentResult,
     _resolve_quality_alignment_cache_root,
     _resolve_quality_prediction_reuse_cache_root,
@@ -20,7 +20,7 @@ from cookimport.bench.quality_suite import QualitySuite
 def _force_non_wsl_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     # Keep host-dependent WSL checks from making test expectations non-deterministic.
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner._running_in_wsl",
+        "cookimport.bench.qualitysuite.environment._running_in_wsl",
         lambda: False,
     )
 
@@ -337,7 +337,7 @@ def test_run_quality_suite_require_process_workers_fails_fast(
     _write_json(base_run_settings_file, {"workers": 2})
 
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner._resolve_quality_experiment_executor_mode",
+        "cookimport.bench.qualitysuite.environment._resolve_quality_experiment_executor_mode",
         lambda **_kwargs: ("thread", "forced-by-test"),
     )
     monkeypatch.setattr(
@@ -934,11 +934,11 @@ def test_run_quality_suite_auto_parallelism_uses_cpu_aware_defaults(
     _write_json(base_run_settings_file, {"workers": 2})
 
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner.os.cpu_count",
+        "cookimport.bench.qualitysuite.environment.os.cpu_count",
         lambda: 6,
     )
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner.os.getloadavg",
+        "cookimport.bench.qualitysuite.environment.os.getloadavg",
         lambda: (0.05, 0.05, 0.05),
     )
     monkeypatch.setattr(
@@ -1051,11 +1051,11 @@ def test_run_quality_suite_auto_parallelism_uses_default_auto_ceiling(
     _write_json(base_run_settings_file, {"workers": 2})
 
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner.os.cpu_count",
+        "cookimport.bench.qualitysuite.environment.os.cpu_count",
         lambda: 64,
     )
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner.os.getloadavg",
+        "cookimport.bench.qualitysuite.environment.os.getloadavg",
         lambda: (0.05, 0.05, 0.05),
     )
     monkeypatch.setattr(
@@ -1168,11 +1168,11 @@ def test_run_quality_suite_auto_parallelism_honors_ceiling_env_override(
 
     monkeypatch.setenv("COOKIMPORT_QUALITY_AUTO_MAX_PARALLEL_EXPERIMENTS", "4")
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner.os.cpu_count",
+        "cookimport.bench.qualitysuite.environment.os.cpu_count",
         lambda: 64,
     )
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner.os.getloadavg",
+        "cookimport.bench.qualitysuite.environment.os.getloadavg",
         lambda: (0.05, 0.05, 0.05),
     )
     monkeypatch.setattr(
@@ -1298,7 +1298,7 @@ def test_run_quality_suite_switches_to_subprocess_executor_when_process_pool_una
         lambda **_kwargs: [],
     )
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner._run_single_experiment",
+        "cookimport.bench.qualitysuite.runtime._run_single_experiment",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("thread-backed experiment path should not be used")
         ),
@@ -1335,7 +1335,7 @@ def test_run_quality_suite_switches_to_subprocess_executor_when_process_pool_una
         }[experiment.id]
 
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner._run_single_experiment_via_subprocess",
+        "cookimport.bench.qualitysuite.runtime._run_single_experiment_via_subprocess",
         _fake_subprocess_worker,
     )
 
@@ -1379,7 +1379,7 @@ def test_run_quality_suite_uses_thread_executor_for_parallel_wsl_runs_when_avail
     _write_json(base_run_settings_file, {"workers": 8, "pdf_split_workers": 8, "epub_split_workers": 8})
 
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner._running_in_wsl",
+        "cookimport.bench.qualitysuite.environment._running_in_wsl",
         lambda: True,
     )
     monkeypatch.setattr(
@@ -1417,12 +1417,12 @@ def test_run_quality_suite_uses_thread_executor_for_parallel_wsl_runs_when_avail
         )
 
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner._run_single_experiment",
+        "cookimport.bench.qualitysuite.runtime._run_single_experiment",
         _fake_thread_worker,
     )
 
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner._run_single_experiment_via_subprocess",
+        "cookimport.bench.qualitysuite.runtime._run_single_experiment_via_subprocess",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("subprocess experiment path should not be used when pool is available")
         ),
@@ -1474,11 +1474,11 @@ def test_run_quality_suite_applies_wsl_safety_guard_to_nested_parallelism(
     _write_json(base_run_settings_file, {"workers": 9, "pdf_split_workers": 8, "epub_split_workers": 7})
 
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner._running_in_wsl",
+        "cookimport.bench.qualitysuite.environment._running_in_wsl",
         lambda: True,
     )
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner.os.cpu_count",
+        "cookimport.bench.qualitysuite.environment.os.cpu_count",
         lambda: 8,
     )
     monkeypatch.setattr(
@@ -1522,11 +1522,11 @@ def test_run_quality_suite_applies_wsl_safety_guard_to_nested_parallelism(
         )
 
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner._run_single_experiment",
+        "cookimport.bench.qualitysuite.runtime._run_single_experiment",
         _fake_thread_worker,
     )
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner._run_single_experiment_via_subprocess",
+        "cookimport.bench.qualitysuite.runtime._run_single_experiment_via_subprocess",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("subprocess experiment path should not be used when pool is available")
         ),
@@ -1592,11 +1592,11 @@ def test_run_quality_suite_applies_wsl_safety_guard_for_single_experiment_slot(
     )
 
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner._running_in_wsl",
+        "cookimport.bench.qualitysuite.environment._running_in_wsl",
         lambda: True,
     )
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner.os.cpu_count",
+        "cookimport.bench.qualitysuite.environment.os.cpu_count",
         lambda: 8,
     )
     monkeypatch.setattr(
@@ -1641,11 +1641,11 @@ def test_run_quality_suite_applies_wsl_safety_guard_for_single_experiment_slot(
         )
 
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner._run_single_experiment",
+        "cookimport.bench.qualitysuite.runtime._run_single_experiment",
         _fake_thread_worker,
     )
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner._run_single_experiment_via_subprocess",
+        "cookimport.bench.qualitysuite.runtime._run_single_experiment_via_subprocess",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("subprocess experiment path should not be used in single-worker mode")
         ),
@@ -1713,7 +1713,7 @@ def test_run_quality_suite_allows_wsl_safety_guard_opt_out_with_env(
     )
 
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner._running_in_wsl",
+        "cookimport.bench.qualitysuite.environment._running_in_wsl",
         lambda: True,
     )
     monkeypatch.setenv("COOKIMPORT_QUALITY_WSL_DISABLE_SAFETY_GUARD", "1")
@@ -1756,11 +1756,11 @@ def test_run_quality_suite_allows_wsl_safety_guard_opt_out_with_env(
         )
 
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner._run_single_experiment",
+        "cookimport.bench.qualitysuite.runtime._run_single_experiment",
         _fake_thread_worker,
     )
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner._run_single_experiment_via_subprocess",
+        "cookimport.bench.qualitysuite.runtime._run_single_experiment_via_subprocess",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("subprocess experiment path should not be used when pool is available")
         ),

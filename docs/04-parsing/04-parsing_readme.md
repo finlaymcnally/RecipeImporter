@@ -127,7 +127,7 @@ Major call sites:
 - Excel importer recipe extraction: `cookimport/plugins/excel.py`
 - Web/schema.org extraction helpers: `cookimport/plugins/webschema.py`
 - Stage/bench orchestration of chunk/table passes: `cookimport/cli.py`, `cookimport/cli_worker.py`
-- Label Studio ingest chunk/table orchestration: `cookimport/labelstudio/ingest.py`
+- Label Studio ingest chunk/table orchestration: `cookimport/labelstudio/ingest_flows/prediction_run.py`
 - EPUB debug CLI diagnostics path: `cookimport/epubdebug/cli.py`
 - JSON-LD section shaping (`HowToSection`, ingredient section metadata): `cookimport/staging/jsonld.py`
 - Candidate confidence scoring using parsing signals: `cookimport/core/scoring.py`

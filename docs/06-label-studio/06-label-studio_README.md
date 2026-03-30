@@ -12,7 +12,8 @@ This document is the current source of truth for implemented Label Studio behavi
 
 Code surfaces (primary):
 
-- `cookimport/labelstudio/ingest.py` (zero-magic public re-export for import entrypoints; patch internals in `ingest_flows/` instead of here)
+- `cookimport/labelstudio/ingest_flows/prediction_run.py` (offline prediction-run/task-generation owner)
+- `cookimport/labelstudio/ingest_flows/upload.py` (live Label Studio upload owner)
 - `cookimport/labelstudio/ingest_support.py` (shared helper surface consumed by the flow package)
 - `cookimport/labelstudio/ingest_flows/` (offline prediction-run, upload, normalization, split-merge, and artifact ownership)
 - `cookimport/labelstudio/export.py`
@@ -354,7 +355,7 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 - `labelstudio-benchmark compare` accepts either all-method benchmark report roots/files or single `eval_report.json` inputs.
 - If recipe-tail storage/use notes are scoring as `OTHER`, check both seams:
   - deterministic line-role note recovery in `canonical_line_roles.py`
-  - final non-recipe authority projection in `labelstudio/ingest.py`
+  - final non-recipe authority projection in `labelstudio/ingest_flows/artifacts.py`
 
 ## 8) Troubleshooting Checklist
 

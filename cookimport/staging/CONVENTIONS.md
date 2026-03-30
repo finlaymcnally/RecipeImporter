@@ -13,7 +13,7 @@ Output-path and artifact contracts for staging writers and merge flows.
 ## Stage Block Prediction Convention
 
 - Stage-producing flows must write `.bench/<workbook_slug>/stage_block_predictions.json` using `cookimport/staging/writer.py:write_stage_block_predictions`.
-- Benchmark/eval code depends on this artifact being present for single-file stage runs, split-merge stage runs, and processed-output writes from `cookimport/labelstudio/ingest.py`.
+- Benchmark/eval code depends on this artifact being present for single-file stage runs, split-merge stage runs, and processed-output writes from `cookimport/labelstudio/ingest_flows/prediction_run.py`.
 - `KNOWLEDGE` labels in stage evidence come only from final non-recipe authority. Reviewer-facing snippets under `knowledge/<workbook_slug>/snippets.jsonl` are evidence sidecars, not a fallback authority seam.
 
 
@@ -24,7 +24,7 @@ Output-path and artifact contracts for staging writers and merge flows.
   - `sections/<workbook_slug>/sections.md`
 - Keep section artifact writes wired in both:
   - `cookimport/cli.py:_merge_source_jobs` (stage merge path)
-  - `cookimport/labelstudio/ingest.py` (pred-run artifact path)
+  - `cookimport/labelstudio/ingest_flows/prediction_run.py` (pred-run artifact path)
 - Intermediate JSON-LD section contract:
   - instruction section-header lines are removed from literal step text,
   - `recipeInstructions` uses `HowToSection` only when multiple sections are present,

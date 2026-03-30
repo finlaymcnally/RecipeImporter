@@ -234,7 +234,9 @@ def test_generate_pred_run_no_ls_env(monkeypatch):
     monkeypatch.delenv("LABEL_STUDIO_API_KEY", raising=False)
 
     # Just verify the function is importable and has correct signature
-    from cookimport.labelstudio.ingest import generate_pred_run_artifacts
+    from cookimport.labelstudio.ingest_flows.prediction_run import (
+        generate_pred_run_artifacts,
+    )
     import inspect
     sig = inspect.signature(generate_pred_run_artifacts)
     params = set(sig.parameters.keys())

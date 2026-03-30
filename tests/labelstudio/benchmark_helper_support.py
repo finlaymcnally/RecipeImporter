@@ -43,10 +43,10 @@ from cookimport.llm.prompt_budget import (
     build_prediction_run_prompt_budget_summary,
     write_prediction_run_prompt_budget_summary,
 )
-from cookimport.labelstudio.ingest import (
+from cookimport.labelstudio.ingest_flows.prediction_run import (
     generate_pred_run_artifacts,
-    run_labelstudio_import,
 )
+from cookimport.labelstudio.ingest_flows.upload import run_labelstudio_import
 
 
 def _patch_cli_attr(

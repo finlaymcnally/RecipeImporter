@@ -40,7 +40,8 @@ Run-settings contracts for `cookimport/config/` and all call sites that consume 
 - Pipeline option edit-map references:
   - `cookimport/config/run_settings.py`
   - `cookimport/cli.py`
-  - `cookimport/labelstudio/ingest.py`
+  - `cookimport/labelstudio/ingest_flows/prediction_run.py`
+  - `cookimport/labelstudio/ingest_flows/upload.py`
   - `cookimport/core/models.py`
   - `cookimport/analytics/perf_report.py`
   - `cookimport/analytics/dashboard_collect.py`

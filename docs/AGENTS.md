@@ -4,6 +4,8 @@
 - Read any doc whose Read when matches your task before coding.
 - Keep docs current with behavior/API changes; add read_when hints on cross-cutting docs.
 
+Do not read the "_log.md" files in docs/ unless we are circling a problem, the "_log.md" files only exist as anti-loop memory in case we run into a hard to solve issue.
+
 ## Docs front matter (required)
 
 Each `docs/**/*.md` file must start with front matter:

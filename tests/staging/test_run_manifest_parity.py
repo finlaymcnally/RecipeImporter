@@ -6,7 +6,9 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from cookimport.cli import app
-from cookimport.labelstudio.ingest import generate_pred_run_artifacts
+from cookimport.labelstudio.ingest_flows.prediction_run import (
+    generate_pred_run_artifacts,
+)
 
 runner = CliRunner()
 

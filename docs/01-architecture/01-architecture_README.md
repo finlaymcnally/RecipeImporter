@@ -20,7 +20,8 @@ Code verification references:
 - `cookimport/staging/import_session.py`
 - `cookimport/staging/writer.py`
 - `cookimport/staging/pdf_jobs.py`
-- `cookimport/labelstudio/ingest.py`
+- `cookimport/labelstudio/ingest_flows/prediction_run.py`
+- `cookimport/labelstudio/ingest_flows/upload.py`
 - `cookimport/labelstudio/export.py`
 - `cookimport/plugins/base.py`
 - `cookimport/plugins/registry.py`
@@ -61,7 +62,7 @@ Architecture priorities:
 - The legacy Stage 7 non-recipe lane now runs through explicit `nonrecipe-route` and `knowledge-final` runtime results; `ConversionResult.non_recipe_blocks` is repopulated only from final non-recipe authority afterward as a downstream cache.
 
 ### Optional Label Studio lane
-- `cookimport/labelstudio/ingest.py` can:
+- `cookimport/labelstudio/ingest_flows/prediction_run.py` and `cookimport/labelstudio/ingest_flows/upload.py` can:
   - run conversion (including split jobs for PDF/EPUB)
   - reuse the shared stage import session for processed outputs in benchmark/prediction flows
   - generate tasks for `freeform-spans` (segment-based freeform labeling tasks)
@@ -87,7 +88,7 @@ Architecture priorities:
 
 - the canonical public recipe pipeline id is `codex-recipe-shard-v1`.
 - the active recipe Codex path now promotes one canonical recipe-semantics payload per accepted recipe span before draft writing. Repo code still validates, normalizes, and writes final files, but later staging code should project from `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json` instead of re-deciding recipe meaning from separate override lanes.
-- `cookimport/llm/codex_farm_orchestrator.py` is now a thin public facade over `cookimport/llm/recipe_stage/`. Planning, runtime/workspace setup, validation, promotion, recovery, and reporting now have explicit package owner files, while the large private implementation moved behind `cookimport/llm/recipe_stage_shared.py`.
+- `cookimport/llm/codex_farm_orchestrator.py` is now a thin public facade over `cookimport/llm/recipe_stage/`. Planning, runtime/workspace setup, validation, promotion, and reporting now have explicit package owner files, while the large private implementation moved behind `cookimport/llm/recipe_stage_shared.py`.
 - current semantic recipe-stage observability for new runs uses:
   - `build_intermediate_det`
   - `recipe_llm_correct_and_link`
@@ -198,7 +199,7 @@ Current canonical run-folder timestamp format:
 
 Verified call sites:
 - stage run root (`cookimport/cli.py`)
-- Label Studio prediction/import run root (`cookimport/labelstudio/ingest.py`)
+- Label Studio prediction/import run root (`cookimport/labelstudio/ingest_flows/prediction_run.py`, `cookimport/labelstudio/ingest_flows/upload.py`)
 - benchmark eval default output (`cookimport/cli.py`)
 
 ## Stage Output Contract
@@ -264,7 +265,7 @@ Label Studio split jobs (`run_labelstudio_import`):
 
 References:
 - stage planning/merge/raw merge: `cookimport/cli.py`, `cookimport/cli_worker.py`, `cookimport/staging/job_planning.py`, `cookimport/staging/pdf_jobs.py`
-- labelstudio offset/rebase merge: `cookimport/labelstudio/ingest.py`
+- labelstudio offset/rebase merge: `cookimport/labelstudio/ingest_flows/split_merge.py`
 
 ## Label Studio Artifact Contract
 
@@ -301,7 +302,7 @@ Behavioral constraints:
 
 References:
 - commands + guards + benchmark flow: `cookimport/cli.py`
-- import/task generation/upload artifacts: `cookimport/labelstudio/ingest.py`
+- import/task generation/upload artifacts: `cookimport/labelstudio/ingest_flows/prediction_run.py`, `cookimport/labelstudio/ingest_flows/upload.py`
 - export run manifest wiring: `cookimport/labelstudio/export.py`
 
 ## Run Manifest And History Root Contract
@@ -403,14 +404,14 @@ When you need the shortest accurate mental model, describe the repo this way:
 
 2. For output path or timestamp changes
 - check stage (`cookimport/cli.py`)
-- check labelstudio import (`cookimport/labelstudio/ingest.py`)
+- check labelstudio import (`cookimport/labelstudio/ingest_flows/prediction_run.py`, `cookimport/labelstudio/ingest_flows/upload.py`)
 - check benchmark eval folder generation (`cookimport/cli.py`)
 - check tests and any scripts that glob run folders.
 
 3. For split-job behavior changes
 - preserve recipe ID reassignment semantics (`cookimport/staging/pdf_jobs.py`)
 - preserve raw artifact merge expectations (`cookimport/cli.py` + `cookimport/cli_worker.py`)
-- preserve block-index rebasing for Label Studio merges (`cookimport/labelstudio/ingest.py`).
+- preserve block-index rebasing for Label Studio merges (`cookimport/labelstudio/ingest_flows/split_merge.py`).
 
 4. For plugin interface changes
 - update protocol + registry + importer implementations together.

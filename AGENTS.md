@@ -1,4 +1,4 @@
-THIS IS A SOLO PROJECT. I DO NOT NEED ENTERPRISE-GRAD SOLUTIONS, AND ONLY I WILL EVER BE TOUCHING THIS CODE, SO WE DON'T NEED TO WORRY ABOUT COORDINATION PROBLEMS AND STUFF HERE. ITS JUST YOU AND I MY FRIEND.
+THIS IS A SOLO PROJECT. I DO NOT NEED ENTERPRISE-GRADE SOLUTIONS, AND ONLY I WILL EVER BE TOUCHING THIS CODE, SO WE DON'T NEED TO WORRY ABOUT COORDINATION PROBLEMS AND STUFF HERE. ITS JUST YOU AND I MY FRIEND.
 
 AGENTS MUST NOT RUN CODEXFARM ENABLED BOOK PROCESSING/BENCHMARKS WITHOUT EXPLICIT USER APPROVAL
 
@@ -21,6 +21,7 @@ Start: run docs list (`npm run docs:list`); open relevant docs before coding.
 Follow links until domain makes sense; honor Read when hints.
 Keep notes short; update docs when behavior/API changes (no ship w/o docs).
 Add read_when hints on cross-cutting docs.
+Do not read the "_log.md" files in docs/ unless we are circling a problem, the "_log.md" files only exist as anti-loop memory in case we run into a hard to solve issue.
 
 # ExecPlans
 When writing complex features or significant refactors, use an ExecPlan (as described in docs/PLANS.md) from design to implementation. Save exec plans to /docs/plans/. - do a filename with a timestamp + descriptive short title, be consistent with other files in folder. REMEMBER TO UPDATE THE EXECPLAN YOU ARE WORKING OUT OF. BY THE TIME IT IS FULLY IMPLEMENTED, THE EXECPLAN SHOULD JUST BE A DOCUMENT THAT EXPLAINS HOW IT WORKS AND KEY CHOICES/DESIGN.

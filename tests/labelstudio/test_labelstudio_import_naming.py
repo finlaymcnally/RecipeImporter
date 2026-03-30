@@ -2,7 +2,10 @@ from pathlib import Path
 from typing import cast
 
 from cookimport.labelstudio.client import LabelStudioClient
-from cookimport.labelstudio.ingest import _dedupe_project_name, _resolve_project_name
+from cookimport.labelstudio.ingest_support import (
+    _dedupe_project_name,
+    _resolve_project_name,
+)
 
 
 def test_dedupe_project_name_adds_incrementing_suffix() -> None:

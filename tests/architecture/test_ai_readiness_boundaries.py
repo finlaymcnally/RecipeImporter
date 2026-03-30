@@ -87,7 +87,6 @@ def test_package_owner_modules_exist_for_split_domains() -> None:
         REPO_ROOT / "cookimport" / "llm" / "recipe_stage" / "runtime.py",
         REPO_ROOT / "cookimport" / "llm" / "recipe_stage" / "validation.py",
         REPO_ROOT / "cookimport" / "llm" / "recipe_stage" / "promotion.py",
-        REPO_ROOT / "cookimport" / "llm" / "recipe_stage" / "recovery.py",
         REPO_ROOT / "cookimport" / "llm" / "recipe_stage" / "reporting.py",
         REPO_ROOT / "cookimport" / "staging" / "nonrecipe_authority_contract.py",
         REPO_ROOT / "cookimport" / "staging" / "nonrecipe_seed.py",
@@ -110,6 +109,14 @@ def test_package_owner_modules_exist_for_split_domains() -> None:
     ]
     missing = [str(path.relative_to(REPO_ROOT)) for path in expected_paths if not path.exists()]
     assert missing == []
+
+
+def test_retired_wrapper_modules_do_not_exist() -> None:
+    retired_paths = [
+        REPO_ROOT / "cookimport" / "bench" / "quality_runner.py",
+        REPO_ROOT / "cookimport" / "labelstudio" / "ingest.py",
+    ]
+    assert [str(path.relative_to(REPO_ROOT)) for path in retired_paths if path.exists()] == []
 
 
 def test_cli_support_root_stays_a_small_facade() -> None:

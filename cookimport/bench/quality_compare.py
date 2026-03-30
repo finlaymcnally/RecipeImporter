@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from cookimport.bench.quality_runner import load_quality_run_summary
+from cookimport.bench.qualitysuite.summary import load_quality_run_summary
 
 
 class QualityThresholds(BaseModel):

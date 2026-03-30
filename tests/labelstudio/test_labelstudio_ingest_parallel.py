@@ -20,16 +20,18 @@ from cookimport.labelstudio.archive import (
     prepare_extracted_archive,
     prepared_archive_payload,
 )
-from cookimport.labelstudio.ingest import (
-    _acquire_split_phase_slot,
+from cookimport.labelstudio.ingest_flows.artifacts import (
     _apply_nonrecipe_authority_to_predictions,
-    _normalize_llm_recipe_pipeline,
     _write_authoritative_line_role_artifacts,
-    generate_pred_run_artifacts,
-    _merge_parallel_results,
     _write_processed_outputs,
-    run_labelstudio_import,
 )
+from cookimport.labelstudio.ingest_flows.normalize import _normalize_llm_recipe_pipeline
+from cookimport.labelstudio.ingest_flows.prediction_run import (
+    generate_pred_run_artifacts,
+)
+from cookimport.labelstudio.ingest_flows.split_cache import _acquire_split_phase_slot
+from cookimport.labelstudio.ingest_flows.split_merge import _merge_parallel_results
+from cookimport.labelstudio.ingest_flows.upload import run_labelstudio_import
 from cookimport.labelstudio.models import ArchiveBlock
 from cookimport.parsing.label_source_of_truth import (
     AuthoritativeBlockLabel,

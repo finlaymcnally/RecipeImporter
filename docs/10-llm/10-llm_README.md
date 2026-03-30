@@ -33,7 +33,7 @@ Primary entrypoints:
 
 - `cookimport/staging/import_session.py` for stage/import runs
 - `cookimport/staging/pipeline_runtime.py` for the stage-owned `recipe-refine` and `knowledge-final` wrappers that call the recipe and knowledge Codex surfaces from the five-stage runtime
-- `cookimport/labelstudio/ingest.py` for prediction-run and Label Studio benchmark/import flows
+- `cookimport/labelstudio/ingest_flows/prediction_run.py` and `cookimport/labelstudio/ingest_flows/upload.py` for prediction-run and Label Studio benchmark/import flows
 - `cookimport/entrypoint.py` for saved-settings import passthrough
 
 Shared shard-runtime foundation:
@@ -57,7 +57,7 @@ Shared shard-runtime foundation:
 Recipe CodexFarm path:
 
 - `cookimport/llm/codex_farm_orchestrator.py` (thin public facade)
-- `cookimport/llm/recipe_stage/planning.py`, `runtime.py`, `validation.py`, `promotion.py`, `recovery.py`, `reporting.py`
+- `cookimport/llm/recipe_stage/planning.py`, `runtime.py`, `validation.py`, `promotion.py`, `reporting.py`
 - `cookimport/llm/recipe_stage_shared.py` (private backing implementation during the owner split)
 - `cookimport/llm/codex_farm_contracts.py`
 - `cookimport/llm/codex_farm_ids.py`

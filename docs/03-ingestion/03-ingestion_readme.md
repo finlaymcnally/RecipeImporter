@@ -36,7 +36,7 @@ Primary folders:
 Core orchestration:
 - `cookimport/cli.py` (source-job planning, worker dispatch, universal merge, run telemetry, report/perf history writes)
 - `cookimport/cli_worker.py` (bounded source-job execution)
-- `cookimport/labelstudio/ingest.py` (Label Studio benchmark import path; shares staging writers and finalizes report totals from in-memory results, with mismatch diagnostics artifact whenever pre-finalization totals drift, including implicit default-zero rewrites)
+- `cookimport/labelstudio/ingest_flows/prediction_run.py` and `cookimport/labelstudio/ingest_flows/upload.py` (Label Studio benchmark/import path owners; they share staging writers and finalize report totals from in-memory results, with mismatch diagnostics artifacts whenever pre-finalization totals drift, including implicit default-zero rewrites)
 
 Run-setting normalization and policy locks:
 - `cookimport/config/run_settings.py`

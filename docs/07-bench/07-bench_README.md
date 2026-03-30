@@ -81,7 +81,7 @@ Important current constraints:
 - `bench quality-run` is deterministic-only. It rejects `--include-codex-farm`, Codex CLI overrides, and requested settings that enable live Codex recipe or knowledge surfaces.
 - `bench speed-run --include-codex-farm` is still allowed, but it requires `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION` and is blocked in agent-run shells.
 - `bench quality-run` and `bench speed-run` both support crash-safe resume via `--resume-run-dir`.
-- `cookimport/bench/quality_runner.py` is still the live public QualitySuite import/CLI seam, while active runtime ownership lives under `cookimport/bench/qualitysuite/`.
+- `cookimport/bench/qualitysuite/runtime.py` and `cookimport/bench/qualitysuite/worker_cli.py` own the active QualitySuite run/worker surface.
 - `bench quality-run` emits `agent_compare_control/` by default. `bench quality-compare` does the same for comparisons.
 - `bench quality-discover` prefers curated CUTDOWN ids first:
   - `saltfatacidheatcutdown`
@@ -456,7 +456,7 @@ Primary benchmark modules:
 - `cookimport/bench/canonical_alignment_cache.py`: shared canonical alignment cache
 - `cookimport/bench/prediction_records.py`: replay record schema/helpers
 - `cookimport/bench/speed_suite.py`, `speed_runner.py`, `speed_compare.py`: SpeedSuite
-- `cookimport/bench/quality_suite.py`, `cookimport/bench/qualitysuite/`, `quality_runner.py`, `quality_compare.py`, `quality_leaderboard.py`: QualitySuite
+- `cookimport/bench/quality_suite.py`, `cookimport/bench/qualitysuite/`, `quality_compare.py`, `quality_leaderboard.py`: QualitySuite
 - `cookimport/bench/artifact_gc.py`: benchmark retention and pruning
 - `cookimport/bench/oracle_upload.py`: Oracle upload wrapper for existing bundles
 - `cookimport/bench/followup_bundle.py`: follow-up packet helpers used by `cf-debug`

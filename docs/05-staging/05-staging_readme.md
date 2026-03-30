@@ -62,8 +62,8 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Stage command owner for multi-job merge flow; offsets split block provenance, writes merged outputs, merges per-job raw artifacts, and emits run-level manifest/index artifacts with helpers from `cookimport/cli_support/stage.py`.
 - `cookimport/runs/manifest.py`
   - Defines/stores `run_manifest.json` written by stage/pred-run flows for source identity + artifact indexing.
-- `cookimport/labelstudio/ingest.py`
-  - Honest top-level re-export for Label Studio ingest entrypoints; prediction/upload internals live under `ingest_flows/`.
+- `cookimport/labelstudio/ingest_flows/prediction_run.py` and `cookimport/labelstudio/ingest_flows/upload.py`
+  - Label Studio ingest owner modules for prediction-run generation and upload.
 - `cookimport/labelstudio/ingest_support.py`
   - Shared helper surface used by `ingest_flows/` and mirrored back through the public ingest facade for tests.
 - `cookimport/staging/import_session.py`

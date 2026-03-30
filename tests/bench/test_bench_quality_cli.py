@@ -184,7 +184,7 @@ def _run_bench_quality_run_fixture(
         return run_root
 
     monkeypatch.setattr(
-        "cookimport.bench.quality_runner.run_quality_suite",
+        "cookimport.bench.qualitysuite.runtime.run_quality_suite",
         _fake_run_quality_suite,
     )
     bridge_calls: list[dict[str, object]] = []

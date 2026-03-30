@@ -180,10 +180,10 @@ from cookimport.bench.slice_metrics import (
 )
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.export import run_labelstudio_export
-from cookimport.labelstudio.ingest import (
+from cookimport.labelstudio.ingest_flows.prediction_run import (
     generate_pred_run_artifacts,
-    run_labelstudio_import,
 )
+from cookimport.labelstudio.ingest_flows.upload import run_labelstudio_import
 from cookimport.labelstudio.canonical_gold import ensure_canonical_gold_artifacts
 from cookimport.labelstudio.eval_freeform import (
     attach_recipe_count_diagnostics,
