@@ -8,7 +8,6 @@ from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 def serialize_line_role_file_row(
     *,
     candidate: AtomicLineCandidate,
-    deterministic_label: str,
     escalation_reasons: Sequence[str],
 ) -> dict[str, Any]:
     return {
@@ -17,7 +16,6 @@ def serialize_line_role_file_row(
         "block_id": str(candidate.block_id),
         "recipe_id": candidate.recipe_id,
         "within_recipe_span": candidate.within_recipe_span,
-        "deterministic_label": str(deterministic_label or "OTHER"),
         "rule_tags": list(candidate.rule_tags),
         "escalation_reasons": list(escalation_reasons),
         "current_line": str(candidate.text),
@@ -53,5 +51,23 @@ def serialize_line_role_model_context_row(
 ) -> list[Any]:
     return [
         int(candidate.atomic_index),
+        str(candidate.text),
+    ]
+
+
+def serialize_line_role_model_row(
+    *,
+    candidate: AtomicLineCandidate,
+    escalation_reasons: Sequence[str],
+) -> list[Any]:
+    return [
+        int(candidate.atomic_index),
+        "R"
+        if candidate.within_recipe_span is True
+        else "N"
+        if candidate.within_recipe_span is False
+        else "U",
+        list(candidate.rule_tags),
+        list(escalation_reasons),
         str(candidate.text),
     ]

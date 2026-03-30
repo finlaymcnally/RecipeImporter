@@ -90,13 +90,13 @@ def _output_stats_category_for_path(relative_path: Path) -> str | None:
         return None
     if relative_path.name == "08_nonrecipe_seed_routing.json":
         return "nonRecipe"
-    if relative_path.name == "08_nonrecipe_review_exclusions.jsonl":
+    if relative_path.name == "08_nonrecipe_exclusions.jsonl":
         return "nonRecipe"
     if relative_path.name == "09_nonrecipe_authority.json":
         return "nonRecipe"
     if relative_path.name == "09_nonrecipe_knowledge_groups.json":
         return "knowledge"
-    if relative_path.name == "09_nonrecipe_review_status.json":
+    if relative_path.name == "09_nonrecipe_candidate_status.json":
         return "knowledge"
     top = relative_path.parts[0]
     if top == "intermediate drafts":

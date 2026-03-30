@@ -84,7 +84,7 @@ def test_build_stage_observability_report_for_knowledge_enabled_run(tmp_path: Pa
     (llm_root / "knowledge" / "in").mkdir(parents=True)
     (run_root / "08_nonrecipe_seed_routing.json").write_text("{}", encoding="utf-8")
     (run_root / "09_nonrecipe_authority.json").write_text("{}", encoding="utf-8")
-    (run_root / "09_nonrecipe_review_status.json").write_text("{}", encoding="utf-8")
+    (run_root / "09_nonrecipe_candidate_status.json").write_text("{}", encoding="utf-8")
     _write_json(
         llm_root / KNOWLEDGE_MANIFEST_FILE_NAME,
         {"pipeline_id": "recipe.knowledge.compact.v1"},
@@ -332,11 +332,11 @@ def test_build_stage_observability_report_surfaces_processing_attention_summarie
         },
     )
     (run_root / "08_nonrecipe_seed_routing.json").write_text("{}", encoding="utf-8")
-    (run_root / "08_nonrecipe_review_exclusions.jsonl").write_text(
+    (run_root / "08_nonrecipe_exclusions.jsonl").write_text(
         json.dumps(
             {
                 "block_index": 7,
-                "review_exclusion_reason": "navigation",
+                "exclusion_reason": "navigation",
             },
             sort_keys=True,
         )
@@ -379,7 +379,7 @@ def test_build_stage_observability_report_surfaces_processing_attention_summarie
 
     assert label_stage["workbooks"][0]["attention_summary"]["zero_target_counts"]["codex_policy_rejected_row_count"] == 1
     assert span_stage["workbooks"][0]["attention_summary"]["zero_target_counts"]["rejected_pseudo_recipe_span_count"] == 1
-    assert nonrecipe_stage["workbooks"][0]["attention_summary"]["context_counts"]["review_excluded_row_count"] == 1
+    assert nonrecipe_stage["workbooks"][0]["attention_summary"]["context_counts"]["excluded_row_count"] == 1
     assert final_recipe_stage["workbooks"][0]["attention_summary"]["zero_target_counts"]["final_recipe_not_promoted_count"] == 2
 
 
@@ -395,6 +395,13 @@ def test_build_recipe_stage_summary_reports_same_session_fix_rollups(tmp_path: P
         {
             "invalid_shards": 1,
             "missing_output_shards": 0,
+            "handled_locally_skip_llm": {
+                "count": 2,
+                "status_counts": {
+                    "fragmentary": 1,
+                    "not_a_recipe": 1,
+                },
+            },
             "recipe_result_counts": {
                 "repaired": 1,
                 "fragmentary": 2,
@@ -432,16 +439,22 @@ def test_build_recipe_stage_summary_reports_same_session_fix_rollups(tmp_path: P
 
     summary = build_recipe_stage_summary(stage_root)
 
-    assert summary["schema_version"] == "recipe_stage_summary.v3"
+    assert summary["schema_version"] == "recipe_stage_summary.v4"
     assert summary["followups"]["same_session_fix_attempted_count"] == 1
     assert summary["followups"]["same_session_fix_escalated_count"] == 1
     assert summary["followups"]["same_session_fix_budget_exhausted_count"] == 1
+    assert summary["followups"]["handled_locally_skip_llm_count"] == 2
     assert summary["followups"]["repair_completed_count"] == 1
     assert summary["attention_summary"]["needs_attention"] is True
     assert summary["attention_summary"]["zero_target_counts"]["invalid_shard_count"] == 1
     assert summary["attention_summary"]["zero_target_counts"]["fragmentary_recipe_count"] == 2
     assert summary["attention_summary"]["zero_target_counts"]["not_a_recipe_recipe_count"] == 1
     assert summary["attention_summary"]["zero_target_counts"]["final_recipe_not_promoted_count"] == 3
+    assert summary["attention_summary"]["context_counts"]["handled_locally_skip_llm_count"] == 2
+    assert summary["attention_summary"]["reason_counts"]["handled_locally_skip_llm_status_counts"] == {
+        "fragmentary": 1,
+        "not_a_recipe": 1,
+    }
 
 
 def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: Path) -> None:

@@ -13,8 +13,8 @@ from cookimport.staging.draft_v1 import (
 )
 from cookimport.staging.stage_block_predictions import (
     FREEFORM_LABELS,
-    UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY,
-    UNRESOLVED_REVIEW_BLOCK_INDICES_KEY,
+    UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY,
+    UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY,
 )
 
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
@@ -104,7 +104,7 @@ def build_line_role_stage_prediction_payload(
         "block_count": block_count,
         "counts": {
             "blocks": block_count,
-            "unresolved_review_eligible_blocks": len(
+            "unresolved_candidate_blocks": len(
                 {
                     int(index)
                     for index in (unresolved_block_indices or [])
@@ -115,13 +115,13 @@ def build_line_role_stage_prediction_payload(
             str(index): label for index, label in sorted(resolved_labels.items())
         },
         "label_blocks": label_blocks,
-        UNRESOLVED_REVIEW_BLOCK_INDICES_KEY: sorted(
+        UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY: sorted(
             {
                 int(index)
                 for index in (unresolved_block_indices or [])
             }
         ),
-        UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY: {
+        UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY: {
             str(int(index)): str(category)
             for index, category in sorted((unresolved_block_category_by_index or {}).items())
         },

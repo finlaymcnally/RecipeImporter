@@ -28,7 +28,7 @@ _ACCEPTANCE_RECIPE_BODY_LABELS = {
     "TIME_LINE",
 }
 _BRIDGEABLE_RECIPE_STRUCTURE_LABELS = _RECIPE_LOCAL_LABELS - _TITLE_LIKE_LABELS
-_NONRECIPE_GAP_LABELS = {"KNOWLEDGE", "OTHER"}
+_NONRECIPE_GAP_LABELS = {"NONRECIPE_CANDIDATE"}
 
 
 def group_recipe_spans_from_labels(
@@ -62,7 +62,7 @@ def group_recipe_spans_from_labels(
         pending = []
 
     for position, block in enumerate(ordered_blocks):
-        label = str(block.final_label or "OTHER")
+        label = str(block.final_label or "NONRECIPE_CANDIDATE")
         if label in _TITLE_LIKE_LABELS:
             if pending:
                 flush_pending()
@@ -83,13 +83,13 @@ def group_recipe_spans_from_labels(
             continue
         if pending:
             warning = None
-            if pending and str(pending[0].final_label or "OTHER") not in _TITLE_LIKE_LABELS:
+            if pending and str(pending[0].final_label or "NONRECIPE_CANDIDATE") not in _TITLE_LIKE_LABELS:
                 warning = "recipe_span_started_without_title"
             flush_pending(warning=warning)
 
     if pending:
         warning = None
-        if pending and str(pending[0].final_label or "OTHER") not in _TITLE_LIKE_LABELS:
+        if pending and str(pending[0].final_label or "NONRECIPE_CANDIDATE") not in _TITLE_LIKE_LABELS:
             warning = "recipe_span_started_without_title"
         flush_pending(warning=warning)
 
@@ -122,7 +122,7 @@ def _build_span_decision(
         )
         atomic_indices.extend(block_atomic_indices)
         escalation_reasons.extend(row.escalation_reasons)
-        if title_block_index is None and str(row.final_label or "OTHER") in _TITLE_LIKE_LABELS:
+        if title_block_index is None and str(row.final_label or "NONRECIPE_CANDIDATE") in _TITLE_LIKE_LABELS:
             title_block_index = int(row.source_block_index)
             if block_atomic_indices:
                 title_atomic_index = block_atomic_indices[0]
@@ -200,26 +200,29 @@ def _should_bridge_nonrecipe_gap(
     if not _has_bridgeable_recipe_structure(pending):
         return False
 
-    current_label = str(ordered_blocks[gap_position].final_label or "OTHER")
+    current_label = str(ordered_blocks[gap_position].final_label or "NONRECIPE_CANDIDATE")
     if current_label not in _NONRECIPE_GAP_LABELS:
         return False
 
     next_position = gap_position + 1
     if next_position >= len(ordered_blocks):
         return False
-    next_label = str(ordered_blocks[next_position].final_label or "OTHER")
+    next_label = str(ordered_blocks[next_position].final_label or "NONRECIPE_CANDIDATE")
     return next_label in _ACCEPTANCE_RECIPE_BODY_LABELS
 
 
 def _has_title_anchor(block_rows: Sequence[AuthoritativeBlockLabel]) -> bool:
-    return any(str(row.final_label or "OTHER") in _TITLE_LIKE_LABELS for row in block_rows)
+    return any(
+        str(row.final_label or "NONRECIPE_CANDIDATE") in _TITLE_LIKE_LABELS
+        for row in block_rows
+    )
 
 
 def _has_acceptance_recipe_body(
     block_rows: Sequence[AuthoritativeBlockLabel],
 ) -> bool:
     return any(
-        str(row.final_label or "OTHER") in _ACCEPTANCE_RECIPE_BODY_LABELS
+        str(row.final_label or "NONRECIPE_CANDIDATE") in _ACCEPTANCE_RECIPE_BODY_LABELS
         for row in block_rows
     )
 
@@ -228,7 +231,7 @@ def _has_bridgeable_recipe_structure(
     block_rows: Sequence[AuthoritativeBlockLabel],
 ) -> bool:
     return any(
-        str(row.final_label or "OTHER") in _BRIDGEABLE_RECIPE_STRUCTURE_LABELS
+        str(row.final_label or "NONRECIPE_CANDIDATE") in _BRIDGEABLE_RECIPE_STRUCTURE_LABELS
         for row in block_rows
     )
 
@@ -254,21 +257,25 @@ def _normalize_nonaccepted_recipe_local_block_labels(
     normalized_blocks: list[AuthoritativeBlockLabel] = []
     for block in ordered_blocks:
         block_index = int(block.source_block_index)
-        label = str(block.final_label or "OTHER")
+        label = str(block.final_label or "NONRECIPE_CANDIDATE")
         if block_index in accepted_block_indices or label not in _RECIPE_LOCAL_LABELS:
             normalized_blocks.append(block)
             continue
         normalized_blocks.append(
             block.model_copy(
                 update={
-                    "final_label": "OTHER",
+                    "final_label": (
+                        "NONRECIPE_EXCLUDE"
+                        if block.exclusion_reason
+                        else "NONRECIPE_CANDIDATE"
+                    ),
                     "decided_by": "fallback",
-                    "reason_tags": [*list(block.reason_tags), "recipe_span_rejected_to_other"],
+                    "reason_tags": [*list(block.reason_tags), "recipe_span_rejected_to_route"],
                     "escalation_reasons": [
                         *list(block.escalation_reasons),
-                        "recipe_span_rejected_to_other",
+                        "recipe_span_rejected_to_route",
                     ],
-                    "review_exclusion_reason": None,
+                    "exclusion_reason": block.exclusion_reason,
                 }
             )
         )

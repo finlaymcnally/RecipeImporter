@@ -4,7 +4,7 @@ from typing import Any, Mapping, Sequence
 
 from .nonrecipe_authority_contract import NonRecipeSeedResult, NonRecipeSpan
 
-_OTHER_LABELS = {
+_FINAL_OTHER_LABELS = {
     "other",
     "boilerplate",
     "toc",
@@ -39,19 +39,39 @@ def prepare_nonrecipe_full_blocks_by_index(
     return prepared
 
 
-def normalize_nonrecipe_stage_category(raw_label: str | None) -> tuple[str, str | None]:
+def normalize_nonrecipe_route_label(raw_label: str | None) -> tuple[str, str | None]:
+    normalized = str(raw_label or "").strip().upper()
+    if normalized == "NONRECIPE_CANDIDATE":
+        return "candidate", None
+    if normalized == "NONRECIPE_EXCLUDE":
+        return "exclude", None
+    if not normalized:
+        return "candidate", "missing route label"
+    return "candidate", f"unexpected route label '{raw_label}'"
+
+
+def require_nonrecipe_route_label(raw_label: str | None, *, block_index: int) -> str:
+    normalized_label, warning = normalize_nonrecipe_route_label(raw_label)
+    if warning is None:
+        return normalized_label
+    if warning == "missing route label":
+        raise ValueError(f"Missing non-recipe route label at block {block_index}.")
+    raise ValueError(f"Invalid non-recipe route label at block {block_index}: {warning}.")
+
+
+def normalize_nonrecipe_final_category(raw_label: str | None) -> tuple[str, str | None]:
     normalized = str(raw_label or "").strip().lower()
     if normalized == "knowledge":
         return "knowledge", None
-    if normalized in _OTHER_LABELS:
+    if normalized in _FINAL_OTHER_LABELS:
         return "other", None
     if not normalized:
         return "other", "missing final label"
     return "other", f"unexpected final label '{raw_label}'"
 
 
-def require_nonrecipe_stage_category(raw_label: str | None, *, block_index: int) -> str:
-    normalized_category, warning = normalize_nonrecipe_stage_category(raw_label)
+def require_nonrecipe_final_category(raw_label: str | None, *, block_index: int) -> str:
+    normalized_category, warning = normalize_nonrecipe_final_category(raw_label)
     if warning is None:
         return normalized_category
     if warning == "missing final label":
@@ -83,7 +103,7 @@ def build_nonrecipe_spans_from_categories(
     *,
     full_blocks_by_index: Mapping[int, Mapping[str, Any]],
     block_category_by_index: Mapping[int, str],
-) -> tuple[list[NonRecipeSpan], list[NonRecipeSpan], list[NonRecipeSpan]]:
+) -> list[NonRecipeSpan]:
     spans: list[NonRecipeSpan] = []
     current_indices: list[int] = []
     current_block_ids: list[str] = []
@@ -126,30 +146,28 @@ def build_nonrecipe_spans_from_categories(
                 block_ids=current_block_ids,
             )
         )
-
-    knowledge_spans = [span for span in spans if span.category == "knowledge"]
-    other_spans = [span for span in spans if span.category == "other"]
-    return spans, knowledge_spans, other_spans
+    return spans
 
 
 def build_nonrecipe_seed_result(
     *,
     full_blocks_by_index: Mapping[int, Mapping[str, Any]],
-    block_category_by_index: Mapping[int, str],
+    route_by_index: Mapping[int, str],
 ) -> NonRecipeSeedResult:
-    seed_nonrecipe_spans, seed_knowledge_spans, seed_other_spans = (
-        build_nonrecipe_spans_from_categories(
-            full_blocks_by_index=full_blocks_by_index,
-            block_category_by_index=block_category_by_index,
-        )
+    seed_nonrecipe_spans = build_nonrecipe_spans_from_categories(
+        full_blocks_by_index=full_blocks_by_index,
+        block_category_by_index=route_by_index,
     )
     return NonRecipeSeedResult(
         seed_nonrecipe_spans=seed_nonrecipe_spans,
-        seed_knowledge_spans=seed_knowledge_spans,
-        seed_other_spans=seed_other_spans,
-        seed_block_category_by_index={
-            int(index): str(category)
-            for index, category in block_category_by_index.items()
+        seed_candidate_spans=[
+            span for span in seed_nonrecipe_spans if span.category == "candidate"
+        ],
+        seed_excluded_spans=[
+            span for span in seed_nonrecipe_spans if span.category == "exclude"
+        ],
+        seed_route_by_index={
+            int(index): str(category) for index, category in route_by_index.items()
         },
     )
 

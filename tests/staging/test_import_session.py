@@ -139,7 +139,7 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
     )
     label_result = LabelFirstStageResult(
         labeled_lines=[],
-        block_labels=[_label_block(0, "KNOWLEDGE")],
+        block_labels=[_label_block(0, "NONRECIPE_CANDIDATE")],
         recipe_spans=[],
         span_decisions=[
             RecipeSpanDecision(
@@ -282,7 +282,7 @@ def test_execute_stage_import_session_uses_reviewable_nonrecipe_rows_for_late_ou
     )
     label_result = LabelFirstStageResult(
         labeled_lines=[],
-        block_labels=[_label_block(0, "RECIPE_TITLE"), _label_block(1, "KNOWLEDGE")],
+        block_labels=[_label_block(0, "RECIPE_TITLE"), _label_block(1, "NONRECIPE_CANDIDATE")],
         recipe_spans=[
             RecipeSpan(
                 span_id="recipe.0",
@@ -404,11 +404,11 @@ def test_execute_stage_import_session_demotes_rejected_pseudo_recipe_title_befor
     )
 
     predicted_labels = {
-        "Acid and Flavor": "OTHER",
-        "How Acid Works": "OTHER",
+        "Acid and Flavor": "NONRECIPE_CANDIDATE",
+        "How Acid Works": "NONRECIPE_CANDIDATE",
         "Using Acid": "RECIPE_TITLE",
-        "HEAT": "OTHER",
-        "What is Heat?": "OTHER",
+        "HEAT": "NONRECIPE_CANDIDATE",
+        "What is Heat?": "NONRECIPE_CANDIDATE",
     }
 
     def _fake_label_atomic_lines_with_baseline(candidates, _settings, **_kwargs):
@@ -461,8 +461,8 @@ def test_execute_stage_import_session_demotes_rejected_pseudo_recipe_title_befor
         row.source_block_index: row.final_label
         for row in session.recipe_boundary_result.label_first_result.block_labels
     }
-    assert block_labels_by_index[2] == "OTHER"
-    assert session.nonrecipe_route_result.stage_result.seed.seed_block_category_by_index[2] == "other"
+    assert block_labels_by_index[2] == "NONRECIPE_CANDIDATE"
+    assert session.nonrecipe_route_result.stage_result.seed.seed_route_by_index[2] == "candidate"
 
     payload = json.loads(
         session.label_artifact_paths["authoritative_block_labels_path"].read_text(
@@ -472,7 +472,7 @@ def test_execute_stage_import_session_demotes_rejected_pseudo_recipe_title_befor
     authoritative_by_index = {
         row["source_block_index"]: row["final_label"] for row in payload["block_labels"]
     }
-    assert authoritative_by_index[2] == "OTHER"
+    assert authoritative_by_index[2] == "NONRECIPE_CANDIDATE"
 
 
 def test_execute_stage_import_session_writes_source_model_artifacts(
@@ -518,7 +518,7 @@ def test_execute_stage_import_session_writes_source_model_artifacts(
     )
     label_result = LabelFirstStageResult(
         labeled_lines=[],
-        block_labels=[_label_block(0, "KNOWLEDGE")],
+        block_labels=[_label_block(0, "NONRECIPE_CANDIDATE")],
         recipe_spans=[],
         span_decisions=[],
         non_recipe_lines=[],

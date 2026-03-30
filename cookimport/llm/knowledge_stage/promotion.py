@@ -31,26 +31,26 @@ def _build_noop_knowledge_llm_report(
     authority_mode = (
         "knowledge_not_run_no_nonrecipe_spans"
         if stage_status == "no_nonrecipe_spans"
-        else "knowledge_not_run_no_review_eligible_nonrecipe_spans"
-        if stage_status == "no_review_eligible_nonrecipe_spans"
+        else "knowledge_not_run_no_candidate_nonrecipe_spans"
+        if stage_status == "no_candidate_nonrecipe_spans"
         else "knowledge_not_run_all_packets_skipped"
     )
     return {
         "enabled": True,
         "pipeline": run_settings.llm_knowledge_pipeline.value,
         "pipeline_id": pipeline_id,
-        "input_mode": "stage7_review_eligible_nonrecipe_spans",
+        "input_mode": "stage7_candidate_nonrecipe_spans",
         "authority_mode": authority_mode,
-        "scored_effect": "seed_only",
+        "scored_effect": "route_only",
         "output_schema_path": output_schema_path,
         "counts": {
             "seed_nonrecipe_span_count": int(seed_nonrecipe_span_count),
-            "review_eligible_nonrecipe_span_count": int(review_eligible_nonrecipe_span_count),
+            "candidate_nonrecipe_span_count": int(review_eligible_nonrecipe_span_count),
             "packet_count_before_partition": int(packet_count_before_partition),
             "shards_written": 0,
             "packets_written": 0,
-            "review_eligible_block_count": int(review_eligible_block_count),
-            "review_excluded_block_count": int(review_excluded_block_count),
+            "candidate_block_count": int(review_eligible_block_count),
+            "excluded_block_count": int(review_excluded_block_count),
             "skipped_packet_count": int(skipped_packet_count),
             "outputs_parsed": 0,
             "packets_missing": 0,
@@ -78,8 +78,8 @@ def _build_noop_knowledge_llm_report(
                 run_root / NONRECIPE_SEED_ROUTING_FILE_NAME
             ),
             "nonrecipe_authority_path": str(run_root / NONRECIPE_AUTHORITY_FILE_NAME),
-            "nonrecipe_review_status_path": str(
-                run_root / NONRECIPE_REVIEW_STATUS_FILE_NAME
+            "nonrecipe_candidate_status_path": str(
+                run_root / NONRECIPE_CANDIDATE_STATUS_FILE_NAME
             ),
             "knowledge_in_dir": str(knowledge_in_dir),
             "knowledge_phase_dir": str(knowledge_stage_dir),
@@ -88,14 +88,14 @@ def _build_noop_knowledge_llm_report(
         },
         "missing_packet_ids": [],
         "skipped_packet_reason_counts": dict(skipped_packet_reason_counts or {}),
-        "review_summary": {
+        "candidate_summary": {
             "seed_nonrecipe_span_count": int(seed_nonrecipe_span_count),
-            "review_eligible_nonrecipe_span_count": int(review_eligible_nonrecipe_span_count),
+            "candidate_nonrecipe_span_count": int(review_eligible_nonrecipe_span_count),
             "packet_count_before_partition": int(packet_count_before_partition),
             "planned_packet_count": 0,
             "reviewed_packet_count": 0,
-            "review_eligible_block_count": int(review_eligible_block_count),
-            "review_excluded_block_count": int(review_excluded_block_count),
+            "candidate_block_count": int(review_eligible_block_count),
+            "excluded_block_count": int(review_excluded_block_count),
             "skipped_packet_count": int(skipped_packet_count),
             "skipped_packet_reason_counts": dict(
                 sorted((skipped_packet_reason_counts or {}).items())
@@ -117,7 +117,7 @@ def _build_noop_knowledge_llm_report(
             "promoted_useful_packet_count": 0,
             "promoted_snippet_count": 0,
         },
-        "review_status": "complete",
+        "candidate_status": "complete",
         "stage_status": stage_status,
         "phase_worker_runtime": {
             "phase_key": "nonrecipe_knowledge_review",
@@ -149,22 +149,22 @@ def _build_runtime_failed_knowledge_llm_report(
         "enabled": True,
         "pipeline": run_settings.llm_knowledge_pipeline.value,
         "pipeline_id": pipeline_id,
-        "input_mode": "stage7_review_eligible_nonrecipe_spans",
+        "input_mode": "stage7_candidate_nonrecipe_spans",
         "authority_mode": "knowledge_not_run_runtime_failed",
-        "scored_effect": "seed_only",
+        "scored_effect": "route_only",
         "output_schema_path": output_schema_path,
         "counts": {
             "seed_nonrecipe_span_count": int(seed_nonrecipe_span_count),
-            "review_eligible_nonrecipe_span_count": int(
+            "candidate_nonrecipe_span_count": int(
                 review_eligible_nonrecipe_span_count
             ),
             "packet_count_before_partition": int(build_report.packet_count_before_partition),
             "shards_written": int(build_report.shards_written),
             "packets_written": int(build_report.packets_written),
-            "review_eligible_block_count": int(
+            "candidate_block_count": int(
                 getattr(build_report, "review_eligible_block_count", 0) or 0
             ),
-            "review_excluded_block_count": int(review_excluded_block_count),
+            "excluded_block_count": int(review_excluded_block_count),
             "skipped_packet_count": int(build_report.skipped_packet_count),
             "outputs_parsed": 0,
             "packets_missing": int(build_report.packets_written),
@@ -192,8 +192,8 @@ def _build_runtime_failed_knowledge_llm_report(
                 run_root / NONRECIPE_SEED_ROUTING_FILE_NAME
             ),
             "nonrecipe_authority_path": str(run_root / NONRECIPE_AUTHORITY_FILE_NAME),
-            "nonrecipe_review_status_path": str(
-                run_root / NONRECIPE_REVIEW_STATUS_FILE_NAME
+            "nonrecipe_candidate_status_path": str(
+                run_root / NONRECIPE_CANDIDATE_STATUS_FILE_NAME
             ),
             "knowledge_in_dir": str(knowledge_in_dir),
             "knowledge_phase_dir": str(knowledge_stage_dir),
@@ -203,7 +203,7 @@ def _build_runtime_failed_knowledge_llm_report(
         "missing_packet_ids": list(build_report.packet_ids),
         "skipped_packet_reason_counts": dict(build_report.skipped_packet_reason_counts),
         "planning_warnings": list(build_report.planning_warnings),
-        "review_summary": _build_review_summary(
+        "candidate_summary": _build_review_summary(
             build_report=build_report,
             validated_output_count=0,
             planned_shard_count=int(build_report.shards_written),
@@ -225,7 +225,7 @@ def _build_runtime_failed_knowledge_llm_report(
             promoted_useful_packet_count=0,
             promoted_snippet_count=0,
         ),
-        "review_status": "unreviewed",
+        "candidate_status": "unreviewed",
         "stage_status": "runtime_failed",
         "error": error,
         "phase_worker_runtime": {

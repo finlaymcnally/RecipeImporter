@@ -73,6 +73,52 @@ def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult
     )
 
 
+def _build_fragmentary_recipe_conversion_result(source_path: Path) -> ConversionResult:
+    return ConversionResult(
+        recipes=[
+            RecipeCandidate(
+                name="Toast",
+                identifier="urn:recipe:test:toast",
+                recipeIngredient=["1 slice bread"],
+                recipeInstructions=["Toast the bread."],
+                provenance={"location": {"start_block": 1, "end_block": 3}},
+            ),
+            RecipeCandidate(
+                name="The Four Elements of Good Cooking",
+                identifier="urn:recipe:test:fragmentary",
+                recipeIngredient=[],
+                recipeInstructions=[],
+                provenance={"location": {"start_block": 5, "end_block": 7}},
+            ),
+        ],
+        nonRecipeBlocks=[],
+        rawArtifacts=[
+            RawArtifact(
+                importer="text",
+                sourceHash="hash123",
+                locationId="full_text",
+                extension="json",
+                content={
+                    "blocks": [
+                        {"index": 0, "text": "Preface"},
+                        {"index": 1, "text": "Toast"},
+                        {"index": 2, "text": "1 slice bread"},
+                        {"index": 3, "text": "Toast the bread."},
+                        {"index": 4, "text": "Separator"},
+                        {"index": 5, "text": "The Four Elements of Good Cooking"},
+                        {"index": 6, "text": "SALT"},
+                        {"index": 7, "text": "What is Salt?"},
+                    ],
+                },
+                metadata={"artifact_type": "extracted_blocks"},
+            )
+        ],
+        report=ConversionReport(),
+        workbook=source_path.stem,
+        workbookPath=str(source_path),
+    )
+
+
 def _build_recipe_workspace_output(
     payload: dict[str, object] | None,
     *,
@@ -414,6 +460,85 @@ def test_recipe_phase_runtime_writes_output_contract_outputs_and_proposal(
     assert worker_status["runtime_mode_audit"]["output_schema_enforced"] is False
     assert worker_status["runtime_mode_audit"]["tool_affordances_requested"] is True
     assert proposal["validation_metadata"]["task_aggregation"]["task_count"] == 2
+
+
+def test_recipe_phase_runtime_short_circuits_fragmentary_scaffolds_before_worker_queue(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    settings = RunSettings.model_validate(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(tmp_path / "pack"),
+            "recipe_prompt_target_count": 2,
+            "recipe_worker_count": 1,
+        }
+    )
+    for name in ("pipelines", "prompts", "schemas"):
+        (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
+
+    runner = FakeCodexExecRunner(output_builder=_build_recipe_shard_output)
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=_build_fragmentary_recipe_conversion_result(source),
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    runtime_dir = apply_result.llm_raw_dir / "recipe_phase_runtime"
+    worker_root = runtime_dir / "workers" / "worker-001"
+    assigned_tasks = json.loads((worker_root / "assigned_tasks.json").read_text(encoding="utf-8"))
+    worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
+    promotion_report = json.loads((runtime_dir / "promotion_report.json").read_text(encoding="utf-8"))
+    recipe_manifest = json.loads(
+        (apply_result.llm_raw_dir / "recipe_manifest.json").read_text(encoding="utf-8")
+    )
+    fragmentary_proposal = json.loads(
+        (
+            runtime_dir / "proposals" / "recipe-shard-0001-r0001-r0001.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert [row["task_id"] for row in assigned_tasks] == ["recipe-shard-0000-r0000-r0000"]
+    assert "recipe-shard-0001-r0001-r0001" not in worker_prompt
+    assert (worker_root / "out" / "recipe-shard-0000-r0000-r0000.json").exists()
+    assert (worker_root / "out" / "recipe-shard-0001-r0001-r0001.json").exists()
+    assert fragmentary_proposal["payload"]["r"][0]["rid"] == "urn:recipe:test:fragmentary"
+    assert fragmentary_proposal["payload"]["r"][0]["st"] == "fragmentary"
+    assert fragmentary_proposal["validation_metadata"]["task_aggregation"]["accepted_task_count"] == 1
+    assert fragmentary_proposal["validation_metadata"]["task_same_session_fix_status_by_task_id"][
+        "recipe-shard-0001-r0001-r0001"
+    ]["same_session_fix_terminal_reason"] == "deterministic_terminal_scaffold"
+    assert promotion_report["handled_locally_skip_llm"]["count"] == 1
+    assert promotion_report["handled_locally_skip_llm"]["status_counts"] == {
+        "fragmentary": 1,
+        "not_a_recipe": 0,
+    }
+    assert promotion_report["handled_locally_skip_llm"]["recipes"] == [
+        {
+            "recipe_id": "urn:recipe:test:fragmentary",
+            "repair_status": "fragmentary",
+            "same_session_fix_status": "not_needed",
+            "same_session_fix_terminal_reason": "deterministic_terminal_scaffold",
+            "shard_id": "recipe-shard-0001-r0001-r0001",
+            "status_reason": "insufficient_source_detail",
+            "task_id": "recipe-shard-0001-r0001-r0001",
+            "worker_id": "worker-001",
+        }
+    ]
+    assert (
+        promotion_report["recipe_results"]["urn:recipe:test:fragmentary"]["llm_dispatch"]
+        == "handled_locally_skip_llm"
+    )
+    assert (
+        recipe_manifest["counts"]["recipe_correction_handled_locally_skip_llm"] == 1
+    )
+    assert len(runner.calls) == 1
+    assert runner.calls[0]["mode"] == "workspace_worker"
 
 
 def test_recipe_phase_runtime_defaults_workers_to_shard_count_when_unspecified(

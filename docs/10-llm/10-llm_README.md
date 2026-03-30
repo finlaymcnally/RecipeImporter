@@ -50,6 +50,8 @@ Shared shard-runtime foundation:
 - the shared workspace boundary detector now explicitly ignores `jq`'s `//` fallback operator when scanning for absolute-path escapes, so local `jq '{rows: ... // ...}' ... > out/...` helper commands stay inside the relaxed policy
 - workspace-worker main attempts now terminate on command policy only when they visibly invoke clearly egregious network/package-manager/remote/container tools or mutating `git` verbs; bounded local `python`/`python3`/`node` transforms, shell scripts, heredocs, arbitrary local path usage, and read-only `git` inspection are tolerated on the main worker path, and the shared loop budget is still intentionally much looser than the earlier startup-only guardrail with extra tolerance right after real `out/*.json` progress.
 - validated worker-written `workers/*/out/*.json` files are authoritative for all three workspace-worker stages. `final_agent_message_state` can legitimately be `informational` or `absent` on the main worker path, and those final-message fields are telemetry only unless a structured retry / repair attempt explicitly requires strict JSON.
+- recipe worker staging now short-circuits terminal scaffold tasks before the workspace queue: if the repo-authored task scaffold is already `fragmentary` or `not_a_recipe`, runtime validates and installs that task locally and keeps it out of `assigned_tasks.json` / the live worker prompt.
+- recipe reporting now surfaces that local bypass explicitly: `promotion_report.json` includes `handled_locally_skip_llm` counts plus per-recipe rows, `recipe_manifest.json` mirrors the topline count, and `recipe_stage_summary.json` exposes the same count in its high-level followup/context rollups.
 - knowledge main-worker sessions now also treat a clean mid-queue exit after visible queue advancement as a recoverable runtime failure rather than an accepted finish: live status first records `workspace_validated_task_queue_premature_clean_exit`, then the repo auto-resumes the remaining queue up to a small capped number of times before settling on the final completed/incomplete reason. Final worker artifacts now keep that rescue history under `workspace_relaunch_history`, `workspace_relaunch_reason_codes`, `workspace_premature_clean_exit_count`, and `workspace_relaunch_cap_reached`; if the worker keeps stopping at conversational checkpoints until that cap is exhausted, the terminal reason is now `workspace_validated_task_queue_premature_clean_exit_cap_reached`.
 
 Recipe CodexFarm path:
@@ -202,10 +204,10 @@ Recipe runtime note:
 Knowledge-stage writes:
 
 - `data/output/<ts>/08_nonrecipe_seed_routing.json`
-- `data/output/<ts>/08_nonrecipe_review_exclusions.jsonl`
+- `data/output/<ts>/08_nonrecipe_exclusions.jsonl`
 - `data/output/<ts>/09_nonrecipe_authority.json`
 - `data/output/<ts>/09_nonrecipe_knowledge_groups.json`
-- `data/output/<ts>/09_nonrecipe_review_status.json`
+- `data/output/<ts>/09_nonrecipe_candidate_status.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge_manifest.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/in/*.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/phase_manifest.json`
@@ -219,7 +221,7 @@ Knowledge-stage writes:
 - `data/output/<ts>/knowledge/<workbook_slug>/knowledge.md`
 - `data/output/<ts>/knowledge/knowledge_index.json`
 
-`08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` artifact (legacy Stage 7 routing). It keeps the review queue, exclusions, and previews, but not seed semantic category maps. `09_nonrecipe_authority.json` is the final machine-readable truth surface for outside-recipe `knowledge` versus `other`. `09_nonrecipe_knowledge_groups.json` records the promoted model-authored related-idea groups. `09_nonrecipe_review_status.json` is the runtime-status artifact for reviewed, skipped, changed, and unresolved review-eligible rows. `knowledge.md` remains the reviewer-facing summary surface.
+`08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` artifact. It keeps the candidate queue, exclusions, and previews, but not final semantic category guesses. `09_nonrecipe_authority.json` is the final machine-readable truth surface for outside-recipe `knowledge` versus `other`. `09_nonrecipe_knowledge_groups.json` records the promoted model-authored related-idea groups. `09_nonrecipe_candidate_status.json` is the runtime-status artifact for finalized and unresolved candidate rows. `knowledge.md` remains the reviewer-facing summary surface.
 
 Knowledge runtime note:
 - the live knowledge implementation is no longer one direct `knowledge/in -> knowledge/out` CodexFarm call
@@ -241,7 +243,7 @@ Knowledge runtime note:
 - accepted knowledge outputs are compact shard outputs: top-level `packet_id`/shard id, ordered `block_decisions`, and model-authored `idea_groups`
 - the knowledge prompt/worker contract now also treats short conceptual headings as keepable when they directly introduce useful explanatory blocks in the same owned shard; decorative or menu-like headings still stay `other`
 - the knowledge prompt/worker contract must treat packet order as weak context, not proof of semantic continuity: large block-index jumps or abrupt topic shifts are cues that nearby packet rows may be unrelated, so block-local classification stays primary and grouping should require textual continuity rather than adjacency alone
-- the authoritative knowledge contract is now: `knowledge/in/*.json` immutable shard payloads, worker-local shard outputs under `workers/*/out/*.json`, `knowledge/proposals/*.json` validated repo-serialized shard proposals, then deterministic promotion into `08_nonrecipe_seed_routing.json`, `09_nonrecipe_authority.json`, `09_nonrecipe_review_status.json`, and reviewer-facing knowledge artifacts
+- the authoritative knowledge contract is now: `knowledge/in/*.json` immutable shard payloads, worker-local shard outputs under `workers/*/out/*.json`, `knowledge/proposals/*.json` validated repo-serialized shard proposals, then deterministic promotion into `08_nonrecipe_seed_routing.json`, `09_nonrecipe_authority.json`, `09_nonrecipe_candidate_status.json`, and reviewer-facing knowledge artifacts
 - valid knowledge worker shard outputs remain authoritative even if the workspace session ends with no final assistant message; `final_agent_message_state` is still recorded in telemetry/live-status for debugging, but follow-up recovery only keys off file-level validation failure
 - direct workspace-worker telemetry is now fail-closed on token accounting too: if a workspace session shows real work but no usable Codex usage payload, the runtime summary records `token_usage_status=partial|unavailable` and blanks billed-token totals instead of publishing literal zero spend
 - invalid but near-miss knowledge outputs now get one repo-owned repair attempt at task scope; task/shard folders can include `repair_prompt.txt`, `repair_events.jsonl`, `repair_last_message.json`, `repair_usage.json`, and `repair_status.json`, while proposal/status payloads record whether repair was attempted and whether the final validated output came from that repair pass

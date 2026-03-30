@@ -4,7 +4,7 @@ from typing import Any, Mapping, Sequence
 
 from cookimport.staging.nonrecipe_stage import (
     NonRecipeAuthorityResult,
-    NonRecipeReviewStatusResult,
+    NonRecipeCandidateStatusResult,
     NonRecipeRoutingResult,
     NonRecipeSeedResult,
     NonRecipeSpan,
@@ -17,86 +17,86 @@ def make_stage_result(
     seed: NonRecipeSeedResult,
     routing: NonRecipeRoutingResult,
     authority: NonRecipeAuthorityResult,
-    review_status: NonRecipeReviewStatusResult,
+    candidate_status: NonRecipeCandidateStatusResult,
     refinement_report: Mapping[str, Any] | None = None,
 ) -> NonRecipeStageResult:
     return NonRecipeStageResult(
         seed=seed,
         routing=routing,
         authority=authority,
-        review_status=review_status,
+        candidate_status=candidate_status,
         refinement_report=dict(refinement_report or {}),
     )
 
 
 def make_seed_result(
-    block_category_by_index: Mapping[int, str],
+    route_by_index: Mapping[int, str],
     *,
     nonrecipe_spans: Sequence[NonRecipeSpan] | None = None,
-    knowledge_spans: Sequence[NonRecipeSpan] | None = None,
-    other_spans: Sequence[NonRecipeSpan] | None = None,
+    candidate_spans: Sequence[NonRecipeSpan] | None = None,
+    excluded_spans: Sequence[NonRecipeSpan] | None = None,
 ) -> NonRecipeSeedResult:
     resolved_spans = (
         list(nonrecipe_spans)
         if nonrecipe_spans is not None
-        else spans_from_category_map(block_category_by_index)
+        else spans_from_category_map(route_by_index)
     )
     return NonRecipeSeedResult(
         seed_nonrecipe_spans=resolved_spans,
-        seed_knowledge_spans=(
-            list(knowledge_spans)
-            if knowledge_spans is not None
-            else [span for span in resolved_spans if span.category == "knowledge"]
+        seed_candidate_spans=(
+            list(candidate_spans)
+            if candidate_spans is not None
+            else [span for span in resolved_spans if span.category == "candidate"]
         ),
-        seed_other_spans=(
-            list(other_spans)
-            if other_spans is not None
-            else [span for span in resolved_spans if span.category == "other"]
+        seed_excluded_spans=(
+            list(excluded_spans)
+            if excluded_spans is not None
+            else [span for span in resolved_spans if span.category == "exclude"]
         ),
-        seed_block_category_by_index={
+        seed_route_by_index={
             int(index): str(category)
-            for index, category in block_category_by_index.items()
+            for index, category in route_by_index.items()
         },
     )
 
 
 def make_routing_result(
     *,
-    review_eligible_block_indices: Sequence[int],
-    review_excluded_block_indices: Sequence[int] = (),
-    review_exclusion_reason_by_block: Mapping[int, str] | None = None,
-    review_eligible_nonrecipe_spans: Sequence[NonRecipeSpan] | None = None,
-    review_excluded_other_spans: Sequence[NonRecipeSpan] | None = None,
-    review_routing_by_block: Mapping[int, str] | None = None,
+    candidate_block_indices: Sequence[int],
+    excluded_block_indices: Sequence[int] = (),
+    exclusion_reason_by_block: Mapping[int, str] | None = None,
+    candidate_nonrecipe_spans: Sequence[NonRecipeSpan] | None = None,
+    excluded_nonrecipe_spans: Sequence[NonRecipeSpan] | None = None,
+    route_by_block: Mapping[int, str] | None = None,
     block_preview_by_index: Mapping[int, str] | None = None,
     warnings: Sequence[str] | None = None,
 ) -> NonRecipeRoutingResult:
-    eligible_indices = [int(index) for index in review_eligible_block_indices]
-    excluded_indices = [int(index) for index in review_excluded_block_indices]
+    candidate_indices = [int(index) for index in candidate_block_indices]
+    excluded_indices = [int(index) for index in excluded_block_indices]
     return NonRecipeRoutingResult(
-        review_routing_by_block=(
+        route_by_block=(
             {
-                **{int(index): "review_eligible" for index in eligible_indices},
-                **{int(index): "excluded_other" for index in excluded_indices},
+                **{int(index): "candidate" for index in candidate_indices},
+                **{int(index): "exclude" for index in excluded_indices},
             }
-            if review_routing_by_block is None
-            else {int(index): str(route) for index, route in review_routing_by_block.items()}
+            if route_by_block is None
+            else {int(index): str(route) for index, route in route_by_block.items()}
         ),
-        review_eligible_nonrecipe_spans=(
-            list(review_eligible_nonrecipe_spans)
-            if review_eligible_nonrecipe_spans is not None
-            else spans_for_indices(eligible_indices, category="review_candidate")
+        candidate_nonrecipe_spans=(
+            list(candidate_nonrecipe_spans)
+            if candidate_nonrecipe_spans is not None
+            else spans_for_indices(candidate_indices, category="candidate")
         ),
-        review_excluded_other_spans=(
-            list(review_excluded_other_spans)
-            if review_excluded_other_spans is not None
-            else spans_for_indices(excluded_indices, category="other")
+        excluded_nonrecipe_spans=(
+            list(excluded_nonrecipe_spans)
+            if excluded_nonrecipe_spans is not None
+            else spans_for_indices(excluded_indices, category="exclude")
         ),
-        review_eligible_block_indices=eligible_indices,
-        review_excluded_block_indices=excluded_indices,
-        review_exclusion_reason_by_block={
+        candidate_block_indices=candidate_indices,
+        excluded_block_indices=excluded_indices,
+        exclusion_reason_by_block={
             int(index): str(reason)
-            for index, reason in (review_exclusion_reason_by_block or {}).items()
+            for index, reason in (exclusion_reason_by_block or {}).items()
         },
         block_preview_by_index={
             int(index): str(preview)
@@ -127,20 +127,22 @@ def make_authority_result(
     )
 
 
-def make_review_status_result(
+def make_candidate_status_result(
     *,
-    reviewed_block_indices: Sequence[int],
-    unreviewed_block_category_by_index: Mapping[int, str],
-) -> NonRecipeReviewStatusResult:
-    unreviewed_map = {
-        int(index): str(category)
-        for index, category in unreviewed_block_category_by_index.items()
+    finalized_candidate_block_indices: Sequence[int],
+    unresolved_candidate_route_by_index: Mapping[int, str],
+) -> NonRecipeCandidateStatusResult:
+    unresolved_map = {
+        int(index): str(route)
+        for index, route in unresolved_candidate_route_by_index.items()
     }
-    return NonRecipeReviewStatusResult(
-        reviewed_block_indices=[int(index) for index in reviewed_block_indices],
-        unreviewed_review_eligible_block_indices=sorted(unreviewed_map),
-        unreviewed_block_category_by_index=unreviewed_map,
-        unreviewed_spans=spans_from_category_map(unreviewed_map),
+    return NonRecipeCandidateStatusResult(
+        finalized_candidate_block_indices=[
+            int(index) for index in finalized_candidate_block_indices
+        ],
+        unresolved_candidate_block_indices=sorted(unresolved_map),
+        unresolved_candidate_route_by_index=unresolved_map,
+        unresolved_candidate_spans=spans_from_category_map(unresolved_map),
     )
 
 

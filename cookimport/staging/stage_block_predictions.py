@@ -17,8 +17,8 @@ from cookimport.staging.recipe_block_evidence import (
     resolve_stage_prediction_source_hash,
 )
 
-UNRESOLVED_REVIEW_BLOCK_INDICES_KEY = "unresolved_review_eligible_block_indices"
-UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY = "unresolved_review_eligible_block_category_by_index"
+UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY = "unresolved_candidate_block_indices"
+UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY = "unresolved_candidate_route_by_index"
 
 
 def build_stage_block_predictions(
@@ -86,10 +86,10 @@ def build_stage_block_predictions(
         "counts": {
             "blocks": recipe_evidence.block_count,
             "authoritative_knowledge_blocks": len(knowledge_evidence.knowledge_indices),
-            "unresolved_review_eligible_blocks": len(knowledge_evidence.unresolved_block_indices),
+            "unresolved_candidate_blocks": len(knowledge_evidence.unresolved_block_indices),
         },
-        UNRESOLVED_REVIEW_BLOCK_INDICES_KEY: list(knowledge_evidence.unresolved_block_indices),
-        UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY: {
+        UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY: list(knowledge_evidence.unresolved_block_indices),
+        UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY: {
             str(index): category
             for index, category in sorted(knowledge_evidence.unresolved_categories.items())
         },

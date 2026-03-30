@@ -31,9 +31,9 @@ from cookimport.parsing.label_source_of_truth import (
 from cookimport.staging.nonrecipe_stage import (
     NonRecipeAuthorityContract,
     NonRecipeAuthorityResult,
+    NonRecipeCandidateStatusResult,
     NonRecipeRoutingResult,
     NonRecipeStageResult,
-    NonRecipeReviewStatusResult,
     block_rows_for_nonrecipe_span,
     build_nonrecipe_authority_contract,
     build_nonrecipe_stage_result,
@@ -127,7 +127,7 @@ class NonrecipeRouteResult:
     recipe_refine_result: RecipeRefineResult
     stage_result: NonRecipeStageResult
     routing: NonRecipeRoutingResult
-    reviewable_nonrecipe_blocks: list[dict[str, Any]]
+    candidate_queue_nonrecipe_blocks: list[dict[str, Any]]
     excluded_final_other_blocks: list[dict[str, Any]]
 
 
@@ -138,10 +138,10 @@ class KnowledgeFinalResult:
     stage_result: NonRecipeStageResult
     authority_contract: NonRecipeAuthorityContract
     authority: NonRecipeAuthorityResult
-    review_status: NonRecipeReviewStatusResult
+    candidate_status: NonRecipeCandidateStatusResult
     authoritative_nonrecipe_blocks: list[dict[str, Any]]
     late_output_nonrecipe_blocks: list[dict[str, Any]]
-    unreviewed_reviewable_blocks: list[dict[str, Any]]
+    unresolved_candidate_blocks: list[dict[str, Any]]
     llm_report: dict[str, Any] | None
     knowledge_write_report: Any | None = None
     knowledge_apply_result: CodexFarmNonrecipeKnowledgeReviewResult | None = None
@@ -301,13 +301,13 @@ def run_nonrecipe_route_stage(
         recipe_refine_result=recipe_refine_result,
         stage_result=stage_result,
         routing=stage_result.routing,
-        reviewable_nonrecipe_blocks=_block_rows_for_indices(
+        candidate_queue_nonrecipe_blocks=_block_rows_for_indices(
             recipe_boundary_result.extracted_bundle.archive_blocks,
-            stage_result.routing.review_eligible_block_indices,
+            stage_result.routing.candidate_block_indices,
         ),
         excluded_final_other_blocks=[
             row
-            for span in stage_result.routing.review_excluded_other_spans
+            for span in stage_result.routing.excluded_nonrecipe_spans
             for row in block_rows_for_nonrecipe_span(
                 full_blocks=recipe_boundary_result.extracted_bundle.archive_blocks,
                 span=span,
@@ -367,10 +367,10 @@ def run_knowledge_final_stage(
         full_blocks=recipe_boundary_result.extracted_bundle.archive_blocks,
         stage_result=stage_result,
     )
-    unreviewed_reviewable_blocks = _block_rows_for_indices(
+    unresolved_candidate_blocks = _block_rows_for_indices(
         recipe_boundary_result.extracted_bundle.archive_blocks,
-        stage_result.review_status.unreviewed_review_eligible_block_indices,
-        stage_result.review_status.unreviewed_block_category_by_index,
+        stage_result.candidate_status.unresolved_candidate_block_indices,
+        stage_result.candidate_status.unresolved_candidate_route_by_index,
     )
     return KnowledgeFinalResult(
         nonrecipe_route_result=nonrecipe_route_result,
@@ -378,10 +378,10 @@ def run_knowledge_final_stage(
         stage_result=stage_result,
         authority_contract=authority_contract,
         authority=stage_result.authority,
-        review_status=stage_result.review_status,
+        candidate_status=stage_result.candidate_status,
         authoritative_nonrecipe_blocks=list(authority_contract.final_blocks),
         late_output_nonrecipe_blocks=list(authority_contract.late_output_blocks),
-        unreviewed_reviewable_blocks=unreviewed_reviewable_blocks,
+        unresolved_candidate_blocks=unresolved_candidate_blocks,
         llm_report=llm_report,
         knowledge_write_report=knowledge_write_report,
         knowledge_apply_result=knowledge_apply_result,

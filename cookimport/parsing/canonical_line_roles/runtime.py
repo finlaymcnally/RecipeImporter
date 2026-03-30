@@ -459,10 +459,10 @@ def _run_line_role_shard_runtime(
                 atomic_index=atomic_index,
                 text=str(candidate.text),
                 within_recipe_span=candidate.within_recipe_span,
-                label=str(row["label"] or "OTHER"),
+                label=str(row["label"] or "NONRECIPE_CANDIDATE"),
                 decided_by="codex",
                 reason_tags=["codex_line_role"],
-                review_exclusion_reason=row.get("review_exclusion_reason"),
+                exclusion_reason=row.get("exclusion_reason"),
             )
     return _LineRoleRuntimeResult(
         predictions_by_atomic_index=predictions_by_atomic_index,
@@ -3069,10 +3069,7 @@ def _build_line_role_watchdog_retry_prompt(
     successful_examples: Sequence[Mapping[str, Any]],
 ) -> str:
     owned_ids = ", ".join(str(value) for value in shard.owned_ids)
-    allowed_labels = ", ".join(FREEFORM_ALLOWED_LABELS)
-    label_code_legend = _render_label_code_legend(
-        build_line_role_label_code_by_label(FREEFORM_LABELS)
-    )
+    allowed_labels = ", ".join(CANONICAL_LINE_ROLE_ALLOWED_LABELS)
     authoritative_rows = _render_line_role_authoritative_rows(shard)
     example_rows = [
         json.dumps(dict(example_payload), ensure_ascii=False, sort_keys=True)
@@ -3097,16 +3094,16 @@ def _build_line_role_watchdog_retry_prompt(
         f"- Return each owned atomic_index exactly once, in input order: {owned_ids}\n"
         f"- Allowed labels: {allowed_labels}\n"
         "- Use only the keys `rows`, `atomic_index`, and `label`.\n\n"
-        f"Label code legend: {label_code_legend}\n"
-        "- Treat each row's `label_code` as a weak deterministic hint only, not final truth.\n"
+        "- Treat span codes and hint lists as weak hints only, not final truth.\n"
         "- `INGREDIENT_LINE` means quantity/unit ingredients or bare ingredient-list items.\n"
         "- `INSTRUCTION_LINE` means a recipe-local procedural step, not generic cooking advice.\n"
         "- `HOWTO_SECTION` means a recipe-internal subsection heading, not a chapter or topic heading.\n"
-        "- `KNOWLEDGE` is only for recipe-local explanatory/reference prose here; outside-recipe useful prose should stay `OTHER` for the later knowledge stage.\n"
-        "- `OTHER` means navigation, memoir, decorative matter, or other non-structure text.\n\n"
+        "- `RECIPE_NOTES` means recipe-local prose that belongs with the current recipe.\n"
+        "- `NONRECIPE_CANDIDATE` means outside-recipe material that should go to knowledge later.\n"
+        "- `NONRECIPE_EXCLUDE` means obvious outside-recipe junk that should never go to knowledge.\n\n"
         f"Previous stop reason: {original_reason_code or '[unknown]'}\n"
         f"Reason detail: {original_reason_detail or '[none recorded]'}\n\n"
-        "Authoritative shard rows to relabel (each row is [atomic_index, label_code, current_line]):\n"
+        "Authoritative shard rows to relabel (each row is [atomic_index, span_code, rule_tags, escalation_reasons, current_line]):\n"
         "<BEGIN_AUTHORITATIVE_ROWS>\n"
         f"{authoritative_rows}\n"
         "<END_AUTHORITATIVE_ROWS>\n\n"

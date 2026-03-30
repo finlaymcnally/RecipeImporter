@@ -17,15 +17,15 @@ from cookimport.parsing.label_source_of_truth import (
     LabelFirstStageResult,
 )
 from cookimport.staging.stage_block_predictions import (
-    UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY,
-    UNRESOLVED_REVIEW_BLOCK_INDICES_KEY,
+    UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY,
+    UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY,
     _is_howto_section_text,
     build_stage_block_predictions,
 )
 from cookimport.staging.writer import write_stage_block_predictions
 from tests.nonrecipe_stage_helpers import (
     make_authority_result,
-    make_review_status_result,
+    make_candidate_status_result,
     make_routing_result,
     make_seed_result,
     make_stage_result,
@@ -102,12 +102,12 @@ def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Pat
         result,
         "simple",
         nonrecipe_stage_result=make_stage_result(
-            seed=make_seed_result({8: "knowledge"}),
-            routing=make_routing_result(review_eligible_block_indices=[8]),
+            seed=make_seed_result({8: "candidate"}),
+            routing=make_routing_result(candidate_block_indices=[8]),
             authority=make_authority_result({8: "knowledge"}),
-            review_status=make_review_status_result(
-                reviewed_block_indices=[8],
-                unreviewed_block_category_by_index={},
+            candidate_status=make_candidate_status_result(
+                finalized_candidate_block_indices=[8],
+                unresolved_candidate_route_by_index={},
             ),
         ),
     )
@@ -136,7 +136,7 @@ def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Pat
     conflicts = payload["conflicts"]
     assert conflicts == []
     assert "KNOWLEDGE labels were derived from final non-recipe authority." in payload["notes"]
-    assert "All review-eligible non-recipe blocks had final authority before scoring." in payload["notes"]
+    assert "All candidate non-recipe blocks had final authority before scoring." in payload["notes"]
 
 
 def test_build_stage_block_predictions_without_nonrecipe_authority_do_not_project_chunk_lanes() -> None:
@@ -170,12 +170,12 @@ def test_build_stage_block_predictions_ignores_stage7_other_blocks() -> None:
         result,
         "simple",
         nonrecipe_stage_result=make_stage_result(
-            seed=make_seed_result({8: "other"}),
-            routing=make_routing_result(review_eligible_block_indices=[8]),
+            seed=make_seed_result({8: "candidate"}),
+            routing=make_routing_result(candidate_block_indices=[8]),
             authority=make_authority_result({8: "other"}),
-            review_status=make_review_status_result(
-                reviewed_block_indices=[8],
-                unreviewed_block_category_by_index={},
+            candidate_status=make_candidate_status_result(
+                finalized_candidate_block_indices=[8],
+                unresolved_candidate_route_by_index={},
             ),
         ),
     )
@@ -183,29 +183,29 @@ def test_build_stage_block_predictions_ignores_stage7_other_blocks() -> None:
     assert payload["block_labels"]["8"] == "OTHER"
 
 
-def test_build_stage_block_predictions_ignores_unreviewed_review_eligible_knowledge() -> None:
+def test_build_stage_block_predictions_ignores_unresolved_candidate_knowledge() -> None:
     result = _build_result()
 
     payload = build_stage_block_predictions(
         result,
         "simple",
         nonrecipe_stage_result=make_stage_result(
-            seed=make_seed_result({8: "knowledge"}),
-            routing=make_routing_result(review_eligible_block_indices=[8]),
+            seed=make_seed_result({8: "candidate"}),
+            routing=make_routing_result(candidate_block_indices=[8]),
             authority=make_authority_result({}),
-            review_status=make_review_status_result(
-                reviewed_block_indices=[],
-                unreviewed_block_category_by_index={8: "knowledge"},
+            candidate_status=make_candidate_status_result(
+                finalized_candidate_block_indices=[],
+                unresolved_candidate_route_by_index={8: "candidate"},
             ),
         ),
     )
 
     assert payload["block_labels"]["8"] == "OTHER"
-    assert payload[UNRESOLVED_REVIEW_BLOCK_INDICES_KEY] == [8]
-    assert payload[UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY] == {"8": "knowledge"}
-    assert payload["counts"]["unresolved_review_eligible_blocks"] == 1
+    assert payload[UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY] == [8]
+    assert payload[UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY] == {"8": "candidate"}
+    assert payload["counts"]["unresolved_candidate_blocks"] == 1
     assert (
-        "Review-eligible non-recipe blocks without final authority were marked unresolved and excluded from semantic scoring."
+        "Candidate non-recipe blocks without final authority were marked unresolved and excluded from semantic scoring."
         in payload["notes"]
     )
 
@@ -253,12 +253,12 @@ def test_write_stage_block_predictions_prefers_final_nonrecipe_authority(
         workbook_slug="simple",
         source_file="/tmp/simple.txt",
         nonrecipe_stage_result=make_stage_result(
-            seed=make_seed_result({8: "knowledge"}),
-            routing=make_routing_result(review_eligible_block_indices=[8]),
+            seed=make_seed_result({8: "candidate"}),
+            routing=make_routing_result(candidate_block_indices=[8]),
             authority=make_authority_result({8: "knowledge"}),
-            review_status=make_review_status_result(
-                reviewed_block_indices=[8],
-                unreviewed_block_category_by_index={},
+            candidate_status=make_candidate_status_result(
+                finalized_candidate_block_indices=[8],
+                unresolved_candidate_route_by_index={},
             ),
         ),
         label_first_result=label_first_result,

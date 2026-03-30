@@ -4,7 +4,26 @@ from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-_REVIEW_EXCLUSION_REASON_CODES = frozenset(
+RECIPE_LOCAL_LINE_ROLE_LABELS: tuple[str, ...] = (
+    "RECIPE_TITLE",
+    "INGREDIENT_LINE",
+    "INSTRUCTION_LINE",
+    "HOWTO_SECTION",
+    "YIELD_LINE",
+    "TIME_LINE",
+    "RECIPE_NOTES",
+    "RECIPE_VARIANT",
+)
+NONRECIPE_ROUTE_LABELS: tuple[str, ...] = (
+    "NONRECIPE_CANDIDATE",
+    "NONRECIPE_EXCLUDE",
+)
+CANONICAL_LINE_ROLE_ALLOWED_LABELS: tuple[str, ...] = (
+    *RECIPE_LOCAL_LINE_ROLE_LABELS,
+    *NONRECIPE_ROUTE_LABELS,
+)
+
+_EXCLUSION_REASON_CODES = frozenset(
     {
         "navigation",
         "front_matter",
@@ -29,12 +48,12 @@ def _unique_string_list(values: Sequence[Any]) -> list[str]:
     return output
 
 
-def _normalize_review_exclusion_reason(value: Any) -> str | None:
+def _normalize_exclusion_reason(value: Any) -> str | None:
     rendered = str(value or "").strip().lower()
     if not rendered:
         return None
-    if rendered not in _REVIEW_EXCLUSION_REASON_CODES:
-        raise ValueError(f"unknown review exclusion reason: {rendered}")
+    if rendered not in _EXCLUSION_REASON_CODES:
+        raise ValueError(f"unknown exclusion reason: {rendered}")
     return rendered
 
 
@@ -51,13 +70,11 @@ class CanonicalLineRolePrediction(BaseModel):
     decided_by: Literal["rule", "codex", "fallback"]
     reason_tags: list[str] = Field(default_factory=list)
     escalation_reasons: list[str] = Field(default_factory=list)
-    review_exclusion_reason: str | None = None
+    exclusion_reason: str | None = None
 
     @model_validator(mode="after")
     def _normalize_metadata(self) -> "CanonicalLineRolePrediction":
         self.escalation_reasons = _unique_string_list(self.escalation_reasons)
         self.reason_tags = _unique_string_list(self.reason_tags)
-        self.review_exclusion_reason = _normalize_review_exclusion_reason(
-            self.review_exclusion_reason
-        )
+        self.exclusion_reason = _normalize_exclusion_reason(self.exclusion_reason)
         return self

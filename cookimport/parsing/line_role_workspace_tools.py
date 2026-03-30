@@ -5,18 +5,12 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from cookimport.llm.canonical_line_role_prompt import build_line_role_label_code_by_label
-
-
-_LABEL_CODE_BY_LABEL = build_line_role_label_code_by_label()
-LINE_ROLE_LABEL_BY_CODE: dict[str, str] = {
-    str(code): str(label)
-    for label, code in _LABEL_CODE_BY_LABEL.items()
-}
-LINE_ROLE_ALLOWED_LABELS: tuple[str, ...] = tuple(
-    label
-    for label, _ in sorted(_LABEL_CODE_BY_LABEL.items(), key=lambda item: item[1])
+from cookimport.parsing.canonical_line_roles.contracts import (
+    CANONICAL_LINE_ROLE_ALLOWED_LABELS,
 )
+
+
+LINE_ROLE_ALLOWED_LABELS: tuple[str, ...] = CANONICAL_LINE_ROLE_ALLOWED_LABELS
 LINE_ROLE_WORKER_TOOL_FILENAME = "line_role_worker.py"
 LINE_ROLE_OUTPUT_CONTRACT_MARKDOWN = """# Line-Role Ledger Contract
 
@@ -30,15 +24,15 @@ Rules:
 
 - The file must be one JSON object with exactly one top-level key: `rows`.
 - `rows` must be a JSON array.
-- Return exactly one row for every owned input row from `in/<shard_id>.json`.
+- Keep exactly one row for every owned input row from `in/<shard_id>.json`.
 - Keep output order identical to the input `rows` order.
-- Each row object must use `atomic_index` and `label`, plus optional `review_exclusion_reason`.
+- Each row object must use `atomic_index` and may add `label`, plus optional `exclusion_reason`.
 - `atomic_index` must match the owned input row at the same position.
 - `label` must be one of:
-  `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `KNOWLEDGE`, `OTHER`
-- `review_exclusion_reason`, when present, must be one of:
+  `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`, `YIELD_LINE`, `TIME_LINE`, `RECIPE_NOTES`, `RECIPE_VARIANT`, `NONRECIPE_CANDIDATE`, `NONRECIPE_EXCLUDE`
+- `exclusion_reason`, when present, must be one of:
   `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `page_furniture`
-- Only use `review_exclusion_reason` on rows labeled `OTHER`, and only for overwhelmingly obvious non-recipe junk that should skip knowledge review.
+- Only use `exclusion_reason` on rows labeled `NONRECIPE_EXCLUDE`, and only for overwhelmingly obvious non-recipe junk that should skip knowledge.
 - Do not add commentary, markdown, or extra JSON keys.
 - There is no separate repo-owned repair model pass for line-role; the work ledger plus `check-phase` is the real repair loop.
 
@@ -52,7 +46,7 @@ Preferred loop:
     python3 tools/line_role_worker.py install-phase
 """
 
-_VALID_REVIEW_EXCLUSION_REASONS = {
+_VALID_EXCLUSION_REASONS = {
     "navigation",
     "front_matter",
     "publishing_metadata",
@@ -102,9 +96,9 @@ def _coerce_input_rows(
         return []
     normalized: list[list[Any]] = []
     for row in rows:
-        if not isinstance(row, (list, tuple)) or len(row) < 3:
+        if not isinstance(row, (list, tuple)) or len(row) < 2:
             continue
-        normalized.append([row[0], row[1], row[2]])
+        normalized.append(list(row))
     return normalized
 
 
@@ -124,17 +118,14 @@ def build_line_role_workspace_shard_metadata(
         if isinstance(candidate_rows, list):
             rows = candidate_rows
     owned_atomic_indices: list[int] = []
-    deterministic_label_counts: Counter[str] = Counter()
     for row in rows:
-        if not isinstance(row, (list, tuple)) or len(row) < 3:
+        if not isinstance(row, (list, tuple)) or not row:
             continue
         try:
             atomic_index = int(row[0])
         except (TypeError, ValueError):
             continue
         owned_atomic_indices.append(atomic_index)
-        deterministic_label = LINE_ROLE_LABEL_BY_CODE.get(str(row[1]).strip(), "OTHER")
-        deterministic_label_counts[deterministic_label] += 1
     return {
         "phase_key": "label_rows",
         "shard_id": str(shard_id),
@@ -146,27 +137,17 @@ def build_line_role_workspace_shard_metadata(
         "owned_row_count": len(owned_atomic_indices),
         "atomic_index_start": owned_atomic_indices[0] if owned_atomic_indices else None,
         "atomic_index_end": owned_atomic_indices[-1] if owned_atomic_indices else None,
-        "deterministic_label_counts": dict(sorted(deterministic_label_counts.items())),
     }
 
 
 def build_line_role_seed_output(shard_row: Mapping[str, Any]) -> dict[str, Any]:
     rows_payload: list[dict[str, Any]] = []
-    unknown_codes: list[str] = []
     for row in _coerce_input_rows(shard_row):
         try:
             atomic_index = int(row[0])
         except (TypeError, ValueError) as exc:
             raise ValueError("input row is missing a valid atomic_index") from exc
-        label_code = str(row[1]).strip()
-        label = LINE_ROLE_LABEL_BY_CODE.get(label_code)
-        if label is None:
-            unknown_codes.append(label_code or "<blank>")
-            label = "OTHER"
-        rows_payload.append({"atomic_index": atomic_index, "label": label})
-    if unknown_codes:
-        rendered = ", ".join(sorted(set(unknown_codes)))
-        raise ValueError(f"unknown line-role label code(s): {rendered}")
+        rows_payload.append({"atomic_index": atomic_index})
     return {"rows": rows_payload}
 
 
@@ -175,21 +156,12 @@ def build_line_role_seed_output_for_workspace(
     shard_row: Mapping[str, Any],
 ) -> dict[str, Any]:
     rows_payload: list[dict[str, Any]] = []
-    unknown_codes: list[str] = []
     for row in _coerce_input_rows(shard_row, workspace_root=workspace_root):
         try:
             atomic_index = int(row[0])
         except (TypeError, ValueError) as exc:
             raise ValueError("input row is missing a valid atomic_index") from exc
-        label_code = str(row[1]).strip()
-        label = LINE_ROLE_LABEL_BY_CODE.get(label_code)
-        if label is None:
-            unknown_codes.append(label_code or "<blank>")
-            label = "OTHER"
-        rows_payload.append({"atomic_index": atomic_index, "label": label})
-    if unknown_codes:
-        rendered = ", ".join(sorted(set(unknown_codes)))
-        raise ValueError(f"unknown line-role label code(s): {rendered}")
+        rows_payload.append({"atomic_index": atomic_index})
     return {"rows": rows_payload}
 
 
@@ -214,11 +186,9 @@ def _normalize_frozen_rows_by_atomic_index(
             "atomic_index": atomic_index,
             "label": str(row.get("label") or "").strip().upper(),
         }
-        review_exclusion_reason = str(
-            row.get("review_exclusion_reason") or ""
-        ).strip()
-        if review_exclusion_reason:
-            normalized_row["review_exclusion_reason"] = review_exclusion_reason
+        exclusion_reason = str(row.get("exclusion_reason") or "").strip()
+        if exclusion_reason:
+            normalized_row["exclusion_reason"] = exclusion_reason
         normalized[atomic_index] = normalized_row
     return normalized
 
@@ -234,7 +204,7 @@ def _input_rows_by_atomic_index(
             atomic_index = int(row[0])
         except (TypeError, ValueError):
             continue
-        rows_by_atomic_index[atomic_index] = [atomic_index, str(row[1]), str(row[2])]
+        rows_by_atomic_index[atomic_index] = list(row)
     return rows_by_atomic_index
 
 
@@ -287,7 +257,7 @@ def validate_line_role_output_payload(
         extra_row_keys = sorted(
             key
             for key in row_payload.keys()
-            if str(key) not in {"atomic_index", "label", "review_exclusion_reason"}
+            if str(key) not in {"atomic_index", "label", "exclusion_reason"}
         )
         if extra_row_keys:
             row_errors.append("extra_row_keys")
@@ -301,12 +271,12 @@ def validate_line_role_output_payload(
         label = str(row_payload.get("label") or "").strip().upper()
         if label not in LINE_ROLE_ALLOWED_LABELS:
             row_errors.append("invalid_label")
-        review_exclusion_reason = str(row_payload.get("review_exclusion_reason") or "").strip()
-        if review_exclusion_reason:
-            if label != "OTHER":
-                row_errors.append("review_exclusion_reason_requires_other")
-            if review_exclusion_reason not in _VALID_REVIEW_EXCLUSION_REASONS:
-                row_errors.append("invalid_review_exclusion_reason")
+        exclusion_reason = str(row_payload.get("exclusion_reason") or "").strip()
+        if exclusion_reason:
+            if label != "NONRECIPE_EXCLUDE":
+                row_errors.append("exclusion_reason_requires_nonrecipe_exclude")
+            if exclusion_reason not in _VALID_EXCLUSION_REASONS:
+                row_errors.append("invalid_exclusion_reason")
         if atomic_index not in expected_atomic_indices:
             row_errors.append("unowned_atomic_index")
         if atomic_index in seen_atomic_indices:
@@ -321,8 +291,8 @@ def validate_line_role_output_payload(
             "atomic_index": atomic_index,
             "label": label,
         }
-        if review_exclusion_reason:
-            normalized_row["review_exclusion_reason"] = review_exclusion_reason
+        if exclusion_reason:
+            normalized_row["exclusion_reason"] = exclusion_reason
         parsed_rows.append(normalized_row)
     if returned_atomic_indices != expected_atomic_indices:
         if len(returned_atomic_indices) == len(expected_atomic_indices):
@@ -437,17 +407,11 @@ def render_line_role_shard_overview(
     for index, shard_row in enumerate(shard_rows, start=1):
         shard_id = str(shard_row.get("shard_id") or "").strip() or f"shard-{index:03d}"
         metadata = _coerce_metadata(shard_row)
-        counts = metadata.get("deterministic_label_counts")
-        rendered_counts = (
-            ", ".join(f"{label}={count}" for label, count in dict(counts).items())
-            if isinstance(counts, Mapping) and counts
-            else "unknown"
-        )
         current_marker = " current" if shard_id == str(current_shard_id or "").strip() else ""
         lines.append(
             f"- {shard_id}{current_marker}: rows={metadata.get('owned_row_count')}, "
             f"atomic={metadata.get('atomic_index_start')}..{metadata.get('atomic_index_end')}, "
-            f"labels={rendered_counts}, work={metadata.get('work_path') or 'unknown'}"
+            f"work={metadata.get('work_path') or 'unknown'}"
         )
     return "\n".join(lines) + "\n"
 
@@ -466,26 +430,12 @@ def render_line_role_shard_show(shard_row: Mapping[str, Any]) -> str:
         f"atomic_index_start: {metadata.get('atomic_index_start')}",
         f"atomic_index_end: {metadata.get('atomic_index_end')}",
     ]
-    counts = metadata.get("deterministic_label_counts")
-    if isinstance(counts, Mapping) and counts:
-        lines.append(
-            "deterministic_label_counts: "
-            + ", ".join(f"{label}={count}" for label, count in dict(counts).items())
-        )
-    else:
-        lines.append("deterministic_label_counts: none")
     return "\n".join(lines) + "\n"
 
 
 def render_line_role_current_phase_brief(phase_row: Mapping[str, Any]) -> str:
     shard_id = str(phase_row.get("shard_id") or "").strip() or "<unknown>"
     metadata = _coerce_metadata(phase_row)
-    counts = metadata.get("deterministic_label_counts")
-    rendered_counts = (
-        ", ".join(f"{label}={count}" for label, count in dict(counts).items())
-        if isinstance(counts, Mapping) and counts
-        else "unknown"
-    )
     return "\n".join(
         [
             "# Current Line-Role Phase",
@@ -494,7 +444,6 @@ def render_line_role_current_phase_brief(phase_row: Mapping[str, Any]) -> str:
             f"Shard id: `{shard_id}`",
             f"Owned rows: `{metadata.get('owned_row_count')}`",
             f"Atomic span: `{metadata.get('atomic_index_start')}..{metadata.get('atomic_index_end')}`",
-            f"Deterministic labels: {rendered_counts}",
             "",
             "Read order:",
             f"1. Work ledger: `{metadata.get('work_path') or '<missing>'}`",
@@ -564,8 +513,7 @@ def render_line_role_current_phase_feedback(
 
 def render_line_role_worker_script() -> str:
     allowed_labels_json = json.dumps(list(LINE_ROLE_ALLOWED_LABELS), sort_keys=True)
-    label_by_code_json = json.dumps(LINE_ROLE_LABEL_BY_CODE, sort_keys=True)
-    valid_reasons_json = json.dumps(sorted(_VALID_REVIEW_EXCLUSION_REASONS))
+    valid_reasons_json = json.dumps(sorted(_VALID_EXCLUSION_REASONS))
     script = """#!/usr/bin/env python3
 from __future__ import annotations
 
@@ -574,8 +522,7 @@ import json
 from pathlib import Path
 
 ALLOWED_LABELS = __ALLOWED_LABELS_JSON__
-LABEL_BY_CODE = __LABEL_BY_CODE_JSON__
-VALID_REVIEW_EXCLUSION_REASONS = __VALID_REASONS_JSON__
+VALID_EXCLUSION_REASONS = __VALID_REASONS_JSON__
 
 
 def load_json(path: Path):
@@ -664,29 +611,20 @@ def coerce_input_rows(workspace_root: Path, shard_row):
         return []
     normalized = []
     for row in rows:
-        if not isinstance(row, (list, tuple)) or len(row) < 3:
+        if not isinstance(row, (list, tuple)) or len(row) < 1:
             continue
-        normalized.append([row[0], row[1], row[2]])
+        normalized.append(list(row))
     return normalized
 
 
 def build_seed_output(workspace_root: Path, shard_row):
     rows_payload = []
-    unknown_codes = []
     for row in coerce_input_rows(workspace_root, shard_row):
         try:
             atomic_index = int(row[0])
         except (TypeError, ValueError):
             raise SystemExit("input row is missing a valid atomic_index")
-        code = str(row[1]).strip()
-        label = LABEL_BY_CODE.get(code)
-        if label is None:
-            unknown_codes.append(code or "<blank>")
-            label = "OTHER"
-        rows_payload.append({{"atomic_index": atomic_index, "label": label}})
-    if unknown_codes:
-        rendered = ", ".join(sorted(set(unknown_codes)))
-        raise SystemExit(f"unknown line-role label code(s): {{rendered}}")
+        rows_payload.append({{"atomic_index": atomic_index}})
     return {{"rows": rows_payload}}
 
 
@@ -709,9 +647,9 @@ def normalize_frozen_rows(frozen_rows):
             "atomic_index": atomic_index,
             "label": str(row.get("label") or "").strip().upper(),
         }}
-        review_exclusion_reason = str(row.get("review_exclusion_reason") or "").strip()
-        if review_exclusion_reason:
-            normalized_row["review_exclusion_reason"] = review_exclusion_reason
+        exclusion_reason = str(row.get("exclusion_reason") or "").strip()
+        if exclusion_reason:
+            normalized_row["exclusion_reason"] = exclusion_reason
         normalized[atomic_index] = normalized_row
     return normalized
 
@@ -768,7 +706,7 @@ def validate_payload(workspace_root: Path, shard_row, payload, *, frozen_rows_by
         extra_row_keys = sorted(
             key
             for key in row_payload.keys()
-            if str(key) not in {{"atomic_index", "label", "review_exclusion_reason"}}
+            if str(key) not in {{"atomic_index", "label", "exclusion_reason"}}
         )
         if extra_row_keys:
             row_errors.append("extra_row_keys")
@@ -782,12 +720,12 @@ def validate_payload(workspace_root: Path, shard_row, payload, *, frozen_rows_by
         label = str(row_payload.get("label") or "").strip().upper()
         if label not in ALLOWED_LABELS:
             row_errors.append("invalid_label")
-        review_exclusion_reason = str(row_payload.get("review_exclusion_reason") or "").strip()
-        if review_exclusion_reason:
-            if label != "OTHER":
-                row_errors.append("review_exclusion_reason_requires_other")
-            if review_exclusion_reason not in VALID_REVIEW_EXCLUSION_REASONS:
-                row_errors.append("invalid_review_exclusion_reason")
+        exclusion_reason = str(row_payload.get("exclusion_reason") or "").strip()
+        if exclusion_reason:
+            if label != "NONRECIPE_EXCLUDE":
+                row_errors.append("exclusion_reason_requires_nonrecipe_exclude")
+            if exclusion_reason not in VALID_EXCLUSION_REASONS:
+                row_errors.append("invalid_exclusion_reason")
         if atomic_index not in expected_atomic_indices:
             row_errors.append("unowned_atomic_index")
         if atomic_index in seen_atomic_indices:
@@ -802,8 +740,8 @@ def validate_payload(workspace_root: Path, shard_row, payload, *, frozen_rows_by
             "atomic_index": atomic_index,
             "label": label,
         }}
-        if review_exclusion_reason:
-            normalized_row["review_exclusion_reason"] = review_exclusion_reason
+        if exclusion_reason:
+            normalized_row["exclusion_reason"] = exclusion_reason
         parsed_rows.append(normalized_row)
     if returned_atomic_indices != expected_atomic_indices:
         if len(returned_atomic_indices) == len(expected_atomic_indices):
@@ -927,12 +865,6 @@ def write_current_phase_files(workspace_root: Path, shard_row, *, completed=Fals
     payload = {{"phase_key": "label_rows", "status": "active", **shard_row}}
     save_json(current_phase_path, payload)
     metadata = coerce_metadata(shard_row)
-    counts = metadata.get("deterministic_label_counts")
-    rendered_counts = (
-        ", ".join(f"{{label}}={{count}}" for label, count in counts.items())
-        if isinstance(counts, dict) and counts
-        else "unknown"
-    )
     save_text(
         current_phase_brief_path,
         "\\n".join(
@@ -943,7 +875,6 @@ def write_current_phase_files(workspace_root: Path, shard_row, *, completed=Fals
                 f"Shard id: `{{shard_row.get('shard_id') or '<unknown>'}}`",
                 f"Owned rows: `{{metadata.get('owned_row_count')}}`",
                 f"Atomic span: `{{metadata.get('atomic_index_start')}}..{{metadata.get('atomic_index_end')}}`",
-                f"Deterministic labels: {{rendered_counts}}",
                 "",
                 "Read order:",
                 f"1. Work ledger: `{{metadata.get('work_path') or '<missing>'}}`",
@@ -998,17 +929,11 @@ def cmd_overview(workspace_root: Path):
     for index, shard_row in enumerate(assigned_shards, start=1):
         shard_id = str(shard_row.get("shard_id") or "").strip() or f"shard-{{index:03d}}"
         metadata = coerce_metadata(shard_row)
-        counts = metadata.get("deterministic_label_counts")
-        rendered_counts = (
-            ", ".join(f"{{label}}={{count}}" for label, count in counts.items())
-            if isinstance(counts, dict) and counts
-            else "unknown"
-        )
         current_marker = " current" if shard_id == current_shard_id else ""
         print(
             f"- {{shard_id}}{{current_marker}}: rows={{metadata.get('owned_row_count')}}, "
             f"atomic={{metadata.get('atomic_index_start')}}..{{metadata.get('atomic_index_end')}}, "
-            f"labels={{rendered_counts}}, work={{metadata.get('work_path') or 'unknown'}}"
+            f"work={{metadata.get('work_path') or 'unknown'}}"
         )
 
 
@@ -1024,12 +949,6 @@ def cmd_show(workspace_root: Path, shard_id: str | None):
     print(f"owned_row_count: {{metadata.get('owned_row_count')}}")
     print(f"atomic_index_start: {{metadata.get('atomic_index_start')}}")
     print(f"atomic_index_end: {{metadata.get('atomic_index_end')}}")
-    counts = metadata.get("deterministic_label_counts")
-    if isinstance(counts, dict) and counts:
-        rendered_counts = ", ".join(f"{{label}}={{count}}" for label, count in counts.items())
-    else:
-        rendered_counts = "none"
-    print(f"deterministic_label_counts: {{rendered_counts}}")
 
 
 def cmd_scaffold(workspace_root: Path, shard_id: str | None, dest: str | None):
@@ -1069,9 +988,9 @@ def cmd_check_phase(workspace_root: Path, shard_id: str | None):
     repair_written = False
     if errors and repair_path:
         input_row_by_atomic_index = {{
-            int(row[0]): [int(row[0]), str(row[1]), str(row[2])]
+            int(row[0]): list(row)
             for row in coerce_input_rows(workspace_root, shard_row)
-            if len(row) >= 3
+            if row
         }}
         unresolved_atomic_indices = [
             int(value)
@@ -1264,7 +1183,6 @@ if __name__ == "__main__":
 """
     return (
         script.replace("__ALLOWED_LABELS_JSON__", allowed_labels_json)
-        .replace("__LABEL_BY_CODE_JSON__", label_by_code_json)
         .replace("__VALID_REASONS_JSON__", valid_reasons_json)
         .replace("{{", "{")
         .replace("}}", "}")

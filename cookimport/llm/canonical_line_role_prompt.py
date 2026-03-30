@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
-from cookimport.labelstudio.label_config_freeform import FREEFORM_LABELS
 from cookimport.parsing.recipe_block_atomizer import (
     AtomicLineCandidate,
     build_atomic_index_lookup,
@@ -16,6 +15,18 @@ LineRolePromptFormat = Literal["compact_v1"]
 _PROMPT_ROOT = Path(__file__).resolve().parents[2] / "llm_pipelines" / "prompts"
 _INLINE_TEMPLATE_PATH = _PROMPT_ROOT / "canonical-line-role-v1.prompt.md"
 _FILE_PROMPT_TEMPLATE_PATH = _PROMPT_ROOT / "line-role.canonical.v1.prompt.md"
+_DEFAULT_ALLOWED_LABELS: tuple[str, ...] = (
+    "RECIPE_TITLE",
+    "INGREDIENT_LINE",
+    "INSTRUCTION_LINE",
+    "HOWTO_SECTION",
+    "YIELD_LINE",
+    "TIME_LINE",
+    "RECIPE_NOTES",
+    "RECIPE_VARIANT",
+    "NONRECIPE_CANDIDATE",
+    "NONRECIPE_EXCLUDE",
+)
 
 _INLINE_TEMPLATE_FALLBACK = """You are reviewing deterministic canonical line-role labels for cookbook atomic lines.
 
@@ -170,15 +181,15 @@ def build_canonical_line_role_prompt(
 ) -> str:
     if not targets:
         raise ValueError("targets cannot be empty")
-    resolved_allowed = [str(label) for label in (allowed_labels or FREEFORM_LABELS)]
+    resolved_allowed = [
+        str(label) for label in (allowed_labels or _DEFAULT_ALLOWED_LABELS)
+    ]
     resolved_format = _normalize_prompt_format(prompt_format)
-    label_code_by_label = _build_label_code_by_label(resolved_allowed)
     rendered_targets = serialize_line_role_targets(
         targets,
         allowed_labels=resolved_allowed,
         deterministic_labels_by_atomic_index=deterministic_labels_by_atomic_index,
         escalation_reasons_by_atomic_index=escalation_reasons_by_atomic_index,
-        label_code_by_label=label_code_by_label,
     )
     template = _load_prompt_template(
         template_path=_INLINE_TEMPLATE_PATH,
@@ -186,14 +197,10 @@ def build_canonical_line_role_prompt(
     )
     rendered = template.replace("{{ALLOWED_LABELS}}", ", ".join(resolved_allowed))
     rendered = rendered.replace(
-        "{{LABEL_CODE_LEGEND}}",
-        _render_label_code_legend(label_code_by_label),
-    )
-    rendered = rendered.replace(
         "{{PRECEDENCE_ORDER}}",
         "RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION > "
         "INGREDIENT_LINE > INSTRUCTION_LINE > TIME_LINE > RECIPE_NOTES > "
-        "KNOWLEDGE > OTHER",
+        "NONRECIPE_EXCLUDE > NONRECIPE_CANDIDATE",
     )
     rendered = rendered.replace(
         "{{TARGET_ROW_FORMAT}}",
@@ -215,7 +222,9 @@ def build_canonical_line_role_prompt(
 def build_line_role_label_code_by_label(
     labels: Sequence[str] | None = None,
 ) -> dict[str, str]:
-    resolved_labels = [str(label) for label in (labels or FREEFORM_LABELS)]
+    resolved_labels = [
+        str(label) for label in (labels or _DEFAULT_ALLOWED_LABELS)
+    ]
     return _build_label_code_by_label(resolved_labels)
 
 
@@ -353,23 +362,11 @@ def serialize_line_role_targets(
     allowed_labels: Sequence[str],
     deterministic_labels_by_atomic_index: Mapping[int, str] | None = None,
     escalation_reasons_by_atomic_index: Mapping[int, Sequence[str]] | None = None,
-    label_code_by_label: Mapping[str, str] | None = None,
 ) -> str:
-    allowed_label_set = {str(label).strip().upper() for label in allowed_labels}
-    resolved_label_codes = (
-        dict(label_code_by_label)
-        if label_code_by_label is not None
-        else _build_label_code_by_label(allowed_labels)
-    )
+    del allowed_labels, deterministic_labels_by_atomic_index
     lines: list[str] = []
     for candidate in targets:
         atomic_index = int(candidate.atomic_index)
-        deterministic_label = _prompt_deterministic_label(
-            deterministic_labels_by_atomic_index.get(atomic_index)
-            if deterministic_labels_by_atomic_index is not None
-            else None,
-            allowed_labels=allowed_label_set,
-        )
         escalation_reasons = (
             escalation_reasons_by_atomic_index.get(atomic_index)
             if escalation_reasons_by_atomic_index is not None
@@ -378,10 +375,6 @@ def serialize_line_role_targets(
         lines.append(
             _serialize_compact_target_row(
                 atomic_index=atomic_index,
-                label_code=resolved_label_codes.get(
-                    deterministic_label,
-                    resolved_label_codes.get("OTHER", "L0"),
-                ),
                 span_code=_span_code(candidate.within_recipe_span),
                 hint_codes=_render_hint_codes(
                     candidate.rule_tags,
@@ -397,7 +390,7 @@ def _line_role_row_format_text(prompt_format: LineRolePromptFormat) -> str:
     del prompt_format
     return (
         "One pipe-delimited row per line: "
-        "atomic_index|label_code|span_code|hint_codes|current_line. "
+        "atomic_index|span_code|hint_codes|current_line. "
         "Grounding windows are separate rows shaped like "
         "`ctx:<atomic_index>|prev=...|line=...|next=...` for selected ambiguous lines."
     )
@@ -480,27 +473,15 @@ def _normalize_prompt_format(value: str) -> LineRolePromptFormat:
     return "compact_v1"
 
 
-def _prompt_deterministic_label(
-    raw_label: str | None,
-    *,
-    allowed_labels: set[str],
-) -> str:
-    normalized = str(raw_label or "").strip().upper() or "OTHER"
-    if normalized not in allowed_labels:
-        return "OTHER"
-    return normalized
-
-
 def _serialize_compact_target_row(
     *,
     atomic_index: int,
-    label_code: str,
     span_code: str,
     hint_codes: str,
     current_line: str,
 ) -> str:
     return (
-        f"{int(atomic_index)}|{str(label_code)}|{str(span_code)}|"
+        f"{int(atomic_index)}|{str(span_code)}|"
         f"{_escape_compact_text(hint_codes)}|{_escape_compact_text(current_line)}"
     )
 
@@ -568,7 +549,7 @@ def _render_local_context_rows(
     escalation_reasons_by_atomic_index: Mapping[int, Sequence[str]] | None,
     by_atomic_index: Mapping[int, AtomicLineCandidate] | None,
 ) -> str:
-    allowed_labels = {str(label).strip().upper() for label in FREEFORM_LABELS}
+    del deterministic_labels_by_atomic_index
     resolved_by_atomic_index = (
         dict(by_atomic_index)
         if by_atomic_index is not None
@@ -576,21 +557,13 @@ def _render_local_context_rows(
     )
     rows: list[str] = []
     for candidate in targets:
-        atomic_index = int(candidate.atomic_index)
-        deterministic_label = _prompt_deterministic_label(
-            deterministic_labels_by_atomic_index.get(atomic_index)
-            if deterministic_labels_by_atomic_index is not None
-            else None,
-            allowed_labels=allowed_labels,
-        )
         escalation_reasons = (
-            escalation_reasons_by_atomic_index.get(atomic_index)
+            escalation_reasons_by_atomic_index.get(int(candidate.atomic_index))
             if escalation_reasons_by_atomic_index is not None
             else ()
         )
         if not _should_render_context_window(
             candidate,
-            deterministic_label=deterministic_label,
             escalation_reasons=escalation_reasons,
         ):
             continue
@@ -610,21 +583,13 @@ def _render_local_context_rows(
 def _should_render_context_window(
     candidate: AtomicLineCandidate,
     *,
-    deterministic_label: str,
     escalation_reasons: Sequence[str],
 ) -> bool:
     if escalation_reasons:
         return True
     if candidate.within_recipe_span is not True:
         return True
-    return deterministic_label in {
-        "OTHER",
-        "KNOWLEDGE",
-        "RECIPE_TITLE",
-        "RECIPE_VARIANT",
-        "HOWTO_SECTION",
-        "RECIPE_NOTES",
-    }
+    return True
 
 
 def _context_text(value: str | None) -> str:

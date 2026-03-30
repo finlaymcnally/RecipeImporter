@@ -96,10 +96,10 @@ Per run, output root:
 Per workbook (slugified file stem):
 
 - `08_nonrecipe_seed_routing.json`
-- `08_nonrecipe_review_exclusions.jsonl`
+- `08_nonrecipe_exclusions.jsonl`
 - `09_nonrecipe_authority.json`
 - `09_nonrecipe_knowledge_groups.json`
-- `09_nonrecipe_review_status.json`
+- `09_nonrecipe_candidate_status.json`
 - `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json`
 - `label_det/<workbook_slug>/labeled_lines.jsonl`
 - `label_det/<workbook_slug>/block_labels.json`
@@ -166,22 +166,22 @@ Tags embedding note:
 Recipe-authority note:
 - `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json` is the canonical semantic handoff from Stage 3 into staging writes.
 - When recipe Codex is enabled and validates, its promoted correction payload becomes the semantic owner for title, description, ingredients, instructions, notes, yield phrase, variants, tags, and ingredient-step links.
-- Recipe Codex task outcomes now stay explicit even when they do not promote. `recipe_phase_runtime/promotion_report.json` records whether a validated recipe task result is `promotable` or `non_promotable`, while `recipe_manifest.json` and `recipe_correction_audit/*.json` record whether final recipe authority was actually `promoted` or intentionally `not_promoted`.
+- Recipe Codex task outcomes now stay explicit even when they do not promote. `recipe_phase_runtime/promotion_report.json` records whether a validated recipe task result is `promotable` or `non_promotable`, and also exposes `handled_locally_skip_llm` when repo-authored fragmentary / non-recipe scaffolds were finalized without a worker round-trip. `recipe_manifest.json` mirrors the topline local-skip count, while `recipe_correction_audit/*.json` still records whether final recipe authority was actually `promoted` or intentionally `not_promoted`.
 - When recipe Codex is off or falls back, `pipeline_runtime.py` still emits the same payload shape deterministically so writer contracts stay uniform.
 - `write_intermediate_outputs(...)`, `write_draft_outputs(...)`, and `write_section_outputs(...)` now project from that payload first; active stage-backed runtime code no longer threads legacy override dicts as a parallel authority lane, and `CodexFarmApplyResult` no longer publishes recipe override maps as part of the live stage contract.
 
 Stage-block `KNOWLEDGE` label contract:
 - `stage_block_predictions.json` now uses only the explicit final non-recipe authority recorded in `09_nonrecipe_authority.json`.
-- `08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` artifact (legacy Stage 7 routing). It keeps review eligibility, exclusions, exclusion reasons, block ids, and previews, but it does not publish seed semantic category maps.
-- The nonrecipe router consumes authoritative block labels, not repair heuristics: valid `OTHER` without `review_exclusion_reason` stays review-eligible, valid `OTHER` with an exclusion reason becomes excluded final `other`, and malformed authoritative labels are hard errors.
+- `08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` artifact. It keeps candidate/exclude routing, exclusion reasons, block ids, and previews, but it does not publish final semantic category guesses.
+- The nonrecipe router consumes authoritative block labels, not repair heuristics: `NONRECIPE_CANDIDATE` feeds the knowledge queue, `NONRECIPE_EXCLUDE` becomes immediate final `other`, and malformed authoritative labels are hard errors.
 - `09_nonrecipe_authority.json` is the only final-truth artifact for outside-recipe `knowledge` versus `other`. It contains only authoritative spans, categories, and block indices.
 - `09_nonrecipe_knowledge_groups.json` is the explicit promoted-group artifact for packet-reviewed related ideas. It is reviewer/debug context, not the category-authority file.
-- `09_nonrecipe_review_status.json` is the runtime-status artifact for reviewed, skipped, changed, and unresolved review-eligible rows. It keeps unreviewed fallback metadata out of the authority file while still making incompleteness visible.
-- `08_nonrecipe_review_exclusions.jsonl` is the row-level explanation ledger for the upstream obvious-junk veto. When knowledge input looks too large or a row seems to have disappeared before review, inspect this file before changing scorer math or knowledge prompts.
+- `09_nonrecipe_candidate_status.json` is the runtime-status artifact for finalized and unresolved candidate rows. It keeps unresolved candidate metadata out of the authority file while still making incompleteness visible.
+- `08_nonrecipe_exclusions.jsonl` is the row-level explanation ledger for the upstream obvious-junk veto. When knowledge input looks too large or a row seems to have disappeared before review, inspect this file before changing scorer math or knowledge prompts.
 - Optional knowledge groups are reviewer-facing context; Codex `block_decisions` are what refine final `KNOWLEDGE` versus `OTHER`, and the promoted group artifact records how the model grouped those kept blocks.
-- Review-eligible rows that remain unreviewed now stay explicit in benchmark/Label Studio metadata as `unresolved_review_eligible_*`; semantic scoring excludes them instead of flattening them into `OTHER`.
+- Candidate rows that remain unresolved now stay explicit in benchmark/Label Studio metadata as `unresolved_candidate_*`; semantic scoring excludes them instead of flattening them into `OTHER`.
 - `ConversionResult.non_recipe_blocks` mirrors strict final outside-recipe authority only.
-- Table extraction and deterministic knowledge-off chunk generation use a separate late-output block list. When knowledge review runs and produces reviewed authority, that late-output list is the authoritative outside-recipe rows; when knowledge review is off or falls back, it is the surviving outside-recipe review queue.
+- Table extraction and deterministic knowledge-off chunk generation use a separate late-output block list. When knowledge review runs and produces reviewed authority, that late-output list is the authoritative outside-recipe rows; when knowledge review is off or falls back, it is the surviving outside-recipe candidate queue.
 - Final semantic `KNOWLEDGE` evidence still comes only from `09_nonrecipe_authority.json`.
 
 Stage-block label resolution contract:

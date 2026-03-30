@@ -14,8 +14,8 @@ from cookimport.labelstudio.howto_section import resolve_howto_label_sets_by_ind
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
 from cookimport.staging.stage_block_predictions import (
     FREEFORM_LABELS,
-    UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY,
-    UNRESOLVED_REVIEW_BLOCK_INDICES_KEY,
+    UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY,
+    UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY,
 )
 
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
@@ -1400,10 +1400,10 @@ def load_stage_block_prediction_manifest(
                 f"missing labels for {len(missing)} indices."
             )
 
-    raw_unresolved_indices = payload.get(UNRESOLVED_REVIEW_BLOCK_INDICES_KEY) or []
+    raw_unresolved_indices = payload.get(UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY) or []
     if not isinstance(raw_unresolved_indices, list):
         raise ValueError(
-            f"Stage block predictions field {UNRESOLVED_REVIEW_BLOCK_INDICES_KEY!r} must be a list."
+            f"Stage block predictions field {UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY!r} must be a list."
         )
     unresolved_block_indices: list[int] = []
     for raw_index in raw_unresolved_indices:
@@ -1418,10 +1418,10 @@ def load_stage_block_prediction_manifest(
         unresolved_block_indices.append(index)
     unresolved_block_indices = sorted(set(unresolved_block_indices))
 
-    raw_unresolved_categories = payload.get(UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY) or {}
+    raw_unresolved_categories = payload.get(UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY) or {}
     if not isinstance(raw_unresolved_categories, dict):
         raise ValueError(
-            f"Stage block predictions field {UNRESOLVED_REVIEW_BLOCK_CATEGORY_KEY!r} must be an object."
+            f"Stage block predictions field {UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY!r} must be an object."
         )
     unresolved_block_category_by_index: dict[int, str] = {}
     for raw_index, raw_category in raw_unresolved_categories.items():
@@ -1431,10 +1431,10 @@ def load_stage_block_prediction_manifest(
                 f"Invalid unresolved category block index in stage predictions: {raw_index!r}"
             )
         category = str(raw_category or "").strip().lower()
-        if category not in {"knowledge", "other"}:
+        if category not in {"candidate"}:
             raise ValueError(
-                "Invalid unresolved non-recipe category "
-                f"{raw_category!r} at block {index}; expected 'knowledge' or 'other'."
+                "Invalid unresolved non-recipe route "
+                f"{raw_category!r} at block {index}; expected 'candidate'."
             )
         unresolved_block_category_by_index[index] = category
     if unresolved_block_category_by_index and set(unresolved_block_category_by_index) != set(
@@ -1511,8 +1511,8 @@ def format_stage_block_eval_report_md(report: dict[str, Any]) -> str:
             f"{int(authority_coverage.get('total_prediction_blocks') or 0)})"
         ),
         (
-            "- Unresolved review-eligible blocks: "
-            f"{int(authority_coverage.get('unresolved_review_eligible_blocks') or 0)}"
+            "- Unresolved candidate blocks: "
+            f"{int(authority_coverage.get('unresolved_candidate_blocks') or 0)}"
         ),
         f"- Correct: {int(counts.get('gold_matched') or 0)}",
         f"- Mismatched: {int(counts.get('gold_missed') or 0)}",
@@ -1854,14 +1854,14 @@ def evaluate_stage_blocks(
         "scoring_mode": "authoritative_predictions_only",
         "total_prediction_blocks": len(pred),
         "scored_prediction_blocks": len(scored_pred),
-        "unresolved_review_eligible_blocks": len(unresolved_block_indices),
+        "unresolved_candidate_blocks": len(unresolved_block_indices),
         "prediction_coverage": (
             (len(scored_pred) / len(pred))
             if pred
             else 1.0
         ),
-        "unresolved_review_eligible_block_indices": unresolved_block_indices,
-        "unresolved_review_eligible_block_category_by_index": {
+        "unresolved_candidate_block_indices": unresolved_block_indices,
+        "unresolved_candidate_route_by_index": {
             index: pred_manifest.unresolved_block_category_by_index[index]
             for index in unresolved_block_indices
             if index in pred_manifest.unresolved_block_category_by_index
@@ -2039,7 +2039,7 @@ def evaluate_stage_blocks(
             "gold_block_count": float(len(gold)),
             "prediction_block_count": float(len(pred)),
             "scored_prediction_block_count": float(len(scored_pred)),
-            "unresolved_review_eligible_block_count": float(len(unresolved_block_indices)),
+            "unresolved_candidate_block_count": float(len(unresolved_block_indices)),
             "prediction_authority_coverage": float(
                 (len(scored_pred) / len(pred))
                 if pred

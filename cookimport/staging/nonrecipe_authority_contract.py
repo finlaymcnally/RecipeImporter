@@ -16,12 +16,12 @@ class NonRecipeSpan:
 
 @dataclass(frozen=True, slots=True)
 class NonRecipeRoutingResult:
-    review_routing_by_block: dict[int, str]
-    review_eligible_nonrecipe_spans: list[NonRecipeSpan]
-    review_excluded_other_spans: list[NonRecipeSpan]
-    review_eligible_block_indices: list[int]
-    review_excluded_block_indices: list[int]
-    review_exclusion_reason_by_block: dict[int, str]
+    route_by_block: dict[int, str]
+    candidate_nonrecipe_spans: list[NonRecipeSpan]
+    excluded_nonrecipe_spans: list[NonRecipeSpan]
+    candidate_block_indices: list[int]
+    excluded_block_indices: list[int]
+    exclusion_reason_by_block: dict[int, str]
     block_preview_by_index: dict[int, str]
     warnings: list[str]
 
@@ -36,35 +36,35 @@ class NonRecipeAuthorityResult:
 
 
 @dataclass(frozen=True, slots=True)
-class NonRecipeReviewStatusResult:
-    reviewed_block_indices: list[int]
-    unreviewed_review_eligible_block_indices: list[int]
-    unreviewed_block_category_by_index: dict[int, str]
-    unreviewed_spans: list[NonRecipeSpan]
+class NonRecipeCandidateStatusResult:
+    finalized_candidate_block_indices: list[int]
+    unresolved_candidate_block_indices: list[int]
+    unresolved_candidate_route_by_index: dict[int, str]
+    unresolved_candidate_spans: list[NonRecipeSpan]
 
 
 @dataclass(frozen=True, slots=True)
 class NonRecipeSeedResult:
     seed_nonrecipe_spans: list[NonRecipeSpan]
-    seed_knowledge_spans: list[NonRecipeSpan]
-    seed_other_spans: list[NonRecipeSpan]
-    seed_block_category_by_index: dict[int, str]
+    seed_candidate_spans: list[NonRecipeSpan]
+    seed_excluded_spans: list[NonRecipeSpan]
+    seed_route_by_index: dict[int, str]
 
 
 @dataclass(frozen=True, slots=True)
 class NonRecipeScoringView:
     authoritative_block_indices: list[int]
     authoritative_block_category_by_index: dict[int, str]
-    unresolved_review_eligible_block_indices: list[int]
-    unresolved_review_eligible_block_category_by_index: dict[int, str]
+    unresolved_candidate_block_indices: list[int]
+    unresolved_candidate_route_by_index: dict[int, str]
 
 
 @dataclass(frozen=True, slots=True)
 class NonRecipeAuthorityContract:
     final_blocks: list[dict[str, Any]]
-    review_queue_blocks: list[dict[str, Any]]
+    candidate_queue_blocks: list[dict[str, Any]]
     excluded_blocks: list[dict[str, Any]]
-    review_status: NonRecipeReviewStatusResult
+    candidate_status: NonRecipeCandidateStatusResult
     late_output_blocks: list[dict[str, Any]]
     scoring_view: NonRecipeScoringView
     late_output_mode: str
@@ -75,38 +75,27 @@ class NonRecipeStageResult:
     seed: NonRecipeSeedResult
     routing: NonRecipeRoutingResult
     authority: NonRecipeAuthorityResult
-    review_status: NonRecipeReviewStatusResult
+    candidate_status: NonRecipeCandidateStatusResult
     refinement_report: dict[str, Any] = field(default_factory=dict)
 
     def authoritative_block_category_by_index(self) -> dict[int, str]:
         return dict(self.authority.authoritative_block_category_by_index)
 
-    def unreviewed_block_category_by_index(self) -> dict[int, str]:
-        return dict(self.review_status.unreviewed_block_category_by_index)
+    def unresolved_candidate_route_by_index(self) -> dict[int, str]:
+        return dict(self.candidate_status.unresolved_candidate_route_by_index)
 
-    def review_eligible_block_seed_category_by_index(self) -> dict[int, str]:
-        return {
-            int(index): self.seed.seed_block_category_by_index[int(index)]
-            for index in self.routing.review_eligible_block_indices
-            if int(index) in self.seed.seed_block_category_by_index
-        }
-
-    def surviving_review_block_category_by_index(self) -> dict[int, str]:
-        categories: dict[int, str] = {}
+    def candidate_block_route_by_index(self) -> dict[int, str]:
+        routes: dict[int, str] = {}
         authoritative = self.authority.authoritative_block_category_by_index
-        unresolved = self.review_status.unreviewed_block_category_by_index
-        seed = self.seed.seed_block_category_by_index
-        for raw_index in self.routing.review_eligible_block_indices:
+        unresolved = self.candidate_status.unresolved_candidate_route_by_index
+        for raw_index in self.routing.candidate_block_indices:
             index = int(raw_index)
             if index in authoritative:
-                categories[index] = str(authoritative[index])
+                routes[index] = str(authoritative[index])
                 continue
             if index in unresolved:
-                categories[index] = str(unresolved[index])
-                continue
-            if index in seed:
-                categories[index] = str(seed[index])
-        return categories
+                routes[index] = str(unresolved[index])
+        return routes
 
     def authoritative_nonrecipe_spans(self) -> list[NonRecipeSpan]:
         return list(self.authority.authoritative_nonrecipe_spans)
@@ -117,5 +106,5 @@ class NonRecipeStageResult:
     def authoritative_other_spans(self) -> list[NonRecipeSpan]:
         return list(self.authority.authoritative_other_spans)
 
-    def unreviewed_nonrecipe_spans(self) -> list[NonRecipeSpan]:
-        return list(self.review_status.unreviewed_spans)
+    def unresolved_candidate_spans(self) -> list[NonRecipeSpan]:
+        return list(self.candidate_status.unresolved_candidate_spans)

@@ -26,20 +26,24 @@ def build_nonrecipe_authority_result(
         for index in authoritative_block_indices
         if int(index) in block_category_by_index
     }
-    authoritative_nonrecipe_spans, authoritative_knowledge_spans, authoritative_other_spans = (
-        build_nonrecipe_spans_from_categories(
-            full_blocks_by_index=full_blocks_by_index,
-            block_category_by_index=authoritative_block_category_by_index,
-        )
+    authoritative_nonrecipe_spans = build_nonrecipe_spans_from_categories(
+        full_blocks_by_index=full_blocks_by_index,
+        block_category_by_index=authoritative_block_category_by_index,
     )
     return NonRecipeAuthorityResult(
         authoritative_block_indices=[
-            int(index) for index in authoritative_block_indices if int(index) in block_category_by_index
+            int(index)
+            for index in authoritative_block_indices
+            if int(index) in block_category_by_index
         ],
         authoritative_block_category_by_index=authoritative_block_category_by_index,
         authoritative_nonrecipe_spans=authoritative_nonrecipe_spans,
-        authoritative_knowledge_spans=authoritative_knowledge_spans,
-        authoritative_other_spans=authoritative_other_spans,
+        authoritative_knowledge_spans=[
+            span for span in authoritative_nonrecipe_spans if span.category == "knowledge"
+        ],
+        authoritative_other_spans=[
+            span for span in authoritative_nonrecipe_spans if span.category == "other"
+        ],
     )
 
 
@@ -74,41 +78,38 @@ def build_nonrecipe_authority_contract(
         block_indices=stage_result.authority.authoritative_block_indices,
         block_category_by_index=stage_result.authority.authoritative_block_category_by_index,
     )
-    review_queue_categories = stage_result.surviving_review_block_category_by_index()
-    review_queue_blocks = _block_rows_for_indices(
+    candidate_queue_blocks = _block_rows_for_indices(
         full_blocks_by_index=full_blocks_by_index,
-        block_indices=stage_result.routing.review_eligible_block_indices,
-        block_category_by_index=review_queue_categories,
+        block_indices=stage_result.routing.candidate_block_indices,
+        block_category_by_index=stage_result.candidate_block_route_by_index(),
     )
     excluded_blocks = _block_rows_for_indices(
         full_blocks_by_index=full_blocks_by_index,
-        block_indices=stage_result.routing.review_excluded_block_indices,
+        block_indices=stage_result.routing.excluded_block_indices,
         block_category_by_index=stage_result.authority.authoritative_block_category_by_index,
     )
-    has_reviewed_authority = bool(stage_result.review_status.reviewed_block_indices)
+    has_finalized_candidates = bool(
+        stage_result.candidate_status.finalized_candidate_block_indices
+    )
     return NonRecipeAuthorityContract(
         final_blocks=final_blocks,
-        review_queue_blocks=review_queue_blocks,
+        candidate_queue_blocks=candidate_queue_blocks,
         excluded_blocks=excluded_blocks,
-        review_status=stage_result.review_status,
-        late_output_blocks=list(final_blocks if has_reviewed_authority else review_queue_blocks),
+        candidate_status=stage_result.candidate_status,
+        late_output_blocks=list(final_blocks if has_finalized_candidates else candidate_queue_blocks),
         scoring_view=NonRecipeScoringView(
             authoritative_block_indices=list(stage_result.authority.authoritative_block_indices),
             authoritative_block_category_by_index=dict(
                 stage_result.authority.authoritative_block_category_by_index
             ),
-            unresolved_review_eligible_block_indices=list(
-                stage_result.review_status.unreviewed_review_eligible_block_indices
+            unresolved_candidate_block_indices=list(
+                stage_result.candidate_status.unresolved_candidate_block_indices
             ),
-            unresolved_review_eligible_block_category_by_index=dict(
-                stage_result.review_status.unreviewed_block_category_by_index
+            unresolved_candidate_route_by_index=dict(
+                stage_result.candidate_status.unresolved_candidate_route_by_index
             ),
         ),
-        late_output_mode=(
-            "final_authority"
-            if has_reviewed_authority
-            else "review_queue"
-        ),
+        late_output_mode=("final_authority" if has_finalized_candidates else "candidate_queue"),
     )
 
 
@@ -120,8 +121,8 @@ def block_rows_for_nonrecipe_stage(
     full_blocks_by_index = prepare_nonrecipe_full_blocks_by_index(full_blocks)
     return _block_rows_for_indices(
         full_blocks_by_index=full_blocks_by_index,
-        block_indices=sorted(stage_result.seed.seed_block_category_by_index),
-        block_category_by_index=stage_result.seed.seed_block_category_by_index,
+        block_indices=sorted(stage_result.seed.seed_route_by_index),
+        block_category_by_index=stage_result.seed.seed_route_by_index,
     )
 
 
@@ -138,7 +139,7 @@ def block_rows_for_nonrecipe_authority(
     )
 
 
-def block_rows_for_nonrecipe_review_queue(
+def block_rows_for_nonrecipe_candidate_queue(
     *,
     full_blocks: Sequence[Mapping[str, Any]],
     stage_result: NonRecipeStageResult,
@@ -147,7 +148,7 @@ def block_rows_for_nonrecipe_review_queue(
         build_nonrecipe_authority_contract(
             full_blocks=full_blocks,
             stage_result=stage_result,
-        ).review_queue_blocks
+        ).candidate_queue_blocks
     )
 
 
@@ -173,5 +174,7 @@ def block_rows_for_nonrecipe_span(
     return _block_rows_for_indices(
         full_blocks_by_index=full_blocks_by_index,
         block_indices=span.block_indices,
-        block_category_by_index={int(block_index): span.category for block_index in span.block_indices},
+        block_category_by_index={
+            int(block_index): span.category for block_index in span.block_indices
+        },
     )

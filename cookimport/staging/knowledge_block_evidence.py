@@ -34,7 +34,7 @@ def build_knowledge_block_evidence(
     unresolved_categories = {
         int(block_index): str(category)
         for block_index, category in (
-            nonrecipe_stage_result.review_status.unreviewed_block_category_by_index.items()
+            nonrecipe_stage_result.candidate_status.unresolved_candidate_route_by_index.items()
         )
     }
     unresolved_block_indices = sorted(unresolved_categories)
@@ -45,13 +45,13 @@ def build_knowledge_block_evidence(
     }
     if knowledge_indices:
         notes.append("KNOWLEDGE labels were derived from final non-recipe authority.")
-    if nonrecipe_stage_result.review_status.unreviewed_review_eligible_block_indices:
+    if nonrecipe_stage_result.candidate_status.unresolved_candidate_block_indices:
         notes.append(
-            "Review-eligible non-recipe blocks without final authority were marked unresolved and excluded from semantic scoring."
+            "Candidate non-recipe blocks without final authority were marked unresolved and excluded from semantic scoring."
         )
-    elif nonrecipe_stage_result.routing.review_eligible_block_indices:
+    elif nonrecipe_stage_result.routing.candidate_block_indices:
         notes.append(
-            "All review-eligible non-recipe blocks had final authority before scoring."
+            "All candidate non-recipe blocks had final authority before scoring."
         )
     return KnowledgeBlockEvidence(
         knowledge_indices=knowledge_indices,

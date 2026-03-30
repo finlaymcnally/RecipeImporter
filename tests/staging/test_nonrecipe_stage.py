@@ -19,7 +19,12 @@ from cookimport.staging.writer import (
 )
 
 
-def _block_label(index: int, label: str) -> AuthoritativeBlockLabel:
+def _block_label(
+    index: int,
+    label: str,
+    *,
+    exclusion_reason: str | None = None,
+) -> AuthoritativeBlockLabel:
     return AuthoritativeBlockLabel(
         source_block_id=f"b{index}",
         source_block_index=index,
@@ -28,10 +33,11 @@ def _block_label(index: int, label: str) -> AuthoritativeBlockLabel:
         final_label=label,
         decided_by="rule",
         reason_tags=[],
+        exclusion_reason=exclusion_reason,
     )
 
 
-def test_nonrecipe_stage_excludes_knowledge_inside_recipe_span() -> None:
+def test_nonrecipe_stage_ignores_recipe_local_blocks_inside_recipe_span() -> None:
     result = build_nonrecipe_stage_result(
         full_blocks=[
             {"index": 0, "block_id": "b0", "text": "Intro"},
@@ -40,10 +46,10 @@ def test_nonrecipe_stage_excludes_knowledge_inside_recipe_span() -> None:
             {"index": 3, "block_id": "b3", "text": "Outro"},
         ],
         final_block_labels=[
-            _block_label(0, "OTHER"),
+            _block_label(0, "NONRECIPE_CANDIDATE"),
             _block_label(1, "RECIPE_TITLE"),
-            _block_label(2, "KNOWLEDGE"),
-            _block_label(3, "KNOWLEDGE"),
+            _block_label(2, "RECIPE_NOTES"),
+            _block_label(3, "NONRECIPE_CANDIDATE"),
         ],
         recipe_spans=[
             RecipeSpan(
@@ -56,14 +62,14 @@ def test_nonrecipe_stage_excludes_knowledge_inside_recipe_span() -> None:
         ],
     )
 
-    assert result.seed.seed_block_category_by_index == {0: "other", 3: "knowledge"}
+    assert result.seed.seed_route_by_index == {0: "candidate", 3: "candidate"}
     assert [span.span_id for span in result.seed.seed_nonrecipe_spans] == [
-        "nr.other.0.1",
-        "nr.knowledge.3.4",
+        "nr.candidate.0.1",
+        "nr.candidate.3.4",
     ]
 
 
-def test_nonrecipe_stage_groups_contiguous_knowledge_and_normalizes_noise() -> None:
+def test_nonrecipe_stage_groups_contiguous_candidate_and_excluded_routes() -> None:
     result = build_nonrecipe_stage_result(
         full_blocks=[
             {"index": 0, "block_id": "b0", "text": "Technique 1"},
@@ -72,16 +78,20 @@ def test_nonrecipe_stage_groups_contiguous_knowledge_and_normalizes_noise() -> N
             {"index": 3, "block_id": "b3", "text": "Still front matter"},
         ],
         final_block_labels=[
-            _block_label(0, "KNOWLEDGE"),
-            _block_label(1, "KNOWLEDGE"),
-            _block_label(2, "BOILERPLATE"),
-            _block_label(3, "OTHER"),
+            _block_label(0, "NONRECIPE_CANDIDATE"),
+            _block_label(1, "NONRECIPE_CANDIDATE"),
+            _block_label(2, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
+            _block_label(3, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
         ],
         recipe_spans=[],
     )
 
-    assert [span.span_id for span in result.seed.seed_knowledge_spans] == ["nr.knowledge.0.2"]
-    assert [span.span_id for span in result.seed.seed_other_spans] == ["nr.other.2.4"]
+    assert [span.span_id for span in result.seed.seed_candidate_spans] == [
+        "nr.candidate.0.2"
+    ]
+    assert [span.span_id for span in result.seed.seed_excluded_spans] == [
+        "nr.exclude.2.4"
+    ]
 
 
 def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path) -> None:
@@ -90,7 +100,10 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
             {"index": 0, "block_id": "b0", "text": "Intro"},
             {"index": 1, "block_id": "b1", "text": "Technique"},
         ],
-        final_block_labels=[_block_label(0, "OTHER"), _block_label(1, "KNOWLEDGE")],
+        final_block_labels=[
+            _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="navigation"),
+            _block_label(1, "NONRECIPE_CANDIDATE"),
+        ],
         recipe_spans=[],
     )
     stats = OutputStats(tmp_path)
@@ -100,7 +113,7 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
         tmp_path,
         output_stats=stats,
     )
-    knowledge_path = write_knowledge_outputs_artifact(
+    candidate_status_path = write_knowledge_outputs_artifact(
         run_root=tmp_path,
         stage_result=stage_result,
         llm_report={"enabled": False, "pipeline": "off"},
@@ -110,34 +123,36 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
     )
 
     nonrecipe_payload = json.loads(nonrecipe_path.read_text(encoding="utf-8"))
-    knowledge_payload = json.loads(knowledge_path.read_text(encoding="utf-8"))
+    candidate_status_payload = json.loads(
+        candidate_status_path.read_text(encoding="utf-8")
+    )
     authority_payload = json.loads(
         (tmp_path / "09_nonrecipe_authority.json").read_text(encoding="utf-8")
     )
 
-    assert nonrecipe_payload["schema_version"] == "nonrecipe_seed_routing.v1"
-    assert nonrecipe_payload["counts"]["review_eligible_blocks"] == 2
-    assert nonrecipe_payload["counts"]["review_excluded_blocks"] == 0
-    assert nonrecipe_payload["review_eligible_block_ids"] == ["b0", "b1"]
-    assert "review_eligible_seed_block_category_by_index" not in nonrecipe_payload
-    assert "seed_block_category_by_index" not in nonrecipe_payload
-    assert authority_payload["schema_version"] == "nonrecipe_authority.v1"
-    assert authority_payload["counts"]["final_authority_blocks"] == 0
-    assert authority_payload["authoritative_block_category_by_index"] == {}
-    assert knowledge_payload["pipeline"] == "off"
-    assert knowledge_payload["schema_version"] == "nonrecipe_review_status.v1"
-    assert knowledge_payload["review_status"] == "not_run"
-    assert knowledge_payload["counts"]["snippets_written"] == 0
-    assert knowledge_payload["counts"]["final_authority_blocks"] == 0
-    assert knowledge_payload["unreviewed_block_category_by_index"] == {
-        "0": "other",
-        "1": "knowledge",
+    assert nonrecipe_payload["schema_version"] == "nonrecipe_seed_routing.v2"
+    assert nonrecipe_payload["counts"]["candidate_blocks"] == 1
+    assert nonrecipe_payload["counts"]["excluded_blocks"] == 1
+    assert nonrecipe_payload["candidate_block_ids"] == ["b1"]
+    assert nonrecipe_payload["excluded_block_ids"] == ["b0"]
+    assert authority_payload["schema_version"] == "nonrecipe_authority.v2"
+    assert authority_payload["counts"]["final_authority_blocks"] == 1
+    assert authority_payload["authoritative_block_category_by_index"] == {"0": "other"}
+    assert candidate_status_payload["pipeline"] == "off"
+    assert candidate_status_payload["schema_version"] == "nonrecipe_candidate_status.v1"
+    assert candidate_status_payload["candidate_status"] == "not_run"
+    assert candidate_status_payload["counts"]["snippets_written"] == 0
+    assert candidate_status_payload["counts"]["final_authority_blocks"] == 1
+    assert candidate_status_payload["unresolved_candidate_route_by_index"] == {
+        "1": "candidate",
     }
-    assert knowledge_payload["unreviewed_spans"][1]["span_id"] == "nr.knowledge.1.2"
-    assert stage_result.routing.review_eligible_block_indices == [0, 1]
-    assert stage_result.authority.authoritative_block_indices == []
-    assert stage_result.review_status.reviewed_block_indices == []
-    assert stage_result.review_status.unreviewed_review_eligible_block_indices == [0, 1]
+    assert candidate_status_payload["unresolved_candidate_spans"][0]["span_id"] == (
+        "nr.candidate.1.2"
+    )
+    assert stage_result.routing.candidate_block_indices == [1]
+    assert stage_result.authority.authoritative_block_indices == [0]
+    assert stage_result.candidate_status.finalized_candidate_block_indices == []
+    assert stage_result.candidate_status.unresolved_candidate_block_indices == [1]
 
 
 def test_nonrecipe_stage_splits_routing_from_final_authority() -> None:
@@ -147,28 +162,19 @@ def test_nonrecipe_stage_splits_routing_from_final_authority() -> None:
             {"index": 1, "block_id": "b1", "text": "Useful technique"},
         ],
         final_block_labels=[
-            AuthoritativeBlockLabel(
-                source_block_id="b0",
-                source_block_index=0,
-                supporting_atomic_indices=[],
-                deterministic_label="OTHER",
-                final_label="OTHER",
-                decided_by="rule",
-                reason_tags=[],
-                review_exclusion_reason="front_matter",
-            ),
-            _block_label(1, "KNOWLEDGE"),
+            _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
+            _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
         recipe_spans=[],
     )
 
-    assert seed.routing.review_excluded_block_indices == [0]
-    assert seed.routing.review_eligible_block_indices == [1]
+    assert seed.routing.excluded_block_indices == [0]
+    assert seed.routing.candidate_block_indices == [1]
     assert seed.authority.authoritative_block_indices == [0]
     assert seed.authority.authoritative_block_category_by_index == {0: "other"}
-    assert seed.review_status.reviewed_block_indices == []
-    assert seed.review_status.unreviewed_review_eligible_block_indices == [1]
-    assert seed.review_status.unreviewed_block_category_by_index == {1: "knowledge"}
+    assert seed.candidate_status.finalized_candidate_block_indices == []
+    assert seed.candidate_status.unresolved_candidate_block_indices == [1]
+    assert seed.candidate_status.unresolved_candidate_route_by_index == {1: "candidate"}
 
 
 def test_nonrecipe_stage_refinement_keeps_internal_reviewer_categories_internal() -> None:
@@ -176,7 +182,7 @@ def test_nonrecipe_stage_refinement_keeps_internal_reviewer_categories_internal(
         full_blocks=[
             {"index": 0, "block_id": "b0", "text": "SALT"},
         ],
-        final_block_labels=[_block_label(0, "KNOWLEDGE")],
+        final_block_labels=[_block_label(0, "NONRECIPE_CANDIDATE")],
         recipe_spans=[],
     )
 
@@ -187,43 +193,25 @@ def test_nonrecipe_stage_refinement_keeps_internal_reviewer_categories_internal(
         reviewer_categories_by_block={0: "chapter_taxonomy"},
     )
 
-    assert refined.seed.seed_block_category_by_index == {0: "knowledge"}
+    assert refined.seed.seed_route_by_index == {0: "candidate"}
     assert refined.authority.authoritative_block_indices == [0]
     assert refined.authority.authoritative_block_category_by_index == {0: "other"}
-    assert refined.review_status.reviewed_block_indices == [0]
-    assert refined.review_status.unreviewed_review_eligible_block_indices == []
+    assert refined.candidate_status.finalized_candidate_block_indices == [0]
+    assert refined.candidate_status.unresolved_candidate_block_indices == []
     assert refined.refinement_report["reviewer_category_counts"] == {
         "chapter_taxonomy": 1
     }
-    assert refined.refinement_report["changed_blocks"] == [
-        {
-            "block_index": 0,
-            "seed_category": "knowledge",
-            "final_category": "other",
-            "reviewer_category": "chapter_taxonomy",
-            "applied_packet_ids": [],
-        }
-    ]
 
 
-def test_nonrecipe_stage_writes_review_exclusion_ledger(tmp_path: Path) -> None:
+def test_nonrecipe_stage_writes_exclusion_ledger(tmp_path: Path) -> None:
     stage_result = build_nonrecipe_stage_result(
         full_blocks=[
             {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
             {"index": 1, "block_id": "b1", "text": "Useful technique text"},
         ],
         final_block_labels=[
-            AuthoritativeBlockLabel(
-                source_block_id="b0",
-                source_block_index=0,
-                supporting_atomic_indices=[],
-                deterministic_label="OTHER",
-                final_label="OTHER",
-                decided_by="rule",
-                reason_tags=[],
-                review_exclusion_reason="front_matter",
-            ),
-            _block_label(1, "OTHER"),
+            _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
+            _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
         recipe_spans=[],
     )
@@ -235,23 +223,23 @@ def test_nonrecipe_stage_writes_review_exclusion_ledger(tmp_path: Path) -> None:
     )
     ledger_rows = [
         json.loads(line)
-        for line in (tmp_path / "08_nonrecipe_review_exclusions.jsonl").read_text(
+        for line in (tmp_path / "08_nonrecipe_exclusions.jsonl").read_text(
             encoding="utf-8"
         ).splitlines()
         if line.strip()
     ]
 
-    assert payload["counts"]["review_excluded_blocks"] == 1
-    assert payload["review_excluded_block_indices"] == [0]
-    assert payload["review_excluded_block_ids"] == ["b0"]
+    assert payload["counts"]["excluded_blocks"] == 1
+    assert payload["excluded_block_indices"] == [0]
+    assert payload["excluded_block_ids"] == ["b0"]
     assert ledger_rows == [
         {
             "block_id": "b0",
             "block_index": 0,
+            "exclusion_reason": "front_matter",
             "exclusion_source": "line_role",
             "final_category": "other",
             "preview": "Acknowledgments",
-            "review_exclusion_reason": "front_matter",
         }
     ]
 
@@ -263,7 +251,7 @@ def test_nonrecipe_stage_requires_final_label_for_every_nonrecipe_block() -> Non
                 {"index": 0, "block_id": "b0", "text": "Intro"},
                 {"index": 1, "block_id": "b1", "text": "Useful technique"},
             ],
-            final_block_labels=[_block_label(0, "OTHER")],
+            final_block_labels=[_block_label(0, "NONRECIPE_CANDIDATE")],
             recipe_spans=[],
         )
 
@@ -271,7 +259,7 @@ def test_nonrecipe_stage_requires_final_label_for_every_nonrecipe_block() -> Non
 def test_nonrecipe_stage_rejects_invalid_final_nonrecipe_labels() -> None:
     with pytest.raises(
         ValueError,
-        match="Invalid final non-recipe label at block 0: unexpected final label 'BROKEN_LABEL'",
+        match="Invalid non-recipe route label at block 0: unexpected route label 'BROKEN_LABEL'",
     ):
         build_nonrecipe_stage_result(
             full_blocks=[
@@ -285,7 +273,7 @@ def test_nonrecipe_stage_rejects_invalid_final_nonrecipe_labels() -> None:
 def test_nonrecipe_stage_rejects_recipe_only_labels_outside_recipe() -> None:
     with pytest.raises(
         ValueError,
-        match="Invalid final non-recipe label at block 0: unexpected final label 'RECIPE_TITLE'",
+        match="Invalid non-recipe route label at block 0: unexpected route label 'RECIPE_TITLE'",
     ):
         build_nonrecipe_stage_result(
             full_blocks=[
@@ -296,24 +284,15 @@ def test_nonrecipe_stage_rejects_recipe_only_labels_outside_recipe() -> None:
         )
 
 
-def test_nonrecipe_late_output_rows_use_unreviewed_review_queue_before_review() -> None:
+def test_nonrecipe_late_output_rows_use_candidate_queue_before_review() -> None:
     stage_result = build_nonrecipe_stage_result(
         full_blocks=[
             {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
             {"index": 1, "block_id": "b1", "text": "Useful technique"},
         ],
         final_block_labels=[
-            AuthoritativeBlockLabel(
-                source_block_id="b0",
-                source_block_index=0,
-                supporting_atomic_indices=[],
-                deterministic_label="OTHER",
-                final_label="OTHER",
-                decided_by="rule",
-                reason_tags=[],
-                review_exclusion_reason="front_matter",
-            ),
-            _block_label(1, "KNOWLEDGE"),
+            _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
+            _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
         recipe_spans=[],
     )
@@ -327,27 +306,18 @@ def test_nonrecipe_late_output_rows_use_unreviewed_review_queue_before_review() 
     )
 
     assert [row["index"] for row in rows] == [1]
-    assert rows[0]["stage7_category"] == "knowledge"
+    assert rows[0]["stage7_category"] == "candidate"
 
 
-def test_nonrecipe_authority_contract_uses_review_queue_for_late_outputs_before_review() -> None:
+def test_nonrecipe_authority_contract_uses_candidate_queue_before_review() -> None:
     stage_result = build_nonrecipe_stage_result(
         full_blocks=[
             {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
             {"index": 1, "block_id": "b1", "text": "Useful technique"},
         ],
         final_block_labels=[
-            AuthoritativeBlockLabel(
-                source_block_id="b0",
-                source_block_index=0,
-                supporting_atomic_indices=[],
-                deterministic_label="OTHER",
-                final_label="OTHER",
-                decided_by="rule",
-                reason_tags=[],
-                review_exclusion_reason="front_matter",
-            ),
-            _block_label(1, "KNOWLEDGE"),
+            _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
+            _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
         recipe_spans=[],
     )
@@ -360,24 +330,25 @@ def test_nonrecipe_authority_contract_uses_review_queue_for_late_outputs_before_
         stage_result=stage_result,
     )
 
-    assert contract.late_output_mode == "review_queue"
+    assert contract.late_output_mode == "candidate_queue"
     assert [row["index"] for row in contract.final_blocks] == [0]
-    assert [row["index"] for row in contract.review_queue_blocks] == [1]
+    assert [row["index"] for row in contract.candidate_queue_blocks] == [1]
     assert [row["index"] for row in contract.excluded_blocks] == [0]
     assert [row["index"] for row in contract.late_output_blocks] == [1]
     assert contract.scoring_view.authoritative_block_category_by_index == {0: "other"}
-    assert contract.scoring_view.unresolved_review_eligible_block_category_by_index == {
-        1: "knowledge"
-    }
+    assert contract.scoring_view.unresolved_candidate_route_by_index == {1: "candidate"}
 
 
-def test_nonrecipe_authority_contract_uses_final_authority_for_late_outputs_after_review() -> None:
+def test_nonrecipe_authority_contract_uses_final_authority_after_review() -> None:
     seed = build_nonrecipe_stage_result(
         full_blocks=[
             {"index": 0, "block_id": "b0", "text": "Useful technique"},
             {"index": 1, "block_id": "b1", "text": "History note"},
         ],
-        final_block_labels=[_block_label(0, "KNOWLEDGE"), _block_label(1, "OTHER")],
+        final_block_labels=[
+            _block_label(0, "NONRECIPE_CANDIDATE"),
+            _block_label(1, "NONRECIPE_CANDIDATE"),
+        ],
         recipe_spans=[],
     )
     refined = refine_nonrecipe_stage_result(
@@ -400,4 +371,4 @@ def test_nonrecipe_authority_contract_uses_final_authority_for_late_outputs_afte
     assert contract.late_output_mode == "final_authority"
     assert [row["index"] for row in contract.final_blocks] == [0]
     assert [row["index"] for row in contract.late_output_blocks] == [0]
-    assert contract.scoring_view.unresolved_review_eligible_block_indices == [1]
+    assert contract.scoring_view.unresolved_candidate_block_indices == [1]

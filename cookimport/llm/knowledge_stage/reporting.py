@@ -66,7 +66,7 @@ def _build_review_summary(
         "seed_nonrecipe_span_count": int(
             getattr(build_report, "seed_nonrecipe_span_count", 0) or 0
         ),
-        "review_eligible_nonrecipe_span_count": int(
+        "candidate_nonrecipe_span_count": int(
             getattr(build_report, "review_eligible_nonrecipe_span_count", 0) or 0
         ),
         "packet_count_before_partition": int(
@@ -74,10 +74,10 @@ def _build_review_summary(
         ),
         "planned_packet_count": planned_packet_count,
         "reviewed_packet_count": max(0, planned_packet_count - unreviewed_packet_count),
-        "review_eligible_block_count": int(
+        "candidate_block_count": int(
             getattr(build_report, "review_eligible_block_count", 0) or 0
         ),
-        "review_excluded_block_count": int(
+        "excluded_block_count": int(
             counts.get("review_excluded_block_count") or 0
         ),
         "skipped_packet_count": int(
@@ -184,10 +184,10 @@ def _derive_knowledge_authority_mode(
         return "knowledge_refined_final"
     review_status = _derive_knowledge_review_status(review_rollup)
     if review_status == "unreviewed":
-        return "knowledge_unreviewed_seed_kept"
+        return "knowledge_unreviewed_candidates_kept"
     if review_status == "partial":
-        return "knowledge_partially_reviewed_seed_kept"
-    return "knowledge_reviewed_seed_kept"
+        return "knowledge_partially_reviewed_candidates_kept"
+    return "knowledge_reviewed_candidates_kept"
 
 
 def _runtime_artifact_paths(knowledge_stage_dir: Path) -> dict[str, str]:

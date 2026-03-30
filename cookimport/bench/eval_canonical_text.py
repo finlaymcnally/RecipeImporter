@@ -1511,8 +1511,8 @@ def format_canonical_eval_report_md(report: dict[str, Any]) -> str:
             f"{int(authority_coverage.get('total_prediction_lines') or 0)})"
         ),
         (
-            "- Unresolved review-eligible lines: "
-            f"{int(authority_coverage.get('unresolved_review_eligible_lines') or 0)}"
+            "- Unresolved candidate lines: "
+            f"{int(authority_coverage.get('unresolved_candidate_lines') or 0)}"
         ),
         f"- Correct: {int(counts.get('gold_matched') or 0)}",
         f"- Mismatched: {int(counts.get('gold_missed') or 0)}",
@@ -1646,15 +1646,15 @@ def evaluate_canonical_text(
         "scoring_mode": "authoritative_predictions_only",
         "total_prediction_lines": total_prediction_lines,
         "scored_prediction_lines": len(scored_indices),
-        "unresolved_review_eligible_lines": len(unresolved_line_indices),
+        "unresolved_candidate_lines": len(unresolved_line_indices),
         "prediction_coverage": (
             (len(scored_indices) / total_prediction_lines)
             if total_prediction_lines > 0
             else 1.0
         ),
-        "unresolved_review_eligible_line_indices": unresolved_line_indices,
-        "unresolved_review_eligible_block_indices": prediction_manifest.unresolved_block_indices,
-        "unresolved_review_eligible_block_category_by_index": dict(
+        "unresolved_candidate_line_indices": unresolved_line_indices,
+        "unresolved_candidate_block_indices": prediction_manifest.unresolved_block_indices,
+        "unresolved_candidate_route_by_index": dict(
             prediction_manifest.unresolved_block_category_by_index
         ),
     }

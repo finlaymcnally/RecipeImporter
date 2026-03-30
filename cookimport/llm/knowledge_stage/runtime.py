@@ -60,11 +60,11 @@ def run_codex_farm_nonrecipe_knowledge_review(
     )
     routing = nonrecipe_stage_result.routing
     all_nonrecipe_spans = list(nonrecipe_stage_result.seed.seed_nonrecipe_spans)
-    review_candidate_spans = list(routing.review_eligible_nonrecipe_spans)
+    candidate_spans = list(routing.candidate_nonrecipe_spans)
     seed_nonrecipe_span_count = len(all_nonrecipe_spans)
-    review_eligible_nonrecipe_span_count = len(review_candidate_spans)
-    review_eligible_block_count = len(routing.review_eligible_block_indices)
-    review_excluded_block_count = len(routing.review_excluded_block_indices)
+    candidate_nonrecipe_span_count = len(candidate_spans)
+    candidate_block_count = len(routing.candidate_block_indices)
+    excluded_block_count = len(routing.excluded_block_indices)
     if not all_nonrecipe_spans:
         llm_report = _build_noop_knowledge_llm_report(
             run_settings=run_settings,
@@ -76,9 +76,9 @@ def run_codex_farm_nonrecipe_knowledge_review(
             knowledge_stage_dir=knowledge_stage_dir,
             stage_status="no_nonrecipe_spans",
             seed_nonrecipe_span_count=seed_nonrecipe_span_count,
-            review_eligible_nonrecipe_span_count=review_eligible_nonrecipe_span_count,
-            review_eligible_block_count=review_eligible_block_count,
-            review_excluded_block_count=review_excluded_block_count,
+            review_eligible_nonrecipe_span_count=candidate_nonrecipe_span_count,
+            review_eligible_block_count=candidate_block_count,
+            review_excluded_block_count=excluded_block_count,
         )
         _write_json(llm_report, manifest_path)
         return CodexFarmNonrecipeKnowledgeReviewResult(
@@ -88,7 +88,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             refined_stage_result=nonrecipe_stage_result,
             write_report=None,
         )
-    if not review_candidate_spans:
+    if not candidate_spans:
         llm_report = _build_noop_knowledge_llm_report(
             run_settings=run_settings,
             pipeline_id=pipeline_id,
@@ -97,11 +97,11 @@ def run_codex_farm_nonrecipe_knowledge_review(
             run_root=run_root,
             knowledge_in_dir=knowledge_in_dir,
             knowledge_stage_dir=knowledge_stage_dir,
-            stage_status="no_review_eligible_nonrecipe_spans",
+            stage_status="no_candidate_nonrecipe_spans",
             seed_nonrecipe_span_count=seed_nonrecipe_span_count,
-            review_eligible_nonrecipe_span_count=review_eligible_nonrecipe_span_count,
-            review_eligible_block_count=review_eligible_block_count,
-            review_excluded_block_count=review_excluded_block_count,
+            review_eligible_nonrecipe_span_count=candidate_nonrecipe_span_count,
+            review_eligible_block_count=candidate_block_count,
+            review_excluded_block_count=excluded_block_count,
         )
         _write_json(llm_report, manifest_path)
         return CodexFarmNonrecipeKnowledgeReviewResult(
@@ -155,7 +155,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
     started = time.perf_counter()
     build_report = build_knowledge_jobs(
         full_blocks=full_blocks_payload,
-        candidate_spans=review_candidate_spans,
+        candidate_spans=candidate_spans,
         recipe_spans=recipe_spans,
         workbook_slug=workbook_slug,
         out_dir=knowledge_in_dir,
@@ -176,10 +176,10 @@ def run_codex_farm_nonrecipe_knowledge_review(
             knowledge_stage_dir=knowledge_stage_dir,
             stage_status="all_packets_skipped",
             seed_nonrecipe_span_count=seed_nonrecipe_span_count,
-            review_eligible_nonrecipe_span_count=review_eligible_nonrecipe_span_count,
+            review_eligible_nonrecipe_span_count=candidate_nonrecipe_span_count,
             packet_count_before_partition=build_report.packet_count_before_partition,
-            review_eligible_block_count=review_eligible_block_count,
-            review_excluded_block_count=review_excluded_block_count,
+            review_eligible_block_count=candidate_block_count,
+            review_excluded_block_count=excluded_block_count,
             skipped_packet_count=build_report.skipped_packet_count,
             skipped_packet_reason_counts=dict(build_report.skipped_packet_reason_counts),
         )
@@ -227,7 +227,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             },
             runtime_metadata={
                 "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
-                "input_mode": "stage7_review_eligible_nonrecipe_spans",
+                "input_mode": "stage7_candidate_nonrecipe_spans",
                 "workspace_root": str(workspace_root) if workspace_root is not None else None,
                 "configured_prompt_target_count": run_settings.knowledge_prompt_target_count,
             },
@@ -270,8 +270,8 @@ def run_codex_farm_nonrecipe_knowledge_review(
             knowledge_stage_dir=knowledge_stage_dir,
             build_report=build_report,
             seed_nonrecipe_span_count=seed_nonrecipe_span_count,
-            review_eligible_nonrecipe_span_count=review_eligible_nonrecipe_span_count,
-            review_excluded_block_count=review_excluded_block_count,
+            review_eligible_nonrecipe_span_count=candidate_nonrecipe_span_count,
+            review_excluded_block_count=excluded_block_count,
             elapsed_seconds=elapsed_seconds,
             error=str(exc),
         )
@@ -305,8 +305,8 @@ def run_codex_farm_nonrecipe_knowledge_review(
         ) = _collect_block_category_updates(
             outputs=outputs,
             allowed_block_indices={
-                int(block_index): "review_candidate"
-                for block_index in routing.review_eligible_block_indices
+                int(block_index): "candidate"
+                for block_index in routing.candidate_block_indices
             },
         )
         refined_stage_result = refine_nonrecipe_stage_result(
@@ -334,16 +334,16 @@ def run_codex_farm_nonrecipe_knowledge_review(
             promotion_report=promotion_report,
             build_report=build_report,
         )
-        review_rollup["review_excluded_block_count"] = review_excluded_block_count
+        review_rollup["review_excluded_block_count"] = excluded_block_count
         authority_mode = _derive_knowledge_authority_mode(
             refined_stage_result=refined_stage_result,
             review_rollup=review_rollup,
         )
-        review_status = _derive_knowledge_review_status(review_rollup)
+        candidate_status = _derive_knowledge_review_status(review_rollup)
         refined_report = {
             **dict(refined_stage_result.refinement_report),
             "authority_mode": authority_mode,
-            "review_status": review_status,
+            "candidate_status": candidate_status,
             "reviewed_shards_with_useful_packets": review_rollup["reviewed_shards_with_useful_packets"],
             "reviewed_shards_all_other": review_rollup["reviewed_shards_all_other"],
             "partially_promoted_shard_count": review_rollup["partially_promoted_shard_count"],
@@ -359,7 +359,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             refined_stage_result,
             refinement_report=refined_report,
         )
-        review_summary = _build_review_summary(
+        candidate_summary = _build_review_summary(
             build_report=build_report,
             validated_output_count=len(outputs),
             planned_shard_count=(
@@ -375,21 +375,21 @@ def run_codex_farm_nonrecipe_knowledge_review(
             "enabled": True,
             "pipeline": run_settings.llm_knowledge_pipeline.value,
             "pipeline_id": pipeline_id,
-            "input_mode": "stage7_review_eligible_nonrecipe_spans",
+            "input_mode": "stage7_candidate_nonrecipe_spans",
             "authority_mode": authority_mode,
             "scored_effect": str(
                 refined_stage_result.refinement_report.get("scored_effect")
-                or "seed_only"
+                or "route_only"
             ),
             "output_schema_path": output_schema_path,
             "counts": {
                 "seed_nonrecipe_span_count": seed_nonrecipe_span_count,
-                "review_eligible_nonrecipe_span_count": review_eligible_nonrecipe_span_count,
+                "candidate_nonrecipe_span_count": candidate_nonrecipe_span_count,
                 "packet_count_before_partition": build_report.packet_count_before_partition,
                 "shards_written": build_report.shards_written,
                 "packets_written": build_report.packets_written,
-                "review_eligible_block_count": review_eligible_block_count,
-                "review_excluded_block_count": review_excluded_block_count,
+                "candidate_block_count": candidate_block_count,
+                "excluded_block_count": excluded_block_count,
                 "skipped_packet_count": build_report.skipped_packet_count,
                 "outputs_parsed": len(outputs),
                 "packets_missing": len(missing_packet_ids),
@@ -427,8 +427,8 @@ def run_codex_farm_nonrecipe_knowledge_review(
                 "nonrecipe_authority_path": str(
                     run_root / NONRECIPE_AUTHORITY_FILE_NAME
                 ),
-                "nonrecipe_review_status_path": str(
-                    run_root / NONRECIPE_REVIEW_STATUS_FILE_NAME
+                "nonrecipe_candidate_status_path": str(
+                    run_root / NONRECIPE_CANDIDATE_STATUS_FILE_NAME
                 ),
                 "knowledge_in_dir": str(knowledge_in_dir),
                 "knowledge_phase_dir": str(knowledge_stage_dir),
@@ -445,7 +445,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             "missing_packet_ids": missing_packet_ids,
             "skipped_packet_reason_counts": dict(build_report.skipped_packet_reason_counts),
             "planning_warnings": list(build_report.planning_warnings),
-            "review_summary": review_summary,
+            "candidate_summary": candidate_summary,
             "refinement_report": refined_report,
             "process_run": process_run_payload,
             "phase_worker_runtime": {
@@ -498,7 +498,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
                 "promotion_report": promotion_report,
                 "worker_reports": worker_reports,
             },
-            "review_status": review_status,
+            "candidate_status": candidate_status,
             "stage_status": (
                 "completed_with_failures"
                 if int(promotion_report.get("invalid_shards") or 0) > 0

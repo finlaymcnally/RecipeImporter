@@ -11,6 +11,8 @@ globals().update(
     }
 )
 
+_RECIPE_LOCAL_LABELS = set(RECIPE_LOCAL_LINE_ROLE_LABELS)
+
 def _prediction_has_reason_tag(
     prediction: CanonicalLineRolePrediction,
     fragment: str,
@@ -33,7 +35,7 @@ def _apply_prediction_decision_metadata(
     by_atomic_index: dict[int, AtomicLineCandidate],
     baseline_prediction: CanonicalLineRolePrediction | None = None,
 ) -> CanonicalLineRolePrediction:
-    label = str(prediction.label or "OTHER")
+    label = str(prediction.label or "NONRECIPE_CANDIDATE")
 
     reasons: list[str] = []
     if _prediction_has_reason_tag(prediction, "deterministic_unresolved") or _prediction_has_reason_tag(
@@ -48,7 +50,7 @@ def _apply_prediction_decision_metadata(
     if _is_outside_recipe_span(candidate) and label in _RECIPEISH_OUTSIDE_SPAN_LABELS:
         reasons.append("outside_span_structured_label")
     if baseline_prediction is not None:
-        baseline_label = str(baseline_prediction.label or "OTHER")
+        baseline_label = str(baseline_prediction.label or "NONRECIPE_CANDIDATE")
         if (
             prediction.decided_by == "codex"
             and baseline_label
@@ -57,8 +59,8 @@ def _apply_prediction_decision_metadata(
             reasons.append("codex_disagreed_with_rule")
     if _prediction_has_reason_tag(prediction, "sanitized_"):
         reasons.append("sanitized_label_adjustment")
-    if prediction.review_exclusion_reason is not None:
-        reasons.append("knowledge_review_excluded")
+    if prediction.exclusion_reason is not None:
+        reasons.append("nonrecipe_excluded")
 
     payload = prediction.model_dump(mode="python")
     payload["escalation_reasons"] = _unique_string_list(reasons)
@@ -123,10 +125,6 @@ def build_line_role_debug_input_payload(
     rows = [
         serialize_line_role_file_row(
             candidate=candidate,
-            deterministic_label=str(
-                deterministic_baseline[int(candidate.atomic_index)].label
-                or "OTHER"
-            ),
             escalation_reasons=deterministic_baseline[
                 int(candidate.atomic_index)
             ].escalation_reasons,
@@ -160,19 +158,15 @@ def build_line_role_model_input_payload(
     deterministic_baseline: Mapping[int, CanonicalLineRolePrediction],
     by_atomic_index: Mapping[int, AtomicLineCandidate] | None = None,
 ) -> dict[str, Any]:
-    label_code_by_label = build_line_role_label_code_by_label(FREEFORM_LABELS)
     payload = {
         "v": _LINE_ROLE_MODEL_PAYLOAD_VERSION,
         "shard_id": shard_id,
         "rows": [
             serialize_line_role_model_row(
-                atomic_index=int(candidate.atomic_index),
-                deterministic_label=str(
-                    deterministic_baseline[int(candidate.atomic_index)].label
-                    or "OTHER"
-                ),
-                current_line=str(candidate.text),
-                label_code_by_label=label_code_by_label,
+                candidate=candidate,
+                escalation_reasons=deterministic_baseline[
+                    int(candidate.atomic_index)
+                ].escalation_reasons,
             )
             for candidate in candidates
         ],
@@ -652,11 +646,14 @@ def _fallback_prediction(
         candidate,
         by_atomic_index=by_atomic_index,
     )
-    if deterministic_label is not None and deterministic_label in FREEFORM_ALLOWED_LABELS:
+    if (
+        deterministic_label is not None
+        and deterministic_label in CANONICAL_LINE_ROLE_ALLOWED_LABELS
+    ):
         label = deterministic_label
         reason_tags = [reason, "deterministic_recovered", *deterministic_tags]
     else:
-        label = "OTHER"
+        label = "RECIPE_NOTES" if _is_within_recipe_span(candidate) else "NONRECIPE_CANDIDATE"
         reason_tags = [reason, "deterministic_unavailable"]
     return CanonicalLineRolePrediction(
         recipe_id=candidate.recipe_id,
@@ -676,10 +673,16 @@ def _apply_repo_baseline_semantic_policy(
     candidate: AtomicLineCandidate,
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> CanonicalLineRolePrediction:
-    label = prediction.label if prediction.label in FREEFORM_ALLOWED_LABELS else "OTHER"
+    label = (
+        prediction.label
+        if prediction.label in FREEFORM_ALLOWED_LABELS
+        else "RECIPE_NOTES"
+        if _is_within_recipe_span(candidate)
+        else "NONRECIPE_CANDIDATE"
+    )
     reason_tags = list(prediction.reason_tags)
     decided_by = prediction.decided_by
-    review_exclusion_reason = prediction.review_exclusion_reason
+    exclusion_reason = prediction.exclusion_reason
     if (
         label == "KNOWLEDGE"
         and _is_within_recipe_span(candidate)
@@ -688,16 +691,16 @@ def _apply_repo_baseline_semantic_policy(
             by_atomic_index=by_atomic_index,
         )
     ):
-        label = "OTHER"
+        label = "RECIPE_NOTES"
         decided_by = "fallback"
         reason_tags.append("sanitized_knowledge_inside_recipe")
     if label == "TIME_LINE" and not _is_primary_time_line(candidate.text):
-        label = "OTHER" if _is_outside_recipe_span(candidate) else "INSTRUCTION_LINE"
+        label = "RECIPE_NOTES" if _is_outside_recipe_span(candidate) else "INSTRUCTION_LINE"
         decided_by = "fallback"
         reason_tags.append(
             "sanitized_time_to_instruction"
             if not _is_outside_recipe_span(candidate)
-            else "sanitized_time_to_other"
+            else "sanitized_time_to_recipe_notes"
         )
     if (
         label in {"OTHER", "KNOWLEDGE", "RECIPE_NOTES", "INSTRUCTION_LINE", "TIME_LINE"}
@@ -746,7 +749,7 @@ def _apply_repo_baseline_semantic_policy(
         )
         decided_by = "fallback"
         reason_tags.append("sanitized_variant_without_local_support")
-    if label == "OTHER":
+    if label in {"OTHER", "NONRECIPE_CANDIDATE"}:
         if _variant_label_allowed(
             candidate,
             by_atomic_index=by_atomic_index,
@@ -757,10 +760,10 @@ def _apply_repo_baseline_semantic_policy(
         elif _should_rescue_other_to_knowledge_label(
             candidate,
             by_atomic_index=by_atomic_index,
-        ):
-            label = "KNOWLEDGE"
+        ) and _is_within_recipe_span(candidate):
+            label = "RECIPE_NOTES"
             decided_by = "fallback"
-            reason_tags.append("rescued_other_to_knowledge")
+            reason_tags.append("rescued_other_to_recipe_notes")
         elif _should_rescue_other_to_instruction_label(
             candidate,
             by_atomic_index=by_atomic_index,
@@ -807,10 +810,14 @@ def _apply_repo_baseline_semantic_policy(
         decided_by = "fallback"
         reason_tags.append("sanitized_instruction_without_local_support")
     if label == "KNOWLEDGE" and not _is_within_recipe_span(candidate):
-        label = "OTHER"
+        label = "NONRECIPE_CANDIDATE"
         decided_by = "fallback"
-        if "coerced_outside_recipe_knowledge_to_reviewable_other" not in reason_tags:
-            reason_tags.append("coerced_outside_recipe_knowledge_to_reviewable_other")
+        if "coerced_outside_recipe_knowledge_to_candidate" not in reason_tags:
+            reason_tags.append("coerced_outside_recipe_knowledge_to_candidate")
+    if label == "OTHER":
+        label = "RECIPE_NOTES" if _is_within_recipe_span(candidate) else "NONRECIPE_CANDIDATE"
+        decided_by = "fallback"
+        reason_tags.append("coerced_other_to_live_contract_label")
     return CanonicalLineRolePrediction(
         recipe_id=prediction.recipe_id,
         block_id=prediction.block_id,
@@ -821,7 +828,7 @@ def _apply_repo_baseline_semantic_policy(
         label=label,
         decided_by=decided_by,
         reason_tags=reason_tags,
-        review_exclusion_reason=prediction.review_exclusion_reason,
+        exclusion_reason=exclusion_reason,
     )
 
 
@@ -831,18 +838,20 @@ def _normalize_prediction_metadata(
     candidate: AtomicLineCandidate,
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> CanonicalLineRolePrediction:
-    label = str(prediction.label or "OTHER")
-    review_exclusion_reason = prediction.review_exclusion_reason
-    if label != "OTHER" or _is_within_recipe_span(candidate):
-        review_exclusion_reason = None
-    else:
-        review_exclusion_reason = (
-            review_exclusion_reason
-            or _outside_recipe_review_exclusion_reason(
-                candidate,
-                by_atomic_index=by_atomic_index,
-            )
+    label = str(prediction.label or "NONRECIPE_CANDIDATE")
+    exclusion_reason = prediction.exclusion_reason
+    if _is_within_recipe_span(candidate):
+        exclusion_reason = None
+        if label in {"OTHER", "KNOWLEDGE"}:
+            label = "RECIPE_NOTES"
+    elif label not in _RECIPE_LOCAL_LABELS:
+        exclusion_reason = exclusion_reason or _outside_recipe_review_exclusion_reason(
+            candidate,
+            by_atomic_index=by_atomic_index,
         )
+        label = "NONRECIPE_EXCLUDE" if exclusion_reason else "NONRECIPE_CANDIDATE"
+    else:
+        exclusion_reason = None
     return CanonicalLineRolePrediction(
         recipe_id=prediction.recipe_id,
         block_id=prediction.block_id,
@@ -853,7 +862,7 @@ def _normalize_prediction_metadata(
         label=label,
         decided_by=prediction.decided_by,
         reason_tags=_unique_string_list(str(tag) for tag in prediction.reason_tags),
-        review_exclusion_reason=review_exclusion_reason,
+        exclusion_reason=exclusion_reason,
     )
 
 
@@ -863,7 +872,7 @@ def _codex_prediction_policy_rejection_reason(
     candidate: AtomicLineCandidate,
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> str | None:
-    label = str(prediction.label or "OTHER")
+    label = str(prediction.label or "NONRECIPE_CANDIDATE")
     if (
         label == "KNOWLEDGE"
         and _is_within_recipe_span(candidate)
@@ -899,8 +908,10 @@ def _codex_prediction_policy_rejection_reason(
         by_atomic_index=by_atomic_index,
     ):
         return "instruction_without_local_support"
-    if label == "KNOWLEDGE" and not _is_within_recipe_span(candidate):
-        return "outside_recipe_knowledge_not_allowed"
+    if label == "KNOWLEDGE":
+        return "knowledge_not_in_live_contract"
+    if label == "OTHER":
+        return "other_not_in_live_contract"
     return None
 
 

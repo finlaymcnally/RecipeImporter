@@ -11,8 +11,8 @@ from cookimport.llm.knowledge_runtime_replay import replay_knowledge_runtime
 from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 from cookimport.staging.writer import (
     NONRECIPE_AUTHORITY_FILE_NAME,
-    NONRECIPE_REVIEW_EXCLUSIONS_FILE_NAME,
-    NONRECIPE_REVIEW_STATUS_FILE_NAME,
+    NONRECIPE_CANDIDATE_STATUS_FILE_NAME,
+    NONRECIPE_EXCLUSIONS_FILE_NAME,
     NONRECIPE_SEED_ROUTING_FILE_NAME,
 )
 
@@ -25,7 +25,7 @@ KNOWLEDGE_STAGE_STATUS_SCHEMA_VERSION = "knowledge_stage_status.v1"
 KNOWLEDGE_STAGE_SUMMARY_FILE_NAME = "knowledge_stage_summary.json"
 KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v2"
 RECIPE_STAGE_SUMMARY_FILE_NAME = "recipe_stage_summary.json"
-RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v3"
+RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v4"
 LINE_ROLE_STAGE_SUMMARY_FILE_NAME = "line_role_stage_summary.json"
 LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION = "line_role_stage_summary.v3"
 
@@ -519,19 +519,19 @@ def _build_recipe_boundary_attention_summary(workbook_dir: Path) -> dict[str, An
 
 
 def _build_nonrecipe_route_attention_summary(run_root: Path) -> dict[str, Any]:
-    exclusion_rows = _load_jsonl_dicts(run_root / NONRECIPE_REVIEW_EXCLUSIONS_FILE_NAME)
+    exclusion_rows = _load_jsonl_dicts(run_root / NONRECIPE_EXCLUSIONS_FILE_NAME)
     reason_counts: Counter[str] = Counter()
     for row in exclusion_rows:
-        reason = str(row.get("review_exclusion_reason") or "").strip()
+        reason = str(row.get("exclusion_reason") or "").strip()
         if reason:
             reason_counts[reason] += 1
     return _build_attention_summary(
         zero_target_counts={},
         context_counts={
-            "review_excluded_row_count": len(exclusion_rows),
+            "excluded_row_count": len(exclusion_rows),
         },
         reason_counts={
-            "review_exclusion_reason_counts": dict(sorted(reason_counts.items())),
+            "exclusion_reason_counts": dict(sorted(reason_counts.items())),
         },
     )
 
@@ -1041,6 +1041,9 @@ def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
     recipe_result_counts = promotion_report.get("recipe_result_counts")
     if not isinstance(recipe_result_counts, Mapping):
         recipe_result_counts = {}
+    handled_locally_skip_llm = promotion_report.get("handled_locally_skip_llm")
+    if not isinstance(handled_locally_skip_llm, Mapping):
+        handled_locally_skip_llm = {}
     summary = {
         "schema_version": RECIPE_STAGE_SUMMARY_SCHEMA_VERSION,
         "stage_key": "recipe_llm_correct_and_link",
@@ -1070,6 +1073,9 @@ def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
             "same_session_fix_recovered_count": same_session_rollup["recovered_count"],
             "same_session_fix_escalated_count": same_session_rollup["escalated_count"],
             "same_session_fix_budget_exhausted_count": same_session_rollup["budget_exhausted_count"],
+            "handled_locally_skip_llm_count": int(
+                handled_locally_skip_llm.get("count") or 0
+            ),
             "repair_attempted_count": repair_attempted,
             "repair_completed_count": repair_completed,
             "repair_running_count": repair_running,
@@ -1102,12 +1108,18 @@ def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
             "promoted_recipe_count": recipe_manifest_counts.get(
                 "final_recipe_authority_promoted"
             ),
+            "handled_locally_skip_llm_count": handled_locally_skip_llm.get("count"),
             "same_session_fix_attempted_count": same_session_rollup["attempted_count"],
             "same_session_fix_recovered_count": same_session_rollup["recovered_count"],
             "repair_completed_count": repair_completed,
         },
         reason_counts={
             "recipe_result_counts": recipe_result_counts,
+            "handled_locally_skip_llm_status_counts": (
+                handled_locally_skip_llm.get("status_counts")
+                if isinstance(handled_locally_skip_llm.get("status_counts"), Mapping)
+                else {}
+            ),
         },
     )
     return summary
@@ -1450,17 +1462,17 @@ def build_stage_observability_report(
                 )
             )
     nonrecipe_seed_routing_path = run_root / NONRECIPE_SEED_ROUTING_FILE_NAME
-    nonrecipe_review_exclusions_path = run_root / NONRECIPE_REVIEW_EXCLUSIONS_FILE_NAME
-    if nonrecipe_seed_routing_path.exists() or nonrecipe_review_exclusions_path.exists():
+    nonrecipe_exclusions_path = run_root / NONRECIPE_EXCLUSIONS_FILE_NAME
+    if nonrecipe_seed_routing_path.exists() or nonrecipe_exclusions_path.exists():
         stage_key = "classify_nonrecipe"
         artifact_paths = {}
         if nonrecipe_seed_routing_path.exists():
             artifact_paths["nonrecipe_seed_routing_json"] = (
                 _relative_to(run_root, nonrecipe_seed_routing_path) or ""
             )
-        if nonrecipe_review_exclusions_path.exists():
-            artifact_paths["nonrecipe_review_exclusions_jsonl"] = (
-                _relative_to(run_root, nonrecipe_review_exclusions_path) or ""
+        if nonrecipe_exclusions_path.exists():
+            artifact_paths["nonrecipe_exclusions_jsonl"] = (
+                _relative_to(run_root, nonrecipe_exclusions_path) or ""
             )
         stage_rows.setdefault(
             stage_key,
@@ -1480,17 +1492,17 @@ def build_stage_observability_report(
             )
         ]
     nonrecipe_authority_path = run_root / NONRECIPE_AUTHORITY_FILE_NAME
-    nonrecipe_review_status_path = run_root / NONRECIPE_REVIEW_STATUS_FILE_NAME
-    if nonrecipe_authority_path.exists() or nonrecipe_review_status_path.exists():
+    nonrecipe_candidate_status_path = run_root / NONRECIPE_CANDIDATE_STATUS_FILE_NAME
+    if nonrecipe_authority_path.exists() or nonrecipe_candidate_status_path.exists():
         stage_key = "nonrecipe_knowledge_review"
         artifact_paths = {}
         if nonrecipe_authority_path.exists():
             artifact_paths["nonrecipe_authority_json"] = (
                 _relative_to(run_root, nonrecipe_authority_path) or ""
             )
-        if nonrecipe_review_status_path.exists():
-            artifact_paths["nonrecipe_review_status_json"] = (
-                _relative_to(run_root, nonrecipe_review_status_path) or ""
+        if nonrecipe_candidate_status_path.exists():
+            artifact_paths["nonrecipe_candidate_status_json"] = (
+                _relative_to(run_root, nonrecipe_candidate_status_path) or ""
             )
         stage_rows.setdefault(
             stage_key,

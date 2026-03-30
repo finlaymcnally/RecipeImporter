@@ -65,6 +65,7 @@ from .phase_worker_runtime import (
     WorkerExecutionReportV1,
     resolve_phase_worker_count,
 )
+from .recipe_workspace_tools import build_recipe_worker_scaffold
 from .recipe_workspace_tools import render_recipe_worker_cli_script
 from .recipe_workspace_tools import (
     prepare_recipe_worker_drafts,
@@ -1940,9 +1941,72 @@ def _aggregate_recipe_phase_process_run(
     }
 
 
+def _collect_recipe_locally_finalized_skip_rows(
+    proposals: Sequence[ShardProposalV1],
+) -> tuple[dict[str, Any], ...]:
+    rows: list[dict[str, Any]] = []
+    seen_recipe_ids: set[str] = set()
+    for proposal in proposals:
+        if proposal.status != "validated" or not isinstance(proposal.payload, Mapping):
+            continue
+        proposal_metadata = _coerce_dict(proposal.metadata)
+        aggregation_metadata = _coerce_dict(proposal_metadata.get("task_aggregation"))
+        task_id_by_recipe_id = {
+            str(recipe_id).strip(): str(task_id).strip()
+            for recipe_id, task_id in _coerce_dict(
+                aggregation_metadata.get("task_id_by_recipe_id")
+            ).items()
+            if str(recipe_id).strip() and str(task_id).strip()
+        }
+        task_same_session_statuses = {
+            str(task_id).strip(): _coerce_dict(status_payload)
+            for task_id, status_payload in _coerce_dict(
+                proposal_metadata.get("task_same_session_fix_status_by_task_id")
+            ).items()
+            if str(task_id).strip()
+        }
+        recipe_rows = {
+            str(row.get("rid") or "").strip(): row
+            for row in (proposal.payload.get("r") or [])
+            if isinstance(row, Mapping) and str(row.get("rid") or "").strip()
+        }
+        for recipe_id, task_id in sorted(task_id_by_recipe_id.items()):
+            if recipe_id in seen_recipe_ids:
+                continue
+            same_session_status = task_same_session_statuses.get(task_id, {})
+            terminal_reason = str(
+                same_session_status.get("same_session_fix_terminal_reason") or ""
+            ).strip()
+            if terminal_reason != "deterministic_terminal_scaffold":
+                continue
+            recipe_row = recipe_rows.get(recipe_id, {})
+            rows.append(
+                {
+                    "recipe_id": recipe_id,
+                    "task_id": task_id,
+                    "shard_id": proposal.shard_id,
+                    "worker_id": proposal.worker_id,
+                    "repair_status": str(recipe_row.get("st") or "").strip() or None,
+                    "status_reason": str(recipe_row.get("sr") or "").strip() or None,
+                    "same_session_fix_status": str(
+                        same_session_status.get("same_session_fix_status") or ""
+                    ).strip()
+                    or None,
+                    "same_session_fix_terminal_reason": terminal_reason,
+                }
+            )
+            seen_recipe_ids.add(recipe_id)
+    return tuple(rows)
+
+
 def _recipe_result_rows_from_proposals(
     proposals: Sequence[ShardProposalV1],
 ) -> dict[str, dict[str, Any]]:
+    locally_finalized_rows = {
+        str(row.get("recipe_id") or "").strip(): dict(row)
+        for row in _collect_recipe_locally_finalized_skip_rows(proposals)
+        if str(row.get("recipe_id") or "").strip()
+    }
     rows: dict[str, dict[str, Any]] = {}
     for proposal in proposals:
         if proposal.status != "validated" or not isinstance(proposal.payload, dict):
@@ -1962,6 +2026,15 @@ def _recipe_result_rows_from_proposals(
                 "final_recipe_authority_eligibility": final_recipe_authority_eligibility,
                 "final_recipe_authority_reason": final_recipe_authority_reason,
             }
+            local_skip_row = locally_finalized_rows.get(recipe_output.recipe_id)
+            if local_skip_row is not None:
+                rows[recipe_output.recipe_id]["llm_dispatch"] = "handled_locally_skip_llm"
+                rows[recipe_output.recipe_id]["llm_dispatch_reason"] = str(
+                    local_skip_row.get("same_session_fix_terminal_reason") or ""
+                ).strip()
+                rows[recipe_output.recipe_id]["llm_dispatch_task_id"] = str(
+                    local_skip_row.get("task_id") or ""
+                ).strip()
     return rows
 
 
@@ -2098,6 +2171,12 @@ def _build_single_correction_manifest(
             "recipe_shards_total": len(recipe_shards),
             "recipe_workers_total": int(
                 (phase_runtime_summary or {}).get("worker_count") or 0
+            ),
+            "recipe_correction_handled_locally_skip_llm": int(
+                (((phase_runtime_summary or {}).get("promotion_report") or {}).get(
+                    "handled_locally_skip_llm"
+                ) or {}).get("count")
+                or 0
             ),
             "recipe_correction_inputs": len(states),
             "recipe_correction_ok": sum(
@@ -2849,6 +2928,72 @@ def _recipe_task_result_path(task_plan: _RecipeTaskPlan) -> Path:
     return Path(result_path)
 
 
+def _build_deterministic_terminal_recipe_task_payload(
+    *,
+    task_row: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    payload = build_recipe_worker_scaffold(task_row=task_row)
+    result_rows = [row for row in (payload.get("r") or []) if isinstance(row, Mapping)]
+    if not result_rows:
+        return None
+    statuses = {str(row.get("st") or "").strip() for row in result_rows}
+    if not statuses or "repaired" in statuses:
+        return None
+    validation_errors = validate_recipe_worker_draft(
+        task_row=task_row,
+        payload=payload,
+    )
+    if validation_errors:
+        raise ValueError(
+            "deterministic terminal recipe scaffold failed validation: "
+            + "; ".join(validation_errors)
+        )
+    return payload
+
+
+def _write_recipe_task_payload(
+    *,
+    output_path: Path,
+    payload: Mapping[str, Any],
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(dict(payload), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _empty_recipe_workspace_run_result(
+    *,
+    working_dir: Path,
+    prompt_text: str,
+) -> CodexExecRunResult:
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return CodexExecRunResult(
+        command=["codex", "exec"],
+        subprocess_exit_code=0,
+        output_schema_path=None,
+        prompt_text=prompt_text,
+        response_text=None,
+        turn_failed_message=None,
+        events=(),
+        usage={},
+        stderr_text=None,
+        stdout_text=None,
+        source_working_dir=str(working_dir),
+        execution_working_dir=str(working_dir),
+        execution_agents_path=None,
+        duration_ms=0,
+        started_at_utc=timestamp,
+        finished_at_utc=timestamp,
+        workspace_mode="workspace_worker",
+        supervision_state="completed",
+        supervision_reason_code=None,
+        supervision_reason_detail=None,
+        supervision_retryable=False,
+    )
+
+
 def _all_recipe_task_outputs_missing(
     *,
     worker_root: Path,
@@ -2924,8 +3069,12 @@ def _run_recipe_workspace_worker_assignment_v1(
     worker_runner_results: list[dict[str, Any]] = []
     stage_rows: list[dict[str, Any]] = []
     runnable_shards: list[ShardManifestEntryV1] = []
+    all_tasks: list[_RecipeTaskPlan] = []
     runnable_tasks: list[_RecipeTaskPlan] = []
     runnable_tasks_by_shard_id: dict[str, tuple[_RecipeTaskPlan, ...]] = {}
+    task_payloads_by_shard_id: dict[str, dict[str, dict[str, Any]]] = {}
+    task_validation_errors_by_shard_id: dict[str, dict[str, tuple[str, ...]]] = {}
+    task_same_session_status_by_shard_id: dict[str, dict[str, dict[str, Any]]] = {}
     worker_prompt_path = worker_root / "prompt.txt"
     worker_prompt_text = ""
 
@@ -2937,8 +3086,38 @@ def _run_recipe_workspace_worker_assignment_v1(
             task_plans = _build_recipe_task_plans(shard)
             if task_plans:
                 runnable_shards.append(shard)
-                runnable_tasks_by_shard_id[shard.shard_id] = task_plans
-                runnable_tasks.extend(task_plans)
+                all_tasks.extend(task_plans)
+                shard_runnable_tasks: list[_RecipeTaskPlan] = []
+                for task_plan in task_plans:
+                    task_row = asdict(_build_recipe_task_runtime_manifest_entry(task_plan))
+                    deterministic_payload = _build_deterministic_terminal_recipe_task_payload(
+                        task_row=task_row,
+                    )
+                    if deterministic_payload is not None:
+                        task_payloads_by_shard_id.setdefault(shard.shard_id, {})[
+                            task_plan.task_id
+                        ] = deterministic_payload
+                        task_validation_errors_by_shard_id.setdefault(shard.shard_id, {})[
+                            task_plan.task_id
+                        ] = ()
+                        task_same_session_status_by_shard_id.setdefault(
+                            shard.shard_id, {}
+                        )[task_plan.task_id] = {
+                            "same_session_fix_attempted": False,
+                            "same_session_fix_count": 0,
+                            "same_session_fix_budget": _RECIPE_SAME_SESSION_FIX_BUDGET,
+                            "same_session_fix_status": "not_needed",
+                            "same_session_fix_terminal_reason": "deterministic_terminal_scaffold",
+                            "same_session_fix_validation_errors": [],
+                        }
+                        _write_recipe_task_payload(
+                            output_path=worker_root / recipe_worker_task_paths(task_row)["result_path"],
+                            payload=deterministic_payload,
+                        )
+                        continue
+                    shard_runnable_tasks.append(task_plan)
+                    runnable_tasks.append(task_plan)
+                runnable_tasks_by_shard_id[shard.shard_id] = tuple(shard_runnable_tasks)
             continue
         preflight_result = _build_preflight_rejected_run_result(
             prompt_text="recipe correction worker preflight rejected",
@@ -3050,7 +3229,7 @@ def _run_recipe_workspace_worker_assignment_v1(
             dest_dir=Path("scratch"),
             task_rows=task_rows_for_workspace,
         )
-    for task in runnable_tasks:
+    for task in all_tasks:
         task_manifest = task.manifest_entry
         input_path = in_dir / f"{task_manifest.shard_id}.json"
         hint_path = hints_dir / f"{task_manifest.shard_id}.md"
@@ -3062,6 +3241,10 @@ def _run_recipe_workspace_worker_assignment_v1(
         )
         _write_recipe_worker_hint(path=hint_path, shard=task_manifest)
 
+    run_result = _empty_recipe_workspace_run_result(
+        working_dir=worker_root,
+        prompt_text=worker_prompt_text,
+    )
     if runnable_shards and runnable_tasks:
         worker_prompt_text = _build_recipe_workspace_worker_prompt(
             tasks=[
@@ -3166,12 +3349,9 @@ def _run_recipe_workspace_worker_assignment_v1(
         _write_json(run_result.workspace_manifest(), worker_root / "workspace_manifest.json")
 
         task_count = len(runnable_tasks)
-        task_payloads_by_shard_id: dict[str, dict[str, dict[str, Any]]] = {}
-        task_validation_errors_by_shard_id: dict[str, dict[str, tuple[str, ...]]] = {}
         task_watchdog_retry_status_by_shard_id: dict[str, dict[str, str]] = {}
         task_repair_status_by_shard_id: dict[str, dict[str, str]] = {}
         task_repair_validation_errors_by_shard_id: dict[str, dict[str, tuple[str, ...]]] = {}
-        task_same_session_status_by_shard_id: dict[str, dict[str, dict[str, Any]]] = {}
         shard_packed_watchdog_retry_status_by_shard_id: dict[str, str] = {}
         if _should_attempt_recipe_watchdog_retry(run_result=run_result):
             for shard in runnable_shards:
@@ -4272,6 +4452,9 @@ def _run_direct_recipe_workers_v1(
                 stage_rows.extend(result.stage_rows)
 
     recipe_result_rows = _recipe_result_rows_from_proposals(all_proposals)
+    handled_locally_skip_llm_rows = _collect_recipe_locally_finalized_skip_rows(
+        all_proposals
+    )
     promotion_report = {
         "schema_version": "phase_worker_runtime.promotion_report.v1",
         "phase_key": phase_key,
@@ -4296,6 +4479,22 @@ def _run_direct_recipe_workers_v1(
                 for row in recipe_result_rows.values()
                 if row.get("repair_status") == "not_a_recipe"
             ),
+        },
+        "handled_locally_skip_llm": {
+            "count": len(handled_locally_skip_llm_rows),
+            "status_counts": {
+                "fragmentary": sum(
+                    1
+                    for row in handled_locally_skip_llm_rows
+                    if row.get("repair_status") == "fragmentary"
+                ),
+                "not_a_recipe": sum(
+                    1
+                    for row in handled_locally_skip_llm_rows
+                    if row.get("repair_status") == "not_a_recipe"
+                ),
+            },
+            "recipes": [dict(row) for row in handled_locally_skip_llm_rows],
         },
         "same_session_fix_counts": {
             "attempted": sum(

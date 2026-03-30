@@ -27,8 +27,9 @@ from cookimport.labelstudio.label_config_freeform import (
     normalize_freeform_label,
 )
 from cookimport.parsing.canonical_line_roles import (
+    CANONICAL_LINE_ROLE_ALLOWED_LABELS,
     CanonicalLineRolePrediction,
-    _normalize_review_exclusion_reason,
+    _normalize_exclusion_reason,
     label_atomic_lines_with_baseline,
 )
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
@@ -53,7 +54,8 @@ _LABEL_RESOLUTION_PRIORITY: tuple[str, ...] = (
     "INGREDIENT_LINE",
     "RECIPE_NOTES",
     "INSTRUCTION_LINE",
-    "KNOWLEDGE",
+    "NONRECIPE_CANDIDATE",
+    "NONRECIPE_EXCLUDE",
 )
 
 
@@ -114,15 +116,13 @@ class AuthoritativeLabeledLine(BaseModel):
     decided_by: Literal["rule", "codex", "fallback"]
     reason_tags: list[str] = Field(default_factory=list)
     escalation_reasons: list[str] = Field(default_factory=list)
-    review_exclusion_reason: str | None = None
+    exclusion_reason: str | None = None
 
     @model_validator(mode="after")
     def _normalize_metadata(self) -> "AuthoritativeLabeledLine":
         self.escalation_reasons = _unique_string_list(self.escalation_reasons)
         self.reason_tags = _unique_string_list(self.reason_tags)
-        self.review_exclusion_reason = _normalize_review_exclusion_reason(
-            self.review_exclusion_reason
-        )
+        self.exclusion_reason = _normalize_exclusion_reason(self.exclusion_reason)
         return self
 
 
@@ -137,15 +137,13 @@ class AuthoritativeBlockLabel(BaseModel):
     decided_by: Literal["rule", "codex", "fallback"]
     reason_tags: list[str] = Field(default_factory=list)
     escalation_reasons: list[str] = Field(default_factory=list)
-    review_exclusion_reason: str | None = None
+    exclusion_reason: str | None = None
 
     @model_validator(mode="after")
     def _normalize_metadata(self) -> "AuthoritativeBlockLabel":
         self.escalation_reasons = _unique_string_list(self.escalation_reasons)
         self.reason_tags = _unique_string_list(self.reason_tags)
-        self.review_exclusion_reason = _normalize_review_exclusion_reason(
-            self.review_exclusion_reason
-        )
+        self.exclusion_reason = _normalize_exclusion_reason(self.exclusion_reason)
         return self
 
 
@@ -547,7 +545,7 @@ def authoritative_lines_to_canonical_predictions(
                 decided_by=row.decided_by,
                 reason_tags=list(row.reason_tags),
                 escalation_reasons=list(row.escalation_reasons),
-                review_exclusion_reason=row.review_exclusion_reason,
+                exclusion_reason=row.exclusion_reason,
             )
         )
     return predictions
@@ -725,8 +723,12 @@ def _build_authoritative_lines(
     labeled_lines: list[AuthoritativeLabeledLine] = []
     for prediction in final_predictions:
         baseline = baseline_by_atomic.get(int(prediction.atomic_index), prediction)
-        deterministic_label = _canonical_label(getattr(baseline, "label", "OTHER"))
-        final_label = _canonical_label(getattr(prediction, "label", "OTHER"))
+        deterministic_label = _canonical_label(
+            getattr(baseline, "label", "NONRECIPE_CANDIDATE")
+        )
+        final_label = _canonical_label(
+            getattr(prediction, "label", "NONRECIPE_CANDIDATE")
+        )
         labeled_lines.append(
             AuthoritativeLabeledLine(
                 source_block_id=str(prediction.block_id),
@@ -739,7 +741,7 @@ def _build_authoritative_lines(
                 decided_by=prediction.decided_by,
                 reason_tags=list(prediction.reason_tags),
                 escalation_reasons=list(prediction.escalation_reasons),
-                review_exclusion_reason=prediction.review_exclusion_reason,
+                exclusion_reason=prediction.exclusion_reason,
             )
         )
     labeled_lines.sort(key=lambda row: row.atomic_index)
@@ -782,15 +784,17 @@ def _build_authoritative_block_labels(
             for row in rows
             for tag in row.reason_tags
         )
-        review_exclusion_reason: str | None = None
-        if selected_final == "OTHER" and all(row.final_label == "OTHER" for row in rows):
+        exclusion_reason: str | None = None
+        if selected_final == "NONRECIPE_EXCLUDE" and all(
+            row.final_label == "NONRECIPE_EXCLUDE" for row in rows
+        ):
             row_reasons = [
-                str(row.review_exclusion_reason).strip()
+                str(row.exclusion_reason).strip()
                 for row in rows
-                if str(row.review_exclusion_reason or "").strip()
+                if str(row.exclusion_reason or "").strip()
             ]
             if len(row_reasons) == len(rows) and len(set(row_reasons)) == 1:
-                review_exclusion_reason = row_reasons[0]
+                exclusion_reason = row_reasons[0]
         if len({row.final_label for row in rows}) > 1:
             escalation_reasons.append("mixed_block_labels")
         output.append(
@@ -803,7 +807,7 @@ def _build_authoritative_block_labels(
                 decided_by=representative.decided_by,
                 reason_tags=reason_tags,
                 escalation_reasons=escalation_reasons,
-                review_exclusion_reason=review_exclusion_reason,
+                exclusion_reason=exclusion_reason,
             )
         )
     return output
@@ -814,20 +818,22 @@ def _select_block_label(
     *,
     field_name: Literal["deterministic_label", "final_label"],
 ) -> str:
-    labels = [str(getattr(row, field_name) or "OTHER") for row in rows]
+    labels = [
+        str(getattr(row, field_name) or "NONRECIPE_CANDIDATE") for row in rows
+    ]
     for priority_label in _LABEL_RESOLUTION_PRIORITY:
         if priority_label in labels:
             return priority_label
     for label in labels:
-        if label in FREEFORM_ALLOWED_LABELS:
+        if label in CANONICAL_LINE_ROLE_ALLOWED_LABELS:
             return label
-    return "OTHER"
+    return "NONRECIPE_CANDIDATE"
 
 
 def _canonical_label(raw_label: Any) -> str:
-    normalized = normalize_freeform_label(str(raw_label or "OTHER"))
-    if normalized not in FREEFORM_ALLOWED_LABELS:
-        return "OTHER"
+    normalized = normalize_freeform_label(str(raw_label or "NONRECIPE_CANDIDATE"))
+    if normalized not in CANONICAL_LINE_ROLE_ALLOWED_LABELS:
+        return "NONRECIPE_CANDIDATE"
     return normalized
 
 

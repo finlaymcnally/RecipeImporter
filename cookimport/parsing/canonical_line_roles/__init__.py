@@ -24,15 +24,14 @@ from cookimport.config.run_settings import (
 from cookimport.core.progress_messages import format_stage_progress
 from cookimport.labelstudio.label_config_freeform import (
     FREEFORM_ALLOWED_LABELS,
-    FREEFORM_LABELS,
     normalize_freeform_label,
 )
 from cookimport.llm.canonical_line_role_prompt import (
     LineRolePromptFormat,
     _render_label_code_legend,
     build_canonical_line_role_file_prompt,
+    build_canonical_line_role_prompt,
     build_line_role_label_code_by_label,
-    serialize_line_role_model_row,
 )
 from cookimport.llm.codex_exec_runner import (
     CodexExecLiveSnapshot,
@@ -86,8 +85,10 @@ from cookimport.parsing.line_role_workspace_tools import (
     render_line_role_worker_script,
 )
 from .contracts import (
+    CANONICAL_LINE_ROLE_ALLOWED_LABELS,
     CanonicalLineRolePrediction,
-    _normalize_review_exclusion_reason,
+    RECIPE_LOCAL_LINE_ROLE_LABELS,
+    _normalize_exclusion_reason,
     _unique_string_list,
 )
 from .artifacts import (
@@ -104,6 +105,7 @@ from .prompt_inputs import (
     serialize_line_role_debug_context_row_from_mapping,
     serialize_line_role_file_row,
     serialize_line_role_model_context_row,
+    serialize_line_role_model_row,
 )
 
 _PROSE_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'/-]*")

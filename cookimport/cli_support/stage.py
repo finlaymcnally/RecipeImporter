@@ -41,8 +41,8 @@ from cookimport.runs import (
 from cookimport.staging.import_session import execute_stage_import_session_from_result
 from cookimport.staging.writer import (
     NONRECIPE_AUTHORITY_FILE_NAME,
-    NONRECIPE_REVIEW_EXCLUSIONS_FILE_NAME,
-    NONRECIPE_REVIEW_STATUS_FILE_NAME,
+    NONRECIPE_CANDIDATE_STATUS_FILE_NAME,
+    NONRECIPE_EXCLUSIONS_FILE_NAME,
     NONRECIPE_SEED_ROUTING_FILE_NAME,
     OutputStats,
     write_report,
@@ -145,9 +145,9 @@ def _write_stage_run_manifest(
         artifacts["reports"] = [path.name for path in report_paths]
     for path_name, artifact_key in (
         (NONRECIPE_SEED_ROUTING_FILE_NAME, "nonrecipe_seed_routing_json"),
-        (NONRECIPE_REVIEW_EXCLUSIONS_FILE_NAME, "nonrecipe_review_exclusions_jsonl"),
+        (NONRECIPE_EXCLUSIONS_FILE_NAME, "nonrecipe_exclusions_jsonl"),
         (NONRECIPE_AUTHORITY_FILE_NAME, "nonrecipe_authority_json"),
-        (NONRECIPE_REVIEW_STATUS_FILE_NAME, "nonrecipe_review_status_json"),
+        (NONRECIPE_CANDIDATE_STATUS_FILE_NAME, "nonrecipe_candidate_status_json"),
     ):
         target = run_root / path_name
         if target.exists():

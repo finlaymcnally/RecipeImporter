@@ -246,8 +246,8 @@ from cookimport.staging.job_planning import (
 )
 from cookimport.staging.writer import (
     NONRECIPE_AUTHORITY_FILE_NAME,
-    NONRECIPE_REVIEW_EXCLUSIONS_FILE_NAME,
-    NONRECIPE_REVIEW_STATUS_FILE_NAME,
+    NONRECIPE_CANDIDATE_STATUS_FILE_NAME,
+    NONRECIPE_EXCLUSIONS_FILE_NAME,
     NONRECIPE_SEED_ROUTING_FILE_NAME,
     OutputStats,
     write_chunk_outputs,

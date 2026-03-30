@@ -62,16 +62,16 @@ def _validate_line_role_shard_proposal(
                 mapped_errors.append(
                     f"invalid_label:{atomic_index}:{str(row_payload.get('label') or '').strip()}"
                 )
-            elif row_error == "review_exclusion_reason_requires_other":
+            elif row_error == "exclusion_reason_requires_nonrecipe_exclude":
                 mapped_errors.append(
-                    f"review_exclusion_reason_requires_other:{atomic_index}"
+                    f"exclusion_reason_requires_nonrecipe_exclude:{atomic_index}"
                 )
-            elif row_error == "invalid_review_exclusion_reason":
-                review_exclusion_reason = str(
-                    row_payload.get("review_exclusion_reason") or ""
+            elif row_error == "invalid_exclusion_reason":
+                exclusion_reason = str(
+                    row_payload.get("exclusion_reason") or ""
                 ).strip()
                 mapped_errors.append(
-                    f"invalid_review_exclusion_reason:{atomic_index}:{review_exclusion_reason or '<blank>'}"
+                    f"invalid_exclusion_reason:{atomic_index}:{exclusion_reason or '<blank>'}"
                 )
             elif row_error == "unowned_atomic_index":
                 mapped_errors.append(f"unowned_atomic_index:{atomic_index}")
@@ -814,27 +814,25 @@ def _parse_codex_line_role_response(
         if atomic_index not in requested_indices:
             return [], "unexpected_atomic_index"
         normalized_label = normalize_freeform_label(str(row.get("label") or ""))
-        if normalized_label not in FREEFORM_ALLOWED_LABELS:
+        if normalized_label not in CANONICAL_LINE_ROLE_ALLOWED_LABELS:
             return [], f"unknown_label:{normalized_label}"
         candidate = requested_by_index[atomic_index]
-        review_exclusion_reason = row.get("review_exclusion_reason")
+        exclusion_reason = row.get("exclusion_reason")
         try:
-            normalized_review_exclusion_reason = _normalize_review_exclusion_reason(
-                review_exclusion_reason
-            )
+            normalized_exclusion_reason = _normalize_exclusion_reason(exclusion_reason)
         except ValueError as exc:
             return [], str(exc)
-        if normalized_review_exclusion_reason is not None:
-            if normalized_label != "OTHER":
-                return [], "review_exclusion_reason_requires_other"
+        if normalized_exclusion_reason is not None:
+            if normalized_label != "NONRECIPE_EXCLUDE":
+                return [], "exclusion_reason_requires_nonrecipe_exclude"
             if _is_within_recipe_span(candidate):
-                return [], "review_exclusion_reason_requires_outside_recipe"
+                return [], "exclusion_reason_requires_outside_recipe"
         seen.add(atomic_index)
         parsed.append(
             {
                 "atomic_index": atomic_index,
                 "label": normalized_label,
-                "review_exclusion_reason": normalized_review_exclusion_reason,
+                "exclusion_reason": normalized_exclusion_reason,
             }
         )
 

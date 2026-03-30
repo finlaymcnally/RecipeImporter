@@ -300,8 +300,6 @@ def _build_line_role_canonical_line_table_rows(
                 "recipe_id": row.get("recipe_id"),
                 "within_recipe_span": row.get("within_recipe_span"),
                 "current_line": str(row.get("current_line") or ""),
-                "deterministic_label": str(row.get("deterministic_label") or "OTHER").strip()
-                or "OTHER",
                 "rule_tags": [
                     str(tag).strip()
                     for tag in row.get("rule_tags") or []
@@ -485,14 +483,14 @@ def _build_line_role_workspace_worker_prompt(
         "- After the last shard is installed, send one brief completion message naming the finished outputs and then stop.\n"
         "- If `tools/line_role_worker.py` exists, use it as the paved road before inventing ad hoc shell helpers.\n"
         "- `python3 tools/line_role_worker.py overview`, `show <shard_id>`, and `scaffold <shard_id> --dest <path>` are fallback/debug tools, not the default starting path.\n"
-        "- Long handwritten `jq` transforms are unnecessary here because the helper can already expand the deterministic label codes into the correct output shape.\n"
+        "- Long handwritten `jq` transforms are unnecessary here because the helper already owns validation and install.\n"
         "- Prefer opening the named files directly. If you still need shell helpers, keep them narrow and grounded on the named local files only.\n"
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
         "- Treat `CURRENT_PHASE.md` as the cheapest repo-written first read. Use `current_phase.json` only for the exact metadata and named file paths.\n"
         "- Use `assigned_shards.json` only for ordered ownership/progress context.\n"
         "- For each assigned shard, start from the prewritten work ledger and hint before reopening the raw input ledger.\n"
         "- Treat `hints/<shard_id>.md` as guidance and `in/<shard_id>.json` as the authoritative shard input for the active phase.\n"
-        "- Treat each shard ledger's deterministic label code as a weak hint only. Recompute from the shard rows, hint, and local context; do not preserve or prefer a label just because it came from the deterministic seed.\n"
+        "- Treat shard span codes and hint lists as weak hints only. Recompute from the shard rows, hint, and local context.\n"
         "- Open `OUTPUT_CONTRACT.md` only when the seeded work ledger and validator feedback are insufficient to recover the exact output shape.\n"
         "- Write and revise the active shard only in `work/<shard_id>.json`. The helper installs the validated ledger to `out/<shard_id>.json`.\n"
         "- If `out/<shard_id>.json` already exists and is complete, leave it alone and continue.\n"
@@ -500,28 +498,28 @@ def _build_line_role_workspace_worker_prompt(
         "- Stay inside this workspace; do not inspect parent directories or the repository.\n"
         "- Keep working through the assigned shard files until all of them are handled or you truly cannot proceed.\n\n"
         "Each shard input file has this shape:\n"
-        '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","rows":[[123,"L4","1 cup flour"],[124,"L2","Stir well."]]}\n\n'
+        '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","rows":[[123,"R",["ingredient_like"],[],"1 cup flour"],[124,"R",["instruction_like"],[],"Stir well."]]}\n\n'
         "Each work/install ledger must have this shape:\n"
         '{"rows":[{"atomic_index":123,"label":"INGREDIENT_LINE"}]}\n\n'
         "Rules:\n"
-        "- Use only the keys `rows`, `atomic_index`, `label`, and optional `review_exclusion_reason` in each ledger.\n"
+        "- Use only the keys `rows`, `atomic_index`, `label`, and optional `exclusion_reason` in each ledger.\n"
         "- Return one result for every owned input row in `rows`, in the same order.\n"
-        "- Convert `label_code` into the correct full label string. The seeded work ledger already does this deterministically.\n"
+        "- The input rows are `[atomic_index, span_code, rule_tags, escalation_reasons, current_line]`.\n"
+        "- Use `span_code`, `rule_tags`, and `escalation_reasons` as weak hints only.\n"
         "- `INGREDIENT_LINE`: quantity/unit ingredients and bare ingredient items in ingredient lists.\n"
         "- `INSTRUCTION_LINE`: recipe-local imperative action sentences, even when they include time.\n"
         "- `TIME_LINE`: stand-alone timing or temperature lines, not full instruction sentences.\n"
         "- `HOWTO_SECTION`: recipe-internal subsection headings such as `FOR THE SAUCE`, `TO FINISH`, or `FOR SERVING`.\n"
         "- `HOWTO_SECTION` is book-optional: some books legitimately use zero of them, so emit it only with immediate recipe-local support.\n"
         "- `RECIPE_VARIANT`: alternate recipe names or variant headers inside a recipe.\n"
-        "- `KNOWLEDGE`: keep this for recipe-local explanatory/reference prose only; outside recipes, useful prose should stay `OTHER` for the later knowledge stage.\n"
-        "- `OTHER`: navigation, memoir, marketing, dedications, table of contents, or decorative matter.\n"
-        "- Never label a quantity ingredient line as `KNOWLEDGE`.\n"
-        "- Never label an imperative recipe step as `KNOWLEDGE`.\n"
+        "- `RECIPE_NOTES`: recipe-local prose that belongs with the current recipe but is not ingredient or instruction structure.\n"
+        "- `NONRECIPE_CANDIDATE`: outside-recipe material that should go to knowledge later.\n"
+        "- `NONRECIPE_EXCLUDE`: obvious outside-recipe junk that should never go to knowledge.\n"
         "- Do not use `INSTRUCTION_LINE` for generic culinary advice or cookbook teaching prose.\n"
-        "- Generic cooking advice that spans many dishes belongs in review-eligible `OTHER` here, not `INSTRUCTION_LINE`.\n"
+        "- Generic cooking advice that spans many dishes belongs in `NONRECIPE_CANDIDATE` here, not `INSTRUCTION_LINE`.\n"
         "- Do not use `HOWTO_SECTION` for chapter, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, or `Starches`.\n"
-        "- A heading by itself is weak evidence. Keep topic headings such as `Balancing Fat` or `WHAT IS ACID?` as review-eligible `OTHER` unless nearby rows prove recipe-local structure.\n"
-        "- First-person narrative or memoir prose is usually `OTHER`, not recipe structure.\n\n"
+        "- A heading by itself is weak evidence. Keep topic headings such as `Balancing Fat` or `WHAT IS ACID?` as `NONRECIPE_CANDIDATE` unless nearby rows prove recipe-local structure.\n"
+        "- First-person narrative or memoir prose is usually `NONRECIPE_CANDIDATE`, not recipe structure.\n\n"
         "Do not return row labels in your final message. The authoritative results are the installed `out/<shard_id>.json` files.\n\n"
         "Assigned shard files:\n"
         f"{assignments}\n"
@@ -551,26 +549,19 @@ def _write_line_role_worker_hint(
 ) -> None:
     input_rows = list(_coerce_mapping_dict(shard.input_payload).get("rows") or [])
     debug_rows = list(_coerce_mapping_dict(debug_payload).get("rows") or [])
-    input_row_by_atomic_index: dict[int, tuple[str, str, str]] = {}
+    input_row_by_atomic_index: dict[int, tuple[Any, ...]] = {}
     ordered_atomic_indices: list[int] = []
-    code_by_label = build_line_role_label_code_by_label()
-    label_by_code = {str(code): str(label) for label, code in code_by_label.items()}
     for row in input_rows:
-        if not isinstance(row, (list, tuple)) or len(row) < 3:
+        if not isinstance(row, (list, tuple)) or len(row) < 5:
             continue
         try:
             atomic_index = int(row[0])
         except (TypeError, ValueError):
             continue
-        input_row_by_atomic_index[atomic_index] = (
-            atomic_index,
-            str(row[1]),
-            str(row[2]),
-        )
+        input_row_by_atomic_index[atomic_index] = tuple(row)
         ordered_atomic_indices.append(atomic_index)
     order_lookup = {atomic_index: idx for idx, atomic_index in enumerate(ordered_atomic_indices)}
 
-    label_counts: dict[str, int] = {}
     flagged_count = 0
     span_inside = 0
     span_outside = 0
@@ -583,8 +574,6 @@ def _write_line_role_worker_hint(
             atomic_index = int(row.get("atomic_index"))
         except (TypeError, ValueError):
             continue
-        deterministic_label = str(row.get("deterministic_label") or "OTHER").strip() or "OTHER"
-        label_counts[deterministic_label] = label_counts.get(deterministic_label, 0) + 1
         within_recipe_span = row.get("within_recipe_span")
         if within_recipe_span is True:
             span_inside += 1
@@ -607,34 +596,37 @@ def _write_line_role_worker_hint(
         if len(attention_lines) >= 12 or (not escalation_reasons and not rule_tags):
             continue
         current_line = str(row.get("current_line") or "").strip()
-        input_code = input_row_by_atomic_index.get(atomic_index, ("", "", ""))[1]
+        input_row = input_row_by_atomic_index.get(atomic_index, ())
+        input_span_code = str(input_row[1]) if len(input_row) >= 2 else "?"
         row_index = order_lookup.get(atomic_index)
         prev_line = "[start]"
         next_line = "[end]"
         if row_index is not None:
             if row_index > 0:
                 prev_atomic_index = ordered_atomic_indices[row_index - 1]
-                prev_line = input_row_by_atomic_index.get(prev_atomic_index, ("", "", ""))[2]
+                prev_row = input_row_by_atomic_index.get(prev_atomic_index, ())
+                prev_line = str(prev_row[-1]) if prev_row else "[start]"
             if row_index < (len(ordered_atomic_indices) - 1):
                 next_atomic_index = ordered_atomic_indices[row_index + 1]
-                next_line = input_row_by_atomic_index.get(next_atomic_index, ("", "", ""))[2]
+                next_row = input_row_by_atomic_index.get(next_atomic_index, ())
+                next_line = str(next_row[-1]) if next_row else "[end]"
         attention_lines.append(
-            f"`{atomic_index}` `{preview_text(current_line, max_chars=90)}` -> deterministic `{deterministic_label}`, input code `{input_code}` ({label_by_code.get(input_code, 'unknown')}), tags `{', '.join(rule_tags) or 'none'}`, escalation `{', '.join(escalation_reasons) or 'none'}`, prev `{preview_text(prev_line, max_chars=60)}`, next `{preview_text(next_line, max_chars=60)}`"
+            f"`{atomic_index}` `{preview_text(current_line, max_chars=90)}` -> span `{input_span_code}`, tags `{', '.join(rule_tags) or 'none'}`, escalation `{', '.join(escalation_reasons) or 'none'}`, prev `{preview_text(prev_line, max_chars=60)}`, next `{preview_text(next_line, max_chars=60)}`"
         )
 
     shard_profile = [
         f"Owned rows: {len(input_row_by_atomic_index)}.",
-        f"Deterministic label mix: {', '.join(f'{label}={count}' for label, count in sorted(label_counts.items())) or 'none'}.",
         f"Rows with rule tags or escalation reasons: {flagged_count}.",
         f"Recipe-span status mix: inside={span_inside}, outside={span_outside}, unknown={span_unknown}.",
         "Use this file to decode compact rows quickly, then rely on `in/<shard_id>.json` for the full owned row list.",
     ]
     legend_lines = [
-        f"`{code}` = `{label}`"
-        for label, code in sorted(code_by_label.items(), key=lambda item: item[1])
+        "`R` = `in_recipe`",
+        "`N` = `outside_recipe`",
+        "`U` = `unknown_recipe_status`",
     ]
     static_reminders = [
-        "Treat each row's deterministic label code as a weak hint only, not starting truth.",
+        "Treat span codes and hint lists as weak hints only, not starting truth.",
         "`HOWTO_SECTION` is only for short recipe-internal subsection headings such as `FOR THE SAUCE` or `TO FINISH`.",
         "Do not use `HOWTO_SECTION` for chapter, topic, lesson, or contents headings.",
         "Neighbor rows in `context_before_rows` / `context_after_rows` are reference-only and must never appear in output JSON.",
