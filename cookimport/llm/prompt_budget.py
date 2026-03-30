@@ -621,7 +621,10 @@ def _build_codex_farm_stage_summary(
         return None
 
     worker_count, shard_count = _extract_runtime_worker_and_shard_counts(stage_payload)
-    status_counts = _extract_stage_shard_status_counts(stage_payload)
+    status_counts = _extract_stage_shard_status_counts(
+        stage_payload,
+        stage_name=stage_name,
+    )
     pathological_flags = _pathological_flags_from_summary_payload(
         summary_payload,
         fallback=pathology_summary.get("pathological_flags"),
@@ -1353,7 +1356,10 @@ def _common_int_value(values: Any) -> int | None:
 
 def _extract_stage_shard_status_counts(
     stage_payload: Mapping[str, Any],
+    *,
+    stage_name: str,
 ) -> dict[str, int | None]:
+    is_knowledge_stage = stage_name in {"knowledge", "nonrecipe_knowledge_review"}
     candidates = (
         (),
         ("counts",),
@@ -1369,6 +1375,7 @@ def _extract_stage_shard_status_counts(
         "no_final_output_shard_count": None,
         "missing_output_shard_count": None,
     }
+    legacy_missing_output_shard_count: int | None = None
     for path in candidates:
         current: Any = stage_payload
         for segment in path:
@@ -1397,6 +1404,23 @@ def _extract_stage_shard_status_counts(
                 if value is not None:
                     result[key] = value
                     break
+        if (
+            is_knowledge_stage
+            and legacy_missing_output_shard_count is None
+            and result["missing_output_shard_count"] is not None
+        ):
+            legacy_missing_output_shard_count = result["missing_output_shard_count"]
+    if (
+        is_knowledge_stage
+        and result["no_final_output_shard_count"] is None
+        and legacy_missing_output_shard_count is not None
+    ):
+        result["no_final_output_shard_count"] = legacy_missing_output_shard_count
+    if is_knowledge_stage:
+        # Older knowledge artifacts reported generic missing_output shard counts.
+        # Keep reading that historical field, but surface the current no_final_output
+        # vocabulary so prompt-budget summaries do not reintroduce retired naming.
+        result["missing_output_shard_count"] = None
     return result
 
 

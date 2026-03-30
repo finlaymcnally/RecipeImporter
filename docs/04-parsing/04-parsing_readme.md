@@ -102,7 +102,7 @@ Canonical line-role prompt seam note:
 - `CanonicalLineRolePrediction` carries optional `exclusion_reason` only on `NONRECIPE_EXCLUDE` rows. The allowed reason codes are for overwhelming obvious junk surfaces such as navigation/front matter, publishing/legal metadata, endorsements, and isolated page furniture.
 - the obvious-junk heuristics remain a repo-owned deterministic seam for the rule/baseline path, but the live Codex route path now accepts valid worker labels without runtime semantic veto.
 - front-matter navigation exclusion is now a little more aggressive for chapter-taxonomy clusters too: headings like `The Four Elements of Good Cooking`, `SALT`, `What is Salt?`, or `How Salt Works` can be excluded as `navigation` when they sit inside a clear contents/front-matter heading run with no nearby explanatory prose, but the same headings must still fail open when local teaching prose is present.
-- parser-owned outside-recipe review exclusion now goes through two explicit seams in `canonical_line_roles.py`: `_outside_recipe_knowledge_label_allowed(...)` survives only as a diagnostic/suppression helper for identifying lesson-like prose, while `_outside_recipe_review_exclusion_reason(...)` is the active coarse-veto seam that marks only obviously useless outside-recipe `OTHER` rows for knowledge-review pruning.
+- parser-owned outside-recipe exclusion now goes through two explicit seams in `canonical_line_roles.py`: `_outside_recipe_knowledge_label_allowed(...)` survives only as a diagnostic/suppression helper for identifying lesson-like prose, while `_outside_recipe_exclusion_reason(...)` is the active coarse-veto seam that marks only obviously useless outside-recipe rows for knowledge pruning.
 - lesson-prose prompt posture now explicitly keeps short concept headings such as `Balancing Fat` and short declarative teaching lines as review-eligible `OTHER`, while lone unsupported question headings such as `What is Heat?` also stay `OTHER` unless they are obvious junk.
 - outside-recipe `INSTRUCTION_LINE` support now looks slightly farther for recipe-local evidence before failing closed. That keeps trailing tail steps such as the Salt Fat crouton cool/store instructions from falling back to `OTHER` when they sit just outside the grouped recipe span, without letting prose-only clusters self-justify as recipe flow.
 - line-role policy changes should still be checked against contrast books instead of Salt-Fat-only intuition: `saltfatacidheatcutdown` is the over-structuring and memoir-vs-knowledge canary, `seaandsmokecutdown` is the positive `HOWTO_SECTION` contrast, and `thefoodlabcutdown` is the positive outside-recipe `KNOWLEDGE` contrast.
@@ -534,7 +534,7 @@ Gates include:
 ### Related modules
 
 - `cookimport/llm/canonical_line_role_prompt.py`
-- `cookimport/llm/codex_exec.py` (fail-closed retired transport only; active runtime line-role transport is CodexFarm through `canonical_line_roles.py`)
+- `cookimport/llm/codex_exec_runner.py` (shared direct-exec workspace runner used by the active line-role Codex path)
 - `llm_pipelines/prompts/canonical-line-role-v1.prompt.md`
 
 ### Tests to read

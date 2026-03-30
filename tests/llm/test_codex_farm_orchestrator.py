@@ -2005,12 +2005,14 @@ def test_orchestrator_persists_recovered_watchdog_shard_status_artifacts(
     retry_status = fixture["retry_status"]
 
     assert status_payload["status"] == "invalid"
-    assert status_payload["watchdog_retry_status"] == "not_attempted"
     assert status_payload["state"] == "watchdog_killed"
     assert status_payload["reason_code"] == "watchdog_command_execution_forbidden"
     assert status_payload["raw_supervision_state"] == "watchdog_killed"
     assert status_payload["final_supervision_state"] == "watchdog_killed"
-    assert proposal_payload["watchdog_retry_status"] == "not_attempted"
+    assert status_payload["repair_status"] == "not_attempted"
+    assert proposal_payload["repair_status"] == "not_attempted"
+    assert "watchdog_retry_status" not in status_payload
+    assert "watchdog_retry_status" not in proposal_payload
     assert retry_status is None
 
 
@@ -2169,7 +2171,7 @@ def test_orchestrator_uses_one_packed_watchdog_retry_for_early_multi_task_worker
     assert process_summary["watchdog_recovered_shard_count"] == 0
 
 
-def test_orchestrator_marks_packed_watchdog_retry_mode_in_status_artifacts(
+def test_orchestrator_omits_legacy_watchdog_retry_fields_from_status_artifacts(
     tmp_path: Path,
 ) -> None:
     fixture = _run_packed_watchdog_retry_fixture(tmp_path)
@@ -2177,6 +2179,7 @@ def test_orchestrator_marks_packed_watchdog_retry_mode_in_status_artifacts(
     retry_status = fixture["retry_status"]
 
     assert status_payload["status"] == "invalid"
-    assert status_payload["watchdog_retry_status"] == "not_attempted"
-    assert status_payload["watchdog_retry_mode"] == "not_attempted"
+    assert status_payload["repair_status"] == "not_attempted"
+    assert "watchdog_retry_status" not in status_payload
+    assert "watchdog_retry_mode" not in status_payload
     assert retry_status is None

@@ -711,7 +711,7 @@ def _build_knowledge_workspace_worker_prompt(
         "- After writing the result, re-open `current_packet.json`, `current_hint.md`, and `current_result_path.txt` immediately and continue with the newly leased packet.",
         "- Do not invent your own queue advancement, install loop, or broad output sweeps.",
         "- `OUTPUT_CONTRACT.md` and `examples/` are fallback contract/debug surfaces, not the default first read.",
-        "- Prefer opening the named files directly. If you still need shell helpers, keep them narrow and grounded on `current_packet.json`, `current_hint.md`, and the current result path only.",
+        "- Prefer opening the named files directly. Do not use shell helpers on the happy path. If a tiny local helper is truly unavoidable, keep it narrowly grounded on `current_packet.json`, `current_hint.md`, and the current result path only.",
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "",
         "Packet semantics:",

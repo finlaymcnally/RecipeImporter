@@ -210,14 +210,14 @@ def _extract_line_role_artifacts(
             "outside_recipe_structured_count": routing_payload.get(
                 "outside_recipe_structured_count"
             ),
-            "outside_recipe_review_eligible_count": routing_payload.get(
-                "outside_recipe_review_eligible_count"
+            "outside_recipe_candidate_count": routing_payload.get(
+                "outside_recipe_candidate_count"
             ),
-            "outside_recipe_review_excluded_count": routing_payload.get(
-                "outside_recipe_review_excluded_count"
+            "outside_recipe_excluded_count": routing_payload.get(
+                "outside_recipe_excluded_count"
             ),
-            "review_exclusion_reason_counts": routing_payload.get(
-                "review_exclusion_reason_counts"
+            "exclusion_reason_counts": routing_payload.get(
+                "exclusion_reason_counts"
             ),
         }
 

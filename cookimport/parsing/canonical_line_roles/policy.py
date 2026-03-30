@@ -464,7 +464,7 @@ def _looks_publisher_promo_candidate(
     )
 
 
-def _outside_recipe_review_exclusion_reason(
+def _outside_recipe_exclusion_reason(
     candidate: AtomicLineCandidate,
     *,
     by_atomic_index: dict[int, AtomicLineCandidate] | None,
@@ -830,7 +830,7 @@ def _normalize_prediction_metadata(
         if label in {"OTHER", "KNOWLEDGE"}:
             label = "RECIPE_NOTES"
     elif label not in _RECIPE_LOCAL_LABELS:
-        exclusion_reason = exclusion_reason or _outside_recipe_review_exclusion_reason(
+        exclusion_reason = exclusion_reason or _outside_recipe_exclusion_reason(
             candidate,
             by_atomic_index=by_atomic_index,
         )

@@ -29,11 +29,11 @@ from .codex_farm_knowledge_contracts import (
 @dataclass(frozen=True, slots=True)
 class KnowledgeJobBuildReport:
     seed_nonrecipe_span_count: int
-    review_eligible_nonrecipe_span_count: int
+    candidate_nonrecipe_span_count: int
     packet_count_before_partition: int
     shards_written: int
     packets_written: int
-    review_eligible_block_count: int
+    candidate_block_count: int
     packet_ids: list[str]
     planning_warnings: list[str]
     shard_entries: list[ShardManifestEntryV1]
@@ -247,11 +247,11 @@ def build_knowledge_jobs(
 
     return KnowledgeJobBuildReport(
         seed_nonrecipe_span_count=len(candidate_spans),
-        review_eligible_nonrecipe_span_count=len(candidate_spans),
+        candidate_nonrecipe_span_count=len(candidate_spans),
         packet_count_before_partition=len(sorted_packets),
         shards_written=len(shard_entries),
         packets_written=len(written_packets),
-        review_eligible_block_count=len(
+        candidate_block_count=len(
             {
                 index
                 for packet in written_packets

@@ -1457,8 +1457,8 @@ def _build_direct_exec_agents_text(
             "Do not inspect parent directories, repository-wide AGENTS files, project docs, or source code.\n"
             "Do not run repo-specific commands such as `npm run docs:list` or `git`.\n"
             "Prefer opening the named files directly instead of exploring the workspace or dumping whole manifests just to orient yourself.\n"
-            "If a named JSON file needs structure extraction, prefer a short local `python3` helper or one direct query against that file over a broad shell scheduler.\n"
-            "Workspace-local shell commands are broadly allowed when they materially help, including searches, filters, redirections, and local file writes under `scratch/`, approved result paths, or short-lived local temp roots such as `/tmp`.\n"
+            "The happy path is file-first: open the named files directly and write only the approved result path.\n"
+            "Do not reach for shell on the happy path. If a tiny local helper is truly necessary, keep it narrowly grounded on prompt-named files and avoid inventing schedulers or queue-control rewrites.\n"
             "The watchdog is boundary-based: stay inside this workspace, keep every visible path local or in approved temp roots, and avoid repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
             "Do not inspect parent directories or the repository, and do not leave this workspace.\n"
             "Do not modify immutable input files unless the prompt explicitly allows it.\n"
@@ -1871,10 +1871,6 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
         "structured_followup_tokens_total": 0,
         "command_policy_counts": {},
         "watchdog_recovered_shard_count": 0,
-        "same_session_fix_attempted_task_count": 0,
-        "same_session_fix_recovered_task_count": 0,
-        "same_session_fix_escalated_task_count": 0,
-        "same_session_fix_budget_exhausted_task_count": 0,
     }
     prompt_input_mode_counts: dict[str, int] = {}
     command_executing_shards: set[str] = set()
@@ -1960,19 +1956,6 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
             pathological_shards.add(shard_id)
         if str(row.get("repair_status") or "").strip().lower() == "repaired" and shard_id:
             repaired_shards.add(shard_id)
-        if bool(row.get("same_session_fix_attempted")):
-            summary["same_session_fix_attempted_task_count"] += 1
-        same_session_fix_status = str(row.get("same_session_fix_status") or "").strip().lower()
-        if same_session_fix_status == "recovered":
-            summary["same_session_fix_recovered_task_count"] += 1
-        if same_session_fix_status in {
-            "budget_exhausted",
-            "continuation_impossible",
-            "continuation_unavailable",
-        }:
-            summary["same_session_fix_escalated_task_count"] += 1
-        if same_session_fix_status == "budget_exhausted":
-            summary["same_session_fix_budget_exhausted_task_count"] += 1
         effective_supervision_state = str(
             row.get("final_supervision_state") or row.get("supervision_state") or ""
         ).strip().lower()
@@ -2647,19 +2630,16 @@ def _write_direct_exec_worker_manifest(
             if note is not None
         ],
         "workspace_shell_policy": (
-            "Allow ordinary local shell use inside this workspace, including bounded "
+            "Packet-leased workspaces are file-first. Shell helpers are fallback only, "
+            "must stay tiny, and must not replace repo-owned packet advancement or result installation."
+            if has_packet_leasing
+            else "Allow ordinary local shell use inside this workspace, including bounded "
             "`python`/`python3`/`node` transforms plus short-lived helper files in "
             "local temp roots such as `/tmp`. Block non-temp visible path escapes and "
             "obvious repo/network/package-manager tools."
         ),
         "workspace_local_shell_examples": (
-            [
-                "sed -n '1,80p' current_hint.md",
-                "python3 -c \"import json; from pathlib import Path; packet=json.loads(Path('current_packet.json').read_text()); print(packet.get('task_id'))\"",
-                "python3 -c \"from pathlib import Path; Path('/tmp/current_packet.snapshot.json').write_text(Path('current_packet.json').read_text())\"",
-                "jq '{rows: ...}' current_packet.json > out/<task>.json",
-                "cat <<'EOF' > /tmp/local-helper.json",
-            ]
+            []
             if has_packet_leasing
             else (
                 (

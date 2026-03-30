@@ -150,7 +150,7 @@ def test_read_validated_knowledge_outputs_from_proposals_promotes_only_valid_sha
         tmp_path / "book.ks0001.nr.json",
         {
             "payload": None,
-            "validation_errors": ["missing_output"],
+            "validation_errors": ["missing_output_file"],
             "validation_metadata": {},
         },
     )

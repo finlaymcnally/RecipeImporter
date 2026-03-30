@@ -200,12 +200,12 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_phase_loop(
     assert "When `tools/` exists, prefer its repo-written helper CLI" in agents_text
     assert "When the workspace includes `current_phase.json`, `CURRENT_PHASE.md`, or `CURRENT_PHASE_FEEDBACK.md`" in agents_text
     assert "`current_packet.json`, `current_hint.md`, and `current_result_path.txt`" in agents_text
-    assert "Workspace-local shell commands are broadly allowed when they materially help" in agents_text
+    assert "Do not reach for shell on the happy path." in agents_text
     assert "The watchdog is boundary-based" in agents_text
     assert "avoid repo/network/package-manager commands such as `git`, `curl`, or `npm`" in agents_text
     assert "`/tmp` or `/var/tmp` for bounded helper files" in agents_text
     assert "dumping whole manifests just to orient yourself" in agents_text
-    assert "prefer a short local `python3` helper" in agents_text
+    assert "If a tiny local helper is truly necessary" in agents_text
     assert "start with the smallest prompt-named helper surface first" in agents_text
     current_phase = json.loads(
         (workspace.execution_working_dir / "current_phase.json").read_text(encoding="utf-8")
@@ -358,15 +358,10 @@ def test_prepare_direct_exec_workspace_worker_mode_knows_knowledge_packet_lease_
     assert "current_batch_file" not in worker_manifest
     assert "current_batch_brief_file" not in worker_manifest
     assert "current_batch_feedback_file" not in worker_manifest
-    assert "sed -n '1,80p' current_hint.md" in worker_manifest[
-        "workspace_local_shell_examples"
-    ]
-    assert "python3 -c \"import json; from pathlib import Path; packet=json.loads(Path('current_packet.json').read_text()); print(packet.get('task_id'))\"" in worker_manifest[
-        "workspace_local_shell_examples"
-    ]
-    assert "jq '{rows: ...}' current_packet.json > out/<task>.json" in worker_manifest[
-        "workspace_local_shell_examples"
-    ]
+    assert worker_manifest["workspace_shell_policy"].startswith(
+        "Packet-leased workspaces are file-first."
+    )
+    assert worker_manifest["workspace_local_shell_examples"] == []
     assert worker_manifest["workspace_commands_forbidden"] == [
         "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
         "non-temp absolute paths outside approved local temp roots",

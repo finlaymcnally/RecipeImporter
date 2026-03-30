@@ -1184,9 +1184,6 @@ def _final_recipe_supervision_fields(
     *,
     run_result: CodexExecRunResult,
     proposal_status: str,
-    watchdog_retry_status: str = "not_attempted",
-    watchdog_retry_mode: str = "not_attempted",
-    same_session_fix_status: str = "not_needed",
     repair_status: str = "not_attempted",
 ) -> dict[str, Any]:
     raw_state = str(run_result.supervision_state or "completed").strip() or "completed"
@@ -1198,21 +1195,10 @@ def _final_recipe_supervision_fields(
     finalization_path = "raw_supervision"
     if raw_state == "watchdog_killed" and proposal_status == "validated":
         final_state = "completed"
-        if watchdog_retry_status == "recovered":
-            final_reason_code = "watchdog_retry_recovered"
-            if watchdog_retry_mode == "shard_packed":
-                final_reason_detail = "recipe shard validated after shard-packed watchdog retry"
-            else:
-                final_reason_detail = "recipe shard validated after task-level watchdog retry"
-            finalization_path = "watchdog_retry_recovered"
-        elif repair_status == "repaired":
+        if repair_status == "repaired":
             final_reason_code = "recipe_repair_recovered"
             final_reason_detail = "recipe shard validated after follow-up repair"
             finalization_path = "repair_recovered"
-        elif same_session_fix_status == "recovered":
-            final_reason_code = "same_session_validation_recovered"
-            final_reason_detail = "recipe shard validated after repo-written same-session feedback"
-            finalization_path = "same_session_recovered"
         else:
             final_reason_code = "workspace_outputs_recovered"
             final_reason_detail = "recipe shard validated despite the raw workspace session stop"
@@ -3026,9 +3012,6 @@ def _run_recipe_workspace_worker_assignment_v1(
         supervision_fields = _final_recipe_supervision_fields(
             run_result=run_result,
             proposal_status=proposal_status,
-            watchdog_retry_status="not_attempted",
-            watchdog_retry_mode="not_attempted",
-            same_session_fix_status="not_needed",
             repair_status=repair_status,
         )
         final_payload = payload_candidate if proposal_status == "validated" else None
@@ -3040,9 +3023,6 @@ def _run_recipe_workspace_worker_assignment_v1(
                 "payload": final_payload,
                 "validation_errors": list(validation_errors),
                 "validation_metadata": dict(validation_metadata or {}),
-                "watchdog_retry_attempted": False,
-                "watchdog_retry_status": "not_attempted",
-                "watchdog_retry_mode": "not_attempted",
                 "repair_attempted": repair_attempted,
                 "repair_status": repair_status,
                 "state": supervision_fields["final_supervision_state"],
@@ -3059,9 +3039,6 @@ def _run_recipe_workspace_worker_assignment_v1(
                 "validation_errors": list(validation_errors),
                 "validation_metadata": dict(validation_metadata or {}),
                 "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
-                "watchdog_retry_attempted": False,
-                "watchdog_retry_status": "not_attempted",
-                "watchdog_retry_mode": "not_attempted",
                 "repair_attempted": repair_attempted,
                 "repair_status": repair_status,
                 "state": supervision_fields["final_supervision_state"],
@@ -3103,8 +3080,6 @@ def _run_recipe_workspace_worker_assignment_v1(
                 validation_errors=validation_errors,
                 metadata={
                     **dict(validation_metadata or {}),
-                    "watchdog_retry_attempted": False,
-                    "watchdog_retry_status": "not_attempted",
                     "repair_attempted": repair_attempted,
                     "repair_status": repair_status,
                     "state": supervision_fields["final_supervision_state"],

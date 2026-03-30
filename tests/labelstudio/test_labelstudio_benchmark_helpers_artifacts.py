@@ -2871,6 +2871,45 @@ def _build_knowledge_prompt_budget_summary_fixture(tmp_path: Path) -> dict[str, 
     }
 
 
+def test_prompt_budget_summary_normalizes_legacy_knowledge_missing_output_counts(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+
+    pred_manifest = {
+        "llm_codex_farm": {
+            "knowledge": {
+                "process_run": {
+                    "telemetry": {
+                        "summary": {
+                            "call_count": 1,
+                            "duration_total_ms": 250,
+                            "tokens_input": 40,
+                            "tokens_cached_input": 0,
+                            "tokens_output": 0,
+                            "tokens_total": 40,
+                        }
+                    }
+                },
+                "promotion_report": {
+                    "validated_shards": 0,
+                    "invalid_shards": 0,
+                    "missing_output_shards": 2,
+                },
+            }
+        }
+    }
+
+    summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
+    knowledge_stage = summary["by_stage"]["knowledge"]
+
+    assert knowledge_stage["no_final_output_shard_count"] == 2
+    assert knowledge_stage.get("missing_output_shard_count") is None
+    assert summary["totals"]["no_final_output_shard_count"] == 2
+    assert summary["totals"]["missing_output_shard_count"] is None
+
+
 def test_prompt_budget_summary_surfaces_knowledge_packet_and_followup_counts(
     tmp_path: Path,
 ) -> None:

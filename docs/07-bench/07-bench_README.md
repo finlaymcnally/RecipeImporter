@@ -81,7 +81,7 @@ Important current constraints:
 - `bench quality-run` is deterministic-only. It rejects `--include-codex-farm`, Codex CLI overrides, and requested settings that enable live Codex recipe or knowledge surfaces.
 - `bench speed-run --include-codex-farm` is still allowed, but it requires `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION` and is blocked in agent-run shells.
 - `bench quality-run` and `bench speed-run` both support crash-safe resume via `--resume-run-dir`.
-- `cookimport/bench/quality_runner.py` is now only the public compatibility facade; active QualitySuite runtime ownership lives under `cookimport/bench/qualitysuite/`.
+- `cookimport/bench/quality_runner.py` is still the live public QualitySuite import/CLI seam, while active runtime ownership lives under `cookimport/bench/qualitysuite/`.
 - `bench quality-run` emits `agent_compare_control/` by default. `bench quality-compare` does the same for comparisons.
 - `bench quality-discover` prefers curated CUTDOWN ids first:
   - `saltfatacidheatcutdown`
@@ -207,7 +207,7 @@ Current rule:
 - prediction generation is responsible for setting those canonical pointers to the correct artifacts for the run
 - canonical-text line-role runs rewire that same pointer pair to the scored `line-role-pipeline/` projection artifacts; helpers should not guess stage-backed files or raw `full_text.json` from path layout
 - new-format prediction/eval manifests and import return payloads do not publish separate line-role scorer keys anymore; helpers should fail on missing canonical pointers instead of probing older fallback filenames or implicit directories
-- semantic stage/canonical scoring uses only authoritative predictions. If `stage_block_predictions.json` carries `unresolved_review_eligible_block_indices`, those rows are excluded from accuracy/F1 and reported separately as coverage/incompleteness.
+- semantic stage/canonical scoring uses only authoritative predictions. If `stage_block_predictions.json` carries unresolved candidate block indices, those rows are excluded from accuracy/F1 and reported separately as coverage/incompleteness.
 
 ### 3.2 Gold inputs
 
@@ -285,7 +285,7 @@ Canonical-text diagnostics commonly include:
 - `line_role_flips_vs_baseline.jsonl`
 - `slice_metrics.json`
 - `routing_summary.json`
-  - this routing artifact is now the plain-language upstream-diversion summary for line-role. In addition to recipe-local versus outside-recipe counts, it also carries `review_exclusion_reason_counts` so reviewers can see which obvious-junk families were filtered before the knowledge stage.
+  - this routing artifact is now the plain-language upstream-diversion summary for line-role. In addition to recipe-local versus outside-recipe counts, it also carries `exclusion_reason_counts` so reviewers can see which obvious-junk families were filtered before the knowledge stage.
 - `prompt_eval_alignment.md`
 
 When `--line-role-gated` is enabled, canonical-text runs also write:

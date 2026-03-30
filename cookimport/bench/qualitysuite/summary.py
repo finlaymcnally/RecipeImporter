@@ -479,12 +479,12 @@ def _format_quality_run_report(summary_payload: dict[str, Any]) -> str:
                         lines.append(f"  line-role slices (sample): {slice_counts}")
                     routing = example.get("routing_summary")
                     if isinstance(routing, dict) and routing:
-                        eligible = _coerce_int(routing.get("outside_recipe_review_eligible_count"))
-                        excluded = _coerce_int(routing.get("outside_recipe_review_excluded_count"))
+                        candidate = _coerce_int(routing.get("outside_recipe_candidate_count"))
+                        excluded = _coerce_int(routing.get("outside_recipe_excluded_count"))
                         structured = _coerce_int(routing.get("outside_recipe_structured_count"))
                         lines.append(
                             "  routing (sample): "
-                            f"review_eligible={eligible}, excluded={excluded}, outside_recipe_structured={structured}"
+                            f"candidate={candidate}, excluded={excluded}, outside_recipe_structured={structured}"
                         )
     lines.append("")
     return "\n".join(lines)
@@ -623,11 +623,11 @@ def _summarize_line_role_artifacts(
                     "outside_recipe_structured_count": _coerce_int(
                         routing_payload.get("outside_recipe_structured_count")
                     ),
-                    "outside_recipe_review_eligible_count": _coerce_int(
-                        routing_payload.get("outside_recipe_review_eligible_count")
+                    "outside_recipe_candidate_count": _coerce_int(
+                        routing_payload.get("outside_recipe_candidate_count")
                     ),
-                    "outside_recipe_review_excluded_count": _coerce_int(
-                        routing_payload.get("outside_recipe_review_excluded_count")
+                    "outside_recipe_excluded_count": _coerce_int(
+                        routing_payload.get("outside_recipe_excluded_count")
                     ),
                 }
                 if routing_payload

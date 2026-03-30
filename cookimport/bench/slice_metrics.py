@@ -65,11 +65,11 @@ def build_line_role_routing_summary(
     inside_recipe_count = 0
     outside_recipe_count = 0
     unknown_recipe_status_count = 0
-    outside_recipe_review_excluded_count = 0
-    outside_recipe_review_eligible_count = 0
+    outside_recipe_excluded_count = 0
+    outside_recipe_candidate_count = 0
     outside_recipe_structured_count = 0
     recipe_local_label_count = 0
-    review_exclusion_reason_counts: dict[str, int] = {}
+    exclusion_reason_counts: dict[str, int] = {}
     structured_labels = {
         "RECIPE_TITLE",
         "INGREDIENT_LINE",
@@ -91,15 +91,15 @@ def build_line_role_routing_summary(
             outside_recipe_count += 1
             if label in structured_labels:
                 outside_recipe_structured_count += 1
-            review_exclusion_reason = str(row.get("review_exclusion_reason") or "").strip()
-            if label == "OTHER" and review_exclusion_reason:
-                outside_recipe_review_excluded_count += 1
-                review_exclusion_reason_counts[review_exclusion_reason] = (
-                    int(review_exclusion_reason_counts.get(review_exclusion_reason) or 0)
+            exclusion_reason = str(row.get("exclusion_reason") or "").strip()
+            if label == "NONRECIPE_EXCLUDE" and exclusion_reason:
+                outside_recipe_excluded_count += 1
+                exclusion_reason_counts[exclusion_reason] = (
+                    int(exclusion_reason_counts.get(exclusion_reason) or 0)
                     + 1
                 )
-            else:
-                outside_recipe_review_eligible_count += 1
+            elif label == "NONRECIPE_CANDIDATE":
+                outside_recipe_candidate_count += 1
         else:
             unknown_recipe_status_count += 1
     return {
@@ -110,9 +110,9 @@ def build_line_role_routing_summary(
         "unknown_recipe_status_line_count": unknown_recipe_status_count,
         "recipe_local_label_count": recipe_local_label_count,
         "outside_recipe_structured_count": outside_recipe_structured_count,
-        "outside_recipe_review_eligible_count": outside_recipe_review_eligible_count,
-        "outside_recipe_review_excluded_count": outside_recipe_review_excluded_count,
-        "review_exclusion_reason_counts": review_exclusion_reason_counts,
+        "outside_recipe_candidate_count": outside_recipe_candidate_count,
+        "outside_recipe_excluded_count": outside_recipe_excluded_count,
+        "exclusion_reason_counts": exclusion_reason_counts,
     }
 
 

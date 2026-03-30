@@ -67,7 +67,7 @@ def _build_review_summary(
             getattr(build_report, "seed_nonrecipe_span_count", 0) or 0
         ),
         "candidate_nonrecipe_span_count": int(
-            getattr(build_report, "review_eligible_nonrecipe_span_count", 0) or 0
+            getattr(build_report, "candidate_nonrecipe_span_count", 0) or 0
         ),
         "packet_count_before_partition": int(
             getattr(build_report, "packet_count_before_partition", 0) or 0
@@ -75,10 +75,10 @@ def _build_review_summary(
         "planned_packet_count": planned_packet_count,
         "reviewed_packet_count": max(0, planned_packet_count - unreviewed_packet_count),
         "candidate_block_count": int(
-            getattr(build_report, "review_eligible_block_count", 0) or 0
+            getattr(build_report, "candidate_block_count", 0) or 0
         ),
         "excluded_block_count": int(
-            counts.get("review_excluded_block_count") or 0
+            counts.get("excluded_block_count") or 0
         ),
         "skipped_packet_count": int(
             getattr(build_report, "skipped_packet_count", 0) or 0

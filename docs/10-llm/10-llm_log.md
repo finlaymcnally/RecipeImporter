@@ -9,8 +9,12 @@ read_when:
 # LLM Build and Fix Log
 
 Use this file for LLM debugging history that still applies to the current codebase. Retired rollout notes, removed UI paths, and old gating experiments were intentionally pruned.
+Entries are dated snapshots. When a later cutover supersedes an older worker surface, older file names and loops are kept here as historical evidence, not as current contract guidance.
 
 ## 2026-03-22 workspace-worker paved-road contract converged across recipe, line-role, and knowledge
+
+Historical note:
+- this entry predates the later packet-first recipe/knowledge cutovers, so `current_task.json` here is historical evidence for the then-live surface rather than current guidance
 
 Problem captured:
 - the first worker-runtime cutover fixed the big transport problems, but the day-to-day worker contract still had too many sharp edges:
@@ -49,6 +53,9 @@ Anti-loop note:
 
 ## 2026-03-22 recipe workspace-worker cost cuts only stuck after the repo prewrote more trustworthy state
 
+Historical note:
+- this entry captures the pre-packet recipe runtime that was later removed on 2026-03-30; `SHARD_PACKET.md`, prepared drafts, and current-task sidecars here are retained as rollout evidence only
+
 Problem captured:
 - removing the false-positive startup kill was necessary but not sufficient: recipe runs were reliable again, yet workers still spent too many session turns rereading manifests, contracts, examples, helper source, hints, and raw inputs before editing the prepared drafts
 - early whole-shard deaths were also recovering through one follow-up per task even when the worker had produced nothing usable yet
@@ -56,18 +63,18 @@ Problem captured:
 Durable decisions:
 - recipe startup/watchdog classification has to understand the real sterile execution root under `~/.codex-recipe/...`, not only the mirrored source worker root
 - early whole-shard deaths recover through one shard-packed retry; mixed-output failures still recover per task
-- the repo now prewrites the state workers were repeatedly rediscovering:
+- at that point, the repo prewrote the state workers were repeatedly rediscovering:
   - `SHARD_PACKET.md`
   - `scratch/<task_id>.json`
   - `scratch/_prepared_drafts.json`
   - `CURRENT_TASK.md`
   - `CURRENT_TASK_FEEDBACK.md`
-- the cheap recipe path is now "read `SHARD_PACKET.md`, trust the prepared drafts, edit them, then `finalize-all`"; contract/example/tool-source reads are fallback-only
-- the current-task helper loop is still real and useful, but it is now a recovery/debug seam:
+- at that point, the cheap recipe path was "read `SHARD_PACKET.md`, trust the prepared drafts, edit them, then `finalize-all`"; contract/example/tool-source reads were fallback-only
+- the current-task helper loop was still real and useful, but it had become a recovery/debug seam:
   - `check-current` writes repo-readable validation feedback
   - `install-current` advances `current_task.json` plus `CURRENT_TASK*.md`
   - prepared-draft metadata refreshes after accepted installs
-- recipe telemetry now separates two waste families:
+- the resulting recipe telemetry separated two waste families:
   - `recipe_contract_lookup_command`
   - `recipe_task_bundle_read_command`
 
@@ -108,13 +115,16 @@ Anti-loop note:
 
 ## 2026-03-22 knowledge runtime moved from “helper available” to true single-task authority plus snippet-copy recovery
 
+Historical note:
+- this entry captures the pre-packet knowledge current-task surface that was later replaced by packet leasing and shard-owned packet state; current-task sidecars here are retained as then-live evidence only
+
 Problem captured:
 - knowledge workers still had two expensive failure families after the initial runtime cutover:
   - they could behave like local queue schedulers instead of one-task-at-a-time workers
   - snippet-copy outputs could go straight from “worker wrote a file” to poisoned-worker skip without a narrow repair chance
 
 Durable decisions:
-- the repo now owns the live knowledge loop one task at a time:
+- at that point, the repo owned the live knowledge loop one task at a time:
   - skinny `assigned_tasks.json`
   - authoritative `current_task.json`
   - `CURRENT_TASK.md`
@@ -145,6 +155,9 @@ Anti-loop note:
 - if snippet-copy failures return, do not weaken the validator and do not skip straight to poisoned-worker logic; inspect the shared failure classifier and the narrow repair rung first
 
 ## 2026-03-22 recipe workspace spend only stabilized once the repo restored batch finalize as the default loop and failed closed on empty mappings
+
+Historical note:
+- this entry describes the older draft-sidecar recipe runtime that was later superseded by the packet-first recipe cutover on 2026-03-30
 
 Problem captured:
 - the first recipe workspace refactor improved trust surfaces, but it accidentally turned `check-current` / `install-current` into the default loop
@@ -275,7 +288,7 @@ Durable decisions:
 - the shared runner always passes `--skip-git-repo-check`; sterile workspaces remain the right repo-visibility boundary, but the runner must acknowledge that they live outside the trusted git root
 - live runner supervision is now real: stream events, quarantine malformed payloads before spend, preserve `reason_code` / `reason_detail`, and persist `workspace_manifest.json` so shard-local provenance survives
 - recipe gained parity with the strict JSON stages on near-miss repair and on propagated status fields such as `preflight_rejected`, `watchdog_killed`, and repair/live-status metadata
-- main attempts across recipe, knowledge, and line-role now use long-lived workspace-worker sessions with explicit `worker_manifest.json`, `assigned_tasks.json`, `hints/*.md`, and per-task `out/*.json`; structured direct-exec calls are recovery-only
+- at this point in the rollout, main attempts across recipe, knowledge, and line-role had moved onto long-lived workspace-worker sessions with explicit `worker_manifest.json`, task/phase sidecars, `hints/*.md`, and per-task `out/*.json`; later cutovers replaced recipe and knowledge task-sidecar control files with packet-first surfaces while line-role stayed phase-first
 - prompt/authority lessons from the March 19 line-role failures still apply after the worker cutover: wrapper/example JSON is not authority, stored task files are
 - workspace-worker startup must name local files directly, and watchdog diagnostics must preserve the exact offending command text in `reason_detail`
 - main workspace-worker watchdog policy is now intentionally boundary-based for local shell work, while structured retry/repair calls remain strict one-shot JSON paths

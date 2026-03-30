@@ -76,9 +76,9 @@ def run_codex_farm_nonrecipe_knowledge_review(
             knowledge_stage_dir=knowledge_stage_dir,
             stage_status="no_nonrecipe_spans",
             seed_nonrecipe_span_count=seed_nonrecipe_span_count,
-            review_eligible_nonrecipe_span_count=candidate_nonrecipe_span_count,
-            review_eligible_block_count=candidate_block_count,
-            review_excluded_block_count=excluded_block_count,
+            candidate_nonrecipe_span_count=candidate_nonrecipe_span_count,
+            candidate_block_count=candidate_block_count,
+            excluded_block_count=excluded_block_count,
         )
         _write_json(llm_report, manifest_path)
         return CodexFarmNonrecipeKnowledgeReviewResult(
@@ -99,9 +99,9 @@ def run_codex_farm_nonrecipe_knowledge_review(
             knowledge_stage_dir=knowledge_stage_dir,
             stage_status="no_candidate_nonrecipe_spans",
             seed_nonrecipe_span_count=seed_nonrecipe_span_count,
-            review_eligible_nonrecipe_span_count=candidate_nonrecipe_span_count,
-            review_eligible_block_count=candidate_block_count,
-            review_excluded_block_count=excluded_block_count,
+            candidate_nonrecipe_span_count=candidate_nonrecipe_span_count,
+            candidate_block_count=candidate_block_count,
+            excluded_block_count=excluded_block_count,
         )
         _write_json(llm_report, manifest_path)
         return CodexFarmNonrecipeKnowledgeReviewResult(
@@ -178,10 +178,10 @@ def run_codex_farm_nonrecipe_knowledge_review(
             knowledge_stage_dir=knowledge_stage_dir,
             stage_status="all_packets_skipped",
             seed_nonrecipe_span_count=seed_nonrecipe_span_count,
-            review_eligible_nonrecipe_span_count=candidate_nonrecipe_span_count,
+            candidate_nonrecipe_span_count=candidate_nonrecipe_span_count,
             packet_count_before_partition=build_report.packet_count_before_partition,
-            review_eligible_block_count=candidate_block_count,
-            review_excluded_block_count=excluded_block_count,
+            candidate_block_count=candidate_block_count,
+            excluded_block_count=excluded_block_count,
             skipped_packet_count=build_report.skipped_packet_count,
             skipped_packet_reason_counts=dict(build_report.skipped_packet_reason_counts),
         )
@@ -276,8 +276,8 @@ def run_codex_farm_nonrecipe_knowledge_review(
             knowledge_stage_dir=knowledge_stage_dir,
             build_report=build_report,
             seed_nonrecipe_span_count=seed_nonrecipe_span_count,
-            review_eligible_nonrecipe_span_count=candidate_nonrecipe_span_count,
-            review_excluded_block_count=excluded_block_count,
+            candidate_nonrecipe_span_count=candidate_nonrecipe_span_count,
+            excluded_block_count=excluded_block_count,
             elapsed_seconds=elapsed_seconds,
             error=str(exc),
         )
@@ -340,7 +340,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             promotion_report=promotion_report,
             build_report=build_report,
         )
-        review_rollup["review_excluded_block_count"] = excluded_block_count
+        review_rollup["excluded_block_count"] = excluded_block_count
         authority_mode = _derive_knowledge_authority_mode(
             refined_stage_result=refined_stage_result,
             review_rollup=review_rollup,

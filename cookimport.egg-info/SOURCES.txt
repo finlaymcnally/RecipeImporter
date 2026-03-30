@@ -55,7 +55,6 @@ cookimport/bench/prediction_records.py
 cookimport/bench/quality_compare.py
 cookimport/bench/quality_eta.py
 cookimport/bench/quality_leaderboard.py
-cookimport/bench/quality_lightweight_series.py
 cookimport/bench/quality_runner.py
 cookimport/bench/quality_suite.py
 cookimport/bench/report.py
@@ -196,7 +195,6 @@ cookimport/llm/knowledge_stage/workspace_run.py
 cookimport/llm/recipe_stage/__init__.py
 cookimport/llm/recipe_stage/planning.py
 cookimport/llm/recipe_stage/promotion.py
-cookimport/llm/recipe_stage/recovery.py
 cookimport/llm/recipe_stage/reporting.py
 cookimport/llm/recipe_stage/runtime.py
 cookimport/llm/recipe_stage/validation.py

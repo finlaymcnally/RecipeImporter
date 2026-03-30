@@ -21,10 +21,10 @@ def _build_noop_knowledge_llm_report(
     knowledge_stage_dir: Path,
     stage_status: str,
     seed_nonrecipe_span_count: int = 0,
-    review_eligible_nonrecipe_span_count: int = 0,
+    candidate_nonrecipe_span_count: int = 0,
     packet_count_before_partition: int = 0,
-    review_eligible_block_count: int = 0,
-    review_excluded_block_count: int = 0,
+    candidate_block_count: int = 0,
+    excluded_block_count: int = 0,
     skipped_packet_count: int = 0,
     skipped_packet_reason_counts: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
@@ -45,12 +45,12 @@ def _build_noop_knowledge_llm_report(
         "output_schema_path": output_schema_path,
         "counts": {
             "seed_nonrecipe_span_count": int(seed_nonrecipe_span_count),
-            "candidate_nonrecipe_span_count": int(review_eligible_nonrecipe_span_count),
+            "candidate_nonrecipe_span_count": int(candidate_nonrecipe_span_count),
             "packet_count_before_partition": int(packet_count_before_partition),
             "shards_written": 0,
             "packets_written": 0,
-            "candidate_block_count": int(review_eligible_block_count),
-            "excluded_block_count": int(review_excluded_block_count),
+            "candidate_block_count": int(candidate_block_count),
+            "excluded_block_count": int(excluded_block_count),
             "skipped_packet_count": int(skipped_packet_count),
             "outputs_parsed": 0,
             "packets_missing": 0,
@@ -89,12 +89,12 @@ def _build_noop_knowledge_llm_report(
         "skipped_packet_reason_counts": dict(skipped_packet_reason_counts or {}),
         "candidate_summary": {
             "seed_nonrecipe_span_count": int(seed_nonrecipe_span_count),
-            "candidate_nonrecipe_span_count": int(review_eligible_nonrecipe_span_count),
+            "candidate_nonrecipe_span_count": int(candidate_nonrecipe_span_count),
             "packet_count_before_partition": int(packet_count_before_partition),
             "planned_packet_count": 0,
             "reviewed_packet_count": 0,
-            "candidate_block_count": int(review_eligible_block_count),
-            "excluded_block_count": int(review_excluded_block_count),
+            "candidate_block_count": int(candidate_block_count),
+            "excluded_block_count": int(excluded_block_count),
             "skipped_packet_count": int(skipped_packet_count),
             "skipped_packet_reason_counts": dict(
                 sorted((skipped_packet_reason_counts or {}).items())
@@ -138,8 +138,8 @@ def _build_runtime_failed_knowledge_llm_report(
     knowledge_stage_dir: Path,
     build_report: Any,
     seed_nonrecipe_span_count: int,
-    review_eligible_nonrecipe_span_count: int,
-    review_excluded_block_count: int,
+    candidate_nonrecipe_span_count: int,
+    excluded_block_count: int,
     elapsed_seconds: float,
     error: str,
 ) -> dict[str, Any]:
@@ -154,15 +154,15 @@ def _build_runtime_failed_knowledge_llm_report(
         "counts": {
             "seed_nonrecipe_span_count": int(seed_nonrecipe_span_count),
             "candidate_nonrecipe_span_count": int(
-                review_eligible_nonrecipe_span_count
+                candidate_nonrecipe_span_count
             ),
             "packet_count_before_partition": int(build_report.packet_count_before_partition),
             "shards_written": int(build_report.shards_written),
             "packets_written": int(build_report.packets_written),
             "candidate_block_count": int(
-                getattr(build_report, "review_eligible_block_count", 0) or 0
+                getattr(build_report, "candidate_block_count", 0) or 0
             ),
-            "excluded_block_count": int(review_excluded_block_count),
+            "excluded_block_count": int(excluded_block_count),
             "skipped_packet_count": int(build_report.skipped_packet_count),
             "outputs_parsed": 0,
             "packets_missing": int(build_report.packets_written),
@@ -216,7 +216,7 @@ def _build_runtime_failed_knowledge_llm_report(
                 "unreviewed_shard_count": int(build_report.shards_written),
                 "unreviewed_packet_count": int(build_report.packets_written),
                 "unreviewed_block_count": 0,
-                "review_excluded_block_count": 0,
+                "excluded_block_count": 0,
             },
             promoted_useful_packet_count=0,
             promoted_snippet_count=0,

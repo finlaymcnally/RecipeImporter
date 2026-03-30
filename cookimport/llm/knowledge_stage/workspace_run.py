@@ -598,7 +598,7 @@ def _evaluate_knowledge_output_file(
     response_text: str | None,
 ) -> tuple[dict[str, Any] | None, tuple[str, ...], dict[str, Any], str]:
     if response_text is None or not str(response_text).strip():
-        return None, ("missing_output",), {}, "no_final_output"
+        return None, ("missing_output_file",), {}, "no_final_output"
     try:
         payload = json.loads(response_text)
     except json.JSONDecodeError:
