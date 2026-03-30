@@ -11,7 +11,17 @@ def _packet_payload(*, packet_id: str, block_indices: list[int]) -> dict[str, ob
     return {
         "packet_id": packet_id,
         "block_decisions": [
-            {"block_index": block_index, "category": "knowledge"}
+            {
+                "block_index": block_index,
+                "category": "knowledge",
+                "reviewer_category": "knowledge",
+                "retrieval_concept": "Control heat steadily",
+                "grounding": {
+                    "tag_keys": ["saute"],
+                    "category_keys": ["cooking-method"],
+                    "proposed_tags": [],
+                },
+            }
             for block_index in block_indices
         ],
         "idea_groups": [
@@ -59,8 +69,20 @@ def test_normalize_knowledge_worker_payload_serializes_packet_result() -> None:
         "v": "3",
         "bid": "book.kp0001.nr",
         "d": [
-            {"i": 4, "c": "knowledge", "rc": "knowledge"},
-            {"i": 5, "c": "knowledge", "rc": "knowledge"},
+            {
+                "i": 4,
+                "c": "knowledge",
+                "rc": "knowledge",
+                "rt": "Control heat steadily",
+                "gr": {"tk": ["saute"], "ck": ["cooking-method"], "pt": []},
+            },
+            {
+                "i": 5,
+                "c": "knowledge",
+                "rc": "knowledge",
+                "rt": "Control heat steadily",
+                "gr": {"tk": ["saute"], "ck": ["cooking-method"], "pt": []},
+            },
         ],
         "g": [
             {
@@ -96,8 +118,28 @@ def test_validate_knowledge_shard_output_rejects_knowledge_blocks_missing_groups
         {
             "packet_id": "book.kp0003.nr",
             "block_decisions": [
-                {"block_index": 20, "category": "knowledge"},
-                {"block_index": 21, "category": "knowledge"},
+                {
+                    "block_index": 20,
+                    "category": "knowledge",
+                    "reviewer_category": "knowledge",
+                    "retrieval_concept": "Control heat steadily",
+                    "grounding": {
+                        "tag_keys": ["saute"],
+                        "category_keys": ["cooking-method"],
+                        "proposed_tags": [],
+                    },
+                },
+                {
+                    "block_index": 21,
+                    "category": "knowledge",
+                    "reviewer_category": "knowledge",
+                    "retrieval_concept": "Control heat steadily",
+                    "grounding": {
+                        "tag_keys": ["saute"],
+                        "category_keys": ["cooking-method"],
+                        "proposed_tags": [],
+                    },
+                },
             ],
             "idea_groups": [
                 {

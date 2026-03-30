@@ -173,6 +173,9 @@ cookimport/llm/knowledge_phase_workspace_tools.py
 cookimport/llm/knowledge_prompt_builder.py
 cookimport/llm/knowledge_runtime_replay.py
 cookimport/llm/knowledge_runtime_state.py
+cookimport/llm/knowledge_same_session_handoff.py
+cookimport/llm/knowledge_tag_catalog.json
+cookimport/llm/knowledge_tag_catalog.py
 cookimport/llm/non_recipe_spans.py
 cookimport/llm/phase_worker_runtime.py
 cookimport/llm/prompt_artifacts.py

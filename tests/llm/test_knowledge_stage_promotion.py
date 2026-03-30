@@ -64,14 +64,28 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
             "knowledge::10": {
                 "category": "other",
                 "reviewer_category": "other",
+                "retrieval_concept": None,
+                "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
             },
             "knowledge::11": {
                 "category": "knowledge",
                 "reviewer_category": "knowledge",
+                "retrieval_concept": "Balance rich dishes with acid",
+                "grounding": {
+                    "tag_keys": ["bright"],
+                    "category_keys": ["flavor-profile"],
+                    "proposed_tags": [],
+                },
             },
             "knowledge::25": {
                 "category": "knowledge",
                 "reviewer_category": "knowledge",
+                "retrieval_concept": "Rest dough before rolling",
+                "grounding": {
+                    "tag_keys": ["rest"],
+                    "category_keys": ["techniques"],
+                    "proposed_tags": [],
+                },
             },
         },
         grouping_answers_by_unit_id={
@@ -90,11 +104,23 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
     assert outputs["book.ks0000.nr"] == {
         "packet_id": "book.ks0000.nr",
         "block_decisions": [
-            {"block_index": 10, "category": "other", "reviewer_category": "other"},
+            {
+                "block_index": 10,
+                "category": "other",
+                "reviewer_category": "other",
+                "retrieval_concept": None,
+                "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
+            },
             {
                 "block_index": 11,
                 "category": "knowledge",
                 "reviewer_category": "knowledge",
+                "retrieval_concept": "Balance rich dishes with acid",
+                "grounding": {
+                    "tag_keys": ["bright"],
+                    "category_keys": ["flavor-profile"],
+                    "proposed_tags": [],
+                },
             },
         ],
         "idea_groups": [
@@ -108,6 +134,12 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
                 "block_index": 25,
                 "category": "knowledge",
                 "reviewer_category": "knowledge",
+                "retrieval_concept": "Rest dough before rolling",
+                "grounding": {
+                    "tag_keys": ["rest"],
+                    "category_keys": ["techniques"],
+                    "proposed_tags": [],
+                },
             }
         ],
         "idea_groups": [

@@ -1,0 +1,1573 @@
+{
+  "catalog_version": "cookbook-tag-catalog-2026-03-30",
+  "categories": [
+    {
+      "display_name": "Cooking Style",
+      "id": "ce7190bd-3731-4e21-a3a7-bcee15424825",
+      "is_multi_select": true,
+      "key": "cooking-style",
+      "sort_order": 10
+    },
+    {
+      "display_name": "Effort Level",
+      "id": "6270a155-2c64-49ba-9a5b-08be3babc467",
+      "is_multi_select": true,
+      "key": "effort",
+      "sort_order": 15
+    },
+    {
+      "display_name": "Storage & Meal Prep",
+      "id": "a5d9737c-4541-4574-bccc-c604889c9037",
+      "is_multi_select": true,
+      "key": "storage",
+      "sort_order": 20
+    },
+    {
+      "display_name": "Meal Type",
+      "id": "23bd6b8d-84c8-4b3f-85d7-9c9d34648076",
+      "is_multi_select": true,
+      "key": "meal",
+      "sort_order": 25
+    },
+    {
+      "display_name": "Meal Type",
+      "id": "ce4a1a9a-490e-443c-b352-4ee065f41a8b",
+      "is_multi_select": true,
+      "key": "meal-type",
+      "sort_order": 25
+    },
+    {
+      "display_name": "Course",
+      "id": "f4c415af-2285-49f5-a164-986fe5ddcbec",
+      "is_multi_select": true,
+      "key": "course",
+      "sort_order": 30
+    },
+    {
+      "display_name": "Dish Type",
+      "id": "677ed484-f302-4d6f-a246-9a5469948df5",
+      "is_multi_select": true,
+      "key": "dish-type",
+      "sort_order": 35
+    },
+    {
+      "display_name": "Occasion",
+      "id": "a2d3af51-fbd5-4a5f-ac20-6d797718b8ad",
+      "is_multi_select": true,
+      "key": "occasion",
+      "sort_order": 40
+    },
+    {
+      "display_name": "Holiday",
+      "id": "3d6d421e-2f57-4fef-9b14-a7cd5bf4e9e4",
+      "is_multi_select": true,
+      "key": "holiday",
+      "sort_order": 45
+    },
+    {
+      "display_name": "Season",
+      "id": "09122569-5909-424f-82da-d0b62dbe58b6",
+      "is_multi_select": true,
+      "key": "season",
+      "sort_order": 50
+    },
+    {
+      "display_name": "Vibe",
+      "id": "80102d2f-640b-4954-90ec-c009f2305e9b",
+      "is_multi_select": true,
+      "key": "vibe",
+      "sort_order": 55
+    },
+    {
+      "display_name": "Cuisine",
+      "id": "75c3ff0e-19dd-4908-bdd5-34a31b89bce7",
+      "is_multi_select": true,
+      "key": "cuisine",
+      "sort_order": 60
+    },
+    {
+      "display_name": "Flavor Profile",
+      "id": "45d8c36e-14c4-4d62-b763-5bb6241ebcdd",
+      "is_multi_select": true,
+      "key": "flavor-profile",
+      "sort_order": 65
+    },
+    {
+      "display_name": "Heat Source",
+      "id": "adb89b4c-30d8-4583-bf26-0da0c7eff7fa",
+      "is_multi_select": true,
+      "key": "heat-source",
+      "sort_order": 70
+    },
+    {
+      "display_name": "Dietary",
+      "id": "e34e1503-6ff1-4e08-a0c9-0790b2b47b74",
+      "is_multi_select": true,
+      "key": "dietary",
+      "sort_order": 75
+    },
+    {
+      "display_name": "Main Protein",
+      "id": "bc7c419d-7319-4e91-8d0b-a849ca5c0517",
+      "is_multi_select": true,
+      "key": "main-protein",
+      "sort_order": 80
+    },
+    {
+      "display_name": "Main Carb",
+      "id": "bb5a2aca-5bba-4236-a96e-24927697e362",
+      "is_multi_select": true,
+      "key": "main-carb",
+      "sort_order": 85
+    },
+    {
+      "display_name": "Cooking Method",
+      "id": "8e97360e-1989-4dbe-ade2-0797cbc8f013",
+      "is_multi_select": true,
+      "key": "cooking-method",
+      "sort_order": 90
+    },
+    {
+      "display_name": "Techniques",
+      "id": "f068d4ba-cfa1-49ac-9431-509ae7c42840",
+      "is_multi_select": true,
+      "key": "techniques",
+      "sort_order": 95
+    },
+    {
+      "display_name": "Equipment Required",
+      "id": "3160ae73-00c1-4e97-9401-fcff6563ff98",
+      "is_multi_select": true,
+      "key": "equipment",
+      "sort_order": 100
+    }
+  ],
+  "category_count": 20,
+  "generated_at": "2026-03-30T22:24:34+00:00",
+  "source_sql_generated_at": "2026-01-28T04:58:49.080Z",
+  "source_sql_path": "/home/mcnal/projects/cookbook/supabase/seeds/catalog.sql",
+  "tag_count": 203,
+  "tags": [
+    {
+      "category_key": "cooking-method",
+      "display_name": "Bake",
+      "id": "54829cbf-c115-4adc-919c-a0888e40af5e",
+      "key": "bake",
+      "sort_order": 1
+    },
+    {
+      "category_key": "cooking-method",
+      "display_name": "Roast",
+      "id": "410af174-4bb7-436a-9f63-29617129f4da",
+      "key": "roast",
+      "sort_order": 2
+    },
+    {
+      "category_key": "cooking-method",
+      "display_name": "Grill",
+      "id": "d13c6157-e024-4801-9bb6-c98f60cdf969",
+      "key": "grill-method",
+      "sort_order": 3
+    },
+    {
+      "category_key": "cooking-method",
+      "display_name": "Saut\u00e9",
+      "id": "8b7ee4a1-2910-470b-9bd1-79570e544d21",
+      "key": "saute",
+      "sort_order": 4
+    },
+    {
+      "category_key": "cooking-method",
+      "display_name": "Fry",
+      "id": "f5fa2eec-0a7e-4188-8e62-85e90ee2772c",
+      "key": "fry",
+      "sort_order": 5
+    },
+    {
+      "category_key": "cooking-method",
+      "display_name": "Deep Fry",
+      "id": "cb40b29a-be48-4fd0-8988-50fedc58d1df",
+      "key": "deep-fry",
+      "sort_order": 6
+    },
+    {
+      "category_key": "cooking-method",
+      "display_name": "Steam",
+      "id": "f5450c4a-fceb-454b-84ff-f627f0d4ff47",
+      "key": "steam",
+      "sort_order": 7
+    },
+    {
+      "category_key": "cooking-method",
+      "display_name": "Braise",
+      "id": "70f0938c-5e0b-47e9-9f3f-6eab98134fcd",
+      "key": "braise",
+      "sort_order": 8
+    },
+    {
+      "category_key": "cooking-method",
+      "display_name": "Sous Vide",
+      "id": "e6ce8be1-ac6f-461e-b436-7d626e860e57",
+      "key": "sous-vide",
+      "sort_order": 9
+    },
+    {
+      "category_key": "cooking-method",
+      "display_name": "Pressure Cook",
+      "id": "ea060888-fee2-4a10-a827-6838eb95f05f",
+      "key": "pressure-cook",
+      "sort_order": 10
+    },
+    {
+      "category_key": "cooking-method",
+      "display_name": "Smoke",
+      "id": "fa2ca3b4-2a5f-40cc-9f52-e188096f9bed",
+      "key": "smoke",
+      "sort_order": 11
+    },
+    {
+      "category_key": "cooking-method",
+      "display_name": "Broil",
+      "id": "630c0db9-f140-4108-ab02-d26910f5e2d7",
+      "key": "broil",
+      "sort_order": 12
+    },
+    {
+      "category_key": "cooking-method",
+      "display_name": "Poach",
+      "id": "6bb25c90-8867-4e1a-a761-dc7815d2485f",
+      "key": "poach",
+      "sort_order": 13
+    },
+    {
+      "category_key": "cooking-method",
+      "display_name": "Simmer",
+      "id": "1cd5b654-0ea7-4555-93bd-886ddf9a7c77",
+      "key": "simmer",
+      "sort_order": 14
+    },
+    {
+      "category_key": "cooking-method",
+      "display_name": "Raw/No-Cook",
+      "id": "79392c24-309a-425f-a056-272122b33424",
+      "key": "raw-method",
+      "sort_order": 15
+    },
+    {
+      "category_key": "cooking-style",
+      "display_name": "One-Pot",
+      "id": "b4ee164f-7692-4fad-8247-c0dd7e648fac",
+      "key": "one-pot",
+      "sort_order": 1
+    },
+    {
+      "category_key": "cooking-style",
+      "display_name": "Sheet Pan",
+      "id": "eeae9a74-ac8c-4193-a7f2-756d5cc1d140",
+      "key": "sheet-pan",
+      "sort_order": 2
+    },
+    {
+      "category_key": "cooking-style",
+      "display_name": "No-Cook",
+      "id": "73670d36-0d5d-4530-a582-a1a78f52e9fb",
+      "key": "no-cook",
+      "sort_order": 3
+    },
+    {
+      "category_key": "cooking-style",
+      "display_name": "Slow Cooker",
+      "id": "cde0a699-739f-4a83-9184-84ac3718f5fe",
+      "key": "slow-cooker",
+      "sort_order": 4
+    },
+    {
+      "category_key": "cooking-style",
+      "display_name": "Instant Pot",
+      "id": "23f3a906-6ffe-400a-bd50-aedd8bc452b8",
+      "key": "instant-pot",
+      "sort_order": 5
+    },
+    {
+      "category_key": "cooking-style",
+      "display_name": "Air Fryer",
+      "id": "d0e35064-008c-434a-bf80-586a65902ba8",
+      "key": "air-fryer",
+      "sort_order": 6
+    },
+    {
+      "category_key": "cooking-style",
+      "display_name": "Grill",
+      "id": "179be554-cb67-4422-859f-7e9b11cee002",
+      "key": "grill",
+      "sort_order": 7
+    },
+    {
+      "category_key": "cooking-style",
+      "display_name": "Stovetop Only",
+      "id": "3c5c59a3-f9b2-4ca5-a9d3-564765aa3f01",
+      "key": "stovetop-only",
+      "sort_order": 8
+    },
+    {
+      "category_key": "cooking-style",
+      "display_name": "Oven Only",
+      "id": "aeeecc2c-9d48-4c63-8422-22527d328051",
+      "key": "oven-only",
+      "sort_order": 9
+    },
+    {
+      "category_key": "course",
+      "display_name": "Appetizer",
+      "id": "b1e9c2ed-c02e-4cd0-ac9b-f21c5f36cbf0",
+      "key": "appetizer",
+      "sort_order": 1
+    },
+    {
+      "category_key": "course",
+      "display_name": "Main Dish",
+      "id": "3494b08c-46c5-4fe7-a57b-8db7da88b272",
+      "key": "main-dish",
+      "sort_order": 2
+    },
+    {
+      "category_key": "course",
+      "display_name": "Side Dish",
+      "id": "4180839d-7e7f-44bb-8ef4-82882b679ffb",
+      "key": "side-dish",
+      "sort_order": 3
+    },
+    {
+      "category_key": "course",
+      "display_name": "Sauce",
+      "id": "ba94a5fe-5fb7-45ae-89b0-00b8a20733cb",
+      "key": "sauce",
+      "sort_order": 4
+    },
+    {
+      "category_key": "course",
+      "display_name": "Dressing",
+      "id": "7b243ede-f8f9-4829-90c4-55dcf2e1f692",
+      "key": "dressing",
+      "sort_order": 5
+    },
+    {
+      "category_key": "course",
+      "display_name": "Drink",
+      "id": "89eeceff-7f24-43e4-bb97-b6447cd97adf",
+      "key": "drink",
+      "sort_order": 6
+    },
+    {
+      "category_key": "course",
+      "display_name": "Condiment",
+      "id": "f8279d1f-59ca-4ae6-8754-d8077fdf65d1",
+      "key": "condiment",
+      "sort_order": 7
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "American",
+      "id": "84bc3142-5d47-452a-adba-7c4907f6a557",
+      "key": "american",
+      "sort_order": 1
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "Italian",
+      "id": "f200220d-249a-4ac3-b8c4-78c4f93fb4a8",
+      "key": "italian",
+      "sort_order": 2
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "Mexican",
+      "id": "07c8122b-f94e-49c1-b428-1920cabef9e7",
+      "key": "mexican",
+      "sort_order": 3
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "Chinese",
+      "id": "b2557e27-a0f2-4852-9b03-83da247990f0",
+      "key": "chinese",
+      "sort_order": 4
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "Japanese",
+      "id": "6b203099-5000-4eef-ab13-9d727360a69c",
+      "key": "japanese",
+      "sort_order": 5
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "Korean",
+      "id": "84a99e47-6b3c-450f-afc6-2d4853ce6390",
+      "key": "korean",
+      "sort_order": 6
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "Thai",
+      "id": "2fa0c1ff-5b5e-40d1-8812-7d129da02c1b",
+      "key": "thai",
+      "sort_order": 7
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "Vietnamese",
+      "id": "e03f1dcb-f132-4368-a634-4e2e839926d1",
+      "key": "vietnamese",
+      "sort_order": 8
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "Indian",
+      "id": "f19d87ed-a763-48a3-8702-b31fb609e14a",
+      "key": "indian",
+      "sort_order": 9
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "Middle Eastern",
+      "id": "d66c179d-e8f0-4e12-a687-638f6f4eaf0f",
+      "key": "middle-eastern",
+      "sort_order": 10
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "Mediterranean",
+      "id": "ec255539-7455-423e-8c45-ee9f36e780fd",
+      "key": "mediterranean",
+      "sort_order": 11
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "Greek",
+      "id": "ca609baf-9500-4d0b-ac36-656de1161261",
+      "key": "greek",
+      "sort_order": 12
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "French",
+      "id": "350d39dd-02c2-4835-a916-716eb275e7df",
+      "key": "french",
+      "sort_order": 13
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "Spanish",
+      "id": "d7739fc2-3fc5-4db2-a987-4463b5c073bb",
+      "key": "spanish",
+      "sort_order": 14
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "Cajun/Creole",
+      "id": "fbd6a977-a432-48e2-858e-7e317067ea10",
+      "key": "cajun-creole",
+      "sort_order": 15
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "Caribbean",
+      "id": "42c141cd-7e99-40fd-90e0-99cb5de66fe7",
+      "key": "caribbean",
+      "sort_order": 16
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "African",
+      "id": "01c2193f-f740-4cdb-ba3c-87fad5a219aa",
+      "key": "african",
+      "sort_order": 17
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "Latin American",
+      "id": "ee2b411d-fc20-415c-955f-fcfb1ef467cf",
+      "key": "latin-american",
+      "sort_order": 18
+    },
+    {
+      "category_key": "cuisine",
+      "display_name": "Fusion",
+      "id": "4206f29f-3d3c-4a42-9f9c-08385d9b3b17",
+      "key": "fusion",
+      "sort_order": 19
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Vegetarian",
+      "id": "758738c4-2369-44d8-bf19-6e556a6efe17",
+      "key": "vegetarian",
+      "sort_order": 1
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Vegan",
+      "id": "de3ddbcb-5922-4db7-bc43-f9953b0bd9e4",
+      "key": "vegan",
+      "sort_order": 2
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Pescatarian",
+      "id": "20425b8f-28e5-4673-ba2e-ad19a82f2351",
+      "key": "pescatarian",
+      "sort_order": 3
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Gluten-Free",
+      "id": "75ba4830-4231-4d9a-93f0-53852f0b3fb5",
+      "key": "gluten-free",
+      "sort_order": 4
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Dairy-Free",
+      "id": "0c15a03c-f52a-4a77-8c5c-770ec0131054",
+      "key": "dairy-free",
+      "sort_order": 5
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Nut-Free",
+      "id": "7cb2557e-1401-4096-88a1-c128f32bac81",
+      "key": "nut-free",
+      "sort_order": 6
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Egg-Free",
+      "id": "3ba1c6f5-f81a-4526-8f43-9c4ce28133fa",
+      "key": "egg-free",
+      "sort_order": 7
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Soy-Free",
+      "id": "bbf4de0e-de0e-45a5-b78c-dd751a53d8f7",
+      "key": "soy-free",
+      "sort_order": 8
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Keto",
+      "id": "72c539fe-0c9c-470e-9d46-38ce648b68ca",
+      "key": "keto",
+      "sort_order": 9
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Low-Carb",
+      "id": "12cb8821-91c1-4d76-a154-d1612630e6a1",
+      "key": "low-carb",
+      "sort_order": 10
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Paleo",
+      "id": "99f57f5a-edaa-489a-8387-92d5902a2ce7",
+      "key": "paleo",
+      "sort_order": 11
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Whole30",
+      "id": "5ae0cf75-992f-4e40-a41d-11342b3e5ce6",
+      "key": "whole30",
+      "sort_order": 12
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Low-FODMAP",
+      "id": "7ea50aee-acf8-49e4-bb90-b57e3f534316",
+      "key": "low-fodmap",
+      "sort_order": 13
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Halal",
+      "id": "8fc9ed87-88a9-49f9-be7b-6ef6f7c44567",
+      "key": "halal",
+      "sort_order": 14
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Kosher",
+      "id": "6af321d4-6b04-4a9a-b6b3-a2ff7a591346",
+      "key": "kosher",
+      "sort_order": 15
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Low-Sodium",
+      "id": "0f423ba6-f4ce-41e3-aa86-75e4274c3959",
+      "key": "low-sodium",
+      "sort_order": 16
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "High-Protein",
+      "id": "5ac8913c-f63a-49cf-a9b6-766595b4d13f",
+      "key": "high-protein",
+      "sort_order": 17
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "High-Fiber",
+      "id": "7fbc7baf-5bbb-4d33-9844-1beb8fb37463",
+      "key": "high-fiber",
+      "sort_order": 18
+    },
+    {
+      "category_key": "dietary",
+      "display_name": "Poultry",
+      "id": "5c0669a6-3def-41a2-875e-60bbcdad0504",
+      "key": "poultry",
+      "sort_order": 20
+    },
+    {
+      "category_key": "dish-type",
+      "display_name": "Soup",
+      "id": "41c57d77-d30c-4e26-9538-be4f73bc9d25",
+      "key": "soup",
+      "sort_order": 1
+    },
+    {
+      "category_key": "dish-type",
+      "display_name": "Stew",
+      "id": "2714a7ad-ba6f-404f-9e89-d368273260d8",
+      "key": "stew",
+      "sort_order": 2
+    },
+    {
+      "category_key": "dish-type",
+      "display_name": "Salad",
+      "id": "88206651-cd78-4fd2-a0f4-31ec35c5b4ec",
+      "key": "salad",
+      "sort_order": 3
+    },
+    {
+      "category_key": "dish-type",
+      "display_name": "Pasta",
+      "id": "bf2e6696-8585-40c9-9524-f80b1d829df1",
+      "key": "pasta",
+      "sort_order": 4
+    },
+    {
+      "category_key": "dish-type",
+      "display_name": "Rice Dish",
+      "id": "3f26abee-4997-4d65-9259-a7a44b7ab5be",
+      "key": "rice-dish",
+      "sort_order": 5
+    },
+    {
+      "category_key": "dish-type",
+      "display_name": "Sandwich",
+      "id": "25cb759c-b8f7-42d7-bd72-e5131e81426d",
+      "key": "sandwich",
+      "sort_order": 6
+    },
+    {
+      "category_key": "dish-type",
+      "display_name": "Wrap",
+      "id": "c69ccf75-07d8-4999-ab01-660223bf1947",
+      "key": "wrap",
+      "sort_order": 7
+    },
+    {
+      "category_key": "dish-type",
+      "display_name": "Bowl",
+      "id": "c62e626b-fd12-4724-8dc2-810edf8bee02",
+      "key": "bowl",
+      "sort_order": 8
+    },
+    {
+      "category_key": "dish-type",
+      "display_name": "Baked Goods",
+      "id": "62cf33f4-b978-4709-82a9-a7601c478ce8",
+      "key": "baked-goods",
+      "sort_order": 10
+    },
+    {
+      "category_key": "dish-type",
+      "display_name": "Casserole",
+      "id": "579099e2-9bc4-49de-9cca-cae20bd8b6d0",
+      "key": "casserole",
+      "sort_order": 11
+    },
+    {
+      "category_key": "dish-type",
+      "display_name": "Stir Fry",
+      "id": "ee389909-97bf-4c1d-b2e1-e1e4be8932ec",
+      "key": "stir-fry",
+      "sort_order": 12
+    },
+    {
+      "category_key": "dish-type",
+      "display_name": "Curry",
+      "id": "5719fe2c-691f-4028-90ca-72055f68ae79",
+      "key": "curry",
+      "sort_order": 13
+    },
+    {
+      "category_key": "dish-type",
+      "display_name": "Tacos",
+      "id": "4c0e02ce-f4ef-4b61-9f57-df42a6b19a3f",
+      "key": "tacos",
+      "sort_order": 14
+    },
+    {
+      "category_key": "dish-type",
+      "display_name": "Pizza",
+      "id": "a5a72b65-571d-47da-a2aa-ba6cdab9a986",
+      "key": "pizza",
+      "sort_order": 15
+    },
+    {
+      "category_key": "effort",
+      "display_name": "Minimal Prep",
+      "id": "a6e7d883-a27a-477a-a5a2-7e9e21ef0c4d",
+      "key": "minimal-prep",
+      "sort_order": 1
+    },
+    {
+      "category_key": "effort",
+      "display_name": "Minimal Chopping",
+      "id": "27af51c0-6131-45d0-b30c-b270d56daea4",
+      "key": "minimal-chopping",
+      "sort_order": 2
+    },
+    {
+      "category_key": "effort",
+      "display_name": "Hands-Off Friendly",
+      "id": "e976830b-d563-4893-9fe8-ec9cf7e04ca8",
+      "key": "hands-off",
+      "sort_order": 3
+    },
+    {
+      "category_key": "effort",
+      "display_name": "Quick Cleanup",
+      "id": "ef9925a9-aa03-48ef-b49b-ca47de505eb4",
+      "key": "quick-cleanup",
+      "sort_order": 4
+    },
+    {
+      "category_key": "effort",
+      "display_name": "Beginner Friendly",
+      "id": "f5dee300-034f-4d98-ac76-b5bf46939679",
+      "key": "beginner-friendly",
+      "sort_order": 5
+    },
+    {
+      "category_key": "effort",
+      "display_name": "Advanced Techniques",
+      "id": "c9f4099e-9408-4411-8e3a-62ef129c45b7",
+      "key": "advanced-techniques",
+      "sort_order": 6
+    },
+    {
+      "category_key": "effort",
+      "display_name": "Quick",
+      "id": "e208c7b3-daae-4d65-bbe8-a7caaebac2ca",
+      "key": "quick",
+      "sort_order": 10
+    },
+    {
+      "category_key": "effort",
+      "display_name": "Weekend",
+      "id": "b4188407-eb15-453e-9868-6b8f8967f160",
+      "key": "weekend",
+      "sort_order": 11
+    },
+    {
+      "category_key": "equipment",
+      "display_name": "Air Fryer",
+      "id": "09a122df-b8d1-4809-94c8-c78c0953b726",
+      "key": "air-fryer-equip",
+      "sort_order": 1
+    },
+    {
+      "category_key": "equipment",
+      "display_name": "Instant Pot/Pressure Cooker",
+      "id": "9f5dc030-e4e4-48a6-95c4-6623183bd34a",
+      "key": "instant-pot-equip",
+      "sort_order": 2
+    },
+    {
+      "category_key": "equipment",
+      "display_name": "Slow Cooker",
+      "id": "f5262a39-40d8-4de1-b4cd-377363648aca",
+      "key": "slow-cooker-equip",
+      "sort_order": 3
+    },
+    {
+      "category_key": "equipment",
+      "display_name": "Stand Mixer",
+      "id": "e3eaf451-884f-45f1-ad7c-597da96f6dcc",
+      "key": "stand-mixer",
+      "sort_order": 4
+    },
+    {
+      "category_key": "equipment",
+      "display_name": "Blender",
+      "id": "8b4d5376-b861-4b7d-a324-a0f44529a415",
+      "key": "blender",
+      "sort_order": 5
+    },
+    {
+      "category_key": "equipment",
+      "display_name": "Food Processor",
+      "id": "4d50eaf1-671b-4511-9bb8-fbddf4afe1ef",
+      "key": "food-processor",
+      "sort_order": 6
+    },
+    {
+      "category_key": "equipment",
+      "display_name": "Immersion Blender",
+      "id": "f561d593-cf36-422b-b9ed-dc6b5bebfa33",
+      "key": "immersion-blender",
+      "sort_order": 7
+    },
+    {
+      "category_key": "equipment",
+      "display_name": "Cast Iron",
+      "id": "1341a410-7c85-4e42-8076-b58d977e47b9",
+      "key": "cast-iron",
+      "sort_order": 8
+    },
+    {
+      "category_key": "equipment",
+      "display_name": "Wok",
+      "id": "7b4e89ee-2b3d-4194-a0ed-105d4c02444d",
+      "key": "wok",
+      "sort_order": 9
+    },
+    {
+      "category_key": "equipment",
+      "display_name": "Dutch Oven",
+      "id": "d4a2a5a4-9603-4cc4-b738-580697b30328",
+      "key": "dutch-oven",
+      "sort_order": 10
+    },
+    {
+      "category_key": "equipment",
+      "display_name": "Grill",
+      "id": "d740e7a0-5d0a-4337-aed3-518489a81fde",
+      "key": "grill-equip",
+      "sort_order": 11
+    },
+    {
+      "category_key": "equipment",
+      "display_name": "Smoker",
+      "id": "8d98c8b4-2496-464c-a888-f62d2523f5fe",
+      "key": "smoker",
+      "sort_order": 12
+    },
+    {
+      "category_key": "equipment",
+      "display_name": "Sous Vide Circulator",
+      "id": "c52aab8d-a877-4690-abc8-c9b060d266e5",
+      "key": "sous-vide-equip",
+      "sort_order": 13
+    },
+    {
+      "category_key": "equipment",
+      "display_name": "Mandoline",
+      "id": "95075a0b-eb44-40ad-b7a2-2353def55a1a",
+      "key": "mandoline",
+      "sort_order": 14
+    },
+    {
+      "category_key": "equipment",
+      "display_name": "Kitchen Torch",
+      "id": "65157be7-b94c-4899-b506-94213c202d86",
+      "key": "kitchen-torch",
+      "sort_order": 15
+    },
+    {
+      "category_key": "equipment",
+      "display_name": "No Special Equipment",
+      "id": "9dd697c4-218a-4a15-a9f5-ea601ff1b80b",
+      "key": "no-special-equipment",
+      "sort_order": 99
+    },
+    {
+      "category_key": "flavor-profile",
+      "display_name": "Spicy",
+      "id": "ffefbc2a-03f5-4d7b-8550-59852f84fe17",
+      "key": "spicy",
+      "sort_order": 1
+    },
+    {
+      "category_key": "flavor-profile",
+      "display_name": "Mild",
+      "id": "4e7a4669-2b56-497f-82d8-f185a955e81f",
+      "key": "mild",
+      "sort_order": 2
+    },
+    {
+      "category_key": "flavor-profile",
+      "display_name": "Savory",
+      "id": "d7310d00-a406-45a0-9748-4c699f203f27",
+      "key": "savory",
+      "sort_order": 3
+    },
+    {
+      "category_key": "flavor-profile",
+      "display_name": "Sweet",
+      "id": "af199431-a7b9-4ee4-85f2-2837c624f9fc",
+      "key": "sweet",
+      "sort_order": 4
+    },
+    {
+      "category_key": "flavor-profile",
+      "display_name": "Tangy",
+      "id": "9a704dd2-6c7f-49a7-b191-df248d72e194",
+      "key": "tangy",
+      "sort_order": 5
+    },
+    {
+      "category_key": "flavor-profile",
+      "display_name": "Umami-Forward",
+      "id": "eb581717-5177-4d64-8a82-5c86712a146c",
+      "key": "umami",
+      "sort_order": 6
+    },
+    {
+      "category_key": "flavor-profile",
+      "display_name": "Smoky",
+      "id": "62aa4e29-eb78-46cc-b8da-11e3599d8a86",
+      "key": "smoky",
+      "sort_order": 7
+    },
+    {
+      "category_key": "flavor-profile",
+      "display_name": "Herby",
+      "id": "13c116fa-faca-4184-bff4-7fd9903de75a",
+      "key": "herby",
+      "sort_order": 8
+    },
+    {
+      "category_key": "flavor-profile",
+      "display_name": "Creamy",
+      "id": "6c559dff-964b-4974-bbb3-5fd20e60d5d6",
+      "key": "creamy",
+      "sort_order": 9
+    },
+    {
+      "category_key": "flavor-profile",
+      "display_name": "Crispy/Crunchy",
+      "id": "ab3d7a5d-a8c4-483c-8044-667348e3610b",
+      "key": "crispy-crunchy",
+      "sort_order": 10
+    },
+    {
+      "category_key": "flavor-profile",
+      "display_name": "Rich",
+      "id": "1ba2288c-dee5-4bf5-8224-13123b7f2a91",
+      "key": "rich",
+      "sort_order": 11
+    },
+    {
+      "category_key": "flavor-profile",
+      "display_name": "Bright",
+      "id": "54030081-b6d6-4a7e-a89e-6bb849726154",
+      "key": "bright",
+      "sort_order": 12
+    },
+    {
+      "category_key": "flavor-profile",
+      "display_name": "Earthy",
+      "id": "a29167a4-045a-4605-820d-c719084f1bd1",
+      "key": "earthy",
+      "sort_order": 13
+    },
+    {
+      "category_key": "heat-source",
+      "display_name": "Chili/Pepper Heat",
+      "id": "9d0e1f9e-d28b-4bbd-9bf3-d42eb8bc44d5",
+      "key": "chili-heat",
+      "sort_order": 1
+    },
+    {
+      "category_key": "heat-source",
+      "display_name": "Black Pepper Heat",
+      "id": "d03ff20f-831b-4444-bf2f-7bb1f5dd8f9b",
+      "key": "black-pepper-heat",
+      "sort_order": 2
+    },
+    {
+      "category_key": "heat-source",
+      "display_name": "Horseradish/Wasabi Heat",
+      "id": "c9c40638-19d1-4724-aafa-5a1ce7dcd5e1",
+      "key": "horseradish-heat",
+      "sort_order": 3
+    },
+    {
+      "category_key": "heat-source",
+      "display_name": "Ginger Heat",
+      "id": "474fbb91-7d0e-4e30-82cf-03b65da69cf4",
+      "key": "ginger-heat",
+      "sort_order": 4
+    },
+    {
+      "category_key": "heat-source",
+      "display_name": "No Heat",
+      "id": "edd0cb3d-163e-4da6-8206-b4d16f332ab6",
+      "key": "no-heat",
+      "sort_order": 5
+    },
+    {
+      "category_key": "holiday",
+      "display_name": "Thanksgiving",
+      "id": "5460aaa5-1eac-4417-b212-1087729d2a0e",
+      "key": "thanksgiving",
+      "sort_order": 1
+    },
+    {
+      "category_key": "holiday",
+      "display_name": "Christmas",
+      "id": "29d14bbd-96ce-4655-83e9-751ab6435414",
+      "key": "christmas",
+      "sort_order": 2
+    },
+    {
+      "category_key": "holiday",
+      "display_name": "Easter",
+      "id": "2015ef57-6154-441a-a2fe-3c3d97d8a64e",
+      "key": "easter",
+      "sort_order": 3
+    },
+    {
+      "category_key": "holiday",
+      "display_name": "Hanukkah",
+      "id": "d50ec27a-d25e-416e-84a1-6d37464c16e7",
+      "key": "hanukkah",
+      "sort_order": 4
+    },
+    {
+      "category_key": "holiday",
+      "display_name": "Lunar New Year",
+      "id": "aadb7c2b-8900-4eb4-9a30-e8eec919291d",
+      "key": "lunar-new-year",
+      "sort_order": 5
+    },
+    {
+      "category_key": "holiday",
+      "display_name": "Diwali",
+      "id": "5463feaf-dc09-4929-83cb-108d7e24f3ae",
+      "key": "diwali",
+      "sort_order": 6
+    },
+    {
+      "category_key": "holiday",
+      "display_name": "Fourth of July",
+      "id": "a7651fdf-4a5b-4822-8f19-b2e2d2df064a",
+      "key": "fourth-of-july",
+      "sort_order": 7
+    },
+    {
+      "category_key": "holiday",
+      "display_name": "Halloween",
+      "id": "106103fb-155f-45d7-abf6-1eb6eda8b65b",
+      "key": "halloween",
+      "sort_order": 8
+    },
+    {
+      "category_key": "holiday",
+      "display_name": "Valentine's Day",
+      "id": "f14efe80-aff3-455b-aeae-854b43b693b4",
+      "key": "valentines-day",
+      "sort_order": 9
+    },
+    {
+      "category_key": "main-carb",
+      "display_name": "Rice",
+      "id": "0802c4d4-7de2-4cdd-9b8e-69ee801b6c67",
+      "key": "rice",
+      "sort_order": 1
+    },
+    {
+      "category_key": "main-carb",
+      "display_name": "Pasta/Noodles",
+      "id": "b1e695c8-374a-4973-8365-b482cab9df29",
+      "key": "pasta-noodles",
+      "sort_order": 2
+    },
+    {
+      "category_key": "main-carb",
+      "display_name": "Potatoes",
+      "id": "a8e46189-ece1-4948-af23-362e00907a52",
+      "key": "potatoes",
+      "sort_order": 3
+    },
+    {
+      "category_key": "main-carb",
+      "display_name": "Bread",
+      "id": "0af318f1-0c98-4f1a-909b-7918327a3722",
+      "key": "bread",
+      "sort_order": 4
+    },
+    {
+      "category_key": "main-carb",
+      "display_name": "Quinoa",
+      "id": "aed36519-06e1-4c51-89f4-e1c28bc77778",
+      "key": "quinoa",
+      "sort_order": 5
+    },
+    {
+      "category_key": "main-carb",
+      "display_name": "Couscous",
+      "id": "45485dd7-e9c0-4293-9ac9-3c62f0c502b3",
+      "key": "couscous",
+      "sort_order": 6
+    },
+    {
+      "category_key": "main-carb",
+      "display_name": "Tortillas",
+      "id": "8905b2b7-bc2e-47fa-98e8-2bd00796748a",
+      "key": "tortillas",
+      "sort_order": 7
+    },
+    {
+      "category_key": "main-carb",
+      "display_name": "Polenta",
+      "id": "91f7ae19-8f1e-4249-b314-3e1285981311",
+      "key": "polenta",
+      "sort_order": 8
+    },
+    {
+      "category_key": "main-carb",
+      "display_name": "Sweet Potatoes",
+      "id": "793d7a27-f0ca-4976-addb-f9a0ce428549",
+      "key": "sweet-potatoes",
+      "sort_order": 9
+    },
+    {
+      "category_key": "main-carb",
+      "display_name": "No Major Carb",
+      "id": "ba476488-93a3-41d3-941d-1c1bb0c82344",
+      "key": "no-carb",
+      "sort_order": 10
+    },
+    {
+      "category_key": "main-protein",
+      "display_name": "Chicken",
+      "id": "5904550c-ecdc-44aa-b28a-33dc2d31bedc",
+      "key": "chicken",
+      "sort_order": 1
+    },
+    {
+      "category_key": "main-protein",
+      "display_name": "Beef",
+      "id": "b92dfa5d-d0a9-4e31-a44b-2e3d635ba26f",
+      "key": "beef",
+      "sort_order": 2
+    },
+    {
+      "category_key": "main-protein",
+      "display_name": "Pork",
+      "id": "d4674b8d-9299-415c-be18-3d1d41923de2",
+      "key": "pork",
+      "sort_order": 3
+    },
+    {
+      "category_key": "main-protein",
+      "display_name": "Lamb",
+      "id": "1ee2a8fe-fa62-4266-ab01-2af0421d403b",
+      "key": "lamb",
+      "sort_order": 4
+    },
+    {
+      "category_key": "main-protein",
+      "display_name": "Turkey",
+      "id": "d196cec9-38ed-4320-b3db-737a53870b3e",
+      "key": "turkey",
+      "sort_order": 5
+    },
+    {
+      "category_key": "main-protein",
+      "display_name": "Fish",
+      "id": "9a82e978-12b5-48c4-a807-ba8a487ad9dc",
+      "key": "fish",
+      "sort_order": 6
+    },
+    {
+      "category_key": "main-protein",
+      "display_name": "Shrimp",
+      "id": "01234a4a-3a69-42c2-b893-4f2458b19f23",
+      "key": "shrimp",
+      "sort_order": 7
+    },
+    {
+      "category_key": "main-protein",
+      "display_name": "Other Shellfish",
+      "id": "f9452515-b3e0-41d3-8bed-4a01d26f0beb",
+      "key": "shellfish-other",
+      "sort_order": 8
+    },
+    {
+      "category_key": "main-protein",
+      "display_name": "Tofu",
+      "id": "7fc6d3c0-0db1-4d15-ac3e-43dd4ececd70",
+      "key": "tofu",
+      "sort_order": 9
+    },
+    {
+      "category_key": "main-protein",
+      "display_name": "Tempeh",
+      "id": "876b07bd-1194-4a17-aee7-36638dc50032",
+      "key": "tempeh",
+      "sort_order": 10
+    },
+    {
+      "category_key": "main-protein",
+      "display_name": "Lentils",
+      "id": "15f962da-8a8d-41f7-83b9-508268c05096",
+      "key": "lentils",
+      "sort_order": 11
+    },
+    {
+      "category_key": "main-protein",
+      "display_name": "Beans",
+      "id": "4a5fd2ec-bf07-4d95-a345-3f887855eb91",
+      "key": "beans",
+      "sort_order": 12
+    },
+    {
+      "category_key": "main-protein",
+      "display_name": "Eggs",
+      "id": "cd6bcbf1-d9d3-40f9-a621-ca14fc79c95a",
+      "key": "eggs",
+      "sort_order": 13
+    },
+    {
+      "category_key": "main-protein",
+      "display_name": "Chickpeas",
+      "id": "7c1d221b-462a-47c8-9e52-903601180cbf",
+      "key": "chickpeas",
+      "sort_order": 14
+    },
+    {
+      "category_key": "main-protein",
+      "display_name": "Seitan",
+      "id": "9767adc2-8ed4-4de9-842d-5d251f259d3e",
+      "key": "seitan",
+      "sort_order": 15
+    },
+    {
+      "category_key": "meal-type",
+      "display_name": "Breakfast",
+      "id": "b8ac6cb1-77eb-4358-a69a-f36756cc1cbe",
+      "key": "breakfast",
+      "sort_order": 1
+    },
+    {
+      "category_key": "meal-type",
+      "display_name": "Brunch",
+      "id": "efb8d860-b75b-4f1c-8f3a-99e368628c69",
+      "key": "brunch",
+      "sort_order": 2
+    },
+    {
+      "category_key": "meal-type",
+      "display_name": "Lunch",
+      "id": "0154bef3-4394-439e-9393-abd6cdf1b377",
+      "key": "lunch",
+      "sort_order": 3
+    },
+    {
+      "category_key": "meal-type",
+      "display_name": "Dinner",
+      "id": "3cd0d141-217f-40ba-bef5-836aac0e150e",
+      "key": "dinner",
+      "sort_order": 4
+    },
+    {
+      "category_key": "meal-type",
+      "display_name": "Snack",
+      "id": "f9c9b27a-20ad-499b-ba52-f1360ee723bb",
+      "key": "snack",
+      "sort_order": 5
+    },
+    {
+      "category_key": "meal-type",
+      "display_name": "Dessert",
+      "id": "750de273-0f8b-4788-94ff-4b3c063d315f",
+      "key": "dessert",
+      "sort_order": 6
+    },
+    {
+      "category_key": "occasion",
+      "display_name": "Weeknight",
+      "id": "15c4fbf8-901f-45ed-a115-d1bce07e92fa",
+      "key": "weeknight",
+      "sort_order": 1
+    },
+    {
+      "category_key": "occasion",
+      "display_name": "Date Night",
+      "id": "714a2fec-c9a0-4635-ad1e-5f4cf2cd281f",
+      "key": "date-night",
+      "sort_order": 2
+    },
+    {
+      "category_key": "occasion",
+      "display_name": "Dinner Party",
+      "id": "651e675e-a2d8-4d19-a7f5-b5562d20247c",
+      "key": "dinner-party",
+      "sort_order": 3
+    },
+    {
+      "category_key": "occasion",
+      "display_name": "Potluck",
+      "id": "f8d1e06c-71ba-46ee-9037-1c528e9dbe24",
+      "key": "potluck",
+      "sort_order": 4
+    },
+    {
+      "category_key": "occasion",
+      "display_name": "Picnic",
+      "id": "cc4b7f6c-d788-448f-aca4-3922de3de8b7",
+      "key": "picnic",
+      "sort_order": 5
+    },
+    {
+      "category_key": "occasion",
+      "display_name": "Packable/Lunchbox",
+      "id": "0f1a97f8-aa27-4211-a121-f874ab859b27",
+      "key": "packable",
+      "sort_order": 6
+    },
+    {
+      "category_key": "occasion",
+      "display_name": "Special Occasion",
+      "id": "51edad8b-7668-4351-965d-7d84179a361e",
+      "key": "special-occasion",
+      "sort_order": 7
+    },
+    {
+      "category_key": "occasion",
+      "display_name": "Game Day",
+      "id": "2f933f1f-70a1-4996-90c5-495b74bee50e",
+      "key": "game-day",
+      "sort_order": 8
+    },
+    {
+      "category_key": "occasion",
+      "display_name": "BBQ/Cookout",
+      "id": "abbfcc58-e7d1-4aea-bb90-e5832cc19037",
+      "key": "bbq",
+      "sort_order": 9
+    },
+    {
+      "category_key": "season",
+      "display_name": "Spring",
+      "id": "15736ef4-10ea-42b6-a5e0-56dc18272abd",
+      "key": "spring",
+      "sort_order": 1
+    },
+    {
+      "category_key": "season",
+      "display_name": "Summer",
+      "id": "b1ad5e0c-1e2a-4f43-8784-08fb134a35ad",
+      "key": "summer",
+      "sort_order": 2
+    },
+    {
+      "category_key": "season",
+      "display_name": "Fall",
+      "id": "2923ca24-e61c-430d-a3d5-37b45863cd07",
+      "key": "fall",
+      "sort_order": 3
+    },
+    {
+      "category_key": "season",
+      "display_name": "Winter",
+      "id": "932f21f3-ffb7-4d95-9af4-af92b66181a3",
+      "key": "winter",
+      "sort_order": 4
+    },
+    {
+      "category_key": "season",
+      "display_name": "Year Round",
+      "id": "1be51968-0e3e-436e-a490-91130b5e7565",
+      "key": "year-round",
+      "sort_order": 5
+    },
+    {
+      "category_key": "storage",
+      "display_name": "Freezer Friendly",
+      "id": "a3174449-79f3-41e5-9f8b-931e001985a9",
+      "key": "freezer-friendly",
+      "sort_order": 1
+    },
+    {
+      "category_key": "storage",
+      "display_name": "Better Next Day",
+      "id": "475aa0e9-f004-42d4-8236-2fba1734998a",
+      "key": "better-next-day",
+      "sort_order": 2
+    },
+    {
+      "category_key": "storage",
+      "display_name": "Meal Prep Friendly",
+      "id": "2e235ae9-9922-4f8f-b8a2-2fc019bc2530",
+      "key": "meal-prep",
+      "sort_order": 3
+    },
+    {
+      "category_key": "storage",
+      "display_name": "Batch Cooking",
+      "id": "c7666806-515b-4954-8029-3b0071611acb",
+      "key": "batch-cooking",
+      "sort_order": 4
+    },
+    {
+      "category_key": "storage",
+      "display_name": "Make Ahead",
+      "id": "b9aec122-62da-439c-b6fb-5db1b525f63a",
+      "key": "make-ahead",
+      "sort_order": 5
+    },
+    {
+      "category_key": "techniques",
+      "display_name": "Emulsify",
+      "id": "751ee496-5bcd-40e1-9273-727099614596",
+      "key": "emulsify",
+      "sort_order": 1
+    },
+    {
+      "category_key": "techniques",
+      "display_name": "Temper",
+      "id": "944e8cef-cb8a-43a7-8bc4-f931fc40ff4c",
+      "key": "temper",
+      "sort_order": 2
+    },
+    {
+      "category_key": "techniques",
+      "display_name": "Proof/Rise",
+      "id": "359048c6-682a-401f-9b0d-9508435fa14d",
+      "key": "proof",
+      "sort_order": 3
+    },
+    {
+      "category_key": "techniques",
+      "display_name": "Fold",
+      "id": "e49b4b3d-f60e-46e0-8e39-56fc27c08571",
+      "key": "fold",
+      "sort_order": 4
+    },
+    {
+      "category_key": "techniques",
+      "display_name": "Deglaze",
+      "id": "ccfd5c9a-2646-4cb3-bb35-ff83b3a178ab",
+      "key": "deglaze",
+      "sort_order": 5
+    },
+    {
+      "category_key": "techniques",
+      "display_name": "Blanch",
+      "id": "cf579dc6-281a-4d71-a23d-f4e5210115e4",
+      "key": "blanch",
+      "sort_order": 6
+    },
+    {
+      "category_key": "techniques",
+      "display_name": "Caramelize",
+      "id": "d48cd5f5-adf2-48fe-87e8-02e0128430e1",
+      "key": "caramelize",
+      "sort_order": 7
+    },
+    {
+      "category_key": "techniques",
+      "display_name": "Marinate",
+      "id": "384d9860-822d-41b8-b182-d8b1118da0e7",
+      "key": "marinate",
+      "sort_order": 8
+    },
+    {
+      "category_key": "techniques",
+      "display_name": "Rest",
+      "id": "594c711e-5ae5-41ef-856c-507621486ceb",
+      "key": "rest",
+      "sort_order": 9
+    },
+    {
+      "category_key": "techniques",
+      "display_name": "Sear",
+      "id": "0947ee5b-fb84-4672-b8a3-cc36a3c3cc3a",
+      "key": "sear",
+      "sort_order": 10
+    },
+    {
+      "category_key": "techniques",
+      "display_name": "Reduce",
+      "id": "c1d92f1a-8bfe-402e-aa06-32094752668f",
+      "key": "reduce",
+      "sort_order": 11
+    },
+    {
+      "category_key": "techniques",
+      "display_name": "Julienne",
+      "id": "795b07de-c359-40db-8182-844c73cd81d4",
+      "key": "julienne",
+      "sort_order": 12
+    },
+    {
+      "category_key": "techniques",
+      "display_name": "Mince",
+      "id": "ae4ed62f-06e6-40f5-b5dd-d852d18a6fc4",
+      "key": "mince",
+      "sort_order": 13
+    },
+    {
+      "category_key": "vibe",
+      "display_name": "Comfort Food",
+      "id": "a72e2743-11ba-47c3-a42a-52e445b9c2e9",
+      "key": "comfort-food",
+      "sort_order": 1
+    },
+    {
+      "category_key": "vibe",
+      "display_name": "Light & Fresh",
+      "id": "7361055c-388d-4e18-97aa-a1fbadc4cc68",
+      "key": "light-fresh",
+      "sort_order": 2
+    },
+    {
+      "category_key": "vibe",
+      "display_name": "Indulgent",
+      "id": "c04351dc-f14a-4b48-99f0-380619123f15",
+      "key": "indulgent",
+      "sort_order": 3
+    },
+    {
+      "category_key": "vibe",
+      "display_name": "Healthy",
+      "id": "58852fae-7cd4-4c73-8377-3105c7bc2d24",
+      "key": "healthy",
+      "sort_order": 4
+    },
+    {
+      "category_key": "vibe",
+      "display_name": "Kid Friendly",
+      "id": "56abfacd-c08b-4b40-a582-04e9769b18aa",
+      "key": "kid-friendly",
+      "sort_order": 5
+    },
+    {
+      "category_key": "vibe",
+      "display_name": "Crowd Pleaser",
+      "id": "7f0d1769-fe06-41f5-8281-902ae9c40751",
+      "key": "crowd-pleaser",
+      "sort_order": 6
+    }
+  ]
+}

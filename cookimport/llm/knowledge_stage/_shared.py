@@ -134,5 +134,10 @@ _KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS = frozenset(
         "knowledge_block_missing_group",
         "knowledge_block_group_conflict",
         "group_contains_other_block",
+        "unknown_grounding_tag_key",
+        "unknown_grounding_category_key",
+        "invalid_proposed_tag_key",
+        "invalid_proposed_tag_display_name",
+        "proposed_tag_key_conflicts_existing",
     }
 )

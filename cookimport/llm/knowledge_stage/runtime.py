@@ -315,11 +315,26 @@ def run_codex_farm_nonrecipe_finalize(
                 for block_index in routing.candidate_block_indices
             },
         )
+        (
+            grounding_by_block,
+            grounding_counts,
+            proposal_rows,
+        ) = _collect_block_grounding_details(
+            outputs=outputs,
+            allowed_block_indices={
+                int(block_index): "candidate"
+                for block_index in routing.candidate_block_indices
+            },
+        )
+        proposal_sidecar_path = knowledge_stage_dir / "knowledge_tag_proposals.jsonl"
+        _write_jsonl(proposal_sidecar_path, proposal_rows)
         refined_stage_result = refine_nonrecipe_stage_result(
             stage_result=nonrecipe_stage_result,
             full_blocks=full_blocks_payload,
             block_category_updates=block_category_updates,
             reviewer_categories_by_block=reviewer_categories_by_block,
+            grounding_by_block=grounding_by_block,
+            grounding_summary=grounding_counts,
             applied_packet_ids_by_block=applied_packet_ids_by_block,
             conflicts=conflicts,
             ignored_block_indices=ignored_block_indices,
@@ -335,6 +350,9 @@ def run_codex_farm_nonrecipe_finalize(
         elapsed_seconds = round(time.perf_counter() - started, 3)
         promotion_report = _load_json_dict(knowledge_stage_dir / "promotion_report.json")
         telemetry = _load_json_dict(knowledge_stage_dir / "telemetry.json")
+        promotion_report["grounding_counts"] = dict(grounding_counts)
+        promotion_report["tag_proposal_count"] = int(grounding_counts.get("tag_proposal_count") or 0)
+        _write_json(promotion_report, knowledge_stage_dir / "promotion_report.json")
         useful_chunk_count = sum(1 for output in outputs.values() if bool(output.is_useful))
         review_rollup = _build_nonrecipe_finalize_rollup(
             promotion_report=promotion_report,
@@ -404,6 +422,19 @@ def run_codex_farm_nonrecipe_finalize(
                 "changed_blocks": int(
                     refined_stage_result.refinement_report.get("changed_block_count") or 0
                 ),
+                "kept_knowledge_block_count": int(
+                    grounding_counts.get("kept_knowledge_block_count") or 0
+                ),
+                "retrieval_gate_rejected_block_count": int(
+                    grounding_counts.get("retrieval_gate_rejected_block_count") or 0
+                ),
+                "knowledge_blocks_grounded_to_existing_tags": int(
+                    grounding_counts.get("knowledge_blocks_grounded_to_existing_tags") or 0
+                ),
+                "knowledge_blocks_using_proposed_tags": int(
+                    grounding_counts.get("knowledge_blocks_using_proposed_tags") or 0
+                ),
+                "tag_proposal_count": int(grounding_counts.get("tag_proposal_count") or 0),
                 "worker_count": (
                     int(phase_manifest.worker_count)
                     if phase_manifest is not None
@@ -439,6 +470,7 @@ def run_codex_farm_nonrecipe_finalize(
                 "knowledge_in_dir": str(knowledge_in_dir),
                 "knowledge_phase_dir": str(knowledge_stage_dir),
                 "knowledge_groups_path": str(write_report.groups_path),
+                "knowledge_tag_proposals_path": str(proposal_sidecar_path),
                 "snippets_path": (
                     str(write_report.snippets_path)
                     if write_report.snippets_path is not None
@@ -453,6 +485,7 @@ def run_codex_farm_nonrecipe_finalize(
             "planning_warnings": list(build_report.planning_warnings),
             "candidate_summary": candidate_summary,
             "refinement_report": refined_report,
+            "grounding_counts": dict(grounding_counts),
             "process_run": process_run_payload,
             "phase_worker_runtime": {
                 "phase_key": "nonrecipe_finalize",

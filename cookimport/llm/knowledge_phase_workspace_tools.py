@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .knowledge_tag_catalog import empty_grounding_payload, normalize_knowledge_tag_key
+
 
 KNOWLEDGE_VALID_PASS1_RESULT_EXAMPLE_FILENAME = "valid_pass1_packet_result.json"
 KNOWLEDGE_VALID_PASS2_RESULT_EXAMPLE_FILENAME = "valid_pass2_packet_result.json"
@@ -503,11 +505,31 @@ def assemble_final_output(
         block_index = int(row["block_index"])
         category = str(row.get("category") or "").strip()
         reviewer_category = "knowledge" if category == "knowledge" else "other"
+        text = str(row.get("text") or "").strip()
+        retrieval_concept = (
+            text or f"Knowledge {block_index}"
+        ) if category == "knowledge" else None
+        grounding = empty_grounding_payload()
+        if category == "knowledge":
+            grounding = {
+                "tag_keys": [],
+                "category_keys": ["techniques"],
+                "proposed_tags": [
+                    {
+                        "key": normalize_knowledge_tag_key(text or f"knowledge-{block_index}")
+                        or f"knowledge-{block_index}",
+                        "display_name": (text[:48].strip() if text else f"Knowledge {block_index}"),
+                        "category_key": "techniques",
+                    }
+                ],
+            }
         block_decisions.append(
             {
                 "block_index": block_index,
                 "category": category,
                 "reviewer_category": reviewer_category,
+                "retrieval_concept": retrieval_concept,
+                "grounding": grounding,
             }
         )
         if category != "knowledge":

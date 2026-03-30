@@ -64,6 +64,8 @@ def _default_nonrecipe_refinement_report(
             routing.exclusion_reason_by_block
         ),
         "reviewer_category_counts": {},
+        "grounding_counts": {},
+        "grounding_by_block": {},
         "changed_blocks": [],
         "conflicts": [],
         "ignored_block_indices": [],
@@ -170,6 +172,8 @@ def refine_nonrecipe_stage_result(
     full_blocks: Sequence[Mapping[str, Any]],
     block_category_updates: Mapping[int, str],
     reviewer_categories_by_block: Mapping[int, str] | None = None,
+    grounding_by_block: Mapping[int, Mapping[str, Any]] | None = None,
+    grounding_summary: Mapping[str, Any] | None = None,
     applied_packet_ids_by_block: Mapping[int, Sequence[str]] | None = None,
     conflicts: Sequence[Mapping[str, Any]] | None = None,
     ignored_block_indices: Sequence[int] | None = None,
@@ -210,6 +214,11 @@ def refine_nonrecipe_stage_result(
                 "previous_final_category": prior_final_category,
                 "final_category": normalized_category,
                 "reviewer_category": reviewer_category,
+                "grounding": (
+                    dict((grounding_by_block or {}).get(block_index) or {})
+                    if normalized_category == "knowledge"
+                    else {}
+                ),
                 "applied_packet_ids": list(applied_packet_ids_by_block.get(block_index) or [])
                 if applied_packet_ids_by_block is not None
                 else [],
@@ -272,6 +281,11 @@ def refine_nonrecipe_stage_result(
                 stage_result.routing.exclusion_reason_by_block
             ),
             "reviewer_category_counts": reviewer_counts,
+            "grounding_counts": dict(grounding_summary or {}),
+            "grounding_by_block": {
+                str(index): dict(value)
+                for index, value in sorted((grounding_by_block or {}).items())
+            },
             "changed_blocks": changed_blocks,
             "conflicts": conflict_rows,
             "ignored_block_indices": ignored_indices,

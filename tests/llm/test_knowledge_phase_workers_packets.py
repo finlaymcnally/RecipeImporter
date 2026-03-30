@@ -50,7 +50,19 @@ def test_knowledge_phase_workers_reject_off_surface_group_outputs(tmp_path: Path
         output_builders={
             "recipe.knowledge.packet.v1": lambda shard_payload: {
                 "packet_id": shard_payload["bid"],
-                "block_decisions": [{"block_index": 4, "category": "knowledge"}],
+                "block_decisions": [
+                    {
+                        "block_index": 4,
+                        "category": "knowledge",
+                        "reviewer_category": "knowledge",
+                        "retrieval_concept": "Keep the emulsion stable",
+                        "grounding": {
+                            "tag_keys": ["emulsify"],
+                            "category_keys": ["techniques"],
+                            "proposed_tags": [],
+                        },
+                    }
+                ],
                 "idea_groups": [
                     {
                         "group_id": "g01",

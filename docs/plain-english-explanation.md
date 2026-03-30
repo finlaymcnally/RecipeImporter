@@ -201,12 +201,15 @@ The main review is split into two steps:
 - classification decides, block by block, whether each owned row is final `knowledge` or final `other`
 - grouping runs only on rows already kept as `knowledge` and groups related rows under topic labels
 
-In practice, one worker assignment means one worker handling its own bundle of assigned shards. The normal path is:
+In practice, one worker assignment means one worker handling its own bundle of assigned shards inside one happy-path workspace session.
 
-- one classification workspace session over that worker's assigned blocks
-- an optional second grouping workspace session if the classification step kept any knowledge rows
+The worker starts with the classification `task.json`, edits the answers, and then runs one repo-owned validate-and-advance helper. That helper either:
 
-After each step, repo code validates the edited task file and expands accepted answers back into the stage's shard outputs. If structure is wrong, repair is narrow: the repo can issue a smaller repair task covering only the failed rows, and otherwise the shard fails closed.
+- rewrites `task.json` into a smaller repair file for the same classification step
+- rewrites `task.json` into the grouping-only file if any rows stayed `knowledge`
+- finishes the final shard outputs immediately if everything ended up `other`
+
+If grouping is needed, the same worker keeps going in the same session, edits the rewritten grouping file, runs the helper again, and stops only when that helper reports completion. Structural repair stays narrow, but it now happens in the same worker context by default instead of by launching a second happy-path worker session.
 
 So the model decides:
 

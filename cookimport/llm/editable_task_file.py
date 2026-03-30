@@ -66,15 +66,20 @@ def validate_edited_task_file(
     if str(edited.get("schema_version") or "").strip() != schema_version:
         errors.append("invalid_edited_schema_version")
 
-    immutable_top_level_keys = (
-        "schema_version",
-        "stage_key",
-        "assignment_id",
-        "worker_id",
-        "mode",
-        "editable_json_pointers",
+    immutable_top_level_keys = {
+        str(key) for key in original.keys() if str(key) != "units"
+    }
+    immutable_top_level_keys.update(
+        {
+            "schema_version",
+            "stage_key",
+            "assignment_id",
+            "worker_id",
+            "mode",
+            "editable_json_pointers",
+        }
     )
-    for key in immutable_top_level_keys:
+    for key in sorted(immutable_top_level_keys):
         if original.get(key) != edited.get(key):
             path = f"/{key}"
             errors.append("immutable_field_changed")
@@ -85,6 +90,19 @@ def validate_edited_task_file(
                     "message": f"{path} must not change",
                 }
             )
+    extra_top_level_keys = sorted(
+        str(key) for key in edited.keys() if str(key) not in original and str(key) != "units"
+    )
+    for key in extra_top_level_keys:
+        path = f"/{key}"
+        errors.append("immutable_field_changed")
+        error_details.append(
+            {
+                "path": path,
+                "code": "immutable_field_changed",
+                "message": f"{path} must not be added",
+            }
+        )
 
     original_units = original.get("units")
     edited_units = edited.get("units")

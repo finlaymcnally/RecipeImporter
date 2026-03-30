@@ -41,7 +41,7 @@ KNOWLEDGE_MANIFEST_FILE_NAME = "knowledge_manifest.json"
 KNOWLEDGE_STAGE_STATUS_FILE_NAME = "stage_status.json"
 KNOWLEDGE_STAGE_STATUS_SCHEMA_VERSION = "knowledge_stage_status.v1"
 KNOWLEDGE_STAGE_SUMMARY_FILE_NAME = "knowledge_stage_summary.json"
-KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v8"
+KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v9"
 RECIPE_STAGE_SUMMARY_FILE_NAME = "recipe_stage_summary.json"
 RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v6"
 LINE_ROLE_STAGE_SUMMARY_FILE_NAME = "line_role_stage_summary.json"
@@ -57,6 +57,7 @@ _KNOWLEDGE_STAGE_ARTIFACT_KEYS: tuple[str, ...] = (
     "telemetry.json",
     "failures.json",
     "knowledge_manifest.json",
+    "knowledge_tag_proposals.jsonl",
     "proposals/*",
 )
 _KNOWLEDGE_PACKET_TERMINAL_STATES = frozenset(
@@ -243,6 +244,7 @@ def _knowledge_stage_artifact_paths(stage_root: Path) -> dict[str, Path]:
         "telemetry.json": stage_root / "telemetry.json",
         "failures.json": stage_root / "failures.json",
         "knowledge_manifest.json": workbook_root / KNOWLEDGE_MANIFEST_FILE_NAME,
+        "knowledge_tag_proposals.jsonl": stage_root / "knowledge_tag_proposals.jsonl",
         "proposals/*": stage_root / "proposals",
     }
 
@@ -671,6 +673,7 @@ def _knowledge_row_is_no_final_output(row: Mapping[str, Any]) -> bool:
 
 def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
     phase_manifest_payload = _load_json_dict(stage_root / "phase_manifest.json") or {}
+    knowledge_manifest_payload = _load_json_dict(stage_root.parent / KNOWLEDGE_MANIFEST_FILE_NAME) or {}
     status_path = stage_root / KNOWLEDGE_STAGE_STATUS_FILE_NAME
     status_payload = _load_json_dict(status_path) or {}
     pre_kill_failure_counts = status_payload.get("pre_kill_failure_counts")
@@ -748,6 +751,24 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
     packet_total = len(task_rows) if task_rows else int(replay_summary.rollup.packet_total)
     deterministic_bypass_total = int(packet_attempt_type_counts.get("deterministic_bypass") or 0)
     failed_followup_total = sum(_int_count(value) for value in followup_failed_counts.values())
+    manifest_counts = (
+        knowledge_manifest_payload.get("counts")
+        if isinstance(knowledge_manifest_payload.get("counts"), Mapping)
+        else {}
+    )
+    grounding_counts = {
+        "kept_knowledge_block_count": int(manifest_counts.get("kept_knowledge_block_count") or 0),
+        "retrieval_gate_rejected_block_count": int(
+            manifest_counts.get("retrieval_gate_rejected_block_count") or 0
+        ),
+        "knowledge_blocks_grounded_to_existing_tags": int(
+            manifest_counts.get("knowledge_blocks_grounded_to_existing_tags") or 0
+        ),
+        "knowledge_blocks_using_proposed_tags": int(
+            manifest_counts.get("knowledge_blocks_using_proposed_tags") or 0
+        ),
+        "tag_proposal_count": int(manifest_counts.get("tag_proposal_count") or 0),
+    }
     summary = {
         "authoritative": bool(status_payload),
         "schema_version": KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION,
@@ -820,6 +841,7 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
         },
         "salvage": salvage_counts,
         "packet_economics": packet_economics,
+        "grounding_counts": grounding_counts,
         "pre_kill_failure_counts": dict(pre_kill_failure_counts),
         "pre_kill_failures_observed": _count_nested_positive_values(pre_kill_failure_counts) > 0,
     }

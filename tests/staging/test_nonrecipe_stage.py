@@ -203,6 +203,60 @@ def test_nonrecipe_stage_refinement_keeps_internal_reviewer_categories_internal(
     }
 
 
+def test_nonrecipe_stage_refinement_keeps_grounding_metadata_visible() -> None:
+    seed = build_nonrecipe_stage_result(
+        full_blocks=[
+            {"index": 0, "block_id": "b0", "text": "Acid brightens rich dishes."},
+        ],
+        final_block_labels=[_block_label(0, "NONRECIPE_CANDIDATE")],
+        recipe_spans=[],
+    )
+
+    refined = refine_nonrecipe_stage_result(
+        stage_result=seed,
+        full_blocks=[{"index": 0, "block_id": "b0", "text": "Acid brightens rich dishes."}],
+        block_category_updates={0: "knowledge"},
+        reviewer_categories_by_block={0: "knowledge"},
+        grounding_by_block={
+            0: {
+                "packet_id": "book.ks0000.nr",
+                "retrieval_concept": "Balance richness with acid",
+                "grounding": {
+                    "tag_keys": ["bright"],
+                    "category_keys": ["flavor-profile"],
+                    "proposed_tags": [],
+                },
+            }
+        },
+        grounding_summary={
+            "kept_knowledge_block_count": 1,
+            "retrieval_gate_rejected_block_count": 0,
+            "knowledge_blocks_grounded_to_existing_tags": 1,
+            "knowledge_blocks_using_proposed_tags": 0,
+            "tag_proposal_count": 0,
+        },
+    )
+
+    assert refined.refinement_report["grounding_counts"] == {
+        "kept_knowledge_block_count": 1,
+        "retrieval_gate_rejected_block_count": 0,
+        "knowledge_blocks_grounded_to_existing_tags": 1,
+        "knowledge_blocks_using_proposed_tags": 0,
+        "tag_proposal_count": 0,
+    }
+    assert refined.refinement_report["grounding_by_block"] == {
+        "0": {
+            "packet_id": "book.ks0000.nr",
+            "retrieval_concept": "Balance richness with acid",
+            "grounding": {
+                "tag_keys": ["bright"],
+                "category_keys": ["flavor-profile"],
+                "proposed_tags": [],
+            },
+        }
+    }
+
+
 def test_nonrecipe_stage_writes_exclusion_ledger(tmp_path: Path) -> None:
     stage_result = build_nonrecipe_stage_result(
         full_blocks=[

@@ -700,17 +700,20 @@ def _build_knowledge_workspace_worker_prompt(
     ]
     lines = [
         "You are processing non-recipe finalize shards inside one bounded local workspace.",
-        f"Open `{TASK_FILE_NAME}`, read it once, edit only `/units/*/answer`, save the same file, and stop.",
+        f"Open `{TASK_FILE_NAME}`, read it once, edit only `/units/*/answer`, save the same file, and then run `python3 -m cookimport.llm.knowledge_same_session_handoff`.",
         "",
         "The current working directory is already the workspace root.",
-        "The assignment is complete when every owned unit in the task file has an answer.",
+        "The assignment is complete only when that helper reports completion.",
         "",
         "Worker contract:",
         "- Start with `task.json`.",
         "- Edit only the `answer` object inside each unit.",
+        "- After each edit pass, run `python3 -m cookimport.llm.knowledge_same_session_handoff` from the workspace root.",
+        "- If the helper reports `repair_required` or `advance_to_grouping`, reopen the rewritten `task.json` immediately and continue in the same session.",
+        "- Stop only after the helper reports `completed_without_grouping` or `completed_with_grouping`.",
         "- Do not invent queue advancement, control files, helper ledgers, or alternate output files.",
         "- `previous_answer` and `validation_feedback`, when present, are repair-only immutable context.",
-        "- Do not use shell helpers on the happy path. If a tiny local helper is truly unavoidable, keep it narrowly grounded on `task.json` only.",
+        "- Other than that one helper command, do not use shell helpers on the happy path. If a tiny local helper is truly unavoidable, keep it narrowly grounded on `task.json` only.",
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "",
         "Shard semantics:",
@@ -720,10 +723,14 @@ def _build_knowledge_workspace_worker_prompt(
         lines.extend(
             [
                 "- This is the classification step. Decide each block on its own merits before any grouping happens.",
-                "- Answer each unit with `category` and `reviewer_category` only.",
+                "- Answer each unit with `category`, `reviewer_category`, `retrieval_concept`, and `grounding`.",
                 f"- Final categories must be exactly one of `{'`, `'.join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)}`.",
                 "- If `category` is `knowledge`, `reviewer_category` must also be `knowledge`.",
+                "- If `category` is `knowledge`, `retrieval_concept` must be a short standalone concept and `grounding` must include at least one existing `tag_key` or one proposed tag.",
                 "- If `category` is `other`, `reviewer_category` must be a non-knowledge reviewer category or `other`.",
+                "- If `category` is `other`, leave `retrieval_concept` null and keep grounding empty.",
+                "- `grounding.category_keys` are optional support only; category-only grounding is not enough to keep a block.",
+                "- Proposed tags are allowed only for real retrieval-grade concepts that do not fit an existing tag; use an existing `category_key` and a normalized slug `key`.",
                 "- Do not invent `group_key`, `topic_label`, packet summaries, or cross-unit grouping notes in this step.",
                 "- The owned block rows are authoritative. Nearby context is informational only.",
             ]
@@ -2055,6 +2062,11 @@ def _knowledge_failure_signature(
             "knowledge_block_missing_group",
             "knowledge_block_group_conflict",
             "group_contains_other_block",
+            "unknown_grounding_tag_key",
+            "unknown_grounding_category_key",
+            "invalid_proposed_tag_key",
+            "invalid_proposed_tag_display_name",
+            "proposed_tag_key_conflicts_existing",
             "idea_group_out_of_surface",
         }
     ):
@@ -2319,6 +2331,11 @@ def _should_attempt_knowledge_repair(
         "knowledge_block_missing_group",
         "knowledge_block_group_conflict",
         "group_contains_other_block",
+        "unknown_grounding_tag_key",
+        "unknown_grounding_category_key",
+        "invalid_proposed_tag_key",
+        "invalid_proposed_tag_display_name",
+        "proposed_tag_key_conflicts_existing",
     }
     return bool(set(validation_errors).intersection(repairable_errors))
 

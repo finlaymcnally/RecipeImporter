@@ -23,6 +23,10 @@ from cookimport.llm.codex_farm_runner import (  # noqa: E402
     resolve_codex_farm_output_schema_path,
 )
 from cookimport.llm.editable_task_file import load_task_file, write_task_file  # noqa: E402
+from cookimport.llm.knowledge_same_session_handoff import (  # noqa: E402
+    KNOWLEDGE_SAME_SESSION_STATE_ENV,
+    advance_knowledge_same_session_handoff,
+)
 
 
 def _read_any_json(path: Path) -> Any | None:
@@ -309,6 +313,23 @@ def _run_workspace_worker_exec(
             task_file_payload=load_task_file(task_file_path),
         )
         write_task_file(path=task_file_path, payload=edited_task_file)
+        state_path = str(os.environ.get(KNOWLEDGE_SAME_SESSION_STATE_ENV) or "").strip()
+        transition_guard = 0
+        while state_path and transition_guard < 8:
+            transition_guard += 1
+            transition_result = advance_knowledge_same_session_handoff(
+                workspace_root=workspace_root,
+                state_path=Path(state_path),
+            )
+            if transition_result.get("status") not in {
+                "advance_to_grouping",
+                "repair_required",
+            }:
+                break
+            next_task_file = fake_runner._build_workspace_task_file_result(
+                task_file_payload=load_task_file(task_file_path),
+            )
+            write_task_file(path=task_file_path, payload=next_task_file)
         processed_count = len(edited_task_file.get("units") or [])
     else:
         processed_count = 0

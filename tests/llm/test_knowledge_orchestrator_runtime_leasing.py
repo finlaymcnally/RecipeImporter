@@ -158,18 +158,23 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
         "/units/0/answer",
         "/units/1/answer",
     ]
+    assert classify_snapshot["ontology"]["catalog_version"] == "cookbook-tag-catalog-2026-03-30"
     assert task_file["stage_key"] == "knowledge_group"
     assert first_output["packet_id"] == "book.ks0000.nr"
-    assert first_output["block_decisions"] == [
-        {"block_index": 0, "category": "knowledge", "reviewer_category": "knowledge"}
-    ]
+    assert first_output["block_decisions"][0]["block_index"] == 0
+    assert first_output["block_decisions"][0]["category"] == "knowledge"
+    assert first_output["block_decisions"][0]["reviewer_category"] == "knowledge"
+    assert first_output["block_decisions"][0]["retrieval_concept"]
+    assert first_output["block_decisions"][0]["grounding"]["proposed_tags"]
     assert first_output["idea_groups"] == [
         {"group_id": "g01", "topic_label": "Fake knowledge group", "block_indices": [0]}
     ]
     assert second_output["packet_id"] == "book.ks0001.nr"
-    assert second_output["block_decisions"] == [
-        {"block_index": 2, "category": "knowledge", "reviewer_category": "knowledge"}
-    ]
+    assert second_output["block_decisions"][0]["block_index"] == 2
+    assert second_output["block_decisions"][0]["category"] == "knowledge"
+    assert second_output["block_decisions"][0]["reviewer_category"] == "knowledge"
+    assert second_output["block_decisions"][0]["retrieval_concept"]
+    assert second_output["block_decisions"][0]["grounding"]["proposed_tags"]
     phase_manifest = json.loads((phase_dir / "phase_manifest.json").read_text(encoding="utf-8"))
     telemetry = json.loads((phase_dir / "telemetry.json").read_text(encoding="utf-8"))
     assert telemetry["summary"]["packet_economics"]["packet_count_total"] >= 2
@@ -177,13 +182,18 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert telemetry["summary"]["packet_economics"]["owned_row_count_total"] == 2
     assert telemetry["summary"]["packet_economics"]["classification_session_count_total"] == 1
     assert telemetry["summary"]["packet_economics"]["grouping_session_count_total"] == 1
-    assert telemetry["summary"]["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 2
+    assert telemetry["summary"]["packet_economics"]["classification_validation_count_total"] == 1
+    assert telemetry["summary"]["packet_economics"]["grouping_validation_count_total"] == 1
+    assert telemetry["summary"]["packet_economics"]["same_session_transition_count_total"] == 2
+    assert telemetry["summary"]["packet_economics"]["grouping_transition_count_total"] == 1
+    assert telemetry["rows"][0]["knowledge_same_session"] is True
+    assert telemetry["summary"]["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 1
     assert telemetry["summary"]["task_file_guardrails"]["assignment_count"] == 1
     assert (
         phase_manifest["runtime_metadata"]["worker_session_guardrails"][
             "actual_happy_path_worker_sessions"
         ]
-        == 2
+        == 1
     )
 
 
@@ -255,16 +265,16 @@ def test_knowledge_orchestrator_classifies_clean_exit_without_assignment_output(
     summary = summarize_knowledge_stage_artifacts(phase_dir)
     live_status = json.loads((worker_root / "live_status.json").read_text(encoding="utf-8"))
 
-    assert task_rows["book.ks0000.nr"]["state"] == "process_exited_without_final_packet_state"
+    assert task_rows["book.ks0000.nr"]["state"] == "no_final_output"
     assert (
         task_rows["book.ks0000.nr"]["terminal_reason_code"]
-        == "process_exited_without_final_packet_state"
+        == "same_session_handoff_incomplete"
     )
     assert proposal["validation_metadata"]["terminal_reason_code"] == (
-        "process_exited_without_final_packet_state"
+        "same_session_handoff_incomplete"
     )
     assert summary["packets"]["no_final_output_reason_code_counts"] == {
-        "process_exited_without_final_packet_state": 2,
+        "same_session_handoff_incomplete": 2,
     }
     assert summary["attention_summary"]["zero_target_counts"]["no_final_output_shard_count"] == 2
     assert not (worker_root / "packet_lease_status.json").exists()
@@ -290,27 +300,25 @@ def test_knowledge_orchestrator_classifies_repair_packet_exhaustion(
     )
     phase_dir = Path(fixture["phase_dir"])
     worker_root = Path(fixture["worker_root"])
-    repair_root = worker_root / "shards" / "book.ks0000.nr"
-
     task_rows = _load_task_status_rows(phase_dir / "task_status.jsonl")
     summary = summarize_knowledge_stage_artifacts(phase_dir)
-    repair_status = json.loads(
-        (repair_root / "repair_status.json").read_text(encoding="utf-8")
+    handoff_state = json.loads(
+        (worker_root / "_repo_control" / "knowledge_same_session_state.json").read_text(
+            encoding="utf-8"
+        )
     )
 
-    assert task_rows["book.ks0000.nr"]["state"] == "invalid_output"
-    assert task_rows["book.ks0000.nr"]["terminal_reason_code"] == "repair_packet_exhausted"
-    assert "repair packet was exhausted" in str(
+    assert task_rows["book.ks0000.nr"]["state"] == "no_final_output"
+    assert task_rows["book.ks0000.nr"]["terminal_reason_code"] == "same_session_handoff_incomplete"
+    assert "same-session knowledge handoff" in str(
         task_rows["book.ks0000.nr"]["terminal_reason_detail"]
     )
     assert summary["packets"]["no_final_output_reason_code_counts"] == {
-        "repair_packet_exhausted": 2
+        "same_session_handoff_incomplete": 2
     }
     assert summary["attention_summary"]["zero_target_counts"]["no_final_output_shard_count"] == 2
-    assert repair_status["repair_status"] == "failed"
-    assert repair_status["validation_errors"] == ["schema_invalid"]
-    assert (repair_root / "repair_prompt.txt").exists()
-    assert (repair_root / "repair_last_message.json").exists()
+    assert handoff_state["same_session_repair_rewrite_count"] == 1
+    assert handoff_state["current_stage_key"] == "knowledge_group"
     assert (worker_root / "task.json").exists()
 
 

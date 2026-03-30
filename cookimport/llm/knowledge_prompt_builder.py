@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
+from .knowledge_tag_catalog import load_knowledge_tag_catalog
+
 _PROMPT_TEMPLATE_PATH = (
     Path(__file__).resolve().parents[2]
     / "llm_pipelines"
@@ -16,13 +18,15 @@ _INPUT_JSON_END = "<END_INPUT_JSON>"
 
 
 def build_knowledge_direct_prompt(input_payload: Mapping[str, Any]) -> str:
+    rendered_input = dict(input_payload)
+    rendered_input.setdefault("ontology", load_knowledge_tag_catalog().task_scope_payload())
     template_text = (
         _load_template_text()
         .replace("{{INPUT_PATH}}", "<BEGIN_INPUT_JSON>...<END_INPUT_JSON>")
         .strip()
     )
     serialized_input = json.dumps(
-        dict(input_payload),
+        rendered_input,
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,

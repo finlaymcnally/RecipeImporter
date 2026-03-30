@@ -12,6 +12,7 @@ from .codex_farm_knowledge_models import (
     KnowledgePacketSemanticResultV1,
     serialize_canonical_knowledge_packet,
 )
+from .knowledge_tag_catalog import load_knowledge_tag_catalog, normalize_knowledge_tag_key
 
 _KNOWLEDGE_SCHEMA_OR_SHAPE_VALIDATION_ERRORS = frozenset(
     {
@@ -32,6 +33,11 @@ _KNOWLEDGE_COVERAGE_VALIDATION_ERRORS = frozenset(
         "knowledge_block_missing_group",
         "knowledge_block_group_conflict",
         "group_contains_other_block",
+        "unknown_grounding_tag_key",
+        "unknown_grounding_category_key",
+        "invalid_proposed_tag_key",
+        "invalid_proposed_tag_display_name",
+        "proposed_tag_key_conflicts_existing",
     }
 )
 _KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS = frozenset(
@@ -48,6 +54,11 @@ _KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS = frozenset(
         "knowledge_block_missing_group",
         "knowledge_block_group_conflict",
         "group_contains_other_block",
+        "unknown_grounding_tag_key",
+        "unknown_grounding_category_key",
+        "invalid_proposed_tag_key",
+        "invalid_proposed_tag_display_name",
+        "proposed_tag_key_conflicts_existing",
     }
 )
 
@@ -470,6 +481,51 @@ def _validate_single_packet_payload(
     )
 
     errors: list[str] = []
+    catalog = load_knowledge_tag_catalog()
+    unknown_grounding_tag_keys: set[str] = set()
+    unknown_grounding_category_keys: set[str] = set()
+    invalid_proposed_tag_keys: set[str] = set()
+    invalid_proposed_tag_display_names: set[str] = set()
+    proposed_tag_key_conflicts_existing: set[str] = set()
+    for row in parsed.block_decisions:
+        for tag_key in row.grounding.tag_keys:
+            normalized_tag_key = normalize_knowledge_tag_key(tag_key)
+            if normalized_tag_key not in catalog.tag_by_key:
+                unknown_grounding_tag_keys.add(normalized_tag_key)
+        for category_key in row.grounding.category_keys:
+            normalized_category_key = normalize_knowledge_tag_key(category_key)
+            if normalized_category_key not in catalog.category_by_key:
+                unknown_grounding_category_keys.add(normalized_category_key)
+        for proposed_tag in row.grounding.proposed_tags:
+            normalized_proposed_key = normalize_knowledge_tag_key(proposed_tag.key)
+            if proposed_tag.key != normalized_proposed_key or not normalized_proposed_key:
+                invalid_proposed_tag_keys.add(str(proposed_tag.key))
+            if normalized_proposed_key in catalog.tag_by_key:
+                proposed_tag_key_conflicts_existing.add(normalized_proposed_key)
+            normalized_category_key = normalize_knowledge_tag_key(proposed_tag.category_key)
+            if normalized_category_key not in catalog.category_by_key:
+                unknown_grounding_category_keys.add(normalized_category_key)
+            if not str(proposed_tag.display_name).strip() or len(str(proposed_tag.display_name).strip()) > 64:
+                invalid_proposed_tag_display_names.add(str(proposed_tag.display_name))
+    if unknown_grounding_tag_keys:
+        errors.append("unknown_grounding_tag_key")
+        metadata["unknown_grounding_tag_keys"] = sorted(unknown_grounding_tag_keys)
+    if unknown_grounding_category_keys:
+        errors.append("unknown_grounding_category_key")
+        metadata["unknown_grounding_category_keys"] = sorted(unknown_grounding_category_keys)
+    if invalid_proposed_tag_keys:
+        errors.append("invalid_proposed_tag_key")
+        metadata["invalid_proposed_tag_keys"] = sorted(invalid_proposed_tag_keys)
+    if invalid_proposed_tag_display_names:
+        errors.append("invalid_proposed_tag_display_name")
+        metadata["invalid_proposed_tag_display_names"] = sorted(
+            invalid_proposed_tag_display_names
+        )
+    if proposed_tag_key_conflicts_existing:
+        errors.append("proposed_tag_key_conflicts_existing")
+        metadata["proposed_tag_key_conflicts_existing"] = sorted(
+            proposed_tag_key_conflicts_existing
+        )
     if actual_block_indices != expected_block_indices:
         missing = [idx for idx in expected_block_indices if idx not in actual_block_indices]
         unexpected = [idx for idx in actual_block_indices if idx not in expected_block_indices]

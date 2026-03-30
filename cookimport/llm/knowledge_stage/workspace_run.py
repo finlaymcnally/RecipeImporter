@@ -27,13 +27,15 @@ from ..editable_task_file import (
     load_task_file,
     write_task_file,
 )
+from ..knowledge_same_session_handoff import (
+    KNOWLEDGE_SAME_SESSION_STATE_ENV,
+    initialize_knowledge_same_session_state,
+)
 from .task_file_contracts import (
     KNOWLEDGE_CLASSIFY_STAGE_KEY,
     KNOWLEDGE_CLASSIFY_SCHEMA_VERSION,
     KNOWLEDGE_GROUP_STAGE_KEY,
     build_knowledge_classification_task_file,
-    build_knowledge_grouping_task_file,
-    combine_knowledge_task_file_outputs,
     validate_knowledge_classification_task_file,
     validate_knowledge_grouping_task_file,
 )
@@ -102,6 +104,13 @@ def _load_json_dict_safely(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         return {}
     return dict(payload) if isinstance(payload, Mapping) else {}
+
+
+_KNOWLEDGE_SAME_SESSION_STATE_FILE_NAME = "knowledge_same_session_state.json"
+
+
+def _knowledge_same_session_state_path(worker_root: Path) -> Path:
+    return worker_root / "_repo_control" / _KNOWLEDGE_SAME_SESSION_STATE_FILE_NAME
 
 
 def _task_file_answer_feedback(
@@ -720,6 +729,7 @@ def _classify_missing_packet_result(
     live_status = _load_json_dict_safely(worker_root / "live_status.json")
     workspace_manifest = _load_json_dict_safely(worker_root / "workspace_manifest.json")
     lease_status = _load_json_dict_safely(worker_root / "packet_lease_status.json")
+    same_session_state = _load_json_dict_safely(_knowledge_same_session_state_path(worker_root))
     shard_statuses = lease_status.get("shard_statuses")
     lease_shard_summary = (
         dict(shard_statuses.get(shard.shard_id))
@@ -736,6 +746,7 @@ def _classify_missing_packet_result(
         "workspace_manifest": workspace_manifest,
         "packet_lease_status": lease_status,
         "lease_shard_summary": lease_shard_summary,
+        "same_session_handoff_state": same_session_state,
     }
     supervision_reason_code = str(run_result.supervision_reason_code or "").strip()
     supervision_reason_detail = str(run_result.supervision_reason_detail or "").strip() or None
@@ -807,6 +818,17 @@ def _classify_missing_packet_result(
             "queue controller recorded completion without a promotable shard output for this packet",
             metadata,
         )
+    if same_session_state and not bool(same_session_state.get("completed")):
+        current_stage_key = str(same_session_state.get("current_stage_key") or "").strip() or "[unknown]"
+        return (
+            "same_session_handoff_incomplete",
+            (
+                "worker exited before the same-session knowledge handoff produced final shard outputs"
+                f" (current_stage_key={current_stage_key}, "
+                f"same_session_transition_count={int(same_session_state.get('same_session_transition_count') or 0)})"
+            ),
+            metadata,
+        )
     return (
         "process_exited_without_final_packet_state",
         "worker exited without a promotable shard output and without enough lease-state evidence for a stronger classification",
@@ -850,6 +872,42 @@ def _write_task_file_snapshot(
     payload: Mapping[str, Any],
 ) -> None:
     _write_json(dict(payload), worker_root / f"task_{step_name}.{suffix}.json")
+
+
+def _apply_knowledge_same_session_row_metadata(
+    *,
+    row: dict[str, Any],
+    initial_task_file: Mapping[str, Any],
+    state_payload: Mapping[str, Any],
+) -> None:
+    classification_validation_count = int(
+        state_payload.get("classification_validation_count") or 0
+    )
+    grouping_validation_count = int(state_payload.get("grouping_validation_count") or 0)
+    same_session_repair_rewrite_count = int(
+        state_payload.get("same_session_repair_rewrite_count") or 0
+    )
+    row["knowledge_same_session"] = True
+    row["knowledge_same_session_status"] = str(state_payload.get("final_status") or "").strip() or None
+    row["same_session_transition_count"] = int(
+        state_payload.get("same_session_transition_count") or 0
+    )
+    row["classification_validation_count"] = classification_validation_count
+    row["grouping_validation_count"] = grouping_validation_count
+    row["same_session_repair_rewrite_count"] = same_session_repair_rewrite_count
+    row["grouping_transition_count"] = int(
+        state_payload.get("grouping_transition_count") or 0
+    )
+    row["classification_session_count"] = 1 if classification_validation_count > 0 else 0
+    row["grouping_session_count"] = 1 if grouping_validation_count > 0 else 0
+    row["workspace_packet_count"] = (
+        classification_validation_count + grouping_validation_count
+    )
+    row["workspace_repair_packet_count"] = same_session_repair_rewrite_count
+    row["owned_row_count"] = int(len(initial_task_file.get("units") or []))
+    row["classification_owned_row_count"] = int(len(initial_task_file.get("units") or []))
+    row["grouping_owned_row_count"] = int(state_payload.get("grouping_unit_count") or 0)
+    row["final_output_shard_count"] = int(state_payload.get("final_output_shard_count") or 0)
 
 
 def _run_knowledge_task_file_step(
@@ -1077,7 +1135,7 @@ def _run_knowledge_task_file_step(
                 assignment_id=worker_id,
                 worker_id=worker_id,
             ),
-            planned_happy_path_worker_cap=2,
+            planned_happy_path_worker_cap=1,
             repair_followup_call_count=repair_followup_call_count,
         )
         runner_payloads.append(runner_payload)
@@ -1207,7 +1265,7 @@ def _run_phase_knowledge_worker_assignment_v1(
         _attach_worker_guardrail_summary(
             worker_runner_payload=worker_runner_payload,
             task_file_guardrail=task_file_guardrail,
-            planned_happy_path_worker_cap=2,
+            planned_happy_path_worker_cap=1,
         )
         _write_json(worker_runner_payload, worker_root / "status.json")
         return _DirectKnowledgeWorkerResult(
@@ -1257,118 +1315,123 @@ def _run_phase_knowledge_worker_assignment_v1(
     grouping_validation_errors: tuple[str, ...] = ()
     grouping_validation_metadata: dict[str, Any] = {}
     semantic_run_results: list[CodexExecRunResult] = []
+    same_session_state_payload: dict[str, Any] = {}
     if task_file_payload is not None:
+        state_path = _knowledge_same_session_state_path(worker_root)
+        initialize_knowledge_same_session_state(
+            state_path=state_path,
+            assignment_id=assignment.worker_id,
+            worker_id=assignment.worker_id,
+            classification_task_file=task_file_payload,
+            unit_to_shard_id=unit_to_shard_id,
+            output_dir=out_dir,
+        )
+        write_task_file(path=worker_root / TASK_FILE_NAME, payload=task_file_payload)
+        _write_task_file_snapshot(
+            worker_root=worker_root,
+            step_name="classification",
+            suffix="initial",
+            payload=task_file_payload,
+        )
         classification_prompt_text = _build_knowledge_workspace_worker_prompt(
             stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY,
             shards=assigned_shards,
         )
-        (
-            classify_answers_by_unit_id,
-            classification_validation_errors,
-            classification_validation_metadata,
-            classification_runner_payloads,
-            classification_run_results,
-        ) = _run_knowledge_task_file_step(
-            runner=runner,
-            worker_root=worker_root,
-            pipeline_id=pipeline_id,
-            task_file_payload=task_file_payload,
+        prompt_path = worker_root / "prompt_classification.txt"
+        prompt_path.write_text(classification_prompt_text, encoding="utf-8")
+        run_result = runner.run_workspace_worker(
             prompt_text=classification_prompt_text,
-            env=env,
+            working_dir=worker_root,
+            env={
+                **dict(env),
+                KNOWLEDGE_SAME_SESSION_STATE_ENV: str(state_path),
+            },
             model=model,
             reasoning_effort=reasoning_effort,
-            out_dir=out_dir,
-            step_name="classification",
-            expected_workspace_output_paths=[
-                out_dir / f"{shard.shard_id}.json" for shard in assigned_shards
-            ],
-            progress_state=progress_state,
-            worker_id=assignment.worker_id,
-        )
-        worker_runner_results.extend(classification_runner_payloads)
-        semantic_run_results.extend(classification_run_results)
-        for payload in classification_runner_payloads:
-            telemetry = payload.get("telemetry")
-            if isinstance(telemetry, Mapping):
-                rows = telemetry.get("rows")
-                if isinstance(rows, list):
-                    stage_rows.extend(
-                        dict(row) for row in rows if isinstance(row, Mapping)
+            workspace_task_label="knowledge same-session worker session",
+            supervision_callback=_build_strict_json_watchdog_callback(
+                live_status_path=worker_root / "live_status.json",
+                allow_workspace_commands=True,
+                execution_workspace_root=worker_root,
+                expected_workspace_output_paths=[
+                    out_dir / f"{shard.shard_id}.json" for shard in assigned_shards
+                ],
+                workspace_output_observer=(
+                    None
+                    if progress_state is None
+                    else lambda present_count, expected_count, _worker_id=assignment.worker_id: (
+                        progress_state.observe_workspace_outputs(
+                            worker_id=_worker_id,
+                            present_count=present_count,
+                            expected_count=expected_count,
+                        )
                     )
-        if classify_answers_by_unit_id:
-            grouping_task_file, _grouping_unit_to_shard_id = build_knowledge_grouping_task_file(
-                assignment_id=assignment.worker_id,
-                worker_id=assignment.worker_id,
-                classification_task_file=task_file_payload,
-                classification_answers_by_unit_id=classify_answers_by_unit_id,
-                unit_to_shard_id=unit_to_shard_id,
-            )
-            if grouping_task_file.get("units"):
-                grouping_prompt_text = _build_knowledge_workspace_worker_prompt(
-                    stage_key=KNOWLEDGE_GROUP_STAGE_KEY,
-                    shards=assigned_shards,
+                ),
+            ),
+        )
+        semantic_run_results.append(run_result)
+        _finalize_live_status(
+            worker_root / "live_status.json",
+            run_result=run_result,
+            watchdog_policy="workspace_worker_v1",
+        )
+        same_session_state_payload = _load_json_dict_safely(state_path)
+        classify_answers_by_unit_id = (
+            dict(same_session_state_payload.get("classification_answers_by_unit_id") or {})
+            or None
+        )
+        grouping_answers_by_unit_id = dict(
+            same_session_state_payload.get("grouping_answers_by_unit_id") or {}
+        )
+        worker_runner_payload = _build_knowledge_workspace_task_runner_payload(
+            pipeline_id=pipeline_id,
+            worker_id=assignment.worker_id,
+            shard_id=f"{assignment.worker_id}.same_session.01",
+            runtime_task_id=f"{assignment.worker_id}.same_session.01",
+            run_result=run_result,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            request_input_file=worker_root / TASK_FILE_NAME,
+            worker_prompt_path=prompt_path,
+            worker_root=worker_root,
+            task_count=1,
+            task_index=0,
+        )
+        telemetry = worker_runner_payload.get("telemetry")
+        if isinstance(telemetry, Mapping):
+            rows = telemetry.get("rows")
+            if isinstance(rows, list):
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    _apply_knowledge_same_session_row_metadata(
+                        row=row,
+                        initial_task_file=task_file_payload,
+                        state_payload=same_session_state_payload,
+                    )
+                    stage_rows.append(dict(row))
+                telemetry["summary"] = _summarize_direct_rows(
+                    [dict(row) for row in rows if isinstance(row, Mapping)]
                 )
-                (
-                    grouping_answers_by_unit_id,
-                    grouping_validation_errors,
-                    grouping_validation_metadata,
-                    grouping_runner_payloads,
-                    grouping_run_results,
-                ) = _run_knowledge_task_file_step(
-                    runner=runner,
-                    worker_root=worker_root,
-                    pipeline_id=pipeline_id,
-                    task_file_payload=grouping_task_file,
-                    prompt_text=grouping_prompt_text,
-                    env=env,
-                    model=model,
-                    reasoning_effort=reasoning_effort,
-                    out_dir=out_dir,
-                    step_name="grouping",
-                    expected_workspace_output_paths=[
-                        out_dir / f"{shard.shard_id}.json" for shard in assigned_shards
-                    ],
-                    progress_state=progress_state,
-                    worker_id=assignment.worker_id,
-                )
-                worker_runner_results.extend(grouping_runner_payloads)
-                semantic_run_results.extend(grouping_run_results)
-                for payload in grouping_runner_payloads:
-                    telemetry = payload.get("telemetry")
-                    if isinstance(telemetry, Mapping):
-                        rows = telemetry.get("rows")
-                        if isinstance(rows, list):
-                            stage_rows.extend(
-                                dict(row) for row in rows if isinstance(row, Mapping)
-                            )
-            else:
-                grouping_answers_by_unit_id = {}
-                grouping_validation_metadata = {
-                    "semantic_step_skipped": "no_accepted_knowledge_blocks"
-                }
-            if not grouping_validation_errors:
-                expanded_outputs = combine_knowledge_task_file_outputs(
-                    classification_task_file=task_file_payload,
-                    classification_answers_by_unit_id=classify_answers_by_unit_id,
-                    grouping_answers_by_unit_id=grouping_answers_by_unit_id,
-                    unit_to_shard_id=unit_to_shard_id,
-                )
-                for shard_id, payload in expanded_outputs.items():
-                    _write_json(payload, out_dir / f"{shard_id}.json")
-        if semantic_run_results:
-            final_run_result = semantic_run_results[-1]
-            (worker_root / "events.jsonl").write_text(
-                _render_events_jsonl(final_run_result.events),
-                encoding="utf-8",
-            )
-            _write_json({"text": final_run_result.response_text}, worker_root / "last_message.json")
-            _write_json(dict(final_run_result.usage or {}), worker_root / "usage.json")
-            _write_json(
-                final_run_result.workspace_manifest(),
-                worker_root / "workspace_manifest.json",
-            )
-            _write_optional_text(worker_root / "stdout.txt", final_run_result.stdout_text)
-            _write_optional_text(worker_root / "stderr.txt", final_run_result.stderr_text)
+        _attach_worker_guardrail_summary(
+            worker_runner_payload=worker_runner_payload,
+            task_file_guardrail=task_file_guardrail,
+            planned_happy_path_worker_cap=1,
+        )
+        worker_runner_results.append(worker_runner_payload)
+        final_run_result = semantic_run_results[-1]
+        (worker_root / "events.jsonl").write_text(
+            _render_events_jsonl(final_run_result.events),
+            encoding="utf-8",
+        )
+        _write_json({"text": final_run_result.response_text}, worker_root / "last_message.json")
+        _write_json(dict(final_run_result.usage or {}), worker_root / "usage.json")
+        _write_json(
+            final_run_result.workspace_manifest(),
+            worker_root / "workspace_manifest.json",
+        )
+        _write_optional_text(worker_root / "stdout.txt", final_run_result.stdout_text)
+        _write_optional_text(worker_root / "stderr.txt", final_run_result.stderr_text)
 
     task_total = len(assigned_shards)
     run_result = semantic_run_results[-1]
@@ -1664,7 +1727,7 @@ def _run_phase_knowledge_worker_assignment_v1(
     _attach_worker_guardrail_summary(
         worker_runner_payload=worker_runner_payload,
         task_file_guardrail=task_file_guardrail,
-        planned_happy_path_worker_cap=2,
+        planned_happy_path_worker_cap=1,
         repair_followup_call_count=int(
             worker_runner_payload.get("telemetry", {})
             .get("summary", {})

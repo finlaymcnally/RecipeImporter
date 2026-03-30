@@ -53,13 +53,24 @@ def test_classification_task_file_uses_split_schema_and_local_evidence_only() ->
     assert task_file["stage_key"] == KNOWLEDGE_CLASSIFY_STAGE_KEY
     assert task_file["editable_json_pointers"] == ["/units/0/answer"]
     assert unit_to_shard_id == {"knowledge::14": "book.ks0000.nr"}
+    assert task_file["ontology"]["catalog_version"] == "cookbook-tag-catalog-2026-03-30"
     unit = task_file["units"][0]
-    assert unit["answer"] == {}
+    assert unit["answer"] == {
+        "category": None,
+        "reviewer_category": None,
+        "retrieval_concept": None,
+        "grounding": {
+            "tag_keys": [],
+            "category_keys": [],
+            "proposed_tags": [],
+        },
+    }
     assert "group_key" not in unit["answer"]
     assert "topic_label" not in unit["answer"]
     assert unit["evidence"]["context_before"] == "Previous local context."
     assert unit["evidence"]["context_after"] == "Next local context."
     assert unit["evidence"]["structure"] == {"heading_level": 2, "table_hint": None}
+    assert isinstance(unit["evidence"]["candidate_tag_keys"], list)
 
 
 def test_classification_validator_enforces_reviewer_category_rules_and_repair_scope() -> None:
@@ -82,10 +93,22 @@ def test_classification_validator_enforces_reviewer_category_rules_and_repair_sc
     edited["units"][0]["answer"] = {
         "category": "knowledge",
         "reviewer_category": "knowledge",
+        "retrieval_concept": "Balance richness with acid",
+        "grounding": {
+            "tag_keys": ["bright"],
+            "category_keys": ["flavor-profile"],
+            "proposed_tags": [],
+        },
     }
     edited["units"][1]["answer"] = {
         "category": "other",
         "reviewer_category": "chapter_taxonomy",
+        "retrieval_concept": None,
+        "grounding": {
+            "tag_keys": [],
+            "category_keys": [],
+            "proposed_tags": [],
+        },
     }
 
     answers_by_unit_id, errors, metadata = validate_knowledge_classification_task_file(
@@ -99,10 +122,22 @@ def test_classification_validator_enforces_reviewer_category_rules_and_repair_sc
         "knowledge::21": {
             "category": "knowledge",
             "reviewer_category": "knowledge",
+            "retrieval_concept": "Balance richness with acid",
+            "grounding": {
+                "tag_keys": ["bright"],
+                "category_keys": ["flavor-profile"],
+                "proposed_tags": [],
+            },
         },
         "knowledge::22": {
             "category": "other",
             "reviewer_category": "chapter_taxonomy",
+            "retrieval_concept": None,
+            "grounding": {
+                "tag_keys": [],
+                "category_keys": [],
+                "proposed_tags": [],
+            },
         },
     }
 
@@ -110,10 +145,22 @@ def test_classification_validator_enforces_reviewer_category_rules_and_repair_sc
     invalid["units"][0]["answer"] = {
         "category": "knowledge",
         "reviewer_category": "other",
+        "retrieval_concept": "Balance richness with acid",
+        "grounding": {
+            "tag_keys": ["bright"],
+            "category_keys": ["flavor-profile"],
+            "proposed_tags": [],
+        },
     }
     invalid["units"][1]["answer"] = {
         "category": "other",
         "reviewer_category": "chapter_taxonomy",
+        "retrieval_concept": None,
+        "grounding": {
+            "tag_keys": [],
+            "category_keys": [],
+            "proposed_tags": [],
+        },
     }
     answers_by_unit_id, errors, metadata = validate_knowledge_classification_task_file(
         original_task_file=task_file,

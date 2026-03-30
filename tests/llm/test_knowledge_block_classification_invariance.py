@@ -16,6 +16,8 @@ _TARGET_CASES = {
         "answer": {
             "category": "other",
             "reviewer_category": "chapter_taxonomy",
+            "retrieval_concept": None,
+            "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
         },
     },
     "generic_advice": {
@@ -27,6 +29,8 @@ _TARGET_CASES = {
         "answer": {
             "category": "other",
             "reviewer_category": "other",
+            "retrieval_concept": None,
+            "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
         },
     },
     "durable_knowledge": {
@@ -37,6 +41,12 @@ _TARGET_CASES = {
         "answer": {
             "category": "knowledge",
             "reviewer_category": "knowledge",
+            "retrieval_concept": "Balance richness with acid",
+            "grounding": {
+                "tag_keys": ["bright"],
+                "category_keys": ["flavor-profile"],
+                "proposed_tags": [],
+            },
         },
     },
 }
@@ -139,6 +149,7 @@ def test_target_block_evidence_and_answer_surface_stay_invariant_across_packings
     assert _target_unit(reordered_task_file, target_text)["evidence"] == target_evidence
     assert "group_key" not in _target_unit(mixed_task_file, target_text)["answer"]
     assert "topic_label" not in _target_unit(mixed_task_file, target_text)["answer"]
+    assert mixed_task_file["ontology"] == alone_task_file["ontology"]
 
 
 def test_expected_classifications_survive_alone_mixed_reordered_and_repair_shapes() -> None:

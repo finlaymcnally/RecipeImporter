@@ -13,7 +13,15 @@ def test_write_knowledge_artifacts_writes_group_json_and_preview(tmp_path: Path)
         "book.ks0000.nr": KnowledgeBundleOutputV2.model_validate(
             {
                 "bid": "book.ks0000.nr",
-                "d": [{"i": 4, "c": "knowledge", "rc": "knowledge"}],
+                "d": [
+                    {
+                        "i": 4,
+                        "c": "knowledge",
+                        "rc": "knowledge",
+                        "rt": "heat control",
+                        "gr": {"tk": ["technique.heat-control"]},
+                    }
+                ],
                 "g": [{"gid": "g01", "l": "Heat control", "bi": [4]}],
             }
         )
@@ -40,7 +48,15 @@ def test_write_knowledge_artifacts_fails_on_missing_block_index(tmp_path: Path) 
         "book.ks0000.nr": KnowledgeBundleOutputV2.model_validate(
             {
                 "bid": "book.ks0000.nr",
-                "d": [{"i": 4, "c": "knowledge", "rc": "knowledge"}],
+                "d": [
+                    {
+                        "i": 4,
+                        "c": "knowledge",
+                        "rc": "knowledge",
+                        "rt": "heat control",
+                        "gr": {"tk": ["technique.heat-control"]},
+                    }
+                ],
                 "g": [{"gid": "g01", "l": "Heat control", "bi": [4]}],
             }
         )

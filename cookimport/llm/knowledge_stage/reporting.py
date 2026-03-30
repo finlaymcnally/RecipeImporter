@@ -231,46 +231,105 @@ def _build_knowledge_packet_economics(
     telemetry_summary: Mapping[str, Any],
 ) -> dict[str, Any]:
     normalized_rows = [dict(row) for row in rows if isinstance(row, Mapping)]
+    same_session_rows = [
+        row for row in normalized_rows if bool(row.get("knowledge_same_session"))
+    ]
     packet_count_total = sum(int(row.get("workspace_packet_count") or 0) for row in normalized_rows)
     step_rows = [
         row
         for row in normalized_rows
         if str(row.get("knowledge_semantic_step") or "").strip()
     ]
+    classification_validation_count_total = 0
+    grouping_validation_count_total = 0
+    same_session_transition_count_total = 0
+    same_session_repair_rewrite_count_total = 0
+    grouping_transition_count_total = 0
+    classification_session_count_total = 0
+    grouping_session_count_total = 0
+    classification_owned_row_count_total = 0
+    grouping_owned_row_count_total = 0
+    if same_session_rows:
+        packet_count_total = sum(
+            int(row.get("workspace_packet_count") or 0) for row in same_session_rows
+        )
+        repair_packet_count_total = sum(
+            int(row.get("workspace_repair_packet_count") or 0) for row in same_session_rows
+        )
+        classification_validation_count_total = sum(
+            int(row.get("classification_validation_count") or 0)
+            for row in same_session_rows
+        )
+        grouping_validation_count_total = sum(
+            int(row.get("grouping_validation_count") or 0)
+            for row in same_session_rows
+        )
+        same_session_transition_count_total = sum(
+            int(row.get("same_session_transition_count") or 0)
+            for row in same_session_rows
+        )
+        same_session_repair_rewrite_count_total = sum(
+            int(row.get("same_session_repair_rewrite_count") or 0)
+            for row in same_session_rows
+        )
+        grouping_transition_count_total = sum(
+            int(row.get("grouping_transition_count") or 0)
+            for row in same_session_rows
+        )
+        classification_session_count_total = sum(
+            int(row.get("classification_session_count") or 0)
+            for row in same_session_rows
+        )
+        grouping_session_count_total = sum(
+            int(row.get("grouping_session_count") or 0)
+            for row in same_session_rows
+        )
+        classification_owned_row_count_total = sum(
+            int(row.get("classification_owned_row_count") or 0)
+            for row in same_session_rows
+        )
+        grouping_owned_row_count_total = sum(
+            int(row.get("grouping_owned_row_count") or 0)
+            for row in same_session_rows
+        )
+        owned_row_count_total = classification_owned_row_count_total
+    else:
+        repair_packet_count_total = (
+            sum(
+                1
+                for row in step_rows
+                if bool(row.get("is_repair_attempt"))
+            )
+            if step_rows
+            else sum(int(row.get("workspace_repair_packet_count") or 0) for row in normalized_rows)
+        )
+        classification_rows = [
+            row
+            for row in step_rows
+            if str(row.get("knowledge_semantic_step") or "").strip() == "classification"
+            and not bool(row.get("is_repair_attempt"))
+        ]
+        grouping_rows = [
+            row
+            for row in step_rows
+            if str(row.get("knowledge_semantic_step") or "").strip() == "grouping"
+            and not bool(row.get("is_repair_attempt"))
+        ]
+        classification_owned_row_count_total = sum(
+            int(row.get("owned_row_count") or 0) for row in classification_rows
+        )
+        grouping_owned_row_count_total = sum(
+            int(row.get("owned_row_count") or 0) for row in grouping_rows
+        )
+        owned_row_count_total = (
+            classification_owned_row_count_total
+            if classification_rows
+            else sum(int(row.get("owned_row_count") or 0) for row in normalized_rows)
+        )
+        classification_session_count_total = len(classification_rows)
+        grouping_session_count_total = len(grouping_rows)
     if step_rows:
         packet_count_total = len(step_rows)
-    repair_packet_count_total = (
-        sum(
-            1
-            for row in step_rows
-            if bool(row.get("is_repair_attempt"))
-        )
-        if step_rows
-        else sum(int(row.get("workspace_repair_packet_count") or 0) for row in normalized_rows)
-    )
-    classification_rows = [
-        row
-        for row in step_rows
-        if str(row.get("knowledge_semantic_step") or "").strip() == "classification"
-        and not bool(row.get("is_repair_attempt"))
-    ]
-    grouping_rows = [
-        row
-        for row in step_rows
-        if str(row.get("knowledge_semantic_step") or "").strip() == "grouping"
-        and not bool(row.get("is_repair_attempt"))
-    ]
-    classification_owned_row_count_total = sum(
-        int(row.get("owned_row_count") or 0) for row in classification_rows
-    )
-    grouping_owned_row_count_total = sum(
-        int(row.get("owned_row_count") or 0) for row in grouping_rows
-    )
-    owned_row_count_total = (
-        classification_owned_row_count_total
-        if classification_rows
-        else sum(int(row.get("owned_row_count") or 0) for row in normalized_rows)
-    )
     shard_count = len(normalized_rows)
     primary_packet_count_total = max(packet_count_total - repair_packet_count_total, 0)
     visible_input_tokens = _nonnegative_int(telemetry_summary.get("visible_input_tokens"))
@@ -288,8 +347,13 @@ def _build_knowledge_packet_economics(
         "primary_packet_count_total": primary_packet_count_total,
         "repair_packet_count_total": repair_packet_count_total,
         "owned_row_count_total": owned_row_count_total,
-        "classification_session_count_total": len(classification_rows),
-        "grouping_session_count_total": len(grouping_rows),
+        "classification_session_count_total": classification_session_count_total,
+        "grouping_session_count_total": grouping_session_count_total,
+        "classification_validation_count_total": classification_validation_count_total,
+        "grouping_validation_count_total": grouping_validation_count_total,
+        "same_session_transition_count_total": same_session_transition_count_total,
+        "same_session_repair_rewrite_count_total": same_session_repair_rewrite_count_total,
+        "grouping_transition_count_total": grouping_transition_count_total,
         "classification_owned_row_count_total": classification_owned_row_count_total,
         "grouping_owned_row_count_total": grouping_owned_row_count_total,
         "packet_churn_count": repair_packet_count_total,
@@ -634,7 +698,7 @@ def _write_knowledge_runtime_summary_artifacts(
         ]
     )
     worker_session_guardrails = build_worker_session_guardrails(
-        planned_happy_path_worker_cap=len(assignments) * 2,
+        planned_happy_path_worker_cap=len(assignments),
         actual_happy_path_worker_sessions=int(
             telemetry_summary.get("workspace_worker_session_count") or 0
         ),

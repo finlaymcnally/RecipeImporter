@@ -30,6 +30,11 @@ from .editable_task_file import (
     load_task_file,
     write_task_file,
 )
+from .knowledge_same_session_handoff import (
+    KNOWLEDGE_SAME_SESSION_STATE_ENV,
+    advance_knowledge_same_session_handoff,
+)
+from .knowledge_tag_catalog import empty_grounding_payload, normalize_knowledge_tag_key
 
 DIRECT_CODEX_EXEC_RUNTIME_MODE_V1 = "direct_codex_exec_v1"
 _DIRECT_EXEC_ISOLATION_ROOT_NAME = "recipeimport-direct-exec-workspaces"
@@ -937,9 +942,74 @@ class FakeCodexExecRunner:
                 or ("knowledge" if category == "knowledge" else "other")
             ).strip() or ("knowledge" if category == "knowledge" else "other")
             if stage_key == "nonrecipe_classify":
+                retrieval_concept = None
+                grounding_payload = empty_grounding_payload()
+                if category == "knowledge":
+                    retrieval_concept = str(
+                        decision_row.get("retrieval_concept") or evidence.get("text") or ""
+                    ).strip() or None
+                    grounding_row = (
+                        dict(decision_row.get("grounding") or {})
+                        if isinstance(decision_row.get("grounding"), Mapping)
+                        else {}
+                    )
+                    candidate_tag_keys = [
+                        str(value).strip()
+                        for value in (evidence.get("candidate_tag_keys") or [])
+                        if str(value).strip()
+                    ]
+                    if grounding_row:
+                        grounding_payload = {
+                            "tag_keys": [
+                                str(value).strip()
+                                for value in (grounding_row.get("tag_keys") or [])
+                                if str(value).strip()
+                            ],
+                            "category_keys": [
+                                str(value).strip()
+                                for value in (grounding_row.get("category_keys") or [])
+                                if str(value).strip()
+                            ],
+                            "proposed_tags": [
+                                {
+                                    "key": str(tag.get("key") or "").strip(),
+                                    "display_name": str(tag.get("display_name") or "").strip(),
+                                    "category_key": str(tag.get("category_key") or "").strip(),
+                                }
+                                for tag in (grounding_row.get("proposed_tags") or [])
+                                if isinstance(tag, Mapping)
+                            ],
+                        }
+                    elif candidate_tag_keys:
+                        grounding_payload = {
+                            "tag_keys": candidate_tag_keys[:1],
+                            "category_keys": [],
+                            "proposed_tags": [],
+                        }
+                    else:
+                        proposed_key = normalize_knowledge_tag_key(
+                            " ".join(str(evidence.get("text") or "").split()[:4])
+                        ) or f"knowledge-{block_index}"
+                        grounding_payload = {
+                            "tag_keys": [],
+                            "category_keys": ["techniques"],
+                            "proposed_tags": [
+                                {
+                                    "key": proposed_key,
+                                    "display_name": (
+                                        retrieval_concept[:48].strip()
+                                        if retrieval_concept is not None
+                                        else f"Knowledge {block_index}"
+                                    ),
+                                    "category_key": "techniques",
+                                }
+                            ],
+                        }
                 return {
                     "category": category,
                     "reviewer_category": reviewer_category,
+                    "retrieval_concept": retrieval_concept,
+                    "grounding": grounding_payload,
                 }
             group_key = None
             topic_label = None
@@ -1154,6 +1224,24 @@ class FakeCodexExecRunner:
                 task_file_payload=load_task_file(task_file_path),
             )
             write_task_file(path=task_file_path, payload=edited_task_file_payload)
+            state_path = str(process_env.get(KNOWLEDGE_SAME_SESSION_STATE_ENV) or "").strip()
+            transition_guard = 0
+            while state_path and transition_guard < 8:
+                transition_guard += 1
+                transition_result = advance_knowledge_same_session_handoff(
+                    workspace_root=execution_working_dir,
+                    state_path=Path(state_path),
+                )
+                if transition_result.get("status") not in {
+                    "advance_to_grouping",
+                    "repair_required",
+                }:
+                    break
+                next_task_file_payload = load_task_file(task_file_path)
+                edited_task_file_payload = self._build_workspace_task_file_result(
+                    task_file_payload=next_task_file_payload,
+                )
+                write_task_file(path=task_file_path, payload=edited_task_file_payload)
         elif (execution_working_dir / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME).exists():
             lease_iterations = 0
             while lease_iterations < 256:

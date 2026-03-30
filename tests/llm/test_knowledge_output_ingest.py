@@ -25,8 +25,24 @@ def _semantic_payload(
         "block_decisions": block_decisions
         if block_decisions is not None
         else [
-            {"block_index": 4, "category": "knowledge"},
-            {"block_index": 5, "category": "other"},
+            {
+                "block_index": 4,
+                "category": "knowledge",
+                "reviewer_category": "knowledge",
+                "retrieval_concept": "Control emulsion stability",
+                "grounding": {
+                    "tag_keys": ["emulsify"],
+                    "category_keys": ["techniques"],
+                    "proposed_tags": [],
+                },
+            },
+            {
+                "block_index": 5,
+                "category": "other",
+                "reviewer_category": "other",
+                "retrieval_concept": None,
+                "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
+            },
         ],
         "idea_groups": idea_groups
         if idea_groups is not None
@@ -67,8 +83,20 @@ def test_normalize_knowledge_worker_payload_serializes_semantic_packet_result() 
         "v": "3",
         "bid": "book.ks0000.nr",
         "d": [
-            {"i": 4, "c": "knowledge", "rc": "knowledge"},
-            {"i": 5, "c": "other", "rc": "other"},
+            {
+                "i": 4,
+                "c": "knowledge",
+                "rc": "knowledge",
+                "rt": "Control emulsion stability",
+                "gr": {"tk": ["emulsify"], "ck": ["techniques"], "pt": []},
+            },
+            {
+                "i": 5,
+                "c": "other",
+                "rc": "other",
+                "rt": None,
+                "gr": {"tk": [], "ck": [], "pt": []},
+            },
         ],
         "g": [
             {
@@ -123,6 +151,17 @@ def test_validate_knowledge_shard_output_rejects_missing_group_for_kept_block() 
     assert valid is False
     assert errors == ("knowledge_block_missing_group",)
     assert metadata["knowledge_blocks_missing_group"] == [4]
+
+
+def test_validate_knowledge_shard_output_rejects_unknown_grounding_tag_keys() -> None:
+    payload = _semantic_payload()
+    payload["block_decisions"][0]["grounding"]["tag_keys"] = ["not-a-real-tag"]
+
+    valid, errors, metadata = validate_knowledge_shard_output(_shard(), payload)
+
+    assert valid is False
+    assert "unknown_grounding_tag_key" in errors
+    assert metadata["unknown_grounding_tag_keys"] == ["not-a-real-tag"]
 
 
 def test_classify_knowledge_validation_failure_marks_near_miss() -> None:

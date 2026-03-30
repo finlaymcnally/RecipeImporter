@@ -399,3 +399,110 @@ def _collect_block_category_updates(
         conflicts,
         ignored_block_indices,
     )
+
+
+def _serialize_decision_grounding(decision: Any) -> dict[str, Any]:
+    grounding = getattr(decision, "grounding", None)
+    tag_keys = [
+        str(value).strip()
+        for value in (getattr(grounding, "tag_keys", ()) or ())
+        if str(value).strip()
+    ]
+    category_keys = [
+        str(value).strip()
+        for value in (getattr(grounding, "category_keys", ()) or ())
+        if str(value).strip()
+    ]
+    proposed_tags = [
+        {
+            "key": str(tag.key).strip(),
+            "display_name": str(tag.display_name).strip(),
+            "category_key": str(tag.category_key).strip(),
+        }
+        for tag in (getattr(grounding, "proposed_tags", ()) or ())
+        if str(getattr(tag, "key", "")).strip()
+    ]
+    return {
+        "tag_keys": tag_keys,
+        "category_keys": category_keys,
+        "proposed_tags": proposed_tags,
+    }
+
+
+def _collect_block_grounding_details(
+    *,
+    outputs: Mapping[str, Any],
+    allowed_block_indices: Mapping[int, str],
+) -> tuple[dict[int, dict[str, Any]], dict[str, int], list[dict[str, Any]]]:
+    normalized_allowed = {int(block_index) for block_index in allowed_block_indices}
+    grounding_by_block: dict[int, dict[str, Any]] = {}
+    proposal_rollups: dict[tuple[str, str], dict[str, Any]] = {}
+    counts = {
+        "kept_knowledge_block_count": 0,
+        "retrieval_gate_rejected_block_count": 0,
+        "knowledge_blocks_grounded_to_existing_tags": 0,
+        "knowledge_blocks_using_proposed_tags": 0,
+    }
+    for packet_id, output in outputs.items():
+        for decision in getattr(output, "block_decisions", ()) or ():
+            block_index = int(getattr(decision, "block_index", 0) or 0)
+            if block_index not in normalized_allowed:
+                continue
+            category = str(getattr(decision, "category", "") or "").strip()
+            if category != "knowledge":
+                counts["retrieval_gate_rejected_block_count"] += 1
+                continue
+            counts["kept_knowledge_block_count"] += 1
+            retrieval_concept = str(
+                getattr(decision, "retrieval_concept", "") or ""
+            ).strip() or None
+            grounding = _serialize_decision_grounding(decision)
+            if grounding["tag_keys"]:
+                counts["knowledge_blocks_grounded_to_existing_tags"] += 1
+            if grounding["proposed_tags"]:
+                counts["knowledge_blocks_using_proposed_tags"] += 1
+            grounding_by_block[block_index] = {
+                "packet_id": str(packet_id),
+                "retrieval_concept": retrieval_concept,
+                "grounding": grounding,
+            }
+            for proposed_tag in grounding["proposed_tags"]:
+                proposal_key = (
+                    str(proposed_tag.get("key") or ""),
+                    str(proposed_tag.get("category_key") or ""),
+                )
+                proposal_rollups.setdefault(
+                    proposal_key,
+                    {
+                        "key": proposal_key[0],
+                        "display_name": str(proposed_tag.get("display_name") or ""),
+                        "category_key": proposal_key[1],
+                        "occurrence_count": 0,
+                        "packet_ids": set(),
+                        "block_indices": [],
+                        "retrieval_concepts": set(),
+                    },
+                )
+                proposal_rollup = proposal_rollups[proposal_key]
+                proposal_rollup["occurrence_count"] += 1
+                proposal_rollup["packet_ids"].add(str(packet_id))
+                proposal_rollup["block_indices"].append(block_index)
+                if retrieval_concept is not None:
+                    proposal_rollup["retrieval_concepts"].add(retrieval_concept)
+    proposal_rows = [
+        {
+            "key": row["key"],
+            "display_name": row["display_name"],
+            "category_key": row["category_key"],
+            "occurrence_count": int(row["occurrence_count"]),
+            "packet_ids": sorted(row["packet_ids"]),
+            "block_indices": sorted(set(int(value) for value in row["block_indices"])),
+            "retrieval_concepts": sorted(row["retrieval_concepts"]),
+        }
+        for row in sorted(
+            proposal_rollups.values(),
+            key=lambda row: (row["category_key"], row["key"]),
+        )
+    ]
+    counts["tag_proposal_count"] = len(proposal_rows)
+    return grounding_by_block, counts, proposal_rows

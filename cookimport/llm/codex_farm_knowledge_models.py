@@ -86,6 +86,48 @@ class KnowledgeSnippetV1(BaseModel):
         return value
 
 
+class KnowledgeProposedTagV1(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    key: str = Field(alias="k")
+    display_name: str = Field(alias="d")
+    category_key: str = Field(alias="ck")
+
+    @field_validator("key", "display_name", "category_key", mode="before")
+    @classmethod
+    def _normalize_text(cls, value: object) -> object:
+        if value is None:
+            return value
+        return str(value).strip()
+
+
+class KnowledgeGroundingV1(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    tag_keys: list[str] = Field(default_factory=list, alias="tk")
+    category_keys: list[str] = Field(default_factory=list, alias="ck")
+    proposed_tags: list[KnowledgeProposedTagV1] = Field(default_factory=list, alias="pt")
+
+    @field_validator("tag_keys", "category_keys", mode="before")
+    @classmethod
+    def _coerce_key_list(cls, value: object) -> object:
+        if value is None:
+            return []
+        return [str(item).strip() for item in value]
+
+    @field_validator("tag_keys", "category_keys")
+    @classmethod
+    def _require_unique_keys(cls, value: list[str]) -> list[str]:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            if not item or item in seen:
+                continue
+            seen.add(item)
+            deduped.append(item)
+        return deduped
+
+
 class KnowledgeBlockDecisionV1(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -102,17 +144,26 @@ class KnowledgeBlockDecisionV1(BaseModel):
         "reference_back_matter",
         "other",
     ] | None = Field(default=None, alias="rc")
+    retrieval_concept: str | None = Field(default=None, alias="rt")
+    grounding: KnowledgeGroundingV1 = Field(default_factory=KnowledgeGroundingV1, alias="gr")
 
     @field_validator("block_index", mode="before")
     @classmethod
     def _coerce_block_index(cls, value: object) -> object:
         return int(value)
 
+    @field_validator("retrieval_concept", mode="before")
+    @classmethod
+    def _normalize_retrieval_concept(cls, value: object) -> object:
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
+
     @model_validator(mode="after")
     def _validate_reviewer_category(self) -> "KnowledgeBlockDecisionV1":
         if self.reviewer_category is None:
             self.reviewer_category = "knowledge" if self.category == "knowledge" else "other"
-            return self
         if self.category == "knowledge" and self.reviewer_category != "knowledge":
             raise ValueError(
                 "reviewer_category must be 'knowledge' when final category is 'knowledge'."
@@ -121,6 +172,22 @@ class KnowledgeBlockDecisionV1(BaseModel):
             raise ValueError(
                 "reviewer_category 'knowledge' is invalid when final category is 'other'."
             )
+        if self.category == "knowledge":
+            if self.retrieval_concept is None:
+                raise ValueError("knowledge rows must include retrieval_concept.")
+            if not self.grounding.tag_keys and not self.grounding.proposed_tags:
+                raise ValueError(
+                    "knowledge rows must include grounding tag_keys or proposed_tags."
+                )
+        else:
+            if self.retrieval_concept is not None:
+                raise ValueError("other rows must not include retrieval_concept.")
+            if (
+                self.grounding.tag_keys
+                or self.grounding.category_keys
+                or self.grounding.proposed_tags
+            ):
+                raise ValueError("other rows must not include grounding metadata.")
         return self
 
 
@@ -249,6 +316,48 @@ class KnowledgeSemanticSnippetV1(BaseModel):
         return value
 
 
+class KnowledgeSemanticProposedTagV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    display_name: str
+    category_key: str
+
+    @field_validator("key", "display_name", "category_key", mode="before")
+    @classmethod
+    def _normalize_text(cls, value: object) -> object:
+        if value is None:
+            return value
+        return str(value).strip()
+
+
+class KnowledgeSemanticGroundingV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tag_keys: list[str] = Field(default_factory=list)
+    category_keys: list[str] = Field(default_factory=list)
+    proposed_tags: list[KnowledgeSemanticProposedTagV1] = Field(default_factory=list)
+
+    @field_validator("tag_keys", "category_keys", mode="before")
+    @classmethod
+    def _coerce_key_list(cls, value: object) -> object:
+        if value is None:
+            return []
+        return [str(item).strip() for item in value]
+
+    @field_validator("tag_keys", "category_keys")
+    @classmethod
+    def _require_unique_keys(cls, value: list[str]) -> list[str]:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            if not item or item in seen:
+                continue
+            seen.add(item)
+            deduped.append(item)
+        return deduped
+
+
 class KnowledgeSemanticBlockDecisionV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -265,17 +374,26 @@ class KnowledgeSemanticBlockDecisionV1(BaseModel):
         "reference_back_matter",
         "other",
     ] | None = None
+    retrieval_concept: str | None = None
+    grounding: KnowledgeSemanticGroundingV1 = Field(default_factory=KnowledgeSemanticGroundingV1)
 
     @field_validator("block_index", mode="before")
     @classmethod
     def _coerce_block_index(cls, value: object) -> object:
         return int(value)
 
+    @field_validator("retrieval_concept", mode="before")
+    @classmethod
+    def _normalize_retrieval_concept(cls, value: object) -> object:
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
+
     @model_validator(mode="after")
     def _validate_reviewer_category(self) -> "KnowledgeSemanticBlockDecisionV1":
         if self.reviewer_category is None:
             self.reviewer_category = "knowledge" if self.category == "knowledge" else "other"
-            return self
         if self.category == "knowledge" and self.reviewer_category != "knowledge":
             raise ValueError(
                 "reviewer_category must be 'knowledge' when final category is 'knowledge'."
@@ -284,6 +402,22 @@ class KnowledgeSemanticBlockDecisionV1(BaseModel):
             raise ValueError(
                 "reviewer_category 'knowledge' is invalid when final category is 'other'."
             )
+        if self.category == "knowledge":
+            if self.retrieval_concept is None:
+                raise ValueError("knowledge rows must include retrieval_concept.")
+            if not self.grounding.tag_keys and not self.grounding.proposed_tags:
+                raise ValueError(
+                    "knowledge rows must include grounding tag_keys or proposed_tags."
+                )
+        else:
+            if self.retrieval_concept is not None:
+                raise ValueError("other rows must not include retrieval_concept.")
+            if (
+                self.grounding.tag_keys
+                or self.grounding.category_keys
+                or self.grounding.proposed_tags
+            ):
+                raise ValueError("other rows must not include grounding metadata.")
         return self
 
 
@@ -334,6 +468,19 @@ def serialize_canonical_knowledge_packet(
                 "i": decision.block_index,
                 "c": decision.category,
                 "rc": decision.reviewer_category,
+                "rt": decision.retrieval_concept,
+                "gr": {
+                    "tk": list(decision.grounding.tag_keys),
+                    "ck": list(decision.grounding.category_keys),
+                    "pt": [
+                        {
+                            "k": tag.key,
+                            "d": tag.display_name,
+                            "ck": tag.category_key,
+                        }
+                        for tag in decision.grounding.proposed_tags
+                    ],
+                },
             }
             for decision in result.block_decisions
         ],

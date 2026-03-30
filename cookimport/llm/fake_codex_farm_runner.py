@@ -13,6 +13,7 @@ from .codex_farm_knowledge_contracts import (
     knowledge_input_blocks,
     knowledge_input_bundle_id,
 )
+from .knowledge_tag_catalog import load_knowledge_tag_catalog
 from .recipe_tagging_guide import build_recipe_tagging_guide, recipe_tagging_guide_categories
 
 OutputBuilder = Callable[[dict[str, Any] | str], dict[str, Any]]
@@ -100,13 +101,33 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
         first_block = blocks[0] if isinstance(blocks, list) and blocks else {}
         block_index = knowledge_input_block_index(first_block) or 0
         block_text = knowledge_input_block_text(first_block).strip()
-        quote = block_text[:80].strip() or "evidence"
+        catalog = load_knowledge_tag_catalog()
+        candidate_tag_keys = catalog.candidate_tag_keys_for_text(block_text)
         return {
             "packet_id": knowledge_input_bundle_id(payload),
             "block_decisions": [
                 {
                     "block_index": int(knowledge_input_block_index(block) or 0),
                     "category": "knowledge",
+                    "reviewer_category": "knowledge",
+                    "retrieval_concept": (
+                        knowledge_input_block_text(block).strip()[:80] or "Fake knowledge concept"
+                    ),
+                    "grounding": {
+                        "tag_keys": candidate_tag_keys[:1],
+                        "category_keys": [],
+                        "proposed_tags": (
+                            []
+                            if candidate_tag_keys
+                            else [
+                                {
+                                    "key": "fake-knowledge-concept",
+                                    "display_name": "Fake Knowledge Concept",
+                                    "category_key": "techniques",
+                                }
+                            ]
+                        ),
+                    },
                 }
                 for block in blocks
                 if isinstance(block, dict)

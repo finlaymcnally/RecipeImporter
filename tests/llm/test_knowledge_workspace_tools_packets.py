@@ -81,8 +81,30 @@ def test_assemble_final_output_round_trips_packet_results() -> None:
     ) == {
         "packet_id": "book.ks0000.nr",
         "block_decisions": [
-            {"block_index": 7, "category": "other", "reviewer_category": "other"},
-            {"block_index": 8, "category": "knowledge", "reviewer_category": "knowledge"},
+            {
+                "block_index": 7,
+                "category": "other",
+                "reviewer_category": "other",
+                "retrieval_concept": None,
+                "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
+            },
+            {
+                "block_index": 8,
+                "category": "knowledge",
+                "reviewer_category": "knowledge",
+                "retrieval_concept": "Knowledge 8",
+                "grounding": {
+                    "tag_keys": [],
+                    "category_keys": ["techniques"],
+                    "proposed_tags": [
+                        {
+                            "key": "knowledge-8",
+                            "display_name": "Knowledge 8",
+                            "category_key": "techniques",
+                        }
+                    ],
+                },
+            },
         ],
         "idea_groups": [
             {"group_id": "g01", "topic_label": "Heat control", "block_indices": [8]}

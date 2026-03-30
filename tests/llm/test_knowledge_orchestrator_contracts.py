@@ -57,12 +57,31 @@ def test_worker_prompt_describes_task_file_contract() -> None:
     )
 
     assert "task.json" in prompt
-    assert "Open `task.json`, read it once, edit only `/units/*/answer`, save the same file, and stop." in prompt
+    assert (
+        "Open `task.json`, read it once, edit only `/units/*/answer`, save the same file, and then run "
+        "`python3 -m cookimport.llm.knowledge_same_session_handoff`." in prompt
+    )
     assert "- Start with `task.json`." in prompt
     assert "- Edit only the `answer` object inside each unit." in prompt
+    assert (
+        "- After each edit pass, run `python3 -m cookimport.llm.knowledge_same_session_handoff` "
+        "from the workspace root." in prompt
+    )
+    assert (
+        "- If the helper reports `repair_required` or `advance_to_grouping`, reopen the rewritten "
+        "`task.json` immediately and continue in the same session." in prompt
+    )
+    assert (
+        "- Stop only after the helper reports `completed_without_grouping` or "
+        "`completed_with_grouping`." in prompt
+    )
     assert "Do not invent queue advancement, control files, helper ledgers, or alternate output files." in prompt
     assert "This is the classification step." in prompt
-    assert "Answer each unit with `category` and `reviewer_category` only." in prompt
+    assert "Answer each unit with `category`, `reviewer_category`, `retrieval_concept`, and `grounding`." in prompt
+    assert (
+        "If `category` is `knowledge`, `retrieval_concept` must be a short standalone concept" in prompt
+    )
+    assert "Proposed tags are allowed only for real retrieval-grade concepts" in prompt
     assert "Do not invent `group_key`, `topic_label`, packet summaries, or cross-unit grouping notes in this step." in prompt
     assert "Do not return shard outputs in your final message." in prompt
     assert "Assigned shard ids represented in this task file: `book.ks0000.nr`." in prompt

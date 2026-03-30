@@ -705,7 +705,7 @@ def test_summarize_knowledge_stage_artifacts_uses_status_file(tmp_path: Path) ->
     summary = summarize_knowledge_stage_artifacts(stage_root)
 
     assert summary["authoritative"] is True
-    assert summary["schema_version"] == "knowledge_stage_summary.v8"
+    assert summary["schema_version"] == "knowledge_stage_summary.v9"
     assert summary["stage_state"] == "interrupted"
     assert summary["termination_cause"] == "operator_interrupt"
     assert summary["finalization_completeness"] == "interrupted_before_finalization"
@@ -798,7 +798,19 @@ def _build_knowledge_stage_rollup_fixture(tmp_path: Path) -> dict[str, object]:
         encoding="utf-8",
     )
     (stage_root.parent / KNOWLEDGE_MANIFEST_FILE_NAME).write_text(
-        json.dumps({"pipeline_id": "recipe.knowledge.compact.v1"}, sort_keys=True),
+        json.dumps(
+            {
+                "pipeline_id": "recipe.knowledge.compact.v1",
+                "counts": {
+                    "kept_knowledge_block_count": 2,
+                    "retrieval_gate_rejected_block_count": 1,
+                    "knowledge_blocks_grounded_to_existing_tags": 1,
+                    "knowledge_blocks_using_proposed_tags": 1,
+                    "tag_proposal_count": 1,
+                },
+            },
+            sort_keys=True,
+        ),
         encoding="utf-8",
     )
     (stage_root / "task_status.jsonl").write_text(
@@ -1008,6 +1020,13 @@ def test_summarize_knowledge_stage_artifacts_reports_packet_and_worker_rollups(
         "semantic_payload_tokens_per_owned_row": 40.0,
         "protocol_overhead_tokens_total": 60,
         "protocol_overhead_share": 0.3333,
+    }
+    assert summary["grounding_counts"] == {
+        "kept_knowledge_block_count": 2,
+        "retrieval_gate_rejected_block_count": 1,
+        "knowledge_blocks_grounded_to_existing_tags": 1,
+        "knowledge_blocks_using_proposed_tags": 1,
+        "tag_proposal_count": 1,
     }
 
 

@@ -560,7 +560,8 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
         (row.get("supervision_state"), row.get("supervision_reason_code"))
         for row in status["telemetry"]["rows"]
     } == {("completed", None)}
-    assert status["telemetry"]["summary"]["workspace_worker_session_count"] == 2
+    assert status["telemetry"]["summary"]["workspace_worker_session_count"] == 1
+    assert status["telemetry"]["rows"][0]["same_session_transition_count"] == 2
     assert live_status["state"] == "completed"
     assert live_status["reason_code"] == "process_exited_without_watchdog_intervention"
     assert live_status["warning_count"] == 0
@@ -580,9 +581,12 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
     assert sorted(path.name for path in (worker_root / "out").glob("*.json"))
     assert not sorted(path.name for path in (worker_root / "in").glob("*.pass2.json"))
     assert shard_output["packet_id"] == "book.ks0000.nr"
-    assert shard_output["block_decisions"] == [
-        {"block_index": 4, "category": "knowledge", "reviewer_category": "knowledge"}
-    ]
+    assert shard_output["block_decisions"][0]["block_index"] == 4
+    assert shard_output["block_decisions"][0]["category"] == "knowledge"
+    assert shard_output["block_decisions"][0]["reviewer_category"] == "knowledge"
+    assert shard_output["block_decisions"][0]["retrieval_concept"]
+    grounding = shard_output["block_decisions"][0]["grounding"]
+    assert grounding["tag_keys"] or grounding["proposed_tags"]
     assert shard_output["idea_groups"] == [
         {"group_id": "g01", "topic_label": "Fake knowledge group", "block_indices": [4]}
     ]

@@ -35,6 +35,10 @@ def write_knowledge_artifacts(
     snippet_records: list[dict[str, Any]] = []
     for packet_id in sorted(outputs):
         output = outputs[packet_id]
+        decisions_by_block_index = {
+            int(decision.block_index): decision
+            for decision in (output.block_decisions or [])
+        }
         for group_index, group in enumerate(output.idea_groups, start=1):
             knowledge_group_id = f"{packet_id}.{group.group_id}"
             record = {
@@ -43,6 +47,7 @@ def write_knowledge_artifacts(
                 "group_id": group.group_id,
                 "topic_label": group.topic_label,
                 "block_indices": list(group.block_indices),
+                "grounded_blocks": [],
                 "snippets": [],
             }
             if not record["block_indices"]:
@@ -59,6 +64,41 @@ def write_knowledge_artifacts(
                     "Knowledge idea group "
                     f"{knowledge_group_id} referenced missing block index "
                     f"{missing_block_indices[0]}."
+                )
+            for block_index in record["block_indices"]:
+                decision = decisions_by_block_index.get(int(block_index))
+                if decision is None:
+                    continue
+                grounding = getattr(decision, "grounding", None)
+                record["grounded_blocks"].append(
+                    {
+                        "block_index": int(block_index),
+                        "retrieval_concept": str(
+                            getattr(decision, "retrieval_concept", "") or ""
+                        ).strip()
+                        or None,
+                        "grounding": {
+                            "tag_keys": [
+                                str(value).strip()
+                                for value in (getattr(grounding, "tag_keys", ()) or ())
+                                if str(value).strip()
+                            ],
+                            "category_keys": [
+                                str(value).strip()
+                                for value in (getattr(grounding, "category_keys", ()) or ())
+                                if str(value).strip()
+                            ],
+                            "proposed_tags": [
+                                {
+                                    "key": str(tag.key).strip(),
+                                    "display_name": str(tag.display_name).strip(),
+                                    "category_key": str(tag.category_key).strip(),
+                                }
+                                for tag in (getattr(grounding, "proposed_tags", ()) or ())
+                                if str(getattr(tag, "key", "")).strip()
+                            ],
+                        },
+                    }
                 )
             record["ordinal"] = group_index
             group_records.append(record)
@@ -120,6 +160,31 @@ def _render_preview_md(
             text = str(block.get("text") or "").strip()
             text_display = text if len(text) <= 600 else text[:597] + "..."
             lines.append(f"- block {block_index}: {text_display}")
+            grounding_row = next(
+                (
+                    row
+                    for row in (record.get("grounded_blocks") or [])
+                    if int(row.get("block_index") or -1) == int(block_index)
+                ),
+                None,
+            )
+            if grounding_row is None:
+                continue
+            retrieval_concept = str(grounding_row.get("retrieval_concept") or "").strip()
+            grounding = dict(grounding_row.get("grounding") or {})
+            if retrieval_concept:
+                lines.append(f"  retrieval_concept: {retrieval_concept}")
+            tag_keys = ", ".join(str(value) for value in (grounding.get("tag_keys") or []))
+            if tag_keys:
+                lines.append(f"  tag_keys: {tag_keys}")
+            proposed_tags = [
+                str(row.get("display_name") or row.get("key") or "").strip()
+                for row in (grounding.get("proposed_tags") or [])
+                if isinstance(row, Mapping)
+                and str(row.get("display_name") or row.get("key") or "").strip()
+            ]
+            if proposed_tags:
+                lines.append(f"  proposed_tags: {', '.join(proposed_tags)}")
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"

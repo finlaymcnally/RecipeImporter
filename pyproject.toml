@@ -92,3 +92,6 @@ C3imp = "cookimport.c3imp_entrypoint:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["cookimport*"]
+
+[tool.setuptools.package-data]
+"cookimport.llm" = ["knowledge_tag_catalog.json"]

@@ -1138,6 +1138,8 @@ def write_nonrecipe_authority_artifact(
 ) -> Path:
     path = run_root / NONRECIPE_AUTHORITY_FILE_NAME
     authority = stage_result.authority
+    grounding_counts = dict(stage_result.refinement_report.get("grounding_counts") or {})
+    grounding_by_block = dict(stage_result.refinement_report.get("grounding_by_block") or {})
     payload = {
         "schema_version": NONRECIPE_AUTHORITY_SCHEMA_VERSION,
         "authority_mode": str(
@@ -1154,6 +1156,13 @@ def write_nonrecipe_authority_artifact(
             "authoritative_other_spans": len(authority.authoritative_other_spans),
             "final_authority_blocks": len(authority.authoritative_block_indices),
             **_knowledge_counts_for_block_map(authority.authoritative_block_category_by_index),
+            "knowledge_blocks_grounded_to_existing_tags": int(
+                grounding_counts.get("knowledge_blocks_grounded_to_existing_tags") or 0
+            ),
+            "knowledge_blocks_using_proposed_tags": int(
+                grounding_counts.get("knowledge_blocks_using_proposed_tags") or 0
+            ),
+            "tag_proposal_count": int(grounding_counts.get("tag_proposal_count") or 0),
             "warnings": len(stage_result.routing.warnings),
         },
         "final_authority_block_indices": list(authority.authoritative_block_indices),
@@ -1161,6 +1170,7 @@ def write_nonrecipe_authority_artifact(
             str(index): category
             for index, category in sorted(authority.authoritative_block_category_by_index.items())
         },
+        "knowledge_grounding_by_block": grounding_by_block,
         "authoritative_spans": [
             _serialize_nonrecipe_span(span)
             for span in authority.authoritative_nonrecipe_spans
