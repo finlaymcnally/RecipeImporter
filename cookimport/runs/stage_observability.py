@@ -41,11 +41,11 @@ KNOWLEDGE_MANIFEST_FILE_NAME = "knowledge_manifest.json"
 KNOWLEDGE_STAGE_STATUS_FILE_NAME = "stage_status.json"
 KNOWLEDGE_STAGE_STATUS_SCHEMA_VERSION = "knowledge_stage_status.v1"
 KNOWLEDGE_STAGE_SUMMARY_FILE_NAME = "knowledge_stage_summary.json"
-KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v6"
+KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v7"
 RECIPE_STAGE_SUMMARY_FILE_NAME = "recipe_stage_summary.json"
-RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v5"
+RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v6"
 LINE_ROLE_STAGE_SUMMARY_FILE_NAME = "line_role_stage_summary.json"
-LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION = "line_role_stage_summary.v3"
+LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION = "line_role_stage_summary.v4"
 
 _KNOWLEDGE_STAGE_ARTIFACT_KEYS: tuple[str, ...] = (
     "phase_manifest.json",
@@ -198,6 +198,33 @@ def _path_from_manifest(value: Any) -> Path | None:
     return Path(cleaned)
 
 
+def _runtime_guardrail_payload(
+    *,
+    phase_manifest_payload: Mapping[str, Any] | None,
+    telemetry_payload: Mapping[str, Any] | None,
+    key: str,
+) -> dict[str, Any] | None:
+    runtime_metadata = (
+        phase_manifest_payload.get("runtime_metadata")
+        if isinstance(phase_manifest_payload, Mapping)
+        else None
+    )
+    if isinstance(runtime_metadata, Mapping):
+        candidate = runtime_metadata.get(key)
+        if isinstance(candidate, Mapping):
+            return dict(candidate)
+    telemetry_summary = (
+        telemetry_payload.get("summary")
+        if isinstance(telemetry_payload, Mapping)
+        else None
+    )
+    if isinstance(telemetry_summary, Mapping):
+        candidate = telemetry_summary.get(key)
+        if isinstance(candidate, Mapping):
+            return dict(candidate)
+    return None
+
+
 def _has_json_payloads(path: Path) -> bool:
     if not path.exists() or not path.is_dir():
         return False
@@ -241,11 +268,14 @@ def classify_knowledge_stage_artifacts(
     interrupted_before_finalization = finalization == "interrupted_before_finalization"
     states: dict[str, str] = {}
     for artifact_key, path in _knowledge_stage_artifact_paths(stage_root).items():
+        declared_state = declared.get(artifact_key)
+        if declared_state == "skipped_due_to_interrupt":
+            states[artifact_key] = "skipped_due_to_interrupt"
+            continue
         if _knowledge_stage_artifact_present(path, artifact_key):
             states[artifact_key] = "present"
             continue
-        declared_state = declared.get(artifact_key)
-        if declared_state == "skipped_due_to_interrupt" or interrupted_before_finalization:
+        if interrupted_before_finalization:
             states[artifact_key] = "skipped_due_to_interrupt"
             continue
         states[artifact_key] = "unexpectedly_missing"
@@ -640,6 +670,7 @@ def _knowledge_row_is_no_final_output(row: Mapping[str, Any]) -> bool:
 
 
 def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
+    phase_manifest_payload = _load_json_dict(stage_root / "phase_manifest.json") or {}
     status_path = stage_root / KNOWLEDGE_STAGE_STATUS_FILE_NAME
     status_payload = _load_json_dict(status_path) or {}
     pre_kill_failure_counts = status_payload.get("pre_kill_failure_counts")
@@ -792,6 +823,20 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
         "pre_kill_failure_counts": dict(pre_kill_failure_counts),
         "pre_kill_failures_observed": _count_nested_positive_values(pre_kill_failure_counts) > 0,
     }
+    worker_session_guardrails = _runtime_guardrail_payload(
+        phase_manifest_payload=phase_manifest_payload,
+        telemetry_payload=telemetry_payload,
+        key="worker_session_guardrails",
+    )
+    if worker_session_guardrails is not None:
+        summary["worker_session_guardrails"] = worker_session_guardrails
+    task_file_guardrails = _runtime_guardrail_payload(
+        phase_manifest_payload=phase_manifest_payload,
+        telemetry_payload=telemetry_payload,
+        key="task_file_guardrails",
+    )
+    if task_file_guardrails is not None:
+        summary["task_file_guardrails"] = task_file_guardrails
     summary["attention_summary"] = _build_attention_summary(
         zero_target_counts={
             "invalid_shard_count": packet_state_counts.get("invalid_output"),
@@ -963,6 +1008,20 @@ def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
         },
         "important_artifacts": important_artifacts,
     }
+    worker_session_guardrails = _runtime_guardrail_payload(
+        phase_manifest_payload=phase_manifest,
+        telemetry_payload=_load_json_dict(stage_root / "telemetry.json") or {},
+        key="worker_session_guardrails",
+    )
+    if worker_session_guardrails is not None:
+        summary["worker_session_guardrails"] = worker_session_guardrails
+    task_file_guardrails = _runtime_guardrail_payload(
+        phase_manifest_payload=phase_manifest,
+        telemetry_payload=_load_json_dict(stage_root / "telemetry.json") or {},
+        key="task_file_guardrails",
+    )
+    if task_file_guardrails is not None:
+        summary["task_file_guardrails"] = task_file_guardrails
     summary["attention_summary"] = _build_attention_summary(
         zero_target_counts={
             "invalid_shard_count": promotion_report.get("invalid_shards"),
@@ -1115,6 +1174,20 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
         },
         "important_artifacts": important_artifacts,
     }
+    worker_session_guardrails = _runtime_guardrail_payload(
+        phase_manifest_payload=phase_manifest,
+        telemetry_payload=_load_json_dict(stage_root / "telemetry.json") or {},
+        key="worker_session_guardrails",
+    )
+    if worker_session_guardrails is not None:
+        summary["worker_session_guardrails"] = worker_session_guardrails
+    task_file_guardrails = _runtime_guardrail_payload(
+        phase_manifest_payload=phase_manifest,
+        telemetry_payload=_load_json_dict(stage_root / "telemetry.json") or {},
+        key="task_file_guardrails",
+    )
+    if task_file_guardrails is not None:
+        summary["task_file_guardrails"] = task_file_guardrails
     summary["attention_summary"] = _build_attention_summary(
         zero_target_counts={
             "invalid_shard_count": promotion_report.get("invalid_shards"),

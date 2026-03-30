@@ -4,16 +4,15 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .task_file_guardrails import render_task_file_text
+
 TASK_FILE_NAME = "task.json"
 TASK_FILE_SCHEMA_VERSION = "editable_task_file.v1"
 
 
 def write_task_file(*, path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(dict(payload), indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    path.write_text(render_task_file_text(payload), encoding="utf-8")
 
 
 def load_task_file(path: Path) -> dict[str, Any]:

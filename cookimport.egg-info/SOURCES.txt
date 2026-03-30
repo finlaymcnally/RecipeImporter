@@ -182,6 +182,7 @@ cookimport/llm/recipe_stage_shared.py
 cookimport/llm/recipe_tagging_guide.py
 cookimport/llm/recipe_workspace_tools.py
 cookimport/llm/shard_prompt_targets.py
+cookimport/llm/task_file_guardrails.py
 cookimport/llm/worker_hint_sidecars.py
 cookimport/llm/knowledge_stage/__init__.py
 cookimport/llm/knowledge_stage/_shared.py

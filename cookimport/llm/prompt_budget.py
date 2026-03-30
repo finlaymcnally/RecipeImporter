@@ -844,6 +844,8 @@ def _attach_knowledge_stage_observability(
     followups = knowledge_summary.get("followups")
     salvage = knowledge_summary.get("salvage")
     packet_economics = knowledge_summary.get("packet_economics")
+    worker_session_guardrails = knowledge_summary.get("worker_session_guardrails")
+    task_file_guardrails = knowledge_summary.get("task_file_guardrails")
     if isinstance(packets, Mapping):
         stage_summary["task_packet_total"] = _nonnegative_int(packets.get("packet_total"))
         stage_summary["parent_shard_total"] = _nonnegative_int(packets.get("parent_shard_total"))
@@ -934,6 +936,17 @@ def _attach_knowledge_stage_observability(
             "protocol_overhead_tokens_total",
         ):
             stage_summary[key] = _nonnegative_int(packet_economics.get(key))
+    if isinstance(worker_session_guardrails, Mapping):
+        stage_summary["worker_session_guardrails"] = dict(worker_session_guardrails)
+        for key in (
+            "planned_happy_path_worker_cap",
+            "actual_happy_path_worker_sessions",
+            "repair_worker_session_count",
+            "repair_followup_call_count",
+        ):
+            stage_summary[key] = _nonnegative_int(worker_session_guardrails.get(key))
+    if isinstance(task_file_guardrails, Mapping):
+        stage_summary["task_file_guardrails"] = dict(task_file_guardrails)
 
 
 def _attach_recipe_stage_observability(
@@ -956,6 +969,8 @@ def _attach_recipe_stage_observability(
     parent_shards = recipe_summary.get("parent_shards")
     workers = recipe_summary.get("workers")
     followups = recipe_summary.get("followups")
+    worker_session_guardrails = recipe_summary.get("worker_session_guardrails")
+    task_file_guardrails = recipe_summary.get("task_file_guardrails")
     stage_summary["stage_state"] = recipe_summary.get("stage_state")
     if isinstance(work_units, Mapping):
         stage_summary["work_unit_label"] = str(work_units.get("label") or "").strip() or None
@@ -989,6 +1004,17 @@ def _attach_recipe_stage_observability(
             "proposal_count",
         ):
             stage_summary[key] = _nonnegative_int(followups.get(key))
+    if isinstance(worker_session_guardrails, Mapping):
+        stage_summary["worker_session_guardrails"] = dict(worker_session_guardrails)
+        for key in (
+            "planned_happy_path_worker_cap",
+            "actual_happy_path_worker_sessions",
+            "repair_worker_session_count",
+            "repair_followup_call_count",
+        ):
+            stage_summary[key] = _nonnegative_int(worker_session_guardrails.get(key))
+    if isinstance(task_file_guardrails, Mapping):
+        stage_summary["task_file_guardrails"] = dict(task_file_guardrails)
 
 
 def _extract_telemetry_rows(*, stage_payload: Mapping[str, Any]) -> list[Any] | None:
@@ -1247,6 +1273,8 @@ def _build_line_role_stage_summary(
             parent_shards = observability_summary.get("parent_shards")
             workers = observability_summary.get("workers")
             followups = observability_summary.get("followups")
+            worker_session_guardrails = observability_summary.get("worker_session_guardrails")
+            task_file_guardrails = observability_summary.get("task_file_guardrails")
             stage_summary["stage_state"] = observability_summary.get("stage_state")
             if isinstance(work_units, Mapping):
                 stage_summary["work_unit_label"] = str(work_units.get("label") or "").strip() or None
@@ -1276,6 +1304,19 @@ def _build_line_role_stage_summary(
                     "proposal_count",
                 ):
                     stage_summary[key] = _nonnegative_int(followups.get(key))
+            if isinstance(worker_session_guardrails, Mapping):
+                stage_summary["worker_session_guardrails"] = dict(worker_session_guardrails)
+                for key in (
+                    "planned_happy_path_worker_cap",
+                    "actual_happy_path_worker_sessions",
+                    "repair_worker_session_count",
+                    "repair_followup_call_count",
+                ):
+                    stage_summary[key] = _nonnegative_int(
+                        worker_session_guardrails.get(key)
+                    )
+            if isinstance(task_file_guardrails, Mapping):
+                stage_summary["task_file_guardrails"] = dict(task_file_guardrails)
         return stage_summary
     return None
 

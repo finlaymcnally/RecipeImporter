@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -10,11 +11,66 @@ from cookimport import cli
 from cookimport import cli_worker
 import cookimport.cli_commands.stage as stage_cli
 import cookimport.cli_support.progress as progress_cli
+import cookimport.cli_support.stage as stage_support
 from cookimport.cli import JobSpec
 from cookimport.core.executor_fallback import ProcessThreadExecutorResolution
 
 
 runner = CliRunner()
+
+
+def test_stage_run_summary_collects_codex_guardrail_warnings(tmp_path: Path) -> None:
+    run_root = tmp_path / "run"
+    run_root.mkdir(parents=True, exist_ok=True)
+    summary_path = run_root / "raw" / "llm" / "book" / "recipe_phase_runtime" / "recipe_stage_summary.json"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text(
+        json.dumps(
+            {
+                "task_file_guardrails": {
+                    "warning_count": 1,
+                    "largest_assignment": {
+                        "worker_id": "worker-001",
+                        "task_file_bytes": 24576,
+                        "task_file_estimated_tokens": 5000,
+                    },
+                },
+                "worker_session_guardrails": {
+                    "planned_happy_path_worker_cap": 1,
+                    "actual_happy_path_worker_sessions": 1,
+                    "cap_exceeded": False,
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    warnings = stage_support._collect_codex_guardrail_warnings(  # noqa: SLF001
+        run_root,
+        {
+            "stages": [
+                {
+                    "stage_key": "recipe_refine",
+                    "stage_label": "Recipe Refine",
+                    "workbooks": [
+                        {
+                            "artifact_paths": {
+                                "recipe_stage_summary_json": str(
+                                    summary_path.relative_to(run_root)
+                                )
+                            }
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    assert warnings == [
+        "Recipe Refine: 1 planned task.json warning(s); largest assignment worker-001 was 24.0 KiB (~5000 tokens)."
+    ]
 
 
 def _patch_stage_attr(

@@ -752,6 +752,28 @@ def _run_direct_knowledge_workers_v1(
         process_run_summary.update(
             _summarize_knowledge_workspace_relaunches(worker_reports)
         )
+        guardrails = dict(manifest.runtime_metadata or {}).get(
+            "worker_session_guardrails"
+        )
+        if isinstance(guardrails, Mapping):
+            process_run_summary["worker_session_guardrails"] = dict(guardrails)
+            process_run_summary["planned_happy_path_worker_cap"] = int(
+                guardrails.get("planned_happy_path_worker_cap") or 0
+            )
+            process_run_summary["actual_happy_path_worker_sessions"] = int(
+                guardrails.get("actual_happy_path_worker_sessions") or 0
+            )
+            if bool(guardrails.get("cap_exceeded")):
+                raise CodexFarmRunnerError(
+                    "Knowledge happy-path worker sessions exceeded the planned cap: "
+                    f"planned={guardrails.get('planned_happy_path_worker_cap')} "
+                    f"actual={guardrails.get('actual_happy_path_worker_sessions')}."
+                )
+        task_file_guardrails = dict(manifest.runtime_metadata or {}).get(
+            "task_file_guardrails"
+        )
+        if isinstance(task_file_guardrails, Mapping):
+            process_run_summary["task_file_guardrails"] = dict(task_file_guardrails)
     return manifest, worker_reports, process_run_payload
 
 

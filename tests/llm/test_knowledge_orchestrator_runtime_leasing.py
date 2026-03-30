@@ -166,10 +166,19 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert second_output["block_decisions"] == [
         {"block_index": 2, "category": "knowledge"}
     ]
+    phase_manifest = json.loads((phase_dir / "phase_manifest.json").read_text(encoding="utf-8"))
     telemetry = json.loads((phase_dir / "telemetry.json").read_text(encoding="utf-8"))
     assert telemetry["summary"]["packet_economics"]["packet_count_total"] >= 2
     assert telemetry["summary"]["packet_economics"]["repair_packet_count_total"] == 0
     assert telemetry["summary"]["packet_economics"]["owned_row_count_total"] == 2
+    assert telemetry["summary"]["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 1
+    assert telemetry["summary"]["task_file_guardrails"]["assignment_count"] == 1
+    assert (
+        phase_manifest["runtime_metadata"]["worker_session_guardrails"][
+            "actual_happy_path_worker_sessions"
+        ]
+        == 1
+    )
 
 
 class _NoOutputLeaseRunner(FakeCodexExecRunner):

@@ -426,6 +426,15 @@ def test_line_role_prompt_target_count_is_a_hard_cap(
             / "phase_manifest.json"
         ).read_text(encoding="utf-8")
     )
+    telemetry = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "telemetry.json"
+        ).read_text(encoding="utf-8")
+    )
     worker_assignments = json.loads(
         (
             tmp_path
@@ -449,6 +458,15 @@ def test_line_role_prompt_target_count_is_a_hard_cap(
 
     assert phase_manifest["shard_count"] == 1
     assert phase_manifest["worker_count"] == 1
+    assert (
+        phase_manifest["runtime_metadata"]["worker_session_guardrails"][
+            "actual_happy_path_worker_sessions"
+        ]
+        == 1
+    )
+    assert (
+        telemetry["summary"]["task_file_guardrails"]["assignment_count"] == 1
+    )
     assert [assignment["shard_ids"] for assignment in worker_assignments] == [
         ["line-role-canonical-0001-a000000-a000004"]
     ]

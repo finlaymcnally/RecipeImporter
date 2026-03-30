@@ -552,6 +552,7 @@ Use `--require-process-workers` to fail fast instead of using any fallback backe
 When thread fallback is active, `processing_timeseries.jsonl` worker labels include thread names so concurrent workers are visible (instead of collapsing to one `MainProcess` label).
 Stage completion also prints a compact `Quick run summary` block (books, codex-farm on/off state, selected major settings, topline metrics) and always writes `<run_dir>/run_summary.json`.
 When `--write-markdown` is enabled (default), stage also writes `<run_dir>/run_summary.md`; `--no-write-markdown` suppresses the markdown summary file.
+When a Codex-backed stage summary reports guardrail pressure, that same quick summary and `run_summary.{json,md}` now include a `Codex guardrails` section with planned-versus-actual worker-session counts and any `task.json` size warnings; the CLI warns without silently changing shard or worker counts.
 Codex-backed stage runs now have a single live execution mode.
 For zero-token inspection, use prompt preview to inspect prompt text/costs or run the normal execute path through `scripts/fake-codex-farm.py` to rehearse file handoffs without model spend.
 

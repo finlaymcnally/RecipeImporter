@@ -2425,6 +2425,138 @@ def test_prompt_budget_summary_recovers_processed_line_role_and_totals(
     assert summary["totals"]["tokens_total"] == 1085
 
 
+def test_prompt_budget_summary_attaches_recipe_runtime_guardrails(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    stage_root = pred_run / "raw" / "llm" / "book" / "recipe_phase_runtime"
+    (stage_root / "proposals").mkdir(parents=True, exist_ok=True)
+    (stage_root / "workers" / "worker-001" / "out").mkdir(parents=True, exist_ok=True)
+    (stage_root / "workers" / "worker-001" / "shards" / "recipe-shard-0001").mkdir(
+        parents=True, exist_ok=True
+    )
+    (stage_root / "worker_assignments.json").write_text("[]\n", encoding="utf-8")
+    (stage_root / "task_manifest.jsonl").write_text(
+        json.dumps({"task_id": "recipe-shard-0001.task-001"}) + "\n",
+        encoding="utf-8",
+    )
+    (stage_root / "workers" / "worker-001" / "out" / "recipe-shard-0001.task-001.json").write_text(
+        "{}",
+        encoding="utf-8",
+    )
+    (stage_root / "workers" / "worker-001" / "shards" / "recipe-shard-0001" / "status.json").write_text(
+        json.dumps({"status": "validated"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (stage_root / "phase_manifest.json").write_text(
+        json.dumps(
+            {
+                "worker_count": 1,
+                "shard_count": 1,
+                "runtime_metadata": {
+                    "worker_session_guardrails": {
+                        "planned_happy_path_worker_cap": 1,
+                        "actual_happy_path_worker_sessions": 1,
+                        "repair_worker_session_count": 0,
+                        "repair_followup_call_count": 0,
+                        "cap_exceeded": False,
+                        "happy_path_within_cap": True,
+                        "status": "within_cap",
+                    },
+                    "task_file_guardrails": {
+                        "assignment_count": 1,
+                        "warning_count": 1,
+                        "largest_assignment": {
+                            "worker_id": "worker-001",
+                            "task_file_bytes": 24576,
+                            "task_file_estimated_tokens": 5000,
+                        },
+                    },
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (stage_root / "promotion_report.json").write_text(
+        json.dumps(
+            {
+                "invalid_shards": 0,
+                "missing_output_shards": 0,
+                "recipe_result_counts": {"repaired": 1, "fragmentary": 0, "not_a_recipe": 0},
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (stage_root.parent / "recipe_manifest.json").write_text(
+        json.dumps(
+            {
+                "counts": {
+                    "recipes_total": 1,
+                    "recipe_correction_error": 0,
+                    "final_recipe_authority_promoted": 1,
+                    "final_recipe_authority_not_promoted": 0,
+                    "final_recipe_authority_error": 0,
+                }
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    pred_manifest = {
+        "run_config": {
+            "recipe_prompt_target_count": 1,
+            "recipe_worker_count": 1,
+        },
+        "llm_codex_farm": {
+            "process_runs": {
+                "recipe_correction": {
+                    "phase_manifest_path": str(stage_root / "phase_manifest.json"),
+                    "worker_assignments_path": str(stage_root / "worker_assignments.json"),
+                    "promotion_report_path": str(stage_root / "promotion_report.json"),
+                    "proposals_dir": str(stage_root / "proposals"),
+                    "telemetry": {
+                        "rows": [
+                            {
+                                "duration_ms": 1200,
+                                "tokens_input": 100,
+                                "tokens_cached_input": 10,
+                                "tokens_output": 20,
+                                "tokens_reasoning": 0,
+                                "tokens_total": 130,
+                                "prompt_input_mode": "workspace_worker",
+                                "worker_session_primary_row": True,
+                            }
+                        ]
+                    },
+                    "telemetry_report": {
+                        "summary": {
+                            "call_count": 1,
+                            "duration_total_ms": 1200,
+                            "tokens_input": 100,
+                            "tokens_cached_input": 10,
+                            "tokens_output": 20,
+                            "tokens_total": 130,
+                        }
+                    },
+                }
+            }
+        },
+    }
+
+    summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
+
+    recipe_stage = summary["by_stage"]["recipe_refine"]
+    assert recipe_stage["planned_happy_path_worker_cap"] == 1
+    assert recipe_stage["actual_happy_path_worker_sessions"] == 1
+    assert recipe_stage["task_file_guardrails"]["warning_count"] == 1
+
+
 def test_prompt_budget_summary_sums_call_count_and_duration_across_worker_rows(
     tmp_path: Path,
 ) -> None:

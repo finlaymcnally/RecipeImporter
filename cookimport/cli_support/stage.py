@@ -502,6 +502,97 @@ def _collect_stage_run_report_payloads(run_root: Path) -> list[tuple[Path, dict[
     return payloads
 
 
+def _format_guardrail_bytes(value: Any) -> str:
+    amount = _coerce_int(value) or 0
+    if amount >= 1024:
+        return f"{amount / 1024:.1f} KiB"
+    return f"{amount} B"
+
+
+def _load_stage_guardrail_summary(
+    run_root: Path,
+    workbook_payload: dict[str, Any],
+) -> dict[str, Any] | None:
+    artifact_paths = workbook_payload.get("artifact_paths")
+    if not isinstance(artifact_paths, dict):
+        return None
+    for key in (
+        "recipe_stage_summary_json",
+        "knowledge_stage_summary_json",
+        "line_role_stage_summary_json",
+    ):
+        raw_path = artifact_paths.get(key)
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            continue
+        summary_path = run_root / raw_path
+        if not summary_path.exists() or not summary_path.is_file():
+            continue
+        try:
+            payload = json.loads(summary_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        return payload if isinstance(payload, dict) else None
+    return None
+
+
+def _collect_codex_guardrail_warnings(
+    run_root: Path,
+    stage_observability_payload: dict[str, Any],
+) -> list[str]:
+    warnings: list[str] = []
+    stages = stage_observability_payload.get("stages")
+    if not isinstance(stages, list):
+        return warnings
+    for stage_payload in stages:
+        if not isinstance(stage_payload, dict):
+            continue
+        stage_label = str(
+            stage_payload.get("stage_label") or stage_payload.get("stage_key") or "Stage"
+        ).strip()
+        workbooks = stage_payload.get("workbooks")
+        if not isinstance(workbooks, list):
+            continue
+        for workbook_payload in workbooks:
+            if not isinstance(workbook_payload, dict):
+                continue
+            summary_payload = _load_stage_guardrail_summary(run_root, workbook_payload)
+            if not isinstance(summary_payload, dict):
+                continue
+            worker_session_guardrails = summary_payload.get("worker_session_guardrails")
+            if isinstance(worker_session_guardrails, dict) and bool(
+                worker_session_guardrails.get("cap_exceeded")
+            ):
+                warnings.append(
+                    f"{stage_label}: happy-path worker sessions exceeded cap "
+                    f"({worker_session_guardrails.get('actual_happy_path_worker_sessions')} > "
+                    f"{worker_session_guardrails.get('planned_happy_path_worker_cap')})."
+                )
+            task_file_guardrails = summary_payload.get("task_file_guardrails")
+            if not isinstance(task_file_guardrails, dict):
+                continue
+            warning_count = _coerce_int(task_file_guardrails.get("warning_count")) or 0
+            if warning_count <= 0:
+                continue
+            largest_assignment = task_file_guardrails.get("largest_assignment")
+            if isinstance(largest_assignment, dict):
+                worker_id = str(largest_assignment.get("worker_id") or "worker").strip()
+                bytes_text = _format_guardrail_bytes(
+                    largest_assignment.get("task_file_bytes")
+                )
+                token_count = _coerce_int(
+                    largest_assignment.get("task_file_estimated_tokens")
+                ) or 0
+                warnings.append(
+                    f"{stage_label}: {warning_count} planned task.json warning(s); "
+                    f"largest assignment {worker_id} was {bytes_text} (~{token_count} tokens)."
+                )
+            else:
+                warnings.append(
+                    f"{stage_label}: {warning_count} planned task.json warning(s)."
+                )
+    return warnings
+
+
 def _build_stage_run_summary_payload(
     *,
     run_root: Path,
@@ -513,6 +604,10 @@ def _build_stage_run_summary_payload(
     stage_observability_payload = _load_stage_observability_payload(run_root)
     observed_stages_raw = stage_observability_payload.get("stages")
     observed_stages = observed_stages_raw if isinstance(observed_stages_raw, list) else []
+    codex_guardrail_warnings = _collect_codex_guardrail_warnings(
+        run_root,
+        stage_observability_payload,
+    )
 
     totals: dict[str, int] = {
         "recipes": 0,
@@ -595,6 +690,7 @@ def _build_stage_run_summary_payload(
             "reasoning_effort": run_config.get("codex_farm_reasoning_effort"),
         },
         "codex_decision": codex_decision,
+        "codex_guardrail_warnings": codex_guardrail_warnings,
     }
 
 
@@ -633,6 +729,7 @@ def _write_stage_run_summary(
     major_settings = payload.get("major_settings", {})
     codex = payload.get("codex_farm", {})
     codex_decision = payload.get("codex_decision", {})
+    codex_guardrail_warnings = payload.get("codex_guardrail_warnings")
     if write_markdown:
         md_lines = [
             "# Stage run summary",
@@ -676,6 +773,17 @@ def _write_stage_run_summary(
                 f"- effective_workers: {major_settings.get('effective_workers')}",
                 f"- epub_extractor: {major_settings.get('epub_extractor')}",
                 "",
+                "## Codex guardrails",
+            ]
+        )
+        if isinstance(codex_guardrail_warnings, list) and codex_guardrail_warnings:
+            for warning in codex_guardrail_warnings:
+                md_lines.append(f"- {warning}")
+        else:
+            md_lines.append("- none")
+
+        md_lines.extend(
+            [
                 "## Topline metrics",
                 f"- total recipes: {totals.get('recipes', 0)}",
                 f"- total standalone blocks: {totals.get('standalone_blocks', 0)}",
@@ -716,6 +824,7 @@ def _print_stage_summary(payload: dict[str, Any], *, write_markdown: bool = True
     codex = payload.get("codex_farm", {})
     major_settings = payload.get("major_settings", {})
     observed_stages = payload.get("observed_stages")
+    codex_guardrail_warnings = payload.get("codex_guardrail_warnings")
     observed_stage_labels = []
     if isinstance(observed_stages, list):
         observed_stage_labels = [
@@ -749,6 +858,10 @@ def _print_stage_summary(payload: dict[str, Any], *, write_markdown: bool = True
             standalone_blocks=totals.get("standalone_blocks", 0),
         )
     )
+    if isinstance(codex_guardrail_warnings, list) and codex_guardrail_warnings:
+        typer.secho("  Codex guardrails:", fg=typer.colors.YELLOW)
+        for warning in codex_guardrail_warnings:
+            typer.echo(f"    - {warning}")
     typer.echo(f"  Timing: total={totals.get('total_seconds', 0.0):.2f}s")
     typer.echo(f"  Run summary file: {run_summary_path}")
 

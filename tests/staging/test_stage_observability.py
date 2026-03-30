@@ -420,7 +420,33 @@ def test_build_recipe_stage_summary_reports_packet_followup_rollups(tmp_path: Pa
     (stage_root / "workers" / "worker-001" / "out").mkdir(parents=True, exist_ok=True)
     task_root = stage_root / "workers" / "worker-001" / "shards" / "recipe-shard-0001.task-001"
     task_root.mkdir(parents=True, exist_ok=True)
-    _write_json(stage_root / "phase_manifest.json", {"worker_count": 1, "shard_count": 1})
+    _write_json(
+        stage_root / "phase_manifest.json",
+        {
+            "worker_count": 1,
+            "shard_count": 1,
+            "runtime_metadata": {
+                "worker_session_guardrails": {
+                    "planned_happy_path_worker_cap": 1,
+                    "actual_happy_path_worker_sessions": 1,
+                    "repair_worker_session_count": 1,
+                    "repair_followup_call_count": 0,
+                    "cap_exceeded": False,
+                    "happy_path_within_cap": True,
+                    "status": "within_cap",
+                },
+                "task_file_guardrails": {
+                    "assignment_count": 1,
+                    "warning_count": 1,
+                    "largest_assignment": {
+                        "worker_id": "worker-001",
+                        "task_file_bytes": 24576,
+                        "task_file_estimated_tokens": 5000,
+                    },
+                },
+            },
+        },
+    )
     _write_json(
         stage_root / "promotion_report.json",
         {
@@ -465,10 +491,13 @@ def test_build_recipe_stage_summary_reports_packet_followup_rollups(tmp_path: Pa
 
     summary = build_recipe_stage_summary(stage_root)
 
-    assert summary["schema_version"] == "recipe_stage_summary.v5"
+    assert summary["schema_version"] == "recipe_stage_summary.v6"
     assert summary["followups"]["label"] == "packet_followup"
     assert summary["followups"]["handled_locally_skip_llm_count"] == 2
     assert summary["followups"]["repair_completed_count"] == 1
+    assert summary["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 1
+    assert summary["worker_session_guardrails"]["repair_worker_session_count"] == 1
+    assert summary["task_file_guardrails"]["warning_count"] == 1
     assert summary["attention_summary"]["needs_attention"] is True
     assert summary["attention_summary"]["zero_target_counts"]["invalid_shard_count"] == 1
     assert summary["attention_summary"]["zero_target_counts"]["fragmentary_recipe_count"] == 2
@@ -486,7 +515,33 @@ def test_build_recipe_stage_summary_reports_packet_followup_rollups(tmp_path: Pa
 def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: Path) -> None:
     stage_root = tmp_path / "line-role-pipeline" / "runtime" / "line_role"
     (stage_root / "proposals").mkdir(parents=True, exist_ok=True)
-    _write_json(stage_root / "phase_manifest.json", {"worker_count": 1, "shard_count": 1})
+    _write_json(
+        stage_root / "phase_manifest.json",
+        {
+            "worker_count": 1,
+            "shard_count": 1,
+            "runtime_metadata": {
+                "worker_session_guardrails": {
+                    "planned_happy_path_worker_cap": 1,
+                    "actual_happy_path_worker_sessions": 1,
+                    "repair_worker_session_count": 0,
+                    "repair_followup_call_count": 0,
+                    "cap_exceeded": False,
+                    "happy_path_within_cap": True,
+                    "status": "within_cap",
+                },
+                "task_file_guardrails": {
+                    "assignment_count": 1,
+                    "warning_count": 0,
+                    "largest_assignment": {
+                        "worker_id": "worker-001",
+                        "task_file_bytes": 2048,
+                        "task_file_estimated_tokens": 300,
+                    },
+                },
+            },
+        },
+    )
     _write_json(
         stage_root / "promotion_report.json",
         {"invalid_shards": 1, "missing_output_shards": 1},
@@ -565,7 +620,7 @@ def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: 
 
     summary = build_line_role_stage_summary(stage_root)
 
-    assert summary["schema_version"] == "line_role_stage_summary.v3"
+    assert summary["schema_version"] == "line_role_stage_summary.v4"
     assert summary["lines"]["canonical_line_total"] == 2
     assert summary["lines"]["llm_authoritative_row_count"] == 2
     assert summary["lines"]["unresolved_row_count"] == 0
@@ -575,6 +630,8 @@ def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: 
     assert summary["shards"]["suspicious_shard_count"] == 1
     assert summary["important_artifacts"]["canonical_line_table_jsonl"] == "canonical_line_table.jsonl"
     assert summary["important_artifacts"]["shard_status_jsonl"] == "shard_status.jsonl"
+    assert summary["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 1
+    assert summary["task_file_guardrails"]["warning_count"] == 0
     assert summary["attention_summary"]["needs_attention"] is True
     assert summary["attention_summary"]["zero_target_counts"]["invalid_shard_count"] == 1
     assert summary["attention_summary"]["zero_target_counts"]["missing_output_shard_count"] == 1
@@ -596,6 +653,29 @@ def test_summarize_knowledge_stage_artifacts_uses_status_file(tmp_path: Path) ->
     (stage_root.parent / KNOWLEDGE_MANIFEST_FILE_NAME).write_text(
         json.dumps({"pipeline_id": "recipe.knowledge.compact.v1"}, sort_keys=True),
         encoding="utf-8",
+    )
+    _write_json(
+        stage_root / "phase_manifest.json",
+        {
+            "worker_count": 1,
+            "shard_count": 0,
+            "runtime_metadata": {
+                "worker_session_guardrails": {
+                    "planned_happy_path_worker_cap": 1,
+                    "actual_happy_path_worker_sessions": 0,
+                    "repair_worker_session_count": 0,
+                    "repair_followup_call_count": 0,
+                    "cap_exceeded": False,
+                    "happy_path_within_cap": True,
+                    "status": "within_cap",
+                },
+                "task_file_guardrails": {
+                    "assignment_count": 0,
+                    "warning_count": 0,
+                    "largest_assignment": None,
+                },
+            },
+        },
     )
     _write_json(
         stage_root / KNOWLEDGE_STAGE_STATUS_FILE_NAME,
@@ -625,7 +705,7 @@ def test_summarize_knowledge_stage_artifacts_uses_status_file(tmp_path: Path) ->
     summary = summarize_knowledge_stage_artifacts(stage_root)
 
     assert summary["authoritative"] is True
-    assert summary["schema_version"] == "knowledge_stage_summary.v6"
+    assert summary["schema_version"] == "knowledge_stage_summary.v7"
     assert summary["stage_state"] == "interrupted"
     assert summary["termination_cause"] == "operator_interrupt"
     assert summary["finalization_completeness"] == "interrupted_before_finalization"
@@ -634,6 +714,8 @@ def test_summarize_knowledge_stage_artifacts_uses_status_file(tmp_path: Path) ->
     assert summary["artifact_states"]["task_status.jsonl"] == "skipped_due_to_interrupt"
     assert summary["artifact_states"]["worker_assignments.json"] == "present"
     assert summary["artifact_states"]["knowledge_manifest.json"] == "present"
+    assert summary["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 1
+    assert summary["task_file_guardrails"]["warning_count"] == 0
     assert summary["packets"]["packet_total"] == 0
     assert summary["workers"]["outcome_counts"] == {}
     assert summary["followups"]["circuit_breaker_activation_count"] == 0

@@ -19,6 +19,10 @@ from ..phase_worker_runtime import (
     WorkerAssignmentV1,
     WorkerExecutionReportV1,
 )
+from ..task_file_guardrails import (
+    build_worker_session_guardrails,
+    summarize_task_file_guardrails,
+)
 
 _KNOWLEDGE_TASK_STATUS_FILE_NAME = "task_status.jsonl"
 _KNOWLEDGE_STAGE_STATUS_FILE_NAME = "stage_status.json"
@@ -580,6 +584,33 @@ def _write_knowledge_runtime_summary_artifacts(
         telemetry_summary=telemetry_summary,
     )
     telemetry_summary.update(_summarize_knowledge_workspace_relaunches(worker_reports))
+    task_file_guardrails = summarize_task_file_guardrails(
+        [
+            (
+                dict(report.metadata or {}).get("task_file_guardrail")
+                if isinstance(report.metadata, Mapping)
+                else None
+            )
+            for report in worker_reports
+        ]
+    )
+    worker_session_guardrails = build_worker_session_guardrails(
+        planned_happy_path_worker_cap=len(assignments),
+        actual_happy_path_worker_sessions=int(
+            telemetry_summary.get("workspace_worker_session_count") or 0
+        ),
+        repair_followup_call_count=int(
+            telemetry_summary.get("structured_followup_call_count") or 0
+        ),
+    )
+    telemetry_summary["task_file_guardrails"] = task_file_guardrails
+    telemetry_summary["worker_session_guardrails"] = worker_session_guardrails
+    telemetry_summary["planned_happy_path_worker_cap"] = int(
+        worker_session_guardrails["planned_happy_path_worker_cap"]
+    )
+    telemetry_summary["actual_happy_path_worker_sessions"] = int(
+        worker_session_guardrails["actual_happy_path_worker_sessions"]
+    )
     telemetry = {
         "schema_version": "phase_worker_runtime.telemetry.v1",
         "phase_key": phase_key,
@@ -609,7 +640,11 @@ def _write_knowledge_runtime_summary_artifacts(
         max_turns_per_shard=1,
         settings=dict(settings or {}),
         artifact_paths=dict(artifacts),
-        runtime_metadata=dict(runtime_metadata or {}),
+        runtime_metadata={
+            **dict(runtime_metadata or {}),
+            "task_file_guardrails": task_file_guardrails,
+            "worker_session_guardrails": worker_session_guardrails,
+        },
     )
     _write_json(asdict(manifest), run_root / artifacts["phase_manifest"])
     return manifest

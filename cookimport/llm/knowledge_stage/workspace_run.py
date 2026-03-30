@@ -28,6 +28,11 @@ from ..editable_task_file import (
     validate_edited_task_file,
     write_task_file,
 )
+from ..task_file_guardrails import (
+    build_task_file_guardrail,
+    build_worker_session_guardrails,
+    summarize_task_file_guardrails,
+)
 
 for _module in (
     _shared_module,
@@ -47,6 +52,36 @@ def _render_events_jsonl(events: tuple[dict[str, Any], ...]) -> str:
     if not events:
         return ""
     return "".join(json.dumps(event, sort_keys=True) + "\n" for event in events)
+
+
+def _attach_worker_guardrail_summary(
+    *,
+    worker_runner_payload: dict[str, Any],
+    task_file_guardrail: Mapping[str, Any] | None,
+    repair_followup_call_count: int = 0,
+) -> None:
+    telemetry = worker_runner_payload.get("telemetry")
+    if not isinstance(telemetry, Mapping):
+        return
+    summary = telemetry.get("summary")
+    if not isinstance(summary, dict):
+        return
+    summary["task_file_guardrails"] = summarize_task_file_guardrails([task_file_guardrail])
+    worker_session_guardrails = build_worker_session_guardrails(
+        planned_happy_path_worker_cap=1,
+        actual_happy_path_worker_sessions=int(summary.get("workspace_worker_session_count") or 0),
+        repair_followup_call_count=repair_followup_call_count,
+    )
+    summary["worker_session_guardrails"] = worker_session_guardrails
+    summary["planned_happy_path_worker_cap"] = int(
+        worker_session_guardrails["planned_happy_path_worker_cap"]
+    )
+    summary["actual_happy_path_worker_sessions"] = int(
+        worker_session_guardrails["actual_happy_path_worker_sessions"]
+    )
+    summary["repair_followup_call_count"] = int(
+        worker_session_guardrails["repair_followup_call_count"]
+    )
 
 
 def _load_json_dict_safely(path: Path) -> dict[str, Any]:
@@ -945,11 +980,17 @@ def _run_phase_knowledge_worker_assignment_v1(
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
 
     task_file_payload: dict[str, Any] | None = None
+    task_file_guardrail: dict[str, Any] | None = None
     unit_to_shard_id: dict[str, str] = {}
     if assigned_shards:
         task_file_payload, unit_to_shard_id = _build_knowledge_task_file(
             assignment=assignment,
             shards=assigned_shards,
+        )
+        task_file_guardrail = build_task_file_guardrail(
+            payload=task_file_payload,
+            assignment_id=assignment.worker_id,
+            worker_id=assignment.worker_id,
         )
         write_task_file(path=worker_root / TASK_FILE_NAME, payload=task_file_payload)
 
@@ -962,6 +1003,10 @@ def _run_phase_knowledge_worker_assignment_v1(
             pipeline_id=pipeline_id,
             worker_runs=worker_runner_results,
             stage_rows=stage_rows,
+        )
+        _attach_worker_guardrail_summary(
+            worker_runner_payload=worker_runner_payload,
+            task_file_guardrail=task_file_guardrail,
         )
         _write_json(worker_runner_payload, worker_root / "status.json")
         return _DirectKnowledgeWorkerResult(
@@ -984,6 +1029,7 @@ def _run_phase_knowledge_worker_assignment_v1(
                     "hints_dir": _relative_path(run_root, hints_dir),
                     "out_dir": _relative_path(run_root, out_dir),
                     "scratch_dir": _relative_path(run_root, scratch_dir),
+                    "task_file_guardrail": dict(task_file_guardrail or {}),
                 },
             ),
             proposals=tuple(worker_proposals),
@@ -1344,6 +1390,16 @@ def _run_phase_knowledge_worker_assignment_v1(
         worker_runs=worker_runner_results,
         stage_rows=stage_rows,
     )
+    _attach_worker_guardrail_summary(
+        worker_runner_payload=worker_runner_payload,
+        task_file_guardrail=task_file_guardrail,
+        repair_followup_call_count=int(
+            worker_runner_payload.get("telemetry", {})
+            .get("summary", {})
+            .get("structured_followup_call_count")
+            or 0
+        ),
+    )
     _write_json(worker_runner_payload, worker_root / "status.json")
     return _DirectKnowledgeWorkerResult(
         report=WorkerExecutionReportV1(
@@ -1369,6 +1425,7 @@ def _run_phase_knowledge_worker_assignment_v1(
                     run_root,
                     worker_root / "packet_history.jsonl",
                 ),
+                "task_file_guardrail": dict(task_file_guardrail or {}),
             },
         ),
         proposals=tuple(worker_proposals),

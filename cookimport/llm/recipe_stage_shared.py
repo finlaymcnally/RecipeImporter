@@ -79,6 +79,11 @@ from .recipe_workspace_tools import (
 )
 from .recipe_tagging_guide import build_recipe_tagging_guide
 from .shard_prompt_targets import partition_contiguous_items, resolve_shard_count
+from .task_file_guardrails import (
+    build_task_file_guardrail,
+    build_worker_session_guardrails,
+    summarize_task_file_guardrails,
+)
 from .worker_hint_sidecars import preview_text, write_worker_hint_markdown
 
 logger = logging.getLogger(__name__)
@@ -2971,11 +2976,18 @@ def _run_recipe_workspace_worker_assignment_v1(
         working_dir=worker_root,
         prompt_text=worker_prompt_text,
     )
+    task_file_guardrail: dict[str, Any] | None = None
+    repair_worker_session_count = 0
     if runnable_tasks:
         task_file_path = worker_root / TASK_FILE_NAME
         original_task_file = _build_recipe_task_file(
             assignment=assignment,
             runnable_tasks=runnable_tasks,
+        )
+        task_file_guardrail = build_task_file_guardrail(
+            payload=original_task_file,
+            assignment_id=assignment.worker_id,
+            worker_id=assignment.worker_id,
         )
         write_task_file(path=task_file_path, payload=original_task_file)
         worker_prompt_text = _build_recipe_task_file_worker_prompt(
@@ -3099,6 +3111,7 @@ def _run_recipe_workspace_worker_assignment_v1(
                 reasoning_effort=reasoning_effort,
                 workspace_task_label="recipe correction repair task-file session",
             )
+            repair_worker_session_count += 1
             _write_json(
                 {"text": repair_run_result.response_text},
                 worker_root / "repair_last_message.json",
@@ -3375,6 +3388,28 @@ def _run_recipe_workspace_worker_assignment_v1(
         worker_runs=worker_runner_results,
         stage_rows=stage_rows,
     )
+    worker_summary = worker_runner_payload.get("telemetry", {}).get("summary")
+    if isinstance(worker_summary, dict):
+        worker_summary["task_file_guardrails"] = summarize_task_file_guardrails(
+            [task_file_guardrail]
+        )
+        worker_session_guardrails = build_worker_session_guardrails(
+            planned_happy_path_worker_cap=1,
+            actual_happy_path_worker_sessions=int(
+                worker_summary.get("workspace_worker_session_count") or 0
+            ),
+            repair_worker_session_count=repair_worker_session_count,
+        )
+        worker_summary["worker_session_guardrails"] = worker_session_guardrails
+        worker_summary["planned_happy_path_worker_cap"] = int(
+            worker_session_guardrails["planned_happy_path_worker_cap"]
+        )
+        worker_summary["actual_happy_path_worker_sessions"] = int(
+            worker_session_guardrails["actual_happy_path_worker_sessions"]
+        )
+        worker_summary["repair_worker_session_count"] = int(
+            worker_session_guardrails["repair_worker_session_count"]
+        )
     _write_json(worker_runner_payload, worker_root / "status.json")
     return _DirectRecipeWorkerResult(
         report=WorkerExecutionReportV1(
@@ -3397,6 +3432,8 @@ def _run_recipe_workspace_worker_assignment_v1(
                 "out_dir": _relative_path(run_root, out_dir),
                 "shards_dir": _relative_path(run_root, shard_dir),
                 "log_dir": _relative_path(run_root, logs_dir),
+                "task_file_guardrail": dict(task_file_guardrail or {}),
+                "repair_worker_session_count": repair_worker_session_count,
             },
         ),
         proposals=tuple(worker_proposals),
@@ -3846,10 +3883,53 @@ def _run_direct_recipe_workers_v1(
         "rows": stage_rows,
         "summary": summarize_direct_telemetry_rows(stage_rows),
     }
+    task_file_guardrails = summarize_task_file_guardrails(
+        [
+            (
+                dict(report.metadata or {}).get("task_file_guardrail")
+                if isinstance(report.metadata, Mapping)
+                else None
+            )
+            for report in worker_reports
+        ]
+    )
+    worker_session_guardrails = build_worker_session_guardrails(
+        planned_happy_path_worker_cap=len(assignments),
+        actual_happy_path_worker_sessions=int(
+            telemetry["summary"].get("workspace_worker_session_count") or 0
+        ),
+        repair_worker_session_count=sum(
+            int(
+                (
+                    dict(report.metadata or {}).get("repair_worker_session_count")
+                    if isinstance(report.metadata, Mapping)
+                    else 0
+                )
+                or 0
+            )
+            for report in worker_reports
+        ),
+    )
+    telemetry["summary"]["task_file_guardrails"] = task_file_guardrails
+    telemetry["summary"]["worker_session_guardrails"] = worker_session_guardrails
+    telemetry["summary"]["planned_happy_path_worker_cap"] = int(
+        worker_session_guardrails["planned_happy_path_worker_cap"]
+    )
+    telemetry["summary"]["actual_happy_path_worker_sessions"] = int(
+        worker_session_guardrails["actual_happy_path_worker_sessions"]
+    )
+    telemetry["summary"]["repair_worker_session_count"] = int(
+        worker_session_guardrails["repair_worker_session_count"]
+    )
     _write_json(promotion_report, run_root / artifacts["promotion_report"])
     _write_json(telemetry, run_root / artifacts["telemetry"])
     _write_json(failures, run_root / artifacts["failures"])
 
+    runtime_metadata_payload = {
+        **dict(runtime_metadata or {}),
+        "task_file_guardrails": task_file_guardrails,
+        "worker_session_guardrails": worker_session_guardrails,
+    }
     manifest = PhaseManifestV1(
         schema_version="phase_worker_runtime.phase_manifest.v1",
         phase_key=phase_key,
@@ -3862,9 +3942,15 @@ def _run_direct_recipe_workers_v1(
         max_turns_per_shard=1,
         settings=dict(settings or {}),
         artifact_paths=dict(artifacts),
-        runtime_metadata=dict(runtime_metadata or {}),
+        runtime_metadata=runtime_metadata_payload,
     )
     _write_json(asdict(manifest), run_root / artifacts["phase_manifest"])
+    if bool(worker_session_guardrails.get("cap_exceeded")):
+        raise CodexFarmRunnerError(
+            "Recipe happy-path worker sessions exceeded the planned cap: "
+            f"planned={worker_session_guardrails['planned_happy_path_worker_cap']} "
+            f"actual={worker_session_guardrails['actual_happy_path_worker_sessions']}."
+        )
     return manifest, worker_reports
 
 

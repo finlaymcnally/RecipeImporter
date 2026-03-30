@@ -418,6 +418,7 @@ def test_recipe_phase_runtime_writes_packet_outputs_and_session_telemetry(
     fixture = _run_multi_recipe_phase_fixture(tmp_path)
     worker_root = fixture["worker_root"]
     worker_status = fixture["worker_status"]
+    phase_manifest = fixture["phase_manifest"]
     proposal = fixture["proposal"]
 
     assert not any((worker_root / "hints").glob("*.md"))
@@ -429,6 +430,22 @@ def test_recipe_phase_runtime_writes_packet_outputs_and_session_telemetry(
     assert worker_status["runtime_mode_audit"]["output_schema_enforced"] is False
     assert worker_status["runtime_mode_audit"]["tool_affordances_requested"] is True
     assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 1
+    assert (
+        worker_status["telemetry"]["summary"]["worker_session_guardrails"][
+            "planned_happy_path_worker_cap"
+        ]
+        == 1
+    )
+    assert (
+        worker_status["telemetry"]["summary"]["task_file_guardrails"]["assignment_count"]
+        == 1
+    )
+    assert (
+        phase_manifest["runtime_metadata"]["worker_session_guardrails"][
+            "actual_happy_path_worker_sessions"
+        ]
+        == 1
+    )
     assert proposal["validation_metadata"]["task_aggregation"]["task_count"] == 2
 
 

@@ -9,6 +9,11 @@ from cookimport.llm.editable_task_file import (
     validate_edited_task_file,
     write_task_file,
 )
+from cookimport.llm.task_file_guardrails import (
+    build_task_file_guardrail,
+    build_worker_session_guardrails,
+    summarize_task_file_guardrails,
+)
 
 runtime = sys.modules["cookimport.parsing.canonical_line_roles"]
 globals().update(
@@ -1142,12 +1147,18 @@ def _run_line_role_workspace_worker_assignment_v1(
             runnable_shard_ids.add(shard_id)
 
     runnable_shards = [shard for shard in valid_shards if shard.shard_id in runnable_shard_ids]
+    task_file_guardrail: dict[str, Any] | None = None
     if runnable_shards:
         task_file_payload, unit_to_shard_id = _build_line_role_task_file(
             assignment=assignment,
             shards=runnable_shards,
             debug_payload_by_shard_id=debug_payload_by_shard_id,
             deterministic_baseline_by_shard_id=deterministic_baseline_by_shard_id,
+        )
+        task_file_guardrail = build_task_file_guardrail(
+            payload=task_file_payload,
+            assignment_id=assignment.worker_id,
+            worker_id=assignment.worker_id,
         )
         write_task_file(path=worker_root / TASK_FILE_NAME, payload=task_file_payload)
         worker_prompt_text = _build_line_role_workspace_worker_prompt(
@@ -1873,6 +1884,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 "out_dir": _relative_runtime_path(run_root, out_dir),
                 "shards_dir": _relative_runtime_path(run_root, shard_dir),
                 "log_dir": _relative_runtime_path(run_root, logs_dir),
+                "task_file_guardrail": dict(task_file_guardrail or {}),
             },
         ),
         proposals=tuple(worker_proposals),
@@ -2274,10 +2286,39 @@ def _run_line_role_direct_workers_v1(
         "rows": stage_rows,
         "summary": _summarize_direct_rows(stage_rows),
     }
+    task_file_guardrails = summarize_task_file_guardrails(
+        [
+            (
+                dict(report.metadata or {}).get("task_file_guardrail")
+                if isinstance(report.metadata, Mapping)
+                else None
+            )
+            for report in worker_reports
+        ]
+    )
+    worker_session_guardrails = build_worker_session_guardrails(
+        planned_happy_path_worker_cap=len(assignments),
+        actual_happy_path_worker_sessions=int(
+            telemetry["summary"].get("workspace_worker_session_count") or 0
+        ),
+    )
+    telemetry["summary"]["task_file_guardrails"] = task_file_guardrails
+    telemetry["summary"]["worker_session_guardrails"] = worker_session_guardrails
+    telemetry["summary"]["planned_happy_path_worker_cap"] = int(
+        worker_session_guardrails["planned_happy_path_worker_cap"]
+    )
+    telemetry["summary"]["actual_happy_path_worker_sessions"] = int(
+        worker_session_guardrails["actual_happy_path_worker_sessions"]
+    )
     _write_runtime_json(run_root / artifacts["promotion_report"], promotion_report)
     _write_runtime_json(run_root / artifacts["telemetry"], telemetry)
     _write_runtime_json(run_root / artifacts["failures"], failures)
 
+    runtime_metadata_payload = {
+        **dict(runtime_metadata or {}),
+        "task_file_guardrails": task_file_guardrails,
+        "worker_session_guardrails": worker_session_guardrails,
+    }
     manifest = PhaseManifestV1(
         schema_version="phase_worker_runtime.phase_manifest.v1",
         phase_key=phase_key,
@@ -2290,9 +2331,15 @@ def _run_line_role_direct_workers_v1(
         max_turns_per_shard=1,
         settings=dict(settings or {}),
         artifact_paths=dict(artifacts),
-        runtime_metadata=dict(runtime_metadata or {}),
+        runtime_metadata=runtime_metadata_payload,
     )
     _write_runtime_json(run_root / artifacts["phase_manifest"], _line_role_asdict(manifest))
+    if bool(worker_session_guardrails.get("cap_exceeded")):
+        raise LineRoleRepairFailureError(
+            "Canonical line-role happy-path worker sessions exceeded the planned cap: "
+            f"planned={worker_session_guardrails['planned_happy_path_worker_cap']} "
+            f"actual={worker_session_guardrails['actual_happy_path_worker_sessions']}."
+        )
     return manifest, worker_reports, runner_results_by_shard_id
 
 
