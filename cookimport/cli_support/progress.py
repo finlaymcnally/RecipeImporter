@@ -107,7 +107,7 @@ def _humanize_codex_pipeline_stage_label(pipeline_id: str) -> str:
     if "recipe.correction" in lowered or "recipe_correction" in lowered or "correction" in lowered:
         return "recipe correction"
     if "knowledge" in lowered:
-        return "non-recipe knowledge review"
+        return "non-recipe finalize"
     if "tags" in lowered:
         return "tag suggestions"
     return normalized
@@ -603,7 +603,7 @@ def _run_with_progress_status(
         if "recipe.correction" in lowered or "recipe_correction" in lowered or "correction" in lowered:
             return "recipe correction"
         if "knowledge" in lowered:
-            return "non-recipe knowledge review"
+            return "non-recipe finalize"
         if "tags" in lowered:
             return "tag suggestions"
         return normalized

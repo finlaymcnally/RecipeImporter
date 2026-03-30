@@ -219,31 +219,31 @@ Durable findings:
 - Final `recipe.name` overwrite decisions happen in `draft_v1.py` inside `apply_line_role_spans_to_recipes(...)`.
 - Strong syntax-heavy disagreement vetoes belong in `canonical_line_roles.py`, not in the writer path.
 
-### 2026-03-22 Stage 7 stopped pretending review routing was final semantic authority
+### 2026-03-22 Non-Recipe Route and Finalization stopped pretending review routing was final semantic authority
 
 Problem captured:
-- Stage 7 was still collapsing every outside-recipe block to deterministic `knowledge|other` even when the optional knowledge stage had not reviewed that row yet.
+- Non-Recipe Route and Finalization was still collapsing every outside-recipe block to deterministic `knowledge|other` even when the optional knowledge stage had not reviewed that row yet.
 - That let downstream scoring and Label Studio projection overwrite correct raw line-role lesson headings with seed `OTHER`, which looked like a model-quality bug even when the overlap was architectural.
 
 Durable decisions:
-- Stage 7 is routing plus bookkeeping, not the semantic owner for review-eligible outside-recipe prose.
-- `08_nonrecipe_seed_routing.json`, `09_nonrecipe_authority.json`, and `09_nonrecipe_candidate_status.json` now keep these seams distinct across routing, final authority, and unresolved-candidate bookkeeping.
+- Non-Recipe Route and Finalization is routing plus bookkeeping, not the semantic owner for candidate outside-recipe prose.
+- `08_nonrecipe_route.json`, `09_nonrecipe_authority.json`, and `09_nonrecipe_finalize_status.json` now keep these seams distinct across routing, final authority, and unresolved-candidate bookkeeping.
 - `stage_block_predictions.json` and Label Studio projection must read only explicit final authority, not the whole fallback category map.
-- review-excluded obvious-junk rows still remain immediately authoritative final `other`; the ambiguity applies only to review-eligible rows.
+- excluded obvious-junk rows still remain immediately authoritative final `other`; the ambiguity applies only to candidate rows.
 
 Anti-loop note:
-- if a future fix proposal wants to make Stage 7 "smart enough" to finalize review-eligible outside-recipe `KNOWLEDGE` again, re-check the March 22 authority-overlap failure first.
+- if a future fix proposal wants to make Non-Recipe Route and Finalization "smart enough" to finalize candidate outside-recipe `KNOWLEDGE` again, re-check the March 22 authority-overlap failure first.
 
 ### 2026-03-22 nonrecipe staging diagnostics shifted from fake semantic totals to explicit exclusion ledgers
 
 Problem captured:
-- once Stage 7 became routing-first, older diagnostics that implied line-role or Stage 7 already "owned" outside-recipe semantic knowledge became misleading.
+- once Non-Recipe Route and Finalization became routing-first, older diagnostics that implied line-role or Non-Recipe Route and Finalization already "owned" outside-recipe semantic knowledge became misleading.
 - obvious-junk pruning needed a row-level explanation surface so operators could tell whether knowledge input was shrinking for the right reason.
 
 Durable decisions:
 - keep `08_nonrecipe_exclusions.jsonl` as the row-level ledger for upstream excluded junk, with stable review-exclusion reasons and representative examples.
-- when knowledge-stage input feels bloated or mysteriously small, inspect the exclusion ledger and Stage 7 routing counts before changing scorer logic, bundle topology, or knowledge prompts.
-- retain the stable external `knowledge|other` output contract, but treat exclusion ledgers and refinement reports as the real explanation layer for how rows moved through Stage 7.
+- when knowledge-stage input feels bloated or mysteriously small, inspect the exclusion ledger and Non-Recipe Route and Finalization routing counts before changing scorer logic, bundle topology, or knowledge prompts.
+- retain the stable external `knowledge|other` output contract, but treat exclusion ledgers and refinement reports as the real explanation layer for how rows moved through Non-Recipe Route and Finalization.
 
 Anti-loop note:
 - do not use older line-role `KNOWLEDGE` budget counts as the primary diagnostic for this seam; after the routing-only cutover, exclusion ledgers and explicit final-authority maps tell the truthful story.

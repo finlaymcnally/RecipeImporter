@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from cookimport.llm.knowledge_stage.planning import (
-    CodexFarmNonrecipeKnowledgeReviewResult,
+    CodexFarmNonrecipeFinalizeResult,
 )
 from cookimport.llm.knowledge_stage.recovery import (
     _preflight_knowledge_shard,
@@ -11,7 +11,7 @@ from cookimport.llm.knowledge_stage.runtime import (
 )
 
 __all__ = [
-    "CodexFarmNonrecipeKnowledgeReviewResult",
+    "CodexFarmNonrecipeFinalizeResult",
     "_preflight_knowledge_shard",
     "run_codex_farm_nonrecipe_finalize",
 ]

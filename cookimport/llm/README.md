@@ -11,7 +11,7 @@ Start points:
 Active worker surfaces:
 - Recipe is packet-first on the happy path. Worker roots expose `worker_manifest.json`, `assigned_shards.json`, `current_packet.json`, `current_hint.md`, `current_result_path.txt`, `packet_lease_status.json`, authoritative `in/*.json`, and harvested `out/*.json`. The live recipe path does not use `assigned_tasks.json`, `SHARD_PACKET.md`, current-task sidecars, `scratch/`, or helper install/check loops.
 - Canonical line-role is still shard-ledger-first. Worker roots expose `CURRENT_PHASE*`, `assigned_shards.json`, authoritative `in/*.json`, editable `work/*.json`, optional `repair/*.json`, harvested `out/*.json`, and `tools/line_role_worker.py`.
-- Knowledge is packet-first like recipe, but packet kinds are two-pass shard-local review packets. Worker roots expose `worker_manifest.json`, `assigned_shards.json` for context, `current_packet.json`, `current_hint.md`, `current_result_path.txt`, `packet_lease_status.json`, authoritative `in/*.json`, fallback `OUTPUT_CONTRACT.md` plus `examples/`, and harvested `out/*.json`.
+- Knowledge is packet-first like recipe, but packet kinds are two-pass shard-local candidate packets. Worker roots expose `worker_manifest.json`, `assigned_shards.json` for context, `current_packet.json`, `current_hint.md`, `current_result_path.txt`, `packet_lease_status.json`, authoritative `in/*.json`, fallback `OUTPUT_CONTRACT.md` plus `examples/`, and harvested `out/*.json`.
 
 Current ownership split:
 - Repo code owns shard planning, packet leasing, exact ownership validation, proposal assembly, promotion, and telemetry.

@@ -739,7 +739,7 @@ def test_subprocess_runner_uses_sterile_execution_workspace(
         working_dir=source_root,
         env={"CODEX_HOME": str(tmp_path / ".codex-recipe")},
         output_schema_path=schema_path,
-        workspace_task_label="knowledge review shard",
+        workspace_task_label="non-recipe finalize shard",
     )
 
     command = captured["command"]
@@ -755,7 +755,7 @@ def test_subprocess_runner_uses_sterile_execution_workspace(
     assert "--skip-git-repo-check" in command
     assert f"{cwd}/in/shard-001.json" in stdin_text
     assert (cwd / "AGENTS.md").exists()
-    assert "knowledge review shard" in (cwd / "AGENTS.md").read_text(encoding="utf-8")
+    assert "non-recipe finalize shard" in (cwd / "AGENTS.md").read_text(encoding="utf-8")
     assert result.source_working_dir == str(source_root)
     assert result.execution_working_dir == str(cwd)
     assert result.execution_agents_path == str(cwd / "AGENTS.md")
@@ -968,7 +968,7 @@ def test_subprocess_runner_can_terminate_from_streamed_watchdog_snapshot(
         working_dir=source_root,
         env={"CODEX_HOME": str(tmp_path / ".codex-recipe")},
         output_schema_path=schema_path,
-        workspace_task_label="knowledge review shard",
+        workspace_task_label="non-recipe finalize shard",
         supervision_callback=lambda snapshot: (
             CodexExecSupervisionDecision.terminate(
                 reason_code="watchdog_command_execution_forbidden",

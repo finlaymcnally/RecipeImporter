@@ -1806,7 +1806,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         codex_farm_pipeline_knowledge: Annotated[str, typer.Option(
             "--codex-farm-pipeline-knowledge",
             hidden=True,
-            help="Stage-7 codex-farm pipeline id for non-recipe knowledge review.",
+            help="Codex-farm pipeline id for non-recipe finalize.",
         )] = "recipe.knowledge.packet.v1",
         codex_farm_context_blocks: Annotated[int, typer.Option(
             "--codex-farm-context-blocks",
@@ -1816,7 +1816,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         codex_farm_knowledge_context_blocks: Annotated[int, typer.Option(
             "--codex-farm-knowledge-context-blocks",
             min=0,
-            help="Blocks before/after each non-recipe review chunk included as context in Stage-7 bundles.",
+            help="Blocks before/after each non-recipe finalize chunk included as context in packet bundles.",
         )] = 2,
         codex_farm_failure_mode: Annotated[str, typer.Option(
             "--codex-farm-failure-mode",

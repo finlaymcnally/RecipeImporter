@@ -212,7 +212,7 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
     assert session.recipe_boundary_result is not None
     assert session.recipe_refine_result is not None
     assert session.nonrecipe_route_result is not None
-    assert session.knowledge_final_result is not None
+    assert session.nonrecipe_finalize_result is not None
     assert session.label_artifact_paths["span_decisions_path"].is_file()
     span_path = session.label_artifact_paths["recipe_spans_path"]
     span_payload = span_path.read_text(encoding="utf-8")
@@ -224,7 +224,7 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
     assert '"rejection_reason": "rejected_missing_title_anchor"' in decision_payload
 
 
-def test_execute_stage_import_session_uses_reviewable_nonrecipe_rows_for_late_outputs_when_knowledge_review_is_off(
+def test_execute_stage_import_session_uses_candidate_nonrecipe_rows_for_late_outputs_when_nonrecipe_finalize_is_off(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -342,9 +342,9 @@ def test_execute_stage_import_session_uses_reviewable_nonrecipe_rows_for_late_ou
     assert len(seen_chunk_rows) == 1
     assert [row["index"] for row in seen_chunk_rows[0]] == [1]
     assert [row["text"] for row in seen_chunk_rows[0]] == ["Technique note"]
-    assert session.knowledge_final_result is not None
-    assert session.knowledge_final_result.authoritative_nonrecipe_blocks == []
-    assert [row["index"] for row in session.knowledge_final_result.late_output_nonrecipe_blocks] == [
+    assert session.nonrecipe_finalize_result is not None
+    assert session.nonrecipe_finalize_result.authoritative_nonrecipe_blocks == []
+    assert [row["index"] for row in session.nonrecipe_finalize_result.late_output_nonrecipe_blocks] == [
         1
     ]
     assert session.conversion_result.non_recipe_blocks == []

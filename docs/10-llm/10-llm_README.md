@@ -32,7 +32,7 @@ Settings and command boundary:
 Primary entrypoints:
 
 - `cookimport/staging/import_session.py` for stage/import runs
-- `cookimport/staging/pipeline_runtime.py` for the stage-owned `recipe-refine` and `knowledge-final` wrappers that call the recipe and knowledge Codex surfaces from the five-stage runtime
+- `cookimport/staging/pipeline_runtime.py` for the stage-owned `recipe-refine` and `nonrecipe-finalize` wrappers that call the recipe and knowledge Codex surfaces from the five-stage runtime
 - `cookimport/labelstudio/ingest_flows/prediction_run.py` and `cookimport/labelstudio/ingest_flows/upload.py` for prediction-run and Label Studio benchmark/import flows
 - `cookimport/entrypoint.py` for saved-settings import passthrough
 
@@ -121,7 +121,7 @@ Benchmark split:
 - Inline recipe tags are part of the recipe correction call and ride along with normal recipe processing.
 - Prediction-run generation can execute:
   - recipe Codex passes
-  - optional knowledge refinement/extraction over the explicit `nonrecipe-route` review queue
+  - optional knowledge refinement/extraction over the explicit `nonrecipe-route` candidate queue
   - canonical line-role Codex labeling
   - freeform prelabel
 - `prompt_budget_summary.json` should preserve CodexFarm split token totals (`tokens_input`, `tokens_cached_input`, `tokens_output`) from per-call telemetry rows when they are present in the prediction manifest.
@@ -136,13 +136,13 @@ If you want the current Codex-backed flow in operator language instead of artifa
 4. The program groups the corrected recipe-side lines into coherent recipe spans and recipes. Everything not grouped into recipe spans becomes the non-recipe side.
 5. The recipe Codex surface reviews the recipe side in owned recipe shards. One worker session processes its assigned recipe task files under `in/` and writes one `out/<task_id>.json` per task. Repo code validates those task outputs, rejoins them into shard proposals, and near-miss invalid tasks can still get one structured repair pass.
 6. The program deterministically validates those recipe task outputs, records whether each result is promotable, and only then promotes `repaired` outcomes into the final recipe formats.
-7. The knowledge Codex surface reviews the non-recipe side. The program partitions the category-neutral `nonrecipe-route` review queue into contiguous shards according to the prompt target count, writes one shard input file per shard under `in/`, and keeps one long-lived worker session on that shard. Inside that session, Pass 1 starts from raw owned rows plus mechanical truth instead of a repo-authored semantic default, so the worker makes the first-authority `knowledge|other` judgment directly. Repo code validates and freezes accepted rows, then the same session continues immediately into Pass 2 over only the accepted Pass 1 knowledge rows. In Pass 2 the worker supplies a local `group_key` and `topic_label`, while repo code canonicalizes final `group_id` values during install. Repo code still validates exact owned block coverage plus kept-block group coverage and promotes only accepted shard outputs.
+7. The knowledge Codex surface finalizes the non-recipe side. The program partitions the category-neutral `nonrecipe-route` candidate queue into contiguous shards according to the prompt target count, writes one shard input file per shard under `in/`, and keeps one long-lived worker session on that shard. Inside that session, Pass 1 starts from raw owned rows plus mechanical truth instead of a repo-authored semantic default, so the worker makes the first-authority `knowledge|other` judgment directly. Repo code validates and freezes accepted rows, then the same session continues immediately into Pass 2 over only the accepted Pass 1 knowledge rows. In Pass 2 the worker supplies a local `group_key` and `topic_label`, while repo code canonicalizes final `group_id` values during install. Repo code still validates exact owned block coverage plus kept-block group coverage and promotes only accepted shard outputs.
 8. The program validates owned output coverage, writes artifacts/reports, and emits the final recipe, knowledge, and debug outputs.
 
 Worker/shard mental model:
 
 - A setting such as `10 / 5 / 10` in benchmark interactive mode means the runtime should build ten `line_role` shards, five `recipe` shards, and ten `knowledge` shards unless a phase has fewer owned items total.
-- Knowledge now uses a shard-owned ledger seam: `knowledge_prompt_target_count` controls the approximate shard count directly, and each shard owns one contiguous slice of the review queue.
+- Knowledge now uses a shard-owned ledger seam: `knowledge_prompt_target_count` controls the approximate shard count directly, and each shard owns one contiguous slice of the candidate queue.
 - The durable contract is "immutable input payload in, structured owned output/proposal out." The runtime then validates exact ownership/coverage and promotes only valid results.
 - Recipe tags are part of the recipe correction surface, not a fourth independent Codex phase.
 - Freeform prelabel is separate again; it is not part of the recipe/line-role/knowledge trio above.
@@ -241,7 +241,7 @@ Knowledge runtime note:
 - the billed knowledge payload now avoids chunk-level semantic hints entirely; it carries raw block text, block ids, and mechanically true structure only
 - prompt-cost control for this stage lives before worker execution:
   - `cookimport/parsing/chunks.py` still provides deterministic chunk boundaries, but its semantic lane guesses no longer suppress review
-  - `build_knowledge_jobs(...)` now sizes ordered review packets from those deterministic boundaries, while keeping deterministic judgments out of the billed reviewer payload
+  - `build_knowledge_jobs(...)` now sizes ordered candidate packets from those deterministic boundaries, while keeping deterministic judgments out of the billed reviewer payload
   - table-heavy packets stay isolated, soft-gap packing can cross small outside-recipe gaps, and there is no second deterministic low-signal pruning pass anymore
   - the shared default knowledge context is now `0` blocks
 
@@ -317,12 +317,12 @@ Prompt/debug artifacts:
 - preview defaults to the shard-v1 surfaces unless explicitly overridden, so it can project post-refactor worker/shard budgets over saved deterministic-only benchmark outputs too
 - preview reconstruction is local-only and composed from three seams:
   - recipe prompt inputs from CodexFarm job builders in `codex_farm_orchestrator`
-  - knowledge prompt inputs from `codex_farm_knowledge_jobs`, which now plans shard-owned compact payloads for both live non-recipe knowledge review and preview reconstruction
+  - knowledge prompt inputs from `codex_farm_knowledge_jobs`, which now plans shard-owned compact payloads for both live non-recipe finalize and preview reconstruction
   - line-role prompt text from `build_canonical_line_role_prompt`
 - knowledge preview now follows the live packet contract exactly: prompt counts come from the same packet planner as the live runtime, so preview cannot emit fewer prompts than the packet floor even when `knowledge_prompt_target_count` is lower
-- preview uses the same category-neutral review queue as the live knowledge runtime; excluded spans must not silently widen the preview work set
+- preview uses the same category-neutral candidate queue as the live knowledge runtime; excluded spans must not silently widen the preview work set
 - the current default knowledge context is `0` blocks on each side, and that default is shared across stage, benchmark, CLI, and prompt-preview paths
-- `build_knowledge_jobs(...)` now sizes ordered review packets from the review-eligible block queue and keeps one task per packet. `knowledge_prompt_target_count` still requests approximate shard count, but it cannot collapse work below the packet floor. Knowledge worker count still controls concurrency separately from shard planning.
+- `build_knowledge_jobs(...)` now sizes ordered candidate packets from the candidate block queue and keeps one task per packet. `knowledge_prompt_target_count` still requests approximate shard count, but it cannot collapse work below the packet floor. Knowledge worker count still controls concurrency separately from shard planning.
 - line-role preview must batch the full ordered candidate set and pass `deterministic_label` plus `escalation_reasons` into `build_canonical_line_role_prompt(...)`; preview-only unresolved shortlists are a stale contract and will understate line-role prompt volume.
 - line-role prompt reconstruction no longer injects grouped recipe spans or importer provenance. The pre-grouping contract is now span-free: prompt text explicitly says no prior recipe-span authority is provided, and candidate rows default to `within_recipe_span=None` until grouped labels are projected later.
 - the active line-role wrapper teaches `HOWTO_SECTION` as a book-optional, recipe-internal subsection label only (`FOR THE SAUCE`, `TO FINISH`, `FOR SERVING`), and the static prompt text explicitly fences chapter/topic/cookbook-lesson headings back to `KNOWLEDGE` or `OTHER`
@@ -416,7 +416,7 @@ Structured output contract:
   - immutable `knowledge/in/*.json` inputs
   - validated `knowledge/proposals/*.json` outputs
   - deterministic promotion into explicit final authority plus reviewer snippets
-  Operator-facing clarity now comes from using `non-recipe knowledge review` wording and from richer `knowledge_manifest.json.review_summary` counts/paths.
+  Operator-facing clarity now comes from using `non-recipe finalize` wording and from richer `knowledge_manifest.json.review_summary` counts/paths.
 - RecipeImport-owned CodexFarm subprocesses should inherit `~/.codex-recipe` from `cookimport/llm/codex_farm_runner.py`, not from ad hoc shell aliases or per-command CLI glue. If the wrong Codex home is in use, debug the runner env injection first.
 - `gpt-5.3-codex-spark` plus reasoning effort does not guarantee reasoning-summary events in saved `.trace.json` files. A zero `reasoning_event_count` can be a legitimate upstream Codex CLI event-stream outcome, not an exporter bug.
 - Current line-role transport is intentionally split three ways:

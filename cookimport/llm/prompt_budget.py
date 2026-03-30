@@ -77,6 +77,15 @@ _SURFACE_CONFIG_BY_KEY = {
 }
 
 
+def _normalize_prompt_budget_stage_key(stage_key: str) -> str:
+    normalized = canonical_stage_key(stage_key)
+    if normalized == "recipe_correction":
+        return "recipe_refine"
+    if normalized == "knowledge":
+        return "nonrecipe_finalize"
+    return normalized
+
+
 def build_prediction_run_prompt_budget_summary(
     pred_manifest: Mapping[str, Any],
     pred_run_dir: Path,
@@ -90,7 +99,7 @@ def build_prediction_run_prompt_budget_summary(
             for stage_name, stage_payload in sorted(process_runs.items()):
                 if not isinstance(stage_payload, Mapping):
                     continue
-                canonical_name = canonical_stage_key(str(stage_name))
+                canonical_name = _normalize_prompt_budget_stage_key(str(stage_name))
                 stage_summary = _build_codex_farm_stage_summary(
                     stage_name=canonical_name,
                     stage_payload=stage_payload,
@@ -99,7 +108,7 @@ def build_prediction_run_prompt_budget_summary(
                     by_stage[canonical_name] = stage_summary
         if "recipe_refine" not in by_stage:
             recipe_summary = _build_codex_farm_stage_summary(
-                stage_name="recipe_correction",
+                stage_name="recipe_refine",
                 stage_payload=llm_payload,
             )
             if recipe_summary is not None:
@@ -107,7 +116,7 @@ def build_prediction_run_prompt_budget_summary(
         knowledge_payload = llm_payload.get("knowledge")
         if isinstance(knowledge_payload, Mapping):
             knowledge_summary = _build_codex_farm_stage_summary(
-                stage_name="knowledge",
+                stage_name="nonrecipe_finalize",
                 stage_payload=knowledge_payload,
             )
             if knowledge_summary is not None:

@@ -510,7 +510,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             "recipe.knowledge.packet.v1",
             "--codex-farm-pipeline-knowledge",
             hidden=True,
-            help="Stage-7 codex-farm pipeline id for non-recipe knowledge review.",
+            help="Codex-farm pipeline id for non-recipe finalize.",
         ),
         codex_farm_context_blocks: int = typer.Option(
             30,
@@ -522,7 +522,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             2,
             "--codex-farm-knowledge-context-blocks",
             min=0,
-            help="Blocks before/after each non-recipe review chunk included as context in Stage-7 bundles.",
+            help="Blocks before/after each non-recipe finalize chunk included as context in packet bundles.",
         ),
         codex_farm_failure_mode: str = typer.Option(
             "fail",

@@ -124,11 +124,11 @@ Durable decisions:
 Problem captured:
 
 - upload-bundle cutdown discovery still looked for the older processed-output knowledge summary filename
-- current single-book knowledge outputs now expose counts in `09_nonrecipe_review_status.json`
+- current single-book knowledge outputs now expose counts in `09_nonrecipe_finalize_status.json`
 
 Durable decisions:
 
-- `scripts/benchmark_cutdown_for_external_ai.py` now treats `09_nonrecipe_review_status.json` as a valid processed-output knowledge summary source alongside any older `09_knowledge_outputs.json` path
+- `scripts/benchmark_cutdown_for_external_ai.py` now treats `09_nonrecipe_finalize_status.json` as a valid processed-output knowledge summary source alongside any older `09_knowledge_outputs.json` path
 - prompt/manifest discovery stays unchanged; only the counts/status fallback was widened to match the current repo layout
 
 Anti-loop note:
@@ -312,9 +312,9 @@ Durable decisions:
 
 - `upload_bundle_v1` and related rendering now expose `recipe_topology_key` plus ordered semantic `recipe_stages`
 - the active stage meanings are:
-  - `build_intermediate_det`
-  - `recipe_llm_correct_and_link`
-  - `build_final_recipe`
+  - `recipe_build_intermediate`
+  - `recipe_refine`
+  - `recipe_build_final`
 - starter-pack and casebook rendering should present chunking separately from recipe correction/finalization rather than flattening everything into pass-slot labels
 - the external-AI cutdown path should read semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics directly instead of reconstructing pass-slot trees
 - historical bundles may still be read through narrow transition adapters for old knowledge-stage sample names and related local artifact names, but new reviewer-facing bundle fields must stay semantic
@@ -351,7 +351,7 @@ Durable decisions:
 
 - prompt rows, sampled prompt logs, and runtime call inventories should be keyed by semantic `stage_key`
 - recipe triage should read `recipe_manifest.json` stage states plus `recipe_correction_audit/*.json` instead of synthetic pass-slot trees
-- recipe artifacts now live under `recipe_correction/{in,out}` and `build_final_recipe/out`; `chunking/schemaorg/final` should not be rebuilt as a live contract
+- recipe artifacts now live under `recipe_correction/{in,out}` and `recipe_build_final/out`; `chunking/schemaorg/final` should not be rebuilt as a live contract
 - archived prompt logs may still carry `first-stage` / `second-stage` / `third-stage` / `fourth-stage`; keep that transition isolated to the read-side stage-key normalizer
 
 Anti-loop note:
@@ -497,7 +497,7 @@ Problem captured:
 - post-refactor CodexFarm benchmark quality dropped sharply versus the older Codex run and it was easy to blame the whole recipe path
 
 Durable decisions:
-- the dominant benchmark delta is the disappearance of codex-driven outside-recipe `KNOWLEDGE` relabeling after Stage 7 became authoritative
+- the dominant benchmark delta is the disappearance of codex-driven outside-recipe `KNOWLEDGE` relabeling after Non-Recipe Route and Finalization became authoritative
 - recipe-path failures still matter, but they are a separate regression from the main score drop
 
 Evidence worth keeping:
@@ -506,7 +506,7 @@ Evidence worth keeping:
 - the same 2026-03-16 run also had `52` `recipe_correction_error` rows rejected as `placeholder_steps_only`, but that was not the main explanation for the benchmark score collapse
 
 Anti-loop note:
-- if CodexFarm no longer beats vanilla on canonical-text, inspect Stage 7 authority changes before rewriting scorer math or prompt packs
+- if CodexFarm no longer beats vanilla on canonical-text, inspect Non-Recipe Route and Finalization authority changes before rewriting scorer math or prompt packs
 
 ### 2026-03-16_18.56.30, 2026-03-16_19.16.07, and 2026-03-16_19.27.06 prompt export completeness
 
@@ -546,7 +546,7 @@ Durable decisions:
   - live line-role Codex may only see escalated batches
   - canonical scoring can still read a projected artifact built from final authority
 - final benchmark `KNOWLEDGE` / `OTHER` scoring should come from final non-recipe authority:
-  - deterministic Stage 7 seed authority first
+  - deterministic Non-Recipe Route and Finalization seed authority first
   - optional knowledge-stage block-decision merge second
   - projected scored artifact last
 - helper renames alone are not enough; if the benchmark helper still cannot access returned final non-recipe authority from the stage session, it is still at risk of projecting the wrong seam
@@ -803,13 +803,13 @@ Anti-loop note:
 
 Problem captured:
 - `upload_bundle_v1` diagnostics were still contradicting themselves:
-  - correction-stage empty mappings could be blamed on `build_final_recipe`
+  - correction-stage empty mappings could be blamed on `recipe_build_final`
   - observed final-recipe call counts could be inflated from correction calls
   - baseline-trace parity could claim codex-only trace artifacts were missing even when bundle-local derived rows and run diagnostics said they existed
 
 Durable decisions:
-- `final_recipe_empty_mapping` must mean actual `build_final_recipe` empty-mapping output only
-- `analysis.recipe_pipeline_context.observed_recipe_stage_call_counts.build_final_recipe` counts only observed final-recipe calls
+- `final_recipe_empty_mapping` must mean actual `recipe_build_final` empty-mapping output only
+- `analysis.recipe_pipeline_context.observed_recipe_stage_call_counts.recipe_build_final` counts only observed final-recipe calls
 - `16_baseline_trace_parity.json` should honor derived bundle-local trace artifacts when run diagnostics already mirrored them into the bundle
 - keep this narrowly in the bundle existing-output/model/render seams; it is not a scoring change and not an Oracle transport change
 
@@ -847,7 +847,7 @@ Problem captured:
   - `regression_casebook` could still claim `top_negative_delta_recipes` even when there were no negative-delta fallback candidates
 
 Durable decisions:
-- compact `recipe_llm_correct_and_link` outputs with `payload.r[].cr.i` / `payload.r[].cr.s` count as non-empty correction outputs
+- compact `recipe_refine` outputs with `payload.r[].cr.i` / `payload.r[].cr.s` count as non-empty correction outputs
 - `empty_output_signal` now means truly empty correction output, not just an empty ingredient-step mapping
 - casebook fallback source/reason becomes signal-based when there is no negative-delta recipe to point at
 - bundle generation should fail loudly if parsed correction outputs are visibly non-empty while stage observability still says every correction output is empty

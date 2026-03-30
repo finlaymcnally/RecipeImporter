@@ -52,14 +52,14 @@ Architecture priorities:
 - for stage runs, `cookimport/cli.py` always plans one or more source jobs, executes those jobs, and merges them before one shared semantic session.
 - worker-side source-job execution lives in `cookimport/cli_worker.py`.
 - shared source-job planning lives in `cookimport/staging/job_planning.py`.
-- `cookimport/staging/pipeline_runtime.py` now makes the post-import semantic session explicit as five stage-owned runtime steps: `extract`, `recipe-boundary`, `recipe-refine`, `nonrecipe-route`, and `knowledge-final`.
+- `cookimport/staging/pipeline_runtime.py` now makes the post-import semantic session explicit as five stage-owned runtime steps: `extract`, `recipe-boundary`, `recipe-refine`, `nonrecipe-route`, and `nonrecipe-finalize`.
 - `cookimport/staging/import_session.py` remains the composition root, but it now threads stage-owned results instead of treating `ConversionResult` as the only post-import carrier.
-- `cookimport/staging/nonrecipe_stage.py` and `cookimport/staging/stage_block_predictions.py` are now thin public seams. The owned logic lives under `nonrecipe_authority_contract.py`, `nonrecipe_seed.py`, `nonrecipe_routing.py`, `nonrecipe_authority.py`, `nonrecipe_review_status.py`, `recipe_block_evidence.py`, `knowledge_block_evidence.py`, and `block_label_resolution.py`.
+- `cookimport/staging/nonrecipe_stage.py` and `cookimport/staging/stage_block_predictions.py` are now thin public seams. The owned logic lives under `nonrecipe_authority_contract.py`, `nonrecipe_seed.py`, `nonrecipe_routing.py`, `nonrecipe_authority.py`, `nonrecipe_finalize_status.py`, `recipe_block_evidence.py`, `knowledge_block_evidence.py`, and `block_label_resolution.py`.
 - output-writing primitives live in `cookimport/staging/writer.py`.
 - recipe-ID reassignment logic lives in `cookimport/staging/pdf_jobs.py`.
 - stage import session now builds the label-first authority seam before drafting: `label_deterministic`, optional `label_refine`, and `recipe_boundary` artifacts are written under the stage run root and drive downstream stage block predictions.
 - when label-first regrouping yields zero recipes, the run explains that outcome through `recipe_boundary/<workbook_slug>/recipe_spans.json` and `span_decisions.json`; stage-backed flows no longer compare against importer recipe candidates.
-- The legacy numbered non-recipe lane now runs through explicit `nonrecipe-route` and `knowledge-final` runtime results; `ConversionResult.non_recipe_blocks` is repopulated only from final non-recipe authority afterward as a downstream cache.
+- The legacy numbered non-recipe lane now runs through explicit `nonrecipe-route` and `nonrecipe-finalize` runtime results; `ConversionResult.non_recipe_blocks` is repopulated only from final non-recipe authority afterward as a downstream cache.
 
 ### Optional Label Studio lane
 - `cookimport/labelstudio/ingest_flows/prediction_run.py` and `cookimport/labelstudio/ingest_flows/upload.py` can:
@@ -77,7 +77,7 @@ Architecture priorities:
 - `recipe-refine` may improve recipe content, but it may not change recipe ownership decided by `recipe-boundary`.
 - The legacy numbered nickname now refers to the outside-recipe routing seam, not one mixed semantic classifier.
 - `nonrecipe-route` only honors obvious-junk exclusions and packages surviving outside-recipe rows into one category-neutral candidate queue.
-- obvious-junk exclusions become final `other` immediately; `knowledge-final` is the only live semantic owner of candidate outside-recipe `knowledge` versus `other`.
+- obvious-junk exclusions become final `other` immediately; `nonrecipe-finalize` is the only live semantic owner of candidate outside-recipe `knowledge` versus `other`.
 - scalar trust/confidence is no longer part of the label-first line-role contract.
 - line-role Codex escalation now depends on explicit escalation reasons, not score thresholds; that remains an escalation seam, not the main runtime truth boundary.
 - accepted line-role Codex labels now either survive as Codex after structural validation, recover through the same-session worker repair loop, recover through one bounded watchdog retry after a retryable worker kill, or fail closed if no clean shard result validates; repo code no longer silently substitutes deterministic fallback rows on the live worker path.

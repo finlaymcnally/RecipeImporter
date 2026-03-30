@@ -764,7 +764,7 @@ class RunSettings(BaseModel):
             label="Knowledge LLM Pipeline",
             order=115,
             description=(
-                "Optional non-recipe knowledge review pipeline. "
+                "Optional non-recipe finalize pipeline. "
                 "Off keeps the fully vanilla nonrecipe authority."
             ),
         ),

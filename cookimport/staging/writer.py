@@ -1235,7 +1235,6 @@ def write_nonrecipe_finalize_status_artifact(
     ]
     candidate_status = str(
         (llm_report or {}).get("candidate_status")
-        or (llm_report or {}).get("review_status")
         or ""
     ).strip()
     if not candidate_status:

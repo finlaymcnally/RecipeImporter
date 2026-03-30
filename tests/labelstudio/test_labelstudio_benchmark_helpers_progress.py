@@ -805,8 +805,8 @@ def test_run_with_progress_status_writes_structured_stage_timeseries_fields(
     def _run(update_progress):
         update_progress(
             format_stage_progress(
-                "Running codex-farm non-recipe knowledge review... task 1/4 | running 2",
-                stage_label="non-recipe knowledge review",
+                "Running codex-farm non-recipe finalize... task 1/4 | running 2",
+                stage_label="non-recipe finalize",
                 work_unit_label="task",
                 task_current=1,
                 task_total=4,
@@ -839,7 +839,7 @@ def test_run_with_progress_status_writes_structured_stage_timeseries_fields(
         for line in telemetry_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    assert any(row.get("stage_label") == "non-recipe knowledge review" for row in rows)
+    assert any(row.get("stage_label") == "non-recipe finalize" for row in rows)
     assert any(row.get("work_unit_label") == "task" for row in rows)
     assert any(row.get("worker_total") == 4 for row in rows)
     assert any(row.get("worker_active") == 2 for row in rows)
@@ -967,8 +967,8 @@ def test_run_with_progress_status_keeps_structured_stage_worker_details_visible(
     def _run(update_progress):
         update_progress(
             format_stage_progress(
-                "Running codex-farm non-recipe knowledge review... task 1/4 | running 2",
-                stage_label="non-recipe knowledge review",
+                "Running codex-farm non-recipe finalize... task 1/4 | running 2",
+                stage_label="non-recipe finalize",
                 task_current=1,
                 task_total=4,
                 running_workers=2,
@@ -979,8 +979,8 @@ def test_run_with_progress_status_keeps_structured_stage_worker_details_visible(
         )
         update_progress(
             format_stage_progress(
-                "Running codex-farm non-recipe knowledge review... task 2/4",
-                stage_label="non-recipe knowledge review",
+                "Running codex-farm non-recipe finalize... task 2/4",
+                stage_label="non-recipe finalize",
                 task_current=2,
                 task_total=4,
                 worker_total=4,
@@ -1000,7 +1000,7 @@ def test_run_with_progress_status_keeps_structured_stage_worker_details_visible(
     knowledge_messages = [
         message
         for message in capture.messages
-        if "non-recipe knowledge review" in message.lower()
+        if "non-recipe finalize" in message.lower()
     ]
     assert knowledge_messages
     assert any("configured workers: 4" in message for message in knowledge_messages)
@@ -1039,8 +1039,8 @@ def test_run_with_progress_status_renders_all_ten_knowledge_workers(
     def _run(update_progress):
         update_progress(
             format_stage_progress(
-                "Running codex-farm non-recipe knowledge review... task 0/10 | running 10",
-                stage_label="non-recipe knowledge review",
+                "Running codex-farm non-recipe finalize... task 0/10 | running 10",
+                stage_label="non-recipe finalize",
                 task_current=0,
                 task_total=10,
                 running_workers=10,
@@ -1156,8 +1156,8 @@ def test_run_with_progress_status_renders_packet_scale_knowledge_worker_labels(
     def _run(update_progress):
         update_progress(
             format_stage_progress(
-                "Running codex-farm non-recipe knowledge review... task 47/48 | running 1",
-                stage_label="non-recipe knowledge review",
+                "Running codex-farm non-recipe finalize... task 47/48 | running 1",
+                stage_label="non-recipe finalize",
                 task_current=47,
                 task_total=48,
                 running_workers=1,

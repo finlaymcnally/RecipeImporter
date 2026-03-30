@@ -148,13 +148,13 @@ Durable decisions:
 
 Problem captured:
 - Phase 2 still had one candidate-first escape hatch: if authoritative regrouping produced zero recipes, the stage session restored importer-owned results
-- Stage 7 existed, but stage-backed tables/chunks and some Label Studio accounting still read `ConversionResult.non_recipe_blocks` as live authority
+- Non-Recipe Route and Finalization existed, but stage-backed tables/chunks and some Label Studio accounting still read `ConversionResult.non_recipe_blocks` as live authority
 
 Durable decisions:
 - stage-backed paths stay on the authoritative label-first result even when regrouping disagrees with importer candidates
-- that mismatch now writes `group_recipe_spans/<workbook_slug>/authority_mismatch.json` instead of silently restoring candidate-first ownership
-- Stage 7 rows are the live source for non-recipe tables, chunks, knowledge counts, and benchmark evidence
-- `ConversionResult.non_recipe_blocks` remains transition cache data only after Stage 7 work is complete
+- that mismatch now writes `recipe_boundary/<workbook_slug>/authority_mismatch.json` instead of silently restoring candidate-first ownership
+- Non-Recipe Route and Finalization rows are the live source for non-recipe tables, chunks, knowledge counts, and benchmark evidence
+- `ConversionResult.non_recipe_blocks` remains transition cache data only after Non-Recipe Route and Finalization work is complete
 - the finished Phase 2 contract is label-first only; any proposal that restores importer-owned recipe or non-recipe authority is reverting the refactor, not extending it
 
 Anti-loop note:
@@ -168,19 +168,19 @@ Problem captured:
 Durable decisions:
 - the live public recipe pipeline id is `codex-recipe-shard-v1`
 - the recipe Codex path is one correction/link stage plus deterministic final draft rebuild from explicit ingredient-step mappings
-- new user-facing docs and reviewer surfaces should present the semantic recipe trio (`build_intermediate_det`, `recipe_llm_correct_and_link`, `build_final_recipe`) rather than older 3-pass or merged-repair ids
+- new user-facing docs and reviewer surfaces should present the semantic recipe trio (`recipe_build_intermediate`, `recipe_refine`, `recipe_build_final`) rather than older 3-pass or merged-repair ids
 
-### 2026-03-16_01.13.12 Stage 7 non-recipe authority contract
+### 2026-03-16_01.13.12 Non-Recipe Route and Finalization non-recipe authority contract
 
 Problem captured:
-- the first Stage 7 rollout had the right files but still left too much real authority in residue-era helpers and later readers
+- the first Non-Recipe Route and Finalization rollout had the right files but still left too much real authority in residue-era helpers and later readers
 
 Durable decisions:
-- `08_nonrecipe_seed_routing.json` is the route-first candidate/exclude seam
+- `08_nonrecipe_route.json` is the route-first candidate/exclude seam
 - `08_nonrecipe_exclusions.jsonl` is the row-level explanation ledger for obvious-junk exclusions
 - `09_nonrecipe_authority.json` is the only final machine-readable `knowledge` versus `other` truth surface
-- `09_nonrecipe_candidate_status.json` keeps unresolved candidate state out of the authority file while still making incompleteness visible
-- Stage 7 ownership must drive downstream tables, chunks, Label Studio knowledge counts, and benchmark evidence; knowledge extraction is scoped to candidate rows only
+- `09_nonrecipe_finalize_status.json` keeps unresolved candidate state out of the authority file while still making incompleteness visible
+- Non-Recipe Route and Finalization ownership must drive downstream tables, chunks, Label Studio knowledge counts, and benchmark evidence; knowledge extraction is scoped to candidate rows only
 - later worker/runtime changes may change implementation details, but they should not move non-recipe authority back out of these stage-owned artifacts
 
 Anti-loop note:
@@ -189,11 +189,11 @@ Anti-loop note:
 ### 2026-03-16_09.03.14, 2026-03-16_12.10.00, and 2026-03-16_14.09.27 trust/escalation boundary
 
 Problem captured:
-- confidence/trust was easy to misread as either fully authoritative or fully removed after the label-first and Stage 7 cutovers
+- confidence/trust was easy to misread as either fully authoritative or fully removed after the label-first and Non-Recipe Route and Finalization cutovers
 - the write surface was wider than the decision surface, so stale score fields could linger in stage artifacts, prediction-run artifacts, and reviewer packets even after the core runtime stopped depending on them
 
 Durable decisions:
-- the only live control-path use of mixed line-role confidence was the Codex escalation gate in `cookimport/parsing/canonical_line_roles.py`; recipe grouping and Stage 7 ownership were already label-driven
+- the only live control-path use of mixed line-role confidence was the Codex escalation gate in `cookimport/parsing/canonical_line_roles.py`; recipe grouping and Non-Recipe Route and Finalization ownership were already label-driven
 - the migration touched `label_source_of_truth.py`, `staging/import_session.py`, `labelstudio/ingest.py`, benchmark follow-up exports, and the external-AI cutdown path together
 - the final current contract is reason-only on the label-first seam:
   - authoritative labeled rows keep labels, provenance, and `escalation_reasons`
@@ -201,7 +201,7 @@ Durable decisions:
 - reviewer/export surfaces changed in lockstep:
   - `analysis.line_role_escalation` replaced `analysis.line_role_trust`
   - `analysis.explicit_escalation_changed_lines_packet` replaced the old low-trust packet
-- recipe grouping and Stage 7 ownership still ignore scalar trust/confidence and use final labels as authority
+- recipe grouping and Non-Recipe Route and Finalization ownership still ignore scalar trust/confidence and use final labels as authority
 - `decided_by`, `reason_tags`, and explicit `escalation_reasons` remain the active decision-trace fields on current line-role outputs
 
 Anti-loop note:
@@ -225,7 +225,7 @@ Problem captured:
 - a post-refactor benchmark can show all the new stage-named artifacts and still diverge from the intended architecture if the authoritative decision seams did not actually move
 
 Durable decisions:
-- do not treat the existence of `label_det`, `label_llm_correct`, `group_recipe_spans`, `08_nonrecipe_seed_routing.json`, `09_nonrecipe_authority.json`, and `09_nonrecipe_candidate_status.json` as proof that the refactor landed in substance
+- do not treat the existence of `label_deterministic`, `label_refine`, `recipe_boundary`, `08_nonrecipe_route.json`, `09_nonrecipe_authority.json`, and `09_nonrecipe_finalize_status.json` as proof that the refactor landed in substance
 - verify the authority seams directly:
   - whether Stage 2 correction actually mutates labels
   - whether Stage 3 grouping still over-accepts titleless spans

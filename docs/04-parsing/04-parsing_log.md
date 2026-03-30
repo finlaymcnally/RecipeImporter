@@ -373,7 +373,7 @@ What stuck:
 - debugging obvious recipe misses should start with atomizer heuristics, deterministic labeling, and later grouping behavior rather than restoring provenance-backed span hints
 
 Evidence worth keeping:
-- the `Bright Cabbage Slaw` failure path was traced to importer provenance stopping before the method blocks, which made those rows `outside_recipe_span` in `label_det` before Codex correction
+- the `Bright Cabbage Slaw` failure path was traced to importer provenance stopping before the method blocks, which made those rows `outside_recipe_span` in `label_deterministic` before Codex correction
 
 Anti-loop note:
 - do not restore importer-backed `within_recipe_span` seeding as a quick fix; that was the bug
@@ -540,20 +540,20 @@ Evidence worth keeping:
 Anti-loop note:
 - if a future "quality recovery" fix helps Salt Fat by globally widening knowledge, title, instruction, or variant labels, it is probably recreating the pre-canary problems; use the exact miss families and contrast books instead
 
-## 2026-03-22 outside-recipe semantic authority was split cleanly: line-role routes, Stage 7 records routing, knowledge decides meaning
+## 2026-03-22 outside-recipe semantic authority was split cleanly: line-role routes, Non-Recipe Route and Finalization records routing, knowledge decides meaning
 
 Problem:
-- outside-recipe `KNOWLEDGE` authority was overlapping across raw line-role output, deterministic Stage 7 projection, and the optional knowledge stage
+- outside-recipe `KNOWLEDGE` authority was overlapping across raw line-role output, deterministic Non-Recipe Route and Finalization projection, and the optional knowledge stage
 - the visible failure was especially confusing on March 22 because raw line-role could already label lesson headings correctly and later staging still rewrote those same rows back to `OTHER`
 
 What stuck:
-- line-role is now routing-only for review-eligible outside-recipe prose:
+- line-role is now routing-only for candidate outside-recipe prose:
   - keep recipe-structure labels
   - exclude only overwhelming obvious junk through `exclusion_reason`
-  - leave plausible lesson prose and concept headings as review-eligible `OTHER`
-- the knowledge stage is now the only semantic owner for review-eligible outside-recipe `KNOWLEDGE` versus `OTHER`
-- Stage 7 keeps explicit routing/final-authority bookkeeping instead of pretending every outside-recipe seed row is already semantically decided
-- downstream scoring/projection must trust explicit final authority only; unreviewed review-eligible seed rows may remain visible as fallback `other`, but they are not reviewed semantic authority
+  - leave plausible lesson prose and concept headings as candidate `OTHER`
+- the knowledge stage is now the only semantic owner for candidate outside-recipe `KNOWLEDGE` versus `OTHER`
+- Non-Recipe Route and Finalization keeps explicit routing/final-authority bookkeeping instead of pretending every outside-recipe seed row is already semantically decided
+- downstream scoring/projection must trust explicit final authority only; unreviewed candidate seed rows may remain visible as fallback `other`, but they are not reviewed semantic authority
 
 Evidence worth keeping:
 - the March 22 Salt Fat run showed the exact overlap bug mechanically:
@@ -562,7 +562,7 @@ Evidence worth keeping:
 - the fix did not require inventing a third public label; the durable contract stayed binary for scored output while making routing metadata explicit
 
 Anti-loop note:
-- if a future fix proposal wants line-role or deterministic Stage 7 to reclaim final semantic `KNOWLEDGE` authority for review-eligible prose, treat that as a regression back toward the overlap bug first
+- if a future fix proposal wants line-role or deterministic Non-Recipe Route and Finalization to reclaim final semantic `KNOWLEDGE` authority for candidate prose, treat that as a regression back toward the overlap bug first
 
 ## 2026-03-22 obvious-junk diversion widened, but only for junk families the parser can explain honestly
 
@@ -584,7 +584,7 @@ What stuck:
 
 Evidence worth keeping:
 - the March 22 baseline still forwarded lines like `Thank you for downloading this Simon & Schuster ebook.` and mailing-list/signup prompts into `knowledge/in/*.json`
-- the useful metric was not "how many line-role `KNOWLEDGE` rows exist"; it was "how many obviously useless rows were excluded before knowledge review"
+- the useful metric was not "how many line-role `KNOWLEDGE` rows exist"; it was "how many obviously useless rows were excluded before non-recipe finalize"
 
 Anti-loop note:
 - if upstream diversion starts swallowing lesson headings, explanatory prose, or borderline cookbook framing just to cut prompt volume, narrow the junk-family predicates; do not paper over the mistake by changing knowledge-stage semantics

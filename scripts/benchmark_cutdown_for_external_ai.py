@@ -7492,7 +7492,7 @@ def _upload_bundle_build_knowledge_summary(
         if processed_output_dir is not None:
             for candidate in (
                 processed_output_dir / "09_knowledge_outputs.json",
-                processed_output_dir / "09_nonrecipe_review_status.json",
+                processed_output_dir / "09_nonrecipe_finalize_status.json",
             ):
                 if not candidate.is_file():
                     continue
@@ -10811,18 +10811,18 @@ def _upload_bundle_single_run_recipe_span_fallback(
     labeled_line_count = _coerce_int(telemetry_payload.get("labeled_line_count"))
     if labeled_line_count is None:
         labeled_line_count = _coerce_int(projection_payload.get("span_count"))
-    unresolved_review_eligible_line_count = _coerce_int(
-        telemetry_payload.get("unresolved_review_eligible_line_count")
+    unresolved_candidate_line_count = _coerce_int(
+        telemetry_payload.get("unresolved_candidate_line_count")
     )
-    if unresolved_review_eligible_line_count is None:
-        unresolved_review_eligible_line_count = _coerce_int(
-            projection_payload.get("unresolved_review_eligible_line_count")
+    if unresolved_candidate_line_count is None:
+        unresolved_candidate_line_count = _coerce_int(
+            projection_payload.get("unresolved_candidate_line_count")
         )
 
     if (
         recipe_span_count is None
         and labeled_line_count is None
-        and unresolved_review_eligible_line_count is None
+        and unresolved_candidate_line_count is None
     ):
         return None
 
@@ -10834,9 +10834,9 @@ def _upload_bundle_single_run_recipe_span_fallback(
         "labeled_line_count": (
             int(labeled_line_count) if labeled_line_count is not None else None
         ),
-        "unresolved_review_eligible_line_count": (
-            int(unresolved_review_eligible_line_count)
-            if unresolved_review_eligible_line_count is not None
+        "unresolved_candidate_line_count": (
+            int(unresolved_candidate_line_count)
+            if unresolved_candidate_line_count is not None
             else None
         ),
     }

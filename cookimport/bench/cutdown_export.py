@@ -164,7 +164,7 @@ def write_prompt_eval_alignment_doc(
         "- `line-role-pipeline/line_role_predictions.jsonl`: canonical line-role rows reused for reviewer diagnostics.",
         "- `line-role-pipeline/line_role_flips_vs_baseline.jsonl`: inferred baseline-vs-candidate deltas.",
         "- `line-role-pipeline/slice_metrics.json`: slice-level quality signals.",
-        "- `line-role-pipeline/routing_summary.json`: review-excluded versus review-eligible outside-recipe routing plus recipe-local structure counts.",
+        "- `line-role-pipeline/routing_summary.json`: excluded versus candidate outside-recipe routing plus recipe-local structure counts.",
         "- `line-role-pipeline/telemetry_summary.json`: the authoritative scoring-mode summary for projected line-role artifacts.",
         "- `manifest.json`: the authoritative source of `stage_block_predictions_path` and `extracted_archive_path` used by the evaluator.",
     ]

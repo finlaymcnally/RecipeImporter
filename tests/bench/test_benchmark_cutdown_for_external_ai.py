@@ -358,7 +358,7 @@ def _write_processed_output_knowledge_artifacts(
     knowledge_call_count: int = 4,
 ) -> None:
     _write_json(
-        processed_output_root / "09_nonrecipe_review_status.json",
+        processed_output_root / "09_nonrecipe_finalize_status.json",
         {
             "enabled": True,
             "counts": {
@@ -2473,7 +2473,7 @@ def test_build_upload_bundle_explicit_escalation_packet_matches_atomic_index_onl
                 "atomic_index": 1,
                 "label": "OTHER",
                 "decided_by": "codex",
-                "escalation_reasons": ["knowledge_review_excluded"],
+                "escalation_reasons": ["nonrecipe_finalize_excluded"],
                 "text": "1 cup flour",
                 "within_recipe_span": True,
                 "page_type": "recipe_page",
@@ -2521,7 +2521,7 @@ def test_build_upload_bundle_explicit_escalation_packet_matches_atomic_index_onl
     sample_row = escalation_packet["sample_rows"][0]
     assert sample_row["line_index"] == 1
     assert sample_row["atomic_index"] == 1
-    assert sample_row["escalation_reasons"] == ["knowledge_review_excluded"]
+    assert sample_row["escalation_reasons"] == ["nonrecipe_finalize_excluded"]
 
 
 def _build_existing_upload_bundle_fixture(tmp_path: Path) -> dict[str, object]:
@@ -4633,7 +4633,7 @@ def test_build_upload_bundle_single_run_preserves_span_signal_and_pairless_notes
             "schema_version": "line_role_final_authority_projection.v1",
             "recipe_span_count": 29,
             "labeled_line_count": 1471,
-            "unresolved_review_eligible_line_count": 863,
+            "unresolved_candidate_line_count": 863,
         },
     )
     _write_json(
@@ -4642,7 +4642,7 @@ def test_build_upload_bundle_single_run_preserves_span_signal_and_pairless_notes
             "line_role_pipeline_recipe_projection": {
                 "recipes_applied": 29,
                 "span_count": 1471,
-                "unresolved_review_eligible_line_count": 863,
+                "unresolved_candidate_line_count": 863,
             }
         },
     )

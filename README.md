@@ -78,7 +78,7 @@ Interactive path:
 3. Choose `Vanilla / no Codex` or `CodexFarm`
 4. If you choose `CodexFarm`, the next screen lets you toggle:
    - recipe correction
-   - non-recipe knowledge review
+   - non-recipe finalize
    - prompt counts for enabled Codex steps
 5. Wait for the run to finish
 

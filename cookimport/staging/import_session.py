@@ -11,7 +11,7 @@ from cookimport.staging.import_session_flows.output_stage import (
 from cookimport.staging.import_session_flows.reporting import _notify_stage_progress
 from cookimport.staging.pipeline_runtime import (
     ExtractedBookBundle,
-    KnowledgeFinalResult,
+    NonrecipeFinalizeResult,
     NonrecipeRouteResult,
     RecipeBoundaryResult,
     RecipeRefineResult,
@@ -33,7 +33,7 @@ from cookimport.staging.writer import (
 
 __all__ = [
     "ExtractedBookBundle",
-    "KnowledgeFinalResult",
+    "NonrecipeFinalizeResult",
     "NonrecipeRouteResult",
     "RecipeBoundaryResult",
     "RecipeRefineResult",

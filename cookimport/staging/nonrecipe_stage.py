@@ -26,7 +26,7 @@ from .nonrecipe_authority_contract import (
     NonRecipeSpan,
     NonRecipeStageResult,
 )
-from .nonrecipe_review_status import build_nonrecipe_finalize_status_result
+from .nonrecipe_finalize_status import build_nonrecipe_finalize_status_result
 from .nonrecipe_routing import build_nonrecipe_routing_result
 from .nonrecipe_seed import (
     count_nonrecipe_reason_values,
@@ -253,7 +253,7 @@ def refine_nonrecipe_stage_result(
             "authority_mode": (
                 "knowledge_refined_final"
                 if changed_blocks
-                else "knowledge_finalized_candidates"
+                else "nonrecipe_finalized_candidates"
             ),
             "input_mode": "nonrecipe_candidate_spans",
             "seed_nonrecipe_span_count": len(stage_result.seed.seed_nonrecipe_spans),

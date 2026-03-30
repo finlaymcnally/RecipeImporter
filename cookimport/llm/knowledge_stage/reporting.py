@@ -110,7 +110,7 @@ def _build_review_summary(
     }
 
 
-def _build_knowledge_review_rollup(
+def _build_nonrecipe_finalize_rollup(
     *,
     promotion_report: Mapping[str, Any] | None,
     build_report: Any,
@@ -155,7 +155,7 @@ def _build_knowledge_review_rollup(
     }
 
 
-def _derive_knowledge_review_status(review_rollup: Mapping[str, Any]) -> str:
+def _derive_nonrecipe_finalize_status(review_rollup: Mapping[str, Any]) -> str:
     reviewed_shard_count = int(review_rollup.get("meaningfully_reviewed_shard_count") or 0)
     unreviewed_shard_count = int(review_rollup.get("unreviewed_shard_count") or 0)
     unreviewed_packet_count = int(review_rollup.get("unreviewed_packet_count") or 0)
@@ -175,12 +175,12 @@ def _derive_knowledge_authority_mode(
 ) -> str:
     if int(refined_stage_result.refinement_report.get("changed_block_count") or 0) > 0:
         return "knowledge_refined_final"
-    review_status = _derive_knowledge_review_status(review_rollup)
-    if review_status == "unreviewed":
-        return "knowledge_unreviewed_candidates_kept"
-    if review_status == "partial":
-        return "knowledge_partially_reviewed_candidates_kept"
-    return "knowledge_reviewed_candidates_kept"
+    finalize_status = _derive_nonrecipe_finalize_status(review_rollup)
+    if finalize_status == "unreviewed":
+        return "nonrecipe_unfinalized_candidates_kept"
+    if finalize_status == "partial":
+        return "nonrecipe_partially_finalized_candidates_kept"
+    return "nonrecipe_finalized_candidates_kept"
 
 
 def _runtime_artifact_paths(knowledge_stage_dir: Path) -> dict[str, str]:

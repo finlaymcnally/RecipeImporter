@@ -975,7 +975,7 @@ def generate_pred_run_artifacts(
             result.chunks = []
 
     if processed_output_root is None and run_settings.llm_knowledge_pipeline.value != "off":
-        _notify("Running codex-farm non-recipe knowledge review...")
+        _notify("Running codex-farm non-recipe finalize...")
         try:
             knowledge_apply = run_codex_farm_nonrecipe_finalize(
                 conversion_result=result,
@@ -1001,7 +1001,7 @@ def generate_pred_run_artifacts(
         except CodexFarmRunnerError as exc:
             if run_settings.codex_farm_failure_mode.value == "fallback":
                 warning = (
-                    "LLM non-recipe knowledge review failed; continuing without knowledge artifacts: "
+                    "LLM non-recipe finalize failed; continuing without knowledge artifacts: "
                     f"{exc}"
                 )
                 result.report.warnings.append(warning)

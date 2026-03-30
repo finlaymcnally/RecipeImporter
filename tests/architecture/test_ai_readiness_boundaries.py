@@ -92,7 +92,7 @@ def test_package_owner_modules_exist_for_split_domains() -> None:
         REPO_ROOT / "cookimport" / "staging" / "nonrecipe_seed.py",
         REPO_ROOT / "cookimport" / "staging" / "nonrecipe_routing.py",
         REPO_ROOT / "cookimport" / "staging" / "nonrecipe_authority.py",
-        REPO_ROOT / "cookimport" / "staging" / "nonrecipe_review_status.py",
+        REPO_ROOT / "cookimport" / "staging" / "nonrecipe_finalize_status.py",
         REPO_ROOT / "cookimport" / "staging" / "recipe_block_evidence.py",
         REPO_ROOT / "cookimport" / "staging" / "knowledge_block_evidence.py",
         REPO_ROOT / "cookimport" / "staging" / "block_label_resolution.py",
@@ -150,7 +150,7 @@ def test_second_wave_owner_roots_stay_small_and_explicit() -> None:
     assert '("policy", "planning", "validation", "runtime")' in line_role_text
     assert len(line_role_text.splitlines()) <= 500
 
-    assert "from .planning import CodexFarmNonrecipeKnowledgeReviewResult" in knowledge_text
+    assert "from .planning import CodexFarmNonrecipeFinalizeResult" in knowledge_text
     assert "from .recovery import _preflight_knowledge_shard" in knowledge_text
     assert "from .runtime import run_codex_farm_nonrecipe_finalize" in knowledge_text
     assert len(knowledge_text.splitlines()) <= 40

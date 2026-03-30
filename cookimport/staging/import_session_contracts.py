@@ -9,7 +9,7 @@ from cookimport.parsing.label_source_of_truth import LabelFirstStageResult
 from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
 from cookimport.staging.pipeline_runtime import (
     ExtractedBookBundle,
-    KnowledgeFinalResult,
+    NonrecipeFinalizeResult,
     NonrecipeRouteResult,
     RecipeBoundaryResult,
     RecipeRefineResult,
@@ -40,4 +40,4 @@ class StageImportSessionResult:
     recipe_boundary_result: RecipeBoundaryResult | None = None
     recipe_refine_result: RecipeRefineResult | None = None
     nonrecipe_route_result: NonrecipeRouteResult | None = None
-    knowledge_final_result: KnowledgeFinalResult | None = None
+    nonrecipe_finalize_result: NonrecipeFinalizeResult | None = None

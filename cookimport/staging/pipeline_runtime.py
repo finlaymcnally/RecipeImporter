@@ -16,7 +16,7 @@ from cookimport.core.reporting import compute_file_hash
 from cookimport.core.slug import slugify_name
 from cookimport.core.source_model import resolve_conversion_source_model, source_blocks_to_rows
 from cookimport.llm.codex_farm_knowledge_orchestrator import (
-    CodexFarmNonrecipeKnowledgeReviewResult,
+    CodexFarmNonrecipeFinalizeResult,
     run_codex_farm_nonrecipe_finalize,
 )
 from cookimport.llm.codex_farm_orchestrator import (
@@ -132,7 +132,7 @@ class NonrecipeRouteResult:
 
 
 @dataclass(frozen=True, slots=True)
-class KnowledgeFinalResult:
+class NonrecipeFinalizeResult:
     nonrecipe_route_result: NonrecipeRouteResult
     recipe_refine_result: RecipeRefineResult
     stage_result: NonRecipeStageResult
@@ -143,8 +143,8 @@ class KnowledgeFinalResult:
     late_output_nonrecipe_blocks: list[dict[str, Any]]
     unresolved_candidate_blocks: list[dict[str, Any]]
     llm_report: dict[str, Any] | None
-    knowledge_write_report: Any | None = None
-    knowledge_apply_result: CodexFarmNonrecipeKnowledgeReviewResult | None = None
+    nonrecipe_finalize_write_report: Any | None = None
+    nonrecipe_finalize_apply_result: CodexFarmNonrecipeFinalizeResult | None = None
 
 
 def build_extracted_book_bundle(
@@ -316,24 +316,24 @@ def run_nonrecipe_route_stage(
     )
 
 
-def run_knowledge_final_stage(
+def run_nonrecipe_finalize_stage(
     *,
     nonrecipe_route_result: NonrecipeRouteResult,
     run_settings: RunSettings,
     run_root: Path,
     overrides: Any | None = None,
     progress_callback: Callable[[str], None] | None = None,
-) -> KnowledgeFinalResult:
+) -> NonrecipeFinalizeResult:
     recipe_boundary_result = nonrecipe_route_result.recipe_boundary_result
     recipe_refine_result = nonrecipe_route_result.recipe_refine_result
     stage_result = nonrecipe_route_result.stage_result
     llm_report: dict[str, Any] | None = None
-    knowledge_write_report = None
-    knowledge_apply_result: CodexFarmNonrecipeKnowledgeReviewResult | None = None
+    nonrecipe_finalize_write_report = None
+    nonrecipe_finalize_apply_result: CodexFarmNonrecipeFinalizeResult | None = None
 
     if run_settings.llm_knowledge_pipeline.value != "off":
         try:
-            knowledge_apply_result = run_codex_farm_nonrecipe_finalize(
+            nonrecipe_finalize_apply_result = run_codex_farm_nonrecipe_finalize(
                 conversion_result=recipe_refine_result.conversion_result,
                 nonrecipe_stage_result=stage_result,
                 recipe_spans=list(recipe_boundary_result.label_first_result.recipe_spans),
@@ -349,7 +349,7 @@ def run_knowledge_final_stage(
                 raise
             recipe_refine_result.conversion_result.report = _append_report_warning(
                 recipe_refine_result.conversion_result.report,
-                "LLM non-recipe knowledge review failed; continuing without knowledge artifacts: "
+                "LLM non-recipe finalize failed; continuing without knowledge artifacts: "
                 f"{exc}",
             )
             llm_report = {
@@ -359,9 +359,9 @@ def run_knowledge_final_stage(
                 "fatalError": str(exc),
             }
         else:
-            stage_result = knowledge_apply_result.refined_stage_result
-            llm_report = dict(knowledge_apply_result.llm_report)
-            knowledge_write_report = knowledge_apply_result.write_report
+            stage_result = nonrecipe_finalize_apply_result.refined_stage_result
+            llm_report = dict(nonrecipe_finalize_apply_result.llm_report)
+            nonrecipe_finalize_write_report = nonrecipe_finalize_apply_result.write_report
 
     authority_contract = build_nonrecipe_authority_contract(
         full_blocks=recipe_boundary_result.extracted_bundle.archive_blocks,
@@ -372,7 +372,7 @@ def run_knowledge_final_stage(
         stage_result.candidate_status.unresolved_candidate_block_indices,
         stage_result.candidate_status.unresolved_candidate_route_by_index,
     )
-    return KnowledgeFinalResult(
+    return NonrecipeFinalizeResult(
         nonrecipe_route_result=nonrecipe_route_result,
         recipe_refine_result=recipe_refine_result,
         stage_result=stage_result,
@@ -383,6 +383,6 @@ def run_knowledge_final_stage(
         late_output_nonrecipe_blocks=list(authority_contract.late_output_blocks),
         unresolved_candidate_blocks=unresolved_candidate_blocks,
         llm_report=llm_report,
-        knowledge_write_report=knowledge_write_report,
-        knowledge_apply_result=knowledge_apply_result,
+        nonrecipe_finalize_write_report=nonrecipe_finalize_write_report,
+        nonrecipe_finalize_apply_result=nonrecipe_finalize_apply_result,
     )

@@ -17,19 +17,6 @@ LINE_ROLE_STAGE_KEY = "line_role"
 WRITE_OUTPUTS_STAGE_KEY = "write_outputs"
 
 
-HISTORICAL_STAGE_KEY_ALIASES: dict[str, str] = {
-    "label_det": LABEL_DETERMINISTIC_STAGE_KEY,
-    "label_refine": LABEL_REFINE_STAGE_KEY,
-    "recipe_boundary": RECIPE_BOUNDARY_STAGE_KEY,
-    "nonrecipe_route": NONRECIPE_ROUTE_STAGE_KEY,
-    "recipe_build_intermediate": RECIPE_BUILD_INTERMEDIATE_STAGE_KEY,
-    "recipe_refine": RECIPE_REFINE_STAGE_KEY,
-    "recipe_build_final": RECIPE_BUILD_FINAL_STAGE_KEY,
-    "nonrecipe_finalize": NONRECIPE_FINALIZE_STAGE_KEY,
-    "recipe_correction": RECIPE_REFINE_STAGE_KEY,
-    "knowledge": NONRECIPE_FINALIZE_STAGE_KEY,
-}
-
 _STAGE_DEFINITIONS: dict[str, dict[str, Any]] = {
     LABEL_DETERMINISTIC_STAGE_KEY: {
         "label": "Label Deterministic",
@@ -96,9 +83,7 @@ _STAGE_DEFINITIONS: dict[str, dict[str, Any]] = {
 
 def canonical_stage_key(stage_key: str) -> str:
     normalized = str(stage_key or "").strip()
-    if not normalized:
-        return normalized
-    return HISTORICAL_STAGE_KEY_ALIASES.get(normalized, normalized)
+    return normalized
 
 
 def stage_label(stage_key: str) -> str:

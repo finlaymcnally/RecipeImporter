@@ -40,12 +40,12 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Builds the canonical `AuthoritativeRecipeSemantics` payload from a deterministic recipe or recipe-Codex correction result, then projects cookbook3 from that payload without re-running semantic note/variant/link decisions later in writer code.
 - `cookimport/staging/nonrecipe_authority_contract.py`
   - Canonical non-recipe contract/result types, including the strict-authority vs late-output split now read by stage and Label Studio flows.
-- `cookimport/staging/nonrecipe_seed.py`, `nonrecipe_routing.py`, `nonrecipe_authority.py`, `nonrecipe_review_status.py`
+- `cookimport/staging/nonrecipe_seed.py`, `nonrecipe_routing.py`, `nonrecipe_authority.py`, `nonrecipe_finalize_status.py`
   - Small owners for seed spans, review-queue routing, final authority, late-output/scoring views, and reviewed/unreviewed bookkeeping.
 - `cookimport/staging/nonrecipe_stage.py`
   - Thin public seam that assembles the owner modules above into the non-recipe route/final-authority runtime result.
 - `cookimport/staging/pipeline_runtime.py`
-  - Defines the stage-owned runtime bundles now used by `import_session.py`: `ExtractedBookBundle`, `RecipeBoundaryResult`, `RecipeRefineResult`, `NonrecipeRouteResult`, and `KnowledgeFinalResult`.
+  - Defines the stage-owned runtime bundles now used by `import_session.py`: `ExtractedBookBundle`, `RecipeBoundaryResult`, `RecipeRefineResult`, `NonrecipeRouteResult`, and `NonrecipeFinalizeResult`.
   - Keeps the five-stage authority order explicit; the writer now emits split non-recipe seed-routing, final-authority, and review-status artifacts instead of one mixed file.
 - `cookimport/staging/writer.py`
   - Writes recipe-authority artifacts, intermediate/final outputs, non-recipe route/finalize artifacts, section artifacts, chunks, raw artifacts, and report JSON.
@@ -76,7 +76,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
 Progress telemetry note:
 
 - `cookimport/staging/import_session_flows/output_stage.py` emits structured stage-progress snapshots for label-first authority building, knowledge chunk generation, and multi-step output writing, so stage/benchmark spinners and `processing_timeseries.jsonl` retain more than a single status line during those phases.
-- The shared stage session now runs through explicit five-stage runtime objects before writing: `extract`, `recipe-boundary`, `recipe-refine`, `nonrecipe-route`, `knowledge-final`.
+- The shared stage session now runs through explicit five-stage runtime objects before writing: `extract`, `recipe-boundary`, `recipe-refine`, `nonrecipe-route`, `nonrecipe-finalize`.
 
 ## Canonical Naming Conventions (User-Facing)
 
@@ -112,7 +112,7 @@ Per workbook (slugified file stem):
 - `final drafts/<workbook_slug>/r{index}.json`
 - `sections/<workbook_slug>/r{index}.sections.json`
 - `sections/<workbook_slug>/sections.md` (default; skipped with `stage --no-write-markdown`)
-- `chunks/<workbook_slug>/c{index}.json` (if any; deterministic fallback when knowledge review is off)
+- `chunks/<workbook_slug>/c{index}.json` (if any; deterministic fallback when non-recipe finalize is off)
 - `chunks/<workbook_slug>/chunks.md` (same condition as `c{index}.json`)
 - `tables/<workbook_slug>/tables.jsonl` and `tables/<workbook_slug>/tables.md` (always written for stage/prediction runs; `tables.md` skipped with `stage --no-write-markdown`)
 - `knowledge/<workbook_slug>/knowledge.md` (if optional knowledge extraction is enabled and wrote reviewer-facing knowledge output)
@@ -181,7 +181,7 @@ Stage-block `KNOWLEDGE` label contract:
 - Optional knowledge groups are reviewer-facing context; Codex `block_decisions` are what refine final `KNOWLEDGE` versus `OTHER`, and the promoted group artifact records how the model grouped those kept blocks.
 - Candidate rows that remain unresolved now stay explicit in benchmark/Label Studio metadata as `unresolved_candidate_*`; semantic scoring excludes them instead of flattening them into `OTHER`.
 - `ConversionResult.non_recipe_blocks` mirrors strict final outside-recipe authority only.
-- Table extraction and deterministic knowledge-off chunk generation use a separate late-output block list. When knowledge review runs and produces reviewed authority, that late-output list is the authoritative outside-recipe rows; when knowledge review is off or falls back, it is the surviving outside-recipe candidate queue.
+- Table extraction and deterministic knowledge-off chunk generation use a separate late-output block list. When non-recipe finalize runs and produces reviewed authority, that late-output list is the authoritative outside-recipe rows; when non-recipe finalize is off or falls back, it is the surviving outside-recipe candidate queue.
 - Final semantic `KNOWLEDGE` evidence still comes only from `09_nonrecipe_authority.json`.
 
 Stage-block label resolution contract:

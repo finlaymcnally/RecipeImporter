@@ -18,12 +18,12 @@ def make_stage_result(
     routing: NonRecipeRoutingResult,
     authority: NonRecipeAuthorityResult,
     candidate_status: NonRecipeCandidateStatusResult | None = None,
-    review_status: NonRecipeCandidateStatusResult | None = None,
+    finalize_status: NonRecipeCandidateStatusResult | None = None,
     refinement_report: Mapping[str, Any] | None = None,
 ) -> NonRecipeStageResult:
-    resolved_candidate_status = candidate_status or review_status
+    resolved_candidate_status = candidate_status or finalize_status
     if resolved_candidate_status is None:
-        raise TypeError("make_stage_result requires candidate_status or review_status")
+        raise TypeError("make_stage_result requires candidate_status or finalize_status")
     return NonRecipeStageResult(
         seed=seed,
         routing=routing,
@@ -150,7 +150,7 @@ def make_candidate_status_result(
     )
 
 
-def make_review_status_result(
+def make_finalize_status_result(
     *,
     reviewed_block_indices: Sequence[int],
     unreviewed_block_category_by_index: Mapping[int, str],

@@ -431,7 +431,7 @@ If the LLM already did the reasoning, this stage should be a reliable writer/ass
 
 ---
 
-## Stage 7 — Non-Recipe Handling / Knowledge Pipeline
+## Non-Recipe Route and Finalization — Non-Recipe Handling / Knowledge Pipeline
 
 ### Goal
 Handle all non-recipe text cleanly.
@@ -457,12 +457,12 @@ Most `knowledge` vs `other` separation should already be solved by Stage 2 label
 Treat knowledge extraction as **downstream of good labeling**, not as a giant separate whole-book mining task.
 
 ### Suggested Design
-#### Stage 7A — Classification
+#### Non-Recipe Route — Classification
 Use Stage 2 labels to separate:
 - `knowledge`
 - `other`
 
-#### Stage 7B — Optional extraction/tagging
+#### Non-Recipe Finalization — Optional extraction/tagging
 Only run a lightweight LLM pass on spans already labeled as `knowledge` if needed.
 
 ### Hard Rules
@@ -619,14 +619,14 @@ Use names that describe job responsibility:
 
 - `extract`
 - `segment`
-- `label_det`
-- `label_llm_correct`
-- `group_recipe_spans`
-- `build_intermediate_det`
-- `recipe_llm_correct_and_link`
-- `build_final_recipe`
-- `classify_nonrecipe`
-- `nonrecipe_knowledge_review`
+- `label_deterministic`
+- `label_refine`
+- `recipe_boundary`
+- `recipe_build_intermediate`
+- `recipe_refine`
+- `recipe_build_final`
+- `nonrecipe_route`
+- `nonrecipe_finalize`
 - `write_outputs`
 
 This alone will make the system far easier to understand.

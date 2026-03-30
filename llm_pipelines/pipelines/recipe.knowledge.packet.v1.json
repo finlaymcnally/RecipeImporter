@@ -1,6 +1,6 @@
 {
   "pipeline_id": "recipe.knowledge.packet.v1",
-  "description": "Extract reusable cooking knowledge groups from ordered non-recipe review packets.",
+  "description": "Extract reusable cooking knowledge groups from ordered non-recipe candidate packets.",
   "prompt_template_path": "prompts/recipe.knowledge.packet.v1.prompt.md",
   "output_schema_path": "schemas/recipe.knowledge.packet.v1.output.schema.json",
   "input_glob_default": "**/*.json",

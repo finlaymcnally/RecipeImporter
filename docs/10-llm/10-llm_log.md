@@ -202,7 +202,7 @@ Problem captured:
 Durable decisions:
 - recipe prompt body cuts should land in the shared serializer for `MergedRecipeRepairInput`, not only in `prompt_preview.py`
 - knowledge prompt count cuts should land in `build_knowledge_jobs(...)`, because both live harvest and preview reconstruction consume that builder
-- if `build_knowledge_jobs(...)` returns no work, `run_codex_farm_nonrecipe_knowledge_review(...)` must short-circuit before Codex invocation or empty-manifest writing
+- if `build_knowledge_jobs(...)` returns no work, `run_codex_farm_nonrecipe_finalize(...)` must short-circuit before Codex invocation or empty-manifest writing
 - the first low-risk cut bundle was intentionally conservative (`knowledge` context width `12 -> 4`, skip only `noise`, keep `draft_hint` optional but omit it when empty); the second bundle then took the next cheap cuts (`4 -> 2`, drop recipe hint provenance, blank outside-recipe line-role neighbors)
 
 Anti-loop note:
@@ -658,23 +658,23 @@ Durable decisions:
 Anti-loop note:
 - if a future change wants the model to free-edit shared output files in place, it is probably moving away from the clean contract that made the current shard runtimes debuggable
 
-## 2026-03-18 Stage 7 clarity was mostly naming plus one richer review summary
+## 2026-03-18 Non-Recipe Route and Finalization clarity was mostly naming plus one richer review summary
 
 Problem captured:
 - after the knowledge-stage runtime contract had settled, the remaining confusion was operator-facing wording and summary visibility, not artifact ownership or shard-runtime mechanics
 
 Durable decisions:
-- keep the live Stage 7 mechanics as they were:
+- keep the live Non-Recipe Route and Finalization mechanics as they were:
   - deterministic seed non-recipe spans
   - parser-owned chunk pruning
   - immutable `knowledge/in/*.json`
   - validated `knowledge/proposals/*.json`
   - deterministic promotion into final authority plus reviewer snippets
-- align remaining labels toward `non-recipe knowledge review`
+- align remaining labels toward `non-recipe finalize`
 - add one richer `review_summary` block in `knowledge_manifest.json` so operators can see seed-span count, chunk pruning totals, reviewed shard count, promoted useful chunks/snippets, and direct pointers back to `08_nonrecipe_spans.json` plus `09_knowledge_outputs.json`
 
 Anti-loop note:
-- if Stage 7 docs feel right but the surface still feels vague, check labels and manifest/report summaries before redesigning the runtime
+- if Non-Recipe Route and Finalization docs feel right but the surface still feels vague, check labels and manifest/report summaries before redesigning the runtime
 
 ## 2026-03-18 line-role transport compaction moved cost work onto the real billed seam
 

@@ -82,10 +82,10 @@ from ..worker_hint_sidecars import preview_text, write_worker_hint_markdown
 
 from .reporting import (
     _aggregate_worker_runner_payload,
-    _build_knowledge_review_rollup,
+    _build_nonrecipe_finalize_rollup,
     _build_review_summary,
     _derive_knowledge_authority_mode,
-    _derive_knowledge_review_status,
+    _derive_nonrecipe_finalize_status,
     _load_json_dict,
     _runtime_artifact_paths,
     _summarize_direct_rows,

@@ -31,7 +31,7 @@ The shared post-import stage session owns:
 - recipe-boundary detection
 - optional recipe Codex refinement
 - non-recipe routing and final authority
-- optional knowledge review
+- optional non-recipe finalize
 - final writes for drafts, sections, tables, chunks, reports, and diagnostics
 
 Primary folders:
@@ -159,9 +159,9 @@ Raw collision rule:
 4. `nonrecipe-route`
 - builds the route-first candidate/exclusion ledger from final block labels and accepted recipe spans
 
-5. `knowledge-final`
+5. `nonrecipe-finalize`
 - if `llm_knowledge_pipeline=off`, final non-recipe authority stays deterministic and chunks are generated from the late-output non-recipe block set
-- if `llm_knowledge_pipeline` is enabled, Codex knowledge review owns the final knowledge grouping path and chunk writing is skipped
+- if `llm_knowledge_pipeline` is enabled, Codex non-recipe finalize owns the final knowledge grouping path and chunk writing is skipped
 - `ConversionResult.non_recipe_blocks` keeps only strict final non-recipe authority
 
 After those stages, the session writes:
@@ -391,4 +391,4 @@ Relevant run-setting values:
 - Treat them as merge/interruption diagnostics first.
 
 5. Importer fixes are often the wrong first seam.
-- If source blocks look reasonable but outputs are wrong, inspect recipe-boundary, non-recipe routing, or knowledge-final behavior before making importers “smarter.”
+- If source blocks look reasonable but outputs are wrong, inspect recipe-boundary, non-recipe routing, or nonrecipe-finalize behavior before making importers “smarter.”

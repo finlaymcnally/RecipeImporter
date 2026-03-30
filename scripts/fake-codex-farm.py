@@ -275,7 +275,11 @@ def _infer_exec_pipeline_id(prompt_text: str, *, output_schema_path: str) -> str
     if output_schema_path:
         return _pipeline_id_for_exec_schema(output_schema_path)
     prompt_lower = prompt_text.lower()
-    if "recipe knowledge" in prompt_lower or "knowledge review" in prompt_lower:
+    if (
+        "recipe knowledge" in prompt_lower
+        or "non-recipe finalize" in prompt_lower
+        or "candidate non-recipe cookbook text" in prompt_lower
+    ):
         return "recipe.knowledge.compact.v1"
     if "recipe correction" in prompt_lower or "recipe.correction" in prompt_lower:
         return "recipe.correction.compact.v1"

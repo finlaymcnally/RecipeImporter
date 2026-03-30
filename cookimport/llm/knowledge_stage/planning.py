@@ -51,7 +51,7 @@ def _build_knowledge_task_manifest_entry(
 ) -> TaskManifestEntryV1:
     return TaskManifestEntryV1(
         task_id=shard.shard_id,
-        task_kind="knowledge_review_packet_task",
+        task_kind="nonrecipe_finalize_packet_task",
         parent_shard_id=shard.shard_id,
         owned_ids=tuple(shard.owned_ids),
         input_payload=shard.input_payload,
@@ -108,7 +108,7 @@ def _notify_knowledge_progress(
         return
     total = max(0, int(total_tasks))
     completed = max(0, min(total, int(completed_tasks)))
-    message = f"Running codex-farm non-recipe knowledge review... task {completed}/{total}"
+    message = f"Running codex-farm non-recipe finalize... task {completed}/{total}"
     if running_tasks is not None:
         message = f"{message} | running {max(0, int(running_tasks))}"
     resolved_detail_lines = [
@@ -119,7 +119,7 @@ def _notify_knowledge_progress(
     progress_callback(
         format_stage_progress(
             message,
-            stage_label="non-recipe knowledge review",
+            stage_label="non-recipe finalize",
             work_unit_label="task",
             task_current=completed,
             task_total=total,
@@ -392,7 +392,7 @@ class _KnowledgePhaseProgressState:
         )
 
 @dataclass(frozen=True, slots=True)
-class CodexFarmNonrecipeKnowledgeReviewResult:
+class CodexFarmNonrecipeFinalizeResult:
     llm_report: dict[str, Any]
     llm_raw_dir: Path
     manifest_path: Path

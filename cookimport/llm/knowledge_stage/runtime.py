@@ -37,13 +37,13 @@ def run_codex_farm_nonrecipe_finalize(
     runner: CodexExecRunner | None = None,
     full_blocks: list[dict[str, Any]] | None = None,
     progress_callback: Callable[[str], None] | None = None,
-) -> CodexFarmNonrecipeKnowledgeReviewResult:
-    """Optional non-recipe finalize review over non-recipe chunks via codex-farm."""
+) -> CodexFarmNonrecipeFinalizeResult:
+    """Optional non-recipe finalize pass over non-recipe chunks via codex-farm."""
     llm_raw_dir = run_root / "raw" / "llm" / sanitize_for_filename(workbook_slug)
     manifest_path = llm_raw_dir / KNOWLEDGE_MANIFEST_FILE_NAME
 
     if run_settings.llm_knowledge_pipeline.value == "off":
-        return CodexFarmNonrecipeKnowledgeReviewResult(
+        return CodexFarmNonrecipeFinalizeResult(
             llm_report={"enabled": False, "pipeline": "off"},
             llm_raw_dir=llm_raw_dir,
             manifest_path=manifest_path,
@@ -81,7 +81,7 @@ def run_codex_farm_nonrecipe_finalize(
             excluded_block_count=excluded_block_count,
         )
         _write_json(llm_report, manifest_path)
-        return CodexFarmNonrecipeKnowledgeReviewResult(
+        return CodexFarmNonrecipeFinalizeResult(
             llm_report=llm_report,
             llm_raw_dir=llm_raw_dir,
             manifest_path=manifest_path,
@@ -104,7 +104,7 @@ def run_codex_farm_nonrecipe_finalize(
             excluded_block_count=excluded_block_count,
         )
         _write_json(llm_report, manifest_path)
-        return CodexFarmNonrecipeKnowledgeReviewResult(
+        return CodexFarmNonrecipeFinalizeResult(
             llm_report=llm_report,
             llm_raw_dir=llm_raw_dir,
             manifest_path=manifest_path,
@@ -117,7 +117,7 @@ def run_codex_farm_nonrecipe_finalize(
     )
     if not full_blocks_payload:
         raise CodexFarmRunnerError(
-            "Cannot run codex-farm non-recipe knowledge review: no full_text blocks available."
+            "Cannot run codex-farm non-recipe finalize: no full_text blocks available."
         )
     full_blocks_by_index = {int(block["index"]): block for block in full_blocks_payload}
 
@@ -186,7 +186,7 @@ def run_codex_farm_nonrecipe_finalize(
             skipped_packet_reason_counts=dict(build_report.skipped_packet_reason_counts),
         )
         _write_json(llm_report, manifest_path)
-        return CodexFarmNonrecipeKnowledgeReviewResult(
+        return CodexFarmNonrecipeFinalizeResult(
             llm_report=llm_report,
             llm_raw_dir=llm_raw_dir,
             manifest_path=manifest_path,
@@ -289,7 +289,7 @@ def run_codex_farm_nonrecipe_finalize(
             termination_cause="runtime_error",
             finalization_completeness="complete",
         )
-        return CodexFarmNonrecipeKnowledgeReviewResult(
+        return CodexFarmNonrecipeFinalizeResult(
             llm_report=llm_report,
             llm_raw_dir=llm_raw_dir,
             manifest_path=manifest_path,
@@ -336,7 +336,7 @@ def run_codex_farm_nonrecipe_finalize(
         promotion_report = _load_json_dict(knowledge_stage_dir / "promotion_report.json")
         telemetry = _load_json_dict(knowledge_stage_dir / "telemetry.json")
         useful_chunk_count = sum(1 for output in outputs.values() if bool(output.is_useful))
-        review_rollup = _build_knowledge_review_rollup(
+        review_rollup = _build_nonrecipe_finalize_rollup(
             promotion_report=promotion_report,
             build_report=build_report,
         )
@@ -345,7 +345,7 @@ def run_codex_farm_nonrecipe_finalize(
             refined_stage_result=refined_stage_result,
             review_rollup=review_rollup,
         )
-        candidate_status = _derive_knowledge_review_status(review_rollup)
+        candidate_status = _derive_nonrecipe_finalize_status(review_rollup)
         refined_report = {
             **dict(refined_stage_result.refinement_report),
             "authority_mode": authority_mode,
@@ -543,7 +543,7 @@ def run_codex_farm_nonrecipe_finalize(
         finalization_completeness="complete",
     )
 
-    return CodexFarmNonrecipeKnowledgeReviewResult(
+    return CodexFarmNonrecipeFinalizeResult(
         llm_report=llm_report,
         llm_raw_dir=llm_raw_dir,
         manifest_path=manifest_path,

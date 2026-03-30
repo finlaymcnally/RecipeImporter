@@ -20,12 +20,12 @@ from cookimport.staging.import_session_flows.reporting import _notify_stage_prog
 from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
 from cookimport.staging.pipeline_runtime import (
     ExtractedBookBundle,
-    KnowledgeFinalResult,
+    NonrecipeFinalizeResult,
     NonrecipeRouteResult,
     RecipeBoundaryResult,
     RecipeRefineResult,
     build_extracted_book_bundle,
-    run_knowledge_final_stage,
+    run_nonrecipe_finalize_stage,
     run_nonrecipe_route_stage,
     run_recipe_refine_stage,
 )
@@ -83,7 +83,7 @@ def execute_stage_import_session_from_result(
     recipe_boundary_result: RecipeBoundaryResult | None = None
     recipe_refine_result: RecipeRefineResult | None = None
     nonrecipe_route_result: NonrecipeRouteResult | None = None
-    knowledge_final_result: KnowledgeFinalResult | None = None
+    nonrecipe_finalize_result: NonrecipeFinalizeResult | None = None
 
     extracted_book_bundle = build_extracted_book_bundle(
         result=result,
@@ -147,22 +147,22 @@ def execute_stage_import_session_from_result(
     if run_settings.llm_knowledge_pipeline.value != "off":
         _notify_stage_progress(
             progress_callback,
-            message="Running codex-farm non-recipe knowledge review...",
-            stage_label="non-recipe knowledge review",
+            message="Running codex-farm non-recipe finalize...",
+            stage_label="non-recipe finalize",
         )
-    with measure(stats, "knowledge_final_seconds"):
-        knowledge_final_result = run_knowledge_final_stage(
+    with measure(stats, "nonrecipe_finalize_seconds"):
+        nonrecipe_finalize_result = run_nonrecipe_finalize_stage(
             nonrecipe_route_result=nonrecipe_route_result,
             run_settings=run_settings,
             run_root=run_root,
             overrides=parsing_overrides,
             progress_callback=progress_callback,
         )
-    nonrecipe_stage_result = knowledge_final_result.stage_result
-    if knowledge_final_result.llm_report is not None:
-        llm_report["knowledge"] = dict(knowledge_final_result.llm_report)
+    nonrecipe_stage_result = nonrecipe_finalize_result.stage_result
+    if nonrecipe_finalize_result.llm_report is not None:
+        llm_report["knowledge"] = dict(nonrecipe_finalize_result.llm_report)
 
-    nonrecipe_block_rows = list(knowledge_final_result.late_output_nonrecipe_blocks)
+    nonrecipe_block_rows = list(nonrecipe_finalize_result.late_output_nonrecipe_blocks)
 
     extracted_tables = []
     if nonrecipe_block_rows:
@@ -196,8 +196,8 @@ def execute_stage_import_session_from_result(
         result.chunks = []
 
     # ConversionResult keeps only strict final non-recipe authority. Late outputs may
-    # use a broader routed review queue when knowledge review did not run.
-    result.non_recipe_blocks = list(knowledge_final_result.authoritative_nonrecipe_blocks)
+    # use a broader routed candidate queue when non-recipe finalize did not run.
+    result.non_recipe_blocks = list(nonrecipe_finalize_result.authoritative_nonrecipe_blocks)
 
     tag_normalization_report = normalize_conversion_result_recipe_tags(result)
     if recipe_limit is not None:
@@ -291,15 +291,15 @@ def execute_stage_import_session_from_result(
                 stage_result=nonrecipe_stage_result,
                 llm_report=llm_report.get("knowledge"),
                 knowledge_group_records=(
-                    knowledge_final_result.knowledge_write_report.group_records
-                    if knowledge_final_result is not None
-                    and knowledge_final_result.knowledge_write_report is not None
+                    nonrecipe_finalize_result.nonrecipe_finalize_write_report.group_records
+                    if nonrecipe_finalize_result is not None
+                    and nonrecipe_finalize_result.nonrecipe_finalize_write_report is not None
                     else []
                 ),
                 snippet_records=(
-                    knowledge_final_result.knowledge_write_report.snippet_records
-                    if knowledge_final_result is not None
-                    and knowledge_final_result.knowledge_write_report is not None
+                    nonrecipe_finalize_result.nonrecipe_finalize_write_report.snippet_records
+                    if nonrecipe_finalize_result is not None
+                    and nonrecipe_finalize_result.nonrecipe_finalize_write_report is not None
                     else []
                 ),
                 output_stats=output_stats,
@@ -416,5 +416,5 @@ def execute_stage_import_session_from_result(
         recipe_boundary_result=recipe_boundary_result,
         recipe_refine_result=recipe_refine_result,
         nonrecipe_route_result=nonrecipe_route_result,
-        knowledge_final_result=knowledge_final_result,
+        nonrecipe_finalize_result=nonrecipe_finalize_result,
     )

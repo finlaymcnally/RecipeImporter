@@ -1,4 +1,4 @@
-Review one ordered packet of review-eligible non-recipe cookbook text. Decide which owned blocks are durable cooking knowledge, then group the kept knowledge blocks into one or more related ideas.
+Process one ordered packet of candidate non-recipe cookbook text. Decide which owned blocks are durable cooking knowledge, then group the kept knowledge blocks into one or more related ideas.
 
 You are a skeptical reviewer. The raw packet block text is authoritative. Only mechanically true structure is provided.
 

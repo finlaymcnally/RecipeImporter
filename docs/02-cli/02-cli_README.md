@@ -110,7 +110,7 @@ Current spinner/status rule:
 - when those richer fields are present, the shared spinner should render worker-session state separately from repo-owned follow-up/finalization state instead of forcing stages to fake that truth through `active_tasks` labels
 - worker panels no longer cap configured rows at eight when structured stage progress provides a larger `worker_total` or active-task list; a ten-worker knowledge stage should render ten worker lines instead of `10/8`
 - structured worker panels should also stop at the reported slot count; a five-worker phase should not pad fake `worker 06` to `worker 08` idle rows
-- stage-specific emitters for recipe shard work, line-role, non-recipe knowledge review, label-first authority building, and staged-output writing should prefer structured payloads so benchmark/import status panels keep the active-stage context visible
+- stage-specific emitters for recipe shard work, line-role, non-recipe finalize, label-first authority building, and staged-output writing should prefer structured payloads so benchmark/import status panels keep the active-stage context visible
 - recipe shard work should report outer worker-bucket truth from `phase_worker_runtime.py` (configured workers, queued shards, active worker buckets, current first shard), not pretend the CLI can see true inner per-shard Codex progress once one worker hands a whole bucket to a single classic `process` call
 - `processing_timeseries*.jsonl` is the durable machine-readable history of those progress snapshots and should retain stage label, work-unit label, active tasks, typed worker/follow-up counts, artifact counts, and detail lines when present
 - progress/timeseries writers must coerce nested `Path` values to strings before JSON serialization so benchmark and stage telemetry does not silently drop rows when payloads include filesystem paths
@@ -169,18 +169,18 @@ Interactive `Import` and benchmark runs (`single_book` + matched-books) ask:
   - `Continue` accepts the current per-row settings
 - for interactive `Import`, that submenu asks about:
   - recipe correction (`codex-recipe-shard-v1`)
-  - non-recipe knowledge review (`codex-knowledge-candidate-v2`)
+  - non-recipe finalize (`codex-knowledge-candidate-v2`)
 - for interactive benchmark modes (`single_book`, `selected_matched_books`, `all_matched_books`), that submenu asks about:
   - block labelling (`codex-line-role-route-v2`)
   - recipe correction (`codex-recipe-shard-v1`)
-  - non-recipe knowledge review (`codex-knowledge-candidate-v2`)
+  - non-recipe finalize (`codex-knowledge-candidate-v2`)
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
   - unchecked block labelling maps to `line_role_pipeline=off` and `atomic_block_splitter=off`
   - checked block labelling no longer auto-enables `atomic_block_splitter`; it preserves the current/default setting, which is now `off` unless explicitly overridden elsewhere
-  - unchecked non-recipe knowledge review maps to `llm_knowledge_pipeline=off`
+  - unchecked non-recipe finalize maps to `llm_knowledge_pipeline=off`
 - after that shared Codex surface toggle menu, interactive flows now also ask for the target prompt count for each enabled Codex-backed task in that run
   - import asks for recipe correction shard count, then knowledge shard count when those surfaces are enabled
-  - benchmark and all-method Codex menus ask in runtime stage order: block-labelling, then recipe correction, then knowledge review
+  - benchmark and all-method Codex menus ask in runtime stage order: block-labelling, then recipe correction, then non-recipe finalize
   - these map directly to `line_role_prompt_target_count`, `recipe_prompt_target_count`, and `knowledge_prompt_target_count`
   - the interactive chooser now caps each per-step prompt/shard count at `20`
   - the stage and benchmark adapter/CLI seams now preserve those values into the live run config, so interactive shard choices survive through execution instead of silently falling back to saved defaults

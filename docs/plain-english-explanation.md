@@ -69,7 +69,7 @@ After conversion and any split-job merge, the book goes through one shared five-
 - `recipe-boundary`
 - `recipe-refine`
 - `nonrecipe-route`
-- `knowledge-final`
+- `nonrecipe-finalize`
 
 That five-stage runtime is the real center of the product. Importer output enters it as the source bundle the later stages shape into final authority.
 
@@ -99,7 +99,7 @@ It starts with `label_deterministic`, which creates the deterministic line and b
 - is this line an instruction line
 - is this line note-like
 - does this line belong inside a recipe or outside it
-- if it is outside, should it stay alive for later knowledge review
+- if it is outside, should it stay alive for later non-recipe finalize
 
 That deterministic pass still matters even when LLM stages are on. It gives the run a reproducible baseline and a clear artifact trail.
 
@@ -174,25 +174,25 @@ Its job is to:
 
 Some rows become final right here. The line-label stage can already mark outside-recipe `OTHER` rows with exclusion reasons such as navigation, front matter, publishing junk, endorsements, copyright/legal text, publisher promos, or page furniture. `nonrecipe-route` does not invent those calls on its own. It honors them and excludes those rows immediately as final `other`.
 
-Surviving outside-recipe text then moves into one category-neutral review queue for the later knowledge stage, where the harder semantic judgment happens.
+Surviving outside-recipe text then moves into one category-neutral candidate queue for the later knowledge stage, where the harder semantic judgment happens.
 
 By the end of `nonrecipe-route`, the run has:
 
 - final obvious-junk exclusions
-- one review queue of surviving outside-recipe rows
+- one candidate queue of surviving outside-recipe rows
 - routing metadata that explains why rows survived or were excluded
 
 This is why the run writes separate routing and final-authority artifacts.
 
-## `knowledge-final`
+## `nonrecipe-finalize`
 
-`knowledge-final` is the final semantic owner of reviewable outside-recipe material.
+`nonrecipe-finalize` is the final semantic owner of reviewable outside-recipe material.
 
-If knowledge review is off, the run keeps the routing and status artifacts and can still build deterministic late outputs from the surviving outside-recipe block list.
+If non-recipe finalize is off, the run keeps the routing and status artifacts and can still build deterministic late outputs from the surviving outside-recipe block list.
 
-If knowledge review is on, the public knowledge pipeline is `codex-knowledge-candidate-v2`.
+If non-recipe finalize is on, the public knowledge pipeline is `codex-knowledge-candidate-v2`.
 
-Before the model sees anything, the program partitions the surviving review queue into roughly the requested number of contiguous review shards. Repo code owns shard sizing, ordering, and the exact row ownership for each shard.
+Before the model sees anything, the program partitions the surviving candidate queue into roughly the requested number of contiguous candidate shards. Repo code owns shard sizing, ordering, and the exact row ownership for each shard.
 
 Each shard then stays in one worker session through two repo-owned passes:
 
@@ -244,9 +244,9 @@ Sections come from the finalized recipe side.
 
 Tables and chunks follow a late-output outside-recipe block list, not the strict authority cache blindly.
 
-If knowledge review ran and produced reviewed outside-recipe authority, that late-output list is the authoritative outside-recipe rows.
+If non-recipe finalize ran and produced reviewed outside-recipe authority, that late-output list is the authoritative outside-recipe rows.
 
-If knowledge review is off or falls back, that late-output list is instead the surviving review queue from `nonrecipe-route`, so the run can still build useful deterministic tables and chunks without pretending that unreviewed rows are final truth.
+If non-recipe finalize is off or falls back, that late-output list is instead the surviving candidate queue from `nonrecipe-route`, so the run can still build useful deterministic tables and chunks without pretending that unreviewed rows are final truth.
 
 `stage_block_predictions.json` matters because it is the run's block-level benchmark evidence after the real authority decisions have already happened.
 

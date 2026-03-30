@@ -10,13 +10,13 @@ Interactive run-settings UI helpers.
   - left/right arrows set the current row to `[Yes]` or `[No]` in place and visibly move the active marker
   - pressing Enter on a step row still flips that row's current state
   - `Continue` accepts the whole list at once
-  - interactive `Import` shows recipe correction and non-recipe knowledge review
-  - interactive benchmark modes show block labelling, recipe correction, and non-recipe knowledge review so the menu and prompt-target prompts match runtime stage order
+  - interactive `Import` shows recipe correction and non-recipe finalize
+  - interactive benchmark modes show block labelling, recipe correction, and non-recipe finalize so the menu and prompt-target prompts match runtime stage order
   - interactive all-method benchmark callers can reuse that same submenu with the benchmark surface set they actually support
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
   - unchecked block labelling maps to `line_role_pipeline=off` and `atomic_block_splitter=off`
   - checked block labelling preserves the current/default `atomic_block_splitter` value instead of auto-enabling `atomic-v1`
-  - unchecked non-recipe knowledge review maps to `llm_knowledge_pipeline=off`
+  - unchecked non-recipe finalize maps to `llm_knowledge_pipeline=off`
   - enabled surfaces now also prompt for shard count using the same contract on every Codex-backed stage: import asks recipe then knowledge, while benchmark flows ask line-role then recipe then knowledge
   - those prompts map directly to `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count`
 - Any non-`off` choice also prompts for codex AI settings for that run:

@@ -465,7 +465,7 @@ Primary benchmark modules:
 ## 9. Recent Durable Notes
 
 - In canonical-text benchmarking, `eval_report.json -> per_label.RECIPE_TITLE` is the title-label metric. `eval_report.json -> recipe_counts.predicted_recipe_count` is a separate import-level recipe total and can diverge sharply.
-- When post-refactor CodexFarm canonical-text quality drops toward vanilla, inspect the `KNOWLEDGE` seam first. The non-recipe route stage now only routes outside-recipe review, while the finalize stage owns review-eligible `KNOWLEDGE` vs `OTHER` for benchmark truth.
+- When post-refactor CodexFarm canonical-text quality drops toward vanilla, inspect the `KNOWLEDGE` seam first. The non-recipe route stage now only routes outside-recipe review, while the finalize stage owns candidate `KNOWLEDGE` vs `OTHER` for benchmark truth.
 - Single-book benchmark folder naming is about Codex participation, not every deterministic helper. A run with recipe Codex off and only deterministic line-role still belongs under `vanilla/`; only actual Codex-backed line-role belongs in the Codex/hybrid branch.
 - High Codex recipe task counts in single-book runs usually mean grouped recipe-span overproduction upstream, not retry storms inside CodexFarm.
 - Tiny line-role token spend in a Codex single-book run does not mean line-role was skipped; older helper paths only sent escalated rows to live Codex and then scored a projected artifact built from authoritative outputs.

@@ -46,7 +46,7 @@ from cookimport.staging.job_planning import JobSpec, plan_source_job
 from cookimport.staging.import_session import StageImportSessionResult
 from tests.nonrecipe_stage_helpers import (
     make_authority_result,
-    make_review_status_result,
+    make_finalize_status_result,
     make_routing_result,
     make_seed_result,
     make_stage_result,
@@ -2140,7 +2140,7 @@ def _build_final_nonrecipe_authority_fixture(
         seed=make_seed_result({2: "candidate"}),
         routing=make_routing_result(candidate_block_indices=[2]),
         authority=make_authority_result({2: "knowledge"}),
-        review_status=make_review_status_result(
+        candidate_status=make_finalize_status_result(
             reviewed_block_indices=[2],
             unreviewed_block_category_by_index={},
         ),
@@ -2318,7 +2318,7 @@ def test_nonrecipe_authority_projection_preserves_recipe_notes_outside_recipe() 
         seed=make_seed_result({10: "other"}),
         routing=make_routing_result(candidate_block_indices=[10]),
         authority=make_authority_result({10: "other"}),
-        review_status=make_review_status_result(
+        candidate_status=make_finalize_status_result(
             reviewed_block_indices=[10],
             unreviewed_block_category_by_index={},
         ),
@@ -2358,7 +2358,7 @@ def test_nonrecipe_authority_projection_ignores_unresolved_candidate_without_fin
         seed=make_seed_result({10: "candidate"}),
         routing=make_routing_result(candidate_block_indices=[10]),
         authority=make_authority_result({}),
-        review_status=make_review_status_result(
+        candidate_status=make_finalize_status_result(
             reviewed_block_indices=[],
             unreviewed_block_category_by_index={10: "candidate"},
         ),
@@ -2445,7 +2445,7 @@ def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_r
         seed=make_seed_result({2: "candidate"}),
         routing=make_routing_result(candidate_block_indices=[2]),
         authority=make_authority_result({}),
-        review_status=make_review_status_result(
+        candidate_status=make_finalize_status_result(
             reviewed_block_indices=[],
             unreviewed_block_category_by_index={2: "candidate"},
         ),

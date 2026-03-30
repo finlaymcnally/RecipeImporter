@@ -697,7 +697,7 @@ def _build_knowledge_workspace_worker_prompt(
         if str(getattr(shard, "shard_id", "") or "").strip()
     ]
     lines = [
-        "You are processing non-recipe knowledge-review shards inside one bounded local workspace.",
+        "You are processing non-recipe finalize shards inside one bounded local workspace.",
         "The repo leases you one compact packet at a time. Decide `knowledge` versus `other` in Pass 1, then group only the kept rows in Pass 2.",
         "",
         "Process the repo-written shard queue by reopening the current-packet files after every accepted result. The current working directory is already the workspace root.",

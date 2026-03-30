@@ -50,7 +50,7 @@ _INTERACTIVE_RECIPE_PIPELINE_LABELS: dict[str, str] = {
 _CODEX_SURFACE_OPTION_LABELS: dict[str, str] = {
     "recipe": "recipe correction",
     "line_role": "block labelling",
-    "knowledge": "non-recipe knowledge review",
+    "knowledge": "non-recipe finalize",
 }
 _CODEX_REASONING_EFFORT_ORDER = (
     "none",
