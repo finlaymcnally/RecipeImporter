@@ -17,7 +17,7 @@ from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan, NonRecipeStageResult
 from tests.nonrecipe_stage_helpers import (
     make_authority_result,
-    make_review_status_result,
+    make_candidate_status_result,
     make_routing_result,
     make_seed_result,
     make_stage_result,
@@ -280,8 +280,8 @@ def test_fake_codex_farm_process_handles_text_prompt_inputs(tmp_path: Path) -> N
     )
     assert output_payload == {
         "rows": [
-            {"atomic_index": 7, "label": "OTHER"},
-            {"atomic_index": 8, "label": "OTHER"},
+            {"atomic_index": 7, "label": "RECIPE_NOTES"},
+            {"atomic_index": 8, "label": "RECIPE_NOTES"},
         ]
     }
 
@@ -379,51 +379,55 @@ def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
         conversion_result=_knowledge_conversion_result(source),
         nonrecipe_stage_result=make_stage_result(
             seed=make_seed_result(
-            nonrecipe_spans=[
-                NonRecipeSpan(
-                    span_id="nr.other.0.1",
-                    category="other",
-                    block_start_index=0,
-                    block_end_index=1,
-                    block_indices=[0],
-                    block_ids=["b0"],
-                ),
-                NonRecipeSpan(
-                    span_id="nr.knowledge.4.5",
-                    category="knowledge",
-                    block_start_index=4,
-                    block_end_index=5,
-                    block_indices=[4],
-                    block_ids=["b4"],
-                ),
-            ],
-            knowledge_spans=[
-                NonRecipeSpan(
-                    span_id="nr.knowledge.4.5",
-                    category="knowledge",
-                    block_start_index=4,
-                    block_end_index=5,
-                    block_indices=[4],
-                    block_ids=["b4"],
-                )
-            ],
-            other_spans=[
-                NonRecipeSpan(
-                    span_id="nr.other.0.1",
-                    category="other",
-                    block_start_index=0,
-                    block_end_index=1,
-                    block_indices=[0],
-                    block_ids=["b0"],
-                )
-            ],
-            block_category_by_index={0: "other", 4: "knowledge"},
+                {0: "exclude", 4: "candidate"},
+                nonrecipe_spans=[
+                    NonRecipeSpan(
+                        span_id="nr.exclude.0.1",
+                        category="exclude",
+                        block_start_index=0,
+                        block_end_index=1,
+                        block_indices=[0],
+                        block_ids=["b0"],
+                    ),
+                    NonRecipeSpan(
+                        span_id="nr.candidate.4.5",
+                        category="candidate",
+                        block_start_index=4,
+                        block_end_index=5,
+                        block_indices=[4],
+                        block_ids=["b4"],
+                    ),
+                ],
+                candidate_spans=[
+                    NonRecipeSpan(
+                        span_id="nr.candidate.4.5",
+                        category="candidate",
+                        block_start_index=4,
+                        block_end_index=5,
+                        block_indices=[4],
+                        block_ids=["b4"],
+                    )
+                ],
+                excluded_spans=[
+                    NonRecipeSpan(
+                        span_id="nr.exclude.0.1",
+                        category="exclude",
+                        block_start_index=0,
+                        block_end_index=1,
+                        block_indices=[0],
+                        block_ids=["b0"],
+                    )
+                ],
             ),
-            routing=make_routing_result(review_eligible_block_indices=[0, 4]),
-            authority=make_authority_result({0: "other", 4: "knowledge"}),
-            review_status=make_review_status_result(
-                reviewed_block_indices=[0, 4],
-                unreviewed_block_category_by_index={},
+            routing=make_routing_result(
+                candidate_block_indices=[4],
+                excluded_block_indices=[0],
+                exclusion_reason_by_block={0: "navigation"},
+            ),
+            authority=make_authority_result({0: "other"}),
+            candidate_status=make_candidate_status_result(
+                finalized_candidate_block_indices=[],
+                unresolved_candidate_route_by_index={4: "candidate"},
             ),
         ),
         recipe_spans=[
@@ -476,51 +480,55 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
         conversion_result=_knowledge_conversion_result(source),
         nonrecipe_stage_result=make_stage_result(
             seed=make_seed_result(
-            nonrecipe_spans=[
-                NonRecipeSpan(
-                    span_id="nr.other.0.1",
-                    category="other",
-                    block_start_index=0,
-                    block_end_index=1,
-                    block_indices=[0],
-                    block_ids=["b0"],
-                ),
-                NonRecipeSpan(
-                    span_id="nr.knowledge.4.5",
-                    category="knowledge",
-                    block_start_index=4,
-                    block_end_index=5,
-                    block_indices=[4],
-                    block_ids=["b4"],
-                ),
-            ],
-            knowledge_spans=[
-                NonRecipeSpan(
-                    span_id="nr.knowledge.4.5",
-                    category="knowledge",
-                    block_start_index=4,
-                    block_end_index=5,
-                    block_indices=[4],
-                    block_ids=["b4"],
-                )
-            ],
-            other_spans=[
-                NonRecipeSpan(
-                    span_id="nr.other.0.1",
-                    category="other",
-                    block_start_index=0,
-                    block_end_index=1,
-                    block_indices=[0],
-                    block_ids=["b0"],
-                )
-            ],
-            block_category_by_index={0: "other", 4: "knowledge"},
+                {0: "exclude", 4: "candidate"},
+                nonrecipe_spans=[
+                    NonRecipeSpan(
+                        span_id="nr.exclude.0.1",
+                        category="exclude",
+                        block_start_index=0,
+                        block_end_index=1,
+                        block_indices=[0],
+                        block_ids=["b0"],
+                    ),
+                    NonRecipeSpan(
+                        span_id="nr.candidate.4.5",
+                        category="candidate",
+                        block_start_index=4,
+                        block_end_index=5,
+                        block_indices=[4],
+                        block_ids=["b4"],
+                    ),
+                ],
+                candidate_spans=[
+                    NonRecipeSpan(
+                        span_id="nr.candidate.4.5",
+                        category="candidate",
+                        block_start_index=4,
+                        block_end_index=5,
+                        block_indices=[4],
+                        block_ids=["b4"],
+                    )
+                ],
+                excluded_spans=[
+                    NonRecipeSpan(
+                        span_id="nr.exclude.0.1",
+                        category="exclude",
+                        block_start_index=0,
+                        block_end_index=1,
+                        block_indices=[0],
+                        block_ids=["b0"],
+                    )
+                ],
             ),
-            routing=make_routing_result(review_eligible_block_indices=[0, 4]),
-            authority=make_authority_result({0: "other", 4: "knowledge"}),
-            review_status=make_review_status_result(
-                reviewed_block_indices=[0, 4],
-                unreviewed_block_category_by_index={},
+            routing=make_routing_result(
+                candidate_block_indices=[4],
+                excluded_block_indices=[0],
+                exclusion_reason_by_block={0: "navigation"},
+            ),
+            authority=make_authority_result({0: "other"}),
+            candidate_status=make_candidate_status_result(
+                finalized_candidate_block_indices=[],
+                unresolved_candidate_route_by_index={4: "candidate"},
             ),
         ),
         recipe_spans=[
@@ -549,6 +557,8 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
         (row.get("supervision_state"), row.get("supervision_reason_code"))
         for row in status["telemetry"]["rows"]
     } == {("completed", "workspace_validated_task_queue_completed")}
+    assert current_phase["phase"] is None
+    assert pass1_work_ledgers
     assert (worker_root / "assigned_shards.json").exists()
     assert not (worker_root / "assigned_tasks.json").exists()
     assert not (worker_root / "current_task.json").exists()

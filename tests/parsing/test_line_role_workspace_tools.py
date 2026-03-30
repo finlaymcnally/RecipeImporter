@@ -104,16 +104,16 @@ def test_line_role_workspace_seed_output_and_validation() -> None:
 
     assert payload == {
         "rows": [
-            {"atomic_index": 10, "label": "INGREDIENT_LINE"},
-            {"atomic_index": 11, "label": "INSTRUCTION_LINE"},
+            {"atomic_index": 10},
+            {"atomic_index": 11},
         ]
     }
     errors, metadata = validate_line_role_output_payload(shard_row, payload)
     assert errors == ()
     assert metadata["owned_row_count"] == 2
     assert metadata["returned_row_count"] == 2
-    assert metadata["accepted_atomic_indices"] == [10, 11]
-    assert metadata["unresolved_atomic_indices"] == []
+    assert metadata["accepted_atomic_indices"] == []
+    assert metadata["unresolved_atomic_indices"] == [10, 11]
 
 
 def test_line_role_workspace_shard_metadata_sets_owned_paths() -> None:
@@ -277,8 +277,8 @@ def test_line_role_repair_request_payload_freezes_accepted_rows_only() -> None:
     payload = {
         "rows": [
             {"atomic_index": 0, "label": "INGREDIENT_LINE"},
-            {"atomic_index": 999, "label": "OTHER"},
-            {"atomic_index": 2, "label": "OTHER"},
+            {"atomic_index": 999, "label": "RECIPE_NOTES"},
+            {"atomic_index": 2, "label": "RECIPE_NOTES"},
         ]
     }
 
@@ -297,7 +297,7 @@ def test_line_role_repair_request_payload_freezes_accepted_rows_only() -> None:
     assert repair_payload["rows"] == [[1, "L2", "Stir."]]
     assert repair_payload["frozen_rows"] == [
         {"atomic_index": 0, "label": "INGREDIENT_LINE"},
-        {"atomic_index": 2, "label": "OTHER"},
+        {"atomic_index": 2, "label": "RECIPE_NOTES"},
     ]
 
 
@@ -318,7 +318,7 @@ def test_line_role_validation_rejects_changes_to_frozen_rows() -> None:
         shard_row,
         {
             "rows": [
-                {"atomic_index": 0, "label": "OTHER"},
+                {"atomic_index": 0, "label": "RECIPE_NOTES"},
                 {"atomic_index": 1, "label": "INSTRUCTION_LINE"},
             ]
         },

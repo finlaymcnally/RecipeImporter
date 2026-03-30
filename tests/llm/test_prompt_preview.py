@@ -692,7 +692,7 @@ def test_prompt_preview_rebuilds_recipe_prompt_and_input_payload(tmp_path: Path)
         "nonrecipe_knowledge_review",
         "recipe_llm_correct_and_link",
     }
-    assert len(rows_by_stage["nonrecipe_knowledge_review"]) == 2
+    assert len(rows_by_stage["nonrecipe_knowledge_review"]) == 1
     recipe_row = rows_by_stage["recipe_llm_correct_and_link"][0]
     assert "deterministic recipe candidates" in recipe_row["rendered_prompt_text"]
     assert "authoritative recipe spans" not in recipe_row["rendered_prompt_text"]
@@ -742,9 +742,9 @@ def test_prompt_preview_rebuilds_knowledge_and_line_role_prompts(tmp_path: Path)
     assert knowledge_rows[0]["request_input_payload"]["b"][0]["i"] == 2
 
     line_role_row = rows_by_stage["line_role"][0]
-    assert "You are reviewing deterministic canonical line-role labels" in line_role_row["rendered_prompt_text"]
+    assert "You are reviewing canonical line-role route labels" in line_role_row["rendered_prompt_text"]
     assert "line_role_input_0001.json" in line_role_row["rendered_prompt_text"]
-    assert '<BEGIN_AUTHORITATIVE_ROWS>\n[0, "L' in line_role_row["rendered_prompt_text"]
+    assert '<BEGIN_AUTHORITATIVE_ROWS>\n[0, "U"' in line_role_row["rendered_prompt_text"]
     assert "Return one result for every owned input row in `rows`." in line_role_row["rendered_prompt_text"]
     assert line_role_row["prompt_input_mode"] == "inline"
     assert line_role_row["request_input_payload"]["v"] == 1
@@ -755,11 +755,11 @@ def test_prompt_preview_rebuilds_knowledge_and_line_role_prompts(tmp_path: Path)
         3,
     ]
     assert (
-        line_role_row["request_input_payload"]["rows"][0][2]
+        line_role_row["request_input_payload"]["rows"][0][4]
         == "Ambiguous title-ish line"
     )
     assert (
-        line_role_row["request_input_payload"]["rows"][3][2]
+        line_role_row["request_input_payload"]["rows"][3][4]
         == "Advertisement copy."
     )
     assert line_role_row["debug_input_payload"]["phase_key"] == "line_role"
@@ -794,7 +794,7 @@ def test_prompt_preview_writes_artifacts_and_budget_summary(tmp_path: Path) -> N
     assert (out_dir / "line-role-pipeline" / "in" / "line_role_input_0001.json").is_file()
     assert (out_dir / "line-role-pipeline" / "debug_in" / "line_role_input_0001.json").is_file()
     assert (out_dir / "prompts" / "prompt_type_samples_from_full_prompt_log.md").is_file()
-    assert budget_summary["totals"]["call_count"] == 4
+    assert budget_summary["totals"]["call_count"] == 3
     assert budget_summary["totals"]["task_prompt_chars_total"] > 0
     assert budget_summary["totals"]["estimated_request_chars_total"] >= budget_summary["totals"]["prompt_chars_total"]
     assert budget_summary["totals"]["transport_overhead_chars_total"] > 0
@@ -804,8 +804,8 @@ def test_prompt_preview_writes_artifacts_and_budget_summary(tmp_path: Path) -> N
     assert line_role_budget["owned_ids_per_shard"]["avg"] == 4.0
     assert line_role_budget["task_prompt_chars_total"] > 0
     knowledge_budget = budget_summary["by_stage"]["nonrecipe_knowledge_review"]
-    assert knowledge_budget["worker_count"] == 2
-    assert knowledge_budget["shard_count"] == 2
+    assert knowledge_budget["worker_count"] == 1
+    assert knowledge_budget["shard_count"] == 1
     assert knowledge_budget["owned_ids_per_shard"]["avg"] == 1.0
     assert budget_summary["estimation_method"]["type"] == "structural_prompt_tokenization"
     assert budget_summary["estimation_method"]["mode"] == "predictive"

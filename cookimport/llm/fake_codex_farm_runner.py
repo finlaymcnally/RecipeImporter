@@ -127,7 +127,7 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
         atomic_indices = _extract_atomic_indices(payload)
         return {
             "rows": [
-                {"atomic_index": atomic_index, "label": "OTHER"}
+                {"atomic_index": atomic_index, "label": "RECIPE_NOTES"}
                 for atomic_index in atomic_indices
             ]
         }

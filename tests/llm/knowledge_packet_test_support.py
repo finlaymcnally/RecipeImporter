@@ -7,7 +7,7 @@ from cookimport.core.models import ConversionReport, ConversionResult, RawArtifa
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan, NonRecipeStageResult
 from tests.nonrecipe_stage_helpers import (
     make_authority_result,
-    make_review_status_result,
+    make_candidate_status_result,
     make_routing_result,
     make_seed_result,
     make_stage_result,
@@ -86,8 +86,8 @@ def knowledge_span(*block_indices: int) -> NonRecipeSpan:
     start = ordered[0]
     end = ordered[-1] + 1
     return NonRecipeSpan(
-        span_id=f"nr.knowledge.{start}.{end}",
-        category="knowledge",
+        span_id=f"nr.candidate.{start}.{end}",
+        category="candidate",
         block_start_index=start,
         block_end_index=end,
         block_indices=ordered,
@@ -100,7 +100,7 @@ def make_runtime_nonrecipe_stage_result(
     spans: list[NonRecipeSpan],
 ) -> NonRecipeStageResult:
     block_category_by_index = {
-        int(block_index): "knowledge"
+        int(block_index): "candidate"
         for span in spans
         for block_index in span.block_indices
     }
@@ -108,16 +108,15 @@ def make_runtime_nonrecipe_stage_result(
         seed=make_seed_result(
             block_category_by_index,
             nonrecipe_spans=spans,
-            knowledge_spans=spans,
-            other_spans=[],
+            candidate_spans=spans,
+            excluded_spans=[],
         ),
         routing=make_routing_result(
-            review_eligible_block_indices=sorted(block_category_by_index),
-            review_eligible_nonrecipe_spans=spans,
+            candidate_block_indices=sorted(block_category_by_index),
         ),
-        authority=make_authority_result(block_category_by_index),
-        review_status=make_review_status_result(
-            reviewed_block_indices=sorted(block_category_by_index),
-            unreviewed_block_category_by_index={},
+        authority=make_authority_result({}),
+        candidate_status=make_candidate_status_result(
+            finalized_candidate_block_indices=[],
+            unresolved_candidate_route_by_index=block_category_by_index,
         ),
     )

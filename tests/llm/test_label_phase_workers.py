@@ -64,7 +64,7 @@ def _line_role_builder(label_by_atomic_index: dict[int, str]):
             "rows": [
                 {
                     "atomic_index": atomic_index,
-                    "label": label_by_atomic_index.get(atomic_index, "OTHER"),
+                    "label": label_by_atomic_index.get(atomic_index, "RECIPE_NOTES"),
                 }
                 for atomic_index in atomic_indices
             ]
@@ -77,7 +77,9 @@ def test_line_role_phase_workers_write_runtime_artifacts_and_reuse_workers(
     tmp_path: Path,
 ) -> None:
     runner = FakeCodexExecRunner(
-        output_builder=_line_role_builder({0: "OTHER", 1: "OTHER", 2: "OTHER"})
+        output_builder=_line_role_builder(
+            {0: "RECIPE_NOTES", 1: "RECIPE_NOTES", 2: "RECIPE_NOTES"}
+        )
     )
 
     predictions = label_atomic_lines(
@@ -148,7 +150,7 @@ def test_line_role_phase_workers_write_runtime_artifacts_and_reuse_workers(
     )
     assert compact_input["v"] == 1
     assert compact_input["rows"][0][0] == 0
-    assert compact_input["rows"][0][2] == "Ambiguous line 0"
+    assert compact_input["rows"][0][4] == "Ambiguous line 0"
     assert debug_input["phase_key"] == "line_role"
     assert debug_input["rows"][0]["atomic_index"] == 0
     assert debug_input["rows"][0]["current_line"] == "Ambiguous line 0"
@@ -160,7 +162,7 @@ def test_line_role_phase_workers_reject_unowned_rows_and_fail_closed(
 ) -> None:
     runner = FakeCodexExecRunner(
         output_builder=lambda _payload: {
-            "rows": [{"atomic_index": 999, "label": "OTHER"}]
+            "rows": [{"atomic_index": 999, "label": "RECIPE_NOTES"}]
         }
     )
 
@@ -288,7 +290,9 @@ def test_line_role_phase_workers_emit_runtime_telemetry_summary(
         _settings(line_role_worker_count=1),
         artifact_root=tmp_path,
         codex_batch_size=1,
-        codex_runner=_TelemetryRunner(output_builder=_line_role_builder({0: "OTHER"})),
+        codex_runner=_TelemetryRunner(
+            output_builder=_line_role_builder({0: "RECIPE_NOTES"})
+        ),
         live_llm_allowed=True,
     )
 
@@ -341,7 +345,9 @@ def test_line_role_phase_workers_run_concurrently_when_multiple_workers_assigned
         artifact_root=tmp_path,
         codex_batch_size=1,
         codex_runner=_ConcurrentRunner(
-            output_builder=_line_role_builder({0: "OTHER", 1: "OTHER"})
+            output_builder=_line_role_builder(
+                {0: "RECIPE_NOTES", 1: "RECIPE_NOTES"}
+            )
         ),
         live_llm_allowed=True,
     )
@@ -354,7 +360,9 @@ def test_line_role_prompt_target_count_is_a_direct_shard_override(
     tmp_path: Path,
 ) -> None:
     runner = FakeCodexExecRunner(
-        output_builder=_line_role_builder({index: "OTHER" for index in range(5)})
+        output_builder=_line_role_builder(
+            {index: "RECIPE_NOTES" for index in range(5)}
+        )
     )
 
     label_atomic_lines(
@@ -408,7 +416,12 @@ def test_line_role_phase_workers_report_task_packet_progress(
         codex_batch_size=1,
         codex_runner=_SlowRunner(
             output_builder=_line_role_builder(
-                {0: "OTHER", 1: "OTHER", 2: "OTHER", 3: "OTHER"}
+                {
+                    0: "RECIPE_NOTES",
+                    1: "RECIPE_NOTES",
+                    2: "RECIPE_NOTES",
+                    3: "RECIPE_NOTES",
+                }
             )
         ),
         live_llm_allowed=True,

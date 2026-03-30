@@ -5,12 +5,18 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from cookimport.parsing.canonical_line_roles.contracts import (
-    CANONICAL_LINE_ROLE_ALLOWED_LABELS,
+LINE_ROLE_ALLOWED_LABELS: tuple[str, ...] = (
+    "RECIPE_TITLE",
+    "INGREDIENT_LINE",
+    "INSTRUCTION_LINE",
+    "HOWTO_SECTION",
+    "YIELD_LINE",
+    "TIME_LINE",
+    "RECIPE_NOTES",
+    "RECIPE_VARIANT",
+    "NONRECIPE_CANDIDATE",
+    "NONRECIPE_EXCLUDE",
 )
-
-
-LINE_ROLE_ALLOWED_LABELS: tuple[str, ...] = CANONICAL_LINE_ROLE_ALLOWED_LABELS
 LINE_ROLE_WORKER_TOOL_FILENAME = "line_role_worker.py"
 LINE_ROLE_OUTPUT_CONTRACT_MARKDOWN = """# Line-Role Ledger Contract
 

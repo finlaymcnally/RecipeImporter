@@ -573,7 +573,7 @@ def _render_local_context_rows(
         )
         rows.append(
             "ctx:"
-            f"{atomic_index}|prev={_escape_compact_text(_context_text(prev_text))}"
+            f"{int(candidate.atomic_index)}|prev={_escape_compact_text(_context_text(prev_text))}"
             f"|line={_escape_compact_text(_context_text(candidate.text))}"
             f"|next={_escape_compact_text(_context_text(next_text))}"
         )
