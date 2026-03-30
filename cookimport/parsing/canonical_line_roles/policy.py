@@ -28,24 +28,6 @@ def _is_outside_recipe_span(candidate: AtomicLineCandidate | CanonicalLineRolePr
     return candidate.within_recipe_span is False
 
 
-def _starts_recipe_span(
-    candidate: AtomicLineCandidate,
-    *,
-    by_atomic_index: dict[int, AtomicLineCandidate],
-) -> bool:
-    if not _is_within_recipe_span(candidate):
-        return False
-    recipe_id = str(candidate.recipe_id or "").strip()
-    if not recipe_id:
-        return False
-    previous = by_atomic_index.get(int(candidate.atomic_index) - 1)
-    if previous is None:
-        return True
-    if not _is_within_recipe_span(previous):
-        return True
-    return str(previous.recipe_id or "").strip() != recipe_id
-
-
 def _apply_prediction_decision_metadata(
     *,
     prediction: CanonicalLineRolePrediction,
@@ -715,26 +697,6 @@ def _apply_repo_baseline_semantic_policy(
         label = "INGREDIENT_LINE"
         decided_by = "fallback"
         reason_tags.append("sanitized_neighbor_ingredient_fragment")
-    if (
-        label == "RECIPE_VARIANT"
-        and _starts_recipe_span(candidate, by_atomic_index=by_atomic_index)
-        and not _looks_variant_heading_text(candidate.text)
-        and _looks_recipe_title_with_context(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-    ):
-        label = "RECIPE_TITLE"
-        decided_by = "fallback"
-        reason_tags.append("rescued_recipe_start_variant_to_title")
-    if (
-        label == "RECIPE_NOTES"
-        and _is_within_recipe_span(candidate)
-        and _looks_strict_yield_header(candidate.text)
-    ):
-        label = "YIELD_LINE"
-        decided_by = "fallback"
-        reason_tags.append("rescued_recipe_notes_to_yield")
     if label == "YIELD_LINE":
         if _looks_obvious_ingredient(candidate):
             label = "INGREDIENT_LINE"

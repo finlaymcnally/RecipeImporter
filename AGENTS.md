@@ -11,6 +11,7 @@ All timestamps for files and such should be: YYYY-MM-DD_HH.MM.SS
   - LLMs should make fuzzy semantic calls.
   - Deterministic code should validate outputs and keep authority boundaries clean.
   - Deterministic code should not try to “get smarter” about ambiguous cookbook semantics. IT IS VERY, VERY BAD AT THIS.
+  - i do not want deterministic systems overwriting or correcting LLM outputs.
 
 ## DOCUMENTATION
 Update Agents.md files (at any level) only when ABSOLUTELY NEEDED ONLY. Agents.md precious, instructions only.
