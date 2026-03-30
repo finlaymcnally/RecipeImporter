@@ -388,13 +388,10 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
     assert worker_manifest["current_hint_file"] == "current_hint.md"
     assert worker_manifest["current_result_path_file"] == "current_result_path.txt"
     assert worker_manifest["packet_lease_status_file"] == "packet_lease_status.json"
-    assert worker_manifest["current_task_file"] is None
-    assert worker_manifest["shard_packet_file"] is None
     assert worker_manifest["output_contract_file"] is None
     assert worker_manifest["examples_dir"] is None
     assert worker_manifest["tools_dir"] is None
     assert worker_manifest["hints_dir"] == "hints"
-    assert worker_manifest["assigned_tasks_file"] is None
     assert worker_manifest["mirrored_example_files"] == []
     assert worker_manifest["mirrored_tool_files"] == []
 

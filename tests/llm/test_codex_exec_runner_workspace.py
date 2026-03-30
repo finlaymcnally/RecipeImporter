@@ -168,11 +168,9 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_phase_loop(
         "CURRENT_PHASE_FEEDBACK.md",
         "assigned_shards.json",
     ]
-    assert worker_manifest["assigned_tasks_file"] is None
     assert worker_manifest["current_phase_file"] == "current_phase.json"
     assert worker_manifest["current_phase_brief_file"] == "CURRENT_PHASE.md"
     assert worker_manifest["current_phase_feedback_file"] == "CURRENT_PHASE_FEEDBACK.md"
-    assert worker_manifest["current_task_file"] is None
     assert worker_manifest["output_contract_file"] == "OUTPUT_CONTRACT.md"
     assert worker_manifest["examples_dir"] == "examples"
     assert worker_manifest["tools_dir"] == "tools"
@@ -201,7 +199,6 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_phase_loop(
     assert "When `OUTPUT_CONTRACT.md` or `examples/` exists" in agents_text
     assert "When `tools/` exists, prefer its repo-written helper CLI" in agents_text
     assert "When the workspace includes `current_phase.json`, `CURRENT_PHASE.md`, or `CURRENT_PHASE_FEEDBACK.md`" in agents_text
-    assert "When the workspace includes `current_task.json`, `CURRENT_TASK.md`, or `CURRENT_TASK_FEEDBACK.md`" in agents_text
     assert "`current_packet.json`, `current_hint.md`, and `current_result_path.txt`" in agents_text
     assert "Workspace-local shell commands are broadly allowed when they materially help" in agents_text
     assert "The watchdog is boundary-based" in agents_text
@@ -264,8 +261,6 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_packet_lease_files(
         "packet_lease_status.json",
     ]
     assert worker_manifest["assigned_shards_file"] is None
-    assert worker_manifest["assigned_tasks_file"] is None
-    assert worker_manifest["current_task_file"] is None
     assert worker_manifest["current_packet_file"] == "current_packet.json"
     assert worker_manifest["current_hint_file"] == "current_hint.md"
     assert worker_manifest["current_result_path_file"] == "current_result_path.txt"
@@ -275,7 +270,6 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_packet_lease_files(
     assert (workspace.execution_working_dir / "current_hint.md").exists()
     assert (workspace.execution_working_dir / "current_result_path.txt").exists()
     assert (workspace.execution_working_dir / "packet_lease_status.json").exists()
-    assert not (workspace.execution_working_dir / "current_task.json").exists()
     assert (workspace.execution_working_dir / "scratch").exists()
 
 
@@ -438,11 +432,11 @@ def test_workspace_boundary_detector_allows_multi_python_heredoc_shell_body() ->
     command = (
         "/bin/bash -lc \"python3 - <<'PY1'\n"
         "from pathlib import Path\n"
-        "Path('scratch/current_task.json').write_text('{}\\n')\n"
+        "Path('scratch/current_packet.json').write_text('{}\\n')\n"
         "PY1\n"
         "python3 - <<'PY2'\n"
         "from pathlib import Path\n"
-        "Path('out/task-001.json').write_text(Path('scratch/current_task.json').read_text())\n"
+        "Path('out/task-001.json').write_text(Path('scratch/current_packet.json').read_text())\n"
         "PY2\""
     )
 
@@ -454,7 +448,7 @@ def test_workspace_boundary_detector_allows_multi_python_heredoc_shell_body() ->
 
 def test_workspace_boundary_detector_allows_slashy_heredoc_write_payload() -> None:
     command = (
-        "/bin/bash -lc \"cat > scratch/current_task.json <<'EOF'\n"
+        "/bin/bash -lc \"cat > scratch/current_packet.json <<'EOF'\n"
         "{\\\"task_id\\\":\\\"task-001\\\",\\\"source\\\":\\\"/home/mcnal/projects/recipeimport/data/input/book.pdf\\\","
         "\\\"ratio\\\":\\\"3/4\\\"}\n"
         "EOF\""
@@ -476,7 +470,7 @@ def test_workspace_boundary_detector_allows_execution_root_cd_and_manifest_reads
     execution_root = tmp_path / ".codex-recipe" / "runtime" / "worker-001"
     command = (
         f'/bin/bash -lc "cd {execution_root} && '
-        'cat worker_manifest.json current_task.json OUTPUT_CONTRACT.md >/dev/null"'
+        'cat worker_manifest.json current_packet.json OUTPUT_CONTRACT.md >/dev/null"'
     )
 
     assert (
@@ -492,29 +486,9 @@ def test_workspace_boundary_detector_allows_execution_root_cd_and_manifest_reads
     )
     assert verdict.allowed is True
     assert verdict.policy in {
-        "recipe_contract_lookup_command",
         "shell_script_workspace_local",
         "tolerated_workspace_shell_command",
     }
-
-
-def test_workspace_boundary_detector_classifies_recipe_contract_and_bundle_reads() -> None:
-    contract_command = (
-        "/bin/bash -lc \"cat OUTPUT_CONTRACT.md && echo '---' && "
-        "cat examples/valid_repaired_task_output.json && echo '---' && "
-        "sed -n '1,40p' tools/recipe_worker.py\""
-    )
-    bundle_command = (
-        "/bin/bash -lc \"cat hints/task-001.md && echo '---' && "
-        "cat in/task-001.json && echo '---' && cat scratch/task-001.json\""
-    )
-
-    assert detect_workspace_worker_boundary_violation(contract_command) is None
-    assert classify_workspace_worker_command(contract_command).policy == "recipe_contract_lookup_command"
-
-    assert detect_workspace_worker_boundary_violation(bundle_command) is None
-    assert classify_workspace_worker_command(bundle_command).policy == "recipe_task_bundle_read_command"
-
 
 def test_workspace_boundary_detector_allows_local_cp_and_mv_between_scratch_and_out() -> None:
     for command in (
@@ -537,10 +511,6 @@ def test_fake_workspace_worker_reads_local_inputs_and_syncs_outputs(
     (source_root / "in").mkdir(parents=True, exist_ok=True)
     (source_root / "assigned_shards.json").write_text(
         json.dumps([{"shard_id": "shard-001"}]),
-        encoding="utf-8",
-    )
-    (source_root / "assigned_tasks.json").write_text(
-        json.dumps([{"task_id": "shard-001", "parent_shard_id": "shard-001"}]),
         encoding="utf-8",
     )
     (source_root / "in" / "shard-001.json").write_text(
@@ -578,10 +548,6 @@ def test_subprocess_workspace_worker_parses_token_usage_from_text_stream(
 ) -> None:
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
     source_root.mkdir(parents=True, exist_ok=True)
-    (source_root / "assigned_tasks.json").write_text(
-        json.dumps([{"task_id": "task-001", "parent_shard_id": "shard-001"}]),
-        encoding="utf-8",
-    )
     (source_root / "assigned_shards.json").write_text(
         json.dumps([{"shard_id": "shard-001"}]),
         encoding="utf-8",
@@ -664,109 +630,6 @@ def test_subprocess_workspace_worker_parses_token_usage_from_text_stream(
         "output_tokens": 20,
         "reasoning_tokens": 0,
     }
-
-
-def test_workspace_supervision_pushes_advanced_current_task_bundle_back_to_execution_root(
-    tmp_path: Path,
-) -> None:
-    source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
-    execution_root = tmp_path / ".codex-recipe" / "runtime" / "worker-001"
-    source_root.mkdir(parents=True, exist_ok=True)
-    execution_root.mkdir(parents=True, exist_ok=True)
-    for root in (source_root, execution_root):
-        (root / "out").mkdir(parents=True, exist_ok=True)
-        (root / "current_task.json").write_text(
-            json.dumps({"task_id": "task-001", "metadata": {"result_path": "out/task-001.json"}}),
-            encoding="utf-8",
-        )
-        (root / "CURRENT_TASK.md").write_text(
-            "# Current Knowledge Task\n\nTask id: `task-001`\n",
-            encoding="utf-8",
-        )
-        (root / "CURRENT_TASK_FEEDBACK.md").write_text(
-            "# Current Task Feedback\n\nTask id: `task-001`\nValidation status: OK.\n",
-            encoding="utf-8",
-        )
-    (execution_root / "out" / "task-001.json").write_text(
-        json.dumps(
-            {
-                "packet_id": "task-001",
-                "block_decisions": [],
-                "idea_groups": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    callback_calls: list[int] = []
-
-    def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
-        callback_calls.append(len(callback_calls) + 1)
-        assert snapshot.source_working_dir == str(source_root)
-        assert snapshot.execution_working_dir == str(execution_root)
-        if len(callback_calls) == 1:
-            (source_root / "current_task.json").write_text(
-                json.dumps(
-                    {"task_id": "task-002", "metadata": {"result_path": "out/task-002.json"}}
-                ),
-                encoding="utf-8",
-            )
-            (source_root / "CURRENT_TASK.md").write_text(
-                "# Current Knowledge Task\n\nTask id: `task-002`\n",
-                encoding="utf-8",
-            )
-            (source_root / "CURRENT_TASK_FEEDBACK.md").write_text(
-                (
-                    "# Current Task Feedback\n\n"
-                    "Task id: `task-002`\n"
-                    "No repo-written validation feedback exists yet for this task.\n"
-                ),
-                encoding="utf-8",
-            )
-        return None
-
-    wrapped = exec_runner_module._wrap_workspace_supervision_callback(  # noqa: SLF001
-        supervision_callback=_callback,
-        workspace_mode="workspace_worker",
-        source_working_dir=source_root,
-        execution_working_dir=execution_root,
-        sync_output_paths=("out",),
-        sync_source_paths=(
-            "current_task.json",
-            "CURRENT_TASK.md",
-            "CURRENT_TASK_FEEDBACK.md",
-        ),
-    )
-
-    assert wrapped is not None
-    snapshot = CodexExecLiveSnapshot(
-        elapsed_seconds=0.1,
-        last_event_seconds_ago=0.0,
-        event_count=1,
-        command_execution_count=1,
-        reasoning_item_count=0,
-        last_command="/bin/bash -lc python3 tools/recipe_worker.py install-current",
-        last_command_repeat_count=1,
-        has_final_agent_message=False,
-        timeout_seconds=30,
-    )
-
-    wrapped(snapshot)
-    wrapped(snapshot)
-
-    assert callback_calls == [1, 2]
-    assert json.loads((source_root / "current_task.json").read_text(encoding="utf-8"))["task_id"] == (
-        "task-002"
-    )
-    assert json.loads((execution_root / "current_task.json").read_text(encoding="utf-8"))[
-        "task_id"
-    ] == "task-002"
-    assert "task-002" in (source_root / "CURRENT_TASK.md").read_text(encoding="utf-8")
-    assert "task-002" in (execution_root / "CURRENT_TASK.md").read_text(encoding="utf-8")
-    assert "task-002" in (
-        execution_root / "CURRENT_TASK_FEEDBACK.md"
-    ).read_text(encoding="utf-8")
-
 
 def test_rewrite_direct_exec_prompt_paths_retargets_worker_root(tmp_path: Path) -> None:
     source_root = tmp_path / "repo" / "worker-001"

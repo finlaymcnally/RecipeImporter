@@ -82,6 +82,7 @@ def test_run_all_method_benchmark_writes_ranked_summary(
             ),
         ),
     )
+    _patch_cli_attr(monkeypatch, "ProcessPoolExecutor", ThreadPoolExecutor)
 
     processed_root = tmp_path / "processed-output"
     report_md_path = cli._run_all_method_benchmark(

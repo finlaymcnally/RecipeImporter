@@ -2362,8 +2362,32 @@ def _resolve_all_method_source_parallelism(
 def _create_all_method_process_pool_executor(*, max_workers: int):
     context = preferred_multiprocessing_context()
     if context is None:
+        try:
+            start_method = multiprocessing.get_start_method(allow_none=True)
+        except TypeError:
+            start_method = multiprocessing.get_start_method()
+        if not start_method:
+            try:
+                start_methods = multiprocessing.get_all_start_methods()
+            except Exception:  # noqa: BLE001
+                start_methods = []
+            start_method = start_methods[0] if start_methods else None
+        if str(start_method or "").strip() == "fork":
+            try:
+                available_methods = multiprocessing.get_all_start_methods()
+            except Exception:  # noqa: BLE001
+                available_methods = []
+            if "spawn" in available_methods:
+                try:
+                    context = multiprocessing.get_context("spawn")
+                except Exception:  # noqa: BLE001
+                    context = None
+    if context is None:
         return ProcessPoolExecutor(max_workers=max_workers)
-    return ProcessPoolExecutor(max_workers=max_workers, mp_context=context)
+    try:
+        return ProcessPoolExecutor(max_workers=max_workers, mp_context=context)
+    except TypeError:
+        return ProcessPoolExecutor(max_workers=max_workers)
 
 
 def _probe_all_method_process_pool_executor() -> tuple[bool, str | None]:

@@ -34,15 +34,10 @@ _DIRECT_EXEC_HINTS_DIR_NAME = "hints"
 _DIRECT_EXEC_LOGS_DIR_NAME = "logs"
 _DIRECT_EXEC_SHARDS_DIR_NAME = "shards"
 _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME = "assigned_shards.json"
-_DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME = "assigned_tasks.json"
 _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME = "worker_manifest.json"
 _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME = "current_phase.json"
 _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME = "CURRENT_PHASE.md"
 _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME = "CURRENT_PHASE_FEEDBACK.md"
-_DIRECT_EXEC_CURRENT_TASK_FILE_NAME = "current_task.json"
-_DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME = "CURRENT_TASK.md"
-_DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME = "CURRENT_TASK_FEEDBACK.md"
-_DIRECT_EXEC_SHARD_PACKET_FILE_NAME = "SHARD_PACKET.md"
 _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME = "current_packet.json"
 _DIRECT_EXEC_CURRENT_HINT_FILE_NAME = "current_hint.md"
 _DIRECT_EXEC_CURRENT_RESULT_PATH_FILE_NAME = "current_result_path.txt"
@@ -60,15 +55,10 @@ _WORKSPACE_ALLOWED_PATH_ROOTS = {
     ".",
     "./",
     _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
-    _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
     _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME,
-    _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
-    _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME,
-    _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME,
-    _DIRECT_EXEC_SHARD_PACKET_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME,
     _DIRECT_EXEC_CURRENT_HINT_FILE_NAME,
     _DIRECT_EXEC_CURRENT_RESULT_PATH_FILE_NAME,
@@ -99,10 +89,6 @@ _DIRECT_EXEC_RUNTIME_CONTROL_PATHS = (
     _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME,
-    _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
-    _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME,
-    _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME,
-    _DIRECT_EXEC_SHARD_PACKET_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME,
     _DIRECT_EXEC_CURRENT_HINT_FILE_NAME,
     _DIRECT_EXEC_CURRENT_RESULT_PATH_FILE_NAME,
@@ -1135,10 +1121,6 @@ def prepare_direct_exec_workspace(
     mode: DirectExecWorkspaceMode = "structured_json",
 ) -> PreparedDirectExecWorkspace:
     source_root = Path(source_working_dir).resolve()
-    _write_direct_exec_current_task_sidecar(
-        workspace_root=source_root,
-        mode=mode,
-    )
     _write_direct_exec_worker_manifest(
         workspace_root=source_root,
         task_label=task_label,
@@ -1175,14 +1157,10 @@ def build_direct_exec_workspace_manifest(
         "execution_working_dir": str(execution_working_dir) if execution_working_dir else None,
         "execution_agents_path": str(execution_agents_path) if execution_agents_path else None,
         "assigned_shards_path": None,
-        "assigned_tasks_path": None,
         "worker_manifest_path": None,
         "current_phase_path": None,
         "current_phase_brief_path": None,
         "current_phase_feedback_path": None,
-        "current_task_path": None,
-        "current_task_brief_path": None,
-        "current_task_feedback_path": None,
         "output_contract_path": None,
         "examples_dir": None,
         "tools_dir": None,
@@ -1213,9 +1191,6 @@ def build_direct_exec_workspace_manifest(
     assigned_shards_path = execution_root / _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME
     if assigned_shards_path.exists():
         payload["assigned_shards_path"] = str(assigned_shards_path)
-    assigned_tasks_path = execution_root / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
-    if assigned_tasks_path.exists():
-        payload["assigned_tasks_path"] = str(assigned_tasks_path)
     worker_manifest_path = execution_root / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME
     if worker_manifest_path.exists():
         payload["worker_manifest_path"] = str(worker_manifest_path)
@@ -1228,15 +1203,6 @@ def build_direct_exec_workspace_manifest(
     current_phase_feedback_path = execution_root / _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME
     if current_phase_feedback_path.exists():
         payload["current_phase_feedback_path"] = str(current_phase_feedback_path)
-    current_task_path = execution_root / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME
-    if current_task_path.exists():
-        payload["current_task_path"] = str(current_task_path)
-    current_task_brief_path = execution_root / _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME
-    if current_task_brief_path.exists():
-        payload["current_task_brief_path"] = str(current_task_brief_path)
-    current_task_feedback_path = execution_root / _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME
-    if current_task_feedback_path.exists():
-        payload["current_task_feedback_path"] = str(current_task_feedback_path)
     output_contract_path = execution_root / _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME
     if output_contract_path.exists():
         payload["output_contract_path"] = str(output_contract_path)
@@ -1362,10 +1328,6 @@ def _populate_direct_exec_workspace(
         execution_working_dir / _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
     )
     _copy_if_present(
-        source_working_dir / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
-        execution_working_dir / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
-    )
-    _copy_if_present(
         source_working_dir / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
         execution_working_dir / _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
     )
@@ -1380,18 +1342,6 @@ def _populate_direct_exec_workspace(
     _copy_if_present(
         source_working_dir / _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME,
         execution_working_dir / _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME,
-    )
-    _copy_if_present(
-        source_working_dir / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
-        execution_working_dir / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME,
-    )
-    _copy_if_present(
-        source_working_dir / _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME,
-        execution_working_dir / _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME,
-    )
-    _copy_if_present(
-        source_working_dir / _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME,
-        execution_working_dir / _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME,
     )
     _copy_if_present(
         source_working_dir / _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME,
@@ -1472,14 +1422,6 @@ def _copy_tree_if_present(source: Path, destination: Path) -> None:
 
 
 def _read_workspace_manifest_rows(*, execution_working_dir: Path) -> list[Any]:
-    assigned_tasks_path = execution_working_dir / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
-    if assigned_tasks_path.exists():
-        try:
-            assigned_tasks = json.loads(assigned_tasks_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            assigned_tasks = []
-        if isinstance(assigned_tasks, list) and assigned_tasks:
-            return assigned_tasks
     assigned_shards_path = execution_working_dir / _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME
     if assigned_shards_path.exists():
         try:
@@ -1509,9 +1451,7 @@ def _build_direct_exec_agents_text(
             "When `OUTPUT_CONTRACT.md` or `examples/` exists, treat those repo-written files as the authoritative output-shape reference.\n"
             "When `tools/` exists, prefer its repo-written helper CLI or scripts before inventing ad hoc local transforms.\n"
             "When the workspace includes `current_phase.json`, `CURRENT_PHASE.md`, or `CURRENT_PHASE_FEEDBACK.md`, treat that repo-written phase surface as authoritative and open it before the broader queue.\n"
-            "When the workspace includes `current_task.json`, `CURRENT_TASK.md`, or `CURRENT_TASK_FEEDBACK.md`, treat that repo-written current-task surface as authoritative and open it before touching the broader queue.\n"
             "When the workspace includes `current_packet.json`, `current_hint.md`, and `current_result_path.txt`, treat only those current-packet files as authoritative until the repo advances the lease.\n"
-            "If `assigned_tasks.json` exists, use it as a lightweight ordered queue/progress reference after the current task surface unless the prompt says otherwise.\n"
             "Read the local task manifests and input files directly.\n"
             "Use `scratch/` or short-lived local temp files such as `/tmp` or `/var/tmp` for bounded helper files. Write completed results only to the local path named by `current_result_path.txt` or the prompt.\n"
             "Do not inspect parent directories, repository-wide AGENTS files, project docs, or source code.\n"
@@ -2588,18 +2528,10 @@ def _write_direct_exec_worker_manifest(
     has_assigned_shards = (
         workspace_root / _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME
     ).exists()
-    has_assigned_tasks = (
-        workspace_root / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
-    ).exists()
     has_packet_leasing = (workspace_root / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME).exists()
     has_current_phase = (
         not has_packet_leasing
         and (workspace_root / _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME).exists()
-    )
-    has_current_task = (
-        not has_packet_leasing
-        and not has_current_phase
-        and (workspace_root / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME).exists()
     )
     mirrored_tool_files = _list_workspace_relative_files(
         workspace_root / _DIRECT_EXEC_TOOLS_DIR_NAME
@@ -2608,20 +2540,12 @@ def _write_direct_exec_worker_manifest(
     has_work_dir = (workspace_root / _DIRECT_EXEC_WORK_DIR_NAME).exists()
     has_repair_dir = (workspace_root / _DIRECT_EXEC_REPAIR_DIR_NAME).exists()
     entry_files = [_DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME]
-    if (workspace_root / _DIRECT_EXEC_SHARD_PACKET_FILE_NAME).exists():
-        entry_files.append(_DIRECT_EXEC_SHARD_PACKET_FILE_NAME)
     if has_current_phase:
         entry_files.append(_DIRECT_EXEC_CURRENT_PHASE_FILE_NAME)
         if (workspace_root / _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME).exists():
             entry_files.append(_DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME)
         if (workspace_root / _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME).exists():
             entry_files.append(_DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME)
-    if has_current_task:
-        entry_files.append(_DIRECT_EXEC_CURRENT_TASK_FILE_NAME)
-        if (workspace_root / _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME).exists():
-            entry_files.append(_DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME)
-        if (workspace_root / _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME).exists():
-            entry_files.append(_DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME)
     if has_packet_leasing:
         entry_files.extend(
             [
@@ -2633,8 +2557,6 @@ def _write_direct_exec_worker_manifest(
         )
     if has_assigned_shards:
         entry_files.append(_DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME)
-    if has_assigned_tasks:
-        entry_files.append(_DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME)
     payload = {
         "version": 1,
         "task_label": rendered_task_label,
@@ -2643,9 +2565,6 @@ def _write_direct_exec_worker_manifest(
         "entry_files": entry_files,
         "assigned_shards_file": (
             _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME if has_assigned_shards else None
-        ),
-        "assigned_tasks_file": (
-            _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME if has_assigned_tasks else None
         ),
         "current_phase_file": (
             _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME if has_current_phase else None
@@ -2660,26 +2579,6 @@ def _write_direct_exec_worker_manifest(
             _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME
             if has_current_phase
             and (workspace_root / _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME).exists()
-            else None
-        ),
-        "current_task_file": (
-            _DIRECT_EXEC_CURRENT_TASK_FILE_NAME if has_current_task else None
-        ),
-        "current_task_brief_file": (
-            _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME
-            if has_current_task
-            and (workspace_root / _DIRECT_EXEC_CURRENT_TASK_BRIEF_FILE_NAME).exists()
-            else None
-        ),
-        "current_task_feedback_file": (
-            _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME
-            if has_current_task
-            and (workspace_root / _DIRECT_EXEC_CURRENT_TASK_FEEDBACK_FILE_NAME).exists()
-            else None
-        ),
-        "shard_packet_file": (
-            _DIRECT_EXEC_SHARD_PACKET_FILE_NAME
-            if (workspace_root / _DIRECT_EXEC_SHARD_PACKET_FILE_NAME).exists()
             else None
         ),
         "output_contract_file": (
@@ -2732,14 +2631,12 @@ def _write_direct_exec_worker_manifest(
                 "The current working directory is already the workspace root.",
                 "Open named workspace files directly; do not dump whole inventories just to orient yourself.",
                 (
-                    "Treat the repo-written current-packet files as authoritative and use "
-                    "`assigned_tasks.json` only as background inventory."
+                    "Treat the repo-written current-packet files as authoritative until "
+                    "the repo advances the lease."
                     if has_packet_leasing
                     else "Treat `CURRENT_PHASE.md`, `current_phase.json`, and `CURRENT_PHASE_FEEDBACK.md` as the authoritative phase surface when present. Treat `assigned_shards.json` as the ordered ownership/queue reference."
                     if has_current_phase
-                    else "Treat `SHARD_PACKET.md`, `current_task.json`, `CURRENT_TASK.md`, and `CURRENT_TASK_FEEDBACK.md` as the authoritative recipe/task surface when present, and `assigned_tasks.json` as the ordered queue/progress reference."
-                    if has_current_task
-                    else "If assigned_tasks.json exists, it defines the ordered task loop for this worker."
+                    else "Treat `assigned_shards.json` as the ordered ownership/queue reference when present."
                 ),
                 (
                     "Use `work/`, `repair/`, or short-lived local temp roots such as `/tmp` for helper work, and the approved `out/` path for final results."
@@ -2774,21 +2671,6 @@ def _write_direct_exec_worker_manifest(
                     if has_current_phase
                     else []
                 )
-                + (
-                    [
-                        "sed -n '1,120p' SHARD_PACKET.md",
-                    ]
-                    if (workspace_root / _DIRECT_EXEC_SHARD_PACKET_FILE_NAME).exists()
-                    else []
-                )
-                + (
-                    [
-                        "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('current_task.json').read_text()); print(row['task_id'])\"",
-                        "jq '.metadata' current_task.json",
-                    ]
-                    if has_current_task
-                    else []
-                )
                 + [
                     (
                         "sed -n '1,80p' hints/<shard_id>.md"
@@ -2798,20 +2680,13 @@ def _write_direct_exec_worker_manifest(
                 ]
                 + (
                     [
-                        "python3 tools/recipe_worker.py current",
-                        "python3 tools/recipe_worker.py check-current",
-                        "python3 tools/recipe_worker.py install-current",
-                        "python3 tools/recipe_worker.py finalize-all scratch/",
-                    ]
-                    if "recipe_worker.py" in mirrored_tool_files
-                    else [
                         "python3 tools/line_role_worker.py overview",
                         "python3 tools/line_role_worker.py check-phase",
                         "python3 tools/line_role_worker.py install-phase",
                     ]
                     if "line_role_worker.py" in mirrored_tool_files
                     else [
-                        "python3 -c \"import json; from pathlib import Path; row=json.loads(Path('current_task.json').read_text()); Path(row['metadata']['result_path']).write_text(Path(row['metadata']['input_path']).read_text())\"",
+                        "python3 -c \"from pathlib import Path; Path('out/shard-001.json').write_text(Path('in/shard-001.json').read_text())\"",
                         "cat <<'EOF' > /tmp/local-helper.json",
                     ]
                 )
@@ -2852,47 +2727,6 @@ def _write_direct_exec_worker_manifest(
         json.dumps(payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
-
-
-def _write_direct_exec_current_task_sidecar(
-    *,
-    workspace_root: Path,
-    mode: DirectExecWorkspaceMode,
-) -> None:
-    current_task_path = workspace_root / _DIRECT_EXEC_CURRENT_TASK_FILE_NAME
-    if (
-        mode != "workspace_worker"
-        or (workspace_root / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME).exists()
-        or (workspace_root / _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME).exists()
-    ):
-        if current_task_path.exists() and current_task_path.is_file():
-            current_task_path.unlink()
-        return
-    assigned_tasks_path = workspace_root / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
-    if not assigned_tasks_path.exists():
-        if current_task_path.exists() and current_task_path.is_file():
-            current_task_path.unlink()
-        return
-    try:
-        assigned_tasks = json.loads(assigned_tasks_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        assigned_tasks = []
-    first_task = (
-        assigned_tasks[0]
-        if isinstance(assigned_tasks, list)
-        and assigned_tasks
-        and isinstance(assigned_tasks[0], Mapping)
-        else None
-    )
-    if first_task is None:
-        if current_task_path.exists() and current_task_path.is_file():
-            current_task_path.unlink()
-        return
-    current_task_path.write_text(
-        json.dumps(first_task, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-
 
 def format_watchdog_command_loop_reason_detail(
     *,
@@ -2937,12 +2771,6 @@ def classify_workspace_worker_command(
         return egregious_verdict
     shell_body = _extract_workspace_shell_body(command_text)
     if shell_body is not None:
-        special_recipe_read = _classify_recipe_workspace_reference_read(
-            shell_body=shell_body,
-            command_text=cleaned_command,
-        )
-        if special_recipe_read is not None:
-            return special_recipe_read
         return _classify_workspace_worker_shell_script(
             shell_body=shell_body,
             command_text=cleaned_command,
@@ -3169,48 +2997,6 @@ def _classify_workspace_worker_shell_script(
         policy="tolerated_workspace_shell_command",
         reason="command stayed inside the relaxed workspace-worker command policy",
     )
-
-
-def _classify_recipe_workspace_reference_read(
-    *,
-    shell_body: str,
-    command_text: str | None,
-) -> WorkspaceCommandClassification | None:
-    normalized = str(shell_body or "").strip()
-    if not normalized:
-        return None
-    lowered = normalized.lower()
-    if "python3 tools/recipe_worker.py" in lowered or "python tools/recipe_worker.py" in lowered:
-        return None
-    recipe_contract_markers = (
-        "output_contract.md",
-        "examples/valid_repaired_task_output.json",
-        "examples/valid_fragmentary_task_output.json",
-        "examples/valid_not_a_recipe_task_output.json",
-        "tools/recipe_worker.py",
-    )
-    if any(marker in lowered for marker in recipe_contract_markers):
-        return WorkspaceCommandClassification(
-            command_text=command_text,
-            allowed=True,
-            policy="recipe_contract_lookup_command",
-            reason=(
-                "recipe worker reread contract/examples/helper source instead of the "
-                "repo-written current-task surface"
-            ),
-        )
-    if "hints/" in lowered and " in/" in lowered and "scratch/" in lowered:
-        return WorkspaceCommandClassification(
-            command_text=command_text,
-            allowed=True,
-            policy="recipe_task_bundle_read_command",
-            reason=(
-                "recipe worker reread hint/input/draft bundle instead of working from "
-                "the current-task brief and current draft"
-            ),
-        )
-    return None
-
 
 def _workspace_shell_executables(shell_body: str) -> list[str]:
     shell_keywords = {

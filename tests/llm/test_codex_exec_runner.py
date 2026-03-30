@@ -371,7 +371,7 @@ def test_codex_exec_runner_only_kills_pathological_workspace_command_loops() -> 
 def test_codex_exec_runner_allows_relaxed_workspace_shell_commands() -> None:
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat assigned_shards.json'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc cat assigned_shards.json") is True
-    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat current_task.json'") is True
+    assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat current_packet.json'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'head -n 20 in/shard-001.json'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'jq .rows[0] in/shard-001.json'") is True
     assert (
@@ -410,15 +410,6 @@ def test_codex_exec_runner_allows_relaxed_workspace_shell_commands() -> None:
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat temp.json'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc 'cat out/*.json'") is True
     assert is_tolerated_workspace_worker_command("/bin/bash -lc sed -n '1,20p' in/shard-001.json") is True
-    assert (
-        is_tolerated_workspace_worker_command(
-            "/bin/bash -lc \"jq -r '.[].task_id' assigned_tasks.json | while read -r task; do\n"
-            "  cat \\\"hints/$task.md\\\" >/dev/null\n"
-            "  jq -M -c '{v: \\\"1\\\"}' \\\"in/$task.json\\\" > \\\"out/$task.json\\\"\n"
-            "done\""
-        )
-        is True
-    )
     assert (
         is_tolerated_workspace_worker_command(
             "/bin/bash -lc \"cat hints/saltfatacidheatcutdown.ks0009.nr.task-001.md >/dev/null\n"
@@ -486,17 +477,14 @@ def test_codex_exec_runner_classifies_workspace_commands_for_telemetry() -> None
     assert shell.allowed is True
     assert shell.policy == "tolerated_workspace_shell_command"
 
-    recipe_bundle_read = classify_workspace_worker_command(
-        "/bin/bash -lc \"cat hints/task-001.md && echo '---' && cat in/task-001.json && echo '---' && cat scratch/task-001.json\""
+    manifest_read = classify_workspace_worker_command(
+        "/bin/bash -lc \"cat worker_manifest.json && echo '---' && cat OUTPUT_CONTRACT.md\""
     )
-    assert recipe_bundle_read.allowed is True
-    assert recipe_bundle_read.policy == "recipe_task_bundle_read_command"
-
-    recipe_contract_read = classify_workspace_worker_command(
-        "/bin/bash -lc \"cat OUTPUT_CONTRACT.md && echo '---' && cat examples/valid_repaired_task_output.json\""
-    )
-    assert recipe_contract_read.allowed is True
-    assert recipe_contract_read.policy == "recipe_contract_lookup_command"
+    assert manifest_read.allowed is True
+    assert manifest_read.policy in {
+        "shell_script_workspace_local",
+        "tolerated_workspace_shell_command",
+    }
 
     root_relative = classify_workspace_worker_command("/bin/bash -lc 'cat temp.json'")
     assert root_relative.allowed is True
@@ -691,11 +679,11 @@ def test_codex_exec_runner_allows_multi_python_heredoc_shell_body() -> None:
     command = (
         "/bin/bash -lc \"python3 - <<'PY1'\n"
         "from pathlib import Path\n"
-        "Path('scratch/current_task.json').write_text('{}\\n')\n"
+        "Path('scratch/current_packet.json').write_text('{}\\n')\n"
         "PY1\n"
         "python3 - <<'PY2'\n"
         "from pathlib import Path\n"
-        "Path('out/task-001.json').write_text(Path('scratch/current_task.json').read_text())\n"
+        "Path('out/task-001.json').write_text(Path('scratch/current_packet.json').read_text())\n"
         "PY2\""
     )
 
@@ -707,7 +695,7 @@ def test_codex_exec_runner_allows_multi_python_heredoc_shell_body() -> None:
 
 def test_codex_exec_runner_allows_slashy_heredoc_shell_write_payload() -> None:
     command = (
-        "/bin/bash -lc \"cat > scratch/current_task.json <<'EOF'\n"
+        "/bin/bash -lc \"cat > scratch/current_packet.json <<'EOF'\n"
         "{\\\"task_id\\\":\\\"task-001\\\",\\\"source\\\":\\\"/home/mcnal/projects/recipeimport/data/input/book.pdf\\\","
         "\\\"ratio\\\":\\\"3/4\\\"}\n"
         "EOF\""

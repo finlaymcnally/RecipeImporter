@@ -901,6 +901,8 @@ def test_summarize_knowledge_stage_artifacts_reports_packet_and_worker_rollups(
         "retry_recovered": 1,
         "validated": 1,
     }
+    assert summary["packets"]["no_final_output_shard_count"] == 0
+    assert summary["packets"]["no_final_output_reason_code_counts"] == {}
     assert summary["packets"]["topline"]["deterministic_bypass"] == 1
     assert summary["workers"]["outcome_counts"] == {
         "completed_outputs_stabilized": 1,

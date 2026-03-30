@@ -5702,12 +5702,9 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
         "CURRENT_PHASE_FEEDBACK.md",
         "assigned_shards.json",
     ]
-    assert worker_manifest_payload["assigned_tasks_file"] is None
     assert worker_manifest_payload["current_phase_file"] == "current_phase.json"
     assert worker_manifest_payload["current_phase_brief_file"] == "CURRENT_PHASE.md"
     assert worker_manifest_payload["current_phase_feedback_file"] == "CURRENT_PHASE_FEEDBACK.md"
-    assert worker_manifest_payload["current_task_file"] is None
-    assert worker_manifest_payload["current_task_brief_file"] is None
     assert worker_manifest_payload["output_contract_file"] == "OUTPUT_CONTRACT.md"
     assert worker_manifest_payload["examples_dir"] is None
     assert worker_manifest_payload["tools_dir"] == "tools"

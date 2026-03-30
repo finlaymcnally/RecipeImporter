@@ -2894,6 +2894,8 @@ def test_prompt_budget_summary_surfaces_knowledge_packet_and_followup_counts(
         "retry_recovered": 1,
         "validated": 1,
     }
+    assert knowledge_stage["no_final_output_shard_count"] == 0
+    assert knowledge_stage["no_final_output_reason_code_counts"] == {}
     assert knowledge_stage["worker_outcome_counts"] == {
         "completed_outputs_stabilized": 1,
     }
