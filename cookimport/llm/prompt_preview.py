@@ -62,15 +62,15 @@ from cookimport.parsing.recipe_block_atomizer import (
     atomize_blocks,
     build_atomic_index_lookup,
 )
-from cookimport.staging.nonrecipe_seed import normalize_nonrecipe_stage_category
+from cookimport.staging.nonrecipe_seed import normalize_nonrecipe_route_label
 from cookimport.staging.nonrecipe_stage import build_nonrecipe_stage_result
 
 _DEFAULT_RECIPE_PIPELINE_ID = "recipe.correction.compact.v1"
 _DEFAULT_RECIPE_SURFACE = "codex-recipe-shard-v1"
 _DEFAULT_KNOWLEDGE_PIPELINE_ID = "recipe.knowledge.packet.v1"
-_DEFAULT_KNOWLEDGE_SURFACE = "codex-knowledge-shard-v1"
+_DEFAULT_KNOWLEDGE_SURFACE = "codex-knowledge-candidate-v2"
 _DEFAULT_LINE_ROLE_PIPELINE_ID = "line-role.canonical.v1"
-_DEFAULT_LINE_ROLE_SURFACE = "codex-line-role-shard-v1"
+_DEFAULT_LINE_ROLE_SURFACE = "codex-line-role-route-v2"
 
 
 def _resolved_preview_model_label(
@@ -157,16 +157,16 @@ def _preview_sanitized_nonrecipe_block_labels(
         if int(block_label.source_block_index) in recipe_block_indices:
             sanitized.append(block_label)
             continue
-        _, warning = normalize_nonrecipe_stage_category(block_label.final_label)
+        _, warning = normalize_nonrecipe_route_label(block_label.final_label)
         if warning is None:
             sanitized.append(block_label)
             continue
         sanitized.append(
             block_label.model_copy(
                 update={
-                    "final_label": "OTHER",
-                    "review_exclusion_reason": (
-                        str(block_label.review_exclusion_reason or "").strip()
+                    "final_label": "NONRECIPE_EXCLUDE",
+                    "exclusion_reason": (
+                        str(block_label.exclusion_reason or "").strip()
                         or "prompt_preview_invalid_nonrecipe_label"
                     ),
                 }
@@ -706,7 +706,7 @@ def _build_knowledge_preview_rows(
     )
     build_knowledge_jobs(
         full_blocks=context.full_blocks,
-        candidate_spans=nonrecipe_stage_result.routing.review_eligible_nonrecipe_spans,
+        candidate_spans=nonrecipe_stage_result.unresolved_candidate_spans(),
         recipe_spans=context.recipe_spans,
         workbook_slug=context.workbook_slug,
         out_dir=in_dir,
@@ -1440,13 +1440,13 @@ def _score_predictive_manifest(
     knowledge_pipeline = str(run_config.get("llm_knowledge_pipeline") or "").strip().lower()
     line_role_pipeline = str(run_config.get("line_role_pipeline") or "").strip().lower()
     codex_enabled = any(
-        pipeline not in {"", "off", "deterministic-v1"}
+        pipeline not in {"", "off", "deterministic-route-v2"}
         for pipeline in (recipe_pipeline, knowledge_pipeline, line_role_pipeline)
     )
     vanilla_like = (
         recipe_pipeline in {"", "off"}
         and knowledge_pipeline in {"", "off"}
-        and line_role_pipeline in {"", "off", "deterministic-v1"}
+        and line_role_pipeline in {"", "off", "deterministic-route-v2"}
     )
     if "/vanilla/" in path_text:
         score += 100
@@ -1511,7 +1511,7 @@ def _run_config_is_codex_backed(run_config: Mapping[str, Any]) -> bool:
     knowledge_pipeline = str(run_config.get("llm_knowledge_pipeline") or "").strip().lower()
     line_role_pipeline = str(run_config.get("line_role_pipeline") or "").strip().lower()
     return any(
-        pipeline not in {"", "off", "deterministic-v1"}
+        pipeline not in {"", "off", "deterministic-route-v2"}
         for pipeline in (recipe_pipeline, knowledge_pipeline, line_role_pipeline)
     )
 
@@ -1523,7 +1523,7 @@ def _run_config_is_predictive_safe(run_config: Mapping[str, Any]) -> bool:
     return (
         recipe_pipeline in {"", "off"}
         and knowledge_pipeline in {"", "off"}
-        and line_role_pipeline in {"", "off", "deterministic-v1"}
+        and line_role_pipeline in {"", "off", "deterministic-route-v2"}
     )
 
 

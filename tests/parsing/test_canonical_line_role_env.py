@@ -33,7 +33,7 @@ def test_line_role_codex_exec_cmd_uses_only_direct_exec_commands(
 ) -> None:
     settings = RunSettings.from_dict(
         {
-            "line_role_pipeline": "codex-line-role-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
             "codex_farm_cmd": configured_cmd,
         }
     )

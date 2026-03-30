@@ -17,7 +17,7 @@ from cookimport.llm.prompt_preview import write_prompt_preview_for_existing_run
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan, NonRecipeStageResult
 from tests.nonrecipe_stage_helpers import (
     make_authority_result,
-    make_review_status_result,
+    make_candidate_status_result,
     make_routing_result,
     make_seed_result,
     make_stage_result,
@@ -98,8 +98,8 @@ def _build_existing_run_at(run_dir: Path) -> Path:
                     "source_block_id": "block:2",
                     "source_block_index": 2,
                     "supporting_atomic_indices": [2],
-                    "deterministic_label": "KNOWLEDGE",
-                    "final_label": "KNOWLEDGE",
+                    "deterministic_label": "NONRECIPE_CANDIDATE",
+                    "final_label": "NONRECIPE_CANDIDATE",
                     "decided_by": "rule",
                     "reason_tags": ["knowledge_like"],
                     "escalation_reasons": [],
@@ -108,11 +108,12 @@ def _build_existing_run_at(run_dir: Path) -> Path:
                     "source_block_id": "block:3",
                     "source_block_index": 3,
                     "supporting_atomic_indices": [3],
-                    "deterministic_label": "OTHER",
-                    "final_label": "OTHER",
+                    "deterministic_label": "NONRECIPE_EXCLUDE",
+                    "final_label": "NONRECIPE_EXCLUDE",
                     "decided_by": "rule",
                     "reason_tags": ["other"],
                     "escalation_reasons": [],
+                    "exclusion_reason": "navigation",
                 },
             ],
         },
@@ -177,8 +178,8 @@ def _build_existing_run_at(run_dir: Path) -> Path:
                     "source_block_id": "block:2",
                     "source_block_index": 2,
                     "text": "Pan heat matters.",
-                    "label": "KNOWLEDGE",
-                    "final_label": "KNOWLEDGE",
+                    "label": "NONRECIPE_CANDIDATE",
+                    "final_label": "NONRECIPE_CANDIDATE",
                     "decided_by": "rule",
                     "reason_tags": ["knowledge_like"],
                     "escalation_reasons": [],
@@ -188,11 +189,12 @@ def _build_existing_run_at(run_dir: Path) -> Path:
                     "source_block_id": "block:3",
                     "source_block_index": 3,
                     "text": "Advertisement copy.",
-                    "label": "OTHER",
-                    "final_label": "OTHER",
+                    "label": "NONRECIPE_EXCLUDE",
+                    "final_label": "NONRECIPE_EXCLUDE",
                     "decided_by": "rule",
                     "reason_tags": ["other"],
                     "escalation_reasons": [],
+                    "exclusion_reason": "navigation",
                 },
             ]
         ),
@@ -239,7 +241,7 @@ def _build_benchmark_root_with_vanilla_and_codex(tmp_path: Path) -> tuple[Path, 
     vanilla_report["runConfig"] = {
         "llm_recipe_pipeline": "off",
         "llm_knowledge_pipeline": "off",
-        "line_role_pipeline": "deterministic-v1",
+        "line_role_pipeline": "deterministic-route-v2",
     }
     vanilla_report_path.write_text(
         json.dumps(vanilla_report, indent=2, sort_keys=True) + "\n",
@@ -250,8 +252,8 @@ def _build_benchmark_root_with_vanilla_and_codex(tmp_path: Path) -> tuple[Path, 
     codex_report = json.loads(codex_report_path.read_text(encoding="utf-8"))
     codex_report["runConfig"] = {
         "llm_recipe_pipeline": "codex-recipe-shard-v1",
-        "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-        "line_role_pipeline": "codex-line-role-shard-v1",
+        "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+        "line_role_pipeline": "codex-line-role-route-v2",
     }
     codex_report_path.write_text(
         json.dumps(codex_report, indent=2, sort_keys=True) + "\n",
@@ -331,7 +333,7 @@ def _run_prompt_preview_fixture(tmp_path: Path) -> dict[str, object]:
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["counts"] == {
-        "knowledge_interaction_count": 2,
+        "knowledge_interaction_count": 1,
         "line_role_interaction_count": 1,
         "recipe_interaction_count": 1,
     }
@@ -341,15 +343,14 @@ def _run_prompt_preview_fixture(tmp_path: Path) -> dict[str, object]:
     )
     assert manifest["surfaces"] == {
         "llm_recipe_pipeline": "codex-recipe-shard-v1",
-        "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-        "line_role_pipeline": "codex-line-role-shard-v1",
+        "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+        "line_role_pipeline": "codex-line-role-route-v2",
     }
     phase_plans = manifest["phase_plans"]
-    assert phase_plans["nonrecipe_knowledge_review"]["worker_count"] == 2
-    assert phase_plans["nonrecipe_knowledge_review"]["shard_count"] == 2
+    assert phase_plans["nonrecipe_knowledge_review"]["worker_count"] == 1
+    assert phase_plans["nonrecipe_knowledge_review"]["shard_count"] == 1
     assert [shard["owned_ids"] for shard in phase_plans["nonrecipe_knowledge_review"]["shards"]] == [
         ["fixturebook.ks0000.nr"],
-        ["fixturebook.ks0001.nr"],
     ]
     assert phase_plans["recipe_llm_correct_and_link"]["worker_count"] == 1
     assert phase_plans["recipe_llm_correct_and_link"]["shard_count"] == 1
@@ -407,7 +408,7 @@ def test_prompt_preview_rebuilds_manifest_counts_and_phase_plans(tmp_path: Path)
     manifest = fixture["manifest"]
 
     assert manifest["counts"] == {
-        "knowledge_interaction_count": 2,
+        "knowledge_interaction_count": 1,
         "line_role_interaction_count": 1,
         "recipe_interaction_count": 1,
     }
@@ -417,15 +418,14 @@ def test_prompt_preview_rebuilds_manifest_counts_and_phase_plans(tmp_path: Path)
     )
     assert manifest["surfaces"] == {
         "llm_recipe_pipeline": "codex-recipe-shard-v1",
-        "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-        "line_role_pipeline": "codex-line-role-shard-v1",
+        "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+        "line_role_pipeline": "codex-line-role-route-v2",
     }
     phase_plans = manifest["phase_plans"]
-    assert phase_plans["nonrecipe_knowledge_review"]["worker_count"] == 2
-    assert phase_plans["nonrecipe_knowledge_review"]["shard_count"] == 2
+    assert phase_plans["nonrecipe_knowledge_review"]["worker_count"] == 1
+    assert phase_plans["nonrecipe_knowledge_review"]["shard_count"] == 1
     assert [shard["owned_ids"] for shard in phase_plans["nonrecipe_knowledge_review"]["shards"]] == [
         ["fixturebook.ks0000.nr"],
-        ["fixturebook.ks0001.nr"],
     ]
     assert phase_plans["recipe_llm_correct_and_link"]["worker_count"] == 1
     assert phase_plans["recipe_llm_correct_and_link"]["shard_count"] == 1
@@ -559,56 +559,46 @@ def test_prompt_preview_knowledge_prompt_target_count_controls_shard_count(
     assert artifacts["prompt_preview_budget_summary_md"] == "prompt_preview_budget_summary.md"
 
 
-def test_prompt_preview_knowledge_uses_review_eligible_spans_not_seed_spans(
+def test_prompt_preview_knowledge_uses_unresolved_candidate_spans_not_seed_spans(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     run_dir = _build_existing_run(tmp_path)
     out_dir = tmp_path / "preview"
-    knowledge_span = NonRecipeSpan(
-        span_id="nr.knowledge.2.2",
-        category="knowledge",
+    candidate_span = NonRecipeSpan(
+        span_id="nr.candidate.2.3",
+        category="candidate",
         block_start_index=2,
-        block_end_index=2,
+        block_end_index=3,
         block_indices=[2],
         block_ids=["block:2"],
     )
-    excluded_other_span = NonRecipeSpan(
-        span_id="nr.other.3.3",
-        category="other",
+    excluded_span = NonRecipeSpan(
+        span_id="nr.exclude.3.4",
+        category="exclude",
         block_start_index=3,
-        block_end_index=3,
+        block_end_index=4,
         block_indices=[3],
         block_ids=["block:3"],
     )
 
     def _fake_build_nonrecipe_stage_result(**_: object) -> NonRecipeStageResult:
-        review_span = NonRecipeSpan(
-            span_id="nr.review_candidate.2.3",
-            category="review_candidate",
-            block_start_index=2,
-            block_end_index=3,
-            block_indices=[2],
-            block_ids=["block:2"],
-        )
         return make_stage_result(
             seed=make_seed_result(
-                {2: "knowledge", 3: "other"},
-                nonrecipe_spans=[knowledge_span, excluded_other_span],
-                knowledge_spans=[knowledge_span],
-                other_spans=[excluded_other_span],
+                {2: "candidate", 3: "exclude"},
+                nonrecipe_spans=[candidate_span, excluded_span],
+                candidate_spans=[candidate_span],
+                excluded_spans=[excluded_span],
             ),
             routing=make_routing_result(
-                review_eligible_block_indices=[2],
-                review_excluded_block_indices=[3],
-                review_exclusion_reason_by_block={3: "deterministic_other"},
-                review_eligible_nonrecipe_spans=[review_span],
-                review_excluded_other_spans=[excluded_other_span],
+                candidate_block_indices=[2],
+                excluded_block_indices=[3],
+                exclusion_reason_by_block={3: "navigation"},
             ),
             authority=make_authority_result({3: "other"}),
-            review_status=make_review_status_result(
-                reviewed_block_indices=[],
-                unreviewed_block_category_by_index={2: "knowledge"},
+            candidate_status=make_candidate_status_result(
+                finalized_candidate_block_indices=[],
+                unresolved_candidate_route_by_index={2: "candidate"},
             ),
         )
 
@@ -657,7 +647,7 @@ def test_prompt_preview_knowledge_excludes_stale_recipe_like_nonrecipe_labels(
     for row in labels_payload["block_labels"]:
         if row["source_block_index"] == 3:
             row["final_label"] = "RECIPE_TITLE"
-            row["review_exclusion_reason"] = None
+            row["exclusion_reason"] = None
             break
     labels_path.write_text(
         json.dumps(labels_payload, indent=2, sort_keys=True) + "\n",
@@ -732,7 +722,7 @@ def test_prompt_preview_rebuilds_knowledge_and_line_role_prompts(tmp_path: Path)
         rows_by_stage["nonrecipe_knowledge_review"],
         key=lambda row: row["call_id"],
     )
-    assert len(knowledge_rows) == 2
+    assert len(knowledge_rows) == 1
     assert all(
         "Only mechanically true structure is provided." in row["rendered_prompt_text"]
         for row in knowledge_rows
@@ -744,15 +734,12 @@ def test_prompt_preview_rebuilds_knowledge_and_line_role_prompts(tmp_path: Path)
     assert all(row["request_input_payload"]["v"] == "1" for row in knowledge_rows)
     assert [row["request_input_payload"]["bid"] for row in knowledge_rows] == [
         "fixturebook.ks0000.nr",
-        "fixturebook.ks0001.nr",
     ]
-    assert [row["recipe_id"] for row in knowledge_rows] == ["blocks:2..2", "blocks:3..3"]
+    assert [row["recipe_id"] for row in knowledge_rows] == ["blocks:2..2"]
     assert [row["runtime_owned_ids"] for row in knowledge_rows] == [
         ["fixturebook.ks0000.nr"],
-        ["fixturebook.ks0001.nr"],
     ]
     assert knowledge_rows[0]["request_input_payload"]["b"][0]["i"] == 2
-    assert knowledge_rows[1]["request_input_payload"]["b"][0]["i"] == 3
 
     line_role_row = rows_by_stage["line_role"][0]
     assert "You are reviewing deterministic canonical line-role labels" in line_role_row["rendered_prompt_text"]
@@ -888,7 +875,6 @@ def test_prompt_preview_ignores_live_codex_inputs_and_rebuilds_from_processed_st
     assert all("Live knowledge block." not in row["request_input_text"] for row in knowledge_rows)
     assert [row["request_input_payload"]["bid"] for row in knowledge_rows] == [
         "fixturebook.ks0000.nr",
-        "fixturebook.ks0001.nr",
     ]
 
     budget_summary = json.loads(
@@ -1033,8 +1019,8 @@ def test_prompt_preview_predictive_rejects_direct_codex_processed_run(tmp_path: 
         run_dir,
         {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
-            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "line_role_pipeline": "codex-line-role-shard-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+            "line_role_pipeline": "codex-line-role-route-v2",
         },
     )
 
@@ -1052,8 +1038,8 @@ def test_prompt_preview_predictive_rejects_codex_only_benchmark_manifest(tmp_pat
         codex_run_dir,
         {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
-            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "line_role_pipeline": "codex-line-role-shard-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+            "line_role_pipeline": "codex-line-role-route-v2",
         },
     )
     benchmark_root = tmp_path / "benchmark-root"
@@ -1063,8 +1049,8 @@ def test_prompt_preview_predictive_rejects_codex_only_benchmark_manifest(tmp_pat
             "artifacts": {"processed_output_run_dir": str(codex_run_dir)},
             "run_config": {
                 "llm_recipe_pipeline": "codex-recipe-shard-v1",
-                "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-                "line_role_pipeline": "codex-line-role-shard-v1",
+                "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+                "line_role_pipeline": "codex-line-role-route-v2",
             },
         },
     )
@@ -1195,8 +1181,8 @@ def test_cf_debug_preview_prompts_predictive_rejects_codex_only_root(tmp_path: P
         codex_run_dir,
         {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
-            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-            "line_role_pipeline": "codex-line-role-shard-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+            "line_role_pipeline": "codex-line-role-route-v2",
         },
     )
     benchmark_root = tmp_path / "benchmark-root"
@@ -1206,8 +1192,8 @@ def test_cf_debug_preview_prompts_predictive_rejects_codex_only_root(tmp_path: P
             "artifacts": {"processed_output_run_dir": str(codex_run_dir)},
             "run_config": {
                 "llm_recipe_pipeline": "codex-recipe-shard-v1",
-                "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
-                "line_role_pipeline": "codex-line-role-shard-v1",
+                "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+                "line_role_pipeline": "codex-line-role-route-v2",
             },
         },
     )

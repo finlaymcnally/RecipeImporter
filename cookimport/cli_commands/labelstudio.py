@@ -20,8 +20,8 @@ from cookimport.cli_support import (
     DEFAULT_OUTPUT,
     DEFAULT_PRELABEL_TIMEOUT_SECONDS,
     EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
-    KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
-    LINE_ROLE_PIPELINE_SHARD_V1,
+    KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
+    LINE_ROLE_PIPELINE_ROUTE_V2,
     PRELABEL_GRANULARITY_BLOCK,
     Path,
     PredRunContext,
@@ -1697,7 +1697,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         )] = "off",
         llm_knowledge_pipeline: Annotated[str, typer.Option(
             "--llm-knowledge-pipeline",
-            help=f"Optional knowledge LLM pipeline: off or {KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}.",
+            help=f"Optional knowledge LLM pipeline: off or {KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2}.",
         )] = "off",
         recipe_prompt_target_count: Annotated[int, typer.Option(
             "--recipe-prompt-target-count",
@@ -1743,7 +1743,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             "--line-role-pipeline",
             help=(
                 "Optional canonical line-role labeling pipeline for benchmark "
-                f"experiments: off or {LINE_ROLE_PIPELINE_SHARD_V1}."
+                f"experiments: off or {LINE_ROLE_PIPELINE_ROUTE_V2}."
             ),
         )] = "off",
         line_role_gated: Annotated[bool, typer.Option(

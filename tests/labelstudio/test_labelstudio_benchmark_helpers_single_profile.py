@@ -323,7 +323,7 @@ def test_print_codex_decision_is_suppressed_inside_benchmark_summary_override(
         "labelstudio_benchmark",
         {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
-            "line_role_pipeline": "codex-line-role-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
         },
         allow_codex=True,
     )
@@ -405,7 +405,7 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
     ]
     assert [call["line_role_pipeline"] for call in benchmark_calls] == [
         "off",
-        "codex-line-role-shard-v1",
+        "codex-line-role-route-v2",
     ]
     assert [call["atomic_block_splitter"] for call in benchmark_calls] == [
         "off",

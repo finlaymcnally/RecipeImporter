@@ -11,8 +11,8 @@ from cookimport.config.run_settings_contracts import (
 )
 from cookimport.config.run_settings import (
     BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES,
-    KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
-    LINE_ROLE_PIPELINE_SHARD_V1,
+    KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
+    LINE_ROLE_PIPELINE_ROUTE_V2,
     RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
     RunSettings,
     build_run_settings,
@@ -108,16 +108,16 @@ def test_run_settings_rejects_removed_recipe_codex_farm_pipeline_ids() -> None:
 def test_run_settings_accepts_only_current_line_role_and_knowledge_pipeline_ids() -> None:
     settings = RunSettings.from_dict(
         {
-            "line_role_pipeline": "codex-line-role-shard-v1",
-            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
         }
     )
 
-    assert settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_SHARD_V1
-    assert settings.llm_knowledge_pipeline.value == KNOWLEDGE_CODEX_PIPELINE_SHARD_V1
+    assert settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_ROUTE_V2
+    assert settings.llm_knowledge_pipeline.value == KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2
 
     with pytest.raises(ValueError, match="Invalid line_role_pipeline"):
-        RunSettings.from_dict({"line_role_pipeline": "deterministic-v1"})
+        RunSettings.from_dict({"line_role_pipeline": "deterministic-route-v2"})
     with pytest.raises(ValueError, match="Invalid line_role_pipeline"):
         RunSettings.from_dict({"line_role_pipeline": "codex-line-role-v1"})
     with pytest.raises(ValueError, match="Invalid llm_knowledge_pipeline"):
@@ -165,8 +165,8 @@ def test_build_run_settings_accepts_codex_prompt_targets() -> None:
         ocr_batch_size=1,
         warm_models=False,
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
-        llm_knowledge_pipeline="codex-knowledge-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
+        llm_knowledge_pipeline="codex-knowledge-candidate-v2",
         recipe_prompt_target_count=10,
         line_role_prompt_target_count=5,
         knowledge_prompt_target_count=4,
@@ -175,7 +175,7 @@ def test_build_run_settings_accepts_codex_prompt_targets() -> None:
     assert settings.recipe_prompt_target_count == 10
     assert settings.line_role_prompt_target_count == 5
     assert settings.knowledge_prompt_target_count == 4
-    assert settings.llm_knowledge_pipeline.value == "codex-knowledge-shard-v1"
+    assert settings.llm_knowledge_pipeline.value == "codex-knowledge-candidate-v2"
 
 
 def test_run_settings_rejects_removed_codex_farm_recipe_mode_aliases() -> None:
@@ -205,7 +205,7 @@ def test_run_settings_ui_specs_cover_all_editable_fields(monkeypatch) -> None:
     )
     assert line_role_pipeline_spec.choices == (
         "off",
-        LINE_ROLE_PIPELINE_SHARD_V1,
+        LINE_ROLE_PIPELINE_ROUTE_V2,
     )
     codex_farm_recipe_mode_spec = next(
         spec for spec in specs if spec.name == "codex_farm_recipe_mode"

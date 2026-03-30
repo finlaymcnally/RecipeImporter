@@ -250,11 +250,11 @@ def test_run_all_method_prediction_once_misses_reuse_when_prediction_shape_chang
         run_settings=cli.RunSettings.from_dict(
             {
                 **base_settings.model_dump(mode="json", exclude_none=True),
-                "line_role_pipeline": "codex-line-role-shard-v1",
+                "line_role_pipeline": "codex-line-role-route-v2",
             },
             warn_context="test",
         ),
-        dimensions={"line_role_pipeline": "codex-line-role-shard-v1"},
+        dimensions={"line_role_pipeline": "codex-line-role-route-v2"},
     )
 
     benchmark_calls = 0

@@ -152,7 +152,7 @@ def _label_atomic_lines_internal(
     by_atomic_index = {int(candidate.atomic_index): candidate for candidate in ordered}
     mode = _line_role_pipeline_name(settings)
     cache_path: Path | None = None
-    if mode == LINE_ROLE_PIPELINE_SHARD_V1:
+    if mode == LINE_ROLE_PIPELINE_ROUTE_V2:
         cache_path = _resolve_line_role_cache_path(
             source_hash=source_hash,
             settings=settings,
@@ -211,7 +211,7 @@ def _label_atomic_lines_internal(
             by_atomic_index=by_atomic_index,
         )
         deterministic_baseline[candidate.atomic_index] = baseline_prediction
-        if mode != LINE_ROLE_PIPELINE_SHARD_V1:
+        if mode != LINE_ROLE_PIPELINE_ROUTE_V2:
             predictions[candidate.atomic_index] = baseline_prediction
         if (
             candidate_index == deterministic_total
@@ -224,7 +224,7 @@ def _label_atomic_lines_internal(
                 work_unit_label="row",
             )
 
-    codex_targets = ordered if mode == LINE_ROLE_PIPELINE_SHARD_V1 else []
+    codex_targets = ordered if mode == LINE_ROLE_PIPELINE_ROUTE_V2 else []
     runtime_result: _LineRoleRuntimeResult | None = None
     if codex_targets:
         runtime_result = _run_line_role_shard_runtime(
@@ -566,7 +566,7 @@ def _run_line_role_phase_runtime(
         output_schema_path=output_schema_path,
         timeout_seconds=max(1, int(timeout_seconds)),
         settings={
-            "line_role_pipeline": LINE_ROLE_PIPELINE_SHARD_V1,
+            "line_role_pipeline": LINE_ROLE_PIPELINE_ROUTE_V2,
             "codex_timeout_seconds": int(timeout_seconds),
             "line_role_prompt_target_count": getattr(
                 settings,
@@ -581,7 +581,7 @@ def _run_line_role_phase_runtime(
             ),
         },
         runtime_metadata={
-            "surface_pipeline": LINE_ROLE_PIPELINE_SHARD_V1,
+            "surface_pipeline": LINE_ROLE_PIPELINE_ROUTE_V2,
             "phase_label": shard_plans[0].phase_label,
             "workspace_root": (
                 str(codex_farm_workspace_root)
@@ -3350,7 +3350,7 @@ def _write_line_role_telemetry_summary(
         json.dumps(
             {
                 "schema_version": 1,
-                "pipeline": LINE_ROLE_PIPELINE_SHARD_V1,
+                "pipeline": LINE_ROLE_PIPELINE_ROUTE_V2,
                 "codex_backend": "codex_exec_direct",
                 "codex_farm_pipeline_id": _LINE_ROLE_CODEX_FARM_PIPELINE_ID,
                 "runtime_mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,

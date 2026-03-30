@@ -19,7 +19,7 @@ from cookimport.config.codex_decision import (
     resolve_codex_execution_policy,
 )
 from cookimport.config.run_settings import (
-    KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
+    KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
     build_run_settings,
     compute_effective_workers,
     normalize_llm_knowledge_pipeline_value,
@@ -352,10 +352,10 @@ def generate_pred_run_artifacts(
     selected_llm_knowledge_pipeline = normalize_llm_knowledge_pipeline_value(
         llm_knowledge_pipeline
     )
-    if selected_llm_knowledge_pipeline not in {"off", KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}:
+    if selected_llm_knowledge_pipeline not in {"off", KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2}:
         raise ValueError(
             "Invalid llm_knowledge_pipeline. Expected one of: off, "
-            f"{KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}."
+            f"{KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2}."
         )
     fixed_bucket1_behavior = bucket1_fixed_behavior()
     selected_codex_farm_failure_mode = _normalize_codex_farm_failure_mode(

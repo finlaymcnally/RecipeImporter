@@ -36,7 +36,7 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
         current_knowledge_pipeline = str(
             current_settings.get("llm_knowledge_pipeline", "off") or "off"
         ).strip().lower()
-        if current_knowledge_pipeline not in {"off", KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}:
+        if current_knowledge_pipeline not in {"off", KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2}:
             current_knowledge_pipeline = "off"
         current_web_schema_extractor = str(
             current_settings.get("web_schema_extractor", "builtin_jsonld")
@@ -862,8 +862,8 @@ def _settings_menu(current_settings: Dict[str, Any]) -> None:
                 choices=[
                     questionary.Choice("off", value="off"),
                     questionary.Choice(
-                        KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
-                        value=KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
+                        KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
+                        value=KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
                     ),
                 ],
                 default=current_knowledge_pipeline,

@@ -133,7 +133,7 @@ def test_existing_output_adapter_falls_back_to_discovered_runs(tmp_path: Path) -
                 metric_practical_f1=0.60,
                 full_prompt_log_status="complete",
                 full_prompt_log_rows=3,
-                line_role_pipeline="codex-line-role-shard-v1",
+                line_role_pipeline="codex-line-role-route-v2",
                 llm_recipe_pipeline=RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
             )
         return SimpleNamespace(

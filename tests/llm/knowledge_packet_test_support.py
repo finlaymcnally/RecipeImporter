@@ -42,7 +42,7 @@ def make_runtime_settings(
     context_blocks: int | None = None,
 ) -> RunSettings:
     payload: dict[str, object] = {
-        "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+        "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
         "knowledge_worker_count": worker_count,
         "codex_farm_cmd": "codex-farm",
         "codex_farm_root": str(pack_root),

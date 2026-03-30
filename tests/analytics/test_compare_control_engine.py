@@ -29,7 +29,7 @@ def _insight_records() -> list[dict[str, object]]:
             "processed_report_path": "/tmp/out/run-a/report-a.json",
             "run_config": {
                 "llm_recipe_pipeline": "codex-recipe-shard-v1",
-                "line_role_pipeline": "codex-line-role-shard-v1",
+                "line_role_pipeline": "codex-line-role-route-v2",
                 "atomic_block_splitter": "atomic-v1",
                 "codex_farm_model": "gpt-5",
                 "codex_farm_reasoning_effort": "medium",
@@ -48,7 +48,7 @@ def _insight_records() -> list[dict[str, object]]:
             "processed_report_path": "/tmp/out/run-b/report-b.json",
             "run_config": {
                 "llm_recipe_pipeline": "codex-recipe-shard-v1",
-                "line_role_pipeline": "codex-line-role-shard-v1",
+                "line_role_pipeline": "codex-line-role-route-v2",
                 "atomic_block_splitter": "atomic-v1",
                 "codex_farm_model": "gpt-5",
                 "codex_farm_reasoning_effort": "low",
@@ -167,7 +167,7 @@ def test_benchmark_semantics_distinguish_official_and_hybrid_rows() -> None:
         ),
         "run_config": {
             "llm_recipe_pipeline": "off",
-            "line_role_pipeline": "deterministic-v1",
+            "line_role_pipeline": "deterministic-route-v2",
         },
     }
     full_stack_official = {
@@ -177,21 +177,21 @@ def test_benchmark_semantics_distinguish_official_and_hybrid_rows() -> None:
         ),
         "run_config": {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
-            "line_role_pipeline": "codex-line-role-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
         },
     }
     line_role_only = {
         "artifact_dir": "/tmp/qualitysuite/my-book/eval",
         "run_config": {
             "llm_recipe_pipeline": "off",
-            "line_role_pipeline": "codex-line-role-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
         },
     }
     deterministic_line_role = {
         "artifact_dir": "/tmp/qualitysuite/my-book/eval",
         "run_config": {
             "llm_recipe_pipeline": "off",
-            "line_role_pipeline": "deterministic-v1",
+            "line_role_pipeline": "deterministic-route-v2",
         },
     }
     recipe_only = {

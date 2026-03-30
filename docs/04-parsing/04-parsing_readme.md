@@ -77,7 +77,7 @@ Unstructured adapter note:
 
 Canonical line-role prompt seam note:
 - prompt-volume trims for canonical line-role belong in the shared row-serialization path used by `build_canonical_line_role_prompt(...)`, not in preview-only callers, so live benchmark runs and `cf-debug preview-prompts` stay aligned.
-- `codex-line-role-shard-v1` now plans one live file-backed `line_role` phase in `canonical_line_roles/`, writes shard/runtime artifacts under `line-role-pipeline/runtime/line_role/`, and still preserves prompt artifact files under `line-role-pipeline/prompts/line_role/` for reviewer/export surfaces.
+- `codex-line-role-route-v2` now plans one live file-backed `line_role` phase in `canonical_line_roles/`, writes shard/runtime artifacts under `line-role-pipeline/runtime/line_role/`, and still preserves prompt artifact files under `line-role-pipeline/prompts/line_role/` for reviewer/export surfaces.
 - line-role direct-exec command resolution is intentionally strict: only real `codex` executables (for example `codex`, `codex exec`, `codex2 e`) or the repo test shim `fake-codex-farm.py` are treated as direct-exec runners. A plain `codex-farm` command is not a valid `codex exec` binary and should fall back to the default direct-exec command instead of being reused verbatim.
 - `cookimport/parsing/canonical_line_roles/contracts.py` owns the prediction model plus normalization helpers, `prompt_inputs.py` owns reusable row serialization, `artifacts.py` owns runtime/prompt artifact helpers, `planning.py` owns contiguous shard planning, `policy.py` owns local heuristics, `validation.py` owns shard-ledger checks/promotion gates, `runtime.py` owns live worker orchestration, and `__init__.py` is the package seam.
 - the abandoned `recipe_region_gate` / `recipe_structure_label` split is gone from active code and pipeline assets; line-role now means one LLM labeling pass, then deterministic grouping afterward.
@@ -497,7 +497,7 @@ Gates include:
 ### What it does
 
 - Assigns one canonical benchmark label per `AtomicLineCandidate` using deterministic rules first.
-- Supports optional shard-worker correction over the full ordered candidate set when `line_role_pipeline=codex-line-role-shard-v1`; each shard row carries the deterministic first-pass label plus any escalation reasons so Codex reviews local windows instead of inventing labels from scratch.
+- Supports optional shard-worker correction over the full ordered candidate set when `line_role_pipeline=codex-line-role-route-v2`; each shard row carries the deterministic first-pass label plus any escalation reasons so Codex reviews local windows instead of inventing labels from scratch.
 - Emits `CanonicalLineRolePrediction` rows with `decided_by` provenance (`rule`, `codex`, `fallback`), reason tags, and explicit `escalation_reasons`.
 - Prediction rows carry tri-state `within_recipe_span`: `None` during the pre-grouping line-role pass, then explicit `True`/`False` only after grouped recipe spans are projected back downstream.
 - Cache identity and inline prompt context both derive adjacency from explicit ordered-candidate lookup, so `AtomicLineCandidate` itself remains a single-row fact.

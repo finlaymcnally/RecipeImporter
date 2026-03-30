@@ -9,7 +9,7 @@ from cookimport.cli_support import (
     DEFAULT_OUTPUT,
     EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
     JobSpec,
-    KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
+    KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
     MappingConfig,
     PROCESSING_TIMESERIES_FILENAME,
     PROCESSING_TIMESERIES_HEARTBEAT_SECONDS,
@@ -470,7 +470,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         llm_knowledge_pipeline: str = typer.Option(
             "off",
             "--llm-knowledge-pipeline",
-            help=f"Optional knowledge LLM pipeline: off or {KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}.",
+            help=f"Optional knowledge LLM pipeline: off or {KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2}.",
         ),
         knowledge_prompt_target_count: int = typer.Option(
             5,

@@ -311,7 +311,7 @@ def _write_knowledge_artifacts(
                 "llm_codex_farm": {
                     "knowledge": {
                         "enabled": True,
-                        "pipeline": "codex-knowledge-shard-v1",
+                        "pipeline": "codex-knowledge-candidate-v2",
                         "pipeline_id": "recipe.knowledge.compact.v1",
                         "counts": {
                             "shards_written": knowledge_call_count,
@@ -496,7 +496,7 @@ def _write_prediction_run_knowledge_stage_outputs(
             "llm_codex_farm": {
                 "knowledge": {
                     "enabled": True,
-                    "pipeline": "codex-knowledge-shard-v1",
+                    "pipeline": "codex-knowledge-candidate-v2",
                     "pipeline_id": "recipe.knowledge.compact.v1",
                     "process_run": {
                         "run_id": "run-knowledge-reconstruct",
@@ -1016,7 +1016,7 @@ def test_build_upload_bundle_reconciles_sharded_recipe_ids_to_per_recipe_counts(
         run_root=session_root,
         run_id=codex_run_id,
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[
             {"line_index": 1, "gold_label": "INGREDIENT_LINE", "pred_label": "RECIPE_NOTES"},
             {"line_index": 3, "gold_label": "RECIPE_NOTES", "pred_label": "KNOWLEDGE"},
@@ -2175,7 +2175,7 @@ def test_main_starter_pack_call_inventory_includes_line_role_rows_with_runtime_f
         run_root=session_root,
         run_id="codexfarm",
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=[line_role_row, *_prompt_rows_for_starter_pack_fixture()],
         source_path="/tmp/book.epub",
@@ -2305,7 +2305,7 @@ def test_build_starter_pack_for_existing_runs_writes_into_session_root(tmp_path:
         run_root=session_root,
         run_id=codex_run_id,
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
         line_role_prediction_rows=[
@@ -2355,7 +2355,7 @@ def test_build_starter_pack_for_existing_runs_writes_flattened_summary_when_enab
         run_root=session_root,
         run_id=codex_run_id,
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
         line_role_prediction_rows=[
@@ -2462,7 +2462,7 @@ def test_build_upload_bundle_explicit_escalation_packet_matches_atomic_index_onl
         run_root=session_root,
         run_id=codex_run_id,
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "OTHER"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
         line_role_prediction_rows=[
@@ -2532,7 +2532,7 @@ def _build_existing_upload_bundle_fixture(tmp_path: Path) -> dict[str, object]:
         run_root=session_root,
         run_id=codex_run_id,
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
         line_role_prediction_rows=[
@@ -2686,7 +2686,7 @@ def test_build_upload_bundle_for_existing_output_includes_analysis_payloads(
         codex_settings["llm_recipe_pipeline"]
         == "codex-recipe-shard-v1"
     )
-    assert codex_settings["line_role_pipeline"] == "codex-line-role-shard-v1"
+    assert codex_settings["line_role_pipeline"] == "codex-line-role-route-v2"
     assert isinstance(index_payload["analysis"].get("stage_separated_comparison"), dict)
     structure_report = index_payload["analysis"].get("structure_label_report")
     assert isinstance(structure_report, dict)
@@ -2934,7 +2934,7 @@ def test_build_upload_bundle_for_existing_output_derives_diagnostics_without_cut
         run_root=session_root,
         run_id=codex_run_id,
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[
             {
                 "line_index": 1,
@@ -3304,7 +3304,7 @@ def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_pre
         llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=None,
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
     )
     codex_run_dir = session_root / run_id
     _write_prediction_run(codex_run_dir, with_extracted_archive=True)
@@ -3356,7 +3356,7 @@ def test_build_upload_bundle_prefers_prompt_budget_summary_and_includes_line_rol
         llm_recipe_pipeline="codex-recipe-shard-v1",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=None,
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
     )
     codex_run_dir = session_root / run_id
     _write_prediction_run(codex_run_dir, with_extracted_archive=True)
@@ -3417,7 +3417,7 @@ def test_build_upload_bundle_merges_prompt_budget_summary_when_call_rows_lack_ru
         run_root=session_root,
         run_id="codexfarm",
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=[
             {
@@ -3527,7 +3527,7 @@ def test_build_upload_bundle_merges_realistic_codex_call_telemetry_with_prompt_b
         run_root=session_root,
         run_id="codexfarm",
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=[
             {
@@ -3735,7 +3735,7 @@ def test_build_upload_bundle_surfaces_knowledge_summary_and_locators(
         run_root=session_root,
         run_id=run_id,
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )
@@ -3802,7 +3802,7 @@ def test_build_upload_bundle_discovers_current_single_book_knowledge_layout(
         run_root=session_root,
         run_id=codex_run_id,
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[
             {"line_index": 1, "gold_label": "INGREDIENT_LINE", "pred_label": "RECIPE_NOTES"},
         ],
@@ -3940,7 +3940,7 @@ def test_reconstruct_full_prompt_log_includes_knowledge_rows(
         run_root=tmp_path / "single-profile-benchmark" / "book_a",
         run_id="codexfarm",
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=[],
     )
@@ -4011,7 +4011,7 @@ def test_build_upload_bundle_high_level_includes_lightweight_knowledge_artifacts
         run_root=session_root,
         run_id=run_id,
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )
@@ -4072,7 +4072,7 @@ def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
         run_root=single_root,
         run_id="2026-03-04_10.00.00",
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=_make_wrong_rows(),
         full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
     )
@@ -4093,7 +4093,7 @@ def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
             run_root=multi_root,
             run_id=f"2026-03-04_10.0{index}.00",
             llm_recipe_pipeline="codex-recipe-shard-v1",
-            line_role_pipeline="codex-line-role-shard-v1",
+            line_role_pipeline="codex-line-role-route-v2",
             wrong_label_rows=_make_wrong_rows(),
             full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
         )
@@ -4230,7 +4230,7 @@ def test_build_upload_bundle_high_level_only_enforces_final_bundle_size(
             run_root=session_root,
             run_id=run_id,
             llm_recipe_pipeline="codex-recipe-shard-v1",
-            line_role_pipeline="codex-line-role-shard-v1",
+            line_role_pipeline="codex-line-role-route-v2",
             wrong_label_rows=[
                 {
                     "line_index": row_index,
@@ -4321,7 +4321,7 @@ def _build_high_level_multi_book_upload_bundle_fixture(tmp_path: Path) -> dict[s
         run_root=session_root / "book_a",
         run_id="codexfarm",
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_with_runtime(
             duration_values=(100, 200, 300),
@@ -4372,7 +4372,7 @@ def _build_high_level_multi_book_upload_bundle_fixture(tmp_path: Path) -> dict[s
         run_root=session_root / "book_b",
         run_id="codexfarm",
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=_prompt_rows_with_runtime(
             duration_values=(1000, 2000, 3000),

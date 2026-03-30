@@ -26,8 +26,8 @@ from cookimport.config.run_settings_contracts import (
     project_run_config_payload,
 )
 from cookimport.config.run_settings import (
-    KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
-    LINE_ROLE_PIPELINE_SHARD_V1,
+    KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
+    LINE_ROLE_PIPELINE_ROUTE_V2,
     RECIPE_CODEX_FARM_ALLOWED_PIPELINES,
     RECIPE_CODEX_FARM_EXECUTION_PIPELINES,
     RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
@@ -449,14 +449,14 @@ def _choose_interactive_codex_surfaces(
             )
         elif step_id == "line_role":
             step_rows.append(
-                ("line_role", f"Block labelling (`{LINE_ROLE_PIPELINE_SHARD_V1}`)")
+                ("line_role", f"Block labelling (`{LINE_ROLE_PIPELINE_ROUTE_V2}`)")
             )
             enabled_by_step["line_role"] = (
-                selected_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_SHARD_V1
+                selected_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_ROUTE_V2
             )
         elif step_id == "knowledge":
             step_rows.append(
-                ("knowledge", f"Knowledge harvest (`{KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}`)")
+                ("knowledge", f"Knowledge harvest (`{KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2}`)")
             )
             enabled_by_step["knowledge"] = (
                 selected_settings.llm_knowledge_pipeline.value != "off"
@@ -485,12 +485,12 @@ def _choose_interactive_codex_surfaces(
             resolved_recipe_pipeline if "recipe" in selected_step_ids else "off"
         ),
         line_role_pipeline=(
-            LINE_ROLE_PIPELINE_SHARD_V1
+            LINE_ROLE_PIPELINE_ROUTE_V2
             if "line_role" in selected_step_ids
             else "off"
         ),
         llm_knowledge_pipeline=(
-            KNOWLEDGE_CODEX_PIPELINE_SHARD_V1 if "knowledge" in selected_step_ids else "off"
+            KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2 if "knowledge" in selected_step_ids else "off"
         ),
         atomic_block_splitter=(
             selected_settings.atomic_block_splitter.value
@@ -599,7 +599,7 @@ def _selected_settings_enable_any_codex(selected_settings: RunSettings) -> bool:
     return any(
         (
             selected_settings.llm_recipe_pipeline.value != "off",
-            selected_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_SHARD_V1,
+            selected_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_ROUTE_V2,
             selected_settings.llm_knowledge_pipeline.value != "off",
         )
     )

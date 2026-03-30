@@ -17,7 +17,7 @@ from cookimport.config.prediction_identity import (
     build_line_role_cache_identity_payload,
 )
 from cookimport.config.run_settings import (
-    LINE_ROLE_PIPELINE_SHARD_V1,
+    LINE_ROLE_PIPELINE_ROUTE_V2,
     RunSettings,
     normalize_line_role_pipeline_value,
 )

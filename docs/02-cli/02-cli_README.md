@@ -168,11 +168,11 @@ Interactive `Import` and benchmark runs (`single_book` + matched-books) ask:
   - `Continue` accepts the current per-row settings
 - for interactive `Import`, that submenu asks about:
   - recipe correction (`codex-recipe-shard-v1`)
-  - non-recipe knowledge review (`codex-knowledge-shard-v1`)
+  - non-recipe knowledge review (`codex-knowledge-candidate-v2`)
 - for interactive benchmark modes (`single_book`, `selected_matched_books`, `all_matched_books`), that submenu asks about:
-  - block labelling (`codex-line-role-shard-v1`)
+  - block labelling (`codex-line-role-route-v2`)
   - recipe correction (`codex-recipe-shard-v1`)
-  - non-recipe knowledge review (`codex-knowledge-shard-v1`)
+  - non-recipe knowledge review (`codex-knowledge-candidate-v2`)
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
   - unchecked block labelling maps to `line_role_pipeline=off` and `atomic_block_splitter=off`
   - checked block labelling no longer auto-enables `atomic_block_splitter`; it preserves the current/default setting, which is now `off` unless explicitly overridden elsewhere
@@ -201,8 +201,8 @@ Resolved profile families:
   - stale winner caches are treated as disposable and ignored with one concise warning rather than being migrated forever,
   - otherwise use built-in codex top-tier baseline,
   - harmonize saved or built-in settings to the current codex top-tier contract, then apply the interactively selected recipe pipeline (`codex-recipe-shard-v1`):
-    `llm_knowledge_pipeline=codex-knowledge-shard-v1`,
-    `line_role_pipeline=codex-line-role-shard-v1`,
+    `llm_knowledge_pipeline=codex-knowledge-candidate-v2`,
+    `line_role_pipeline=codex-line-role-route-v2`,
     `atomic_block_splitter=off`,
     `epub_extractor=unstructured`,
     `epub_unstructured_html_parser_version=v1`,
@@ -297,7 +297,7 @@ What each setting affects:
 - `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
 - `warm_models`: preloads SpaCy, ingredient parser, and OCR model before staging.
 - `llm_recipe_pipeline`: recipe codex-farm parsing correction flow (`off` or `codex-recipe-shard-v1`).
-- `llm_knowledge_pipeline`: optional knowledge-harvest flow (`off` or `codex-knowledge-shard-v1`) used by `stage` only.
+- `llm_knowledge_pipeline`: optional knowledge-harvest flow (`off` or `codex-knowledge-candidate-v2`) used by `stage` only.
 - recipe correction also emits raw selected tags, which are normalized into `recipe.tags` and JSON-LD `keywords` during stage/import runs.
 - `codex_farm_*`: codex-farm command/root/workspace/context behavior used by `stage`; pipeline-id/failure internals remain loadable from explicit settings payloads but are hidden from ordinary help/UI.
 
@@ -455,7 +455,7 @@ Interactive benchmark now has a mode submenu before execution:
      - when `llm_recipe_pipeline=off`, runs one `vanilla` variant per selected book under `single-profile-benchmark/<index_source_slug>/`,
      - when `llm_recipe_pipeline` is non-`off`, runs paired variants per selected book:
        - `single-profile-benchmark/<index_source_slug>/vanilla` first (`llm_recipe_pipeline=off`, deterministic-only),
-       - `single-profile-benchmark/<index_source_slug>/codexfarm` second (preserving the selected non-`off` recipe pipeline while still forcing `line_role_pipeline=codex-line-role-shard-v1`, and now sharing the selected `atomic_block_splitter` value with the paired `vanilla` run),
+       - `single-profile-benchmark/<index_source_slug>/codexfarm` second (preserving the selected non-`off` recipe pipeline while still forcing `line_role_pipeline=codex-line-role-route-v2`, and now sharing the selected `atomic_block_splitter` value with the paired `vanilla` run),
    - for paired codex+vanilla selected/all-matched runs, writes per-book comparison only when both variants succeed:
      - `single-profile-benchmark/<index_source_slug>/codex_vs_vanilla_comparison.json`,
    - runs `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text` for each planned variant run (no all-method variant expansion),
@@ -598,7 +598,7 @@ Options:
 - `--web-schema-min-ingredients INTEGER>=0` (default `2`): minimum ingredient lines used in schema confidence scoring.
 - `--web-schema-min-instruction-steps INTEGER>=0` (default `1`): minimum instruction lines used in schema confidence scoring.
 - `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-recipe-shard-v1`.
-- `--llm-knowledge-pipeline TEXT` (default `off`): `off|codex-knowledge-shard-v1`.
+- `--llm-knowledge-pipeline TEXT` (default `off`): `off|codex-knowledge-candidate-v2`.
 - `--allow-codex / --no-allow-codex` (default disabled): required for execute-mode Codex-backed stage runs.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used to invoke codex-farm.
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.

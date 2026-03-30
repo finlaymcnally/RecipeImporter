@@ -190,7 +190,7 @@ This is why the run writes separate routing and final-authority artifacts.
 
 If knowledge review is off, the run keeps the routing and status artifacts and can still build deterministic late outputs from the surviving outside-recipe block list.
 
-If knowledge review is on, the public knowledge pipeline is `codex-knowledge-shard-v1`.
+If knowledge review is on, the public knowledge pipeline is `codex-knowledge-candidate-v2`.
 
 Before the model sees anything, the program partitions the surviving review queue into roughly the requested number of contiguous review shards. Repo code owns shard sizing, ordering, and the exact row ownership for each shard.
 

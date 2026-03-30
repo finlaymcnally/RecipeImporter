@@ -407,7 +407,7 @@ def test_choose_run_settings_uses_saved_qualitysuite_winner(
     winner_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
-            "line_role_pipeline": "codex-line-role-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
             "atomic_block_splitter": "atomic-v1",
             "epub_extractor": "unstructured",
         },
@@ -477,7 +477,7 @@ def test_choose_run_settings_falls_back_to_builtin_top_tier_defaults(
         warn_context="test expected codex top-tier settings",
     )
     assert selected.to_run_config_dict() == expected.to_run_config_dict()
-    assert selected.llm_knowledge_pipeline.value == "codex-knowledge-shard-v1"
+    assert selected.llm_knowledge_pipeline.value == "codex-knowledge-candidate-v2"
 
 
 def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_to_latest_top_tier_contract(
@@ -522,7 +522,7 @@ def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_to_latest_top_
         warn_context="test expected harmonized winner settings",
     )
     assert selected.to_run_config_dict() == expected.to_run_config_dict()
-    assert selected.llm_knowledge_pipeline.value == "codex-knowledge-shard-v1"
+    assert selected.llm_knowledge_pipeline.value == "codex-knowledge-candidate-v2"
 
 
 def test_choose_run_settings_does_not_warn_for_fixed_behavior_metadata(
@@ -534,7 +534,7 @@ def test_choose_run_settings_does_not_warn_for_fixed_behavior_metadata(
     winner_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
-            "line_role_pipeline": "codex-line-role-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
             "atomic_block_splitter": "atomic-v1",
             "codex_farm_model": "gpt-5.3-codex",
         },
@@ -585,7 +585,7 @@ def test_choose_run_settings_vanilla_profile_uses_vanilla_top_tier_defaults(
     winner_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
-            "line_role_pipeline": "codex-line-role-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
             "atomic_block_splitter": "atomic-v1",
             "epub_unstructured_html_parser_version": "v2",
             "epub_unstructured_preprocess_mode": "br_split_v1",
@@ -689,9 +689,9 @@ def test_choose_run_settings_recipe_pipeline_menu_normalizes_legacy_pipeline_ali
 
     assert selected is not None
     assert selected.llm_recipe_pipeline.value == "codex-recipe-shard-v1"
-    assert selected.line_role_pipeline.value == "codex-line-role-shard-v1"
+    assert selected.line_role_pipeline.value == "codex-line-role-route-v2"
     assert selected.atomic_block_splitter.value == "off"
-    assert selected.llm_knowledge_pipeline.value == "codex-knowledge-shard-v1"
+    assert selected.llm_knowledge_pipeline.value == "codex-knowledge-candidate-v2"
 
 
 def test_choose_run_settings_workflow_menu_uses_family_labels_only(
@@ -878,7 +878,7 @@ def test_choose_interactive_codex_surfaces_line_role_only_prompts_only_for_line_
     selected_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "off",
-            "line_role_pipeline": "codex-line-role-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
             "llm_knowledge_pipeline": "off",
             "line_role_prompt_target_count": 5,
         },
@@ -973,7 +973,7 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
     assert selected is not None
     assert seen_model_prompt["value"] is True
     assert selected.llm_recipe_pipeline.value == "off"
-    assert selected.line_role_pipeline.value == "codex-line-role-shard-v1"
+    assert selected.line_role_pipeline.value == "codex-line-role-route-v2"
     assert selected.llm_knowledge_pipeline.value == "off"
     assert selected.atomic_block_splitter.value == "off"
 
@@ -1012,7 +1012,7 @@ def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowled
 
     assert selected is not None
     assert selected.llm_recipe_pipeline.value == "off"
-    assert selected.llm_knowledge_pipeline.value == "codex-knowledge-shard-v1"
+    assert selected.llm_knowledge_pipeline.value == "codex-knowledge-candidate-v2"
     assert selected.line_role_pipeline.value == "off"
     assert selected.atomic_block_splitter.value == "off"
 
@@ -1028,7 +1028,7 @@ def test_prompt_codex_surface_menu_uses_arrow_keys_to_toggle_without_leaving_scr
                     message="CodexFarm steps for this run:",
                     step_rows=[
                         ("recipe", "Recipe correction (`codex-recipe-shard-v1`)"),
-                        ("knowledge", "Knowledge harvest (`codex-knowledge-shard-v1`)"),
+                        ("knowledge", "Knowledge harvest (`codex-knowledge-candidate-v2`)"),
                     ],
                     enabled_by_step={"recipe": True, "knowledge": True},
                     back_action="back",
@@ -1061,7 +1061,7 @@ def test_prompt_codex_surface_menu_allows_left_and_right_to_move_current_choice(
                     message="CodexFarm options for this run:",
                     step_rows=[
                         ("recipe", "Recipe correction (`codex-recipe-shard-v1`)"),
-                        ("knowledge", "Knowledge harvest (`codex-knowledge-shard-v1`)"),
+                        ("knowledge", "Knowledge harvest (`codex-knowledge-candidate-v2`)"),
                     ],
                     enabled_by_step={"recipe": True, "knowledge": True},
                     back_action="back",
@@ -1368,7 +1368,7 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
     selected_file.write_text("dummy", encoding="utf-8")
     selected_settings = cli.RunSettings.from_dict(
         {
-            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
             "codex_farm_knowledge_context_blocks": 37,
         },
         warn_context="test settings",
@@ -1405,7 +1405,7 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
         "knowledge",
     )
     assert captured["path"] == selected_file
-    assert captured["llm_knowledge_pipeline"] == "codex-knowledge-shard-v1"
+    assert captured["llm_knowledge_pipeline"] == "codex-knowledge-candidate-v2"
     assert captured["codex_farm_pipeline_knowledge"] == "recipe.knowledge.packet.v1"
     assert captured["codex_farm_knowledge_context_blocks"] == 37
 
@@ -1423,7 +1423,7 @@ def test_import_entrypoint_passes_extended_stage_settings(
         "epub_unstructured_skip_headers_footers": True,
         "epub_unstructured_preprocess_mode": "br_split_v1",
         "llm_recipe_pipeline": "off",
-        "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+        "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
         "codex_farm_pipeline_knowledge": "recipe.knowledge.custom.v9",
         "codex_farm_knowledge_context_blocks": 42,
     }
@@ -1453,7 +1453,7 @@ def test_import_entrypoint_passes_extended_stage_settings(
     assert captured["epub_unstructured_html_parser_version"] == "v2"
     assert captured["epub_unstructured_skip_headers_footers"] is True
     assert captured["epub_unstructured_preprocess_mode"] == "br_split_v1"
-    assert captured["llm_knowledge_pipeline"] == "codex-knowledge-shard-v1"
+    assert captured["llm_knowledge_pipeline"] == "codex-knowledge-candidate-v2"
     assert captured["codex_farm_pipeline_knowledge"] == "recipe.knowledge.packet.v1"
     assert captured["codex_farm_knowledge_context_blocks"] == 42
 

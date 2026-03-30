@@ -21,7 +21,7 @@ def _sample_records() -> list[dict[str, object]]:
             "source_file": "book.epub",
             "run_config": {
                 "llm_recipe_pipeline": "codex-recipe-shard-v1",
-                "line_role_pipeline": "codex-line-role-shard-v1",
+                "line_role_pipeline": "codex-line-role-route-v2",
                 "codex_farm_model": "gpt-5",
                 "codex_farm_reasoning_effort": "medium",
             },

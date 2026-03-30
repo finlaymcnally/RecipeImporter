@@ -257,11 +257,11 @@ def preview_prompts(
         "--llm-recipe-pipeline",
     ),
     llm_knowledge_pipeline: str = typer.Option(
-        "codex-knowledge-shard-v1",
+        "codex-knowledge-candidate-v2",
         "--llm-knowledge-pipeline",
     ),
     line_role_pipeline: str = typer.Option(
-        "codex-line-role-shard-v1",
+        "codex-line-role-route-v2",
         "--line-role-pipeline",
     ),
     codex_farm_root: Path | None = typer.Option(None, "--codex-farm-root"),
@@ -450,11 +450,11 @@ def preview_shard_sweep(
         "--llm-recipe-pipeline",
     ),
     llm_knowledge_pipeline: str = typer.Option(
-        "codex-knowledge-shard-v1",
+        "codex-knowledge-candidate-v2",
         "--llm-knowledge-pipeline",
     ),
     line_role_pipeline: str = typer.Option(
-        "codex-line-role-shard-v1",
+        "codex-line-role-route-v2",
         "--line-role-pipeline",
     ),
     codex_farm_root: Path | None = typer.Option(None, "--codex-farm-root"),

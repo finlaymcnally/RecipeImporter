@@ -86,8 +86,8 @@ Pipeline assets under `llm_pipelines/pipelines/` no longer pin repo-default `cod
 ## Current live surfaces
 
 - `llm_recipe_pipeline`: `off`, `codex-recipe-shard-v1`
-- `llm_knowledge_pipeline`: `off`, `codex-knowledge-shard-v1`
-- `line_role_pipeline`: `off`, `codex-line-role-shard-v1`
+- `llm_knowledge_pipeline`: `off`, `codex-knowledge-candidate-v2`
+- `line_role_pipeline`: `off`, `codex-line-role-route-v2`
 - Prelabel is a separate Codex surface routed through CodexFarm pipeline `prelabel.freeform.v1`
 
 Migration note:

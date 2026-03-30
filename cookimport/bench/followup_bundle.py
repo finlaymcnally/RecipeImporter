@@ -2365,7 +2365,7 @@ def write_ablation_matrix(
         {
             "variant_id": "line_role_only",
             "atomic_block_splitter": "atomic-v1",
-            "line_role_pipeline": "codex-line-role-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
             "llm_recipe_pipeline": "off",
         },
         {
@@ -2377,7 +2377,7 @@ def write_ablation_matrix(
         {
             "variant_id": "full_stack",
             "atomic_block_splitter": "atomic-v1",
-            "line_role_pipeline": "codex-line-role-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
         },
     ]

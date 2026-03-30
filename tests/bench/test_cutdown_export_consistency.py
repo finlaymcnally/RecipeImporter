@@ -504,7 +504,7 @@ def test_line_role_regression_gate_payload_uses_history_baselines(
             run_dir=sea_candidate,
             file_name="seaandsmokeCUTDOWN.epub",
             llm_recipe_pipeline="off",
-            line_role_pipeline="deterministic-v1",
+            line_role_pipeline="deterministic-route-v2",
         )
 
     candidate_report = {

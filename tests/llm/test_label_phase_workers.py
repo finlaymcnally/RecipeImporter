@@ -17,7 +17,7 @@ from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 
 
 def _settings(**kwargs) -> RunSettings:
-    return RunSettings(line_role_pipeline="codex-line-role-shard-v1", **kwargs)
+    return RunSettings(line_role_pipeline="codex-line-role-route-v2", **kwargs)
 
 
 @pytest.fixture(autouse=True)

@@ -79,8 +79,8 @@ from cookimport.config.run_settings_contracts import (
     summarize_run_config_payload,
 )
 from cookimport.config.run_settings import (
-    KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
-    LINE_ROLE_PIPELINE_SHARD_V1,
+    KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
+    LINE_ROLE_PIPELINE_ROUTE_V2,
     RECIPE_CODEX_FARM_ALLOWED_PIPELINES,
     RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
     RunSettings,
@@ -1194,7 +1194,7 @@ def _normalize_llm_knowledge_pipeline(value: str) -> str:
     except ValueError:
         _fail(
             f"Invalid LLM knowledge pipeline: {value!r}. "
-            f"Expected one of: off, {KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}."
+            f"Expected one of: off, {KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2}."
         )
         return "off"
 
@@ -1285,7 +1285,7 @@ def _normalize_line_role_pipeline(value: str) -> str:
     except ValueError:
         _fail(
             f"Invalid line role pipeline: {value!r}. "
-            f"Expected one of: off, {LINE_ROLE_PIPELINE_SHARD_V1}."
+            f"Expected one of: off, {LINE_ROLE_PIPELINE_ROUTE_V2}."
         )
         return "off"
 

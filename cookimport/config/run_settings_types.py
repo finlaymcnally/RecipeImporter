@@ -55,8 +55,8 @@ RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR = (
     + "."
 )
 
-LINE_ROLE_PIPELINE_SHARD_V1 = "codex-line-role-shard-v1"
-KNOWLEDGE_CODEX_PIPELINE_SHARD_V1 = "codex-knowledge-shard-v1"
+LINE_ROLE_PIPELINE_ROUTE_V2 = "codex-line-role-route-v2"
+KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2 = "codex-knowledge-candidate-v2"
 
 
 class EpubExtractor(str, Enum):
@@ -211,12 +211,12 @@ class AtomicBlockSplitter(str, Enum):
 
 class LineRolePipeline(str, Enum):
     off = "off"
-    codex_line_role_shard_v1 = LINE_ROLE_PIPELINE_SHARD_V1
+    codex_line_role_route_v2 = LINE_ROLE_PIPELINE_ROUTE_V2
 
 
 class LlmKnowledgePipeline(str, Enum):
     off = "off"
-    codex_knowledge_shard_v1 = KNOWLEDGE_CODEX_PIPELINE_SHARD_V1
+    codex_knowledge_candidate_v2 = KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2
 
 
 class CodexFarmFailureMode(str, Enum):
@@ -252,12 +252,12 @@ def normalize_line_role_pipeline_value(value: Any) -> str:
         return LineRolePipeline.off.value
     allowed = {
         LineRolePipeline.off.value,
-        LINE_ROLE_PIPELINE_SHARD_V1,
+        LINE_ROLE_PIPELINE_ROUTE_V2,
     }
     if normalized not in allowed:
         raise ValueError(
             "Invalid line_role_pipeline. Expected one of: "
-            f"{LineRolePipeline.off.value}, {LINE_ROLE_PIPELINE_SHARD_V1}."
+            f"{LineRolePipeline.off.value}, {LINE_ROLE_PIPELINE_ROUTE_V2}."
         )
     return normalized
 
@@ -267,12 +267,12 @@ def normalize_llm_knowledge_pipeline_value(value: Any) -> str:
     normalized = normalized or LlmKnowledgePipeline.off.value
     allowed = {
         LlmKnowledgePipeline.off.value,
-        KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
+        KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
     }
     if normalized not in allowed:
         raise ValueError(
             "Invalid llm_knowledge_pipeline. Expected one of: "
-            f"{LlmKnowledgePipeline.off.value}, {KNOWLEDGE_CODEX_PIPELINE_SHARD_V1}."
+            f"{LlmKnowledgePipeline.off.value}, {KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2}."
         )
     return normalized
 

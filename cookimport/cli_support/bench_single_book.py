@@ -601,7 +601,7 @@ def _single_book_variant_slug(settings: RunSettings) -> str:
     run_config = settings.to_run_config_dict()
     recipe_pipeline = str(run_config.get("llm_recipe_pipeline") or "off").strip().lower()
     line_role_pipeline = str(run_config.get("line_role_pipeline") or "off").strip().lower()
-    if recipe_pipeline == "off" and line_role_pipeline in {"off", "deterministic-v1", "deterministic"}:
+    if recipe_pipeline == "off" and line_role_pipeline in {"off", "deterministic-route-v2", "deterministic"}:
         return "vanilla"
     if recipe_pipeline == "off":
         return "line_role_only"

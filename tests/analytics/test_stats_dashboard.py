@@ -1288,7 +1288,7 @@ const lineRoleOnlyEffortRecord = {
   strict_accuracy: 0.54,
   run_config: {
     llm_recipe_pipeline: "off",
-    line_role_pipeline: "codex-line-role-shard-v1",
+    line_role_pipeline: "codex-line-role-route-v2",
   },
 };
 const legacyCodexfarmRecord = {
@@ -1431,7 +1431,7 @@ const singleProfileRecord = {
   artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-06_00.44.16/single-profile-benchmark/mybook/2026-03-06_00.45.00",
   run_config: {
     llm_recipe_pipeline: "codex-recipe-shard-v1",
-    line_role_pipeline: "codex-line-role-shard-v1",
+    line_role_pipeline: "codex-line-role-route-v2",
     codex_farm_model: "gpt-5.3-codex-spark",
   },
   per_label: [
@@ -1449,7 +1449,7 @@ const olderSingleProfileRecord = {
   artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-06_00.44.16/single-profile-benchmark/mybook/2026-03-06_00.44.00",
   run_config: {
     llm_recipe_pipeline: "codex-recipe-shard-v1",
-    line_role_pipeline: "codex-line-role-shard-v1",
+    line_role_pipeline: "codex-line-role-route-v2",
     codex_farm_model: "gpt-5.3-codex-spark",
   },
   per_label: [
@@ -3854,7 +3854,7 @@ class TestRenderer:
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
-                    "line_role_pipeline": "codex-line-role-shard-v1",
+                    "line_role_pipeline": "codex-line-role-route-v2",
                     "codex_farm_model": "gpt-5.3-codex-spark",
                     "codex_farm_reasoning_effort": "low",
                 },
@@ -3871,7 +3871,7 @@ class TestRenderer:
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
-                    "line_role_pipeline": "codex-line-role-shard-v1",
+                    "line_role_pipeline": "codex-line-role-route-v2",
                     "codex_farm_model": "gpt-5.3-codex-spark",
                     "codex_farm_reasoning_effort": "low",
                 },
@@ -3888,7 +3888,7 @@ class TestRenderer:
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
-                    "line_role_pipeline": "codex-line-role-shard-v1",
+                    "line_role_pipeline": "codex-line-role-route-v2",
                     "codex_farm_model": "gpt-5.3-codex-spark",
                     "codex_farm_reasoning_effort": "medium",
                 },
@@ -4095,7 +4095,7 @@ class TestBenchmarkSemantics:
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
-                    "line_role_pipeline": "codex-line-role-shard-v1",
+                    "line_role_pipeline": "codex-line-role-route-v2",
                 },
                 "strict_accuracy": 0.58,
             },
@@ -4134,7 +4134,7 @@ class TestBenchmarkSemantics:
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
-                    "line_role_pipeline": "codex-line-role-shard-v1",
+                    "line_role_pipeline": "codex-line-role-route-v2",
                 },
                 "tokens_total": 2300,
             },
@@ -4175,7 +4175,7 @@ class TestBenchmarkSemantics:
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
-                    "line_role_pipeline": "codex-line-role-shard-v1",
+                    "line_role_pipeline": "codex-line-role-route-v2",
                 },
                 "strict_accuracy": 0.58,
             },
@@ -4188,7 +4188,7 @@ class TestBenchmarkSemantics:
                 "benchmark_variant": "deterministic",
                 "run_config": {
                     "llm_recipe_pipeline": "off",
-                    "line_role_pipeline": "deterministic-v1",
+                    "line_role_pipeline": "deterministic-route-v2",
                 },
                 "strict_accuracy": 0.5238744884038199,
             },
@@ -4254,7 +4254,7 @@ class TestBenchmarkSemantics:
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
-                    "line_role_pipeline": "codex-line-role-shard-v1",
+                    "line_role_pipeline": "codex-line-role-route-v2",
                 },
                 "strict_accuracy": 0.58,
             },

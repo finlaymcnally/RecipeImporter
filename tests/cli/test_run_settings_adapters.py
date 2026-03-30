@@ -90,7 +90,7 @@ def test_build_stage_call_kwargs_propagates_webschema_fields() -> None:
 def test_build_stage_call_kwargs_propagates_codex_prompt_targets() -> None:
     settings = RunSettings(
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        llm_knowledge_pipeline="codex-knowledge-shard-v1",
+        llm_knowledge_pipeline="codex-knowledge-candidate-v2",
         recipe_prompt_target_count=9,
         knowledge_prompt_target_count=4,
     )
@@ -106,7 +106,7 @@ def test_build_stage_call_kwargs_propagates_codex_prompt_targets() -> None:
 
     assert kwargs["recipe_prompt_target_count"] == 9
     assert kwargs["knowledge_prompt_target_count"] == 4
-    assert kwargs["llm_knowledge_pipeline"] == "codex-knowledge-shard-v1"
+    assert kwargs["llm_knowledge_pipeline"] == "codex-knowledge-candidate-v2"
 
 
 def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
@@ -135,7 +135,7 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
         p6_emit_metadata_debug=False,
         pdf_ocr_policy="off",
         pdf_column_gap_ratio=0.09,
-        llm_knowledge_pipeline="codex-knowledge-shard-v1",
+        llm_knowledge_pipeline="codex-knowledge-candidate-v2",
         atomic_block_splitter="atomic-v1",
         line_role_pipeline="off",
         codex_farm_recipe_mode="benchmark",
@@ -188,7 +188,7 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     )
     assert kwargs["pdf_ocr_policy"] == "off"
     assert kwargs["pdf_column_gap_ratio"] == 0.09
-    assert kwargs["llm_knowledge_pipeline"] == "codex-knowledge-shard-v1"
+    assert kwargs["llm_knowledge_pipeline"] == "codex-knowledge-candidate-v2"
     assert kwargs["atomic_block_splitter"] == "atomic-v1"
     assert kwargs["line_role_pipeline"] == "off"
     assert kwargs["codex_farm_recipe_mode"] == "benchmark"
@@ -204,8 +204,8 @@ def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
 def test_build_benchmark_call_kwargs_propagates_codex_prompt_targets() -> None:
     settings = RunSettings(
         llm_recipe_pipeline="codex-recipe-shard-v1",
-        line_role_pipeline="codex-line-role-shard-v1",
-        llm_knowledge_pipeline="codex-knowledge-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
+        llm_knowledge_pipeline="codex-knowledge-candidate-v2",
         recipe_prompt_target_count=10,
         line_role_prompt_target_count=5,
         knowledge_prompt_target_count=4,
@@ -224,7 +224,7 @@ def test_build_benchmark_call_kwargs_propagates_codex_prompt_targets() -> None:
     assert kwargs["recipe_prompt_target_count"] == 10
     assert kwargs["line_role_prompt_target_count"] == 5
     assert kwargs["knowledge_prompt_target_count"] == 4
-    assert kwargs["llm_knowledge_pipeline"] == "codex-knowledge-shard-v1"
+    assert kwargs["llm_knowledge_pipeline"] == "codex-knowledge-candidate-v2"
 
 
 def test_build_benchmark_call_kwargs_matches_labelstudio_benchmark_signature() -> None:
@@ -287,7 +287,7 @@ def test_prediction_identity_changes_when_prediction_shape_changes() -> None:
         section_detector_backend="shared_v1",
     )
     changed = RunSettings(
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         section_detector_backend="shared_v1",
     )
 
@@ -298,12 +298,12 @@ def test_prediction_identity_changes_when_prediction_shape_changes() -> None:
 
 def test_line_role_cache_identity_only_tracks_line_role_pipeline() -> None:
     baseline = RunSettings(
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         workers=1,
         codex_farm_cmd="codex-a",
     )
     runtime_only_changed = RunSettings(
-        line_role_pipeline="codex-line-role-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
         workers=9,
         codex_farm_cmd="codex-b",
     )

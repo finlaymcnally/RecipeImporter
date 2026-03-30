@@ -1193,9 +1193,9 @@ def _build_all_method_variants(
                     codex_dimensions["llm_recipe_pipeline"] = (
                         RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
                     )
-                    codex_dimensions["line_role_pipeline"] = LINE_ROLE_PIPELINE_SHARD_V1
+                    codex_dimensions["line_role_pipeline"] = LINE_ROLE_PIPELINE_ROUTE_V2
                     codex_dimensions["llm_knowledge_pipeline"] = (
-                        KNOWLEDGE_CODEX_PIPELINE_SHARD_V1
+                        KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2
                     )
                     codex_dimensions["atomic_block_splitter"] = str(
                         codex_payload.get("atomic_block_splitter") or "off"
@@ -1217,7 +1217,7 @@ def _build_all_method_variants(
                         )
                     if (
                         codex_variant_settings.line_role_pipeline.value
-                        == LINE_ROLE_PIPELINE_SHARD_V1
+                        == LINE_ROLE_PIPELINE_ROUTE_V2
                     ):
                         codex_dimensions["line_role_pipeline"] = (
                             codex_variant_settings.line_role_pipeline.value
@@ -8999,8 +8999,8 @@ def _interactive_all_method_benchmark(
     all_method_codex_defaults_payload.update(
         {
             "llm_recipe_pipeline": RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
-            "line_role_pipeline": LINE_ROLE_PIPELINE_SHARD_V1,
-            "llm_knowledge_pipeline": KNOWLEDGE_CODEX_PIPELINE_SHARD_V1,
+            "line_role_pipeline": LINE_ROLE_PIPELINE_ROUTE_V2,
+            "llm_knowledge_pipeline": KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
             "atomic_block_splitter": str(
                 all_method_codex_defaults_payload.get("atomic_block_splitter") or "off"
             ),
@@ -9352,7 +9352,7 @@ def _all_method_codex_surface_slug_parts(
     recipe_pipeline = codex_variant_settings.llm_recipe_pipeline.value
     if recipe_pipeline != "off":
         parts.append(f"llm_recipe_{_all_method_variant_token(recipe_pipeline)}")
-    if codex_variant_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_SHARD_V1:
+    if codex_variant_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_ROUTE_V2:
         parts.append(
             f"line_role_{_all_method_variant_token(codex_variant_settings.line_role_pipeline.value)}"
         )
@@ -9372,7 +9372,7 @@ def _all_method_settings_enable_any_codex(
     return any(
         (
             codex_variant_settings.llm_recipe_pipeline.value != "off",
-            codex_variant_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_SHARD_V1,
+            codex_variant_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_ROUTE_V2,
             codex_variant_settings.llm_knowledge_pipeline.value != "off",
         )
     )

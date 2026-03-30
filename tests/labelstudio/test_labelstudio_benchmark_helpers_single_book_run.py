@@ -124,7 +124,7 @@ def test_interactive_single_book_codex_enabled_runs_only_codexfarm(
     ]
     assert [call["line_role_pipeline"] for call in benchmark_calls] == [
         "off",
-        "codex-line-role-shard-v1",
+        "codex-line-role-route-v2",
     ]
     assert [call["atomic_block_splitter"] for call in benchmark_calls] == [
         "off",
@@ -550,7 +550,7 @@ def test_interactive_single_book_hybrid_run_uses_profile_slug_not_vanilla(
     selected_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "off",
-            "line_role_pipeline": "codex-line-role-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
             "atomic_block_splitter": "atomic-v1",
         },
         warn_context="test line-role-only single-book",
@@ -597,7 +597,7 @@ def test_interactive_single_book_hybrid_run_uses_profile_slug_not_vanilla(
     assert completed is True
     assert len(benchmark_calls) == 1
     assert benchmark_calls[0]["llm_recipe_pipeline"] == "off"
-    assert benchmark_calls[0]["line_role_pipeline"] == "codex-line-role-shard-v1"
+    assert benchmark_calls[0]["line_role_pipeline"] == "codex-line-role-route-v2"
     assert benchmark_calls[0]["atomic_block_splitter"] == "atomic-v1"
     assert benchmark_calls[0]["eval_output_dir"] == (
         benchmark_eval_output / "single-book-benchmark" / "line_role_only"

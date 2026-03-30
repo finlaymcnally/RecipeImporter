@@ -109,8 +109,8 @@ Current behavior notes:
 - `stage-blocks` forces `line_role_pipeline=off` and `atomic_block_splitter=off`
 - canonical-text runs can enable:
   - `atomic_block_splitter=atomic-v1`
-  - `line_role_pipeline=off|codex-line-role-shard-v1`
-  - `llm_knowledge_pipeline=codex-knowledge-shard-v1`
+  - `line_role_pipeline=off|codex-line-role-route-v2`
+  - `llm_knowledge_pipeline=codex-knowledge-candidate-v2`
 - benchmark/operator defaults now keep `atomic_block_splitter=off` unless it is explicitly requested
 - non-interactive live Codex-backed benchmark runs require:
   - `--allow-codex`

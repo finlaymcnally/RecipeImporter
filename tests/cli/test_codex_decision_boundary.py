@@ -7,6 +7,7 @@ import pytest
 import typer
 
 from cookimport import cli, entrypoint
+import cookimport.cli_support.progress as cli_progress
 from cookimport.config.codex_decision import (
     apply_benchmark_baseline_contract,
     apply_benchmark_codex_contract_from_baseline,
@@ -186,8 +187,8 @@ def test_labelstudio_benchmark_requires_benchmark_codex_confirmation(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr("cookimport.cli_support._fail", _fake_fail)
-    monkeypatch.setattr("cookimport.cli_support._is_agent_execution_environment", lambda: False)
+    monkeypatch.setattr(cli_progress, "_fail", _fake_fail)
+    monkeypatch.setattr(cli_progress, "_is_agent_execution_environment", lambda: False)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.labelstudio_benchmark(
@@ -220,8 +221,8 @@ def test_labelstudio_benchmark_live_codex_blocked_in_agent_environment(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr("cookimport.cli_support._fail", _fake_fail)
-    monkeypatch.setattr("cookimport.cli_support._is_agent_execution_environment", lambda: True)
+    monkeypatch.setattr(cli_progress, "_fail", _fake_fail)
+    monkeypatch.setattr(cli_progress, "_is_agent_execution_environment", lambda: True)
 
     with pytest.raises(typer.Exit) as excinfo:
         cli.labelstudio_benchmark(
@@ -250,8 +251,8 @@ def test_labelstudio_benchmark_live_codex_interactive_mode_bypasses_agent_block(
         failures.append(message)
         raise typer.Exit(1)
 
-    monkeypatch.setattr("cookimport.cli_support._fail", _fake_fail)
-    monkeypatch.setattr("cookimport.cli_support._is_agent_execution_environment", lambda: True)
+    monkeypatch.setattr(cli_progress, "_fail", _fake_fail)
+    monkeypatch.setattr(cli_progress, "_is_agent_execution_environment", lambda: True)
     interactive_token = cli._INTERACTIVE_CLI_ACTIVE.set(True)
 
     try:
@@ -268,8 +269,8 @@ def test_labelstudio_benchmark_live_codex_interactive_mode_bypasses_agent_block(
 def test_benchmark_contracts_preserve_selected_atomic_block_splitter() -> None:
     payload = {
         "llm_recipe_pipeline": "codex-recipe-shard-v1",
-        "line_role_pipeline": "codex-line-role-shard-v1",
-        "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+        "line_role_pipeline": "codex-line-role-route-v2",
+        "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
         "atomic_block_splitter": "atomic-v1",
     }
 

@@ -600,7 +600,7 @@ def test_build_prediction_bundle_uses_manifest_canonical_scoring_pointers(
             {
                 "source_file": str(source_file),
                 "source_hash": "hash-123",
-                "run_config": {"line_role_pipeline": "deterministic-v1"},
+                "run_config": {"line_role_pipeline": "deterministic-route-v2"},
                 # New contract: manifest's stage/extracted pointers are the one
                 # canonical scoring surface regardless of diagnostics artifacts.
                 "stage_block_predictions_path": str(line_role_stage_predictions_path),

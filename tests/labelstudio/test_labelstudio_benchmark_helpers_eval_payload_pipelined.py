@@ -340,7 +340,7 @@ def _run_canonical_text_pipelined_fixture(
         stage_subdir="line-role-pipeline",
         block_labels={"0": "OTHER"},
         manifest_payload={
-            "run_config": {"workers": 1, "line_role_pipeline": "deterministic-v1"},
+            "run_config": {"workers": 1, "line_role_pipeline": "deterministic-route-v2"},
             "run_config_hash": "cfg-hash",
             "run_config_summary": "workers=1",
         },
@@ -350,7 +350,7 @@ def _run_canonical_text_pipelined_fixture(
         source_file=source_file,
         block_labels={"0": "RECIPE_TITLE"},
         manifest_payload={
-            "run_config": {"workers": 1, "line_role_pipeline": "deterministic-v1"},
+            "run_config": {"workers": 1, "line_role_pipeline": "deterministic-route-v2"},
             "run_config_hash": "cfg-hash",
             "run_config_summary": "workers=1",
             "stage_block_predictions_path": str(line_role_paths["stage_predictions_path"]),

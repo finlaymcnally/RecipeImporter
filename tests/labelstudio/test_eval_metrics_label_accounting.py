@@ -145,7 +145,7 @@ def test_labelstudio_eval_run_config_threads_line_role_knobs(
             run_config={
                 "llm_recipe_pipeline": "codex-recipe-shard-v1",
                 "atomic_block_splitter": "atomic-v1",
-                "line_role_pipeline": "deterministic-v1",
+                "line_role_pipeline": "deterministic-route-v2",
             },
             run_config_hash="cfg-hash",
             run_config_summary="cfg-summary",

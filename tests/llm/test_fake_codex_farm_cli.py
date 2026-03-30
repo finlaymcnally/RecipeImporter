@@ -367,7 +367,7 @@ def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
     source.write_text("book", encoding="utf-8")
     settings = RunSettings.model_validate(
         {
-            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
             "codex_farm_cmd": str(_script_path()),
             "codex_farm_root": str(Path(__file__).resolve().parents[2] / "llm_pipelines"),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.packet.v1",
@@ -463,7 +463,7 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
     source.write_text("book", encoding="utf-8")
     settings = RunSettings.model_validate(
         {
-            "llm_knowledge_pipeline": "codex-knowledge-shard-v1",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
             "knowledge_worker_count": 1,
             "codex_farm_cmd": str(_script_path()),
             "codex_farm_root": str(Path(__file__).resolve().parents[2] / "llm_pipelines"),
@@ -570,7 +570,7 @@ def test_line_role_runtime_can_run_through_fake_codex_farm_subprocess(
     _patch_direct_exec_home(monkeypatch, tmp_path)
     settings = RunSettings.model_validate(
         {
-            "line_role_pipeline": "codex-line-role-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
             "line_role_worker_count": 1,
             "line_role_prompt_target_count": None,
             "codex_farm_cmd": str(_script_path()),
