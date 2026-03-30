@@ -38,7 +38,7 @@ def test_preflight_knowledge_shard_rejects_missing_bundle_id() -> None:
     }
 
 
-def test_worker_prompt_describes_packet_lease_contract() -> None:
+def test_worker_prompt_describes_task_file_contract() -> None:
     prompt = _build_knowledge_workspace_worker_prompt(
         shards=[
             ShardManifestEntryV1(
@@ -55,21 +55,18 @@ def test_worker_prompt_describes_packet_lease_contract() -> None:
         ]
     )
 
-    assert "current_packet.json" in prompt
-    assert "current_hint.md" in prompt
-    assert "current_result_path.txt" in prompt
-    assert "packet_lease_status.json" in prompt
-    assert (
-        "Start by opening `worker_manifest.json`, then `current_packet.json`, `current_hint.md`, and `current_result_path.txt`."
-        in prompt
-    )
-    assert "Treat those current-packet files as the only happy-path authority" in prompt
-    assert "Write exactly one JSON object to the result path named in `current_result_path.txt`." in prompt
-    assert "Pass 1 is your first-authority semantic judgment" in prompt
-    assert "Pass 1 packets ask only for per-row `category` decisions." in prompt
-    assert "Pass 2 packets run only after Pass 1 is accepted" in prompt
-    assert "assign a non-empty local `group_key` plus `topic_label`" in prompt
-    assert "Repair packets are purely structural." in prompt
+    assert "task.json" in prompt
+    assert "Open `task.json`, read it once, edit only `/units/*/answer`, save the same file, and stop." in prompt
+    assert "- Start with `task.json`." in prompt
+    assert "- Edit only the `answer` object inside each unit." in prompt
+    assert "Do not invent queue advancement, control files, helper ledgers, or alternate output files." in prompt
+    assert "If a block ends as `knowledge`, both `group_key` and `topic_label` must be non-empty strings." in prompt
+    assert "Do not return shard outputs in your final message." in prompt
+    assert "Assigned shard ids represented in this task file: `book.ks0000.nr`." in prompt
+    assert "current_packet.json" not in prompt
+    assert "current_hint.md" not in prompt
+    assert "current_result_path.txt" not in prompt
+    assert "packet_lease_status.json" not in prompt
     assert "CURRENT_PHASE.md" not in prompt
     assert "check-phase" not in prompt
     assert "install-phase" not in prompt

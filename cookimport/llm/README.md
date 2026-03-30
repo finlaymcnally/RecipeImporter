@@ -9,9 +9,8 @@ Start points:
 - `prompt_preview.py`, `prompt_artifacts.py`, and `prompt_budget.py` own prompt/cost inspection surfaces.
 
 Active worker surfaces:
-- Recipe is assignment-first on the happy path. Worker roots expose `worker_manifest.json`, `assigned_tasks.json`, authoritative `in/*.json`, optional `hints/*.md`, harvested `out/*.json`, and shard-local repair artifacts only when validation rejects a task output.
-- Canonical line-role is assignment-first too. Worker roots expose `worker_manifest.json`, `assigned_shards.json`, authoritative `in/*.json`, optional `hints/*.md`, `debug/*.json`, harvested `out/*.json`, and fallback `OUTPUT_CONTRACT.md`.
-- Knowledge is assignment-first like line-role. Worker roots expose `worker_manifest.json`, `assigned_shards.json`, authoritative `in/*.json`, optional `hints/*.md`, harvested `out/*.json`, worker-local `scratch/`, and fallback `OUTPUT_CONTRACT.md` plus `examples/`.
+- Recipe, canonical line-role, and knowledge all use the same happy path now: the worker-visible sterile workspace contains one repo-written `task.json`, the worker edits only `/units/*/answer`, and repo code expands accepted answers into the stage artifacts.
+- The source worker roots still keep repo-owned `worker_manifest.json`, `prompt.txt`, `in/*.json`, `out/*.json`, `debug/`, and repair/status files for validation and debugging, but those are no longer the model-visible startup surface.
 
 Current ownership split:
 - Repo code owns shard planning, immutable assignment files, exact ownership validation, proposal assembly, bounded repair, promotion, and telemetry.
@@ -19,8 +18,8 @@ Current ownership split:
 - File-backed validated `out/*.json` is authoritative on the workspace-worker path; final prose messages are telemetry only.
 
 Runtime notes:
-- Workspace-worker sessions run from a sterile mirrored workspace under `~/.codex-recipe/...` with a repo-written `AGENTS.md` and `worker_manifest.json`; the repo artifact root stays authoritative.
-- Watchdog policy is transport-specific. Structured retry/repair calls still fail closed on shell drift, while main workspace-worker attempts allow bounded local shell use and only kill for real boundary violations or no-progress loops.
+- Workspace-worker sessions run from a sterile mirrored workspace under `~/.codex-recipe/...` with a repo-written `AGENTS.md` plus one visible `task.json`; the repo artifact root stays authoritative for manifests, debug files, and promoted outputs.
+- Watchdog policy is transport-specific. Structured retry/repair calls still fail closed on shell drift, while main workspace-worker attempts are warning-first and only auto-terminate for real boundary violations.
 - `scripts/fake-codex-farm.py` mirrors the live direct-exec contract closely enough for zero-token tests; fake direct-exec workers now synthesize assignment-owned outputs rather than queue or phase control loops.
 
 Owner packages:

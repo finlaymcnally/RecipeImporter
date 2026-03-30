@@ -57,6 +57,8 @@ _DIRECT_EXEC_OUTPUT_DIR_NAME = "out"
 _DIRECT_EXEC_SCRATCH_DIR_NAME = "scratch"
 _DIRECT_EXEC_WORK_DIR_NAME = "work"
 _DIRECT_EXEC_REPAIR_DIR_NAME = "repair"
+_DIRECT_EXEC_INTERNAL_DIR_NAME = "_repo_control"
+_DIRECT_EXEC_ORIGINAL_TASK_FILE_NAME = "original_task.json"
 _DIRECT_EXEC_COMPLETED_TERMINATION_GRACE_SECONDS = 5.0
 DirectExecWorkspaceMode = Literal["structured_json", "workspace_worker"]
 _WORKSPACE_ALLOWED_PATH_ROOTS = {
@@ -515,6 +517,7 @@ class SubprocessCodexExecRunner:
             sandbox_mode="workspace-write",
             require_final_message=False,
             sync_output_paths=(
+                _DIRECT_EXEC_TASK_FILE_NAME,
                 _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
                 _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME,
                 _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME,
@@ -554,6 +557,10 @@ class SubprocessCodexExecRunner:
             mode=workspace_mode,
         )
         execution_working_dir = prepared_workspace.execution_working_dir
+        single_file_worker_runtime = _uses_single_file_worker_runtime(
+            workspace_root=working_dir,
+            mode=workspace_mode,
+        )
         execution_prompt_text = rewrite_direct_exec_prompt_paths(
             prompt_text=prompt_text,
             source_working_dir=working_dir,
@@ -584,6 +591,7 @@ class SubprocessCodexExecRunner:
                 sync_source_paths=(
                     _DIRECT_EXEC_RUNTIME_CONTROL_PATHS
                     if workspace_mode == "workspace_worker"
+                    and not single_file_worker_runtime
                     else ()
                 ),
             ),
@@ -594,7 +602,7 @@ class SubprocessCodexExecRunner:
             execution_working_dir=execution_working_dir,
             relative_paths=sync_output_paths,
         )
-        if workspace_mode == "workspace_worker":
+        if workspace_mode == "workspace_worker" and not single_file_worker_runtime:
             _sync_direct_exec_workspace_paths(
                 source_working_dir=working_dir,
                 execution_working_dir=execution_working_dir,
@@ -1307,6 +1315,12 @@ def prepare_direct_exec_workspace(
     mode: DirectExecWorkspaceMode = "structured_json",
 ) -> PreparedDirectExecWorkspace:
     source_root = Path(source_working_dir).resolve()
+    single_file_worker_runtime = _uses_single_file_worker_runtime(
+        workspace_root=source_root,
+        mode=mode,
+    )
+    if single_file_worker_runtime:
+        _store_hidden_task_file_snapshot(source_root)
     _write_direct_exec_worker_manifest(
         workspace_root=source_root,
         task_label=task_label,
@@ -1324,6 +1338,7 @@ def prepare_direct_exec_workspace(
         execution_working_dir=execution_root,
         task_label=task_label,
         mode=mode,
+        single_file_worker_runtime=single_file_worker_runtime,
     )
     return PreparedDirectExecWorkspace(
         source_working_dir=source_root,
@@ -1516,11 +1531,23 @@ def _populate_direct_exec_workspace(
     execution_working_dir: Path,
     task_label: str | None,
     mode: DirectExecWorkspaceMode,
+    single_file_worker_runtime: bool = False,
 ) -> None:
     _copy_if_present(
         source_working_dir / _DIRECT_EXEC_TASK_FILE_NAME,
         execution_working_dir / _DIRECT_EXEC_TASK_FILE_NAME,
     )
+    if single_file_worker_runtime:
+        agents_path = execution_working_dir / _DIRECT_EXEC_AGENTS_FILE_NAME
+        agents_path.write_text(
+            _build_direct_exec_agents_text(
+                task_label=task_label,
+                mode=mode,
+                single_file_worker_runtime=single_file_worker_runtime,
+            ),
+            encoding="utf-8",
+        )
+        return
     _copy_if_present(
         source_working_dir / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
         execution_working_dir / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
@@ -1605,7 +1632,11 @@ def _populate_direct_exec_workspace(
     (execution_working_dir / _DIRECT_EXEC_SHARDS_DIR_NAME).mkdir(parents=True, exist_ok=True)
     agents_path = execution_working_dir / _DIRECT_EXEC_AGENTS_FILE_NAME
     agents_path.write_text(
-        _build_direct_exec_agents_text(task_label=task_label, mode=mode),
+        _build_direct_exec_agents_text(
+            task_label=task_label,
+            mode=mode,
+            single_file_worker_runtime=single_file_worker_runtime,
+        ),
         encoding="utf-8",
     )
 
@@ -1656,9 +1687,28 @@ def _build_direct_exec_agents_text(
     *,
     task_label: str | None,
     mode: DirectExecWorkspaceMode,
+    single_file_worker_runtime: bool = False,
 ) -> str:
     rendered_task_label = str(task_label or "structured shard task").strip()
     if mode == "workspace_worker":
+        if single_file_worker_runtime:
+            return (
+                "# RecipeImport Direct Codex Worker\n\n"
+                "This directory is an isolated runtime workspace for one RecipeImport "
+                f"{rendered_task_label}.\n\n"
+                "You are not working on the RecipeImport repository itself.\n"
+                "Use only the files inside this directory.\n"
+                "The current working directory is already the workspace root.\n"
+                "This workspace exposes one repo-written file: `task.json`.\n"
+                "Open `task.json`, read the whole file once, edit only `/units/*/answer`, save the same file, and stop.\n"
+                "Treat everything outside `task.json` as immutable infrastructure, not task context.\n"
+                "Do not invent helper ledgers, alternate output files, queue files, or repair sidecars.\n"
+                "Do not inspect parent directories, repository-wide AGENTS files, project docs, or source code.\n"
+                "Do not run repo-specific commands such as `npm run docs:list` or `git`.\n"
+                "Do not reach for shell on the happy path. If a tiny local helper is truly necessary, keep it grounded on `task.json` and local temp files only.\n"
+                "Hard boundaries still apply: stay inside this workspace, keep paths local or in approved temp roots, and avoid repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
+                "Do not modify immutable evidence or metadata fields.\n"
+            )
         return (
             "# RecipeImport Direct Codex Worker\n\n"
             "This directory is an isolated runtime workspace for one RecipeImport "
@@ -2733,6 +2783,10 @@ def _write_direct_exec_worker_manifest(
 ) -> None:
     rendered_task_label = str(task_label or "structured shard task").strip()
     has_task_file = (workspace_root / _DIRECT_EXEC_TASK_FILE_NAME).exists()
+    single_file_worker_runtime = _uses_single_file_worker_runtime(
+        workspace_root=workspace_root,
+        mode=mode,
+    )
     has_assigned_tasks = (
         workspace_root / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
     ).exists()
@@ -2750,25 +2804,37 @@ def _write_direct_exec_worker_manifest(
     has_scratch_dir = (workspace_root / _DIRECT_EXEC_SCRATCH_DIR_NAME).exists()
     has_work_dir = (workspace_root / _DIRECT_EXEC_WORK_DIR_NAME).exists()
     has_repair_dir = (workspace_root / _DIRECT_EXEC_REPAIR_DIR_NAME).exists()
-    entry_files = [_DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME]
-    if has_task_file:
-        entry_files.append(_DIRECT_EXEC_TASK_FILE_NAME)
-    if has_assigned_tasks:
-        entry_files.append(_DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME)
-    if has_assigned_shards:
-        entry_files.append(_DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME)
+    if single_file_worker_runtime:
+        entry_files = [_DIRECT_EXEC_TASK_FILE_NAME]
+    else:
+        entry_files = [_DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME]
+        if has_task_file:
+            entry_files.append(_DIRECT_EXEC_TASK_FILE_NAME)
+        if has_assigned_tasks:
+            entry_files.append(_DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME)
+        if has_assigned_shards:
+            entry_files.append(_DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME)
     payload = {
         "version": 1,
         "task_label": rendered_task_label,
         "workspace_mode": mode,
+        "single_file_worker_runtime": single_file_worker_runtime,
         "workspace_root": str(workspace_root),
         "entry_files": entry_files,
         "task_file": _DIRECT_EXEC_TASK_FILE_NAME if has_task_file else None,
         "assigned_tasks_file": (
-            _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME if has_assigned_tasks else None
+            None
+            if single_file_worker_runtime
+            else _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
+            if has_assigned_tasks
+            else None
         ),
         "assigned_shards_file": (
-            _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME if has_assigned_shards else None
+            None
+            if single_file_worker_runtime
+            else _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME
+            if has_assigned_shards
+            else None
         ),
         "current_phase_file": (
             _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME if has_current_phase else None
@@ -2786,17 +2852,23 @@ def _write_direct_exec_worker_manifest(
             else None
         ),
         "output_contract_file": (
-            _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME
+            None
+            if single_file_worker_runtime
+            else _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME
             if (workspace_root / _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME).exists()
             else None
         ),
         "examples_dir": (
-            _DIRECT_EXEC_EXAMPLES_DIR_NAME
+            None
+            if single_file_worker_runtime
+            else _DIRECT_EXEC_EXAMPLES_DIR_NAME
             if (workspace_root / _DIRECT_EXEC_EXAMPLES_DIR_NAME).exists()
             else None
         ),
         "tools_dir": (
-            _DIRECT_EXEC_TOOLS_DIR_NAME
+            None
+            if single_file_worker_runtime
+            else _DIRECT_EXEC_TOOLS_DIR_NAME
             if (workspace_root / _DIRECT_EXEC_TOOLS_DIR_NAME).exists()
             else None
         ),
@@ -2812,20 +2884,28 @@ def _write_direct_exec_worker_manifest(
         "packet_lease_status_file": (
             _DIRECT_EXEC_PACKET_LEASE_STATUS_FILE_NAME if has_packet_leasing else None
         ),
-        "input_dir": _DIRECT_EXEC_INPUT_DIR_NAME,
-        "debug_dir": _DIRECT_EXEC_DEBUG_DIR_NAME,
-        "hints_dir": _DIRECT_EXEC_HINTS_DIR_NAME,
-        "output_dir": _DIRECT_EXEC_OUTPUT_DIR_NAME,
+        "input_dir": None if single_file_worker_runtime else _DIRECT_EXEC_INPUT_DIR_NAME,
+        "debug_dir": None if single_file_worker_runtime else _DIRECT_EXEC_DEBUG_DIR_NAME,
+        "hints_dir": None if single_file_worker_runtime else _DIRECT_EXEC_HINTS_DIR_NAME,
+        "output_dir": None if single_file_worker_runtime else _DIRECT_EXEC_OUTPUT_DIR_NAME,
         "scratch_dir": (
-            _DIRECT_EXEC_SCRATCH_DIR_NAME if has_scratch_dir else None
+            None
+            if single_file_worker_runtime
+            else _DIRECT_EXEC_SCRATCH_DIR_NAME
+            if has_scratch_dir
+            else None
         ),
         "work_dir": (
-            _DIRECT_EXEC_WORK_DIR_NAME
+            None
+            if single_file_worker_runtime
+            else _DIRECT_EXEC_WORK_DIR_NAME
             if has_work_dir
             else None
         ),
         "repair_dir": (
-            _DIRECT_EXEC_REPAIR_DIR_NAME
+            None
+            if single_file_worker_runtime
+            else _DIRECT_EXEC_REPAIR_DIR_NAME
             if has_repair_dir
             else None
         ),
@@ -2840,10 +2920,17 @@ def _write_direct_exec_worker_manifest(
                     else None
                 ),
                 (
+                    "Repo-owned bookkeeping stays outside the visible task-file workspace."
+                    if single_file_worker_runtime
+                    else None
+                ),
+                (
                     "Treat `assigned_tasks.json` as the immutable ordered ownership reference."
                     if has_assigned_tasks
                     else "Treat `assigned_shards.json` as the immutable ordered ownership reference when present."
-                ),
+                )
+                if not single_file_worker_runtime
+                else None,
                 (
                     "Use `work/`, `repair/`, or short-lived local temp roots such as `/tmp` for helper work, and the approved `out/` path for final results."
                     if has_work_dir or has_repair_dir
@@ -2857,8 +2944,21 @@ def _write_direct_exec_worker_manifest(
             "`python`/`python3`/`node` transforms plus short-lived helper files in "
             "local temp roots such as `/tmp`. Block non-temp visible path escapes and "
             "obvious repo/network/package-manager tools."
+        )
+        if not single_file_worker_runtime
+        else (
+            "The happy path is direct in-place editing of `task.json`. Bounded local "
+            "temp helpers are tolerated, but repo/network/package-manager tools and "
+            "visible path escapes remain forbidden."
         ),
         "workspace_local_shell_examples": (
+            [
+                "sed -n '1,220p' task.json",
+                "python3 -c \"from pathlib import Path; print(len(Path('task.json').read_text()))\"",
+                "cp task.json /tmp/task-backup.json",
+            ]
+            if single_file_worker_runtime
+            else (
             [
                 (
                     "sed -n '1,120p' assigned_tasks.json"
@@ -2881,7 +2981,7 @@ def _write_direct_exec_worker_manifest(
                     "cat <<'EOF' > /tmp/local-helper.json",
                 ]
             )
-        ),
+        )),
         "workspace_commands_forbidden": [
             "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
             "non-temp absolute paths outside approved local temp roots",
@@ -2917,6 +3017,27 @@ def _write_direct_exec_worker_manifest(
         json.dumps(payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+
+
+def _uses_single_file_worker_runtime(
+    *,
+    workspace_root: Path,
+    mode: DirectExecWorkspaceMode,
+) -> bool:
+    return mode == "workspace_worker" and (workspace_root / _DIRECT_EXEC_TASK_FILE_NAME).exists()
+
+
+def _store_hidden_task_file_snapshot(workspace_root: Path) -> None:
+    task_file_path = workspace_root / _DIRECT_EXEC_TASK_FILE_NAME
+    if not task_file_path.exists():
+        return
+    snapshot_path = (
+        workspace_root
+        / _DIRECT_EXEC_INTERNAL_DIR_NAME
+        / _DIRECT_EXEC_ORIGINAL_TASK_FILE_NAME
+    )
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(task_file_path, snapshot_path)
 
 def format_watchdog_command_loop_reason_detail(
     *,

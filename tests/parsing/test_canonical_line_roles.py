@@ -3143,7 +3143,7 @@ def test_codex_exact_variations_other_rows_stay_codex_other(tmp_path) -> None:
     )
 
 
-def test_label_atomic_lines_codex_parse_error_fails_closed_and_writes_flag(
+def test_label_atomic_lines_invalid_task_file_answer_fails_closed_without_parse_error_flag(
     tmp_path,
 ) -> None:
     candidates = [
@@ -3161,6 +3161,16 @@ def test_label_atomic_lines_codex_parse_error_fails_closed_and_writes_flag(
         )
     ]
 
+    def _invalid_task_file_builder(payload):
+        edited = dict(payload or {})
+        units = edited.get("units") or []
+        if units and isinstance(units[0], dict):
+            first_unit = dict(units[0])
+            first_unit["answer"] = {"label": "NOT_A_LABEL", "exclusion_reason": None}
+            units = [first_unit, *units[1:]]
+        edited["units"] = units
+        return edited
+
     with pytest.raises(
         canonical_line_roles_module.LineRoleRepairFailureError,
         match="failed closed",
@@ -3169,11 +3179,7 @@ def test_label_atomic_lines_codex_parse_error_fails_closed_and_writes_flag(
             candidates,
             _settings("codex-line-role-route-v2"),
             artifact_root=tmp_path,
-            codex_runner=_line_role_runner(
-                output_builder=lambda _payload: {
-                    "rows": [{"atomic_index": 999, "label": "OTHER"}]
-                }
-            ),
+            codex_runner=FakeCodexExecRunner(output_builder=_invalid_task_file_builder),
             live_llm_allowed=True,
         )
     parse_errors_path = (
@@ -3198,23 +3204,11 @@ def test_label_atomic_lines_codex_parse_error_fails_closed_and_writes_flag(
             / "line-role-canonical-0001-a000000-a000000.json"
         ).read_text(encoding="utf-8")
     )
-    assert proposal_payload["validation_errors"] == [
-        "row_order_mismatch",
-        "invalid_label:999:OTHER",
-        "unowned_atomic_index:999",
-        "missing_owned_atomic_indices:0",
-    ]
+    assert proposal_payload["validation_errors"] == ["invalid_label:0:NOT_A_LABEL"]
     assert proposal_payload["payload"] is None
     assert proposal_payload["repair_attempted"] is False
     assert proposal_payload["repair_status"] == "not_attempted"
-    assert proposal_payload["validation_metadata"]["row_resolution"] == {
-        "accepted_atomic_indices": [],
-        "accepted_row_count": 0,
-        "all_rows_resolved": False,
-        "semantic_rejected": False,
-        "unresolved_atomic_indices": [0],
-        "unresolved_row_count": 1,
-    }
+    assert proposal_payload["validation_metadata"]["row_resolution"]["unresolved_atomic_indices"] == [0]
     shard_status_rows = [
         json.loads(line)
         for line in (
@@ -3982,7 +3976,7 @@ def test_preflight_line_role_shard_rejects_missing_model_facing_rows() -> None:
     }
 
 
-def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
+def test_label_atomic_lines_records_workspace_warnings_without_killing_shards(
     tmp_path,
 ) -> None:
     candidates = [
@@ -4032,7 +4026,7 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
                     and str(decision.supervision_state or "").strip() == "completed"
                     else str(
                         (decision.reason_detail if decision is not None else None)
-                        or "strict JSON stage attempted tool use"
+                        or "workspace worker completed with warnings"
                     )
                 ),
                 events=(
@@ -4062,11 +4056,11 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
                 finished_at_utc=result.finished_at_utc,
                 supervision_state=str(
                     (decision.supervision_state if decision is not None else None)
-                    or "watchdog_killed"
+                    or "completed"
                 ),
                 supervision_reason_code=str(
                     (decision.reason_code if decision is not None else None)
-                    or "watchdog_command_loop_without_output"
+                    or ""
                 ),
                 supervision_reason_detail=(
                     None
@@ -4110,7 +4104,7 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
         )
     )
     assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 0
-    assert telemetry_payload["summary"]["watchdog_recovered_shard_count"] == 1
+    assert telemetry_payload["summary"]["watchdog_recovered_shard_count"] == 0
     assert "watchdog_kills_detected" not in telemetry_payload["summary"]["pathological_flags"]
     assert "command_execution_detected" in telemetry_payload["summary"]["pathological_flags"]
 
@@ -4123,12 +4117,11 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
     status_payload = json.loads(status_path.read_text(encoding="utf-8"))
     assert status_payload["status"] == "validated"
     assert status_payload["state"] == "completed"
-    assert status_payload["reason_code"] == "validated_after_watchdog_kill"
-    assert "validated using a durable shard ledger" in status_payload["reason_detail"]
 
     live_status_payload = json.loads(live_status_path.read_text(encoding="utf-8"))
-    assert live_status_payload["state"] == "watchdog_killed"
-    assert live_status_payload["reason_code"] == "watchdog_command_loop_without_output"
+    assert live_status_payload["state"] == "completed_with_warnings"
+    assert live_status_payload["warning_codes"] == ["command_loop_without_output"]
+    assert live_status_payload["reason_code"] in {None, ""}
 
 
 def test_line_role_strict_watchdog_still_kills_benign_commands_in_structured_mode(
@@ -4248,7 +4241,7 @@ def test_label_atomic_lines_allows_line_role_workspace_orientation_commands(
     assert live_status["last_command_boundary_violation_detected"] is False
 
 
-def test_line_role_workspace_watchdog_stops_after_outputs_stabilize(
+def test_line_role_workspace_watchdog_observes_output_stabilization_without_forcing_exit(
     tmp_path: Path,
 ) -> None:
     out_dir = tmp_path / "out"
@@ -4316,17 +4309,15 @@ def test_line_role_workspace_watchdog_stops_after_outputs_stabilize(
     assert first is None
     assert second is None
     assert second_live_status["state"] == "running"
-    assert second_live_status["workspace_completion_waiting_for_exit"] is True
+    assert second_live_status["workspace_completion_waiting_for_exit"] is False
     assert second_live_status["workspace_completion_post_signal_observed"] is False
-    assert third is not None
-    assert third.reason_code == "workspace_outputs_stabilized"
-    assert third.supervision_state == "completed"
+    assert third is None
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
-    assert live_status["state"] == "completed"
-    assert live_status["reason_code"] == "workspace_outputs_stabilized"
+    assert live_status["state"] == "running"
+    assert live_status["reason_code"] is None
     assert live_status["workspace_output_complete"] is True
     assert live_status["workspace_output_stable_passes"] >= 2
-    assert live_status["workspace_completion_post_signal_observed"] is True
+    assert live_status["workspace_completion_post_signal_observed"] is False
 
 
 def test_label_atomic_lines_allows_line_role_jq_fallback_operator_output_command(
@@ -4427,7 +4418,7 @@ def test_label_atomic_lines_allows_line_role_node_transform(
     assert live_status["last_command_boundary_violation_detected"] is False
 
 
-def _run_line_role_cohort_outlier_retry_fixture(
+def _run_line_role_cohort_outlier_warning_fixture(
     tmp_path,
     monkeypatch,
 ) -> dict[str, object]:
@@ -4489,7 +4480,6 @@ def _run_line_role_cohort_outlier_retry_fixture(
                 return super().run_structured_prompt(*args, **kwargs)
             if first_atomic_index == 3:
                 supervision_callback = kwargs.get("supervision_callback")
-                decision = None
                 if supervision_callback is not None:
                     for _ in range(40):
                         time.sleep(0.05)
@@ -4506,43 +4496,13 @@ def _run_line_role_cohort_outlier_retry_fixture(
                                 timeout_seconds=kwargs.get("timeout_seconds"),
                             )
                         )
-                        if decision is not None:
-                            break
-                assert decision is not None
-                from cookimport.llm.codex_exec_runner import CodexExecRunResult
-
-                return CodexExecRunResult(
-                    command=["codex", "exec"],
-                    subprocess_exit_code=0,
-                    output_schema_path=str(kwargs.get("output_schema_path")),
-                    prompt_text=str(kwargs.get("prompt_text") or ""),
-                    response_text=None,
-                    turn_failed_message=str(decision.reason_detail or ""),
-                    events=(),
-                    usage={
-                        "input_tokens": 7,
-                        "cached_input_tokens": 0,
-                        "output_tokens": 0,
-                        "reasoning_tokens": 0,
-                    },
-                    source_working_dir=str(kwargs.get("working_dir")),
-                    execution_working_dir=str(kwargs.get("working_dir")),
-                    execution_agents_path=None,
-                    duration_ms=50,
-                    started_at_utc="2026-01-01T00:00:00Z",
-                    finished_at_utc="2026-01-01T00:00:00Z",
-                    supervision_state="watchdog_killed",
-                    supervision_reason_code=str(decision.reason_code),
-                    supervision_reason_detail=str(decision.reason_detail),
-                    supervision_retryable=bool(decision.retryable),
-                )
+                        assert decision is None
             return super().run_structured_prompt(*args, **kwargs)
 
         def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
             first_atomic_index = self._first_atomic_index_for_workspace(kwargs.get("working_dir"))
             if first_atomic_index == 3:
                 supervision_callback = kwargs.get("supervision_callback")
-                decision = None
                 if supervision_callback is not None:
                     for _ in range(40):
                         time.sleep(0.05)
@@ -4559,36 +4519,7 @@ def _run_line_role_cohort_outlier_retry_fixture(
                                 timeout_seconds=kwargs.get("timeout_seconds"),
                             )
                         )
-                        if decision is not None:
-                            break
-                assert decision is not None
-                from cookimport.llm.codex_exec_runner import CodexExecRunResult
-
-                return CodexExecRunResult(
-                    command=["codex", "exec"],
-                    subprocess_exit_code=0,
-                    output_schema_path=None,
-                    prompt_text=str(kwargs.get("prompt_text") or ""),
-                    response_text=None,
-                    turn_failed_message=str(decision.reason_detail or ""),
-                    events=(),
-                    usage={
-                        "input_tokens": 7,
-                        "cached_input_tokens": 0,
-                        "output_tokens": 0,
-                        "reasoning_tokens": 0,
-                    },
-                    source_working_dir=str(kwargs.get("working_dir")),
-                    execution_working_dir=str(kwargs.get("working_dir")),
-                    execution_agents_path=None,
-                    duration_ms=50,
-                    started_at_utc="2026-01-01T00:00:00Z",
-                    finished_at_utc="2026-01-01T00:00:00Z",
-                    supervision_state="watchdog_killed",
-                    supervision_reason_code=str(decision.reason_code),
-                    supervision_reason_detail=str(decision.reason_detail),
-                    supervision_retryable=bool(decision.retryable),
-                )
+                        assert decision is None
             return super().run_workspace_worker(*args, **kwargs)
 
     predictions = label_atomic_lines(
@@ -4616,23 +4547,6 @@ def _run_line_role_cohort_outlier_retry_fixture(
             encoding="utf-8"
         )
     )
-    proposal_paths = list(
-        (tmp_path / "line-role-pipeline" / "runtime" / "line_role" / "proposals").glob("*.json")
-    )
-    recovered_proposal = next(
-        json.loads(path.read_text(encoding="utf-8"))
-        for path in proposal_paths
-        if json.loads(path.read_text(encoding="utf-8")).get("watchdog_retry_attempted")
-    )
-    recovered_status_path = next(
-        path
-        for path in (tmp_path / "line-role-pipeline" / "runtime").rglob("status.json")
-        if "shards" in path.parts
-        and json.loads(path.read_text(encoding="utf-8")).get("watchdog_retry_status")
-        == "recovered"
-    )
-    recovered_status = json.loads(recovered_status_path.read_text(encoding="utf-8"))
-
     failures = json.loads(
         (
             tmp_path
@@ -4642,71 +4556,129 @@ def _run_line_role_cohort_outlier_retry_fixture(
             / "failures.json"
         ).read_text(encoding="utf-8")
     )
-    retry_status_path = next(
-        (tmp_path / "line-role-pipeline" / "runtime").rglob("watchdog_retry_status.json")
+    warning_live_status = next(
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in (tmp_path / "line-role-pipeline" / "runtime").rglob("live_status.json")
+        if json.loads(path.read_text(encoding="utf-8")).get("warning_count")
     )
-    retry_status = json.loads(retry_status_path.read_text(encoding="utf-8"))
-    retry_prompt = (
-        retry_status_path.parent / "watchdog_retry_prompt.txt"
-    ).read_text(encoding="utf-8")
     return {
         "predictions": predictions,
         "telemetry_payload": telemetry_payload,
-        "recovered_proposal": recovered_proposal,
-        "recovered_status": recovered_status,
         "failures": failures,
-        "retry_status": retry_status,
-        "retry_prompt": retry_prompt,
+        "warning_live_status": warning_live_status,
     }
 
 
-def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
+def test_label_atomic_lines_records_cohort_outlier_as_warning_not_retry(
     tmp_path,
     monkeypatch,
 ) -> None:
-    fixture = _run_line_role_cohort_outlier_retry_fixture(tmp_path, monkeypatch)
-    predictions = fixture["predictions"]
-    telemetry_payload = fixture["telemetry_payload"]
-    assert [prediction.label for prediction in predictions] == [
-        "RECIPE_NOTES",
-        "RECIPE_NOTES",
-        "RECIPE_NOTES",
-        "RECIPE_NOTES",
-    ]
-    assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 0
-    assert telemetry_payload["summary"]["watchdog_recovered_shard_count"] == 1
-    assert telemetry_payload["summary"]["attempt_count"] == 5
+    monkeypatch.setattr(
+        canonical_line_roles_module,
+        "_LINE_ROLE_COHORT_WATCHDOG_MIN_ELAPSED_MS",
+        10,
+    )
+    monkeypatch.setattr(
+        canonical_line_roles_module,
+        "_LINE_ROLE_COHORT_WATCHDOG_MEDIAN_FACTOR",
+        2.0,
+    )
+    cohort_state = canonical_line_roles_module._LineRoleCohortWatchdogState()  # noqa: SLF001
+    for _ in range(3):
+        cohort_state.record_validated_result(duration_ms=20, example_payload={"rows": []})
+    callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+        cohort_watchdog_state=cohort_state,
+    )
+
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.2,
+            last_event_seconds_ago=0.05,
+            event_count=4,
+            command_execution_count=0,
+            reasoning_item_count=0,
+            last_command=None,
+            last_command_repeat_count=0,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["state"] == "running_with_warnings"
+    assert live_status["warning_codes"] == ["cohort_runtime_outlier"]
+    assert live_status["reason_code"] is None
 
 
-def test_label_atomic_lines_persists_recovered_cohort_outlier_retry_artifacts(
+def test_label_atomic_lines_persists_cohort_outlier_warning_artifacts(
     tmp_path,
     monkeypatch,
 ) -> None:
-    fixture = _run_line_role_cohort_outlier_retry_fixture(tmp_path, monkeypatch)
-    recovered_proposal = fixture["recovered_proposal"]
-    recovered_status = fixture["recovered_status"]
-    failures = fixture["failures"]
-    retry_status = fixture["retry_status"]
-    retry_prompt = fixture["retry_prompt"]
+    monkeypatch.setattr(
+        canonical_line_roles_module,
+        "_LINE_ROLE_COHORT_WATCHDOG_MIN_ELAPSED_MS",
+        10,
+    )
+    monkeypatch.setattr(
+        canonical_line_roles_module,
+        "_LINE_ROLE_COHORT_WATCHDOG_MEDIAN_FACTOR",
+        2.0,
+    )
+    cohort_state = canonical_line_roles_module._LineRoleCohortWatchdogState()  # noqa: SLF001
+    for _ in range(3):
+        cohort_state.record_validated_result(duration_ms=20, example_payload={"rows": []})
+    live_status_path = tmp_path / "live_status.json"
+    callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=live_status_path,
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+        cohort_watchdog_state=cohort_state,
+    )
+    callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.2,
+            last_event_seconds_ago=0.05,
+            event_count=4,
+            command_execution_count=0,
+            reasoning_item_count=0,
+            last_command=None,
+            last_command_repeat_count=0,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+    canonical_line_roles_module._finalize_live_status(  # noqa: SLF001
+        live_status_path,
+        run_result=CodexExecRunResult(
+            command=["codex", "exec"],
+            subprocess_exit_code=0,
+            output_schema_path=None,
+            prompt_text="",
+            response_text='{"status":"worker_completed"}',
+            turn_failed_message=None,
+            usage={"input_tokens": 1, "cached_input_tokens": 0, "output_tokens": 1},
+            source_working_dir=str(tmp_path),
+            execution_working_dir=str(tmp_path),
+            execution_agents_path=None,
+            duration_ms=1,
+            started_at_utc="2026-01-01T00:00:00Z",
+            finished_at_utc="2026-01-01T00:00:00Z",
+            workspace_mode="workspace_worker",
+            supervision_state="completed",
+        ),
+        watchdog_policy="workspace_worker_v1",
+    )
 
-    assert recovered_proposal["watchdog_retry_status"] == "recovered"
-    assert recovered_proposal["validation_errors"] == []
-    assert recovered_status["status"] == "validated"
-    assert recovered_status["state"] == "completed"
-    assert recovered_status["reason_code"] == "watchdog_retry_recovered"
-    assert recovered_status["finalization_path"] == "watchdog_retry_recovered"
-    assert recovered_status["raw_supervision_state"] == "watchdog_killed"
-    assert recovered_status["raw_supervision_reason_code"] == "watchdog_cohort_runtime_outlier"
-    assert failures == []
-    assert retry_status["status"] == "validated"
-    assert retry_status["watchdog_retry_reason_code"] == "watchdog_cohort_runtime_outlier"
-    assert "Successful sibling examples:" in retry_prompt
-    assert "Authoritative shard rows to relabel" in retry_prompt
-    assert "Your first response must be the final JSON object." in retry_prompt
-    assert "Do not describe your plan, reasoning, or heuristics." in retry_prompt
+    warning_live_status = json.loads(live_status_path.read_text(encoding="utf-8"))
+    assert warning_live_status["state"] == "completed_with_warnings"
+    assert warning_live_status["warning_codes"] == ["cohort_runtime_outlier"]
 
 
-def test_label_atomic_lines_keeps_unrecovered_forbidden_watchdog_kill_visible(
+def test_label_atomic_lines_keeps_unrecovered_boundary_interrupt_visible(
     tmp_path,
 ) -> None:
     candidates = [
@@ -4743,8 +4715,8 @@ def test_label_atomic_lines_keeps_unrecovered_forbidden_watchdog_kill_visible(
                 duration_ms=50,
                 started_at_utc="2026-01-01T00:00:00Z",
                 finished_at_utc="2026-01-01T00:00:00Z",
-                supervision_state="watchdog_killed",
-                supervision_reason_code="watchdog_command_execution_forbidden",
+                supervision_state="boundary_interrupted",
+                supervision_reason_code="boundary_command_execution_forbidden",
                 supervision_reason_detail=(
                     "workspace worker stage attempted tool use: /bin/bash -lc 'pip install foo'"
                 ),
@@ -4778,7 +4750,7 @@ def test_label_atomic_lines_keeps_unrecovered_forbidden_watchdog_kill_visible(
             / "telemetry.json"
         ).read_text(encoding="utf-8")
     )
-    assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 1
+    assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 0
     assert telemetry_payload["summary"]["watchdog_recovered_shard_count"] == 0
 
     status_path = next(
@@ -4787,8 +4759,8 @@ def test_label_atomic_lines_keeps_unrecovered_forbidden_watchdog_kill_visible(
         if "shards" in path.parts
     )
     status_payload = json.loads(status_path.read_text(encoding="utf-8"))
-    assert status_payload["state"] == "watchdog_killed"
-    assert status_payload["reason_code"] == "watchdog_command_execution_forbidden"
+    assert status_payload["state"] == "boundary_interrupted"
+    assert status_payload["reason_code"] == "boundary_command_execution_forbidden"
     assert status_payload["watchdog_retry_status"] == "not_attempted"
 
 
@@ -4847,7 +4819,7 @@ def test_label_atomic_lines_accepts_valid_workspace_outputs_without_final_messag
     assert rows[0]["final_agent_message_reason"] is None
 
 
-def test_label_atomic_lines_near_miss_invalid_shard_fails_closed_without_second_model_pass(
+def test_label_atomic_lines_near_miss_invalid_task_file_edit_fails_closed_without_second_model_pass(
     tmp_path,
 ) -> None:
     candidates = [
@@ -4862,6 +4834,16 @@ def test_label_atomic_lines_near_miss_invalid_shard_fails_closed_without_second_
         )
     ]
 
+    def _missing_answer_builder(payload):
+        edited = dict(payload or {})
+        units = list(edited.get("units") or [])
+        if units and isinstance(units[0], dict):
+            first_unit = dict(units[0])
+            first_unit["answer"] = {}
+            units[0] = first_unit
+        edited["units"] = units
+        return edited
+
     with pytest.raises(
         canonical_line_roles_module.LineRoleRepairFailureError,
         match="failed closed",
@@ -4874,7 +4856,7 @@ def test_label_atomic_lines_near_miss_invalid_shard_fails_closed_without_second_
                 line_role_worker_count=1,
             ),
             artifact_root=tmp_path,
-            codex_runner=FakeCodexExecRunner(output_builder=lambda _payload: {"rows": []}),
+            codex_runner=FakeCodexExecRunner(output_builder=_missing_answer_builder),
             live_llm_allowed=True,
         )
 
@@ -4899,6 +4881,7 @@ def test_label_atomic_lines_near_miss_invalid_shard_fails_closed_without_second_
     )
     assert proposal_payload["repair_attempted"] is False
     assert proposal_payload["repair_status"] == "not_attempted"
+    assert proposal_payload["validation_errors"] == ["invalid_label:0:"]
     assert list((tmp_path / "line-role-pipeline" / "runtime").rglob("repair_status.json"))
 
     runtime_telemetry = json.loads(
@@ -4916,7 +4899,7 @@ def test_label_atomic_lines_near_miss_invalid_shard_fails_closed_without_second_
     assert workspace_rows[0]["final_proposal_status"] == "invalid"
 
 
-def test_label_atomic_lines_fails_closed_when_output_missing_even_if_worker_leaves_stale_work_dir(
+def test_label_atomic_lines_fails_closed_when_task_file_missing_even_if_worker_leaves_stale_work_dir(
     tmp_path: Path,
 ) -> None:
     candidates = [
@@ -4936,8 +4919,7 @@ def test_label_atomic_lines_fails_closed_when_output_missing_even_if_worker_leav
         def run_workspace_worker(self, **kwargs):  # noqa: ANN003
             result = super().run_workspace_worker(**kwargs)
             worker_root = Path(kwargs["working_dir"])
-            for output_path in (worker_root / "out").glob("*.json"):
-                output_path.unlink()
+            (worker_root / "task.json").unlink()
             work_dir = worker_root / "work"
             work_dir.mkdir(parents=True, exist_ok=True)
             (work_dir / "stale.json").write_text(
@@ -4994,7 +4976,7 @@ def test_label_atomic_lines_fails_closed_when_output_missing_even_if_worker_leav
     assert proposal_payload["validation_metadata"]["raw_output_missing"] is True
 
 
-def test_label_atomic_lines_fails_closed_when_output_missing_and_only_seed_work_ledger_exists(
+def test_label_atomic_lines_fails_closed_when_task_file_missing_without_helper_ledgers(
     tmp_path: Path,
 ) -> None:
     candidates = [
@@ -5013,8 +4995,7 @@ def test_label_atomic_lines_fails_closed_when_output_missing_and_only_seed_work_
         def run_workspace_worker(self, **kwargs):  # noqa: ANN003
             result = super().run_workspace_worker(**kwargs)
             worker_root = Path(kwargs["working_dir"])
-            for output_path in (worker_root / "out").glob("*.json"):
-                output_path.unlink()
+            (worker_root / "task.json").unlink()
             return result
 
     with pytest.raises(
@@ -5050,7 +5031,7 @@ def test_label_atomic_lines_fails_closed_when_output_missing_and_only_seed_work_
     assert proposal_payload["validation_metadata"]["raw_output_missing"] is True
 
 
-def test_label_atomic_lines_ignores_stale_repair_request_and_fails_closed(
+def test_label_atomic_lines_ignores_stale_repair_request_when_task_file_missing(
     tmp_path: Path,
 ) -> None:
     candidates = [
@@ -5070,8 +5051,7 @@ def test_label_atomic_lines_ignores_stale_repair_request_and_fails_closed(
         def run_workspace_worker(self, **kwargs):  # noqa: ANN003
             result = super().run_workspace_worker(**kwargs)
             worker_root = Path(kwargs["working_dir"])
-            output_path = next((worker_root / "out").glob("*.json"))
-            output_path.unlink()
+            (worker_root / "task.json").unlink()
             repair_dir = worker_root / "repair"
             repair_dir.mkdir(parents=True, exist_ok=True)
             (repair_dir / "line-role-canonical-0001-a000000-a000001.json").write_text(
@@ -5150,9 +5130,10 @@ def test_label_atomic_lines_ignores_stale_repair_request_and_fails_closed(
         )
     )
     assert repair_status_payload["status"] == "not_attempted"
+    assert repair_status_payload["repair_request_path"] is not None
 
 
-def test_label_atomic_lines_ignores_stale_repair_state_file_and_fails_closed(
+def test_label_atomic_lines_ignores_stale_repair_state_file_when_task_file_missing(
     tmp_path: Path,
 ) -> None:
     candidates = [
@@ -5172,8 +5153,7 @@ def test_label_atomic_lines_ignores_stale_repair_state_file_and_fails_closed(
         def run_workspace_worker(self, **kwargs):  # noqa: ANN003
             result = super().run_workspace_worker(**kwargs)
             worker_root = Path(kwargs["working_dir"])
-            output_path = next((worker_root / "out").glob("*.json"))
-            output_path.unlink()
+            (worker_root / "task.json").unlink()
             repair_dir = worker_root / "repair"
             repair_dir.mkdir(parents=True, exist_ok=True)
             (
@@ -5246,6 +5226,7 @@ def test_label_atomic_lines_ignores_stale_repair_state_file_and_fails_closed(
         )
     )
     assert repair_status_payload["status"] == "not_attempted"
+    assert repair_status_payload["repair_state_path"] is not None
 
 
 def test_label_atomic_lines_rejects_uniform_shard_output_and_fails_closed(
@@ -5400,7 +5381,7 @@ def test_validate_line_role_payload_semantics_reports_uniform_diagnostic_against
     assert semantic_errors == ()
 
 
-def test_label_atomic_lines_invalid_shard_ledgers_fail_closed_without_structured_repair(
+def test_label_atomic_lines_invalid_task_file_ledgers_fail_closed_without_structured_repair(
     tmp_path,
 ) -> None:
     candidates = [
@@ -5416,6 +5397,18 @@ def test_label_atomic_lines_invalid_shard_ledgers_fail_closed_without_structured
         for index in range(4)
     ]
 
+    def _blank_answers_builder(payload):
+        edited = dict(payload or {})
+        units = []
+        for unit in edited.get("units") or []:
+            if not isinstance(unit, dict):
+                continue
+            unit_payload = dict(unit)
+            unit_payload["answer"] = {}
+            units.append(unit_payload)
+        edited["units"] = units
+        return edited
+
     with pytest.raises(
         canonical_line_roles_module.LineRoleRepairFailureError,
         match="failed closed",
@@ -5429,7 +5422,7 @@ def test_label_atomic_lines_invalid_shard_ledgers_fail_closed_without_structured
             ),
             artifact_root=tmp_path,
             codex_batch_size=4,
-            codex_runner=FakeCodexExecRunner(output_builder=lambda _payload: {"rows": []}),
+            codex_runner=FakeCodexExecRunner(output_builder=_blank_answers_builder),
             live_llm_allowed=True,
         )
 
@@ -5445,6 +5438,12 @@ def test_label_atomic_lines_invalid_shard_ledgers_fail_closed_without_structured
     )
     assert proposal_payload["repair_attempted"] is False
     assert proposal_payload["repair_status"] == "not_attempted"
+    assert proposal_payload["validation_errors"] == [
+        "invalid_label:0:",
+        "invalid_label:1:",
+        "invalid_label:2:",
+        "invalid_label:3:",
+    ]
     assert proposal_payload["validation_metadata"]["row_resolution"]["unresolved_row_count"] == 4
     assert list((tmp_path / "line-role-pipeline" / "runtime").rglob("repair_status.json"))
 
@@ -5651,18 +5650,17 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
             / "worker_manifest.json"
         ).read_text(encoding="utf-8")
     )
-    assert worker_manifest_payload["entry_files"] == [
-        "worker_manifest.json",
-        "task.json",
-        "assigned_shards.json",
-    ]
+    assert worker_manifest_payload["entry_files"] == ["task.json"]
+    assert worker_manifest_payload["single_file_worker_runtime"] is True
     assert worker_manifest_payload["current_phase_file"] is None
     assert worker_manifest_payload["current_phase_brief_file"] is None
     assert worker_manifest_payload["current_phase_feedback_file"] is None
-    assert worker_manifest_payload["output_contract_file"] == "OUTPUT_CONTRACT.md"
+    assert worker_manifest_payload["output_contract_file"] is None
     assert worker_manifest_payload["examples_dir"] is None
     assert worker_manifest_payload["tools_dir"] is None
-    assert worker_manifest_payload["hints_dir"] == "hints"
+    assert worker_manifest_payload["hints_dir"] is None
+    assert worker_manifest_payload["input_dir"] is None
+    assert worker_manifest_payload["output_dir"] is None
     assert worker_manifest_payload["scratch_dir"] is None
     assert worker_manifest_payload["work_dir"] is None
     assert worker_manifest_payload["repair_dir"] is None
@@ -5670,6 +5668,15 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
     assert worker_manifest_payload["mirrored_example_files"] == []
     assert worker_manifest_payload["mirrored_tool_files"] == []
     assert worker_manifest_payload["mirrored_scratch_files"] == []
+    assert (
+        prompt_root
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+        / "_repo_control"
+        / "original_task.json"
+    ).exists()
     task_file_payload = load_task_file(
         prompt_root
         / "runtime"
@@ -6034,6 +6041,22 @@ def test_label_atomic_lines_fails_closed_when_only_part_of_shard_validates(
         for index in range(2)
     ]
 
+    def _partially_valid_task_file_builder(payload):
+        edited = dict(payload or {})
+        units = []
+        for unit in edited.get("units") or []:
+            if not isinstance(unit, dict):
+                continue
+            unit_payload = dict(unit)
+            evidence = dict(unit_payload.get("evidence") or {})
+            atomic_index = int(evidence.get("atomic_index") or 0)
+            unit_payload["answer"] = (
+                {"label": "RECIPE_NOTES"} if atomic_index == 0 else {}
+            )
+            units.append(unit_payload)
+        edited["units"] = units
+        return edited
+
     with pytest.raises(
         canonical_line_roles_module.LineRoleRepairFailureError,
         match="failed closed",
@@ -6047,14 +6070,7 @@ def test_label_atomic_lines_fails_closed_when_only_part_of_shard_validates(
             ),
             artifact_root=tmp_path,
             codex_batch_size=2,
-            codex_runner=FakeCodexExecRunner(
-                output_builder=lambda _payload: {
-                    "rows": [
-                        {"atomic_index": 0, "label": "RECIPE_NOTES"},
-                        {"atomic_index": 999, "label": "RECIPE_NOTES"},
-                    ]
-                }
-            ),
+            codex_runner=FakeCodexExecRunner(output_builder=_partially_valid_task_file_builder),
             live_llm_allowed=True,
         )
     proposal_payload = json.loads(

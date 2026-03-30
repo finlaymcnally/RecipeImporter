@@ -367,10 +367,8 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
     assert "assigned_tasks.json" not in worker_prompt
     assert "CURRENT_TASK.md" not in worker_prompt
     assert "CURRENT_TASK_FEEDBACK.md" not in worker_prompt
-    assert worker_manifest["entry_files"] == [
-        "worker_manifest.json",
-        "task.json",
-    ]
+    assert worker_manifest["entry_files"] == ["task.json"]
+    assert worker_manifest["single_file_worker_runtime"] is True
     assert worker_manifest["assigned_tasks_file"] is None
     assert worker_manifest["assigned_shards_file"] is None
     assert worker_manifest["current_packet_file"] is None
@@ -380,10 +378,13 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
     assert worker_manifest["output_contract_file"] is None
     assert worker_manifest["examples_dir"] is None
     assert worker_manifest["tools_dir"] is None
-    assert worker_manifest["hints_dir"] == "hints"
+    assert worker_manifest["hints_dir"] is None
+    assert worker_manifest["input_dir"] is None
+    assert worker_manifest["output_dir"] is None
     assert worker_manifest["task_file"] == "task.json"
     assert worker_manifest["mirrored_example_files"] == []
     assert worker_manifest["mirrored_tool_files"] == []
+    assert (worker_root / "_repo_control" / "original_task.json").exists()
 
 def test_recipe_phase_runtime_uses_fixed_assignment_task_manifest(
     tmp_path: Path,

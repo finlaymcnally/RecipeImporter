@@ -157,13 +157,21 @@ def test_line_role_phase_workers_write_runtime_artifacts_and_reuse_workers(
     assert "rule_tags" in debug_input["rows"][0]
 
 
-def test_line_role_phase_workers_reject_unowned_rows_and_fail_closed(
+def test_line_role_phase_workers_reject_invalid_task_file_answer_and_fail_closed(
     tmp_path: Path,
 ) -> None:
+    def _invalid_task_file_builder(payload):
+        edited = dict(payload or {})
+        units = list(edited.get("units") or [])
+        if units and isinstance(units[0], dict):
+            first_unit = dict(units[0])
+            first_unit["answer"] = {"label": "NOT_A_LABEL", "exclusion_reason": None}
+            units[0] = first_unit
+        edited["units"] = units
+        return edited
+
     runner = FakeCodexExecRunner(
-        output_builder=lambda _payload: {
-            "rows": [{"atomic_index": 999, "label": "RECIPE_NOTES"}]
-        }
+        output_builder=_invalid_task_file_builder
     )
 
     with pytest.raises(
@@ -225,17 +233,9 @@ def test_line_role_phase_workers_reject_unowned_rows_and_fail_closed(
     )
 
     assert [row["reason"] for row in failures] == ["proposal_validation_failed"]
-    assert failures[0]["validation_errors"] == [
-        "row_order_mismatch",
-        "unowned_atomic_index:999",
-        "missing_owned_atomic_indices:0",
-    ]
+    assert failures[0]["validation_errors"] == ["invalid_label:0:NOT_A_LABEL"]
     assert parse_errors["parse_error_count"] == 1
-    assert proposal["validation_errors"] == [
-        "row_order_mismatch",
-        "unowned_atomic_index:999",
-        "missing_owned_atomic_indices:0",
-    ]
+    assert proposal["validation_errors"] == ["invalid_label:0:NOT_A_LABEL"]
     assert proposal["payload"] is None
     assert proposal["validation_metadata"]["row_resolution"]["unresolved_atomic_indices"] == [0]
     shard_status_rows = [

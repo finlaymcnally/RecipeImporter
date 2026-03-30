@@ -18,9 +18,11 @@ if str(REPO_ROOT) not in sys.path:
 
 from cookimport.llm.fake_codex_farm_runner import FakeCodexFarmRunner  # noqa: E402
 from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output  # noqa: E402
+from cookimport.llm.codex_exec_runner import FakeCodexExecRunner  # noqa: E402
 from cookimport.llm.codex_farm_runner import (  # noqa: E402
     resolve_codex_farm_output_schema_path,
 )
+from cookimport.llm.editable_task_file import load_task_file, write_task_file  # noqa: E402
 
 
 def _read_any_json(path: Path) -> Any | None:
@@ -295,8 +297,23 @@ def _run_workspace_worker_exec(
     workspace_root = _resolve_cd_root(cd)
     if workspace_root is None:
         return False
+    task_file_path = workspace_root / "task.json"
+    if task_file_path.is_file():
+        fake_runner = FakeCodexExecRunner(
+            output_builder=lambda payload: build_structural_pipeline_output(
+                pipeline_id,
+                payload,
+            )
+        )
+        edited_task_file = fake_runner._build_workspace_task_file_result(
+            task_file_payload=load_task_file(task_file_path),
+        )
+        write_task_file(path=task_file_path, payload=edited_task_file)
+        processed_count = len(edited_task_file.get("units") or [])
+    else:
+        processed_count = 0
     assigned_payload = _read_workspace_manifest_rows(workspace_root)
-    if not assigned_payload:
+    if not assigned_payload and not task_file_path.is_file():
         return False
 
     in_dir = workspace_root / "in"
@@ -304,7 +321,7 @@ def _run_workspace_worker_exec(
     out_dir.mkdir(parents=True, exist_ok=True)
     current_packet_path = workspace_root / "current_packet.json"
 
-    processed_any = False
+    processed_any = task_file_path.is_file()
     if current_packet_path.is_file():
         last_written_task_id: str | None = None
         lease_wait_started_at = time.monotonic()
@@ -359,12 +376,16 @@ def _run_workspace_worker_exec(
     response_text = json.dumps(
         {
             "status": "worker_completed",
-            "processed_shards": len(
-                [
-                    row
-                    for row in assigned_payload
-                    if str(row.get("task_id") or row.get("shard_id") or "").strip()
-                ]
+            "processed_shards": (
+                processed_count
+                if processed_count > 0
+                else len(
+                    [
+                        row
+                        for row in assigned_payload
+                        if str(row.get("task_id") or row.get("shard_id") or "").strip()
+                    ]
+                )
             ),
         },
         sort_keys=True,

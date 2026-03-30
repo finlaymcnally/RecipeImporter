@@ -1083,6 +1083,8 @@ def _build_recipe_watchdog_callback(
     def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
+        warning_codes: list[str] = []
+        warning_details: list[str] = []
         allowed_absolute_roots = [
             path
             for path in (
@@ -1106,21 +1108,21 @@ def _build_recipe_watchdog_callback(
                     command_execution_tolerated = True
                 else:
                     decision = CodexExecSupervisionDecision.terminate(
-                        reason_code="watchdog_command_execution_forbidden",
+                        reason_code="boundary_command_execution_forbidden",
                         reason_detail=format_watchdog_command_reason_detail(
                             stage_label=stage_label,
                             last_command=snapshot.last_command,
                         ),
-                        retryable=True,
+                        retryable=False,
+                        supervision_state="boundary_interrupted",
                     )
                 if decision is None and should_terminate_workspace_command_loop(snapshot=snapshot):
-                    decision = CodexExecSupervisionDecision.terminate(
-                        reason_code="watchdog_command_loop_without_output",
-                        reason_detail=format_watchdog_command_loop_reason_detail(
+                    warning_codes.append("command_loop_without_output")
+                    warning_details.append(
+                        format_watchdog_command_loop_reason_detail(
                             stage_label=stage_label,
                             snapshot=snapshot,
-                        ),
-                        retryable=True,
+                        )
                     )
             else:
                 decision = CodexExecSupervisionDecision.terminate(
@@ -1132,16 +1134,24 @@ def _build_recipe_watchdog_callback(
                     retryable=False,
                 )
         elif snapshot.reasoning_item_count >= 2 and not snapshot.has_final_agent_message:
-            decision = CodexExecSupervisionDecision.terminate(
-                reason_code="watchdog_reasoning_without_output",
-                reason_detail=f"{stage_label} emitted repeated reasoning without a final answer",
-                retryable=allow_workspace_commands,
-            )
+            if allow_workspace_commands:
+                warning_codes.append("reasoning_without_output")
+                warning_details.append(
+                    f"{stage_label} emitted repeated reasoning without a final answer"
+                )
+            else:
+                decision = CodexExecSupervisionDecision.terminate(
+                    reason_code="watchdog_reasoning_without_output",
+                    reason_detail=f"{stage_label} emitted repeated reasoning without a final answer",
+                    retryable=allow_workspace_commands,
+                )
         status_payload = {
             "state": (
-                "watchdog_killed"
+                str(decision.supervision_state or "boundary_interrupted").strip()
                 if isinstance(decision, CodexExecSupervisionDecision)
                 and decision.action == "terminate"
+                else "running_with_warnings"
+                if warning_codes
                 else "running"
             ),
             "elapsed_seconds": round(snapshot.elapsed_seconds, 3),
@@ -1178,6 +1188,9 @@ def _build_recipe_watchdog_callback(
             "execution_working_dir": snapshot.execution_working_dir,
             "watchdog_policy": watchdog_policy,
             "shard_id": shard_id,
+            "warning_codes": warning_codes,
+            "warning_details": warning_details,
+            "warning_count": len(warning_codes),
             "reason_code": decision.reason_code if decision is not None else None,
             "reason_detail": decision.reason_detail if decision is not None else None,
             "retryable": decision.retryable if decision is not None else False,
@@ -1195,10 +1208,14 @@ def _finalize_live_status(
     run_result: CodexExecRunResult,
     watchdog_policy: str = _STRICT_JSON_WATCHDOG_POLICY,
 ) -> None:
+    existing_payload = _load_live_status(live_status_path)
+    state = run_result.supervision_state or "completed"
+    if state == "completed" and existing_payload.get("warning_count"):
+        state = "completed_with_warnings"
     _write_live_status(
         live_status_path,
         {
-            "state": run_result.supervision_state or "completed",
+            "state": state,
             "reason_code": run_result.supervision_reason_code,
             "reason_detail": run_result.supervision_reason_detail,
             "retryable": run_result.supervision_retryable,
@@ -1206,12 +1223,25 @@ def _finalize_live_status(
             "started_at_utc": run_result.started_at_utc,
             "finished_at_utc": run_result.finished_at_utc,
             "watchdog_policy": watchdog_policy,
+            "warning_codes": list(existing_payload.get("warning_codes") or []),
+            "warning_details": list(existing_payload.get("warning_details") or []),
+            "warning_count": int(existing_payload.get("warning_count") or 0),
         },
     )
 
 
 def _write_live_status(path: Path, payload: Mapping[str, Any]) -> None:
     _write_json(dict(payload), path)
+
+
+def _load_live_status(path: Path) -> dict[str, Any]:
+    if not path.exists() or not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return dict(payload) if isinstance(payload, Mapping) else {}
 
 
 def _failure_reason_from_run_result(

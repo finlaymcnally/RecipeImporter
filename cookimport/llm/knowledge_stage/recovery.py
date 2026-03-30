@@ -1295,6 +1295,8 @@ def _build_strict_json_watchdog_callback(
         nonlocal completion_wait_turn_completed_count
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
+        warning_codes: list[str] = []
+        warning_details: list[str] = []
         last_command_stage_violation: _KnowledgeWorkspaceStageCommandViolation | None = None
         allowed_absolute_roots = (
             [execution_workspace_root]
@@ -1404,43 +1406,6 @@ def _build_strict_json_watchdog_callback(
                     retryable=False,
                     supervision_state="completed",
                 )
-        elif (
-            allow_workspace_commands
-            and task_queue_controller is None
-            and workspace_output_status["complete"]
-            and workspace_output_stable_passes >= _KNOWLEDGE_WORKSPACE_OUTPUT_STABLE_PASSES
-        ):
-            completion_waiting_for_exit = True
-            if completion_wait_started_elapsed_seconds is None:
-                completion_wait_started_elapsed_seconds = snapshot.elapsed_seconds
-                completion_wait_agent_message_count = snapshot.agent_message_count
-                completion_wait_turn_completed_count = snapshot.turn_completed_count
-            completion_post_signal_observed = (
-                snapshot.agent_message_count > int(completion_wait_agent_message_count or 0)
-                or snapshot.turn_completed_count > int(completion_wait_turn_completed_count or 0)
-            )
-            completion_quiescence_reached = (
-                snapshot.last_event_seconds_ago is not None
-                and snapshot.last_event_seconds_ago
-                >= _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
-                and (
-                    snapshot.elapsed_seconds
-                    - float(completion_wait_started_elapsed_seconds or 0.0)
-                )
-                >= _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
-            )
-            if completion_post_signal_observed or completion_quiescence_reached:
-                decision = CodexExecSupervisionDecision.terminate(
-                    reason_code="workspace_validated_task_queue_incomplete",
-                    reason_detail=(
-                        "knowledge workspace worker wrote stable output files, but the "
-                        "repo-owned task queue controller is missing so queue completion "
-                        "cannot be proven; the session either emitted a post-install "
-                        "completion signal or went quiet while waiting to exit"
-                    ),
-                    retryable=True,
-                    supervision_state="completed_with_failures",
-                )
         if snapshot.command_execution_count > 0:
             if decision is None and allow_workspace_commands:
                 last_command_stage_violation = _detect_knowledge_workspace_stage_violation(
@@ -1453,51 +1418,46 @@ def _build_strict_json_watchdog_callback(
                         str(snapshot.last_command or ""),
                     )
                 ):
-                    decision = CodexExecSupervisionDecision.terminate(
-                        reason_code="watchdog_inline_python_heredoc_forbidden",
-                        reason_detail=(
-                            "workspace worker used inline python heredoc execution instead "
-                            "of the repo-written helper or a short local file"
-                        ),
-                        retryable=True,
+                    warning_codes.append("inline_python_heredoc_used")
+                    warning_details.append(
+                        "workspace worker used inline python heredoc execution instead "
+                        "of a short local file or direct task-file editing"
                     )
                 if (
                     decision is None
                     and last_command_stage_violation is not None
                     and last_command_stage_violation.enforce
                 ):
-                    decision = CodexExecSupervisionDecision.terminate(
-                        reason_code=last_command_stage_violation.reason_code,
-                        reason_detail=last_command_stage_violation.reason,
-                        retryable=True,
+                    warning_codes.append(
+                        str(last_command_stage_violation.reason_code or "stage_violation")
                     )
+                    warning_details.append(last_command_stage_violation.reason)
                 if decision is None and last_command_boundary_violation is None:
                     command_execution_tolerated = True
                 elif decision is None:
                     decision = CodexExecSupervisionDecision.terminate(
-                        reason_code="watchdog_command_execution_forbidden",
+                        reason_code="boundary_command_execution_forbidden",
                         reason_detail=format_watchdog_command_reason_detail(
                             stage_label="workspace worker stage",
                             last_command=snapshot.last_command,
                         ),
-                        retryable=True,
+                        retryable=False,
+                        supervision_state="boundary_interrupted",
                     )
                 if (
                     decision is None
-                    and not completion_waiting_for_exit
                     and should_terminate_workspace_command_loop(
                         snapshot=snapshot,
                         recent_output_progress=recent_workspace_output_progress,
                         completed_output_count=current_workspace_present_count,
                     )
                 ):
-                    decision = CodexExecSupervisionDecision.terminate(
-                        reason_code="watchdog_command_loop_without_output",
-                        reason_detail=format_watchdog_command_loop_reason_detail(
+                    warning_codes.append("command_loop_without_output")
+                    warning_details.append(
+                        format_watchdog_command_loop_reason_detail(
                             stage_label="workspace worker stage",
                             snapshot=snapshot,
-                        ),
-                        retryable=True,
+                        )
                     )
             elif decision is None:
                 decision = CodexExecSupervisionDecision.terminate(
@@ -1518,11 +1478,17 @@ def _build_strict_json_watchdog_callback(
                 retryable=True,
             )
         elif snapshot.reasoning_item_count >= 2 and final_agent_message_state != "json_object":
-            decision = CodexExecSupervisionDecision.terminate(
-                reason_code="watchdog_reasoning_without_output",
-                reason_detail="strict JSON stage emitted repeated reasoning without a final answer",
-                retryable=True,
-            )
+            if allow_workspace_commands:
+                warning_codes.append("reasoning_without_output")
+                warning_details.append(
+                    "workspace worker emitted repeated reasoning without a final answer"
+                )
+            else:
+                decision = CodexExecSupervisionDecision.terminate(
+                    reason_code="watchdog_reasoning_without_output",
+                    reason_detail="strict JSON stage emitted repeated reasoning without a final answer",
+                    retryable=True,
+                )
         elif (
             silence_timeout_seconds is not None
             and snapshot.last_event_seconds_ago is not None
@@ -1559,18 +1525,26 @@ def _build_strict_json_watchdog_callback(
             )
             and final_agent_message_state != "json_object"
         ):
-            decision = CodexExecSupervisionDecision.terminate(
-                reason_code="watchdog_cohort_runtime_outlier",
-                reason_detail=(
-                    "strict JSON stage exceeded sibling median runtime without reaching final output"
-                ),
-                retryable=True,
-            )
+            if allow_workspace_commands:
+                warning_codes.append("cohort_runtime_outlier")
+                warning_details.append(
+                    "workspace worker exceeded sibling median runtime without reaching final output"
+                )
+            else:
+                decision = CodexExecSupervisionDecision.terminate(
+                    reason_code="watchdog_cohort_runtime_outlier",
+                    reason_detail=(
+                        "strict JSON stage exceeded sibling median runtime without reaching final output"
+                    ),
+                    retryable=True,
+                )
         status_payload = {
             "state": (
-                str(decision.supervision_state or "watchdog_killed").strip()
+                str(decision.supervision_state or "boundary_interrupted").strip()
                 if isinstance(decision, CodexExecSupervisionDecision)
                 and decision.action == "terminate"
+                else "running_with_warnings"
+                if warning_codes
                 else "running"
             ),
             "elapsed_seconds": round(snapshot.elapsed_seconds, 3),
@@ -1670,6 +1644,9 @@ def _build_strict_json_watchdog_callback(
             "reason_code": decision.reason_code if decision is not None else None,
             "reason_detail": decision.reason_detail if decision is not None else None,
             "retryable": decision.retryable if decision is not None else False,
+            "warning_codes": warning_codes,
+            "warning_details": warning_details,
+            "warning_count": len(warning_codes),
         }
         for path in target_paths:
             _write_live_status(path, status_payload)
@@ -1757,6 +1734,7 @@ def _finalize_live_status(
     run_result: CodexExecRunResult,
     watchdog_policy: str = _STRICT_JSON_WATCHDOG_POLICY,
 ) -> None:
+    existing_payload = _load_live_status(live_status_path)
     final_agent_message = assess_final_agent_message(
         run_result.response_text,
         workspace_mode=run_result.workspace_mode,
@@ -1770,6 +1748,8 @@ def _finalize_live_status(
             str(reason_detail or "").strip()
             or "worker process exited without watchdog intervention"
         )
+    if state == "completed" and existing_payload.get("warning_count"):
+        state = "completed_with_warnings"
     _write_live_status(
         live_status_path,
         {
@@ -1784,8 +1764,21 @@ def _finalize_live_status(
             "has_final_agent_message": final_agent_message.state != "absent",
             "final_agent_message_state": final_agent_message.state,
             "final_agent_message_reason": final_agent_message.reason,
+            "warning_codes": list(existing_payload.get("warning_codes") or []),
+            "warning_details": list(existing_payload.get("warning_details") or []),
+            "warning_count": int(existing_payload.get("warning_count") or 0),
         },
     )
+
+
+def _load_live_status(path: Path) -> dict[str, Any]:
+    if not path.exists() or not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return dict(payload) if isinstance(payload, Mapping) else {}
 
 
 def _write_live_status(path: Path, payload: Mapping[str, Any]) -> None:

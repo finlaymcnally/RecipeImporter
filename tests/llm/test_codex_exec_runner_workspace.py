@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 
 import cookimport.llm.codex_exec_runner as exec_runner_module
+from cookimport.llm.editable_task_file import build_task_file
 import tests.llm.test_codex_exec_runner as _base
 
 # Reuse shared imports/helpers from the base direct-exec runner test module.
@@ -120,6 +121,27 @@ def test_prepare_direct_exec_workspace_worker_mode_uses_fixed_assignment_manifes
         "print('helper')\n",
         encoding="utf-8",
     )
+    (source_root / "task.json").write_text(
+        json.dumps(
+            build_task_file(
+                stage_key="line_role",
+                assignment_id="worker-001",
+                worker_id="worker-001",
+                units=[
+                    {
+                        "unit_id": "line::0",
+                        "owned_id": "0",
+                        "evidence": {"atomic_index": 0, "text": "Ambiguous line"},
+                        "answer": {},
+                    }
+                ],
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     workspace = prepare_direct_exec_workspace(
         source_working_dir=source_root,
@@ -130,56 +152,56 @@ def test_prepare_direct_exec_workspace_worker_mode_uses_fixed_assignment_manifes
 
     agents_text = workspace.agents_path.read_text(encoding="utf-8")
     worker_manifest = json.loads(
-        (workspace.execution_working_dir / "worker_manifest.json").read_text(
+        (source_root / "worker_manifest.json").read_text(
             encoding="utf-8"
         )
     )
-    assert worker_manifest["entry_files"] == [
-        "worker_manifest.json",
-        "assigned_shards.json",
-    ]
+    assert worker_manifest["entry_files"] == ["task.json"]
+    assert worker_manifest["single_file_worker_runtime"] is True
     assert worker_manifest["assigned_tasks_file"] is None
+    assert worker_manifest["assigned_shards_file"] is None
     assert worker_manifest["current_phase_file"] is None
     assert worker_manifest["current_phase_brief_file"] is None
     assert worker_manifest["current_phase_feedback_file"] is None
-    assert worker_manifest["output_contract_file"] == "OUTPUT_CONTRACT.md"
-    assert worker_manifest["examples_dir"] == "examples"
-    assert worker_manifest["tools_dir"] == "tools"
-    assert worker_manifest["hints_dir"] == "hints"
+    assert worker_manifest["output_contract_file"] is None
+    assert worker_manifest["examples_dir"] is None
+    assert worker_manifest["tools_dir"] is None
+    assert worker_manifest["hints_dir"] is None
+    assert worker_manifest["input_dir"] is None
+    assert worker_manifest["output_dir"] is None
     assert worker_manifest["scratch_dir"] is None
     assert worker_manifest["work_dir"] is None
     assert worker_manifest["repair_dir"] is None
     assert worker_manifest["mirrored_example_files"] == ["valid_repaired_task_output.json"]
     assert worker_manifest["mirrored_tool_files"] == ["line_role_worker.py"]
     assert worker_manifest["workspace_shell_policy"].startswith(
-        "Allow ordinary local shell use inside this workspace"
+        "The happy path is direct in-place editing of `task.json`"
     )
-    assert "sed -n '1,120p' assigned_shards.json" in worker_manifest["workspace_local_shell_examples"]
-    assert "sed -n '1,80p' hints/<shard_id>.md" in worker_manifest["workspace_local_shell_examples"]
-    assert "python3 tools/line_role_worker.py overview" in worker_manifest["workspace_local_shell_examples"]
+    assert worker_manifest["workspace_local_shell_examples"] == [
+        "sed -n '1,220p' task.json",
+        "python3 -c \"from pathlib import Path; print(len(Path('task.json').read_text()))\"",
+        "cp task.json /tmp/task-backup.json",
+    ]
     assert worker_manifest["workspace_commands_forbidden"] == [
         "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
         "non-temp absolute paths outside approved local temp roots",
         "parent-directory traversal",
     ]
-    assert worker_manifest["task_file"] is None
-    assert "If `task.json` exists, read it directly" in agents_text
-    assert "If `task.json` is absent, fall back to the repo-written file named in `worker_manifest.json`." in agents_text
-    assert "When `OUTPUT_CONTRACT.md` or `examples/` exists" in agents_text
-    assert "When `tools/` exists, prefer its repo-written helper CLI" in agents_text
-    assert "Prefer reading the local task file directly instead of opening helper manifests or inventories just to orient yourself." in agents_text
-    assert "The happy path is file-first" in agents_text
+    assert worker_manifest["task_file"] == "task.json"
+    assert "This workspace exposes one repo-written file: `task.json`." in agents_text
+    assert "If `task.json` is absent" not in agents_text
+    assert "When `OUTPUT_CONTRACT.md` or `examples/` exists" not in agents_text
+    assert "When `tools/` exists" not in agents_text
     assert "Do not reach for shell on the happy path." in agents_text
-    assert "The watchdog is boundary-based" in agents_text
-    assert "avoid repo/network/package-manager commands such as `git`, `curl`, or `npm`" in agents_text
-    assert "`/tmp` or `/var/tmp` for bounded helper files" in agents_text
-    assert "dumping whole manifests just to orient yourself" in agents_text
-    assert "If a tiny local helper is truly necessary" in agents_text
-    assert "start with the smallest prompt-named helper surface first" in agents_text
-    assert (workspace.execution_working_dir / "OUTPUT_CONTRACT.md").exists()
-    assert (workspace.execution_working_dir / "examples" / "valid_repaired_task_output.json").exists()
-    assert (workspace.execution_working_dir / "tools" / "line_role_worker.py").exists()
-    assert (workspace.execution_working_dir / "hints" / "shard-001.md").exists()
+    assert "Hard boundaries still apply" in agents_text
+    assert (source_root / "_repo_control" / "original_task.json").exists()
+    assert (workspace.execution_working_dir / "task.json").exists()
+    assert not (workspace.execution_working_dir / "worker_manifest.json").exists()
+    assert not (workspace.execution_working_dir / "assigned_shards.json").exists()
+    assert not (workspace.execution_working_dir / "OUTPUT_CONTRACT.md").exists()
+    assert not (workspace.execution_working_dir / "examples").exists()
+    assert not (workspace.execution_working_dir / "tools").exists()
+    assert not (workspace.execution_working_dir / "hints").exists()
     assert not (workspace.execution_working_dir / "current_phase.json").exists()
 
 
@@ -212,6 +234,27 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_assigned_tasks_files(
         "# hint\n",
         encoding="utf-8",
     )
+    (source_root / "task.json").write_text(
+        json.dumps(
+            build_task_file(
+                stage_key="nonrecipe_finalize",
+                assignment_id="worker-001",
+                worker_id="worker-001",
+                units=[
+                    {
+                        "unit_id": "knowledge::1",
+                        "owned_id": "block:1",
+                        "evidence": {"block_index": 1, "text": "Use low heat."},
+                        "answer": {},
+                    }
+                ],
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     workspace = prepare_direct_exec_workspace(
         source_working_dir=source_root,
@@ -221,24 +264,23 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_assigned_tasks_files(
     )
 
     worker_manifest = json.loads(
-        (workspace.execution_working_dir / "worker_manifest.json").read_text(
+        (source_root / "worker_manifest.json").read_text(
             encoding="utf-8"
         )
     )
-    assert worker_manifest["entry_files"] == [
-        "worker_manifest.json",
-        "assigned_tasks.json",
-    ]
-    assert worker_manifest["assigned_tasks_file"] == "assigned_tasks.json"
+    assert worker_manifest["entry_files"] == ["task.json"]
+    assert worker_manifest["assigned_tasks_file"] is None
     assert worker_manifest["assigned_shards_file"] is None
-    assert worker_manifest["task_file"] is None
+    assert worker_manifest["task_file"] == "task.json"
     assert worker_manifest["current_packet_file"] is None
     assert worker_manifest["current_hint_file"] is None
     assert worker_manifest["current_result_path_file"] is None
     assert worker_manifest["packet_lease_status_file"] is None
-    assert (workspace.execution_working_dir / "assigned_tasks.json").exists()
-    assert (workspace.execution_working_dir / "in" / "task-001.json").exists()
-    assert (workspace.execution_working_dir / "hints" / "task-001.md").exists()
+    assert (workspace.execution_working_dir / "task.json").exists()
+    assert not (workspace.execution_working_dir / "assigned_tasks.json").exists()
+    assert not (workspace.execution_working_dir / "in").exists()
+    assert not (workspace.execution_working_dir / "hints").exists()
+    assert (source_root / "_repo_control" / "original_task.json").exists()
 
 
 def test_prepare_direct_exec_workspace_worker_mode_knows_assignment_first_knowledge_helpers(
@@ -271,6 +313,27 @@ def test_prepare_direct_exec_workspace_worker_mode_knows_assignment_first_knowle
         encoding="utf-8",
     )
     (source_root / "OUTPUT_CONTRACT.md").write_text("# contract\n", encoding="utf-8")
+    (source_root / "task.json").write_text(
+        json.dumps(
+            build_task_file(
+                stage_key="nonrecipe_finalize",
+                assignment_id="worker-001",
+                worker_id="worker-001",
+                units=[
+                    {
+                        "unit_id": "knowledge::1",
+                        "owned_id": "block:1",
+                        "evidence": {"block_index": 1, "text": "Use low heat."},
+                        "answer": {},
+                    }
+                ],
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     workspace = prepare_direct_exec_workspace(
         source_working_dir=source_root,
@@ -280,30 +343,28 @@ def test_prepare_direct_exec_workspace_worker_mode_knows_assignment_first_knowle
     )
 
     worker_manifest = json.loads(
-        (workspace.execution_working_dir / "worker_manifest.json").read_text(
+        (source_root / "worker_manifest.json").read_text(
             encoding="utf-8"
         )
     )
-    assert worker_manifest["entry_files"] == [
-        "worker_manifest.json",
-        "assigned_shards.json",
-    ]
-    assert worker_manifest["assigned_shards_file"] == "assigned_shards.json"
+    assert worker_manifest["entry_files"] == ["task.json"]
+    assert worker_manifest["assigned_shards_file"] is None
     assert worker_manifest["assigned_tasks_file"] is None
     assert worker_manifest["current_packet_file"] is None
     assert worker_manifest["current_hint_file"] is None
     assert worker_manifest["current_result_path_file"] is None
     assert worker_manifest["packet_lease_status_file"] is None
     assert worker_manifest["workspace_shell_policy"].startswith(
-        "Allow ordinary local shell use inside this workspace"
+        "The happy path is direct in-place editing of `task.json`"
     )
-    assert "sed -n '1,120p' assigned_shards.json" in worker_manifest["workspace_local_shell_examples"]
+    assert "sed -n '1,220p' task.json" in worker_manifest["workspace_local_shell_examples"]
     assert worker_manifest["workspace_commands_forbidden"] == [
         "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
         "non-temp absolute paths outside approved local temp roots",
         "parent-directory traversal",
     ]
-    assert (workspace.execution_working_dir / "assigned_shards.json").exists()
+    assert (workspace.execution_working_dir / "task.json").exists()
+    assert not (workspace.execution_working_dir / "assigned_shards.json").exists()
     assert not (workspace.execution_working_dir / "current_phase.json").exists()
     assert not (workspace.execution_working_dir / "CURRENT_PHASE.md").exists()
 
