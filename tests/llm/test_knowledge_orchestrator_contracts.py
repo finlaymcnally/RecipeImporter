@@ -38,7 +38,7 @@ def test_preflight_knowledge_shard_rejects_missing_bundle_id() -> None:
     }
 
 
-def test_worker_prompt_describes_phase_contract() -> None:
+def test_worker_prompt_describes_packet_lease_contract() -> None:
     prompt = _build_knowledge_workspace_worker_prompt(
         shards=[
             ShardManifestEntryV1(
@@ -55,38 +55,24 @@ def test_worker_prompt_describes_phase_contract() -> None:
         ]
     )
 
-    assert "CURRENT_PHASE.md" in prompt
+    assert "current_packet.json" in prompt
+    assert "current_hint.md" in prompt
+    assert "current_result_path.txt" in prompt
+    assert "packet_lease_status.json" in prompt
     assert (
-        "Start by opening `worker_manifest.json`, then `CURRENT_PHASE.md`."
+        "Start by opening `worker_manifest.json`, then `current_packet.json`, `current_hint.md`, and `current_result_path.txt`."
         in prompt
     )
-    assert (
-        "Then open the active work ledger named there and `hints/<shard_id>.md`."
-        in prompt
-    )
-    assert (
-        "Open `in/<shard_id>.json` only when the phase brief, feedback, hint, and active work ledger are still insufficient."
-        in prompt
-    )
+    assert "Treat those current-packet files as the only happy-path authority" in prompt
+    assert "Write exactly one JSON object to the result path named in `current_result_path.txt`." in prompt
     assert "Pass 1 is your first-authority semantic judgment" in prompt
-    assert "The repo does not know the `knowledge` versus `other` answer ahead of time." in prompt
-    assert "repo code runs one narrow semantic suspicion audit" in prompt
-    assert "patch only the flagged rows in the existing Pass 1 ledger" in prompt
-    assert "Pass 2 runs only after Pass 1 installs, and it continues from the accepted Pass 1 knowledge rows" in prompt
+    assert "Pass 1 packets ask only for per-row `category` decisions." in prompt
+    assert "Pass 2 packets run only after Pass 1 is accepted" in prompt
     assert "assign a non-empty local `group_key` plus `topic_label`" in prompt
-    assert "python3 tools/knowledge_worker.py check-phase" in prompt
-    assert "python3 tools/knowledge_worker.py install-phase" in prompt
-    assert (
-        "Do not reconstruct `packet_id`, `block_decisions`, or `idea_groups` by hand."
-        in prompt
-    )
-    assert (
-        "`OUTPUT_CONTRACT.md`, `examples/`, and `tools/knowledge_worker.py` are fallback contract/debug surfaces"
-        in prompt
-    )
-    assert "Do not let one useful row launder nearby memoir or heading rows into `knowledge`." in prompt
-    assert "Top level keys: `packet_id`, `block_decisions`, `idea_groups`." not in prompt
-    assert "snippets" not in prompt
+    assert "Repair packets are purely structural." in prompt
+    assert "CURRENT_PHASE.md" not in prompt
+    assert "check-phase" not in prompt
+    assert "install-phase" not in prompt
 
 
 def test_knowledge_worker_hint_stays_compact_and_keeps_high_signal_sections(

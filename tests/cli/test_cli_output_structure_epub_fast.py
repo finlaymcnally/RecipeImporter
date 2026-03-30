@@ -34,8 +34,7 @@ def _use_fake_epub_stage_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
         emit_epub_backend_artifacts=True,
     )
     monkeypatch.setattr(
-        cli,
-        "resolve_process_thread_executor",
+        "cookimport.cli_commands.stage.resolve_process_thread_executor",
         lambda **_kwargs: ProcessThreadExecutorResolution(
             backend="serial",
             executor=None,

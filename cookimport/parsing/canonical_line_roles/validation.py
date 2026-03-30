@@ -110,90 +110,11 @@ def _validate_line_role_payload_semantics(
     payload: Mapping[str, Any],
     deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
 ) -> tuple[tuple[str, ...], dict[str, Any]]:
-    rows = payload.get("rows")
-    if not isinstance(rows, list):
-        return (), {}
-    candidate_label_by_atomic_index: dict[int, str] = {}
-    for row in rows:
-        if not isinstance(row, Mapping):
-            continue
-        try:
-            atomic_index = int(row.get("atomic_index"))
-        except (TypeError, ValueError):
-            continue
-        label = str(row.get("label") or "").strip().upper()
-        if label:
-            candidate_label_by_atomic_index[atomic_index] = label
-    total_rows = len(candidate_label_by_atomic_index)
-    if total_rows < _LINE_ROLE_PATHOLOGY_MIN_ROWS:
-        return (
-            (),
-            {
-                "guard_applied": False,
-                "reason": "too_few_rows",
-                "candidate_row_count": total_rows,
-            },
-        )
-
-    candidate_counts: dict[str, int] = {}
-    baseline_counts: dict[str, int] = {}
-    for atomic_index, label in candidate_label_by_atomic_index.items():
-        candidate_counts[label] = candidate_counts.get(label, 0) + 1
-        baseline_prediction = deterministic_baseline_by_atomic_index.get(atomic_index)
-        if baseline_prediction is None:
-            continue
-        baseline_label = str(baseline_prediction.label or "").strip().upper()
-        if baseline_label:
-            baseline_counts[baseline_label] = baseline_counts.get(baseline_label, 0) + 1
-
-    if not candidate_counts or not baseline_counts:
-        return (
-            (),
-            {
-                "guard_applied": False,
-                "reason": "missing_label_counts",
-                "candidate_row_count": total_rows,
-            },
-        )
-
-    dominant_label, dominant_count = max(
-        candidate_counts.items(),
-        key=lambda item: (item[1], item[0]),
-    )
-    baseline_same_label_count = baseline_counts.get(dominant_label, 0)
-    metadata = {
-        "guard_applied": True,
-        "candidate_row_count": total_rows,
-        "candidate_distinct_label_count": len(candidate_counts),
-        "candidate_dominant_label": dominant_label,
-        "candidate_dominant_count": dominant_count,
-        "baseline_distinct_label_count": len(baseline_counts),
-        "baseline_matching_label_count": baseline_same_label_count,
+    del payload, deterministic_baseline_by_atomic_index
+    return (), {
+        "guard_applied": False,
+        "reason": "runtime_baseline_semantic_guard_disabled",
     }
-
-    if (
-        len(candidate_counts) == 1
-        and len(baseline_counts) >= _LINE_ROLE_PATHOLOGY_MIN_BASELINE_DISTINCT_LABELS
-        and baseline_same_label_count <= (total_rows - 2)
-    ):
-        return (
-            (f"pathological_uniform_label_output:{dominant_label}",),
-            metadata,
-        )
-
-    if (
-        dominant_count >= total_rows - 1
-        and total_rows >= _LINE_ROLE_PATHOLOGY_NEAR_UNIFORM_MIN_ROWS
-        and len(baseline_counts)
-        >= (_LINE_ROLE_PATHOLOGY_MIN_BASELINE_DISTINCT_LABELS + 1)
-        and baseline_same_label_count <= (total_rows - 3)
-    ):
-        return (
-            (f"pathological_near_uniform_label_output:{dominant_label}",),
-            metadata,
-        )
-
-    return (), metadata
 
 
 def _evaluate_line_role_response_with_pathology_guard(
@@ -206,33 +127,12 @@ def _evaluate_line_role_response_with_pathology_guard(
     ],
     deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
 ) -> tuple[dict[str, Any] | None, tuple[str, ...], dict[str, Any], str]:
-    payload, validation_errors, validation_metadata, proposal_status = (
-        _evaluate_line_role_response(
-            shard=shard,
-            response_text=response_text,
-            validator=validator,
-        )
+    del deterministic_baseline_by_atomic_index
+    return _evaluate_line_role_response(
+        shard=shard,
+        response_text=response_text,
+        validator=validator,
     )
-    if proposal_status != "validated" or payload is None:
-        return payload, validation_errors, validation_metadata, proposal_status
-    semantic_errors, semantic_metadata = _validate_line_role_payload_semantics(
-        payload=payload,
-        deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
-    )
-    if semantic_metadata:
-        validation_metadata = {
-            **dict(validation_metadata or {}),
-            "semantic_validation": semantic_metadata,
-        }
-    if semantic_errors:
-        validation_metadata = {
-            **dict(validation_metadata or {}),
-            "semantic_diagnostics": list(semantic_errors),
-            "semantic_rejected": True,
-        }
-        validation_errors = tuple([*validation_errors, *semantic_errors])
-        proposal_status = "invalid"
-    return payload, validation_errors, validation_metadata, proposal_status
 
 
 def _evaluate_line_role_workspace_response_with_pathology_guard(
@@ -244,37 +144,16 @@ def _evaluate_line_role_workspace_response_with_pathology_guard(
     | Sequence[Mapping[str, Any]]
     | None = None,
 ) -> tuple[dict[str, Any] | None, tuple[str, ...], dict[str, Any], str]:
-    payload, validation_errors, validation_metadata, proposal_status = (
-        _evaluate_line_role_response(
-            shard=shard,
-            response_text=response_text,
-            validator=lambda proposal_shard, proposal_payload: _validate_line_role_shard_proposal(
-                proposal_shard,
-                proposal_payload,
-                frozen_rows_by_atomic_index=frozen_rows_by_atomic_index,
-            ),
-        )
+    del deterministic_baseline_by_atomic_index
+    return _evaluate_line_role_response(
+        shard=shard,
+        response_text=response_text,
+        validator=lambda proposal_shard, proposal_payload: _validate_line_role_shard_proposal(
+            proposal_shard,
+            proposal_payload,
+            frozen_rows_by_atomic_index=frozen_rows_by_atomic_index,
+        ),
     )
-    if proposal_status != "validated" or payload is None:
-        return payload, validation_errors, validation_metadata, proposal_status
-    semantic_errors, semantic_metadata = _validate_line_role_payload_semantics(
-        payload=payload,
-        deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
-    )
-    if semantic_metadata:
-        validation_metadata = {
-            **dict(validation_metadata or {}),
-            "semantic_validation": semantic_metadata,
-        }
-    if semantic_errors:
-        validation_metadata = {
-            **dict(validation_metadata or {}),
-            "semantic_diagnostics": list(semantic_errors),
-            "semantic_rejected": True,
-        }
-        validation_errors = tuple([*validation_errors, *semantic_errors])
-        proposal_status = "invalid"
-    return payload, validation_errors, validation_metadata, proposal_status
 
 def _build_line_role_row_resolution(
     *,

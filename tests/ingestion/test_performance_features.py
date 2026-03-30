@@ -28,8 +28,7 @@ def test_resolve_ocr_device():
 def test_stage_with_performance_flags(tmp_path, monkeypatch: pytest.MonkeyPatch):
     install_fake_source_job_stage(monkeypatch, importer_name="text")
     monkeypatch.setattr(
-        cli,
-        "resolve_process_thread_executor",
+        "cookimport.cli_commands.stage.resolve_process_thread_executor",
         lambda **_kwargs: ProcessThreadExecutorResolution(
             backend="serial",
             executor=None,
@@ -74,8 +73,7 @@ def test_stage_with_performance_flags(tmp_path, monkeypatch: pytest.MonkeyPatch)
 def test_stage_parallel(tmp_path, monkeypatch: pytest.MonkeyPatch):
     install_fake_source_job_stage(monkeypatch, importer_name="text")
     monkeypatch.setattr(
-        cli,
-        "resolve_process_thread_executor",
+        "cookimport.cli_commands.stage.resolve_process_thread_executor",
         lambda **_kwargs: ProcessThreadExecutorResolution(
             backend="serial",
             executor=None,
@@ -142,8 +140,7 @@ def test_stage_process_pool_permission_error_falls_back_to_thread(
         BrokenProcessPoolExecutor,
     )
     monkeypatch.setattr(
-        cli,
-        "resolve_process_thread_executor",
+        "cookimport.cli_commands.stage.resolve_process_thread_executor",
         lambda **_kwargs: ProcessThreadExecutorResolution(
             backend="thread",
             executor=ThreadPoolExecutor(max_workers=2),

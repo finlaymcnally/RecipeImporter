@@ -781,53 +781,43 @@ def _build_knowledge_workspace_worker_prompt(
     ]
     lines = [
         "You are processing non-recipe knowledge-review shards inside one bounded local workspace.",
-        "Keep only durable cooking leverage. The positive class is not broad cooking-related factuality; it is information worth preserving because it improves future cooking decisions, diagnosis, or technique.",
+        "The repo leases you one compact packet at a time. Decide `knowledge` versus `other` in Pass 1, then group only the kept rows in Pass 2.",
         "",
-        "Process the repo-written ordered shard queue through one active phase at a time. Each shard runs Pass 1 first, then Pass 2 in the same session. The current working directory is already the workspace root.",
-        "The assignment is complete only when `current_phase.json` says the queue is completed.",
+        "Process the repo-written shard queue by reopening the current-packet files after every accepted result. The current working directory is already the workspace root.",
+        "The assignment is complete only when `packet_lease_status.json` says the queue is completed.",
         "",
         "Worker contract:",
-        "- Start by opening `worker_manifest.json`, then `CURRENT_PHASE.md`.",
-        "- Re-open `CURRENT_PHASE_FEEDBACK.md` after each checker result. Open `current_phase.json` only when you need the exact metadata fields or named file paths.",
-        "- Treat `CURRENT_PHASE.md`, `CURRENT_PHASE_FEEDBACK.md`, and `current_phase.json` as the authoritative active-phase surface. `assigned_shards.json` is ordered ownership/progress context only.",
-        "- Then open the active work ledger named there and `hints/<shard_id>.md`.",
-        "- Open `in/<shard_id>.json` only when the phase brief, feedback, hint, and active work ledger are still insufficient.",
-        "- Edit only the active work ledger named in `CURRENT_PHASE.md`.",
-        "- Run `python3 tools/knowledge_worker.py check-phase` after editing the active work ledger. If `CURRENT_PHASE_FEEDBACK.md` names a repair file, fix only those unresolved rows in the existing work ledger.",
-        "- Run `python3 tools/knowledge_worker.py install-phase` only after the current work ledger validates cleanly. Installing advances the phase surface to the next phase or shard when one remains.",
-        "- The helper owns the installed shard output. Think in terms of the active work ledger, not the final installed JSON object.",
-        "- Do not reconstruct `packet_id`, `block_decisions`, or `idea_groups` by hand.",
-        "- `OUTPUT_CONTRACT.md`, `examples/`, and `tools/knowledge_worker.py` are fallback contract/debug surfaces, not the default first read.",
-        "- If `tools/knowledge_worker.py` exists, use it as the paved road before inventing ad hoc shell helpers.",
-        "- Prefer opening the named files directly. If you still need shell helpers, keep them narrow and grounded on the named local files only.",
-        "- After each successful install, re-open `CURRENT_PHASE.md` and `CURRENT_PHASE_FEEDBACK.md` immediately and continue with the newly active phase or shard. Do not ask for permission to continue, summarize progress as a stopping point, or invent your own queue advancement.",
+        "- Start by opening `worker_manifest.json`, then `current_packet.json`, `current_hint.md`, and `current_result_path.txt`.",
+        "- Treat those current-packet files as the only happy-path authority until the repo advances the lease.",
+        "- `assigned_shards.json` is ownership/progress context only; do not use it as a scheduler.",
+        "- Write exactly one JSON object to the result path named in `current_result_path.txt`.",
+        "- After writing the result, re-open `current_packet.json`, `current_hint.md`, and `current_result_path.txt` immediately and continue with the newly leased packet.",
+        "- Do not invent your own queue advancement, install loop, or broad output sweeps.",
+        "- `OUTPUT_CONTRACT.md` and `examples/` are fallback contract/debug surfaces, not the default first read.",
+        "- Prefer opening the named files directly. If you still need shell helpers, keep them narrow and grounded on `current_packet.json`, `current_hint.md`, and the current result path only.",
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "",
-        "Phase semantics:",
+        "Packet semantics:",
         "- Pass 1 is your first-authority semantic judgment on the owned rows. The repo does not know the `knowledge` versus `other` answer ahead of time.",
-        "- Pass 1 work rows already carry raw block text plus mechanical truth. Fill only `category` with `knowledge` or `other`.",
-        "- After Pass 1 becomes structurally valid, repo code runs one narrow semantic suspicion audit before Pass 2 can begin.",
-        "- If that audit flags rows, patch only the flagged rows in the existing Pass 1 ledger. The audit packages evidence; it does not know the right answer for you.",
-        "- Pass 2 runs only after Pass 1 installs, and it continues from the accepted Pass 1 knowledge rows rather than reopening the whole shard.",
-        "- In Pass 2, assign a non-empty local `group_key` plus `topic_label` for each kept knowledge row. The repo canonicalizes final `group_id` values during install.",
+        "- Pass 1 packets ask only for per-row `category` decisions.",
+        "- Repo validation checks structure only: ownership, coverage, order, allowed enum values, and grouping shape.",
+        "- Pass 2 packets run only after Pass 1 is accepted, and they continue from the kept Pass 1 knowledge rows instead of reopening the whole shard.",
+        "- In Pass 2, assign a non-empty local `group_key` plus `topic_label` for each kept knowledge row. The repo canonicalizes final `group_id` values during final assembly.",
+        "- Repair packets are purely structural. They may say that rows are missing, out of order, or still missing group fields. They do not tell you the semantic answer.",
         f"- Final categories must be exactly one of `{'`, `'.join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)}`.",
         f"- `reviewer_category` may be omitted or must be one of `{'`, `'.join(ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES)}`.",
         "- If a block ends as `knowledge`, it must appear in exactly one idea group.",
         "- No `other` block may appear in an idea group.",
-        "- Use concise group labels that describe reusable cooking guidance, not source-text echoes.",
-        "- The owned block rows under `b[*]` are authoritative. Nearby `x` context is informational only.",
-        "- Ask: would saving this materially improve a cook's future decisions, diagnosis, or technique?",
-        "- If the text is technically true but low-value prose, generic memoir-like framing, or just navigation, keep it `other`.",
-        "- If the owned shard mixes memoir, praise, or book-framing with a few useful cooking sentences, do not mark the whole shard `knowledge` by inertia.",
-        "- Keep memoir/framing blocks `other`; only mark a block `knowledge` when that block itself stands alone as reusable cooking guidance.",
-        "- Make the keep/drop decision block by block before you think about idea groups. Do not let one useful row launder nearby memoir or heading rows into `knowledge`.",
+        "- Use concise group labels; the repo validates grouping structure, not topic wording.",
+        "- The owned block rows are authoritative. Nearby context is informational only.",
+        "- Make the keep/drop decision block by block before you think about idea groups.",
         "",
         (
             "Assigned shards in this worker: "
             f"`{', '.join(shard_ids) if shard_ids else '[none]'}`."
         ),
         "",
-        "Do not return shard outputs in your final message. The authoritative result is the set of files written through the repo-written phase helper.",
+        "Do not return shard outputs in your final message. The authoritative result is the set of result files written to the repo-owned leased packet paths.",
     ]
     return "\n".join(lines)
 
@@ -943,35 +933,20 @@ def _build_knowledge_hint_profile_and_policy(
         f"Large source gaps (>8 rows): `{large_gap_count}`.",
     ]
     if table_hint_count > 0:
-        shard_summary = (
-            "Reference-style packet with table cues. Keep true conversion/reference material, "
-            "but do not keep the whole packet just because a table is present."
-        )
+        shard_summary = "Reference-style packet with table cues."
     elif heading_like_count > 0 and long_prose_count > 0:
-        shard_summary = (
-            "Heading-plus-body packet. Short headings can be kept only when the nearby body is "
-            "genuinely useful cooking guidance."
-        )
+        shard_summary = "Heading-plus-body packet."
     elif long_prose_count >= max(2, len(block_indices) // 2):
-        shard_summary = (
-            "Long-form prose packet. Expect mixed memoir/framing and useful instruction; judge "
-            "block-locally and avoid whole-packet inertia."
-        )
+        shard_summary = "Long-form prose packet."
     else:
-        shard_summary = (
-            "Mixed non-recipe packet. Use nearby rows as weak context only and let each block earn "
-            "its own `knowledge` status."
-        )
+        shard_summary = "Mixed non-recipe packet."
     interpretation_lines = [
         shard_summary,
-        "Default posture: keep only durable cooking leverage; technically true but low-value prose stays `other`.",
         "Use packet order and neighboring rows as weak context only, not as proof that blocks belong together.",
     ]
     decision_policy = [
         "Decide `knowledge` versus `other` block-by-block before thinking about grouping.",
-        "If the shard mixes framing with useful guidance, keep only the guidance blocks as `knowledge`.",
-        "Keep short headings only when nearby explanatory body clearly earns preservation.",
-        "Keep tables/reference rows only when they would materially help future cooking decisions.",
+        "Use your own semantic judgment; the repo will validate only structure and coverage.",
         "Open `examples/` only when you need a contrast case or tie-breaker.",
     ]
     return profile_lines, interpretation_lines, decision_policy
@@ -1802,20 +1777,13 @@ def _detect_knowledge_workspace_stage_violation(
         return None
     normalized_command = re.sub(r"\s+", " ", cleaned_command.lower())
 
-    if re.search(
-        r"\bpython3?\s+tools/knowledge_worker\.py\s+"
-        r"(?:scaffold-phase|check-phase|install-phase|write-static)\b",
-        normalized_command,
-    ):
-        return None
-
     if "assigned_shards.json" in normalized_command:
         return _KnowledgeWorkspaceStageCommandViolation(
             policy="knowledge_assigned_shards_inventory_dump",
             reason_code="watchdog_phase_contract_bypass_inventory_dump",
             reason=(
-                "knowledge phase workers should not dump or script broadly against "
-                "`assigned_shards.json`; use the repo-written phase sidecars first and "
+                "knowledge packet workers should not dump or script broadly against "
+                "`assigned_shards.json`; use the repo-written current-packet files first and "
                 "treat `assigned_shards.json` as fallback ownership/progress context only"
             ),
             enforce=False,
@@ -1824,72 +1792,52 @@ def _detect_knowledge_workspace_stage_violation(
     if (
         ("for " in normalized_command or "while " in normalized_command or "$(seq" in normalized_command)
         and any(
-            marker in normalized_command
-            for marker in (
-                "out/",
-                "current_phase.json",
-                "assigned_shards.json",
+                marker in normalized_command
+                for marker in (
+                    "out/",
+                    "current_packet.json",
+                    "assigned_shards.json",
+                )
             )
-        )
     ):
         return _KnowledgeWorkspaceStageCommandViolation(
-            policy="knowledge_phase_shell_scheduler_bypass",
-            reason_code="watchdog_phase_contract_bypass_shell_scheduler",
+            policy="knowledge_packet_shell_scheduler_bypass",
+            reason_code="watchdog_packet_contract_bypass_shell_scheduler",
             reason=(
-                "knowledge phase workers should avoid inventing queue/output schedulers "
-                "or broad validation loops over queue/output files; prefer the "
-                "repo-written `check-phase` and `install-phase` loop and keep any local "
-                "automation bounded to the active phase ledger"
+                "knowledge packet workers should avoid inventing queue/output schedulers "
+                "or broad validation loops over queue/output files; keep any local "
+                "automation bounded to the current leased packet"
             ),
             enforce=False,
         )
 
-    writes_current_phase_json = any(
+    rewrites_runtime_control = any(
         marker in normalized_command
         for marker in (
-            "> current_phase.json",
-            ">> current_phase.json",
-            "path('current_phase.json').write_text(",
-            'path("current_phase.json").write_text(',
-            "path(\"current_phase.json\").write_text(",
-            'path(\'current_phase.json\').write_text(',
-            "open('current_phase.json', 'w')",
-            'open("current_phase.json", "w")',
+            "> current_packet.json",
+            ">> current_packet.json",
+            "> current_result_path.txt",
+            ">> current_result_path.txt",
+            "> packet_lease_status.json",
+            ">> packet_lease_status.json",
+            "path('current_packet.json').write_text(",
+            'path("current_packet.json").write_text(',
+            "path('current_result_path.txt').write_text(",
+            'path("current_result_path.txt").write_text(',
+            "path('packet_lease_status.json').write_text(",
+            'path("packet_lease_status.json").write_text(',
         )
     )
-    if any(
-        marker in normalized_command
-        for marker in (
-            "_write_phase_surface",
-            "write_phase_surface",
-        )
-    ) or writes_current_phase_json:
+    if rewrites_runtime_control:
         return _KnowledgeWorkspaceStageCommandViolation(
-            policy="knowledge_phase_runtime_control_rewrite",
-            reason_code="watchdog_phase_contract_bypass_runtime_control_rewrite",
+            policy="knowledge_packet_runtime_control_rewrite",
+            reason_code="watchdog_packet_contract_bypass_runtime_control_rewrite",
             reason=(
-                "knowledge phase workers must not rewrite repo-owned queue-control "
-                "files such as `current_phase.json`; the repo owns phase advancement"
+                "knowledge packet workers must not rewrite repo-owned queue-control "
+                "files such as `current_packet.json`, `current_result_path.txt`, or "
+                "`packet_lease_status.json`; the repo owns packet advancement"
             ),
         )
-
-    if "tools/knowledge_worker.py" in normalized_command:
-        allowed_helper_command = re.search(
-            r"\bpython3?\s+tools/knowledge_worker\.py\s+"
-            r"(?:scaffold-phase|check-phase|install-phase|write-static)\b",
-            normalized_command,
-        )
-        if allowed_helper_command is None:
-            return _KnowledgeWorkspaceStageCommandViolation(
-                policy="knowledge_helper_source_spelunking",
-                reason_code="watchdog_phase_contract_bypass_helper_source_read",
-                reason=(
-                    "knowledge phase workers should use the repo-written helper CLI "
-                    "and sidecars instead of rereading helper source or probing ad hoc "
-                    "helper commands during the main loop"
-                ),
-                enforce=False,
-            )
 
     return None
 
@@ -1975,11 +1923,7 @@ def _terminal_reason_for_knowledge_task(
     if proposal_status == "validated":
         return "validated", None
     if validation_errors:
-        return str(validation_errors[0]).strip(), str(
-            metadata.get("parse_error")
-            or metadata.get("semantic_rejection_reason")
-            or ""
-        ).strip() or None
+        return str(validation_errors[0]).strip(), str(metadata.get("parse_error") or "").strip() or None
     return str(proposal_status).strip() or None, None
 
 
@@ -2130,11 +2074,6 @@ def _poison_reason_for_failure_signature(
             "poisoned_worker_uniform_malformed_outputs",
             "worker repeatedly produced malformed or schema-invalid packet outputs",
         )
-    if normalized in {"semantic_invalid", "semantic_low_trust"}:
-        return (
-            "poisoned_worker_uniform_low_trust_outputs",
-            "worker repeatedly produced low-trust outputs that failed semantic validation",
-        )
     if normalized in {"watchdog_boundary", "watchdog_command_loop"}:
         return (
             "poisoned_worker_repeated_boundary_failures",
@@ -2178,14 +2117,6 @@ def _knowledge_failure_signature(
         return "invalid_json"
     if "schema_invalid" in errors:
         return "schema_invalid"
-    if any(error.startswith("semantic_") for error in errors):
-        return "semantic_invalid"
-    if (
-        metadata.get("non_grounded_idea_group_ids")
-        or metadata.get("echoed_idea_group_ids")
-        or metadata.get("copied_quote_idea_group_ids")
-    ):
-        return "semantic_low_trust"
     if errors.intersection(
         {
             "missing_owned_block_decisions",
@@ -2651,7 +2582,6 @@ def _build_knowledge_watchdog_retry_prompt(
         f"- `bid` must be `{shard.shard_id}`.\n"
         "- Return one packet result covering the owned block surface exactly once.\n"
         f"- Owned packet ids: {owned_ids}\n"
-        "- Keep only durable cooking leverage; technically true but low-value prose stays `other`.\n"
         "- Preserve packet-local evidence and do not invent synthetic ids.\n\n"
         f"Previous stop reason: {reason_code or '[unknown]'}\n"
         f"Reason detail: {reason_detail or '[none recorded]'}\n\n"
@@ -2694,7 +2624,6 @@ def _build_knowledge_repair_prompt(
         f"- `bid` must be `{shard.shard_id}`.\n"
         "- Return one packet result covering the owned block surface exactly once.\n"
         f"- Owned packet ids: {owned_ids}\n"
-        "- Keep only durable cooking leverage; technically true but low-value prose stays `other`.\n"
         "- Preserve packet-local evidence and do not invent synthetic ids.\n\n"
         f"Validator errors: {json.dumps(list(validation_errors), sort_keys=True)}\n\n"
         f"Missing owned block indices: {missing_indices or '[none recorded]'}\n\n"
@@ -2741,7 +2670,6 @@ def _build_knowledge_snippet_repair_prompt(
         f"- `bid` must be `{shard.shard_id}`.\n"
         "- Return one packet result covering the owned block surface exactly once.\n"
         f"- Owned packet ids: {owned_ids}\n"
-        "- Keep the existing durable-utility judgment. Do not widen the semantic bar back to generic cooking facts.\n"
         "- Preserve every existing `block_decisions`, `idea_groups[*].block_indices`, and evidence pointer.\n"
         "- Rewrite only `idea_groups[*].snippets[*].body`.\n"
         "- Each rewritten snippet body must be a short grounded extraction, not copied evidence prose.\n"

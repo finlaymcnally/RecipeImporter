@@ -33,7 +33,6 @@ def _apply_prediction_decision_metadata(
     prediction: CanonicalLineRolePrediction,
     candidate: AtomicLineCandidate,
     by_atomic_index: dict[int, AtomicLineCandidate],
-    baseline_prediction: CanonicalLineRolePrediction | None = None,
 ) -> CanonicalLineRolePrediction:
     label = str(prediction.label or "NONRECIPE_CANDIDATE")
 
@@ -45,18 +44,8 @@ def _apply_prediction_decision_metadata(
         reasons.append("deterministic_unresolved")
     if prediction.decided_by == "fallback":
         reasons.append("fallback_decision")
-    if _prediction_has_reason_tag(prediction, "codex_policy_rejected"):
-        reasons.append("codex_rejected_to_baseline")
     if _is_outside_recipe_span(candidate) and label in _RECIPEISH_OUTSIDE_SPAN_LABELS:
         reasons.append("outside_span_structured_label")
-    if baseline_prediction is not None:
-        baseline_label = str(baseline_prediction.label or "NONRECIPE_CANDIDATE")
-        if (
-            prediction.decided_by == "codex"
-            and baseline_label
-            and baseline_label != label
-        ):
-            reasons.append("codex_disagreed_with_rule")
     if _prediction_has_reason_tag(prediction, "sanitized_"):
         reasons.append("sanitized_label_adjustment")
     if prediction.exclusion_reason is not None:
@@ -158,16 +147,12 @@ def build_line_role_model_input_payload(
     deterministic_baseline: Mapping[int, CanonicalLineRolePrediction],
     by_atomic_index: Mapping[int, AtomicLineCandidate] | None = None,
 ) -> dict[str, Any]:
+    del deterministic_baseline
     payload = {
         "v": _LINE_ROLE_MODEL_PAYLOAD_VERSION,
         "shard_id": shard_id,
         "rows": [
-            serialize_line_role_model_row(
-                candidate=candidate,
-                escalation_reasons=deterministic_baseline[
-                    int(candidate.atomic_index)
-                ].escalation_reasons,
-            )
+            serialize_line_role_model_row(candidate=candidate)
             for candidate in candidates
         ],
     }

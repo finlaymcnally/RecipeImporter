@@ -74,6 +74,7 @@ from cookimport.cli_support import (
     build_run_settings,
     compute_effective_workers,
     console,
+    create_sync_manager,
     defaultdict,
     deque,
     dt,
@@ -929,7 +930,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         from cookimport.cli_worker import execute_source_job
         progress_queue = None
         try:
-            manager = multiprocessing.Manager()
+            manager = create_sync_manager()
             progress_queue = manager.Queue()
         except Exception:
             progress_queue = None

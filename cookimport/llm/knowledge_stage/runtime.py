@@ -161,6 +161,8 @@ def run_codex_farm_nonrecipe_knowledge_review(
         out_dir=knowledge_in_dir,
         context_blocks=run_settings.codex_farm_knowledge_context_blocks,
         prompt_target_count=run_settings.knowledge_prompt_target_count,
+        input_char_budget=run_settings.knowledge_packet_input_char_budget,
+        output_char_budget=run_settings.knowledge_packet_output_char_budget,
     )
     for warning in build_report.planning_warnings:
         logger.warning("Knowledge planning warning for %s: %s", workbook_slug, warning)
@@ -221,6 +223,8 @@ def run_codex_farm_nonrecipe_knowledge_review(
             settings={
                 "llm_knowledge_pipeline": run_settings.llm_knowledge_pipeline.value,
                 "knowledge_prompt_target_count": run_settings.knowledge_prompt_target_count,
+                "knowledge_packet_input_char_budget": run_settings.knowledge_packet_input_char_budget,
+                "knowledge_packet_output_char_budget": run_settings.knowledge_packet_output_char_budget,
                 "knowledge_worker_count": run_settings.knowledge_worker_count,
                 "knowledge_shard_max_turns": run_settings.knowledge_shard_max_turns,
                 "codex_farm_pipeline_knowledge": pipeline_id,
@@ -230,6 +234,8 @@ def run_codex_farm_nonrecipe_knowledge_review(
                 "input_mode": "stage7_candidate_nonrecipe_spans",
                 "workspace_root": str(workspace_root) if workspace_root is not None else None,
                 "configured_prompt_target_count": run_settings.knowledge_prompt_target_count,
+                "configured_packet_input_char_budget": run_settings.knowledge_packet_input_char_budget,
+                "configured_packet_output_char_budget": run_settings.knowledge_packet_output_char_budget,
             },
             progress_worker_total=configured_worker_total,
             progress_callback=progress_callback,
@@ -350,7 +356,6 @@ def run_codex_farm_nonrecipe_knowledge_review(
             "wholly_unpromoted_invalid_shard_count": review_rollup[
                 "wholly_unpromoted_invalid_shard_count"
             ],
-            "semantic_rejection_shard_count": review_rollup["semantic_rejection_shard_count"],
             "unreviewed_shard_count": review_rollup["unreviewed_shard_count"],
             "unreviewed_packet_count": review_rollup["unreviewed_packet_count"],
             "unreviewed_block_count": review_rollup["unreviewed_block_count"],
@@ -414,7 +419,6 @@ def run_codex_farm_nonrecipe_knowledge_review(
                 "promoted_packet_count": int(promotion_report.get("promoted_packet_count") or 0),
                 "reviewed_shards_with_useful_packets": review_rollup["reviewed_shards_with_useful_packets"],
                 "reviewed_shards_all_other": review_rollup["reviewed_shards_all_other"],
-                "semantic_rejection_shard_count": review_rollup["semantic_rejection_shard_count"],
                 "unreviewed_shard_count": review_rollup["unreviewed_shard_count"],
                 "unreviewed_packet_count": review_rollup["unreviewed_packet_count"],
                 "unreviewed_block_count": review_rollup["unreviewed_block_count"],
@@ -452,6 +456,8 @@ def run_codex_farm_nonrecipe_knowledge_review(
                 "phase_key": "nonrecipe_knowledge_review",
                 "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
                 "configured_prompt_target_count": run_settings.knowledge_prompt_target_count,
+                "configured_packet_input_char_budget": run_settings.knowledge_packet_input_char_budget,
+                "configured_packet_output_char_budget": run_settings.knowledge_packet_output_char_budget,
                 "configured_worker_count": run_settings.knowledge_worker_count,
                 "worker_count": (
                     int(phase_manifest.worker_count)

@@ -167,3 +167,7 @@ def test_build_knowledge_jobs_metadata_is_shard_owned(
     assert metadata["owned_block_indices"] == [7, 8]
     assert metadata["owned_block_count"] == 2
     assert metadata["source_span_ids"] == ["nr.7.9"]
+    assert metadata["input_char_budget"] == 18000
+    assert metadata["output_char_budget"] == 6000
+    assert metadata["estimated_input_chars_max"] >= metadata["estimated_pass2_input_chars"]
+    assert metadata["estimated_output_chars_max"] >= metadata["estimated_pass2_output_chars"]

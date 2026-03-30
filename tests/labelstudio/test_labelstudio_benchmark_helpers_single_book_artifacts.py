@@ -366,6 +366,7 @@ def test_benchmark_helper_fallback_uses_repo_root_script_path(
     helper_script_path = tmp_path / "fake_benchmark_helper.py"
     bundle_output_dir = session_root / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     bundle_file_names = sorted(cli.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES)
+    review_dir_names = sorted(cli.BENCHMARK_UPLOAD_BUNDLE_REVIEW_DIR_NAMES)
     helper_script_path.write_text(
         "\n".join(
             [
@@ -384,8 +385,11 @@ def test_benchmark_helper_fallback_uses_repo_root_script_path(
                 "",
                 "def build_upload_bundle_for_existing_output(*, source_dir, output_dir, overwrite=False, prune_output_dir=False, high_level_only=False, target_bundle_size_bytes=None):",
                 "    output_dir.mkdir(parents=True, exist_ok=True)",
-                f"    for file_name in {bundle_file_names!r}:",
-                "        (output_dir / file_name).write_text('{}', encoding='utf-8')",
+                f"    for review_dir_name in {review_dir_names!r}:",
+                "        review_dir = output_dir / review_dir_name",
+                "        review_dir.mkdir(parents=True, exist_ok=True)",
+                f"        for file_name in {bundle_file_names!r}:",
+                "            (review_dir / file_name).write_text('{}', encoding='utf-8')",
                 "    return {'ok': True}",
                 "",
             ]
@@ -433,8 +437,8 @@ def test_benchmark_helper_fallback_uses_repo_root_script_path(
     assert (session_root / "starter_pack_v1").is_dir()
     assert (session_root / "benchmark_summary.md").is_file()
     assert bundle_dir == bundle_output_dir
-    assert {path.name for path in bundle_output_dir.iterdir() if path.is_file()} == set(
-        cli.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES
+    assert {path.name for path in bundle_output_dir.iterdir() if path.is_dir()} == set(
+        cli.BENCHMARK_UPLOAD_BUNDLE_REVIEW_DIR_NAMES
     )
     assert observed_locations == [expected_helper_path, expected_helper_path]
 

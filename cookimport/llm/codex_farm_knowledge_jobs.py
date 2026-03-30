@@ -12,8 +12,7 @@ from cookimport.staging.nonrecipe_stage import (
 )
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 from cookimport.llm.shard_prompt_targets import (
-    partition_contiguous_items,
-    resolve_shard_count,
+    coerce_positive_int,
 )
 
 from .codex_farm_knowledge_contracts import (
@@ -40,6 +39,8 @@ class KnowledgeJobBuildReport:
     shard_entries: list[ShardManifestEntryV1]
     skipped_packet_count: int = 0
     skipped_packet_reason_counts: dict[str, int] = field(default_factory=dict)
+    packet_input_char_budget: int | None = None
+    packet_output_char_budget: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +52,18 @@ class _PreparedKnowledgePacket:
     has_table_content: bool
     has_heading: bool
     source_span_ids: tuple[str, ...]
+    estimated_pass1_input_chars: int
+    estimated_pass1_output_chars: int
+    estimated_pass2_input_chars: int
+    estimated_pass2_output_chars: int
+
+
+_DEFAULT_KNOWLEDGE_PACKET_INPUT_CHAR_BUDGET = 18_000
+_DEFAULT_KNOWLEDGE_PACKET_OUTPUT_CHAR_BUDGET = 6_000
+_PASS1_ROW_OUTPUT_ESTIMATE_CHARS = 48
+_PASS2_ROW_OUTPUT_ESTIMATE_CHARS = 88
+_PACKET_BASE_OUTPUT_ESTIMATE_CHARS = 96
+_PACKET_BASE_INPUT_OVERHEAD_CHARS = 160
 
 
 def build_knowledge_jobs(
@@ -62,6 +75,8 @@ def build_knowledge_jobs(
     out_dir: Path,
     context_blocks: int = 2,
     prompt_target_count: int | None = None,
+    input_char_budget: int | None = None,
+    output_char_budget: int | None = None,
 ) -> KnowledgeJobBuildReport:
     out_dir.mkdir(parents=True, exist_ok=True)
     for stale_path in sorted(out_dir.glob("*.json")):
@@ -98,15 +113,26 @@ def build_knowledge_jobs(
         key=lambda row: int(row.get("index") or 0),
     )
     table_hints_by_index = _table_hints_by_index(ordered_review_rows)
-    requested_shard_count = resolve_shard_count(
-        total_items=len(ordered_review_rows),
-        prompt_target_count=prompt_target_count,
-        items_per_shard=None,
-        default_items_per_shard=max(1, len(ordered_review_rows) or 1),
+    resolved_input_char_budget = _resolve_budget(
+        value=input_char_budget,
+        default=_DEFAULT_KNOWLEDGE_PACKET_INPUT_CHAR_BUDGET,
     )
-    row_partitions = partition_contiguous_items(
-        ordered_review_rows,
-        shard_count=requested_shard_count,
+    resolved_output_char_budget = _resolve_budget(
+        value=output_char_budget,
+        default=_DEFAULT_KNOWLEDGE_PACKET_OUTPUT_CHAR_BUDGET,
+    )
+    row_partitions = _partition_rows_by_budget(
+        rows=ordered_review_rows,
+        input_char_budget=resolved_input_char_budget,
+        output_char_budget=resolved_output_char_budget,
+    )
+    requested_shard_count = max(
+        len(row_partitions),
+        coerce_positive_int(prompt_target_count) or len(row_partitions),
+    )
+    row_partitions = _split_budget_partitions_to_target_count(
+        row_partitions=row_partitions,
+        target_count=requested_shard_count,
     )
     prepared_packets: list[_PreparedKnowledgePacket] = []
     for shard_index, shard_rows in enumerate(row_partitions, start=0):
@@ -140,6 +166,22 @@ def build_knowledge_jobs(
                         for index in absolute_indices
                         for span_id in source_span_ids_by_index.get(index, ())
                     )
+                ),
+                estimated_pass1_input_chars=_estimate_pass1_input_chars(
+                    absolute_indices=absolute_indices,
+                    full_blocks_by_index=full_blocks_by_index,
+                    recipe_spans_payload=recipe_spans_payload,
+                    context_blocks=context_blocks,
+                ),
+                estimated_pass1_output_chars=_estimate_pass1_output_chars(
+                    owned_row_count=len(absolute_indices)
+                ),
+                estimated_pass2_input_chars=_estimate_pass2_input_chars(
+                    absolute_indices=absolute_indices,
+                    full_blocks_by_index=full_blocks_by_index,
+                ),
+                estimated_pass2_output_chars=_estimate_pass2_output_chars(
+                    owned_row_count=len(absolute_indices)
                 ),
             )
         )
@@ -179,6 +221,20 @@ def build_knowledge_jobs(
                     "owned_block_count": len(packet.absolute_indices),
                     "source_span_ids": list(packet.source_span_ids),
                     "char_count": packet.char_count,
+                    "estimated_pass1_input_chars": packet.estimated_pass1_input_chars,
+                    "estimated_pass1_output_chars": packet.estimated_pass1_output_chars,
+                    "estimated_pass2_input_chars": packet.estimated_pass2_input_chars,
+                    "estimated_pass2_output_chars": packet.estimated_pass2_output_chars,
+                    "estimated_input_chars_max": max(
+                        packet.estimated_pass1_input_chars,
+                        packet.estimated_pass2_input_chars,
+                    ),
+                    "estimated_output_chars_max": max(
+                        packet.estimated_pass1_output_chars,
+                        packet.estimated_pass2_output_chars,
+                    ),
+                    "input_char_budget": resolved_input_char_budget,
+                    "output_char_budget": resolved_output_char_budget,
                     "table_heavy": packet.has_table_content,
                     "has_heading": packet.has_heading,
                     "context_blocks": max(0, int(context_blocks)),
@@ -205,6 +261,144 @@ def build_knowledge_jobs(
         packet_ids=[packet.packet_id for packet in written_packets],
         planning_warnings=planning_warnings,
         shard_entries=shard_entries,
+        packet_input_char_budget=resolved_input_char_budget,
+        packet_output_char_budget=resolved_output_char_budget,
+    )
+
+
+def _resolve_budget(*, value: int | None, default: int) -> int:
+    if value is None:
+        return int(default)
+    return max(1, int(value))
+
+
+def _estimate_row_input_chars(row: Mapping[str, Any]) -> int:
+    text = str(row.get("text") or "").strip()
+    return len(text) + 48
+
+
+def _estimate_row_output_chars(*, row_count: int, per_row_chars: int) -> int:
+    return _PACKET_BASE_OUTPUT_ESTIMATE_CHARS + (max(0, int(row_count)) * per_row_chars)
+
+
+def _partition_rows_by_budget(
+    *,
+    rows: Sequence[Mapping[str, Any]],
+    input_char_budget: int,
+    output_char_budget: int,
+) -> list[list[dict[str, Any]]]:
+    partitions: list[list[dict[str, Any]]] = []
+    current_rows: list[dict[str, Any]] = []
+    current_input_chars = _PACKET_BASE_INPUT_OVERHEAD_CHARS
+    for row in rows:
+        row_payload = dict(row)
+        row_input_chars = _estimate_row_input_chars(row_payload)
+        next_count = len(current_rows) + 1
+        next_input_chars = current_input_chars + row_input_chars
+        next_output_chars = max(
+            _estimate_row_output_chars(
+                row_count=next_count,
+                per_row_chars=_PASS1_ROW_OUTPUT_ESTIMATE_CHARS,
+            ),
+            _estimate_row_output_chars(
+                row_count=next_count,
+                per_row_chars=_PASS2_ROW_OUTPUT_ESTIMATE_CHARS,
+            ),
+        )
+        if (
+            current_rows
+            and (
+                next_input_chars > input_char_budget
+                or next_output_chars > output_char_budget
+            )
+        ):
+            partitions.append(current_rows)
+            current_rows = [row_payload]
+            current_input_chars = _PACKET_BASE_INPUT_OVERHEAD_CHARS + row_input_chars
+            continue
+        current_rows.append(row_payload)
+        current_input_chars = next_input_chars
+    if current_rows:
+        partitions.append(current_rows)
+    return partitions
+
+
+def _split_budget_partitions_to_target_count(
+    *,
+    row_partitions: Sequence[Sequence[Mapping[str, Any]]],
+    target_count: int,
+) -> list[list[dict[str, Any]]]:
+    partitions = [
+        [dict(row) for row in partition if isinstance(row, Mapping)]
+        for partition in row_partitions
+        if partition
+    ]
+    while len(partitions) < max(1, int(target_count or 1)):
+        split_index = max(
+            range(len(partitions)),
+            key=lambda index: len(partitions[index]),
+            default=-1,
+        )
+        if split_index < 0 or len(partitions[split_index]) <= 1:
+            break
+        largest = partitions.pop(split_index)
+        midpoint = max(1, len(largest) // 2)
+        partitions.insert(split_index, largest[:midpoint])
+        partitions.insert(split_index + 1, largest[midpoint:])
+    return partitions
+
+
+def _estimate_pass1_input_chars(
+    *,
+    absolute_indices: Sequence[int],
+    full_blocks_by_index: Mapping[int, Mapping[str, Any]],
+    recipe_spans_payload: Sequence[SpanV1],
+    context_blocks: int,
+) -> int:
+    if not absolute_indices:
+        return _PACKET_BASE_INPUT_OVERHEAD_CHARS
+    packet_start_index = min(absolute_indices)
+    packet_end_index = max(absolute_indices) + 1
+    before_indices = range(max(0, packet_start_index - context_blocks), packet_start_index)
+    after_indices = range(packet_end_index, packet_end_index + max(0, int(context_blocks)))
+    context_indices = [
+        idx
+        for idx in [*before_indices, *after_indices]
+        if idx in full_blocks_by_index and not _index_in_recipe_spans(idx, recipe_spans_payload)
+    ]
+    owned_chars = sum(
+        _estimate_row_input_chars(full_blocks_by_index.get(index) or {})
+        for index in absolute_indices
+    )
+    context_chars = sum(
+        len(str((full_blocks_by_index.get(index) or {}).get("text") or "").strip()) + 24
+        for index in context_indices
+    )
+    return _PACKET_BASE_INPUT_OVERHEAD_CHARS + owned_chars + context_chars
+
+
+def _estimate_pass1_output_chars(*, owned_row_count: int) -> int:
+    return _estimate_row_output_chars(
+        row_count=owned_row_count,
+        per_row_chars=_PASS1_ROW_OUTPUT_ESTIMATE_CHARS,
+    )
+
+
+def _estimate_pass2_input_chars(
+    *,
+    absolute_indices: Sequence[int],
+    full_blocks_by_index: Mapping[int, Mapping[str, Any]],
+) -> int:
+    return _PACKET_BASE_INPUT_OVERHEAD_CHARS + sum(
+        _estimate_row_input_chars(full_blocks_by_index.get(index) or {})
+        for index in absolute_indices
+    )
+
+
+def _estimate_pass2_output_chars(*, owned_row_count: int) -> int:
+    return _estimate_row_output_chars(
+        row_count=owned_row_count,
+        per_row_chars=_PASS2_ROW_OUTPUT_ESTIMATE_CHARS,
     )
 
 

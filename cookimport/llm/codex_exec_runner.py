@@ -740,6 +740,137 @@ class FakeCodexExecRunner:
         return {"phase": "pass2", "rows": rows}
 
     @staticmethod
+    def _build_knowledge_leased_packet_result(
+        *,
+        packet_payload: Mapping[str, Any],
+        output_payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        packet_kind = str(packet_payload.get("packet_kind") or "").strip()
+        task_id = str(packet_payload.get("task_id") or "").strip()
+        shard_id = str(packet_payload.get("shard_id") or "").strip()
+        rows = packet_payload.get("rows")
+        if not isinstance(rows, list):
+            rows = []
+
+        if (
+            str(output_payload.get("packet_kind") or "").strip() == packet_kind
+            and str(output_payload.get("task_id") or "").strip() == task_id
+            and str(output_payload.get("shard_id") or "").strip() == shard_id
+            and isinstance(output_payload.get("rows"), list)
+        ):
+            normalized_rows: list[dict[str, Any]] = []
+            for row in output_payload.get("rows") or []:
+                if not isinstance(row, Mapping) or row.get("block_index") is None:
+                    continue
+                normalized_row = {"block_index": int(row.get("block_index"))}
+                if packet_kind == "pass1":
+                    normalized_row["category"] = str(row.get("category") or "").strip()
+                else:
+                    normalized_row["group_key"] = str(
+                        row.get("group_key") or row.get("group_id") or ""
+                    ).strip()
+                    normalized_row["topic_label"] = str(row.get("topic_label") or "").strip()
+                normalized_rows.append(normalized_row)
+            return {
+                "v": str(output_payload.get("v") or "1"),
+                "task_id": task_id,
+                "packet_kind": packet_kind,
+                "shard_id": shard_id,
+                "rows": normalized_rows,
+            }
+
+        if packet_kind == "pass1":
+            decision_by_block_index = {
+                int(row.get("block_index")): str(row.get("category") or "").strip()
+                for row in (output_payload.get("block_decisions") or [])
+                if isinstance(row, Mapping) and row.get("block_index") is not None
+            }
+            default_category = "knowledge" if not decision_by_block_index else "other"
+            return {
+                "v": "1",
+                "task_id": task_id,
+                "packet_kind": "pass1",
+                "shard_id": shard_id,
+                "rows": [
+                    {
+                        "block_index": int(row.get("block_index")),
+                        "category": decision_by_block_index.get(
+                            int(row.get("block_index")),
+                            default_category,
+                        )
+                        or default_category,
+                    }
+                    for row in rows
+                    if isinstance(row, Mapping) and row.get("block_index") is not None
+                ],
+            }
+
+        group_by_block_index: dict[int, dict[str, str]] = {}
+        fallback_group_key = None
+        fallback_topic_label = None
+        for group in output_payload.get("idea_groups") or []:
+            if not isinstance(group, Mapping):
+                continue
+            group_key = str(group.get("group_key") or group.get("group_id") or "").strip()
+            topic_label = str(group.get("topic_label") or "").strip()
+            if not group_key or not topic_label:
+                continue
+            if fallback_group_key is None:
+                fallback_group_key = group_key
+                fallback_topic_label = topic_label
+            for block_index in group.get("block_indices") or []:
+                try:
+                    normalized_block_index = int(block_index)
+                except (TypeError, ValueError):
+                    continue
+                group_by_block_index[normalized_block_index] = {
+                    "group_key": group_key,
+                    "topic_label": topic_label,
+                }
+        fallback_group_key = fallback_group_key or "group-01"
+        fallback_topic_label = fallback_topic_label or "Fake knowledge group"
+        return {
+            "v": "1",
+            "task_id": task_id,
+            "packet_kind": "pass2",
+            "shard_id": shard_id,
+            "rows": [
+                {
+                    "block_index": int(row.get("block_index")),
+                    "group_key": (
+                        group_by_block_index.get(int(row.get("block_index")), {}).get(
+                            "group_key"
+                        )
+                        or fallback_group_key
+                    ),
+                    "topic_label": (
+                        group_by_block_index.get(int(row.get("block_index")), {}).get(
+                            "topic_label"
+                        )
+                        or fallback_topic_label
+                    ),
+                }
+                for row in rows
+                if isinstance(row, Mapping) and row.get("block_index") is not None
+            ],
+        }
+
+    @classmethod
+    def _build_leased_packet_result(
+        cls,
+        *,
+        packet_payload: Mapping[str, Any],
+        output_payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        packet_kind = str(packet_payload.get("packet_kind") or "").strip()
+        if packet_kind in {"pass1", "pass2"}:
+            return cls._build_knowledge_leased_packet_result(
+                packet_payload=packet_payload,
+                output_payload=output_payload,
+            )
+        return dict(output_payload)
+
+    @staticmethod
     def _run_workspace_helper_command(
         *,
         execution_working_dir: Path,
@@ -1044,6 +1175,74 @@ class FakeCodexExecRunner:
                 supervision_callback=supervision_callback,
                 timeout_seconds=timeout_seconds,
             )
+        elif (execution_working_dir / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME).exists():
+            lease_iterations = 0
+            while lease_iterations < 256:
+                lease_iterations += 1
+                current_packet_path = execution_working_dir / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME
+                if not current_packet_path.exists():
+                    break
+                try:
+                    input_payload = json.loads(current_packet_path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    break
+                if not isinstance(input_payload, Mapping):
+                    break
+                result_path_path = execution_working_dir / _DIRECT_EXEC_CURRENT_RESULT_PATH_FILE_NAME
+                if not result_path_path.exists():
+                    break
+                relative_result_path = str(
+                    result_path_path.read_text(encoding="utf-8")
+                ).strip()
+                if not relative_result_path:
+                    break
+                output_payload = self._build_leased_packet_result(
+                    packet_payload=input_payload,
+                    output_payload=self.output_builder(input_payload),
+                )
+                output_path = execution_working_dir / relative_result_path
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text(
+                    json.dumps(output_payload, indent=2, sort_keys=True),
+                    encoding="utf-8",
+                )
+                _sync_direct_exec_workspace_paths(
+                    source_working_dir=working_dir,
+                    execution_working_dir=execution_working_dir,
+                    relative_paths=(
+                        _DIRECT_EXEC_SCRATCH_DIR_NAME,
+                        _DIRECT_EXEC_OUTPUT_DIR_NAME,
+                    ),
+                )
+                if supervision_callback is not None:
+                    supervision_callback(
+                        CodexExecLiveSnapshot(
+                            elapsed_seconds=0.0,
+                            last_event_seconds_ago=0.0,
+                            event_count=0,
+                            command_execution_count=0,
+                            reasoning_item_count=0,
+                            last_command=None,
+                            last_command_repeat_count=0,
+                            has_final_agent_message=False,
+                            timeout_seconds=timeout_seconds,
+                            source_working_dir=str(working_dir),
+                            execution_working_dir=str(execution_working_dir),
+                        )
+                    )
+                    _sync_direct_exec_runtime_control_paths_to_execution(
+                        source_working_dir=working_dir,
+                        execution_working_dir=execution_working_dir,
+                        relative_paths=_DIRECT_EXEC_RUNTIME_CONTROL_PATHS,
+                    )
+                    _sync_direct_exec_workspace_paths(
+                        source_working_dir=working_dir,
+                        execution_working_dir=execution_working_dir,
+                        relative_paths=(
+                            _DIRECT_EXEC_SCRATCH_DIR_NAME,
+                            _DIRECT_EXEC_OUTPUT_DIR_NAME,
+                        ),
+                    )
         else:
             for shard_row in assigned_task_rows:
                 if not isinstance(shard_row, Mapping):
@@ -1494,7 +1693,6 @@ def _copy_if_present(source: Path, destination: Path) -> None:
 
 def _copy_tree_if_present(source: Path, destination: Path) -> None:
     if not source.exists() or not source.is_dir():
-        destination.mkdir(parents=True, exist_ok=True)
         return
     shutil.copytree(source, destination, dirs_exist_ok=True)
 

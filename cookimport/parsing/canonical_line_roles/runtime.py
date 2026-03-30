@@ -265,25 +265,11 @@ def _label_atomic_lines_internal(
 
     sanitized_by_index: dict[int, CanonicalLineRolePrediction] = {}
     for candidate in ordered:
-        baseline = deterministic_baseline[candidate.atomic_index]
         current = predictions[candidate.atomic_index]
-        if current.decided_by == "codex":
-            current = _reject_codex_prediction_to_baseline_if_policy_violated(
-                prediction=current,
-                candidate=candidate,
-                by_atomic_index=by_atomic_index,
-                baseline_prediction=baseline,
-            )
-        current = _normalize_prediction_metadata(
-            prediction=current,
-            candidate=candidate,
-            by_atomic_index=by_atomic_index,
-        )
         current = _apply_prediction_decision_metadata(
             prediction=current,
             candidate=candidate,
             by_atomic_index=by_atomic_index,
-            baseline_prediction=baseline,
         )
         sanitized_by_index[candidate.atomic_index] = current
     sanitized = [sanitized_by_index[candidate.atomic_index] for candidate in ordered]
@@ -806,8 +792,10 @@ def _line_role_workspace_ledger_has_authoritative_edits(
         return False
     if not isinstance(payload, Mapping):
         return False
-    seed_payload = build_line_role_seed_output({"input_payload": shard.input_payload})
-    return payload != seed_payload
+    scaffold_payload = build_line_role_workspace_scaffold(
+        {"input_payload": shard.input_payload}
+    )
+    return payload != scaffold_payload
 
 
 
@@ -1034,7 +1022,7 @@ def _run_line_role_workspace_worker_assignment_v1(
         if not work_path.exists():
             _write_runtime_json(
                 work_path,
-                build_line_role_seed_output({"input_payload": shard.input_payload}),
+                build_line_role_workspace_scaffold({"input_payload": shard.input_payload}),
             )
         _write_worker_debug_input(
             path=in_dir / f"{shard_id}.json",
@@ -3103,7 +3091,7 @@ def _build_line_role_watchdog_retry_prompt(
         "- `NONRECIPE_EXCLUDE` means obvious outside-recipe junk that should never go to knowledge.\n\n"
         f"Previous stop reason: {original_reason_code or '[unknown]'}\n"
         f"Reason detail: {original_reason_detail or '[none recorded]'}\n\n"
-        "Authoritative shard rows to relabel (each row is [atomic_index, span_code, rule_tags, escalation_reasons, current_line]):\n"
+        "Authoritative shard rows to relabel (each row is [atomic_index, current_line]):\n"
         "<BEGIN_AUTHORITATIVE_ROWS>\n"
         f"{authoritative_rows}\n"
         "<END_AUTHORITATIVE_ROWS>\n\n"

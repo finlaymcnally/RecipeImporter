@@ -85,8 +85,8 @@ def test_build_all_method_variants_epub_expected_count() -> None:
         source_file=Path("book.epub"),
         include_codex_farm=False,
     )
-    assert len(variants) == 13
-    assert len({variant.run_settings.stable_hash() for variant in variants}) == 13
+    assert len(variants) == 9
+    assert len({variant.run_settings.stable_hash() for variant in variants}) == 9
     assert any("extractor_unstructured" in variant.slug for variant in variants)
     assert not any("extractor_markdown" in variant.slug for variant in variants)
     assert not any("extractor_markitdown" in variant.slug for variant in variants)
@@ -102,8 +102,8 @@ def test_build_all_method_variants_epub_includes_markdown_when_enabled(
         include_codex_farm=False,
         include_markdown_extractors=True,
     )
-    assert len(variants) == 15
-    assert len({variant.run_settings.stable_hash() for variant in variants}) == 15
+    assert len(variants) == 11
+    assert len({variant.run_settings.stable_hash() for variant in variants}) == 11
     assert any("extractor_markdown" in variant.slug for variant in variants)
     assert any("extractor_markitdown" in variant.slug for variant in variants)
 
@@ -214,8 +214,8 @@ def test_build_all_method_variants_epub_includes_codex_farm_when_unlocked(
         source_file=Path("book.epub"),
         include_codex_farm=True,
     )
-    assert len(variants) == 26
-    assert len({variant.run_settings.stable_hash() for variant in variants}) == 26
+    assert len(variants) == 18
+    assert len({variant.run_settings.stable_hash() for variant in variants}) == 18
     assert any("__llm_recipe_codex_recipe_shard_v1" in variant.slug for variant in variants)
 
 def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled() -> None:
@@ -246,8 +246,8 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_when_codex_enabled
         if "__llm_recipe_codex_recipe_shard_v1" in variant.slug
     ]
 
-    assert len(baseline_variants) == 13
-    assert len(codex_variants) == 13
+    assert len(baseline_variants) == 9
+    assert len(codex_variants) == 9
     assert {
         variant.run_settings.llm_recipe_pipeline.value for variant in baseline_variants
     } == {"off"}
@@ -299,7 +299,7 @@ def test_build_all_method_variants_normalizes_ai_on_baselines_without_codex() ->
         include_codex_farm=False,
     )
 
-    assert len(variants) == 13
+    assert len(variants) == 9
     assert {
         variant.run_settings.llm_recipe_pipeline.value for variant in variants
     } == {"off"}

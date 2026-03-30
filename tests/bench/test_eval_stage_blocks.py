@@ -182,8 +182,8 @@ def test_load_stage_block_prediction_manifest_preserves_unresolved_metadata(
                     "0": "RECIPE_TITLE",
                     "1": "OTHER",
                 },
-                "unresolved_review_eligible_block_indices": [1],
-                "unresolved_review_eligible_block_category_by_index": {"1": "knowledge"},
+                "unresolved_candidate_block_indices": [1],
+                "unresolved_candidate_route_by_index": {"1": "candidate"},
             },
             sort_keys=True,
         ),
@@ -194,7 +194,7 @@ def test_load_stage_block_prediction_manifest_preserves_unresolved_metadata(
 
     assert manifest.labels == {0: "RECIPE_TITLE", 1: "OTHER"}
     assert manifest.unresolved_block_indices == [1]
-    assert manifest.unresolved_block_category_by_index == {1: "knowledge"}
+    assert manifest.unresolved_block_category_by_index == {1: "candidate"}
 
 
 def test_build_pred_line_labels_preserves_howto_section_labels() -> None:
@@ -478,8 +478,8 @@ def test_evaluate_canonical_text_excludes_unresolved_lines_from_semantic_scoring
                     "1": "OTHER",
                     "2": "INGREDIENT_LINE",
                 },
-                "unresolved_review_eligible_block_indices": [1],
-                "unresolved_review_eligible_block_category_by_index": {"1": "knowledge"},
+                "unresolved_candidate_block_indices": [1],
+                "unresolved_candidate_route_by_index": {"1": "candidate"},
             },
             sort_keys=True,
         ),
@@ -514,9 +514,9 @@ def test_evaluate_canonical_text_excludes_unresolved_lines_from_semantic_scoring
     assert report["counts"]["gold_total"] == 2
     assert report["authority_coverage"]["scored_prediction_lines"] == 2
     assert report["authority_coverage"]["total_prediction_lines"] == 3
-    assert report["authority_coverage"]["unresolved_review_eligible_lines"] == 1
+    assert report["authority_coverage"]["unresolved_candidate_lines"] == 1
     assert report["authority_coverage"]["prediction_coverage"] == pytest.approx(2 / 3)
-    assert report["authority_coverage"]["unresolved_review_eligible_line_indices"] == [1]
+    assert report["authority_coverage"]["unresolved_candidate_line_indices"] == [1]
 
 
 def test_compute_block_metrics_reports_macro_and_worst_label() -> None:
@@ -707,8 +707,8 @@ def test_evaluate_stage_blocks_excludes_unresolved_predictions_from_semantic_sco
                     "1": "INGREDIENT_LINE",
                     "2": "OTHER",
                 },
-                "unresolved_review_eligible_block_indices": [2],
-                "unresolved_review_eligible_block_category_by_index": {"2": "knowledge"},
+                "unresolved_candidate_block_indices": [2],
+                "unresolved_candidate_route_by_index": {"2": "candidate"},
             },
             sort_keys=True,
         ),
@@ -739,11 +739,11 @@ def test_evaluate_stage_blocks_excludes_unresolved_predictions_from_semantic_sco
     assert report["counts"]["gold_total"] == 2
     assert report["authority_coverage"]["scored_prediction_blocks"] == 2
     assert report["authority_coverage"]["total_prediction_blocks"] == 3
-    assert report["authority_coverage"]["unresolved_review_eligible_blocks"] == 1
+    assert report["authority_coverage"]["unresolved_candidate_blocks"] == 1
     assert report["authority_coverage"]["prediction_coverage"] == pytest.approx(2 / 3)
-    assert report["authority_coverage"]["unresolved_review_eligible_block_indices"] == [2]
-    assert report["authority_coverage"]["unresolved_review_eligible_block_category_by_index"] == {
-        2: "knowledge"
+    assert report["authority_coverage"]["unresolved_candidate_block_indices"] == [2]
+    assert report["authority_coverage"]["unresolved_candidate_route_by_index"] == {
+        2: "candidate"
     }
 
 

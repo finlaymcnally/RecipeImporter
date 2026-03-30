@@ -9,8 +9,8 @@ from cookimport.parsing.line_role_workspace_tools import (
     LINE_ROLE_OUTPUT_CONTRACT_MARKDOWN,
     LINE_ROLE_WORKER_TOOL_FILENAME,
     build_line_role_repair_request_payload,
-    build_line_role_seed_output,
-    build_line_role_seed_output_for_workspace,
+    build_line_role_workspace_scaffold,
+    build_line_role_workspace_scaffold_for_workspace,
     build_line_role_workspace_shard_metadata,
     render_line_role_current_phase_brief,
     render_line_role_worker_script,
@@ -25,11 +25,11 @@ def _write_workspace_fixture(tmp_path: Path) -> tuple[Path, dict[str, object]]:
 
     shard_id = "line-role-canonical-0001-a000000-a000001"
     input_payload = {
-        "v": 1,
+        "v": 2,
         "shard_id": shard_id,
         "rows": [
-            [0, "L1", "1 cup flour"],
-            [1, "L2", "Mix well."],
+            [0, "1 cup flour"],
+            [1, "Mix well."],
         ],
     }
     metadata = build_line_role_workspace_shard_metadata(
@@ -80,7 +80,7 @@ def _write_workspace_fixture(tmp_path: Path) -> tuple[Path, dict[str, object]]:
     )
     (workspace_root / "work" / f"{shard_id}.json").write_text(
         json.dumps(
-            build_line_role_seed_output_for_workspace(workspace_root, shard_row),
+            build_line_role_workspace_scaffold_for_workspace(workspace_root, shard_row),
             indent=2,
             sort_keys=True,
         )
@@ -90,7 +90,7 @@ def _write_workspace_fixture(tmp_path: Path) -> tuple[Path, dict[str, object]]:
     return workspace_root, shard_row
 
 
-def test_line_role_workspace_seed_output_and_validation() -> None:
+def test_line_role_workspace_scaffold_and_validation() -> None:
     shard_row = {
         "input_payload": {
             "rows": [
@@ -100,7 +100,7 @@ def test_line_role_workspace_seed_output_and_validation() -> None:
         }
     }
 
-    payload = build_line_role_seed_output(shard_row)
+    payload = build_line_role_workspace_scaffold(shard_row)
 
     assert payload == {
         "rows": [
@@ -131,17 +131,17 @@ def test_line_role_workspace_shard_metadata_sets_owned_paths() -> None:
     assert metadata["repair_path"] == "repair/line-role-canonical-0001-a000000-a000001.json"
 
 
-def test_line_role_workspace_seed_output_can_load_rows_from_metadata_input_path(
+def test_line_role_workspace_scaffold_can_load_rows_from_metadata_input_path(
     tmp_path: Path,
 ) -> None:
     workspace_root, shard_row = _write_workspace_fixture(tmp_path)
 
-    payload = build_line_role_seed_output_for_workspace(workspace_root, shard_row)
+    payload = build_line_role_workspace_scaffold_for_workspace(workspace_root, shard_row)
 
     assert payload == {
         "rows": [
-            {"atomic_index": 0, "label": "INGREDIENT_LINE"},
-            {"atomic_index": 1, "label": "INSTRUCTION_LINE"},
+            {"atomic_index": 0},
+            {"atomic_index": 1},
         ]
     }
 
@@ -157,7 +157,7 @@ def test_line_role_current_phase_brief_stays_metadata_only(tmp_path: Path) -> No
     brief_text = render_line_role_current_phase_brief(shard_row)
 
     assert "Current Line-Role Phase" in brief_text
-    assert "Work ledger:" in brief_text
+    assert "Work ledger scaffold:" in brief_text
     assert "assigned_shards.json` is queue/ownership context only." in brief_text
     assert "1 cup flour" not in brief_text
 
@@ -168,6 +168,20 @@ def test_line_role_workspace_helper_cli_check_phase_and_install_phase(
     workspace_root, shard_row = _write_workspace_fixture(tmp_path)
     script_path = workspace_root / "tools" / LINE_ROLE_WORKER_TOOL_FILENAME
     shard_id = str(shard_row["shard_id"])
+    (workspace_root / "work" / f"{shard_id}.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {"atomic_index": 0, "label": "INGREDIENT_LINE"},
+                    {"atomic_index": 1, "label": "INSTRUCTION_LINE"},
+                ]
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     overview = subprocess.run(
         [sys.executable, str(script_path), "overview"],

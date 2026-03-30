@@ -336,6 +336,9 @@ def _parse_progress_event(stderr_line: str) -> dict[str, Any] | None:
 _CODEX_FARM_CREATED_RUN_PATTERN = re.compile(
     r"^Created run (?P<run_id>\S+) with (?P<total_tasks>-?\d+) tasks$"
 )
+_CODEX_FARM_LEGACY_RUN_PROGRESS_PATTERN = re.compile(
+    r"^run=(?P<run_id>\S+)\s+queued=(?P<queued>\d+)\s+running=(?P<running>\d+)\s+done=(?P<done>\d+)\s+error=(?P<error>\d+)\s+canceled=(?P<canceled>\d+)$"
+)
 
 
 def _parse_created_run_line(stderr_line: str) -> dict[str, int | str] | None:
@@ -351,6 +354,27 @@ def _parse_created_run_line(stderr_line: str) -> dict[str, int | str] | None:
     except (TypeError, ValueError):
         return None
     return {"run_id": run_id, "total_tasks": total_tasks}
+
+
+def _parse_legacy_run_progress_line(stderr_line: str) -> dict[str, int | str] | None:
+    line = str(stderr_line or "").strip()
+    match = _CODEX_FARM_LEGACY_RUN_PROGRESS_PATTERN.match(line)
+    if match is None:
+        return None
+    run_id = str(match.group("run_id") or "").strip()
+    if not run_id:
+        return None
+    try:
+        return {
+            "run_id": run_id,
+            "queued": int(match.group("queued")),
+            "running": int(match.group("running")),
+            "done": int(match.group("done")),
+            "error": int(match.group("error")),
+            "canceled": int(match.group("canceled")),
+        }
+    except (TypeError, ValueError):
+        return None
 
 
 def _format_created_run_progress_message(
@@ -377,6 +401,8 @@ def _extract_non_progress_stderr_lines(stderr_text: str) -> list[str]:
         if _parse_progress_event(raw_line) is not None:
             continue
         if _parse_created_run_line(raw_line) is not None:
+            continue
+        if _parse_legacy_run_progress_line(raw_line) is not None:
             continue
         lines.append(raw_line.rstrip("\r\n"))
     return lines

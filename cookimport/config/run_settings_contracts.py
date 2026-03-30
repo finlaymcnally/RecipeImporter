@@ -76,6 +76,8 @@ _SUMMARY_ORDER = (
     "recipe_prompt_target_count",
     "llm_knowledge_pipeline",
     "knowledge_prompt_target_count",
+    "knowledge_packet_input_char_budget",
+    "knowledge_packet_output_char_budget",
     "line_role_pipeline",
     "line_role_prompt_target_count",
     "codex_farm_cmd",

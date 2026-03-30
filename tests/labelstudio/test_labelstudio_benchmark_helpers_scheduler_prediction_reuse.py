@@ -608,7 +608,15 @@ def test_run_all_method_prediction_once_uses_adapter_forwarding_surface(
         processed_output_root / config_dir_name
     )
     for key, value in expected_kwargs.items():
-        if key in {"eval_output_dir", "eval_mode", "no_upload", "sequence_matcher"}:
+        if key in {
+            "eval_output_dir",
+            "eval_mode",
+            "no_upload",
+            "sequence_matcher",
+            "recipe_prompt_target_count",
+            "knowledge_prompt_target_count",
+            "line_role_prompt_target_count",
+        }:
             continue
         if key == "processed_output_dir":
             assert generation_kwargs["processed_output_root"] == value

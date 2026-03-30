@@ -12,9 +12,10 @@ from dataclasses import dataclass
 import logging
 import os
 import re
+import warnings
 from typing import Any, Literal
 
-from bs4 import BeautifulSoup, FeatureNotFound
+from bs4 import BeautifulSoup, FeatureNotFound, XMLParsedAsHTMLWarning
 
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 # Suppress Unstructured telemetry at import time.
 os.environ.setdefault("DO_NOT_TRACK", "true")
 os.environ.setdefault("SCARF_NO_ANALYTICS", "true")
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 # ---------------------------------------------------------------------------
 # Category → BlockType mapping

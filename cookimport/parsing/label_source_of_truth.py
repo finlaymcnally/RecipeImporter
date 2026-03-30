@@ -273,7 +273,7 @@ def build_label_first_stage_result(
                 f"atomic lines: {len(atomized)}",
             ],
         )
-        final_predictions, baseline_predictions = label_atomic_lines_with_baseline(
+        final_predictions, deterministic_reference_predictions = label_atomic_lines_with_baseline(
             atomized,
             run_settings,
             artifact_root=artifact_root,
@@ -283,11 +283,11 @@ def build_label_first_stage_result(
         )
     else:
         final_predictions = []
-        baseline_predictions = []
+        deterministic_reference_predictions = []
 
     labeled_lines = _build_authoritative_lines(
-        final_predictions=final_predictions,
-        baseline_predictions=baseline_predictions,
+        authoritative_predictions=final_predictions,
+        deterministic_reference_predictions=deterministic_reference_predictions,
     )
     block_labels = _build_authoritative_block_labels(labeled_lines)
     _notify_authoritative_progress(
@@ -714,17 +714,21 @@ def _atomize_archive_blocks(
 
 def _build_authoritative_lines(
     *,
-    final_predictions: Sequence[CanonicalLineRolePrediction],
-    baseline_predictions: Sequence[CanonicalLineRolePrediction],
+    authoritative_predictions: Sequence[CanonicalLineRolePrediction],
+    deterministic_reference_predictions: Sequence[CanonicalLineRolePrediction],
 ) -> list[AuthoritativeLabeledLine]:
-    baseline_by_atomic = {
-        int(prediction.atomic_index): prediction for prediction in baseline_predictions
+    deterministic_reference_by_atomic = {
+        int(prediction.atomic_index): prediction
+        for prediction in deterministic_reference_predictions
     }
     labeled_lines: list[AuthoritativeLabeledLine] = []
-    for prediction in final_predictions:
-        baseline = baseline_by_atomic.get(int(prediction.atomic_index), prediction)
+    for prediction in authoritative_predictions:
+        deterministic_reference = deterministic_reference_by_atomic.get(
+            int(prediction.atomic_index),
+            prediction,
+        )
         deterministic_label = _canonical_label(
-            getattr(baseline, "label", "NONRECIPE_CANDIDATE")
+            getattr(deterministic_reference, "label", "NONRECIPE_CANDIDATE")
         )
         final_label = _canonical_label(
             getattr(prediction, "label", "NONRECIPE_CANDIDATE")

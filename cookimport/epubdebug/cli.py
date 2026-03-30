@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import warnings
 import zipfile
 from collections import Counter
 from contextlib import contextmanager
@@ -12,7 +13,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import typer
-from bs4 import BeautifulSoup, FeatureNotFound
+from bs4 import BeautifulSoup, FeatureNotFound, XMLParsedAsHTMLWarning
 
 from cookimport.core.blocks import Block
 from cookimport.epub_extractor_names import (
@@ -46,6 +47,8 @@ except Exception:  # pragma: no cover - optional debug dependency
 
 
 epub_app = typer.Typer(help="EPUB inspection and pipeline debugging tools.")
+
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 _CLASS_KEYWORDS = ("ingredient", "instruction", "direction", "method", "recipe")
 

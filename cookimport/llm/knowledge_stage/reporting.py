@@ -102,9 +102,6 @@ def _build_review_summary(
             counts.get("reviewed_shards_with_useful_packets") or 0
         ),
         "reviewed_shards_all_other": int(counts.get("reviewed_shards_all_other") or 0),
-        "semantic_rejection_shard_count": int(
-            counts.get("semantic_rejection_shard_count") or 0
-        ),
         "unreviewed_shard_count": int(counts.get("unreviewed_shard_count") or 0),
         "unreviewed_packet_count": unreviewed_packet_count,
         "unreviewed_block_count": int(counts.get("unreviewed_block_count") or 0),
@@ -130,9 +127,6 @@ def _build_knowledge_review_rollup(
     wholly_unpromoted_invalid_shard_count = int(
         report.get("wholly_unpromoted_invalid_shards") or 0
     )
-    semantic_rejection_shard_count = int(
-        report.get("semantic_rejection_shard_count") or 0
-    )
     unreviewed_packet_count = int(
         report.get("unreviewed_packet_count")
         or (
@@ -150,7 +144,6 @@ def _build_knowledge_review_rollup(
         "reviewed_shards_all_other": reviewed_shards_all_other,
         "partially_promoted_shard_count": partially_promoted_shard_count,
         "wholly_unpromoted_invalid_shard_count": wholly_unpromoted_invalid_shard_count,
-        "semantic_rejection_shard_count": semantic_rejection_shard_count,
         "meaningfully_reviewed_shard_count": (
             reviewed_shards_with_useful_packets + reviewed_shards_all_other
         ),
@@ -478,18 +471,6 @@ def _write_knowledge_runtime_summary_artifacts(
             1
             for row in proposal_promotion_rows
             if row["reviewed_all_other"]
-        ),
-        "semantic_rejection_shard_count": sum(
-            1
-            for proposal in all_proposals
-            if proposal.status == "invalid"
-            and (
-                _proposal_has_validation_error_prefix(
-                    proposal,
-                    prefix="semantic_",
-                )
-                or bool((proposal.metadata or {}).get("semantic_rejection"))
-            )
         ),
         "unreviewed_packet_count": sum(
             _unreviewed_packet_count_for_proposal(row["proposal"], row["promotion_info"])

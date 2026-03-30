@@ -383,7 +383,7 @@ def test_build_stage_observability_report_surfaces_processing_attention_summarie
     assert final_recipe_stage["workbooks"][0]["attention_summary"]["zero_target_counts"]["final_recipe_not_promoted_count"] == 2
 
 
-def test_build_recipe_stage_summary_reports_same_session_fix_rollups(tmp_path: Path) -> None:
+def test_build_recipe_stage_summary_reports_packet_followup_rollups(tmp_path: Path) -> None:
     stage_root = tmp_path / "raw" / "llm" / "book" / "recipe_phase_runtime"
     (stage_root / "proposals").mkdir(parents=True, exist_ok=True)
     (stage_root / "workers" / "worker-001" / "out").mkdir(parents=True, exist_ok=True)
@@ -429,20 +429,13 @@ def test_build_recipe_stage_summary_reports_same_session_fix_rollups(tmp_path: P
         "{}",
         encoding="utf-8",
     )
-    _write_json(task_root / "same_session_fix_status.json", {
-        "same_session_fix_attempted": True,
-        "same_session_fix_count": 2,
-        "same_session_fix_status": "budget_exhausted",
-    })
     _write_json(task_root / "repair_status.json", {"status": "repaired"})
     _write_json(task_root / "status.json", {"status": "validated"})
 
     summary = build_recipe_stage_summary(stage_root)
 
-    assert summary["schema_version"] == "recipe_stage_summary.v4"
-    assert summary["followups"]["same_session_fix_attempted_count"] == 1
-    assert summary["followups"]["same_session_fix_escalated_count"] == 1
-    assert summary["followups"]["same_session_fix_budget_exhausted_count"] == 1
+    assert summary["schema_version"] == "recipe_stage_summary.v5"
+    assert summary["followups"]["label"] == "packet_followup"
     assert summary["followups"]["handled_locally_skip_llm_count"] == 2
     assert summary["followups"]["repair_completed_count"] == 1
     assert summary["attention_summary"]["needs_attention"] is True
@@ -450,7 +443,9 @@ def test_build_recipe_stage_summary_reports_same_session_fix_rollups(tmp_path: P
     assert summary["attention_summary"]["zero_target_counts"]["fragmentary_recipe_count"] == 2
     assert summary["attention_summary"]["zero_target_counts"]["not_a_recipe_recipe_count"] == 1
     assert summary["attention_summary"]["zero_target_counts"]["final_recipe_not_promoted_count"] == 3
+    assert "same_session_fix_escalated_count" not in summary["attention_summary"]["zero_target_counts"]
     assert summary["attention_summary"]["context_counts"]["handled_locally_skip_llm_count"] == 2
+    assert "same_session_fix_attempted_count" not in summary["attention_summary"]["context_counts"]
     assert summary["attention_summary"]["reason_counts"]["handled_locally_skip_llm_status_counts"] == {
         "fragmentary": 1,
         "not_a_recipe": 1,
@@ -599,7 +594,7 @@ def test_summarize_knowledge_stage_artifacts_uses_status_file(tmp_path: Path) ->
     summary = summarize_knowledge_stage_artifacts(stage_root)
 
     assert summary["authoritative"] is True
-    assert summary["schema_version"] == "knowledge_stage_summary.v2"
+    assert summary["schema_version"] == "knowledge_stage_summary.v3"
     assert summary["stage_state"] == "interrupted"
     assert summary["termination_cause"] == "operator_interrupt"
     assert summary["finalization_completeness"] == "interrupted_before_finalization"
@@ -748,40 +743,6 @@ def _build_knowledge_stage_rollup_fixture(tmp_path: Path) -> dict[str, object]:
         / "worker-001"
         / "shards"
         / "book.ks0000.nr.task-002"
-        / "semantic_audit.json",
-        {
-            "status": "passed_after_repair",
-            "repair_requested": True,
-            "repair_cleared": True,
-            "flag_count": 0,
-            "flags": [],
-        },
-    )
-    _write_json(
-        stage_root
-        / "workers"
-        / "worker-001"
-        / "shards"
-        / "book.ks0000.nr.task-003"
-        / "semantic_audit.json",
-        {
-            "status": "repair_required",
-            "repair_requested": True,
-            "repair_cleared": False,
-            "flag_count": 2,
-            "flagged_block_indices": [10, 11],
-            "flags": [
-                {"code": "memoir_like_keep"},
-                {"code": "guidance_like_other"},
-            ],
-        },
-    )
-    _write_json(
-        stage_root
-        / "workers"
-        / "worker-001"
-        / "shards"
-        / "book.ks0000.nr.task-002"
         / "watchdog_retry"
         / "status.json",
         {"status": "validated"},
@@ -852,9 +813,6 @@ def test_summarize_knowledge_stage_artifacts_reports_packet_and_worker_rollups(
         "completed_outputs_stabilized": 1,
     }
     assert summary["workers"]["output_count"] == 1
-    assert summary["semantic_audit"]["repair_requested_count"] == 2
-    assert summary["semantic_audit"]["repair_cleared_count"] == 1
-    assert summary["semantic_audit"]["open_flagged_shard_count"] == 1
 
 
 def test_summarize_knowledge_stage_artifacts_reports_followup_and_salvage_rollups(
@@ -876,10 +834,6 @@ def test_summarize_knowledge_stage_artifacts_reports_followup_and_salvage_rollup
     assert summary["followups"]["circuit_breaker_activation_count"] == 1
     assert summary["salvage"]["success_count"] == 1
     assert summary["salvage"]["kind_counts"] == {"trailing_eof_trimmed": 1}
-    assert summary["attention_summary"]["zero_target_counts"]["semantic_audit_open_shard_count"] == 1
-    assert summary["attention_summary"]["context_counts"]["semantic_audit_repair_requested_count"] == 2
-    assert summary["attention_summary"]["context_counts"]["semantic_audit_repair_cleared_count"] == 1
-    assert summary["attention_summary"]["reason_counts"]["semantic_audit_flag_code_counts"] == {
-        "guidance_like_other": 1,
-        "memoir_like_keep": 1,
-    }
+    assert "semantic_audit_open_shard_count" not in summary["attention_summary"]["zero_target_counts"]
+    assert "semantic_audit_repair_requested_count" not in summary["attention_summary"]["context_counts"]
+    assert "semantic_audit_flag_code_counts" not in summary["attention_summary"]["reason_counts"]

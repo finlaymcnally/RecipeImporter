@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import cookimport.cli as cli
 from cookimport.bench.eval_canonical_text import evaluate_canonical_text
+from tests.labelstudio.benchmark_helper_support import _patch_cli_attr
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:

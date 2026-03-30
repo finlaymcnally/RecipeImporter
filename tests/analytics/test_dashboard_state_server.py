@@ -85,8 +85,8 @@ def test_dashboard_state_server_rejects_non_object_payload(tmp_path: Path) -> No
         with pytest.raises(urllib.error.HTTPError) as exc_info:
             urllib.request.urlopen(write_request, timeout=2)
         assert exc_info.value.code == 400
+        exc_info.value.close()
     finally:
         server.shutdown()
         server.server_close()
         worker.join(timeout=3)
-

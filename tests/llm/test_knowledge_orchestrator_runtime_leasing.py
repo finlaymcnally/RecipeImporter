@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -27,7 +26,7 @@ def _run_runtime_phase_fixture(
 ) -> dict[str, object]:
     configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
 
-    class PhaseRunner(FakeCodexExecRunner):
+    class LeaseRunner(FakeCodexExecRunner):
         def __init__(self) -> None:
             super().__init__(
                 output_builder=lambda payload: build_structural_pipeline_output(
@@ -36,10 +35,10 @@ def _run_runtime_phase_fixture(
                 )
             )
             self.initial_assigned_shard_ids: list[str] = []
-            self.initial_pass1_ledgers: dict[str, dict[str, object]] = {}
-            self.initial_phase_row: dict[str, object] | None = None
-            self.initial_check_phase: subprocess.CompletedProcess[str] | None = None
-            self.initial_phase_brief = ""
+            self.initial_packet: dict[str, object] | None = None
+            self.initial_hint = ""
+            self.initial_result_path = ""
+            self.initial_lease_status: dict[str, object] | None = None
             self.saw_task_queue_surface = False
 
         def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
@@ -61,28 +60,28 @@ def _run_runtime_phase_fixture(
                 for row in assigned_shards
                 if isinstance(row, dict)
             ]
-            self.initial_pass1_ledgers = {
-                path.name: json.loads(path.read_text(encoding="utf-8"))
-                for path in sorted((working_dir / "work").glob("*.pass1.json"))
-            }
-            self.initial_phase_row = json.loads(
-                (working_dir / "current_phase.json").read_text(encoding="utf-8")
+            self.initial_packet = json.loads(
+                (working_dir / "current_packet.json").read_text(encoding="utf-8")
             )
-            self.initial_phase_brief = (working_dir / "CURRENT_PHASE.md").read_text(
+            self.initial_hint = (working_dir / "current_hint.md").read_text(encoding="utf-8")
+            self.initial_result_path = (working_dir / "current_result_path.txt").read_text(
                 encoding="utf-8"
+            ).strip()
+            self.initial_lease_status = json.loads(
+                (working_dir / "packet_lease_status.json").read_text(encoding="utf-8")
             )
-            self.initial_check_phase = subprocess.run(
-                ["python3", "tools/knowledge_worker.py", "check-phase"],
-                cwd=working_dir,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
+            assert not (working_dir / "current_phase.json").exists()
+            assert not (working_dir / "CURRENT_PHASE.md").exists()
+            assert not (working_dir / "CURRENT_PHASE_FEEDBACK.md").exists()
             return super().run_workspace_worker(*args, **kwargs)
 
     pack_root, run_root = make_runtime_pack_and_run_dirs(tmp_path)
-    settings = make_runtime_settings(pack_root=pack_root, worker_count=1)
-    runner = PhaseRunner()
+    settings = make_runtime_settings(
+        pack_root=pack_root,
+        worker_count=1,
+        knowledge_prompt_target_count=2,
+    )
+    runner = LeaseRunner()
     apply_result = run_codex_farm_nonrecipe_knowledge_review(
         conversion_result=make_runtime_conversion_result(
             ["Knowledge zero.", "Recipe gap.", "Knowledge two."]
@@ -106,7 +105,7 @@ def _run_runtime_phase_fixture(
     }
 
 
-def test_knowledge_orchestrator_uses_phase_surface_not_task_queue_surface(
+def test_knowledge_orchestrator_uses_packet_lease_surface_not_task_queue_surface(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -121,37 +120,80 @@ def test_knowledge_orchestrator_uses_phase_surface_not_task_queue_surface(
     assert not (worker_root / "CURRENT_TASK.md").exists()
     assert not (worker_root / "CURRENT_TASK_FEEDBACK.md").exists()
     assert runner.initial_assigned_shard_ids == ["book.ks0000.nr", "book.ks0001.nr"]
-    assert runner.initial_phase_row == {
-        "status": "active",
-        "phase": "pass1",
+    assert runner.initial_packet == {
+        "v": "1",
+        "task_id": "book.ks0000.nr.pass1",
+        "packet_kind": "pass1",
         "shard_id": "book.ks0000.nr",
-        "input_path": "in/book.ks0000.nr.json",
-        "work_path": "work/book.ks0000.nr.pass1.json",
-        "repair_path": "repair/book.ks0000.nr.pass1.json",
-        "semantic_audit_path": "shards/book.ks0000.nr/semantic_audit.json",
-        "result_path": "out/book.ks0000.nr.json",
-        "hint_path": "hints/book.ks0000.nr.md",
+        "rows": [{"block_index": 0, "text": "Knowledge zero."}],
     }
-    assert "check-phase" in runner.initial_phase_brief
+    assert "Result path: `scratch/book.ks0000.nr.pass1.json`" in runner.initial_hint
+    assert runner.initial_result_path == "scratch/book.ks0000.nr.pass1.json"
+    assert runner.initial_lease_status == {
+        "worker_state": "leased_current_packet",
+        "current_task_id": "book.ks0000.nr.pass1",
+        "current_shard_id": "book.ks0000.nr",
+        "packet_kind": "pass1",
+        "packet_count_total": 1,
+        "repair_packet_count": 0,
+        "completed_shard_count": 0,
+        "failed_shard_count": 0,
+        "queue_total_shard_count": 2,
+    }
 
 
-def test_knowledge_orchestrator_seeds_raw_pass1_ledgers_before_worker_edits(
+def test_knowledge_orchestrator_advances_packet_leases_and_assembles_final_outputs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     fixture = _run_runtime_phase_fixture(monkeypatch, tmp_path)
-    runner = fixture["runner"]
     worker_root = fixture["worker_root"]
 
-    assert runner.initial_check_phase is not None
-    assert runner.initial_check_phase.returncode == 1
-    assert runner.initial_pass1_ledgers == {
-        "book.ks0000.nr.pass1.json": {
-            "phase": "pass1",
-            "rows": [{"block_index": 0, "text": "Knowledge zero.", "category": ""}],
-        },
-        "book.ks0001.nr.pass1.json": {
-            "phase": "pass1",
-            "rows": [{"block_index": 2, "text": "Knowledge two.", "category": ""}],
-        },
+    packet_history = [
+        json.loads(line)
+        for line in (worker_root / "packet_history.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    queue_status = json.loads(
+        (worker_root / "packet_lease_status.json").read_text(encoding="utf-8")
+    )
+    first_output = json.loads(
+        (worker_root / "out" / "book.ks0000.nr.json").read_text(encoding="utf-8")
+    )
+    second_output = json.loads(
+        (worker_root / "out" / "book.ks0001.nr.json").read_text(encoding="utf-8")
+    )
+    assert queue_status == {
+        "worker_state": "queue_completed",
+        "completed_shard_count": 2,
+        "failed_shard_count": 0,
+        "queue_total_shard_count": 2,
     }
+    assert not (worker_root / "current_packet.json").exists()
+    assert not (worker_root / "current_hint.md").exists()
+    assert not (worker_root / "current_result_path.txt").exists()
+    assert [event["event"] for event in packet_history] == [
+        "lease_started",
+        "lease_started",
+        "shard_validated",
+        "lease_started",
+        "lease_started",
+        "shard_validated",
+    ]
+    assert [event.get("task_id") for event in packet_history if event["event"] == "lease_started"] == [
+        "book.ks0000.nr.pass1",
+        "book.ks0000.nr.pass2",
+        "book.ks0001.nr.pass1",
+        "book.ks0001.nr.pass2",
+    ]
+    assert first_output["packet_id"] == "book.ks0000.nr"
+    assert first_output["block_decisions"] == [
+        {"block_index": 0, "category": "knowledge", "reviewer_category": "knowledge"}
+    ]
+    assert first_output["idea_groups"] == [
+        {"group_id": "g01", "topic_label": "Fake knowledge group", "block_indices": [0]}
+    ]
+    assert second_output["packet_id"] == "book.ks0001.nr"
+    assert second_output["block_decisions"] == [
+        {"block_index": 2, "category": "knowledge", "reviewer_category": "knowledge"}
+    ]

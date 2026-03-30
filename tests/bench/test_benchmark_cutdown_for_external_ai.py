@@ -1692,7 +1692,10 @@ def test_main_upload_3_files_only_consolidates_and_preserves_artifacts(tmp_path:
     assert exit_code == 0
 
     output_files = sorted(path.name for path in output_dir.iterdir())
-    assert output_files == sorted(module.UPLOAD_BUNDLE_FILE_NAMES)
+    assert output_files == sorted(module.UPLOAD_BUNDLE_REVIEW_PROFILE_DIR_NAMES)
+    for review_dir in module.UPLOAD_BUNDLE_REVIEW_PROFILE_DIR_NAMES:
+        lane_files = sorted(path.name for path in (output_dir / review_dir).iterdir())
+        assert lane_files == sorted(module.UPLOAD_BUNDLE_FILE_NAMES)
     assert all(not name.endswith(".csv") for name in output_files)
 
     index_payload = _read_json(output_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)

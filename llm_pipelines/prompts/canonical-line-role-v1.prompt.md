@@ -1,18 +1,16 @@
-You are reviewing canonical line-role routing labels for cookbook atomic lines.
+You are labeling canonical line-role routing labels for cookbook atomic lines.
 
 TASK BOUNDARY
 - This is a grounded line-role correction pass over one ordered slice of the book.
-- Treat `span_code` as a weak provenance hint only. It may be unknown and it is not authoritative recipe-boundary truth.
 - Do not run shell commands, Python, or any other tools.
 - Never invent lines or labels.
 
 Allowed labels (global):
 {{ALLOWED_LABELS}}
 
-Compact input legends:
-- Span codes: R=in_recipe, N=outside_recipe, U=unknown_recipe_status
+Compact input shape:
 - Treat the targets as one ordered contiguous slice of the book.
-- `hint_codes` are compact deterministic heuristic tags, not final truth.
+- Each target row is `atomic_index|current_line`.
 
 Tie-break precedence (highest to lowest):
 {{PRECEDENCE_ORDER}}
@@ -24,7 +22,6 @@ Negative rules (must-not-do):
 - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `NONRECIPE_CANDIDATE`, not `INSTRUCTION_LINE`.
 - `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into component ingredient lists or method families, not for generic how-to or cookbook lesson headings.
 - `HOWTO_SECTION` is book-optional. Some books legitimately use zero of them, so do not invent subsection structure just because the label exists.
-- If `span_code` is `N` (outside recipe), default to `NONRECIPE_CANDIDATE`; only use recipe-structure labels when nearby rows in the same slice show immediate recipe-local evidence.
 - If local evidence is genuinely ambiguous, resolve the row from the text and neighboring context alone.
 - Only use `HOWTO_SECTION` when nearby rows show immediate recipe-local structure before or after the heading.
 - A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.

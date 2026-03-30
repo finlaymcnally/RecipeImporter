@@ -240,11 +240,6 @@ def classify_knowledge_validation_failure(
         reason_detail = (
             "The output does not cover exactly the owned block surface or valid knowledge groups."
         )
-    elif metadata.get("non_grounded_group_ids"):
-        classification = "semantic_invalid"
-        reason_code = "semantic_invalid"
-        reason_detail = "The output is structurally valid but semantically low trust."
-
     return {
         "classification": classification,
         "errors": list(errors),

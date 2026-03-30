@@ -3731,6 +3731,12 @@ def _run_all_method_prediction_once(
                             "llm_knowledge_pipeline": benchmark_kwargs[
                                 "llm_knowledge_pipeline"
                             ],
+                            "knowledge_packet_input_char_budget": benchmark_kwargs[
+                                "knowledge_packet_input_char_budget"
+                            ],
+                            "knowledge_packet_output_char_budget": benchmark_kwargs[
+                                "knowledge_packet_output_char_budget"
+                            ],
                             "atomic_block_splitter": benchmark_kwargs[
                                 "atomic_block_splitter"
                             ],

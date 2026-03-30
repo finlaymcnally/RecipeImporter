@@ -78,7 +78,7 @@ from cookimport.parsing.line_role_workspace_tools import (
     LINE_ROLE_OUTPUT_CONTRACT_MARKDOWN,
     LINE_ROLE_WORKER_TOOL_FILENAME,
     build_line_role_repair_request_payload,
-    build_line_role_seed_output,
+    build_line_role_workspace_scaffold,
     validate_line_role_output_payload,
     build_line_role_workspace_shard_metadata,
     render_line_role_current_phase_brief,
@@ -343,7 +343,7 @@ _LINE_ROLE_CODEX_EXEC_DEFAULT_CMD = "codex exec"
 _LINE_ROLE_DIRECT_RUNTIME_ARTIFACT_SCHEMA = "line_role.direct_worker_runtime.v1"
 _CODEX_EXECUTABLES = {"codex", "codex.exe", "codex2", "codex2.exe"}
 LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT = 240
-_LINE_ROLE_MODEL_PAYLOAD_VERSION = 1
+_LINE_ROLE_MODEL_PAYLOAD_VERSION = 2
 _PAGE_FURNITURE_RE = re.compile(r"^\s*(?:\d{1,4}|[ivxlcdm]{1,8})\s*$", re.IGNORECASE)
 _COPYRIGHT_LEGAL_RE = re.compile(
     r"\b(?:copyright|all rights reserved|used by permission|no part of this)\b",

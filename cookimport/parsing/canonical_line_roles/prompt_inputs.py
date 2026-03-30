@@ -58,16 +58,5 @@ def serialize_line_role_model_context_row(
 def serialize_line_role_model_row(
     *,
     candidate: AtomicLineCandidate,
-    escalation_reasons: Sequence[str],
 ) -> list[Any]:
-    return [
-        int(candidate.atomic_index),
-        "R"
-        if candidate.within_recipe_span is True
-        else "N"
-        if candidate.within_recipe_span is False
-        else "U",
-        list(candidate.rule_tags),
-        list(escalation_reasons),
-        str(candidate.text),
-    ]
+    return [int(candidate.atomic_index), str(candidate.text)]

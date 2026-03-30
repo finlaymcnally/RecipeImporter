@@ -131,7 +131,33 @@ def test_benchmark_csv_backfill_cli_writes_updates(
     def fake_stats_dashboard(**kwargs):
         captured_dashboard.update(kwargs)
 
-    monkeypatch.setattr("cookimport.cli_commands.analytics.stats_dashboard", fake_stats_dashboard)
+    def fake_refresh_dashboard_after_history_write(
+        *,
+        csv_path,
+        output_root=None,
+        golden_root,
+        dashboard_out_dir=None,
+        reason=None,
+    ):
+        del reason
+        if output_root is None:
+            from cookimport import cli_support as runtime
+
+            output_root = runtime._infer_output_root_from_history_csv(csv_path)
+        fake_stats_dashboard(
+            output_root=output_root,
+            golden_root=golden_root,
+            out_dir=dashboard_out_dir or (csv_path.parent / "dashboard"),
+            open_browser=False,
+            since_days=None,
+            scan_reports=False,
+            scan_benchmark_reports=False,
+        )
+
+    monkeypatch.setattr(
+        "cookimport.cli_commands.analytics._refresh_dashboard_after_history_write",
+        fake_refresh_dashboard_after_history_write,
+    )
 
     result = runner.invoke(
         app,
@@ -190,7 +216,10 @@ def test_benchmark_csv_backfill_cli_backfills_codex_runtime_config(
         processed_report,
         include_codex_runtime=True,
     )
-    monkeypatch.setattr("cookimport.cli_commands.analytics.stats_dashboard", lambda **_: None)
+    monkeypatch.setattr(
+        "cookimport.cli_commands.analytics._refresh_dashboard_after_history_write",
+        lambda **_: None,
+    )
 
     result = runner.invoke(
         app,

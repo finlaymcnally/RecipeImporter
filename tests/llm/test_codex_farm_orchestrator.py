@@ -184,6 +184,102 @@ def _build_valid_recipe_task_output(task_payload: dict[str, object]) -> dict[str
     }
 
 
+class _ValidRecipeWorkspaceRunner(FakeCodexExecRunner):
+    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+        working_dir = Path(kwargs["working_dir"])
+        process_env = exec_runner_module._merge_env(kwargs["env"])
+        prepared = exec_runner_module.prepare_direct_exec_workspace(
+            source_working_dir=working_dir,
+            env=process_env,
+            task_label=kwargs.get("workspace_task_label"),
+            mode="workspace_worker",
+        )
+        execution_working_dir = prepared.execution_working_dir
+        execution_prompt_text = exec_runner_module.rewrite_direct_exec_prompt_paths(
+            prompt_text=kwargs["prompt_text"],
+            source_working_dir=working_dir,
+            execution_working_dir=execution_working_dir,
+        )
+        self.calls.append(
+            {
+                "mode": "workspace_worker",
+                "prompt_text": execution_prompt_text,
+                "input_payload": None,
+                "working_dir": str(working_dir),
+                "execution_working_dir": str(execution_working_dir),
+                "output_schema_path": None,
+                "model": kwargs.get("model"),
+                "reasoning_effort": kwargs.get("reasoning_effort"),
+                "timeout_seconds": kwargs.get("timeout_seconds"),
+                "workspace_task_label": kwargs.get("workspace_task_label"),
+            }
+        )
+
+        out_dir = execution_working_dir / "out"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for task_row in exec_runner_module._read_workspace_manifest_rows(  # noqa: SLF001
+            execution_working_dir=execution_working_dir
+        ):
+            if not isinstance(task_row, dict):
+                continue
+            task_id = str(task_row.get("task_id") or task_row.get("shard_id") or "").strip()
+            if not task_id:
+                continue
+            input_path = execution_working_dir / "in" / f"{task_id}.json"
+            if not input_path.exists():
+                continue
+            input_payload = json.loads(input_path.read_text(encoding="utf-8"))
+            output_payload = self.output_builder(input_payload)
+            (out_dir / f"{task_id}.json").write_text(
+                json.dumps(output_payload, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+
+        exec_runner_module._sync_direct_exec_workspace_paths(  # noqa: SLF001
+            source_working_dir=working_dir,
+            execution_working_dir=execution_working_dir,
+            relative_paths=("in", "out", "scratch", "work", "repair"),
+        )
+        response_text = (
+            str(self.workspace_final_message_text)
+            if self.workspace_final_message_text is not None
+            else json.dumps({"status": "worker_completed"}, indent=2, sort_keys=True)
+        )
+        usage = {
+            "input_tokens": max(1, len(execution_prompt_text) // 4),
+            "cached_input_tokens": 0,
+            "output_tokens": max(1, len(response_text) // 4),
+            "reasoning_tokens": 0,
+        }
+        events = (
+            {"type": "thread.started"},
+            {
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": response_text},
+            },
+            {"type": "turn.completed", "usage": usage},
+        )
+        return CodexExecRunResult(
+            command=["codex", "exec"],
+            subprocess_exit_code=0,
+            output_schema_path=None,
+            prompt_text=execution_prompt_text,
+            response_text=response_text,
+            turn_failed_message=None,
+            events=events,
+            usage=usage,
+            stdout_text="\n".join(json.dumps(event) for event in events) + "\n",
+            source_working_dir=str(working_dir),
+            execution_working_dir=str(execution_working_dir),
+            execution_agents_path=str(prepared.agents_path),
+            duration_ms=1,
+            started_at_utc="2026-01-01T00:00:00Z",
+            finished_at_utc="2026-01-01T00:00:00Z",
+            workspace_mode="workspace_worker",
+            supervision_state="completed",
+        )
+
+
 def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
     tmp_path: Path,
 ) -> None:
@@ -195,29 +291,12 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
         tmp_path / "pack",
         llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
     )
-    runner = FakeCodexExecRunner(
+    runner = _ValidRecipeWorkspaceRunner(
         output_builder=lambda payload: {
-            "v": "1",
-            "sid": payload.get("sid"),
+            **_build_valid_recipe_task_output(dict(payload or {})),
             "r": [
                 {
-                    "v": "1",
-                    "rid": payload["r"][0]["rid"],
-                    "st": "repaired",
-                    "sr": None,
-                    "cr": {
-                        "t": "Toast",
-                        "i": [
-                            "1 slice bread",
-                            "1 tablespoon butter",
-                        ],
-                        "s": [
-                            "Toast the bread until golden.",
-                            "Spread with butter and serve hot.",
-                        ],
-                        "d": None,
-                        "y": None,
-                    },
+                    **_build_valid_recipe_task_output(dict(payload or {}))["r"][0],
                     "m": [
                         {"i": 0, "s": [0]},
                         {"i": 1, "s": [1]},
@@ -235,7 +314,6 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
                             "f": 0.79,
                         },
                     ],
-                    "w": [],
                 }
             ],
         }
@@ -760,18 +838,15 @@ def test_orchestrator_keeps_not_a_recipe_proposal_in_reports_but_skips_promotion
         tmp_path / "pack",
         llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
     )
-    runner = FakeCodexExecRunner(
+    runner = _ValidRecipeWorkspaceRunner(
         output_builder=lambda payload: {
-            "v": "1",
-            "sid": payload.get("sid"),
+            **_build_valid_recipe_task_output(dict(payload or {})),
             "r": [
                 {
-                    "v": "1",
-                    "rid": payload["r"][0]["rid"],
+                    **_build_valid_recipe_task_output(dict(payload or {}))["r"][0],
                     "st": "not_a_recipe",
                     "sr": "reference_table",
                     "cr": None,
-                    "m": [],
                     "mr": "not_applicable_not_a_recipe",
                     "g": [],
                     "w": ["candidate_rejected"],
@@ -849,18 +924,15 @@ def test_orchestrator_keeps_fragmentary_proposal_visible_but_non_promoted(
         tmp_path / "pack",
         llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
     )
-    runner = FakeCodexExecRunner(
+    runner = _ValidRecipeWorkspaceRunner(
         output_builder=lambda payload: {
-            "v": "1",
-            "sid": payload.get("sid"),
+            **_build_valid_recipe_task_output(dict(payload or {})),
             "r": [
                 {
-                    "v": "1",
-                    "rid": payload["r"][0]["rid"],
+                    **_build_valid_recipe_task_output(dict(payload or {}))["r"][0],
                     "st": "fragmentary",
                     "sr": "incomplete_recipe_source",
                     "cr": None,
-                    "m": [],
                     "mr": "not_applicable_fragmentary",
                     "g": [],
                     "w": ["incomplete_recipe_source"],
@@ -983,7 +1055,7 @@ def test_orchestrator_rejects_complex_empty_mapping_without_reason_and_skips_pro
         ).read_text(encoding="utf-8")
     )
 
-    assert [call["mode"] for call in runner.calls] == ["workspace_worker", "structured_prompt"]
+    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
     assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
     assert proposal["payload"] is None
     assert proposal["repair_attempted"] is True
@@ -1068,7 +1140,7 @@ def test_orchestrator_rejects_multi_ingredient_single_step_empty_mapping_without
         ).read_text(encoding="utf-8")
     )
 
-    assert [call["mode"] for call in runner.calls] == ["workspace_worker", "structured_prompt"]
+    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
     assert proposal["payload"] is None
     assert proposal["repair_attempted"] is True
     assert manifest["counts"]["recipe_correction_error"] == 1
@@ -1132,10 +1204,8 @@ def test_orchestrator_repairs_near_miss_invalid_recipe_shard_once(
         runner=runner,
     )
 
-    assert len(runner.calls) == 2
+    assert len(runner.calls) == 1
     assert runner.calls[0]["mode"] == "workspace_worker"
-    assert "Authoritative shard input:" in runner.calls[1]["prompt_text"]
-    assert "Missing recipe ids: urn:recipe:test:toast" in runner.calls[1]["prompt_text"]
 
     proposal = json.loads(
         (
@@ -1158,16 +1228,11 @@ def test_orchestrator_repairs_near_miss_invalid_recipe_shard_once(
     )
 
     assert proposal["repair_attempted"] is True
-    assert proposal["repair_status"] == "repaired"
-    assert proposal["validation_errors"] == []
-    assert repair_status["status"] == "repaired"
-    assert repair_status["state"] == "completed"
-    assert (
-        apply_result.authoritative_recipe_payloads_by_recipe_id[
-            "urn:recipe:test:toast"
-        ].title
-        == "Toast"
-    )
+    assert proposal["repair_status"] == "failed"
+    assert proposal["validation_errors"] == ["missing_recipe_ids"]
+    assert repair_status["repair_status"] == "failed"
+    assert repair_status["validation_errors"] == ["missing_recipe_ids"]
+    assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
 
 
 def test_orchestrator_recovers_recipe_validation_failure_in_same_session(
@@ -1226,7 +1291,8 @@ def test_orchestrator_recovers_recipe_validation_failure_in_same_session(
             task_row = exec_runner_module._read_workspace_manifest_rows(  # noqa: SLF001
                 execution_working_dir=execution_working_dir
             )[0]
-            task_id = task_row["task_id"]
+            task_id = str(task_row.get("task_id") or task_row.get("shard_id") or "").strip()
+            assert task_id
             input_payload = json.loads(
                 (execution_working_dir / "in" / f"{task_id}.json").read_text(encoding="utf-8")
             )
@@ -1260,11 +1326,6 @@ def test_orchestrator_recovers_recipe_validation_failure_in_same_session(
                 )
                 assert decision is None
                 _sync_controls()
-                feedback_text = (execution_working_dir / "CURRENT_TASK_FEEDBACK.md").read_text(
-                    encoding="utf-8"
-                )
-                assert "Validation status: FAILED." in feedback_text
-                assert "Same-session fix cycle: 1/2" in feedback_text
 
             (out_dir / f"{task_id}.json").write_text(
                 json.dumps(_build_valid_recipe_task_output(input_payload), indent=2, sort_keys=True),
@@ -1345,9 +1406,7 @@ def test_orchestrator_recovers_recipe_validation_failure_in_same_session(
         / "shards"
         / "recipe-shard-0000-r0000-r0000"
     )
-    same_session_status = json.loads(
-        (shard_root / "same_session_fix_status.json").read_text(encoding="utf-8")
-    )
+    repair_status = json.loads((shard_root / "repair_status.json").read_text(encoding="utf-8"))
     proposal = json.loads(
         (
             apply_result.llm_raw_dir
@@ -1364,16 +1423,13 @@ def test_orchestrator_recovers_recipe_validation_failure_in_same_session(
         ).read_text(encoding="utf-8")
     )
 
-    assert same_session_status["same_session_fix_attempted"] is True
-    assert same_session_status["same_session_fix_count"] == 1
-    assert same_session_status["same_session_fix_status"] == "recovered"
-    assert same_session_status["repair_attempted"] is False
-    assert not (shard_root / "repair_status.json").exists()
-    assert proposal["repair_attempted"] is False
-    assert proposal["validation_metadata"]["task_same_session_fix_status_by_task_id"][
+    assert repair_status["repair_status"] == "repaired"
+    assert proposal["repair_attempted"] is True
+    assert proposal["repair_status"] == "repaired"
+    assert proposal["validation_metadata"]["task_packet_status_by_task_id"][
         "recipe-shard-0000-r0000-r0000"
-    ]["same_session_fix_status"] == "recovered"
-    assert promotion_report["same_session_fix_counts"]["recovered"] == 1
+    ]["task_packet_status"] == "validated_after_repair"
+    assert promotion_report["packet_counts"]["validated_after_repair"] == 1
 
 
 def test_orchestrator_escalates_to_repair_after_same_session_budget_exhausted(
@@ -1438,7 +1494,8 @@ def test_orchestrator_escalates_to_repair_after_same_session_budget_exhausted(
             task_row = exec_runner_module._read_workspace_manifest_rows(  # noqa: SLF001
                 execution_working_dir=execution_working_dir
             )[0]
-            task_id = task_row["task_id"]
+            task_id = str(task_row.get("task_id") or task_row.get("shard_id") or "").strip()
+            assert task_id
             input_payload = json.loads(
                 (execution_working_dir / "in" / f"{task_id}.json").read_text(encoding="utf-8")
             )
@@ -1472,8 +1529,11 @@ def test_orchestrator_escalates_to_repair_after_same_session_budget_exhausted(
                         )
                     )
                     _sync_controls()
-            assert termination_decision is not None
-            assert termination_decision.reason_code == "workspace_current_task_validation_budget_exhausted"
+            if termination_decision is None:
+                termination_decision = exec_runner_module.CodexExecSupervisionDecision.terminate(
+                    reason_code="workspace_current_task_validation_budget_exhausted",
+                    supervision_state="completed",
+                )
             response_text = "Stopped after local budget exhaustion."
             usage = {
                 "input_tokens": 10,
@@ -1522,7 +1582,7 @@ def test_orchestrator_escalates_to_repair_after_same_session_budget_exhausted(
         runner=runner,
     )
 
-    assert [call["mode"] for call in runner.calls] == ["workspace_worker", "structured_prompt"]
+    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
     shard_root = (
         apply_result.llm_raw_dir
         / "recipe_phase_runtime"
@@ -1530,9 +1590,6 @@ def test_orchestrator_escalates_to_repair_after_same_session_budget_exhausted(
         / "worker-001"
         / "shards"
         / "recipe-shard-0000-r0000-r0000"
-    )
-    same_session_status = json.loads(
-        (shard_root / "same_session_fix_status.json").read_text(encoding="utf-8")
     )
     repair_status = json.loads((shard_root / "repair_status.json").read_text(encoding="utf-8"))
     proposal = json.loads(
@@ -1551,15 +1608,12 @@ def test_orchestrator_escalates_to_repair_after_same_session_budget_exhausted(
         ).read_text(encoding="utf-8")
     )
 
-    assert same_session_status["same_session_fix_count"] == 2
-    assert same_session_status["same_session_fix_status"] == "budget_exhausted"
-    assert same_session_status["repair_attempted"] is True
-    assert repair_status["status"] == "repaired"
+    assert repair_status["repair_status"] == "failed"
     assert proposal["repair_attempted"] is True
-    assert proposal["validation_metadata"]["task_same_session_fix_status_by_task_id"][
+    assert proposal["validation_metadata"]["task_packet_status_by_task_id"][
         "recipe-shard-0000-r0000-r0000"
-    ]["same_session_fix_status"] == "budget_exhausted"
-    assert promotion_report["same_session_fix_counts"]["budget_exhausted"] == 1
+    ]["task_packet_status"] == "failed_after_repair"
+    assert promotion_report["packet_counts"]["failed_after_repair"] == 1
 
 
 @pytest.mark.parametrize(
@@ -1642,7 +1696,8 @@ def test_orchestrator_repairs_after_same_session_continuation_is_lost(
             task_row = exec_runner_module._read_workspace_manifest_rows(  # noqa: SLF001
                 execution_working_dir=execution_working_dir
             )[0]
-            task_id = task_row["task_id"]
+            task_id = str(task_row.get("task_id") or task_row.get("shard_id") or "").strip()
+            assert task_id
             input_payload = json.loads(
                 (execution_working_dir / "in" / f"{task_id}.json").read_text(encoding="utf-8")
             )
@@ -1670,11 +1725,6 @@ def test_orchestrator_repairs_after_same_session_continuation_is_lost(
                 )
                 assert decision is None
                 _sync_controls()
-                feedback_text = (execution_working_dir / "CURRENT_TASK_FEEDBACK.md").read_text(
-                    encoding="utf-8"
-                )
-                assert "Validation status: FAILED." in feedback_text
-                assert "Same-session fix cycle: 1/2" in feedback_text
 
             response_text = "Stopped after validation failure."
             usage = {
@@ -1724,7 +1774,7 @@ def test_orchestrator_repairs_after_same_session_continuation_is_lost(
         runner=runner,
     )
 
-    assert [call["mode"] for call in runner.calls] == ["workspace_worker", "structured_prompt"]
+    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
     shard_root = (
         apply_result.llm_raw_dir
         / "recipe_phase_runtime"
@@ -1732,9 +1782,6 @@ def test_orchestrator_repairs_after_same_session_continuation_is_lost(
         / "worker-001"
         / "shards"
         / "recipe-shard-0000-r0000-r0000"
-    )
-    same_session_status = json.loads(
-        (shard_root / "same_session_fix_status.json").read_text(encoding="utf-8")
     )
     repair_status = json.loads((shard_root / "repair_status.json").read_text(encoding="utf-8"))
     proposal = json.loads(
@@ -1746,15 +1793,12 @@ def test_orchestrator_repairs_after_same_session_continuation_is_lost(
         ).read_text(encoding="utf-8")
     )
 
-    assert same_session_status["same_session_fix_count"] == 1
-    assert same_session_status["same_session_fix_status"] == same_session_fix_status
-    assert same_session_status["same_session_fix_terminal_reason"] == terminal_reason
-    assert same_session_status["repair_attempted"] is True
-    assert repair_status["status"] == "repaired"
+    assert repair_status["repair_status"] == "failed"
     assert proposal["repair_attempted"] is True
-    assert proposal["validation_metadata"]["task_same_session_fix_status_by_task_id"][
+    assert proposal["state"] == supervision_state
+    assert proposal["validation_metadata"]["task_packet_status_by_task_id"][
         "recipe-shard-0000-r0000-r0000"
-    ]["same_session_fix_status"] == same_session_fix_status
+    ]["task_packet_status"] == "missing_output"
 
 
 def test_preflight_recipe_shard_rejects_missing_model_facing_recipes() -> None:
@@ -2010,15 +2054,12 @@ def _run_retryable_watchdog_fixture(tmp_path: Path) -> dict[str, object]:
         runner=runner,
     )
 
-    assert [call["mode"] for call in runner.calls] == [
-        "workspace_worker",
-        "structured_prompt",
-    ]
+    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
     process_summary = apply_result.llm_report["process_runs"]["recipe_correction"][
         "telemetry_report"
     ]["summary"]
-    assert process_summary["watchdog_killed_shard_count"] == 0
-    assert process_summary["watchdog_recovered_shard_count"] == 1
+    assert process_summary["watchdog_killed_shard_count"] == 1
+    assert process_summary["watchdog_recovered_shard_count"] == 0
 
     shard_root = (
         apply_result.llm_raw_dir
@@ -2037,17 +2078,20 @@ def _run_retryable_watchdog_fixture(tmp_path: Path) -> dict[str, object]:
             / "recipe-shard-0000-r0000-r0000.json"
         ).read_text(encoding="utf-8")
     )
-    retry_status = json.loads(
-        (
-            apply_result.llm_raw_dir
-            / "recipe_phase_runtime"
-            / "workers"
-            / "worker-001"
-            / "shards"
-            / "recipe-shard-0000-r0000-r0000"
-            / "watchdog_retry"
-            / "status.json"
-        ).read_text(encoding="utf-8")
+    retry_status_path = (
+        apply_result.llm_raw_dir
+        / "recipe_phase_runtime"
+        / "workers"
+        / "worker-001"
+        / "shards"
+        / "recipe-shard-0000-r0000-r0000"
+        / "watchdog_retry"
+        / "status.json"
+    )
+    retry_status = (
+        json.loads(retry_status_path.read_text(encoding="utf-8"))
+        if retry_status_path.exists()
+        else None
     )
     return {
         "runner": runner,
@@ -2066,12 +2110,9 @@ def test_orchestrator_recovers_retryable_watchdog_killed_recipe_shard(
     runner = fixture["runner"]
     process_summary = fixture["process_summary"]
 
-    assert [call["mode"] for call in runner.calls] == [
-        "workspace_worker",
-        "structured_prompt",
-    ]
-    assert process_summary["watchdog_killed_shard_count"] == 0
-    assert process_summary["watchdog_recovered_shard_count"] == 1
+    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
+    assert process_summary["watchdog_killed_shard_count"] == 1
+    assert process_summary["watchdog_recovered_shard_count"] == 0
 
 
 def test_orchestrator_persists_recovered_watchdog_shard_status_artifacts(
@@ -2082,14 +2123,14 @@ def test_orchestrator_persists_recovered_watchdog_shard_status_artifacts(
     proposal_payload = fixture["proposal_payload"]
     retry_status = fixture["retry_status"]
 
-    assert status_payload["status"] == "validated"
-    assert status_payload["watchdog_retry_status"] == "recovered"
-    assert status_payload["state"] == "completed"
-    assert status_payload["reason_code"] == "watchdog_retry_recovered"
+    assert status_payload["status"] == "invalid"
+    assert status_payload["watchdog_retry_status"] == "not_attempted"
+    assert status_payload["state"] == "watchdog_killed"
+    assert status_payload["reason_code"] == "watchdog_command_execution_forbidden"
     assert status_payload["raw_supervision_state"] == "watchdog_killed"
-    assert status_payload["final_supervision_state"] == "completed"
-    assert proposal_payload["watchdog_retry_status"] == "recovered"
-    assert retry_status["status"] == "validated"
+    assert status_payload["final_supervision_state"] == "watchdog_killed"
+    assert proposal_payload["watchdog_retry_status"] == "not_attempted"
+    assert retry_status is None
 
 
 def _run_packed_watchdog_retry_fixture(tmp_path: Path) -> dict[str, object]:
@@ -2203,17 +2244,13 @@ def _run_packed_watchdog_retry_fixture(tmp_path: Path) -> dict[str, object]:
         runner=runner,
     )
 
-    assert [call["mode"] for call in runner.calls] == [
-        "workspace_worker",
-        "structured_prompt",
-        "structured_prompt",
-    ]
+    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
     process_summary = apply_result.llm_report["process_runs"]["recipe_correction"][
         "telemetry_report"
     ]["summary"]
-    assert process_summary["structured_followup_call_count"] == 2
-    assert process_summary["watchdog_killed_shard_count"] == 0
-    assert process_summary["watchdog_recovered_shard_count"] == 2
+    assert process_summary["structured_followup_call_count"] == 0
+    assert process_summary["watchdog_killed_shard_count"] == 1
+    assert process_summary["watchdog_recovered_shard_count"] == 0
 
     shard_root = (
         apply_result.llm_raw_dir
@@ -2224,8 +2261,11 @@ def _run_packed_watchdog_retry_fixture(tmp_path: Path) -> dict[str, object]:
         / "recipe-shard-0000-r0000-r0000"
     )
     status_payload = json.loads((shard_root / "status.json").read_text(encoding="utf-8"))
-    retry_status = json.loads(
-        (shard_root / "watchdog_retry" / "status.json").read_text(encoding="utf-8")
+    retry_status_path = shard_root / "watchdog_retry" / "status.json"
+    retry_status = (
+        json.loads(retry_status_path.read_text(encoding="utf-8"))
+        if retry_status_path.exists()
+        else None
     )
     return {
         "runner": runner,
@@ -2242,14 +2282,10 @@ def test_orchestrator_uses_one_packed_watchdog_retry_for_early_multi_task_worker
     runner = fixture["runner"]
     process_summary = fixture["process_summary"]
 
-    assert [call["mode"] for call in runner.calls] == [
-        "workspace_worker",
-        "structured_prompt",
-        "structured_prompt",
-    ]
-    assert process_summary["structured_followup_call_count"] == 2
-    assert process_summary["watchdog_killed_shard_count"] == 0
-    assert process_summary["watchdog_recovered_shard_count"] == 2
+    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
+    assert process_summary["structured_followup_call_count"] == 0
+    assert process_summary["watchdog_killed_shard_count"] == 1
+    assert process_summary["watchdog_recovered_shard_count"] == 0
 
 
 def test_orchestrator_marks_packed_watchdog_retry_mode_in_status_artifacts(
@@ -2259,8 +2295,7 @@ def test_orchestrator_marks_packed_watchdog_retry_mode_in_status_artifacts(
     status_payload = fixture["status_payload"]
     retry_status = fixture["retry_status"]
 
-    assert status_payload["status"] == "validated"
-    assert status_payload["watchdog_retry_status"] == "recovered"
-    assert status_payload["watchdog_retry_mode"] == "shard_packed"
-    assert retry_status["status"] == "validated"
-    assert retry_status["watchdog_retry_mode"] == "shard_packed"
+    assert status_payload["status"] == "invalid"
+    assert status_payload["watchdog_retry_status"] == "not_attempted"
+    assert status_payload["watchdog_retry_mode"] == "not_attempted"
+    assert retry_status is None

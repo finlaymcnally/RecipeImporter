@@ -40,6 +40,7 @@ def make_runtime_settings(
     pack_root: Path,
     worker_count: int,
     context_blocks: int | None = None,
+    knowledge_prompt_target_count: int | None = None,
 ) -> RunSettings:
     payload: dict[str, object] = {
         "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
@@ -50,6 +51,8 @@ def make_runtime_settings(
     }
     if context_blocks is not None:
         payload["codex_farm_knowledge_context_blocks"] = context_blocks
+    if knowledge_prompt_target_count is not None:
+        payload["knowledge_prompt_target_count"] = knowledge_prompt_target_count
     return RunSettings.model_validate(payload)
 
 

@@ -40,7 +40,7 @@ Rules:
   `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `page_furniture`
 - Only use `exclusion_reason` on rows labeled `NONRECIPE_EXCLUDE`, and only for overwhelmingly obvious non-recipe junk that should skip knowledge.
 - Do not add commentary, markdown, or extra JSON keys.
-- There is no separate repo-owned repair model pass for line-role; the work ledger plus `check-phase` is the real repair loop.
+- There is no separate repo-owned repair model pass for line-role; the scaffolded work ledger plus `check-phase` is the real repair loop.
 
 Preferred loop:
 
@@ -146,7 +146,7 @@ def build_line_role_workspace_shard_metadata(
     }
 
 
-def build_line_role_seed_output(shard_row: Mapping[str, Any]) -> dict[str, Any]:
+def build_line_role_workspace_scaffold(shard_row: Mapping[str, Any]) -> dict[str, Any]:
     rows_payload: list[dict[str, Any]] = []
     for row in _coerce_input_rows(shard_row):
         try:
@@ -157,7 +157,7 @@ def build_line_role_seed_output(shard_row: Mapping[str, Any]) -> dict[str, Any]:
     return {"rows": rows_payload}
 
 
-def build_line_role_seed_output_for_workspace(
+def build_line_role_workspace_scaffold_for_workspace(
     workspace_root: Path,
     shard_row: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -452,9 +452,9 @@ def render_line_role_current_phase_brief(phase_row: Mapping[str, Any]) -> str:
             f"Atomic span: `{metadata.get('atomic_index_start')}..{metadata.get('atomic_index_end')}`",
             "",
             "Read order:",
-            f"1. Work ledger: `{metadata.get('work_path') or '<missing>'}`",
-            f"2. Hint: `{metadata.get('hint_path') or '<missing>'}`",
-            f"3. Input ledger: `{metadata.get('input_path') or '<missing>'}`",
+            f"1. Work ledger scaffold: `{metadata.get('work_path') or '<missing>'}`",
+            f"2. Input ledger: `{metadata.get('input_path') or '<missing>'}`",
+            f"3. Hint: `{metadata.get('hint_path') or '<missing>'}`",
             "4. Run `python3 tools/line_role_worker.py check-phase`.",
             "5. If feedback names a repair file, fix only the unresolved rows.",
             f"6. Install to: `{metadata.get('result_path') or '<missing>'}`",
@@ -623,7 +623,7 @@ def coerce_input_rows(workspace_root: Path, shard_row):
     return normalized
 
 
-def build_seed_output(workspace_root: Path, shard_row):
+def build_scaffold_output(workspace_root: Path, shard_row):
     rows_payload = []
     for row in coerce_input_rows(workspace_root, shard_row):
         try:
@@ -883,9 +883,9 @@ def write_current_phase_files(workspace_root: Path, shard_row, *, completed=Fals
                 f"Atomic span: `{{metadata.get('atomic_index_start')}}..{{metadata.get('atomic_index_end')}}`",
                 "",
                 "Read order:",
-                f"1. Work ledger: `{{metadata.get('work_path') or '<missing>'}}`",
-                f"2. Hint: `{{metadata.get('hint_path') or '<missing>'}}`",
-                f"3. Input ledger: `{{metadata.get('input_path') or '<missing>'}}`",
+                f"1. Work ledger scaffold: `{{metadata.get('work_path') or '<missing>'}}`",
+                f"2. Input ledger: `{{metadata.get('input_path') or '<missing>'}}`",
+                f"3. Hint: `{{metadata.get('hint_path') or '<missing>'}}`",
                 "4. Run `python3 tools/line_role_worker.py check-phase`.",
                 "5. If feedback names a repair file, fix only the unresolved rows.",
                 f"6. Install to: `{{metadata.get('result_path') or '<missing>'}}`",
@@ -959,7 +959,7 @@ def cmd_show(workspace_root: Path, shard_id: str | None):
 
 def cmd_scaffold(workspace_root: Path, shard_id: str | None, dest: str | None):
     shard_row = resolve_shard_row(workspace_root, shard_id)
-    payload = build_seed_output(workspace_root, shard_row)
+    payload = build_scaffold_output(workspace_root, shard_row)
     if dest:
         save_json((workspace_root / dest).resolve(), payload)
         print(dest)

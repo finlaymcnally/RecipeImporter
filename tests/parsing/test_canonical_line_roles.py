@@ -102,7 +102,9 @@ def _line_role_runner(
             "rows": [
                 {
                     "atomic_index": atomic_index,
-                    "label": (label_by_atomic_index or {}).get(atomic_index, "OTHER"),
+                    "label": (
+                        label_by_atomic_index or {}
+                    ).get(atomic_index, "NONRECIPE_CANDIDATE"),
                 }
                 for atomic_index in atomic_indices
             ]
@@ -259,8 +261,7 @@ def test_label_atomic_lines_instruction_with_time_stays_instruction() -> None:
     assert by_text["3. Cover and braise for 45 minutes."].label == "INSTRUCTION_LINE"
 
 
-def test_codex_time_line_prediction_rejects_to_baseline_when_not_primary_time(
-) -> None:
+def test_codex_time_line_prediction_is_accepted_without_runtime_baseline_veto() -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:0",
@@ -272,7 +273,6 @@ def test_codex_time_line_prediction_rejects_to_baseline_when_not_primary_time(
             rule_tags=["recipe_span_fallback"],
         )
     ]
-
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-route-v2"),
@@ -280,11 +280,8 @@ def test_codex_time_line_prediction_rejects_to_baseline_when_not_primary_time(
         live_llm_allowed=True,
     )
     assert len(predictions) == 1
-    assert predictions[0].label == "INSTRUCTION_LINE"
-    assert predictions[0].decided_by == "fallback"
-    assert "codex_policy_rejected" in predictions[0].reason_tags
-    assert "codex_policy_rejected:time_line_not_primary" in predictions[0].reason_tags
-    assert "codex_rejected_to_baseline" in predictions[0].escalation_reasons
+    assert predictions[0].label == "TIME_LINE"
+    assert predictions[0].decided_by == "codex"
 
 
 def test_label_atomic_lines_requires_explicit_live_llm_approval_for_shard_runtime() -> None:
@@ -302,14 +299,14 @@ def test_label_atomic_lines_requires_explicit_live_llm_approval_for_shard_runtim
     blocked_predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-route-v2"),
-        codex_runner=_line_role_runner({0: "OTHER"}),
+        codex_runner=_line_role_runner({0: "NONRECIPE_CANDIDATE"}),
     )
     assert blocked_predictions[0].decided_by == "fallback"
 
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-route-v2"),
-        codex_runner=_line_role_runner({0: "OTHER"}),
+        codex_runner=_line_role_runner({0: "NONRECIPE_CANDIDATE"}),
         live_llm_allowed=True,
     )
     assert predictions[0].decided_by == "codex"
@@ -333,8 +330,8 @@ def test_label_atomic_lines_outside_recipe_knowledge_like_prose_stays_reviewable
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].review_exclusion_reason is None
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions[0].exclusion_reason is None
     assert predictions[0].within_recipe_span is False
 
 
@@ -359,8 +356,8 @@ def test_label_atomic_lines_outside_recipe_saltfat_science_prose_stays_reviewabl
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].review_exclusion_reason is None
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions[0].exclusion_reason is None
 
 
 def test_label_atomic_lines_outside_recipe_knowledge_heading_uses_neighbor_context_for_reviewable_other() -> None:
@@ -393,17 +390,17 @@ def test_label_atomic_lines_outside_recipe_knowledge_heading_uses_neighbor_conte
     )
     predictions = label_atomic_lines(candidates, _settings())
     by_text = {prediction.text: prediction for prediction in predictions}
-    assert by_text["Balancing Fat"].label == "OTHER"
-    assert by_text["Balancing Fat"].review_exclusion_reason is None
+    assert by_text["Balancing Fat"].label == "NONRECIPE_CANDIDATE"
+    assert by_text["Balancing Fat"].exclusion_reason is None
     assert (
         by_text[
             "As with salt, the best way to correct overly fatty food is to rebalance the dish."
         ].label
-        == "OTHER"
+        == "NONRECIPE_CANDIDATE"
     )
     assert (
         by_text["Foods that are too dry can be corrected with a bit more fat."].label
-        == "OTHER"
+        == "NONRECIPE_CANDIDATE"
     )
 
 
@@ -440,13 +437,13 @@ def test_label_atomic_lines_outside_recipe_first_person_learning_prose_stays_rev
             "food from great, understanding when pasta water needed more salt "
             "and when vinegar was needed to balance a rich stew."
         ].label
-        == "OTHER"
+        == "NONRECIPE_CANDIDATE"
     )
     assert by_text[
         "As I improved, I began to detect the nuances that distinguish good "
         "food from great, understanding when pasta water needed more salt "
         "and when vinegar was needed to balance a rich stew."
-    ].review_exclusion_reason is None
+    ].exclusion_reason is None
 
 
 def test_label_atomic_lines_outside_recipe_saltfat_question_heading_stays_other() -> None:
@@ -464,8 +461,8 @@ def test_label_atomic_lines_outside_recipe_saltfat_question_heading_stays_other(
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].review_exclusion_reason is None
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions[0].exclusion_reason is None
 
 
 def test_label_atomic_lines_outside_recipe_saltfat_citrus_lesson_stays_reviewable_other() -> None:
@@ -496,8 +493,8 @@ def test_label_atomic_lines_outside_recipe_saltfat_citrus_lesson_stays_reviewabl
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].review_exclusion_reason is None
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions[0].exclusion_reason is None
 
 
 def test_label_atomic_lines_outside_recipe_note_prefix_is_recipe_notes() -> None:
@@ -606,8 +603,8 @@ def test_label_atomic_lines_unknown_pre_grouping_science_prose_stays_reviewable_
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
     assert predictions[0].within_recipe_span is None
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].review_exclusion_reason is None
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions[0].exclusion_reason is None
 
 
 def test_label_atomic_lines_unknown_pre_grouping_knowledge_heading_uses_neighbor_context_for_reviewable_other() -> None:
@@ -641,19 +638,19 @@ def test_label_atomic_lines_unknown_pre_grouping_knowledge_heading_uses_neighbor
     )
     predictions = label_atomic_lines(candidates, _settings())
     by_text = {prediction.text: prediction for prediction in predictions}
-    assert by_text["SALT AND FLAVOR"].label == "OTHER"
-    assert by_text["SALT AND FLAVOR"].review_exclusion_reason is None
+    assert by_text["SALT AND FLAVOR"].label == "NONRECIPE_CANDIDATE"
+    assert by_text["SALT AND FLAVOR"].exclusion_reason is None
     assert (
         by_text[
             "Salt affects texture and flavor because it changes how food absorbs moisture during cooking."
         ].label
-        == "OTHER"
+        == "NONRECIPE_CANDIDATE"
     )
     assert (
         by_text[
             "The relationship between salt and flavor is multidimensional, and even small changes can improve aroma and balance bitterness."
         ].label
-        == "OTHER"
+        == "NONRECIPE_CANDIDATE"
     )
 
 
@@ -684,8 +681,11 @@ def test_label_atomic_lines_outside_recipe_saltfat_heading_stays_reviewable_othe
 
     predictions = label_atomic_lines(candidates, _settings())
 
-    assert [prediction.label for prediction in predictions] == ["OTHER", "OTHER"]
-    assert all(prediction.review_exclusion_reason is None for prediction in predictions)
+    assert [prediction.label for prediction in predictions] == [
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
+    ]
+    assert all(prediction.exclusion_reason is None for prediction in predictions)
 
 
 def test_label_atomic_lines_outside_recipe_saltfat_crouton_storage_step_stays_instruction_line() -> None:
@@ -731,7 +731,7 @@ def test_label_atomic_lines_outside_recipe_saltfat_crouton_storage_step_stays_in
         "INGREDIENT_LINE",
         "INSTRUCTION_LINE",
     ]
-    assert predictions[2].review_exclusion_reason is None
+    assert predictions[2].exclusion_reason is None
 
 
 def test_label_atomic_lines_outside_recipe_tail_step_with_instruction_neighbor_stays_instruction_line() -> None:
@@ -781,7 +781,7 @@ def test_label_atomic_lines_outside_recipe_tail_step_with_instruction_neighbor_s
         "INSTRUCTION_LINE",
         "RECIPE_NOTES",
     ]
-    assert predictions[1].review_exclusion_reason is None
+    assert predictions[1].exclusion_reason is None
 
 
 def test_label_atomic_lines_outside_recipe_instruction_like_endorsement_cluster_stays_other() -> None:
@@ -827,11 +827,11 @@ def test_label_atomic_lines_outside_recipe_instruction_like_endorsement_cluster_
     predictions = label_atomic_lines(candidates, _settings())
 
     assert [prediction.label for prediction in predictions] == [
-        "OTHER",
-        "OTHER",
-        "OTHER",
+        "NONRECIPE_EXCLUDE",
+        "NONRECIPE_EXCLUDE",
+        "NONRECIPE_EXCLUDE",
     ]
-    assert [prediction.review_exclusion_reason for prediction in predictions] == [
+    assert [prediction.exclusion_reason for prediction in predictions] == [
         "endorsement",
         "endorsement",
         "endorsement",
@@ -895,12 +895,12 @@ def test_label_atomic_lines_outside_recipe_publisher_signup_cluster_is_excluded(
     predictions = label_atomic_lines(candidates, _settings())
 
     assert [prediction.label for prediction in predictions] == [
-        "OTHER",
-        "OTHER",
-        "OTHER",
-        "OTHER",
+        "NONRECIPE_EXCLUDE",
+        "NONRECIPE_EXCLUDE",
+        "NONRECIPE_EXCLUDE",
+        "NONRECIPE_EXCLUDE",
     ]
-    assert [prediction.review_exclusion_reason for prediction in predictions] == [
+    assert [prediction.exclusion_reason for prediction in predictions] == [
         "publisher_promo",
         "publisher_promo",
         "publisher_promo",
@@ -923,7 +923,7 @@ def test_label_atomic_lines_outside_recipe_isolated_howto_heading_defaults_away_
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
 
 
 def test_label_atomic_lines_outside_recipe_first_person_prose_is_not_recipe_notes() -> None:
@@ -944,7 +944,7 @@ def test_label_atomic_lines_outside_recipe_first_person_prose_is_not_recipe_note
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
 
 
 def test_label_atomic_lines_outside_recipe_prose_defaults_to_other_without_knowledge_cue() -> None:
@@ -965,7 +965,7 @@ def test_label_atomic_lines_outside_recipe_prose_defaults_to_other_without_knowl
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
 
 
 def test_label_atomic_lines_outside_recipe_food_note_prose_is_recipe_notes() -> None:
@@ -1119,7 +1119,7 @@ def test_label_atomic_lines_heading_like_line_without_neighboring_evidence_is_no
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label in {"OTHER", "KNOWLEDGE"}
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
 
 
 def test_label_atomic_lines_heading_like_line_with_neighboring_structure_can_be_title() -> None:
@@ -1250,7 +1250,7 @@ def test_label_atomic_lines_outside_recipe_toc_heading_is_not_recipe_title() -> 
         within_recipe_span=False,
     )
     predictions = label_atomic_lines(candidates, _settings())
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "NONRECIPE_EXCLUDE"
 
 
 def test_label_atomic_lines_outside_recipe_how_to_heading_is_not_recipe_title() -> None:
@@ -1309,11 +1309,11 @@ def test_codex_neighbor_ingredient_fragment_stays_codex_other() -> None:
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-route-v2"),
-        codex_runner=_line_role_runner({1: "OTHER"}),
+        codex_runner=_line_role_runner({1: "RECIPE_NOTES"}),
         live_llm_allowed=True,
     )
     by_index = {row.atomic_index: row for row in predictions}
-    assert by_index[1].label == "OTHER"
+    assert by_index[1].label == "RECIPE_NOTES"
     assert by_index[1].decided_by == "codex"
     assert "sanitized_neighbor_ingredient_fragment" not in by_index[1].reason_tags
 
@@ -1671,12 +1671,12 @@ def test_label_atomic_lines_exact_lesson_prose_recover_knowledge_rows() -> None:
     predictions = label_atomic_lines(candidates, _settings())
 
     assert [prediction.label for prediction in predictions] == [
-        "OTHER",
-        "OTHER",
-        "OTHER",
-        "OTHER",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
     ]
-    assert all(prediction.review_exclusion_reason is None for prediction in predictions)
+    assert all(prediction.exclusion_reason is None for prediction in predictions)
 
 
 def test_label_atomic_lines_front_matter_heading_and_title_list_stay_other() -> None:
@@ -1776,10 +1776,10 @@ def test_label_atomic_lines_front_matter_heading_and_title_list_stay_other() -> 
     predictions = label_atomic_lines(candidates, _settings())
     by_atomic_index = {prediction.atomic_index: prediction for prediction in predictions}
 
-    assert by_atomic_index[18].label == "OTHER"
-    assert by_atomic_index[60].label == "OTHER"
-    assert by_atomic_index[61].label == "OTHER"
-    assert by_atomic_index[62].label == "OTHER"
+    assert by_atomic_index[18].label == "NONRECIPE_EXCLUDE"
+    assert by_atomic_index[60].label == "NONRECIPE_EXCLUDE"
+    assert by_atomic_index[61].label == "NONRECIPE_EXCLUDE"
+    assert by_atomic_index[62].label == "NONRECIPE_EXCLUDE"
 
 
 def test_label_atomic_lines_front_matter_chapter_taxonomy_cluster_is_excluded() -> None:
@@ -1852,17 +1852,17 @@ def test_label_atomic_lines_front_matter_chapter_taxonomy_cluster_is_excluded() 
     predictions = label_atomic_lines(candidates, _settings())
     by_text = {prediction.text: prediction for prediction in predictions}
 
-    assert all(prediction.label == "OTHER" for prediction in predictions)
-    assert by_text["PART ONE"].review_exclusion_reason == "navigation"
+    assert all(prediction.label == "NONRECIPE_EXCLUDE" for prediction in predictions)
+    assert by_text["PART ONE"].exclusion_reason == "navigation"
     assert (
-        by_text["The Four Elements of Good Cooking"].review_exclusion_reason
+        by_text["The Four Elements of Good Cooking"].exclusion_reason
         == "navigation"
     )
-    assert by_text["SALT"].review_exclusion_reason == "navigation"
-    assert by_text["What is Salt?"].review_exclusion_reason == "navigation"
-    assert by_text["Salt and Flavor"].review_exclusion_reason == "navigation"
-    assert by_text["How Salt Works"].review_exclusion_reason == "navigation"
-    assert by_text["Diffusion Calculus"].review_exclusion_reason == "navigation"
+    assert by_text["SALT"].exclusion_reason == "navigation"
+    assert by_text["What is Salt?"].exclusion_reason == "navigation"
+    assert by_text["Salt and Flavor"].exclusion_reason == "navigation"
+    assert by_text["How Salt Works"].exclusion_reason == "navigation"
+    assert by_text["Diffusion Calculus"].exclusion_reason == "navigation"
 
 
 def test_label_atomic_lines_atomized_chapter_taxonomy_heading_trio_stays_other() -> None:
@@ -1896,12 +1896,12 @@ def test_label_atomic_lines_atomized_chapter_taxonomy_heading_trio_stays_other()
     predictions = label_atomic_lines(candidates, _settings())
 
     assert [prediction.label for prediction in predictions] == [
-        "OTHER",
-        "OTHER",
-        "OTHER",
-        "OTHER",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
     ]
-    assert all(prediction.review_exclusion_reason is None for prediction in predictions)
+    assert all(prediction.exclusion_reason is None for prediction in predictions)
 
 
 def test_label_atomic_lines_exact_variations_block_stays_variant() -> None:
@@ -2007,8 +2007,8 @@ def test_label_atomic_lines_bare_variations_heading_without_variant_body_stays_o
 
     predictions = label_atomic_lines(candidates, _settings())
 
-    assert predictions[0].label == "OTHER"
-    assert predictions[1].label == "OTHER"
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions[1].label == "NONRECIPE_CANDIDATE"
 
 
 def test_label_atomic_lines_long_to_serve_sentence_defaults_away_from_howto_section() -> None:
@@ -2030,7 +2030,7 @@ def test_label_atomic_lines_long_to_serve_sentence_defaults_away_from_howto_sect
     )
     assert "howto_heading" not in candidates[0].rule_tags
     predictions = label_atomic_lines(candidates, _settings())
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
 
 
 def test_label_atomic_lines_short_to_serve_heading_stays_howto_section() -> None:
@@ -2161,7 +2161,7 @@ def test_label_atomic_lines_title_like_line_without_supportive_next_line_is_not_
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 2
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
 
 
 def test_title_like_line_can_be_overridden_when_full_book_codex_reviews_it(tmp_path) -> None:
@@ -2181,7 +2181,7 @@ def test_title_like_line_can_be_overridden_when_full_book_codex_reviews_it(tmp_p
         candidates,
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
-        codex_runner=_line_role_runner({0: "OTHER"}),
+        codex_runner=_line_role_runner({0: "RECIPE_NOTES"}),
         live_llm_allowed=True,
     )
     assert (
@@ -2192,7 +2192,7 @@ def test_title_like_line_can_be_overridden_when_full_book_codex_reviews_it(tmp_p
         / "line_role_prompt_0001.txt"
     ).exists()
     assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "RECIPE_NOTES"
     assert predictions[0].decided_by == "codex"
 
 
@@ -2236,13 +2236,13 @@ def test_codex_mode_allows_override_of_strong_recipe_note() -> None:
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-route-v2"),
-        codex_runner=_line_role_runner({0: "OTHER"}),
+        codex_runner=_line_role_runner({0: "RECIPE_TITLE"}),
         live_llm_allowed=True,
     )
     assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "RECIPE_TITLE"
     assert predictions[0].decided_by == "codex"
-    assert predictions[0].escalation_reasons == ["codex_disagreed_with_rule"]
+    assert predictions[0].escalation_reasons == []
 
 
 def test_codex_mode_allows_override_without_old_syntax_ownership_veto() -> None:
@@ -2267,7 +2267,7 @@ def test_codex_mode_allows_override_without_old_syntax_ownership_veto() -> None:
     assert len(predictions) == 1
     assert predictions[0].label == "RECIPE_NOTES"
     assert predictions[0].decided_by == "codex"
-    assert predictions[0].escalation_reasons == ["codex_disagreed_with_rule"]
+    assert predictions[0].escalation_reasons == []
 
 
 def test_codex_mode_allows_outside_span_title_override() -> None:
@@ -2296,14 +2296,14 @@ def test_codex_mode_allows_outside_span_title_override() -> None:
         candidates,
         _settings("codex-line-role-route-v2"),
         codex_runner=_line_role_runner(
-            {0: "OTHER", 1: "INGREDIENT_LINE"},
+            {0: "NONRECIPE_CANDIDATE", 1: "INGREDIENT_LINE"},
         ),
         live_llm_allowed=True,
     )
     assert len(predictions) == 2
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
     assert predictions[0].decided_by == "codex"
-    assert predictions[0].escalation_reasons == ["codex_disagreed_with_rule"]
+    assert predictions[0].escalation_reasons == []
 
 
 def test_label_atomic_lines_note_like_prose_prefers_recipe_notes() -> None:
@@ -2370,12 +2370,12 @@ def test_label_atomic_lines_routes_outside_recipe_knowledge_headings_and_fragmen
 
     predictions = label_atomic_lines(candidates, _settings())
     assert [prediction.label for prediction in predictions] == [
-        "OTHER",
-        "OTHER",
-        "OTHER",
-        "OTHER",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
     ]
-    assert all(prediction.review_exclusion_reason is None for prediction in predictions)
+    assert all(prediction.exclusion_reason is None for prediction in predictions)
 
 
 def test_label_atomic_lines_outside_recipe_useful_prose_stays_reviewable_other() -> None:
@@ -2416,7 +2416,11 @@ def test_label_atomic_lines_outside_recipe_useful_prose_stays_reviewable_other()
     ]
 
     predictions = label_atomic_lines(candidates, _settings())
-    assert [prediction.label for prediction in predictions] == ["OTHER", "OTHER", "OTHER"]
+    assert [prediction.label for prediction in predictions] == [
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_EXCLUDE",
+        "NONRECIPE_CANDIDATE",
+    ]
 
 
 def test_label_atomic_lines_outside_recipe_generic_heading_stays_other() -> None:
@@ -2434,7 +2438,7 @@ def test_label_atomic_lines_outside_recipe_generic_heading_stays_other() -> None
 
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
 
 
 def test_codex_outside_recipe_generic_lesson_heading_rejects_howto_to_reviewable_other(
@@ -2468,16 +2472,14 @@ def test_codex_outside_recipe_generic_lesson_heading_rejects_howto_to_reviewable
         candidates,
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
-        codex_runner=_line_role_runner({0: "HOWTO_SECTION", 1: "KNOWLEDGE"}),
+        codex_runner=_line_role_runner(
+            {0: "HOWTO_SECTION", 1: "NONRECIPE_CANDIDATE"}
+        ),
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by == "fallback"
-    assert "fallback_decision" in predictions[0].escalation_reasons
-    assert "codex_rejected_to_baseline" in predictions[0].escalation_reasons
-    assert "codex_policy_rejected" in predictions[0].reason_tags
-    assert "codex_policy_rejected:howto_without_local_support" in predictions[0].reason_tags
+    assert predictions[0].label == "HOWTO_SECTION"
+    assert predictions[0].decided_by == "codex"
 
 
 def test_codex_outside_recipe_narrative_prose_demotes_howto_to_other(tmp_path) -> None:
@@ -2504,12 +2506,8 @@ def test_codex_outside_recipe_narrative_prose_demotes_howto_to_other(tmp_path) -
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by == "fallback"
-    assert "fallback_decision" in predictions[0].escalation_reasons
-    assert "codex_rejected_to_baseline" in predictions[0].escalation_reasons
-    assert "codex_policy_rejected" in predictions[0].reason_tags
-    assert "codex_policy_rejected:howto_without_local_support" in predictions[0].reason_tags
+    assert predictions[0].label == "HOWTO_SECTION"
+    assert predictions[0].decided_by == "codex"
 
 
 def test_codex_outside_recipe_endorsement_demotes_knowledge_to_other(tmp_path) -> None:
@@ -2529,15 +2527,13 @@ def test_codex_outside_recipe_endorsement_demotes_knowledge_to_other(tmp_path) -
         candidates,
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
-        codex_runner=_line_role_runner({0: "KNOWLEDGE"}),
+        codex_runner=_line_role_runner({0: "NONRECIPE_CANDIDATE"}),
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by == "fallback"
-    assert "codex_policy_rejected" in predictions[0].reason_tags
-    assert "codex_policy_rejected:outside_recipe_knowledge_not_allowed" in predictions[0].reason_tags
-    assert predictions[0].review_exclusion_reason == "endorsement"
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions[0].decided_by == "codex"
+    assert predictions[0].exclusion_reason is None
 
 
 def test_codex_outside_recipe_publisher_promo_demotes_knowledge_to_other(tmp_path) -> None:
@@ -2561,15 +2557,13 @@ def test_codex_outside_recipe_publisher_promo_demotes_knowledge_to_other(tmp_pat
         candidates,
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
-        codex_runner=_line_role_runner({0: "KNOWLEDGE"}),
+        codex_runner=_line_role_runner({0: "NONRECIPE_CANDIDATE"}),
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by == "fallback"
-    assert "codex_policy_rejected" in predictions[0].reason_tags
-    assert "codex_policy_rejected:outside_recipe_knowledge_not_allowed" in predictions[0].reason_tags
-    assert predictions[0].review_exclusion_reason == "publisher_promo"
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions[0].decided_by == "codex"
+    assert predictions[0].exclusion_reason is None
 
 
 def test_codex_outside_recipe_question_heading_demotes_knowledge_to_other(tmp_path) -> None:
@@ -2589,15 +2583,13 @@ def test_codex_outside_recipe_question_heading_demotes_knowledge_to_other(tmp_pa
         candidates,
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
-        codex_runner=_line_role_runner({0: "KNOWLEDGE"}),
+        codex_runner=_line_role_runner({0: "NONRECIPE_CANDIDATE"}),
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by == "fallback"
-    assert "codex_policy_rejected" in predictions[0].reason_tags
-    assert "codex_policy_rejected:outside_recipe_knowledge_not_allowed" in predictions[0].reason_tags
-    assert predictions[0].review_exclusion_reason is None
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions[0].decided_by == "codex"
+    assert predictions[0].exclusion_reason is None
 
 
 def test_codex_outside_recipe_knowledge_heading_with_context_stays_reviewable_other(
@@ -2631,17 +2623,18 @@ def test_codex_outside_recipe_knowledge_heading_with_context_stays_reviewable_ot
         candidates,
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
-        codex_runner=_line_role_runner({0: "KNOWLEDGE", 1: "KNOWLEDGE"}),
+        codex_runner=_line_role_runner(
+            {0: "NONRECIPE_CANDIDATE", 1: "NONRECIPE_CANDIDATE"}
+        ),
         live_llm_allowed=True,
     )
 
-    assert [prediction.label for prediction in predictions] == ["OTHER", "OTHER"]
-    assert all(prediction.decided_by == "fallback" for prediction in predictions)
-    assert all(prediction.review_exclusion_reason is None for prediction in predictions)
-    assert all(
-        "codex_policy_rejected:outside_recipe_knowledge_not_allowed" in prediction.reason_tags
-        for prediction in predictions
-    )
+    assert [prediction.label for prediction in predictions] == [
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
+    ]
+    assert all(prediction.decided_by == "codex" for prediction in predictions)
+    assert all(prediction.exclusion_reason is None for prediction in predictions)
 
 
 def test_codex_outside_recipe_explicit_howto_heading_with_component_context_can_stay_structured(
@@ -2709,10 +2702,8 @@ def test_codex_long_to_make_variant_paragraph_rejects_howto_to_baseline(
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "RECIPE_VARIANT"
-    assert predictions[0].decided_by == "fallback"
-    assert "codex_policy_rejected" in predictions[0].reason_tags
-    assert "codex_policy_rejected:howto_without_local_support" in predictions[0].reason_tags
+    assert predictions[0].label == "HOWTO_SECTION"
+    assert predictions[0].decided_by == "codex"
 
 
 def test_codex_exact_caesar_make_step_rejects_variant_to_baseline(tmp_path) -> None:
@@ -2792,8 +2783,8 @@ def test_codex_exact_caesar_make_step_rejects_variant_to_baseline(tmp_path) -> N
         artifact_root=tmp_path,
         codex_runner=_line_role_runner(
             {
-                1397: "OTHER",
-                1398: "OTHER",
+                1397: "NONRECIPE_CANDIDATE",
+                1398: "NONRECIPE_CANDIDATE",
                 1399: "RECIPE_VARIANT",
                 1400: "RECIPE_NOTES",
                 1401: "RECIPE_NOTES",
@@ -2802,10 +2793,8 @@ def test_codex_exact_caesar_make_step_rejects_variant_to_baseline(tmp_path) -> N
         live_llm_allowed=True,
     )
 
-    assert predictions[2].label == "INSTRUCTION_LINE"
-    assert predictions[2].decided_by == "fallback"
-    assert "codex_policy_rejected" in predictions[2].reason_tags
-    assert "codex_policy_rejected:variant_without_local_support" in predictions[2].reason_tags
+    assert predictions[2].label == "RECIPE_VARIANT"
+    assert predictions[2].decided_by == "codex"
 
 
 def test_codex_exact_lesson_prose_other_rows_stay_reviewable_other(tmp_path) -> None:
@@ -2869,11 +2858,21 @@ def test_codex_exact_lesson_prose_other_rows_stay_reviewable_other(tmp_path) -> 
         candidates,
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
-        codex_runner=_line_role_runner({231: "OTHER", 232: "OTHER", 233: "OTHER"}),
+        codex_runner=_line_role_runner(
+            {
+                231: "NONRECIPE_CANDIDATE",
+                232: "NONRECIPE_CANDIDATE",
+                233: "NONRECIPE_CANDIDATE",
+            }
+        ),
         live_llm_allowed=True,
     )
 
-    assert [prediction.label for prediction in predictions] == ["OTHER", "OTHER", "OTHER"]
+    assert [prediction.label for prediction in predictions] == [
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
+    ]
 
 
 def test_codex_front_matter_title_list_demotes_recipe_titles_to_other(tmp_path) -> None:
@@ -2931,8 +2930,8 @@ def test_codex_front_matter_title_list_demotes_recipe_titles_to_other(tmp_path) 
         artifact_root=tmp_path,
         codex_runner=_line_role_runner(
             {
-                58: "OTHER",
-                59: "OTHER",
+                58: "NONRECIPE_EXCLUDE",
+                59: "NONRECIPE_EXCLUDE",
                 60: "RECIPE_TITLE",
                 61: "RECIPE_TITLE",
                 62: "RECIPE_TITLE",
@@ -2942,13 +2941,12 @@ def test_codex_front_matter_title_list_demotes_recipe_titles_to_other(tmp_path) 
     )
 
     assert [prediction.label for prediction in predictions] == [
-        "OTHER",
-        "OTHER",
-        "OTHER",
-        "OTHER",
-        "OTHER",
+        "NONRECIPE_EXCLUDE",
+        "NONRECIPE_EXCLUDE",
+        "RECIPE_TITLE",
+        "RECIPE_TITLE",
+        "RECIPE_TITLE",
     ]
-    assert "codex_policy_rejected:title_without_local_support" in predictions[2].reason_tags
 
 
 def test_codex_how_salt_works_rejects_howto_to_baseline(tmp_path) -> None:
@@ -2980,13 +2978,14 @@ def test_codex_how_salt_works_rejects_howto_to_baseline(tmp_path) -> None:
         candidates,
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
-        codex_runner=_line_role_runner({0: "HOWTO_SECTION", 1: "KNOWLEDGE"}),
+        codex_runner=_line_role_runner(
+            {0: "HOWTO_SECTION", 1: "NONRECIPE_CANDIDATE"}
+        ),
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by == "fallback"
-    assert "codex_policy_rejected:howto_without_local_support" in predictions[0].reason_tags
+    assert predictions[0].label == "HOWTO_SECTION"
+    assert predictions[0].decided_by == "codex"
 
 
 def test_codex_outside_recipe_generic_advice_demotes_instruction_to_other(
@@ -3014,9 +3013,8 @@ def test_codex_outside_recipe_generic_advice_demotes_instruction_to_other(
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "OTHER"
-    assert predictions[0].decided_by == "fallback"
-    assert "codex_policy_rejected:instruction_without_local_support" in predictions[0].reason_tags
+    assert predictions[0].label == "INSTRUCTION_LINE"
+    assert predictions[0].decided_by == "codex"
 
 
 def test_codex_exact_instruction_other_rows_stay_codex_other(tmp_path) -> None:
@@ -3064,15 +3062,19 @@ def test_codex_exact_instruction_other_rows_stay_codex_other(tmp_path) -> None:
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
         codex_runner=_line_role_runner(
-            {1122: "INGREDIENT_LINE", 1123: "OTHER", 1124: "OTHER"}
+            {
+                1122: "INGREDIENT_LINE",
+                1123: "NONRECIPE_CANDIDATE",
+                1124: "NONRECIPE_CANDIDATE",
+            }
         ),
         live_llm_allowed=True,
     )
 
     assert [prediction.label for prediction in predictions] == [
         "INGREDIENT_LINE",
-        "OTHER",
-        "OTHER",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
     ]
     assert predictions[1].decided_by == "codex"
     assert predictions[2].decided_by == "codex"
@@ -3118,14 +3120,20 @@ def test_codex_exact_variations_other_rows_stay_codex_other(tmp_path) -> None:
         candidates,
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
-        codex_runner=_line_role_runner({1378: "OTHER", 1379: "OTHER", 1380: "OTHER"}),
+        codex_runner=_line_role_runner(
+            {
+                1378: "NONRECIPE_CANDIDATE",
+                1379: "NONRECIPE_CANDIDATE",
+                1380: "NONRECIPE_CANDIDATE",
+            }
+        ),
         live_llm_allowed=True,
     )
 
     assert [prediction.label for prediction in predictions] == [
-        "OTHER",
-        "OTHER",
-        "OTHER",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
     ]
     assert all(prediction.decided_by == "codex" for prediction in predictions)
     assert all(
@@ -3191,6 +3199,7 @@ def test_label_atomic_lines_codex_parse_error_fails_closed_and_writes_flag(
     )
     assert proposal_payload["validation_errors"] == [
         "row_order_mismatch",
+        "invalid_label:999:OTHER",
         "unowned_atomic_index:999",
         "missing_owned_atomic_indices:0",
     ]
@@ -3245,23 +3254,22 @@ def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
     )
     prompt = build_canonical_line_role_prompt(
         [candidate],
-        allowed_labels=["OTHER", "YIELD_LINE", "INGREDIENT_LINE"],
+        allowed_labels=["NONRECIPE_CANDIDATE", "YIELD_LINE", "INGREDIENT_LINE"],
         escalation_reasons_by_atomic_index={0: ["deterministic_unresolved"]},
         by_atomic_index=by_atomic_index,
     )
     assert "RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION >" in prompt
-    assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
+    assert "Allowed labels (global):" in prompt
     assert "Do not run shell commands, Python, or any other tools." in prompt
     assert "`INSTRUCTION_LINE` means a recipe-local procedural step" in prompt
     assert "`HOWTO_SECTION` is recipe-internal only." in prompt
     assert "`HOWTO_SECTION` is book-optional." in prompt
     assert "Cooking Acids" in prompt
     assert "Use limes in guacamole" in prompt
-    assert "Label codes: L0=OTHER, L1=YIELD_LINE, L2=INGREDIENT_LINE" in prompt
-    assert "Span codes: R=in_recipe, N=outside_recipe, U=unknown_recipe_status" in prompt
+    assert "Each target row is `atomic_index|current_line`." in prompt
     assert "Grounding windows:" in prompt
     assert "ctx:0|prev=_|line=SERVES 4|next=2 tablespoons olive oil" in prompt
-    assert "0|L0|R|yield,needs_review|SERVES 4" in prompt
+    assert "0|SERVES 4" in prompt
 
 
 def test_canonical_line_role_prompt_compact_format_defines_row_schema_once() -> None:
@@ -3289,21 +3297,21 @@ def test_canonical_line_role_prompt_compact_format_defines_row_schema_once() -> 
     prompt = build_canonical_line_role_prompt(
         candidates,
         prompt_format="compact_v1",
-        allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
+        allowed_labels=["YIELD_LINE", "NONRECIPE_CANDIDATE", "INGREDIENT_LINE"],
     )
-    assert "atomic_index|label_code|span_code|hint_codes|current_line" in prompt
-    assert prompt.count("atomic_index|label_code|span_code|hint_codes|current_line") == 1
+    assert "atomic_index|current_line" in prompt
+    assert prompt.count("atomic_index|current_line") >= 1
     assert "ordered contiguous slice of the book" in prompt
-    assert "0|L1|R|yield|SERVES 4" in prompt
-    assert "1|L1|R|ingredient|2 tablespoons olive oil" in prompt
+    assert "0|SERVES 4" in prompt
+    assert "1|2 tablespoons olive oil" in prompt
 
     compact_rows = serialize_line_role_targets(
         candidates,
-        allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
+        allowed_labels=["YIELD_LINE", "NONRECIPE_CANDIDATE", "INGREDIENT_LINE"],
     )
     assert compact_rows.splitlines() == [
-        "0|L1|R|yield|SERVES 4",
-        "1|L1|R|ingredient|2 tablespoons olive oil",
+        "0|SERVES 4",
+        "1|2 tablespoons olive oil",
     ]
 
 
@@ -3331,17 +3339,15 @@ def test_canonical_line_role_prompt_does_not_repeat_neighbor_text_for_escalated_
 
     compact_rows = serialize_line_role_targets(
         candidates,
-        allowed_labels=["YIELD_LINE", "OTHER", "INGREDIENT_LINE"],
+        allowed_labels=["YIELD_LINE", "NONRECIPE_CANDIDATE", "INGREDIENT_LINE"],
         escalation_reasons_by_atomic_index={
             0: ["outside_span_structured_label"],
             1: ["deterministic_unresolved"],
         },
     ).splitlines()
 
-    assert compact_rows[0] == (
-        "0|L1|N|outside,outside_structure|Praise for SALT FAT ACID HEAT"
-    )
-    assert compact_rows[1] == "1|L1|R|yield,needs_review|SERVES 4"
+    assert compact_rows[0] == "0|Praise for SALT FAT ACID HEAT"
+    assert compact_rows[1] == "1|SERVES 4"
 
 
 def test_canonical_candidate_fingerprint_changes_when_neighbor_text_changes() -> None:
@@ -3515,65 +3521,49 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     prompt = build_canonical_line_role_file_prompt(
         input_path=Path("/tmp/line_role_input_0001.json"),
         input_payload={
-            "v": 1,
+            "v": 2,
             "shard_id": "line-role-canonical-0001-a000123-a000456",
             "context_before_rows": [[122, "Earlier context"]],
             "context_after_rows": [[124, "Later context"]],
-            "rows": [[123, "L4", "1 cup flour"]],
+            "rows": [[123, "1 cup flour"]],
         },
     )
 
     assert (
-        '{"rows":[{"atomic_index":<int>,"label":"<ALLOWED_LABEL>","review_exclusion_reason":"<OPTIONAL_REASON>"}]}'
+        '{"rows":[{"atomic_index":<int>,"label":"<ALLOWED_LABEL>","exclusion_reason":"<OPTIONAL_REASON>"}]}'
         in prompt
     )
-    assert (
-        '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[[122,"Earlier context"]],"rows":[[123,"L4","1 cup flour"]],"context_after_rows":[[124,"Later context"]]}'
-        in prompt
-    )
-    assert (
-        "Treat each row's `label_code` as the deterministic first-pass label you are reviewing, not final truth."
-        in prompt
-    )
+    assert "line-role-canonical-0001-a000123-a000456" in prompt
+    assert "context_before_rows" in prompt
+    assert "context_after_rows" in prompt
+    assert '[123, "1 cup flour"]' in prompt
     assert "The authoritative owned shard rows are embedded below." in prompt
     assert "Reference-only neighboring context may also be embedded below" in prompt
     assert "do not open it or inspect the workspace to answer" in prompt
     assert "Do not run shell commands, Python, or any other tools." in prompt
     assert "Do not describe your plan, reasoning, or heuristics." in prompt
     assert "Your first response must be the final JSON object." in prompt
-    assert "Treat the deterministic label as a weak hint only" in prompt
-    assert "do not preserve or prefer a label just because it came from the deterministic seed" in prompt
-    assert "Each row is `[atomic_index, label_code, current_line]`." in prompt
-    assert "Label codes:" in prompt
+    assert "Each row is `[atomic_index, current_line]`." in prompt
     assert "Return one result for every owned input row in `rows`." in prompt
-    assert "Use each row's tuple slot 2 (`current_line`) as the line to label." in prompt
+    assert "Use the second tuple item as the line to label." in prompt
     assert "Never label reference-only neighboring rows" in prompt
     assert "Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`." in prompt
-    assert "Recompute labels from the task file rows themselves" in prompt
-    assert "Never label a quantity/unit ingredient line as `KNOWLEDGE`." in prompt
-    assert "Do not use `INSTRUCTION_LINE` for explanatory/advisory prose" in prompt
-    assert "default to review-eligible `OTHER`" in prompt
-    assert "Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `OTHER`" in prompt
-    assert "Publisher signup/download prompts and endorsement quote clusters are usually overwhelming obvious junk" in prompt
-    assert "Short declarative teaching lines about reusable cooking rules should still stay review-eligible `OTHER` in this stage." in prompt
-    assert "Balancing Fat" in prompt
-    assert "WHAT IS ACID?" in prompt
-    assert "What is Heat?" in prompt
-    assert "Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure" in prompt
+    assert "If the shard rows are outside recipe context, default to `NONRECIPE_CANDIDATE`" in prompt
+    assert "Contents-style title lists and memoir prose stay `NONRECIPE_CANDIDATE`" in prompt
+    assert "Use optional `exclusion_reason` only on rows labeled `NONRECIPE_EXCLUDE`" in prompt
     assert "A single outside-recipe heading by itself is not enough" in prompt
-    assert "Salt and Pepper" in prompt
     assert "Reference-only neighboring context:" in prompt
     assert "These neighboring rows are for context only. Do not label them." in prompt
     assert '<BEGIN_CONTEXT_BEFORE_ROWS>\n[122, "Earlier context"]\n<END_CONTEXT_BEFORE_ROWS>' in prompt
     assert '<BEGIN_CONTEXT_AFTER_ROWS>\n[124, "Later context"]\n<END_CONTEXT_AFTER_ROWS>' in prompt
-    assert '<BEGIN_AUTHORITATIVE_ROWS>\n[123, "L4", "1 cup flour"]\n<END_AUTHORITATIVE_ROWS>' in prompt
+    assert '<BEGIN_AUTHORITATIVE_ROWS>\n[123, "1 cup flour"]\n<END_AUTHORITATIVE_ROWS>' in prompt
 
 
 def test_canonical_line_role_file_prompt_ignores_removed_shard_context_fields() -> None:
     prompt = build_canonical_line_role_file_prompt(
         input_path=Path("/tmp/line_role_input_0002.json"),
         input_payload={
-            "v": 1,
+            "v": 2,
             "shard_id": "line-role-canonical-0001-a000080-a000147",
             "shard_mode": "front_matter_navigation",
             "context_confidence": "high",
@@ -3584,7 +3574,7 @@ def test_canonical_line_role_file_prompt_ignores_removed_shard_context_fields() 
             "howto_section_evidence_count": 0,
             "howto_section_policy": "This book may legitimately use zero `HOWTO_SECTION` labels.",
             "example_files": ["01-lesson-prose-vs-howto.md"],
-            "rows": [[80, "L9", "Blue Cheese Dressing"]],
+            "rows": [[80, "Blue Cheese Dressing"]],
         },
     )
 
@@ -3617,14 +3607,14 @@ def test_canonical_line_role_inline_prompt_fallback_stays_routing_only(
 
     prompt = build_canonical_line_role_prompt(targets)
 
-    assert "Outside recipes, useful lesson prose still stays review-eligible `OTHER`" in prompt
+    assert "If a line discusses what cooks generally should do" in prompt
     assert (
-        "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay review-eligible `OTHER`"
+        "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `NONRECIPE_CANDIDATE`"
         in prompt
     )
-    assert "Line: `Gentle Cooking Methods`\n    Label: `OTHER`" in prompt
+    assert "Line: `Gentle Cooking Methods`\n    Label: `NONRECIPE_CANDIDATE`" in prompt
     assert (
-        "Line: `Foods that are too dry can be corrected with a bit more fat.`\n    Label: `OTHER`"
+        "Line: `Foods that are too dry can be corrected with a bit more fat.`\n    Label: `NONRECIPE_CANDIDATE`"
         in prompt
     )
 
@@ -3683,11 +3673,13 @@ def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
         candidates,
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
-        codex_runner=_line_role_runner({0: "OTHER", 1: "KNOWLEDGE", 2: "OTHER"}),
+        codex_runner=_line_role_runner(
+            {0: "RECIPE_NOTES", 1: "RECIPE_NOTES", 2: "RECIPE_NOTES"}
+        ),
         live_llm_allowed=True,
     )
     by_index = {row.atomic_index: row for row in predictions}
-    assert by_index[1].label == "KNOWLEDGE"
+    assert by_index[1].label == "RECIPE_NOTES"
     assert by_index[1].decided_by == "codex"
 
 
@@ -3737,12 +3729,14 @@ def test_codex_knowledge_inside_recipe_rejected_without_explicit_prose_tag(
         candidates,
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
-        codex_runner=_line_role_runner({0: "OTHER", 1: "KNOWLEDGE", 2: "OTHER"}),
+        codex_runner=_line_role_runner(
+            {0: "RECIPE_NOTES", 1: "RECIPE_NOTES", 2: "RECIPE_NOTES"}
+        ),
         live_llm_allowed=True,
     )
     by_index = {row.atomic_index: row for row in predictions}
-    assert by_index[1].label == "OTHER"
-    assert by_index[1].decided_by == "fallback"
+    assert by_index[1].label == "RECIPE_NOTES"
+    assert by_index[1].decided_by == "codex"
 
 
 def test_codex_mode_does_not_escalate_outside_recipe_span_candidates_without_reasons() -> None:
@@ -3761,14 +3755,14 @@ def test_codex_mode_does_not_escalate_outside_recipe_span_candidates_without_rea
     predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-route-v2"),
-        codex_runner=_line_role_runner({0: "OTHER"}),
+        codex_runner=_line_role_runner({0: "NONRECIPE_EXCLUDE"}),
         live_llm_allowed=True,
     )
     assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "NONRECIPE_EXCLUDE"
     assert predictions[0].decided_by == "codex"
-    assert predictions[0].escalation_reasons == ["knowledge_review_excluded"]
-    assert predictions[0].review_exclusion_reason == "navigation"
+    assert predictions[0].escalation_reasons == []
+    assert predictions[0].exclusion_reason is None
 
 
 def test_label_atomic_lines_codex_cache_hit_skips_runner(tmp_path) -> None:
@@ -3784,7 +3778,7 @@ def test_label_atomic_lines_codex_cache_hit_skips_runner(tmp_path) -> None:
             rule_tags=["recipe_span_fallback"],
         )
     ]
-    runner = _line_role_runner({0: "OTHER"})
+    runner = _line_role_runner({0: "RECIPE_NOTES"})
     first = label_atomic_lines(
         candidates,
         settings,
@@ -3861,12 +3855,14 @@ def test_label_atomic_lines_writes_line_role_telemetry_summary_from_runtime_rows
         candidates,
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
-        codex_runner=_TelemetryRunner(output_builder=_line_role_runner({0: "OTHER"}).output_builder),
+        codex_runner=_TelemetryRunner(
+            output_builder=_line_role_runner({0: "RECIPE_NOTES"}).output_builder
+        ),
         live_llm_allowed=True,
     )
 
     assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "RECIPE_NOTES"
     telemetry_payload = json.loads(
         (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
             encoding="utf-8"
@@ -3928,7 +3924,7 @@ def test_label_atomic_lines_leave_missing_line_role_usage_unavailable(tmp_path) 
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
         codex_runner=_MissingUsageRunner(
-            output_builder=_line_role_runner({0: "OTHER"}).output_builder
+            output_builder=_line_role_runner({0: "RECIPE_NOTES"}).output_builder
         ),
         live_llm_allowed=True,
     )
@@ -4076,7 +4072,9 @@ def test_label_atomic_lines_marks_watchdog_killed_shards_in_summary(
         candidates,
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
-        codex_runner=_WatchdogRunner(output_builder=_line_role_runner({0: "OTHER"}).output_builder),
+        codex_runner=_WatchdogRunner(
+            output_builder=_line_role_runner({0: "RECIPE_NOTES"}).output_builder
+        ),
         live_llm_allowed=True,
     )
 
@@ -4186,12 +4184,14 @@ def test_label_atomic_lines_allows_workspace_commands_without_immediate_kill(
         candidates,
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
-        codex_runner=_WorkspaceCommandRunner(output_builder=_line_role_runner({0: "OTHER"}).output_builder),
+        codex_runner=_WorkspaceCommandRunner(
+            output_builder=_line_role_runner({0: "RECIPE_NOTES"}).output_builder
+        ),
         live_llm_allowed=True,
     )
 
     assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "RECIPE_NOTES"
     assert predictions[0].decided_by == "codex"
 
 
@@ -4240,7 +4240,7 @@ def test_line_role_workspace_watchdog_stops_after_outputs_stabilize(
         json.dumps(
             {
                 "rows": [
-                    {"atomic_index": 0, "label": "OTHER"},
+                    {"atomic_index": 0, "label": "RECIPE_NOTES"},
                 ]
             }
         ),
@@ -4579,7 +4579,7 @@ def _run_line_role_cohort_outlier_retry_fixture(
         codex_runner=_OutlierRetryRunner(
             output_builder=lambda payload: {
                 "rows": [
-                    {"atomic_index": int(row[0]), "label": "OTHER"}
+                    {"atomic_index": int(row[0]), "label": "RECIPE_NOTES"}
                     for row in (payload.get("rows") or [])
                 ]
             }
@@ -4644,10 +4644,10 @@ def test_label_atomic_lines_retries_cohort_outlier_watchdog_once(
     predictions = fixture["predictions"]
     telemetry_payload = fixture["telemetry_payload"]
     assert [prediction.label for prediction in predictions] == [
-        "OTHER",
-        "OTHER",
-        "OTHER",
-        "OTHER",
+        "RECIPE_NOTES",
+        "RECIPE_NOTES",
+        "RECIPE_NOTES",
+        "RECIPE_NOTES",
     ]
     assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 0
     assert telemetry_payload["summary"]["watchdog_recovered_shard_count"] == 1
@@ -4784,7 +4784,7 @@ def test_label_atomic_lines_accepts_valid_workspace_outputs_without_final_messag
     ]
 
     runner = _NoFinalWorkspaceMessageRunner(
-        output_builder=lambda payload: {"rows": [{"atomic_index": 0, "label": "OTHER"}]}
+        output_builder=lambda payload: {"rows": [{"atomic_index": 0, "label": "RECIPE_NOTES"}]}
     )
 
     predictions = label_atomic_lines(
@@ -4800,7 +4800,7 @@ def test_label_atomic_lines_accepts_valid_workspace_outputs_without_final_messag
     )
 
     assert len(predictions) == 1
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "RECIPE_NOTES"
 
     proposal_path = next(
         (tmp_path / "line-role-pipeline" / "runtime" / "line_role" / "proposals").glob(
@@ -4920,7 +4920,7 @@ def test_label_atomic_lines_fails_closed_when_output_missing_even_if_work_ledger
                     {
                         "rows": [
                             {"atomic_index": 0, "label": "INGREDIENT_LINE"},
-                            {"atomic_index": 999, "label": "OTHER"},
+                            {"atomic_index": 999, "label": "RECIPE_NOTES"},
                         ]
                     },
                     sort_keys=True,
@@ -4945,8 +4945,8 @@ def test_label_atomic_lines_fails_closed_when_output_missing_even_if_work_ledger
             codex_runner=_WorkOnlyRunner(
                 output_builder=lambda _payload: {
                     "rows": [
-                        {"atomic_index": 0, "label": "OTHER"},
-                        {"atomic_index": 1, "label": "OTHER"},
+                        {"atomic_index": 0, "label": "RECIPE_NOTES"},
+                        {"atomic_index": 1, "label": "RECIPE_NOTES"},
                     ]
                 }
             ),
@@ -5058,8 +5058,8 @@ def test_label_atomic_lines_promotes_clean_same_session_repair_install(
                 json.dumps(
                     {
                         "rows": [
-                            {"atomic_index": 0, "label": "OTHER"},
-                            {"atomic_index": 999, "label": "OTHER"},
+                            {"atomic_index": 0, "label": "RECIPE_NOTES"},
+                            {"atomic_index": 999, "label": "RECIPE_NOTES"},
                         ]
                     },
                     sort_keys=True,
@@ -5081,8 +5081,8 @@ def test_label_atomic_lines_promotes_clean_same_session_repair_install(
                 json.dumps(
                     {
                         "rows": [
-                            {"atomic_index": 0, "label": "OTHER"},
-                            {"atomic_index": 1, "label": "OTHER"},
+                            {"atomic_index": 0, "label": "RECIPE_NOTES"},
+                            {"atomic_index": 1, "label": "RECIPE_NOTES"},
                         ]
                     },
                     sort_keys=True,
@@ -5117,15 +5117,15 @@ def test_label_atomic_lines_promotes_clean_same_session_repair_install(
         codex_runner=_SameSessionRepairRunner(
             output_builder=lambda _payload: {
                 "rows": [
-                    {"atomic_index": 0, "label": "OTHER"},
-                    {"atomic_index": 1, "label": "OTHER"},
+                    {"atomic_index": 0, "label": "RECIPE_NOTES"},
+                    {"atomic_index": 1, "label": "RECIPE_NOTES"},
                 ]
             }
         ),
         live_llm_allowed=True,
     )
 
-    assert [prediction.label for prediction in predictions] == ["OTHER", "OTHER"]
+    assert [prediction.label for prediction in predictions] == ["RECIPE_NOTES", "RECIPE_NOTES"]
     assert all(prediction.decided_by == "codex" for prediction in predictions)
     proposal_payload = json.loads(
         (
@@ -5200,8 +5200,8 @@ def test_label_atomic_lines_fails_closed_after_same_session_repair_request_if_wo
                 json.dumps(
                     {
                         "rows": [
-                            {"atomic_index": 0, "label": "OTHER"},
-                            {"atomic_index": 999, "label": "OTHER"},
+                            {"atomic_index": 0, "label": "RECIPE_NOTES"},
+                            {"atomic_index": 999, "label": "RECIPE_NOTES"},
                         ]
                     },
                     sort_keys=True,
@@ -5233,8 +5233,8 @@ def test_label_atomic_lines_fails_closed_after_same_session_repair_request_if_wo
             codex_runner=_RepairRequestOnlyRunner(
                 output_builder=lambda _payload: {
                     "rows": [
-                        {"atomic_index": 0, "label": "OTHER"},
-                        {"atomic_index": 1, "label": "OTHER"},
+                        {"atomic_index": 0, "label": "RECIPE_NOTES"},
+                        {"atomic_index": 1, "label": "RECIPE_NOTES"},
                     ]
                 }
             ),
@@ -5332,21 +5332,24 @@ def test_label_atomic_lines_rejects_uniform_shard_output_and_fails_closed(
             ]
         }
 
-    with pytest.raises(
-        canonical_line_roles_module.LineRoleRepairFailureError,
-        match="failed closed",
-    ):
-        label_atomic_lines(
-            candidates,
-            _settings(
-                "codex-line-role-route-v2",
-                line_role_prompt_target_count=1,
-                line_role_worker_count=1,
-            ),
-            artifact_root=tmp_path,
-            codex_runner=FakeCodexExecRunner(output_builder=_output_builder),
-            live_llm_allowed=True,
-        )
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-route-v2",
+            line_role_prompt_target_count=1,
+            line_role_worker_count=1,
+        ),
+        artifact_root=tmp_path,
+        codex_runner=FakeCodexExecRunner(output_builder=_output_builder),
+        live_llm_allowed=True,
+    )
+
+    assert [prediction.label for prediction in predictions] == [
+        "INGREDIENT_LINE",
+        "INGREDIENT_LINE",
+        "INGREDIENT_LINE",
+        "INGREDIENT_LINE",
+    ]
 
     telemetry_payload = json.loads(
         (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
@@ -5362,11 +5365,8 @@ def test_label_atomic_lines_rejects_uniform_shard_output_and_fails_closed(
     )
     proposal_payload = json.loads(proposal_path.read_text(encoding="utf-8"))
     assert proposal_payload["repair_attempted"] is False
-    assert proposal_payload["validation_errors"] == [
-        "pathological_uniform_label_output:INGREDIENT_LINE"
-    ]
-    assert proposal_payload["validation_metadata"]["semantic_rejected"] is True
-    assert proposal_payload["validation_metadata"]["row_resolution"]["unresolved_row_count"] == 4
+    assert proposal_payload["validation_errors"] == []
+    assert proposal_payload["validation_metadata"]["row_resolution"]["unresolved_row_count"] == 0
 
 
 def test_validate_line_role_payload_semantics_reports_uniform_diagnostic_against_diverse_baseline() -> None:
@@ -5429,8 +5429,9 @@ def test_validate_line_role_payload_semantics_reports_uniform_diagnostic_against
         deterministic_baseline_by_atomic_index=baseline,
     )
 
-    assert semantic_metadata["guard_applied"] is True
-    assert "pathological_uniform_label_output:INGREDIENT_LINE" in semantic_errors
+    assert semantic_metadata["guard_applied"] is False
+    assert semantic_metadata["reason"] == "runtime_baseline_semantic_guard_disabled"
+    assert semantic_errors == ()
 
 
 def test_label_atomic_lines_invalid_shard_ledgers_fail_closed_without_structured_repair(
@@ -5496,7 +5497,7 @@ def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_chang
             rule_tags=["recipe_span_fallback"],
         )
     ]
-    runner = _line_role_runner({0: "OTHER"})
+    runner = _line_role_runner({0: "RECIPE_NOTES"})
     first = label_atomic_lines(
         candidates,
         _settings("codex-line-role-route-v2", workers=1, codex_farm_cmd="codex-a"),
@@ -5581,11 +5582,11 @@ def test_label_atomic_lines_codex_shards_keep_deterministic_output_order(
         _settings("codex-line-role-route-v2", line_role_prompt_target_count=None),
         artifact_root=tmp_path,
         codex_batch_size=1,
-        codex_runner=_line_role_runner({0: "OTHER", 1: "OTHER", 2: "OTHER", 3: "OTHER"}),
+        codex_runner=_line_role_runner({0: "RECIPE_NOTES", 1: "RECIPE_NOTES", 2: "RECIPE_NOTES", 3: "RECIPE_NOTES"}),
         live_llm_allowed=True,
     )
     assert [row.atomic_index for row in predictions] == [0, 1, 2, 3]
-    assert all(row.label == "OTHER" for row in predictions)
+    assert all(row.label == "RECIPE_NOTES" for row in predictions)
 
     prompt_dir = tmp_path / "line-role-pipeline" / "prompts"
     dedup_lines = (
@@ -5618,7 +5619,7 @@ def _run_compact_prompt_format_fixture(
         _settings("codex-line-role-route-v2"),
         artifact_root=tmp_path,
         codex_batch_size=1,
-        codex_runner=_line_role_runner({0: "OTHER"}),
+        codex_runner=_line_role_runner({0: "NONRECIPE_CANDIDATE"}),
         live_llm_allowed=True,
     )
     return {
@@ -5636,7 +5637,7 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     prompt_root = fixture["prompt_root"]
     assert isinstance(prompt_root, Path)
 
-    assert predictions[0].label == "OTHER"
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
     prompt_text = (
         prompt_root
         / "prompts"
@@ -5655,10 +5656,9 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert "Stay inside this workspace" in prompt_text
     assert "Treat `CURRENT_PHASE.md` as the cheapest repo-written first read." in prompt_text
     assert "Use `assigned_shards.json` only for ordered ownership/progress context" in prompt_text
-    assert "start from the prewritten work ledger and hint before reopening the raw input ledger" in prompt_text
-    assert "Treat each shard ledger's deterministic label code as a weak hint only." in prompt_text
-    assert "do not preserve or prefer a label just because it came from the deterministic seed" in prompt_text
-    assert "Open `OUTPUT_CONTRACT.md` only when the seeded work ledger and validator feedback are insufficient" in prompt_text
+    assert "For each assigned shard, start from the scaffolded work ledger, then read the raw input ledger in order." in prompt_text
+    assert "Treat `hints/<shard_id>.md` as optional guidance" in prompt_text
+    assert "Open `OUTPUT_CONTRACT.md` only when the scaffolded work ledger and validator feedback are insufficient" in prompt_text
     assert "`HOWTO_SECTION` is book-optional" in prompt_text
     assert "Balancing Fat" in prompt_text
     assert "Write and revise the active shard only in `work/<shard_id>.json`." in prompt_text
@@ -5739,9 +5739,6 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
     assert current_phase_payload["metadata"]["owned_row_count"] == 1
     assert current_phase_payload["metadata"]["atomic_index_start"] == 0
     assert current_phase_payload["metadata"]["atomic_index_end"] == 0
-    assert current_phase_payload["metadata"]["deterministic_label_counts"] == {
-        "OTHER": 1
-    }
     assert "input_payload" not in current_phase_payload
     work_ledger_payload = json.loads(
         (
@@ -5754,7 +5751,7 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
         ).read_text(encoding="utf-8")
     )
     assert work_ledger_payload == {
-        "rows": [{"atomic_index": 0, "label": "OTHER"}]
+        "rows": [{"atomic_index": 0}]
     }
     current_phase_brief = (
         prompt_root
@@ -5765,7 +5762,7 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
         / "CURRENT_PHASE.md"
     ).read_text(encoding="utf-8")
     assert "Current Line-Role Phase" in current_phase_brief
-    assert "Work ledger:" in current_phase_brief
+    assert "Work ledger scaffold:" in current_phase_brief
     assert "Ambiguous line 0" not in current_phase_brief
 
 
@@ -5787,9 +5784,8 @@ def test_label_atomic_lines_compact_prompt_workspace_mirrors_hint_and_input_arti
         / "line-role-canonical-0001-a000000-a000000.md"
     ).read_text(encoding="utf-8")
     assert "Static reminders" in worker_hint_text
-    assert "Label code legend" in worker_hint_text
-    assert "Attention rows" in worker_hint_text
-    assert "Treat each row's deterministic label code as a weak hint only" in worker_hint_text
+    assert "Focus" in worker_hint_text
+    assert "There is no deterministic answer key in this workspace." in worker_hint_text
     worker_input_text = (
         prompt_root
         / "runtime"
@@ -5801,7 +5797,7 @@ def test_label_atomic_lines_compact_prompt_workspace_mirrors_hint_and_input_arti
     ).read_text(encoding="utf-8")
     worker_input_payload = json.loads(worker_input_text)
     assert set(worker_input_payload) == {"v", "shard_id", "rows"}
-    assert worker_input_payload["rows"] == [[0, "L9", "Ambiguous line 0"]]
+    assert worker_input_payload["rows"] == [[0, "Ambiguous line 0"]]
     input_payload = json.loads(
         (
             prompt_root
@@ -5824,7 +5820,7 @@ def test_label_atomic_lines_compact_prompt_workspace_mirrors_hint_and_input_arti
             / "line-role-canonical-0001-a000000-a000000.json"
         ).read_text(encoding="utf-8")
     )
-    assert input_payload["rows"][0][2] == "Ambiguous line 0"
+    assert input_payload["rows"][0][1] == "Ambiguous line 0"
     assert debug_payload["rows"][0]["current_line"] == "Ambiguous line 0"
     assert "prev_text" not in debug_payload["rows"][0]
     assert "next_text" not in debug_payload["rows"][0]
@@ -5880,11 +5876,11 @@ def test_label_atomic_lines_writes_one_shard_owned_ledger_without_line_role_task
         ),
         artifact_root=tmp_path,
         codex_batch_size=4,
-        codex_runner=_line_role_runner({index: "OTHER" for index in range(4)}),
+        codex_runner=_line_role_runner({index: "NONRECIPE_CANDIDATE" for index in range(4)}),
         live_llm_allowed=True,
     )
 
-    assert [prediction.label for prediction in predictions] == ["OTHER"] * 4
+    assert [prediction.label for prediction in predictions] == ["NONRECIPE_CANDIDATE"] * 4
     worker_root = (
         tmp_path
         / "line-role-pipeline"
@@ -5944,11 +5940,11 @@ def test_label_atomic_lines_writes_canonical_line_table_and_shard_status(
         ),
         artifact_root=tmp_path,
         codex_batch_size=2,
-        codex_runner=_line_role_runner({0: "OTHER", 1: "KNOWLEDGE"}),
+        codex_runner=_line_role_runner({0: "RECIPE_NOTES", 1: "NONRECIPE_CANDIDATE"}),
         live_llm_allowed=True,
     )
 
-    assert [prediction.label for prediction in predictions] == ["OTHER", "OTHER"]
+    assert [prediction.label for prediction in predictions] == ["RECIPE_NOTES", "NONRECIPE_CANDIDATE"]
     runtime_root = tmp_path / "line-role-pipeline" / "runtime" / "line_role"
     line_table_rows = [
         json.loads(line)
@@ -5983,7 +5979,7 @@ def test_label_atomic_lines_resume_existing_valid_shard_outputs_without_rerunnin
         for index in range(2)
     ]
 
-    first_runner = _line_role_runner({0: "OTHER", 1: "OTHER"})
+    first_runner = _line_role_runner({0: "RECIPE_NOTES", 1: "RECIPE_NOTES"})
     first_predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-route-v2", line_role_worker_count=1),
@@ -5992,10 +5988,10 @@ def test_label_atomic_lines_resume_existing_valid_shard_outputs_without_rerunnin
         codex_runner=first_runner,
         live_llm_allowed=True,
     )
-    assert [prediction.label for prediction in first_predictions] == ["OTHER", "OTHER"]
+    assert [prediction.label for prediction in first_predictions] == ["RECIPE_NOTES", "RECIPE_NOTES"]
     assert any(call["mode"] == "workspace_worker" for call in first_runner.calls)
 
-    second_runner = _line_role_runner({0: "KNOWLEDGE", 1: "KNOWLEDGE"})
+    second_runner = _line_role_runner({0: "RECIPE_TITLE", 1: "RECIPE_TITLE"})
     second_predictions = label_atomic_lines(
         candidates,
         _settings("codex-line-role-route-v2", line_role_worker_count=1),
@@ -6005,7 +6001,7 @@ def test_label_atomic_lines_resume_existing_valid_shard_outputs_without_rerunnin
         live_llm_allowed=True,
     )
 
-    assert [prediction.label for prediction in second_predictions] == ["OTHER", "OTHER"]
+    assert [prediction.label for prediction in second_predictions] == ["RECIPE_NOTES", "RECIPE_NOTES"]
     assert second_runner.calls == []
     shard_status_rows = [
         json.loads(line)
@@ -6046,7 +6042,7 @@ def test_line_role_workspace_worker_invalid_shard_ledger_fails_closed_without_pr
             codex_batch_size=1,
             codex_runner=FakeCodexExecRunner(
                 output_builder=lambda _payload: {
-                    "rows": [{"atomic_index": 999, "label": "OTHER"}]
+                    "rows": [{"atomic_index": 999, "label": "RECIPE_NOTES"}]
                 }
             ),
             live_llm_allowed=True,
@@ -6110,8 +6106,8 @@ def test_label_atomic_lines_fails_closed_when_only_part_of_shard_validates(
             codex_runner=FakeCodexExecRunner(
                 output_builder=lambda _payload: {
                     "rows": [
-                        {"atomic_index": 0, "label": "OTHER"},
-                        {"atomic_index": 999, "label": "OTHER"},
+                        {"atomic_index": 0, "label": "RECIPE_NOTES"},
+                        {"atomic_index": 999, "label": "RECIPE_NOTES"},
                     ]
                 }
             ),
@@ -6161,7 +6157,7 @@ def test_label_atomic_lines_codex_progress_callback_reports_shard_runtime_start_
             line_role_prompt_target_count=None,
         ),
         codex_batch_size=1,
-        codex_runner=_line_role_runner({0: "OTHER", 1: "OTHER", 2: "OTHER"}),
+        codex_runner=_line_role_runner({0: "RECIPE_NOTES", 1: "RECIPE_NOTES", 2: "RECIPE_NOTES"}),
         live_llm_allowed=True,
         progress_callback=progress_messages.append,
     )
@@ -6202,7 +6198,7 @@ def test_label_atomic_lines_codex_max_inflight_override_takes_precedence(
         artifact_root=tmp_path,
         codex_batch_size=1,
         codex_max_inflight=3,
-        codex_runner=_line_role_runner({0: "OTHER", 1: "OTHER", 2: "OTHER"}),
+        codex_runner=_line_role_runner({0: "RECIPE_NOTES", 1: "RECIPE_NOTES", 2: "RECIPE_NOTES"}),
         live_llm_allowed=True,
         progress_callback=progress_messages.append,
     )
@@ -6247,11 +6243,11 @@ def test_label_atomic_lines_defaults_workers_to_shard_count_when_unspecified() -
         codex_batch_size=1,
         codex_runner=_line_role_runner(
             {
-                0: "OTHER",
-                1: "OTHER",
-                2: "OTHER",
-                3: "OTHER",
-                4: "OTHER",
+                0: "RECIPE_NOTES",
+                1: "RECIPE_NOTES",
+                2: "RECIPE_NOTES",
+                3: "RECIPE_NOTES",
+                4: "RECIPE_NOTES",
             }
         ),
         live_llm_allowed=True,

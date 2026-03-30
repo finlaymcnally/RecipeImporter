@@ -232,7 +232,7 @@ def test_group_recipe_spans_from_labels_rejects_title_only_note_span_without_bod
     assert "span_missing_recipe_body" in span_decisions[0].decision_notes
 
 
-def test_group_recipe_spans_from_labels_demotes_rejected_title_only_blocks_to_other() -> None:
+def test_group_recipe_spans_from_labels_routes_rejected_title_only_blocks_to_nonrecipe() -> None:
     labeled_lines = [
         AuthoritativeLabeledLine(
             source_block_id="block:40",
@@ -267,8 +267,8 @@ def test_group_recipe_spans_from_labels_demotes_rejected_title_only_blocks_to_ot
     assert span_decisions[0].decision == "rejected_pseudo_recipe_span"
     assert span_decisions[0].rejection_reason == "rejected_missing_recipe_body"
     assert normalized_blocks[0].deterministic_label == "RECIPE_TITLE"
-    assert normalized_blocks[0].final_label == "OTHER"
-    assert "recipe_span_rejected_to_other" in normalized_blocks[0].reason_tags
+    assert normalized_blocks[0].final_label == "NONRECIPE_CANDIDATE"
+    assert "recipe_span_rejected_to_route" in normalized_blocks[0].reason_tags
 
 
 def test_group_recipe_spans_from_labels_accepts_title_plus_yield_stub() -> None:
@@ -322,7 +322,7 @@ def test_group_recipe_spans_from_labels_accepts_title_plus_yield_stub() -> None:
     assert span_decisions[0].rejection_reason is None
 
 
-def test_group_recipe_spans_from_labels_keeps_anchored_recipe_through_single_other_gap() -> None:
+def test_group_recipe_spans_from_labels_keeps_anchored_recipe_through_single_nonrecipe_candidate_gap() -> None:
     labeled_lines = [
         AuthoritativeLabeledLine(
             source_block_id="block:0",
@@ -356,8 +356,8 @@ def test_group_recipe_spans_from_labels_keeps_anchored_recipe_through_single_oth
             source_block_index=3,
             atomic_index=3,
             text="1 large jalapeño, thinly sliced",
-            deterministic_label="OTHER",
-            final_label="OTHER",
+            deterministic_label="NONRECIPE_CANDIDATE",
+            final_label="NONRECIPE_CANDIDATE",
             decided_by="codex",
         ),
         AuthoritativeLabeledLine(
@@ -408,8 +408,8 @@ def test_group_recipe_spans_from_labels_keeps_anchored_recipe_through_single_oth
             source_block_id="block:3",
             source_block_index=3,
             supporting_atomic_indices=[3],
-            deterministic_label="OTHER",
-            final_label="OTHER",
+            deterministic_label="NONRECIPE_CANDIDATE",
+            final_label="NONRECIPE_CANDIDATE",
             decided_by="codex",
         ),
         AuthoritativeBlockLabel(

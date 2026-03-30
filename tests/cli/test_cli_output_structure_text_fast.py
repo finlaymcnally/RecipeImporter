@@ -28,8 +28,7 @@ _BASE_FAST_STAGE_ARGS = [
 def _use_fake_stage_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
     install_fake_source_job_stage(monkeypatch, importer_name="text")
     monkeypatch.setattr(
-        cli,
-        "resolve_process_thread_executor",
+        "cookimport.cli_commands.stage.resolve_process_thread_executor",
         lambda **_kwargs: ProcessThreadExecutorResolution(
             backend="serial",
             executor=None,

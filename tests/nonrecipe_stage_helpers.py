@@ -17,14 +17,18 @@ def make_stage_result(
     seed: NonRecipeSeedResult,
     routing: NonRecipeRoutingResult,
     authority: NonRecipeAuthorityResult,
-    candidate_status: NonRecipeCandidateStatusResult,
+    candidate_status: NonRecipeCandidateStatusResult | None = None,
+    review_status: NonRecipeCandidateStatusResult | None = None,
     refinement_report: Mapping[str, Any] | None = None,
 ) -> NonRecipeStageResult:
+    resolved_candidate_status = candidate_status or review_status
+    if resolved_candidate_status is None:
+        raise TypeError("make_stage_result requires candidate_status or review_status")
     return NonRecipeStageResult(
         seed=seed,
         routing=routing,
         authority=authority,
-        candidate_status=candidate_status,
+        candidate_status=resolved_candidate_status,
         refinement_report=dict(refinement_report or {}),
     )
 
@@ -62,7 +66,7 @@ def make_seed_result(
 
 def make_routing_result(
     *,
-    candidate_block_indices: Sequence[int],
+    candidate_block_indices: Sequence[int] | None = None,
     excluded_block_indices: Sequence[int] = (),
     exclusion_reason_by_block: Mapping[int, str] | None = None,
     candidate_nonrecipe_spans: Sequence[NonRecipeSpan] | None = None,
@@ -71,7 +75,7 @@ def make_routing_result(
     block_preview_by_index: Mapping[int, str] | None = None,
     warnings: Sequence[str] | None = None,
 ) -> NonRecipeRoutingResult:
-    candidate_indices = [int(index) for index in candidate_block_indices]
+    candidate_indices = [int(index) for index in (candidate_block_indices or ())]
     excluded_indices = [int(index) for index in excluded_block_indices]
     return NonRecipeRoutingResult(
         route_by_block=(
@@ -143,6 +147,17 @@ def make_candidate_status_result(
         unresolved_candidate_block_indices=sorted(unresolved_map),
         unresolved_candidate_route_by_index=unresolved_map,
         unresolved_candidate_spans=spans_from_category_map(unresolved_map),
+    )
+
+
+def make_review_status_result(
+    *,
+    reviewed_block_indices: Sequence[int],
+    unreviewed_block_category_by_index: Mapping[int, str],
+) -> NonRecipeCandidateStatusResult:
+    return make_candidate_status_result(
+        finalized_candidate_block_indices=reviewed_block_indices,
+        unresolved_candidate_route_by_index=unreviewed_block_category_by_index,
     )
 
 

@@ -870,10 +870,12 @@ class EpubImporter:
             )
 
     def _soup_from_bytes(self, content: bytes) -> BeautifulSoup:
-        try:
-            return BeautifulSoup(content, "lxml")
-        except FeatureNotFound:
-            return BeautifulSoup(content, "html.parser")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", XMLParsedAsHTMLWarning)
+            try:
+                return BeautifulSoup(content, "lxml")
+            except FeatureNotFound:
+                return BeautifulSoup(content, "html.parser")
 
     def _read_epub_spine(self, path: Path) -> tuple[str | None, list[EpubSpineItem]]:
         with zipfile.ZipFile(path) as zip_handle:

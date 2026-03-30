@@ -631,7 +631,9 @@ def test_interactive_generate_dashboard_runs_without_browser_prompt(
     def fake_stats_dashboard(**kwargs):
         captured.update(kwargs)
 
-    _patch_cli_attr(monkeypatch, "stats_dashboard", fake_stats_dashboard)
+    _patch_cli_attr(monkeypatch, "_stats_dashboard_command",
+        lambda: fake_stats_dashboard,
+    )
 
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()

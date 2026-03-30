@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -41,6 +42,14 @@ class OcrPage:
 # Lazy-loaded model singleton
 _model: "OCRPredictor | None" = None
 _current_device: str | None = None
+
+
+def _suppress_doctr_import_warnings() -> None:
+    warnings.filterwarnings(
+        "ignore",
+        message=r"defusedxml\.cElementTree is deprecated, import from defusedxml\.ElementTree instead\.",
+        category=DeprecationWarning,
+    )
 
 
 def resolve_ocr_device(device: str = "auto") -> str:
@@ -80,7 +89,9 @@ def _get_model(device: str = "auto") -> "OCRPredictor":
     if _model is None or _current_device != resolved_device:
         logger.info(f"Loading docTR OCR model on {resolved_device}...")
         try:
-            from doctr.models import ocr_predictor
+            with warnings.catch_warnings():
+                _suppress_doctr_import_warnings()
+                from doctr.models import ocr_predictor
 
             _model = ocr_predictor(
                 det_arch="db_resnet50",
@@ -195,7 +206,9 @@ def ocr_pdf(
     )
 
     try:
-        from doctr.io import DocumentFile
+        with warnings.catch_warnings():
+            _suppress_doctr_import_warnings()
+            from doctr.io import DocumentFile
         import numpy as np
     except ImportError as e:
         raise ImportError(
@@ -321,7 +334,9 @@ def ocr_pdf(
 def ocr_available() -> bool:
     """Check if docTR is available for OCR."""
     try:
-        import doctr  # noqa: F401
+        with warnings.catch_warnings():
+            _suppress_doctr_import_warnings()
+            import doctr  # noqa: F401
 
         return True
     except ImportError:

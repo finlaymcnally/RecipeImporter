@@ -120,6 +120,7 @@ from cookimport.core.progress_dashboard import (
     ProgressQueueRow,
 )
 from cookimport.core.executor_fallback import (
+    create_sync_manager,
     resolve_process_thread_executor,
     shutdown_executor,
 )

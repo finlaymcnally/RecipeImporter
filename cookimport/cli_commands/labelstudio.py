@@ -1711,6 +1711,18 @@ def register(app: typer.Typer) -> dict[str, object]:
             hidden=True,
             help="Internal: preferred knowledge shard count for Codex-backed benchmark runs.",
         )] = 5,
+        knowledge_packet_input_char_budget: Annotated[int | None, typer.Option(
+            "--knowledge-packet-input-char-budget",
+            min=1,
+            hidden=True,
+            help="Internal: maximum prompt-side character budget per knowledge packet.",
+        )] = 18000,
+        knowledge_packet_output_char_budget: Annotated[int | None, typer.Option(
+            "--knowledge-packet-output-char-budget",
+            min=1,
+            hidden=True,
+            help="Internal: maximum response-side character budget per knowledge packet.",
+        )] = 12000,
         line_role_prompt_target_count: Annotated[int, typer.Option(
             "--line-role-prompt-target-count",
             min=1,
@@ -2304,6 +2316,12 @@ def register(app: typer.Typer) -> dict[str, object]:
                                     llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
                                     recipe_prompt_target_count=recipe_prompt_target_count,
                                     knowledge_prompt_target_count=knowledge_prompt_target_count,
+                                    knowledge_packet_input_char_budget=(
+                                        knowledge_packet_input_char_budget
+                                    ),
+                                    knowledge_packet_output_char_budget=(
+                                        knowledge_packet_output_char_budget
+                                    ),
                                     atomic_block_splitter=selected_atomic_block_splitter,
                                     line_role_pipeline=selected_line_role_pipeline,
                                     line_role_prompt_target_count=line_role_prompt_target_count,
@@ -2421,6 +2439,12 @@ def register(app: typer.Typer) -> dict[str, object]:
                                 llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
                                 recipe_prompt_target_count=recipe_prompt_target_count,
                                 knowledge_prompt_target_count=knowledge_prompt_target_count,
+                                knowledge_packet_input_char_budget=(
+                                    knowledge_packet_input_char_budget
+                                ),
+                                knowledge_packet_output_char_budget=(
+                                    knowledge_packet_output_char_budget
+                                ),
                                 atomic_block_splitter=selected_atomic_block_splitter,
                                 line_role_pipeline=selected_line_role_pipeline,
                                 line_role_prompt_target_count=line_role_prompt_target_count,
@@ -3212,6 +3236,8 @@ def register(app: typer.Typer) -> dict[str, object]:
             "recipe_prompt_target_count": recipe_prompt_target_count,
             "llm_knowledge_pipeline": selected_llm_knowledge_pipeline,
             "knowledge_prompt_target_count": knowledge_prompt_target_count,
+            "knowledge_packet_input_char_budget": knowledge_packet_input_char_budget,
+            "knowledge_packet_output_char_budget": knowledge_packet_output_char_budget,
             "atomic_block_splitter": selected_atomic_block_splitter,
             "line_role_pipeline": selected_line_role_pipeline,
             "line_role_prompt_target_count": line_role_prompt_target_count,

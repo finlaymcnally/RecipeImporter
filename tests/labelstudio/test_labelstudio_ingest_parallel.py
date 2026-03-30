@@ -2000,10 +2000,11 @@ def test_authoritative_line_role_artifacts_aggregate_stage_payload_by_source_blo
     assert isinstance(stage_payload, dict)
     assert isinstance(summary, dict)
 
-    assert stage_payload["block_count"] == 2
+    assert stage_payload["block_count"] == 3
     assert stage_payload["block_labels"] == {
         "0": "RECIPE_TITLE",
-        "1": "INGREDIENT_LINE",
+        "1": "YIELD_LINE",
+        "2": "INGREDIENT_LINE",
     }
     assert summary["span_count"] == 3
 
@@ -2068,7 +2069,7 @@ def _build_final_nonrecipe_authority_fixture(
             atomic_index=2,
             text="Salt strengthens flavor.",
             deterministic_label="OTHER",
-            final_label="OTHER",
+            final_label="NONRECIPE_CANDIDATE",
             decided_by="rule",
         ),
     ]
@@ -2094,7 +2095,7 @@ def _build_final_nonrecipe_authority_fixture(
             source_block_index=2,
             supporting_atomic_indices=[2],
             deterministic_label="OTHER",
-            final_label="OTHER",
+            final_label="NONRECIPE_CANDIDATE",
             decided_by="rule",
         ),
     ]
@@ -2134,8 +2135,8 @@ def _build_final_nonrecipe_authority_fixture(
     ]
 
     final_nonrecipe_stage_result = make_stage_result(
-        seed=make_seed_result({2: "other"}),
-        routing=make_routing_result(review_eligible_block_indices=[2]),
+        seed=make_seed_result({2: "candidate"}),
+        routing=make_routing_result(candidate_block_indices=[2]),
         authority=make_authority_result({2: "knowledge"}),
         review_status=make_review_status_result(
             reviewed_block_indices=[2],
@@ -2143,21 +2144,23 @@ def _build_final_nonrecipe_authority_fixture(
         ),
         refinement_report={
             "enabled": True,
-            "authority_mode": "knowledge_refined_final_authority",
-            "input_mode": "stage7_seed_nonrecipe_spans",
+            "authority_mode": "knowledge_refined_final",
+            "input_mode": "stage7_candidate_nonrecipe_spans",
             "seed_nonrecipe_span_count": 1,
             "final_nonrecipe_span_count": 1,
             "changed_block_count": 1,
             "changed_blocks": [
                 {
                     "block_index": 2,
-                    "seed_category": "other",
+                    "previous_final_category": None,
                     "final_category": "knowledge",
+                    "reviewer_category": None,
+                    "applied_packet_ids": [],
                 }
             ],
             "conflicts": [],
             "ignored_block_indices": [],
-            "scored_effect": "mutated",
+            "scored_effect": "final_authority",
         },
     )
 
@@ -2311,15 +2314,15 @@ def test_nonrecipe_authority_projection_preserves_recipe_notes_outside_recipe() 
     ]
     nonrecipe_stage_result = make_stage_result(
         seed=make_seed_result({10: "other"}),
-        routing=make_routing_result(review_eligible_block_indices=[10]),
+        routing=make_routing_result(candidate_block_indices=[10]),
         authority=make_authority_result({10: "other"}),
         review_status=make_review_status_result(
             reviewed_block_indices=[10],
             unreviewed_block_category_by_index={},
         ),
         refinement_report={
-            "authority_mode": "deterministic_seed_only",
-            "scored_effect": "seed_only",
+            "authority_mode": "knowledge_refined_final",
+            "scored_effect": "final_authority",
             "changed_blocks": [{"block_index": 10}],
         },
     )
@@ -2335,7 +2338,7 @@ def test_nonrecipe_authority_projection_preserves_recipe_notes_outside_recipe() 
     assert "nonrecipe_authority:other" not in adjusted[0].reason_tags
 
 
-def test_nonrecipe_authority_projection_ignores_unreviewed_review_eligible_seed_guess() -> None:
+def test_nonrecipe_authority_projection_ignores_unresolved_candidate_without_final_authority() -> None:
     predictions = [
         CanonicalLineRolePrediction(
             recipe_id=None,
@@ -2344,22 +2347,22 @@ def test_nonrecipe_authority_projection_ignores_unreviewed_review_eligible_seed_
             atomic_index=10,
             text="Balancing Fat",
             within_recipe_span=False,
-            label="KNOWLEDGE",
+            label="NONRECIPE_CANDIDATE",
             decided_by="codex",
             reason_tags=["knowledge_heading"],
         )
     ]
     nonrecipe_stage_result = make_stage_result(
-        seed=make_seed_result({10: "other"}),
-        routing=make_routing_result(review_eligible_block_indices=[10]),
+        seed=make_seed_result({10: "candidate"}),
+        routing=make_routing_result(candidate_block_indices=[10]),
         authority=make_authority_result({}),
         review_status=make_review_status_result(
             reviewed_block_indices=[],
-            unreviewed_block_category_by_index={10: "other"},
+            unreviewed_block_category_by_index={10: "candidate"},
         ),
         refinement_report={
-            "authority_mode": "deterministic_seed_only",
-            "scored_effect": "seed_only",
+            "authority_mode": "deterministic_route_only",
+            "scored_effect": "route_only",
             "changed_blocks": [],
         },
     )
@@ -2369,12 +2372,12 @@ def test_nonrecipe_authority_projection_ignores_unreviewed_review_eligible_seed_
         nonrecipe_stage_result=nonrecipe_stage_result,
     )
 
-    assert summary["authority_mode"] == "deterministic_seed_only"
-    assert adjusted[0].label == "KNOWLEDGE"
+    assert summary["authority_mode"] == "deterministic_route_only"
+    assert adjusted[0].label == "NONRECIPE_CANDIDATE"
     assert "nonrecipe_authority:other" not in adjusted[0].reason_tags
 
 
-def test_line_role_projection_stage_payload_fail_closes_unreviewed_nonrecipe_knowledge(
+def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_recipe(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "book.epub"
@@ -2415,8 +2418,8 @@ def test_line_role_projection_stage_payload_fail_closes_unreviewed_nonrecipe_kno
             source_block_index=2,
             atomic_index=2,
             text="Balancing Fat",
-            deterministic_label="KNOWLEDGE",
-            final_label="KNOWLEDGE",
+            deterministic_label="OTHER",
+            final_label="NONRECIPE_CANDIDATE",
             decided_by="codex",
             reason_tags=["codex_line_role"],
         ),
@@ -2437,16 +2440,16 @@ def test_line_role_projection_stage_payload_fail_closes_unreviewed_nonrecipe_kno
     ]
 
     nonrecipe_stage_result = make_stage_result(
-        seed=make_seed_result({2: "knowledge"}),
-        routing=make_routing_result(review_eligible_block_indices=[2]),
+        seed=make_seed_result({2: "candidate"}),
+        routing=make_routing_result(candidate_block_indices=[2]),
         authority=make_authority_result({}),
         review_status=make_review_status_result(
             reviewed_block_indices=[],
-            unreviewed_block_category_by_index={2: "knowledge"},
+            unreviewed_block_category_by_index={2: "candidate"},
         ),
         refinement_report={
-            "authority_mode": "deterministic_seed_only",
-            "scored_effect": "seed_only",
+            "authority_mode": "deterministic_route_only",
+            "scored_effect": "route_only",
             "changed_blocks": [],
         },
     )
@@ -2466,23 +2469,23 @@ def test_line_role_projection_stage_payload_fail_closes_unreviewed_nonrecipe_kno
         if line.strip()
     ]
     balancing_fat_row = next(row for row in line_role_rows if row["text"] == "Balancing Fat")
-    assert balancing_fat_row["label"] == "KNOWLEDGE"
+    assert balancing_fat_row["label"] == "NONRECIPE_CANDIDATE"
 
     stage_payload = json.loads(
         artifacts["stage_block_predictions_path"].read_text(encoding="utf-8")
     )
-    assert stage_payload["block_labels"]["2"] == "KNOWLEDGE"
+    assert stage_payload["block_labels"]["2"] == "OTHER"
     assert (
-        "Unreviewed review-eligible outside-recipe rows were marked unresolved and excluded from semantic scoring."
+        "Unresolved candidate outside-recipe rows were marked unresolved and excluded from semantic scoring."
         in stage_payload["notes"]
     )
 
     telemetry_payload = json.loads(
         artifacts["telemetry_summary_path"].read_text(encoding="utf-8")
     )
-    assert telemetry_payload["unresolved_review_eligible_line_count"] == 1
-    assert telemetry_payload["unresolved_review_eligible_block_indices"] == [2]
-    assert summary["unresolved_review_eligible_line_count"] == 1
+    assert telemetry_payload["unresolved_candidate_line_count"] == 1
+    assert telemetry_payload["unresolved_candidate_block_indices"] == [2]
+    assert summary["unresolved_candidate_line_count"] == 1
 
 
 def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_default(

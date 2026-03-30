@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from bs4 import BeautifulSoup, FeatureNotFound, NavigableString, Tag
+import warnings
+
+from bs4 import BeautifulSoup, FeatureNotFound, NavigableString, Tag, XMLParsedAsHTMLWarning
 
 _SPLIT_TAG_NAMES = {"p", "div", "li"}
 _DROP_TAG_NAMES = {"script", "style", "noscript", "svg"}
@@ -31,10 +33,12 @@ def _normalize_mode(mode: str) -> str:
 
 
 def _parse_html_document(html: str) -> BeautifulSoup:
-    try:
-        soup = BeautifulSoup(html, "lxml")
-    except FeatureNotFound:
-        soup = BeautifulSoup(html, "html.parser")
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+        try:
+            soup = BeautifulSoup(html, "lxml")
+        except FeatureNotFound:
+            soup = BeautifulSoup(html, "html.parser")
 
     if soup.html is None:
         html_tag = soup.new_tag("html")

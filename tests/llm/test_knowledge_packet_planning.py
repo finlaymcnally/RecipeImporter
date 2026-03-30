@@ -18,6 +18,8 @@ def test_build_knowledge_jobs_exposes_only_live_planner_controls(tmp_path: Path)
         "out_dir",
         "context_blocks",
         "prompt_target_count",
+        "input_char_budget",
+        "output_char_budget",
     ]
 
     report = build_knowledge_jobs(
@@ -53,6 +55,8 @@ def test_build_knowledge_jobs_exposes_only_live_planner_controls(tmp_path: Path)
 
     assert report.packets_written == 1
     assert report.shards_written == 1
+    assert report.packet_input_char_budget == 18000
+    assert report.packet_output_char_budget == 6000
     payload = json.loads(
         (tmp_path / "knowledge" / "fixturebook.ks0000.nr.json").read_text(encoding="utf-8")
     )
@@ -92,9 +96,50 @@ def test_build_knowledge_jobs_uses_prompt_target_as_shard_count(tmp_path: Path) 
         "fixturebook.ks0001.nr",
     ]
     assert [entry.metadata["owned_block_indices"] for entry in report.shard_entries] == [
-        [0, 1, 2],
-        [3, 4],
+        [0, 1],
+        [2, 3, 4],
     ]
+
+
+def test_build_knowledge_jobs_splits_by_explicit_char_budgets_before_target_count(
+    tmp_path: Path,
+) -> None:
+    report = build_knowledge_jobs(
+        full_blocks=[
+            {"index": index, "text": ("Technique " + str(index) + " ") * 12}
+            for index in range(4)
+        ],
+        candidate_spans=[
+            NonRecipeSpan(
+                span_id=f"nr.{index}.{index + 1}",
+                category="knowledge",
+                block_start_index=index,
+                block_end_index=index + 1,
+                block_indices=[index],
+                block_ids=[f"b{index}"],
+            )
+            for index in range(4)
+        ],
+        recipe_spans=[],
+        workbook_slug="fixturebook",
+        out_dir=tmp_path / "knowledge",
+        context_blocks=0,
+        prompt_target_count=1,
+        input_char_budget=320,
+        output_char_budget=220,
+    )
+
+    assert report.packets_written == 4
+    assert report.packet_input_char_budget == 320
+    assert report.packet_output_char_budget == 220
+    assert [entry.metadata["owned_block_indices"] for entry in report.shard_entries] == [
+        [0],
+        [1],
+        [2],
+        [3],
+    ]
+    assert all(entry.metadata["input_char_budget"] == 320 for entry in report.shard_entries)
+    assert all(entry.metadata["output_char_budget"] == 220 for entry in report.shard_entries)
 
 
 def test_build_knowledge_jobs_keeps_review_order_inside_each_shard(tmp_path: Path) -> None:

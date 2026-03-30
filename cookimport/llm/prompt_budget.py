@@ -910,6 +910,9 @@ def _attach_recipe_stage_observability(
         stage_summary["work_unit_label"] = str(work_units.get("label") or "").strip() or None
         stage_summary["work_unit_total"] = _nonnegative_int(work_units.get("planned_total"))
         stage_summary["work_unit_completed"] = _nonnegative_int(work_units.get("completed_total"))
+        if stage_summary["work_unit_label"] == "recipe_task":
+            stage_summary["packet_total"] = stage_summary["work_unit_total"]
+            stage_summary["packet_completed"] = stage_summary["work_unit_completed"]
     if isinstance(parent_shards, Mapping):
         stage_summary["parent_shard_total"] = _nonnegative_int(parent_shards.get("planned_total"))
         if isinstance(parent_shards.get("status_counts"), Mapping):
@@ -928,10 +931,7 @@ def _attach_recipe_stage_observability(
     if isinstance(followups, Mapping):
         stage_summary["followup_label"] = str(followups.get("label") or "").strip() or None
         for key in (
-            "same_session_fix_attempted_count",
-            "same_session_fix_recovered_count",
-            "same_session_fix_escalated_count",
-            "same_session_fix_budget_exhausted_count",
+            "handled_locally_skip_llm_count",
             "repair_attempted_count",
             "repair_completed_count",
             "repair_running_count",

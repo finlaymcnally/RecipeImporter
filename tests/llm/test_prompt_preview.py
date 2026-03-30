@@ -559,6 +559,26 @@ def test_prompt_preview_knowledge_prompt_target_count_controls_shard_count(
     assert artifacts["prompt_preview_budget_summary_md"] == "prompt_preview_budget_summary.md"
 
 
+def test_prompt_preview_threads_knowledge_packet_budgets_into_settings(
+    tmp_path: Path,
+) -> None:
+    run_dir = _build_existing_run(tmp_path)
+    out_dir = tmp_path / "preview"
+
+    manifest_path = write_prompt_preview_for_existing_run(
+        run_path=run_dir,
+        out_dir=out_dir,
+        repo_root=REPO_ROOT,
+        knowledge_packet_input_char_budget=321,
+        knowledge_packet_output_char_budget=654,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert manifest["preview_settings"]["knowledge_packet_input_char_budget"] == 321
+    assert manifest["preview_settings"]["knowledge_packet_output_char_budget"] == 654
+
+
 def test_prompt_preview_knowledge_uses_unresolved_candidate_spans_not_seed_spans(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -742,26 +762,20 @@ def test_prompt_preview_rebuilds_knowledge_and_line_role_prompts(tmp_path: Path)
     assert knowledge_rows[0]["request_input_payload"]["b"][0]["i"] == 2
 
     line_role_row = rows_by_stage["line_role"][0]
-    assert "You are reviewing canonical line-role route labels" in line_role_row["rendered_prompt_text"]
+    assert "You are labeling canonical line-role route labels" in line_role_row["rendered_prompt_text"]
     assert "line_role_input_0001.json" in line_role_row["rendered_prompt_text"]
-    assert '<BEGIN_AUTHORITATIVE_ROWS>\n[0, "U"' in line_role_row["rendered_prompt_text"]
+    assert '<BEGIN_AUTHORITATIVE_ROWS>\n[0, "Ambiguous title-ish line"]' in line_role_row["rendered_prompt_text"]
     assert "Return one result for every owned input row in `rows`." in line_role_row["rendered_prompt_text"]
     assert line_role_row["prompt_input_mode"] == "inline"
-    assert line_role_row["request_input_payload"]["v"] == 1
+    assert line_role_row["request_input_payload"]["v"] == 2
     assert [row[0] for row in line_role_row["request_input_payload"]["rows"]] == [
         0,
         1,
         2,
         3,
     ]
-    assert (
-        line_role_row["request_input_payload"]["rows"][0][4]
-        == "Ambiguous title-ish line"
-    )
-    assert (
-        line_role_row["request_input_payload"]["rows"][3][4]
-        == "Advertisement copy."
-    )
+    assert line_role_row["request_input_payload"]["rows"][0][1] == "Ambiguous title-ish line"
+    assert line_role_row["request_input_payload"]["rows"][3][1] == "Advertisement copy."
     assert line_role_row["debug_input_payload"]["phase_key"] == "line_role"
     assert line_role_row["debug_input_payload"]["rows"][0]["current_line"] == "Ambiguous title-ish line"
     assert "block_index" in line_role_row["debug_input_payload"]["rows"][0]

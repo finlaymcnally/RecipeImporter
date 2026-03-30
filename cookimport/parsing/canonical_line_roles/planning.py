@@ -475,7 +475,7 @@ def _build_line_role_workspace_worker_prompt(
         "Worker contract:\n"
         "- The current working directory is already the workspace root.\n"
         "- Start by opening `worker_manifest.json`, then `CURRENT_PHASE.md`. Open `current_phase.json` when you need the exact metadata fields or file paths.\n"
-        "- The normal path is repo-written already: open the current work ledger named in `current_phase.json`, then `hints/<shard_id>.md`; open `in/<shard_id>.json` only when the work ledger or hint is insufficient.\n"
+        "- The normal path is repo-written already: open the current work ledger named in `current_phase.json`, then the authoritative raw input in `in/<shard_id>.json`; use `hints/<shard_id>.md` only if you want a short reminder.\n"
         "- Run `python3 tools/line_role_worker.py check-phase` after editing the work ledger. If `CURRENT_PHASE_FEEDBACK.md` names a repair file, fix only those unresolved rows in the existing work ledger.\n"
         "- Run `python3 tools/line_role_worker.py install-phase` only after the current work ledger validates cleanly. Installing advances the phase surface to the next shard when one remains.\n"
         "- There is no separate repo-owned repair model pass for line-role. The active workspace ledger is the authoritative fix loop.\n"
@@ -488,24 +488,23 @@ def _build_line_role_workspace_worker_prompt(
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
         "- Treat `CURRENT_PHASE.md` as the cheapest repo-written first read. Use `current_phase.json` only for the exact metadata and named file paths.\n"
         "- Use `assigned_shards.json` only for ordered ownership/progress context.\n"
-        "- For each assigned shard, start from the prewritten work ledger and hint before reopening the raw input ledger.\n"
-        "- Treat `hints/<shard_id>.md` as guidance and `in/<shard_id>.json` as the authoritative shard input for the active phase.\n"
-        "- Treat shard span codes and hint lists as weak hints only. Recompute from the shard rows, hint, and local context.\n"
-        "- Open `OUTPUT_CONTRACT.md` only when the seeded work ledger and validator feedback are insufficient to recover the exact output shape.\n"
+        "- For each assigned shard, start from the scaffolded work ledger, then read the raw input ledger in order.\n"
+        "- Treat `hints/<shard_id>.md` as optional guidance and `in/<shard_id>.json` as the authoritative shard input for the active phase.\n"
+        "- Open `OUTPUT_CONTRACT.md` only when the scaffolded work ledger and validator feedback are insufficient to recover the exact output shape.\n"
         "- Write and revise the active shard only in `work/<shard_id>.json`. The helper installs the validated ledger to `out/<shard_id>.json`.\n"
         "- If `out/<shard_id>.json` already exists and is complete, leave it alone and continue.\n"
         "- Do not modify files under `in/`, `debug/`, or `hints/`.\n"
         "- Stay inside this workspace; do not inspect parent directories or the repository.\n"
         "- Keep working through the assigned shard files until all of them are handled or you truly cannot proceed.\n\n"
         "Each shard input file has this shape:\n"
-        '{"v":1,"shard_id":"line-role-canonical-0001-a000123-a000456","rows":[[123,"R",["ingredient_like"],[],"1 cup flour"],[124,"R",["instruction_like"],[],"Stir well."]]}\n\n'
+        '{"v":2,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[[122,"Earlier context"]],"rows":[[123,"1 cup flour"],[124,"Stir well."]],"context_after_rows":[[125,"Later context"]]}\n\n'
         "Each work/install ledger must have this shape:\n"
         '{"rows":[{"atomic_index":123,"label":"INGREDIENT_LINE"}]}\n\n'
         "Rules:\n"
         "- Use only the keys `rows`, `atomic_index`, `label`, and optional `exclusion_reason` in each ledger.\n"
         "- Return one result for every owned input row in `rows`, in the same order.\n"
-        "- The input rows are `[atomic_index, span_code, rule_tags, escalation_reasons, current_line]`.\n"
-        "- Use `span_code`, `rule_tags`, and `escalation_reasons` as weak hints only.\n"
+        "- The input rows are `[atomic_index, current_line]`.\n"
+        "- `context_before_rows` and `context_after_rows` are reference-only neighboring rows shaped like `[atomic_index, current_line]`.\n"
         "- `INGREDIENT_LINE`: quantity/unit ingredients and bare ingredient items in ingredient lists.\n"
         "- `INSTRUCTION_LINE`: recipe-local imperative action sentences, even when they include time.\n"
         "- `TIME_LINE`: stand-alone timing or temperature lines, not full instruction sentences.\n"
@@ -549,105 +548,44 @@ def _write_line_role_worker_hint(
 ) -> None:
     input_rows = list(_coerce_mapping_dict(shard.input_payload).get("rows") or [])
     debug_rows = list(_coerce_mapping_dict(debug_payload).get("rows") or [])
-    input_row_by_atomic_index: dict[int, tuple[Any, ...]] = {}
-    ordered_atomic_indices: list[int] = []
-    for row in input_rows:
-        if not isinstance(row, (list, tuple)) or len(row) < 5:
-            continue
-        try:
-            atomic_index = int(row[0])
-        except (TypeError, ValueError):
-            continue
-        input_row_by_atomic_index[atomic_index] = tuple(row)
-        ordered_atomic_indices.append(atomic_index)
-    order_lookup = {atomic_index: idx for idx, atomic_index in enumerate(ordered_atomic_indices)}
-
-    flagged_count = 0
-    span_inside = 0
-    span_outside = 0
-    span_unknown = 0
-    attention_lines: list[str] = []
+    owned_row_count = 0
+    context_before_count = len(_coerce_mapping_dict(shard.input_payload).get("context_before_rows") or [])
+    context_after_count = len(_coerce_mapping_dict(shard.input_payload).get("context_after_rows") or [])
     for row in debug_rows:
         if not isinstance(row, Mapping):
             continue
-        try:
-            atomic_index = int(row.get("atomic_index"))
-        except (TypeError, ValueError):
-            continue
-        within_recipe_span = row.get("within_recipe_span")
-        if within_recipe_span is True:
-            span_inside += 1
-        elif within_recipe_span is False:
-            span_outside += 1
-        else:
-            span_unknown += 1
-        rule_tags = [
-            str(tag).strip()
-            for tag in row.get("rule_tags") or []
-            if str(tag).strip()
-        ]
-        escalation_reasons = [
-            str(reason).strip()
-            for reason in row.get("escalation_reasons") or []
-            if str(reason).strip()
-        ]
-        if escalation_reasons or rule_tags:
-            flagged_count += 1
-        if len(attention_lines) >= 12 or (not escalation_reasons and not rule_tags):
-            continue
-        current_line = str(row.get("current_line") or "").strip()
-        input_row = input_row_by_atomic_index.get(atomic_index, ())
-        input_span_code = str(input_row[1]) if len(input_row) >= 2 else "?"
-        row_index = order_lookup.get(atomic_index)
-        prev_line = "[start]"
-        next_line = "[end]"
-        if row_index is not None:
-            if row_index > 0:
-                prev_atomic_index = ordered_atomic_indices[row_index - 1]
-                prev_row = input_row_by_atomic_index.get(prev_atomic_index, ())
-                prev_line = str(prev_row[-1]) if prev_row else "[start]"
-            if row_index < (len(ordered_atomic_indices) - 1):
-                next_atomic_index = ordered_atomic_indices[row_index + 1]
-                next_row = input_row_by_atomic_index.get(next_atomic_index, ())
-                next_line = str(next_row[-1]) if next_row else "[end]"
-        attention_lines.append(
-            f"`{atomic_index}` `{preview_text(current_line, max_chars=90)}` -> span `{input_span_code}`, tags `{', '.join(rule_tags) or 'none'}`, escalation `{', '.join(escalation_reasons) or 'none'}`, prev `{preview_text(prev_line, max_chars=60)}`, next `{preview_text(next_line, max_chars=60)}`"
-        )
+        owned_row_count += 1
 
     shard_profile = [
-        f"Owned rows: {len(input_row_by_atomic_index)}.",
-        f"Rows with rule tags or escalation reasons: {flagged_count}.",
-        f"Recipe-span status mix: inside={span_inside}, outside={span_outside}, unknown={span_unknown}.",
-        "Use this file to decode compact rows quickly, then rely on `in/<shard_id>.json` for the full owned row list.",
-    ]
-    legend_lines = [
-        "`R` = `in_recipe`",
-        "`N` = `outside_recipe`",
-        "`U` = `unknown_recipe_status`",
+        f"Owned rows: {owned_row_count or len(input_rows)}.",
+        f"Reference-only context rows: before={context_before_count}, after={context_after_count}.",
+        "Use `in/<shard_id>.json` as the authoritative shard input and this file only as a short reminder.",
     ]
     static_reminders = [
-        "Treat span codes and hint lists as weak hints only, not starting truth.",
+        "Start from raw line text plus nearby context. There is no deterministic answer key in this workspace.",
         "`HOWTO_SECTION` is only for short recipe-internal subsection headings such as `FOR THE SAUCE` or `TO FINISH`.",
         "Do not use `HOWTO_SECTION` for chapter, topic, lesson, or contents headings.",
         "Neighbor rows in `context_before_rows` / `context_after_rows` are reference-only and must never appear in output JSON.",
     ]
-    if not attention_lines:
-        attention_lines = [
-            "No special attention rows were flagged. Read the authoritative rows in order and use nearby neighbors for disambiguation."
-        ]
     write_worker_hint_markdown(
         path,
         title=f"Canonical line-role hints for {shard.shard_id}",
         summary_lines=[
             "This sidecar is worker guidance only.",
-            "Open this file first, then open the authoritative `in/<shard_id>.json` file.",
+            "Open the authoritative `in/<shard_id>.json` file and label the owned rows directly from the text.",
             "Use nearby rows to disambiguate front matter, lesson prose, headings, and recipe-local structure.",
         ],
         sections=[
             ("Shard profile", shard_profile),
             ("Static reminders", static_reminders),
-            ("Label code legend", legend_lines),
-            ("Attention rows", attention_lines),
+            (
+                "Focus",
+                [
+                    "Read the shard in order.",
+                    "Label every owned row once.",
+                    "Use `NONRECIPE_EXCLUDE` only for obvious junk that should never reach knowledge.",
+                ],
+            ),
         ],
     )
 

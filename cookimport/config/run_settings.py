@@ -786,6 +786,40 @@ class RunSettings(BaseModel):
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
+    knowledge_packet_input_char_budget: int | None = Field(
+        default=18000,
+        ge=1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Knowledge Packet Input Budget",
+            order=115,
+            description=(
+                "Approximate max characters for one leased knowledge packet input. "
+                "The planner splits before runtime when a shard would exceed this budget."
+            ),
+            step=500,
+            minimum=1,
+            maximum=200000,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
+    knowledge_packet_output_char_budget: int | None = Field(
+        default=6000,
+        ge=1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Knowledge Packet Output Budget",
+            order=115,
+            description=(
+                "Approximate max characters for one leased knowledge packet result. "
+                "The planner splits before runtime when the worst-case packet output would exceed this budget."
+            ),
+            step=250,
+            minimum=1,
+            maximum=100000,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
     knowledge_worker_count: int | None = Field(
         default=None,
         ge=1,

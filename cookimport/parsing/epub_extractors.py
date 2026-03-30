@@ -4,12 +4,13 @@ import logging
 import re
 import shutil
 import subprocess
+import warnings
 from dataclasses import dataclass
 from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import Any, Protocol
 
-from bs4 import BeautifulSoup, FeatureNotFound, Tag
+from bs4 import BeautifulSoup, FeatureNotFound, Tag, XMLParsedAsHTMLWarning
 
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning
@@ -43,10 +44,12 @@ class EpubExtractor(Protocol):
 
 
 def _soup_from_html(html: str) -> BeautifulSoup:
-    try:
-        return BeautifulSoup(html, "lxml")
-    except FeatureNotFound:
-        return BeautifulSoup(html, "html.parser")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", XMLParsedAsHTMLWarning)
+        try:
+            return BeautifulSoup(html, "lxml")
+        except FeatureNotFound:
+            return BeautifulSoup(html, "html.parser")
 
 
 class BeautifulSoupEpubExtractor:

@@ -193,6 +193,8 @@ def write_prompt_preview_for_existing_run(
     recipe_worker_count: int | None = None,
     recipe_prompt_target_count: int | None = None,
     knowledge_prompt_target_count: int | None = None,
+    knowledge_packet_input_char_budget: int | None = None,
+    knowledge_packet_output_char_budget: int | None = None,
     knowledge_worker_count: int | None = None,
     line_role_worker_count: int | None = None,
     line_role_prompt_target_count: int | None = None,
@@ -220,6 +222,16 @@ def write_prompt_preview_for_existing_run(
         knowledge_prompt_target_count
         if knowledge_prompt_target_count is not None
         else _coerce_int(context.run_config.get("knowledge_prompt_target_count"))
+    )
+    resolved_knowledge_packet_input_char_budget = (
+        knowledge_packet_input_char_budget
+        if knowledge_packet_input_char_budget is not None
+        else _coerce_int(context.run_config.get("knowledge_packet_input_char_budget"))
+    )
+    resolved_knowledge_packet_output_char_budget = (
+        knowledge_packet_output_char_budget
+        if knowledge_packet_output_char_budget is not None
+        else _coerce_int(context.run_config.get("knowledge_packet_output_char_budget"))
     )
 
     pipeline_root = (
@@ -274,6 +286,8 @@ def write_prompt_preview_for_existing_run(
             codex_cmd=effective_codex_cmd,
             context_blocks=codex_farm_knowledge_context_blocks,
             prompt_target_count=resolved_knowledge_prompt_target_count,
+            input_char_budget=resolved_knowledge_packet_input_char_budget,
+            output_char_budget=resolved_knowledge_packet_output_char_budget,
         )
         stage_plans["nonrecipe_knowledge_review"] = _build_direct_shard_phase_plan(
             stage_key="nonrecipe_knowledge_review",
@@ -379,6 +393,8 @@ def write_prompt_preview_for_existing_run(
             "recipe_worker_count": recipe_worker_count,
             "recipe_prompt_target_count": resolved_recipe_prompt_target_count,
             "knowledge_prompt_target_count": resolved_knowledge_prompt_target_count,
+            "knowledge_packet_input_char_budget": resolved_knowledge_packet_input_char_budget,
+            "knowledge_packet_output_char_budget": resolved_knowledge_packet_output_char_budget,
             "knowledge_worker_count": knowledge_worker_count,
             "line_role_worker_count": line_role_worker_count,
             "line_role_prompt_target_count": resolved_line_role_prompt_target_count,
@@ -687,6 +703,8 @@ def _build_knowledge_preview_rows(
     codex_cmd: str | None,
     context_blocks: int,
     prompt_target_count: int | None,
+    input_char_budget: int | None,
+    output_char_budget: int | None,
 ) -> list[dict[str, Any]]:
     pipeline_assets = _load_pipeline_assets(
         pipeline_root=pipeline_root,
@@ -712,6 +730,8 @@ def _build_knowledge_preview_rows(
         out_dir=in_dir,
         context_blocks=context_blocks,
         prompt_target_count=prompt_target_count,
+        input_char_budget=input_char_budget,
+        output_char_budget=output_char_budget,
     )
     rows: list[dict[str, Any]] = []
     for input_path in sorted(in_dir.glob("*.json"), key=lambda path: path.name):

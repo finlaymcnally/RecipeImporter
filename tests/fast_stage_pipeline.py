@@ -167,6 +167,10 @@ def install_fake_source_job_pipeline(
 
     monkeypatch.setattr(cli_worker, "execute_source_job", _fake_execute_source_job)
     monkeypatch.setattr(cli, "_merge_source_jobs", _fake_merge_source_jobs)
+    monkeypatch.setattr(
+        "cookimport.cli_commands.stage._merge_source_jobs",
+        _fake_merge_source_jobs,
+    )
 
 
 def install_fake_source_job_stage(

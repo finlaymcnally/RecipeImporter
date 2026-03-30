@@ -214,7 +214,6 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_phase_loop(
         (workspace.execution_working_dir / "current_phase.json").read_text(encoding="utf-8")
     )
     assert current_phase["shard_id"] == "shard-001"
-    assert (workspace.execution_working_dir / "out").exists()
     assert (workspace.execution_working_dir / "OUTPUT_CONTRACT.md").exists()
     assert (workspace.execution_working_dir / "examples" / "valid_repaired_task_output.json").exists()
     assert (workspace.execution_working_dir / "tools" / "line_role_worker.py").exists()
@@ -280,15 +279,14 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_packet_lease_files(
     assert (workspace.execution_working_dir / "scratch").exists()
 
 
-def test_prepare_direct_exec_workspace_worker_mode_knows_knowledge_phase_helpers(
+def test_prepare_direct_exec_workspace_worker_mode_knows_knowledge_packet_lease_helpers(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
     (source_root / "in").mkdir(parents=True, exist_ok=True)
     (source_root / "hints").mkdir(parents=True, exist_ok=True)
+    (source_root / "scratch").mkdir(parents=True, exist_ok=True)
     (source_root / "tools").mkdir(parents=True, exist_ok=True)
-    (source_root / "work").mkdir(parents=True, exist_ok=True)
-    (source_root / "repair").mkdir(parents=True, exist_ok=True)
     (source_root / "assigned_shards.json").write_text(
         json.dumps(
             [
@@ -297,8 +295,6 @@ def test_prepare_direct_exec_workspace_worker_mode_knows_knowledge_phase_helpers
                     "metadata": {
                         "input_path": "in/book.ks0000.nr.json",
                         "hint_path": "hints/book.ks0000.nr.md",
-                        "work_path": "work/book.ks0000.nr.pass1.json",
-                        "repair_path": "repair/book.ks0000.nr.pass1.json",
                         "result_path": "out/book.ks0000.nr.json",
                     },
                 }
@@ -306,27 +302,28 @@ def test_prepare_direct_exec_workspace_worker_mode_knows_knowledge_phase_helpers
         ),
         encoding="utf-8",
     )
-    (source_root / "current_phase.json").write_text(
+    (source_root / "current_packet.json").write_text(
         json.dumps(
             {
-                "status": "active",
-                "phase": "pass1",
+                "v": "1",
+                "task_id": "book.ks0000.nr.pass1",
+                "packet_kind": "pass1",
                 "shard_id": "book.ks0000.nr",
-                "input_path": "in/book.ks0000.nr.json",
-                "hint_path": "hints/book.ks0000.nr.md",
-                "work_path": "work/book.ks0000.nr.pass1.json",
-                "repair_path": "repair/book.ks0000.nr.pass1.json",
-                "result_path": "out/book.ks0000.nr.json",
+                "rows": [{"block_index": 1, "text": "Use low heat."}],
             }
         ),
         encoding="utf-8",
     )
-    (source_root / "CURRENT_PHASE.md").write_text(
-        "# Current Knowledge Phase\n",
+    (source_root / "current_hint.md").write_text(
+        "# Current Knowledge Packet\n",
         encoding="utf-8",
     )
-    (source_root / "CURRENT_PHASE_FEEDBACK.md").write_text(
-        "# Current Phase Feedback\n",
+    (source_root / "current_result_path.txt").write_text(
+        "scratch/book.ks0000.nr.pass1.json\n",
+        encoding="utf-8",
+    )
+    (source_root / "packet_lease_status.json").write_text(
+        json.dumps({"worker_state": "leased_current_packet"}),
         encoding="utf-8",
     )
     (source_root / "in" / "book.ks0000.nr.json").write_text(
@@ -335,17 +332,6 @@ def test_prepare_direct_exec_workspace_worker_mode_knows_knowledge_phase_helpers
     )
     (source_root / "hints" / "book.ks0000.nr.md").write_text(
         "# knowledge hint\n",
-        encoding="utf-8",
-    )
-    (source_root / "work" / "book.ks0000.nr.pass1.json").write_text(
-        json.dumps(
-            {
-                "phase": "pass1",
-                "rows": [
-                    {"block_index": 1, "text": "Use low heat.", "category": ""}
-                ],
-            }
-        ),
         encoding="utf-8",
     )
     (source_root / "OUTPUT_CONTRACT.md").write_text("# contract\n", encoding="utf-8")
@@ -365,30 +351,27 @@ def test_prepare_direct_exec_workspace_worker_mode_knows_knowledge_phase_helpers
     )
     assert worker_manifest["entry_files"] == [
         "worker_manifest.json",
-        "current_phase.json",
-        "CURRENT_PHASE.md",
-        "CURRENT_PHASE_FEEDBACK.md",
+        "current_packet.json",
+        "current_hint.md",
+        "current_result_path.txt",
+        "packet_lease_status.json",
         "assigned_shards.json",
     ]
-    assert worker_manifest["current_phase_file"] == "current_phase.json"
-    assert worker_manifest["current_phase_brief_file"] == "CURRENT_PHASE.md"
-    assert worker_manifest["current_phase_feedback_file"] == "CURRENT_PHASE_FEEDBACK.md"
+    assert worker_manifest["assigned_shards_file"] == "assigned_shards.json"
+    assert worker_manifest["current_packet_file"] == "current_packet.json"
+    assert worker_manifest["current_hint_file"] == "current_hint.md"
+    assert worker_manifest["current_result_path_file"] == "current_result_path.txt"
+    assert worker_manifest["packet_lease_status_file"] == "packet_lease_status.json"
     assert "current_batch_file" not in worker_manifest
     assert "current_batch_brief_file" not in worker_manifest
     assert "current_batch_feedback_file" not in worker_manifest
-    assert "sed -n '1,120p' CURRENT_PHASE.md" in worker_manifest[
+    assert "sed -n '1,80p' current_hint.md" in worker_manifest[
         "workspace_local_shell_examples"
     ]
-    assert "sed -n '1,120p' CURRENT_PHASE_FEEDBACK.md" in worker_manifest[
+    assert "python3 -c \"import json; from pathlib import Path; packet=json.loads(Path('current_packet.json').read_text()); print(packet.get('task_id'))\"" in worker_manifest[
         "workspace_local_shell_examples"
     ]
-    assert "sed -n '1,80p' hints/<shard_id>.md" in worker_manifest[
-        "workspace_local_shell_examples"
-    ]
-    assert "python3 tools/knowledge_worker.py check-phase" in worker_manifest[
-        "workspace_local_shell_examples"
-    ]
-    assert "python3 tools/knowledge_worker.py install-phase" in worker_manifest[
+    assert "jq '{rows: ...}' current_packet.json > out/<task>.json" in worker_manifest[
         "workspace_local_shell_examples"
     ]
     assert worker_manifest["workspace_commands_forbidden"] == [
@@ -399,6 +382,8 @@ def test_prepare_direct_exec_workspace_worker_mode_knows_knowledge_phase_helpers
     assert not (workspace.execution_working_dir / "current_batch.json").exists()
     assert not (workspace.execution_working_dir / "CURRENT_BATCH.md").exists()
     assert not (workspace.execution_working_dir / "CURRENT_BATCH_FEEDBACK.md").exists()
+    assert not (workspace.execution_working_dir / "current_phase.json").exists()
+    assert not (workspace.execution_working_dir / "CURRENT_PHASE.md").exists()
 
 
 def test_workspace_boundary_detector_allows_jq_fallback_operator_with_output_redirection() -> None:

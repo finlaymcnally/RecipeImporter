@@ -22,10 +22,12 @@ import pytest
 import cookimport.cli as cli
 import cookimport.cli_commands.labelstudio as labelstudio_cli
 import cookimport.cli_support as cli_support
+import cookimport.cli_support.bench_artifacts as bench_artifacts
 import cookimport.cli_support.bench_all_method as bench_all_method
 import cookimport.cli_support.bench_single_book as bench_single_book
 import cookimport.cli_support.bench_single_profile as bench_single_profile
 import cookimport.cli_support.interactive_flow as interactive_flow
+import cookimport.cli_support.progress as progress_support
 from cookimport.bench.prediction_records import (
     make_prediction_record,
     read_prediction_records,
@@ -51,18 +53,21 @@ def _patch_cli_attr(
     monkeypatch: pytest.MonkeyPatch,
     name: str,
     value: object,
+    **setattr_kwargs: object,
 ) -> None:
     for module in (
         cli,
         cli_support,
+        bench_artifacts,
         labelstudio_cli,
         interactive_flow,
+        progress_support,
         bench_single_book,
         bench_single_profile,
         bench_all_method,
     ):
         if hasattr(module, name):
-            monkeypatch.setattr(module, name, value)
+            monkeypatch.setattr(module, name, value, **setattr_kwargs)
 
 
 @pytest.fixture(autouse=True)

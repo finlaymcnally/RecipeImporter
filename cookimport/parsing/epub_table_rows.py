@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Sequence
 
-from bs4 import BeautifulSoup, FeatureNotFound, Tag
+from bs4 import BeautifulSoup, FeatureNotFound, Tag, XMLParsedAsHTMLWarning
 
 from cookimport.core.blocks import Block, BlockType
 from cookimport.parsing import cleaning
@@ -78,10 +79,12 @@ def build_structured_epub_row_block(
 
 
 def _soup_from_html(html: str) -> BeautifulSoup:
-    try:
-        return BeautifulSoup(html, "lxml")
-    except FeatureNotFound:
-        return BeautifulSoup(html, "html.parser")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", XMLParsedAsHTMLWarning)
+        try:
+            return BeautifulSoup(html, "lxml")
+        except FeatureNotFound:
+            return BeautifulSoup(html, "html.parser")
 
 
 def _is_table_cell_tag(tag: Tag) -> bool:
