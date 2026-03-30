@@ -3264,6 +3264,17 @@ def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
     assert "`INSTRUCTION_LINE` means a recipe-local procedural step" in prompt
     assert "`HOWTO_SECTION` is recipe-internal only." in prompt
     assert "`HOWTO_SECTION` is book-optional." in prompt
+    assert "Variant context is local, not sticky." in prompt
+    assert (
+        "If a short title-like line is immediately followed by a strict yield line or ingredient rows"
+        in prompt
+    )
+    assert (
+        "A strict yield header such as `SERVES 4`, `Makes about 1/2 cup`, or `Yield: 6 servings` stays `YIELD_LINE`"
+        in prompt
+    )
+    assert "Line: `Lemon Vinaigrette`\n    Label: `RECIPE_TITLE`" in prompt
+    assert "Line: `Makes about 1/2 cup`\n    Label: `YIELD_LINE`" in prompt
     assert "Cooking Acids" in prompt
     assert "Use limes in guacamole" in prompt
     assert "Each target row is `atomic_index|current_line`." in prompt
@@ -3549,6 +3560,15 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert "Never label reference-only neighboring rows" in prompt
     assert "Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`." in prompt
     assert "If the shard rows are outside recipe context, default to `NONRECIPE_CANDIDATE`" in prompt
+    assert "Variant context is local, not sticky." in prompt
+    assert (
+        "If a short title-like line is immediately followed by a strict yield line or ingredient rows"
+        in prompt
+    )
+    assert (
+        "A strict yield header such as `SERVES 4`, `Makes about 1/2 cup`, or `Yield: 6 servings` stays `YIELD_LINE`"
+        in prompt
+    )
     assert "Contents-style title lists and memoir prose stay `NONRECIPE_CANDIDATE`" in prompt
     assert "Use optional `exclusion_reason` only on rows labeled `NONRECIPE_EXCLUDE`" in prompt
     assert "A single outside-recipe heading by itself is not enough" in prompt
@@ -3617,6 +3637,9 @@ def test_canonical_line_role_inline_prompt_fallback_stays_routing_only(
         "Line: `Foods that are too dry can be corrected with a bit more fat.`\n    Label: `NONRECIPE_CANDIDATE`"
         in prompt
     )
+    assert "Variant context is local, not sticky." in prompt
+    assert "Line: `Lemon Vinaigrette`\n    Label: `RECIPE_TITLE`" in prompt
+    assert "Line: `Makes about 1/2 cup`\n    Label: `YIELD_LINE`" in prompt
 
 
 def test_repo_gold_exposes_no_subsection_and_real_subsection_books() -> None:

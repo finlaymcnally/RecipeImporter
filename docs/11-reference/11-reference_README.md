@@ -17,11 +17,15 @@ For versions/build/fix-attempt history and anti-loop notes, read `docs/11-refere
 - Dated snapshot of recipe-related DB fields and constraints from the public schema as of `2026-02-10`.
 - This file is a reference snapshot only; runtime code does not import it directly.
 
-2. `docs/11-reference/recipeDraftV1.schema.json`
+2. `docs/11-reference/2026-03-30_13.47.43_cookbook-tag-catalog-snapshot.md`
+- Dated snapshot of the Cookbook app's seeded tag catalog copied from `~/projects/cookbook/supabase/seeds/catalog.sql`.
+- Useful when designing `KNOWLEDGE` vs `OTHER` heuristics around whether text can ground to a stored tag or tag-category concept.
+
+3. `docs/11-reference/recipeDraftV1.schema.json`
 - JSON Schema mirror for the cookbook3 draft-v1 payload contract.
 - Useful for external validators and cross-repo contract checks, but it currently tracks the strict core subset rather than every runtime-emitted field.
 
-3. `docs/11-reference/recipeDraftV1.ts`
+4. `docs/11-reference/recipeDraftV1.ts`
 - Zod mirror of the draft-v1 contract (`RecipeDraftV1Schema`) plus helpers (`parseRecipeDraftV1`, `formatZodError`).
 - Useful when TypeScript tooling needs strict draft-v1 validation behavior, but it currently lags some runtime-only draft fields.
 

@@ -28,6 +28,10 @@ Negative rules (must-not-do):
 - A full sentence or paragraph beginning with `To make ...` or `To serve ...` is usually variant or procedural prose, not `HOWTO_SECTION`, unless the entire line is a short heading-shaped header.
 - A `Variations` heading and its immediately following alternate-version lines usually stay `RECIPE_VARIANT` until the variant run ends.
 - Short `Variation` / `Variations` follow-up lines such as `To add a little heat ...` or `To evoke the flavors ...` usually stay `RECIPE_VARIANT`.
+- Variant context is local, not sticky. Do not let a nearby `Variations` run swallow a fresh recipe start.
+- If a short title-like line is immediately followed by a strict yield line or ingredient rows, prefer `RECIPE_TITLE`, not `RECIPE_VARIANT`, even when earlier nearby rows were variants.
+- A strict yield header such as `SERVES 4`, `Makes about 1/2 cup`, or `Yield: 6 servings` stays `YIELD_LINE` when it appears between a recipe title and ingredient or method structure; do not downgrade it to `RECIPE_NOTES`.
+- Local row evidence wins over shaky prior span assumptions. A title-like line followed by yield or ingredients can still be `RECIPE_TITLE` even if upstream recipe-span state is missing or noisy.
 - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `NONRECIPE_CANDIDATE`.
 - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `NONRECIPE_CANDIDATE`, not `HOWTO_SECTION`.
 - Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `NONRECIPE_CANDIDATE` when surrounding rows are explanatory prose.
@@ -130,6 +134,14 @@ Few-shot examples:
 22) Context: short variation follow-up line after `Variations`
     Line: `To add a little heat, add 1 teaspoon minced jalapeño.`
     Label: `RECIPE_VARIANT`
+
+23) Context: fresh recipe start after nearby variants, followed by yield and ingredients
+    Line: `Lemon Vinaigrette`
+    Label: `RECIPE_TITLE`
+
+24) Context: strict yield header between a recipe title and ingredients
+    Line: `Makes about 1/2 cup`
+    Label: `YIELD_LINE`
 
 RETURN FORMAT (STRICT JSON ONLY)
 Return exactly a JSON array with one object per target line:
