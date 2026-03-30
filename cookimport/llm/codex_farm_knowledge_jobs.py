@@ -13,6 +13,7 @@ from cookimport.staging.nonrecipe_stage import (
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 from cookimport.llm.shard_prompt_targets import (
     coerce_positive_int,
+    partition_contiguous_items,
 )
 
 from .codex_farm_knowledge_contracts import (
@@ -121,19 +122,30 @@ def build_knowledge_jobs(
         value=output_char_budget,
         default=_DEFAULT_KNOWLEDGE_PACKET_OUTPUT_CHAR_BUDGET,
     )
-    row_partitions = _partition_rows_by_budget(
+    budget_row_partitions = _partition_rows_by_budget(
         rows=ordered_review_rows,
         input_char_budget=resolved_input_char_budget,
         output_char_budget=resolved_output_char_budget,
     )
-    requested_shard_count = max(
-        len(row_partitions),
-        coerce_positive_int(prompt_target_count) or len(row_partitions),
-    )
-    row_partitions = _split_budget_partitions_to_target_count(
-        row_partitions=row_partitions,
-        target_count=requested_shard_count,
-    )
+    packet_count_before_partition = len(budget_row_partitions)
+    configured_prompt_target = coerce_positive_int(prompt_target_count)
+    if configured_prompt_target is None:
+        row_partitions = list(budget_row_partitions)
+    else:
+        requested_shard_count = min(
+            max(1, int(configured_prompt_target)),
+            len(ordered_review_rows),
+        )
+        if packet_count_before_partition > requested_shard_count:
+            planning_warnings.append(
+                "knowledge_prompt_target_count hard-capped shard planning at "
+                f"{requested_shard_count} even though packet budgets would have split "
+                f"the queue into {packet_count_before_partition} shards."
+            )
+        row_partitions = _repartition_rows_to_target_count(
+            rows=ordered_review_rows,
+            target_count=requested_shard_count,
+        )
     prepared_packets: list[_PreparedKnowledgePacket] = []
     for shard_index, shard_rows in enumerate(row_partitions, start=0):
         absolute_indices = [
@@ -248,7 +260,7 @@ def build_knowledge_jobs(
     return KnowledgeJobBuildReport(
         seed_nonrecipe_span_count=len(candidate_spans),
         candidate_nonrecipe_span_count=len(candidate_spans),
-        packet_count_before_partition=len(sorted_packets),
+        packet_count_before_partition=packet_count_before_partition,
         shards_written=len(shard_entries),
         packets_written=len(written_packets),
         candidate_block_count=len(
@@ -346,6 +358,24 @@ def _split_budget_partitions_to_target_count(
         partitions.insert(split_index, largest[:midpoint])
         partitions.insert(split_index + 1, largest[midpoint:])
     return partitions
+
+
+def _repartition_rows_to_target_count(
+    *,
+    rows: Sequence[Mapping[str, Any]],
+    target_count: int,
+) -> list[list[dict[str, Any]]]:
+    normalized_rows = [dict(row) for row in rows if isinstance(row, Mapping)]
+    if not normalized_rows:
+        return []
+    return [
+        [dict(row) for row in partition]
+        for partition in partition_contiguous_items(
+            normalized_rows,
+            shard_count=max(1, int(target_count or 1)),
+        )
+        if partition
+    ]
 
 
 def _estimate_pass1_input_chars(

@@ -631,6 +631,7 @@ class _SingleProfileBenchmarkComputationResult:
     single_profile_root: Path
     single_profile_processed_root: Path
     total_targets: int
+    has_codex_variants: bool
     refresh_dashboard: bool
 
 
@@ -648,6 +649,14 @@ def _publish_single_profile_benchmark_result(
 ) -> _SingleProfileBenchmarkPublicationResult:
     target_publications: list[_SingleProfileTargetPublicationResult] = []
     for target_result in result.completed_results:
+        if not result.has_codex_variants:
+            target_publications.append(
+                _SingleProfileTargetPublicationResult(
+                    target=target_result.target,
+                    upload_bundle_dir=None,
+                )
+            )
+            continue
         try:
             upload_bundle_dir = _write_benchmark_upload_bundle(
                 source_root=target_result.target_eval_output,
@@ -679,7 +688,7 @@ def _publish_single_profile_benchmark_result(
             )
 
     group_upload_bundle_dir: Path | None = None
-    if result.total_targets > 1:
+    if result.total_targets > 1 and result.has_codex_variants:
         group_upload_bundle_dir = _write_benchmark_upload_bundle(
             source_root=result.single_profile_root,
             output_dir=result.single_profile_root / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
@@ -1235,6 +1244,10 @@ def _interactive_single_profile_all_matched_benchmark(
         single_profile_root=single_profile_root,
         single_profile_processed_root=single_profile_processed_root,
         total_targets=total_targets,
+        has_codex_variants=any(
+            codex_surfaces_enabled(variant_settings.to_run_config_dict())
+            for _variant_slug, variant_settings in variants
+        ),
         refresh_dashboard=single_profile_dashboard is not None,
     )
     if publisher is None:

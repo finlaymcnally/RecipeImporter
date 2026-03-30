@@ -88,7 +88,7 @@ def test_build_knowledge_jobs_uses_prompt_target_as_shard_count(tmp_path: Path) 
         prompt_target_count=2,
     )
 
-    assert report.packet_count_before_partition == 2
+    assert report.packet_count_before_partition == 1
     assert report.packets_written == 2
     assert report.packet_ids == ["fixturebook.ks0000.nr", "fixturebook.ks0001.nr"]
     assert [entry.shard_id for entry in report.shard_entries] == [
@@ -96,12 +96,52 @@ def test_build_knowledge_jobs_uses_prompt_target_as_shard_count(tmp_path: Path) 
         "fixturebook.ks0001.nr",
     ]
     assert [entry.metadata["owned_block_indices"] for entry in report.shard_entries] == [
-        [0, 1],
-        [2, 3, 4],
+        [0, 1, 2],
+        [3, 4],
     ]
 
 
-def test_build_knowledge_jobs_splits_by_explicit_char_budgets_before_target_count(
+def test_build_knowledge_jobs_splits_by_explicit_char_budgets_when_no_target_count_is_set(
+    tmp_path: Path,
+) -> None:
+    report = build_knowledge_jobs(
+        full_blocks=[
+            {"index": index, "text": ("Technique " + str(index) + " ") * 12}
+            for index in range(4)
+        ],
+        candidate_spans=[
+            NonRecipeSpan(
+                span_id=f"nr.{index}.{index + 1}",
+                category="knowledge",
+                block_start_index=index,
+                block_end_index=index + 1,
+                block_indices=[index],
+                block_ids=[f"b{index}"],
+            )
+            for index in range(4)
+        ],
+        recipe_spans=[],
+        workbook_slug="fixturebook",
+        out_dir=tmp_path / "knowledge",
+        context_blocks=0,
+        input_char_budget=320,
+        output_char_budget=220,
+    )
+
+    assert report.packets_written == 4
+    assert report.packet_input_char_budget == 320
+    assert report.packet_output_char_budget == 220
+    assert [entry.metadata["owned_block_indices"] for entry in report.shard_entries] == [
+        [0],
+        [1],
+        [2],
+        [3],
+    ]
+    assert all(entry.metadata["input_char_budget"] == 320 for entry in report.shard_entries)
+    assert all(entry.metadata["output_char_budget"] == 220 for entry in report.shard_entries)
+
+
+def test_build_knowledge_jobs_treats_prompt_target_count_as_hard_cap(
     tmp_path: Path,
 ) -> None:
     report = build_knowledge_jobs(
@@ -129,17 +169,13 @@ def test_build_knowledge_jobs_splits_by_explicit_char_budgets_before_target_coun
         output_char_budget=220,
     )
 
-    assert report.packets_written == 4
-    assert report.packet_input_char_budget == 320
-    assert report.packet_output_char_budget == 220
+    assert report.packet_count_before_partition == 4
+    assert report.shards_written == 1
+    assert report.packets_written == 1
+    assert report.packet_ids == ["fixturebook.ks0000.nr"]
     assert [entry.metadata["owned_block_indices"] for entry in report.shard_entries] == [
-        [0],
-        [1],
-        [2],
-        [3],
+        [0, 1, 2, 3]
     ]
-    assert all(entry.metadata["input_char_budget"] == 320 for entry in report.shard_entries)
-    assert all(entry.metadata["output_char_budget"] == 220 for entry in report.shard_entries)
 
 
 def test_build_knowledge_jobs_keeps_review_order_inside_each_shard(tmp_path: Path) -> None:

@@ -838,10 +838,6 @@ def _run_line_role_workspace_worker_assignment_v1(
 ) -> _DirectLineRoleWorkerResult:
     out_dir = worker_root / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
-    work_dir = worker_root / "work"
-    repair_dir = worker_root / "repair"
-    work_dir.mkdir(parents=True, exist_ok=True)
-    repair_dir.mkdir(parents=True, exist_ok=True)
     worker_failure_count = 0
     worker_proposal_count = 0
     worker_runner_results: list[dict[str, Any]] = []
@@ -855,36 +851,6 @@ def _run_line_role_workspace_worker_assignment_v1(
     worker_prompt_path: Path | None = None
     session_run_result: CodexExecRunResult | None = None
     valid_shards: list[ShardManifestEntryV1] = []
-
-    def _write_current_phase(shard_row: Mapping[str, Any] | None, *, completed: bool = False) -> None:
-        phase_json_path = worker_root / _LINE_ROLE_CURRENT_PHASE_FILE_NAME
-        phase_brief_path = worker_root / _LINE_ROLE_CURRENT_PHASE_BRIEF_FILE_NAME
-        phase_feedback_path = worker_root / _LINE_ROLE_CURRENT_PHASE_FEEDBACK_FILE_NAME
-        if completed:
-            _write_runtime_json(
-                phase_json_path,
-                {"phase_key": "label_rows", "status": "completed", "shard_id": None},
-            )
-            phase_brief_path.write_text(
-                "# Current Line-Role Phase\n\nAll assigned line-role shards are installed.\n",
-                encoding="utf-8",
-            )
-            phase_feedback_path.write_text(
-                "# Current Phase Feedback\n\nAll assigned line-role shards are installed.\n",
-                encoding="utf-8",
-            )
-            return
-        if shard_row is None:
-            return
-        _write_runtime_json(phase_json_path, dict(shard_row))
-        phase_brief_path.write_text(
-            render_line_role_current_phase_brief(dict(shard_row)),
-            encoding="utf-8",
-        )
-        phase_feedback_path.write_text(
-            "# Current Phase Feedback\n\nEdit the current work ledger, run `python3 tools/line_role_worker.py check-phase`, then install once clean.\n",
-            encoding="utf-8",
-        )
 
     for shard in assigned_shards:
         shard_root = shard_dir / shard.shard_id
@@ -1009,21 +975,11 @@ def _run_line_role_workspace_worker_assignment_v1(
     }
     _write_runtime_json(worker_root / "assigned_shards.json", assigned_shard_rows)
     _write_line_role_output_contract(worker_root=worker_root)
-    _write_line_role_worker_tools(worker_root=worker_root)
     for shard in valid_shards:
         shard_id = shard.shard_id
         shard_row = assigned_shard_row_by_shard_id.get(shard_id)
         if shard_row is None:
             continue
-        work_path = work_dir / f"{shard_id}.json"
-        repair_state_path = repair_dir / f"{shard_id}.status.json"
-        if repair_state_path.exists():
-            repair_state_path.unlink()
-        if not work_path.exists():
-            _write_runtime_json(
-                work_path,
-                build_line_role_workspace_scaffold({"input_payload": shard.input_payload}),
-            )
         _write_worker_debug_input(
             path=in_dir / f"{shard_id}.json",
             payload=shard.input_payload,
@@ -1069,7 +1025,6 @@ def _run_line_role_workspace_worker_assignment_v1(
 
     runnable_shards = [shard for shard in valid_shards if shard.shard_id in runnable_shard_ids]
     if runnable_shards:
-        _write_current_phase(assigned_shard_row_by_shard_id.get(runnable_shards[0].shard_id))
         worker_prompt_text = _build_line_role_workspace_worker_prompt(
             shards=runnable_shards,
         )
@@ -1136,7 +1091,6 @@ def _run_line_role_workspace_worker_assignment_v1(
         _write_optional_runtime_text(worker_root / "stdout.txt", session_run_result.stdout_text)
         _write_optional_runtime_text(worker_root / "stderr.txt", session_run_result.stderr_text)
     else:
-        _write_current_phase(None, completed=True)
         _write_runtime_json(
             worker_root / "live_status.json",
             {
@@ -1161,9 +1115,8 @@ def _run_line_role_workspace_worker_assignment_v1(
         shard_id = shard.shard_id
         input_path = in_dir / f"{shard_id}.json"
         debug_path = debug_dir / f"{shard_id}.json"
-        work_path = work_dir / f"{shard_id}.json"
-        repair_request_path = repair_dir / f"{shard_id}.json"
-        repair_state_path = repair_dir / f"{shard_id}.status.json"
+        repair_request_path = worker_root / "repair" / f"{shard_id}.json"
+        repair_state_path = worker_root / "repair" / f"{shard_id}.status.json"
         output_path = out_dir / f"{shard_id}.json"
         response_source_path = (
             output_path if output_path.exists() else resumed_output_path_by_shard_id.get(shard_id)
@@ -1211,9 +1164,6 @@ def _run_line_role_workspace_worker_assignment_v1(
         baseline_by_atomic_index = dict(
             deterministic_baseline_by_shard_id.get(shard_id) or {}
         )
-        frozen_rows = _load_line_role_workspace_frozen_rows(
-            repair_path=repair_request_path,
-        )
         if response_source_path is not None and response_source_path.exists():
             response_text = response_source_path.read_text(encoding="utf-8")
             payload, validation_errors, validation_metadata, proposal_status = (
@@ -1224,52 +1174,6 @@ def _run_line_role_workspace_worker_assignment_v1(
                     deterministic_baseline_by_atomic_index=baseline_by_atomic_index,
                 )
             )
-        elif work_path.exists():
-            try:
-                response_text = work_path.read_text(encoding="utf-8")
-            except OSError:
-                response_text = None
-            if not _line_role_workspace_ledger_has_authoritative_edits(
-                response_text=response_text,
-                shard=shard,
-                frozen_rows=frozen_rows,
-            ):
-                payload, validation_errors, validation_metadata, proposal_status = (
-                    _evaluate_line_role_response_with_pathology_guard(
-                        shard=shard,
-                        response_text=None,
-                        validator=validator,
-                        deterministic_baseline_by_atomic_index=baseline_by_atomic_index,
-                    )
-                )
-                if frozen_rows:
-                    validation_metadata = {
-                        **_line_role_workspace_validation_metadata_from_frozen_rows(
-                            frozen_rows
-                        ),
-                        **dict(validation_metadata or {}),
-                    }
-            else:
-                (
-                    _work_payload,
-                    work_validation_errors,
-                    work_validation_metadata,
-                    work_proposal_status,
-                ) = _evaluate_line_role_workspace_response_with_pathology_guard(
-                    shard=shard,
-                    response_text=response_text,
-                    deterministic_baseline_by_atomic_index=baseline_by_atomic_index,
-                    frozen_rows_by_atomic_index=frozen_rows,
-                )
-                validation_metadata = dict(work_validation_metadata or {})
-                validation_metadata["workspace_ledger_status"] = work_proposal_status
-                validation_metadata["workspace_ledger_validation_errors"] = list(
-                    work_validation_errors
-                )
-                validation_metadata["installed_output_required"] = True
-                payload = None
-                validation_errors = ("missing_output_file",)
-                proposal_status = "missing_output"
         else:
             payload, validation_errors, validation_metadata, proposal_status = (
                 _evaluate_line_role_response_with_pathology_guard(
@@ -1281,7 +1185,7 @@ def _run_line_role_workspace_worker_assignment_v1(
             )
         watchdog_retry_attempted = False
         watchdog_retry_status = "not_attempted"
-        repair_attempted = repair_request_path.exists() or repair_state_path.exists()
+        repair_attempted = False
         repair_status = "not_attempted"
         raw_output_status = proposal_status
         final_validation_errors = tuple(validation_errors)
@@ -1493,13 +1397,6 @@ def _run_line_role_workspace_worker_assignment_v1(
                         watchdog_retry_validation_metadata or {}
                     ),
                 }
-        if frozen_rows:
-            frozen_row_metadata = _line_role_workspace_validation_metadata_from_frozen_rows(
-                frozen_rows
-            )
-            final_validation_metadata = dict(final_validation_metadata or {})
-            for metadata_key, metadata_value in frozen_row_metadata.items():
-                final_validation_metadata.setdefault(metadata_key, metadata_value)
         row_resolution_payload, row_resolution_metadata = _build_line_role_row_resolution(
             shard=shard,
             validation_metadata=final_validation_metadata,
@@ -1537,7 +1434,6 @@ def _run_line_role_workspace_worker_assignment_v1(
                     if repair_state_path.exists()
                     else None
                 ),
-                "work_path": _relative_runtime_path(run_root, work_path),
                 "output_path": _relative_runtime_path(run_root, output_path),
                 "validation_errors": list(final_validation_errors),
                 "row_resolution": dict(row_resolution_metadata),
@@ -1585,7 +1481,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                     )
                 ),
                 output_path=response_source_path,
-                repair_path=repair_request_path if repair_request_path.exists() else None,
+                repair_path=None,
                 validation_errors=final_validation_errors,
                 validation_metadata=final_validation_metadata,
                 row_resolution_metadata=row_resolution_metadata,
@@ -1842,8 +1738,6 @@ def _run_line_role_workspace_worker_assignment_v1(
                 "debug_dir": _relative_runtime_path(run_root, debug_dir),
                 "hints_dir": _relative_runtime_path(run_root, hints_dir),
                 "out_dir": _relative_runtime_path(run_root, out_dir),
-                "work_dir": _relative_runtime_path(run_root, work_dir),
-                "repair_dir": _relative_runtime_path(run_root, repair_dir),
                 "shards_dir": _relative_runtime_path(run_root, shard_dir),
                 "log_dir": _relative_runtime_path(run_root, logs_dir),
             },

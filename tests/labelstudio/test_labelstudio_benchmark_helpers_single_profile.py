@@ -494,7 +494,10 @@ def test_interactive_single_profile_all_matched_benchmark_writes_group_upload_bu
 
     benchmark_eval_output = tmp_path / "golden" / "2026-03-04_10.00.00"
     processed_output_root = tmp_path / "processed"
-    selected_settings = _benchmark_test_run_settings()
+    selected_settings = _benchmark_test_run_settings(
+        {"llm_recipe_pipeline": "codex-recipe-shard-v1"},
+        warn_context="test group upload bundle codex",
+    )
 
     _patch_cli_attr(monkeypatch, "labelstudio_benchmark", lambda **_kwargs: None)
     upload_bundle_calls: list[dict[str, object]] = []
@@ -529,7 +532,7 @@ def test_interactive_single_profile_all_matched_benchmark_writes_group_upload_bu
     )
 
 
-def test_interactive_single_profile_uploads_only_group_oracle_bundle(
+def test_interactive_single_profile_vanilla_skips_oracle_bundle_publication(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -565,7 +568,80 @@ def test_interactive_single_profile_uploads_only_group_oracle_bundle(
 
     benchmark_eval_output = tmp_path / "golden" / "2026-03-05_23.01.17"
     processed_output_root = tmp_path / "processed"
-    selected_settings = cli.RunSettings.from_dict({}, warn_context="test oracle group upload")
+    selected_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "off",
+            "line_role_pipeline": "off",
+            "atomic_block_splitter": "off",
+        },
+        warn_context="test oracle group upload",
+    )
+
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", lambda **_kwargs: None)
+
+    upload_bundle_calls: list[dict[str, object]] = []
+
+    _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
+        lambda **kwargs: upload_bundle_calls.append(dict(kwargs)),
+    )
+    launch_calls: list[dict[str, object]] = []
+    _patch_cli_attr(monkeypatch, "_start_benchmark_bundle_oracle_upload_background",
+        lambda **kwargs: launch_calls.append(dict(kwargs)),
+    )
+
+    completed = cli._interactive_single_profile_all_matched_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+    )
+
+    assert completed is True
+    assert upload_bundle_calls == []
+    assert launch_calls == []
+
+
+def test_interactive_single_profile_codex_uploads_group_oracle_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_a = tmp_path / "Book A.epub"
+    source_a.write_text("a", encoding="utf-8")
+    source_b = tmp_path / "Book B.docx"
+    source_b.write_text("b", encoding="utf-8")
+    gold_a = tmp_path / "gold-a" / "exports" / "freeform_span_labels.jsonl"
+    gold_a.parent.mkdir(parents=True, exist_ok=True)
+    gold_a.write_text("{}\n", encoding="utf-8")
+    gold_b = tmp_path / "gold-b" / "exports" / "freeform_span_labels.jsonl"
+    gold_b.parent.mkdir(parents=True, exist_ok=True)
+    gold_b.write_text("{}\n", encoding="utf-8")
+
+    targets = [
+        cli.AllMethodTarget(
+            gold_spans_path=gold_a,
+            source_file=source_a,
+            source_file_name=source_a.name,
+            gold_display="gold-a",
+        ),
+        cli.AllMethodTarget(
+            gold_spans_path=gold_b,
+            source_file=source_b,
+            source_file_name=source_b.name,
+            gold_display="gold-b",
+        ),
+    ]
+    _patch_cli_attr(monkeypatch, "_resolve_all_method_targets",
+        lambda _output_dir: (targets, []),
+    )
+    _patch_cli_attr(monkeypatch, "_prompt_confirm", lambda *_args, **_kwargs: True)
+
+    benchmark_eval_output = tmp_path / "golden" / "2026-03-05_23.01.17"
+    processed_output_root = tmp_path / "processed"
+    selected_settings = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "codex-recipe-shard-v1"},
+        warn_context="test oracle group upload codex",
+    )
 
     _patch_cli_attr(monkeypatch, "labelstudio_benchmark", lambda **_kwargs: None)
 

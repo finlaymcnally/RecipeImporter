@@ -281,10 +281,6 @@ def _run_multi_recipe_phase_fixture(tmp_path: Path) -> dict[str, object]:
     worker_manifest = json.loads(
         (worker_root / "worker_manifest.json").read_text(encoding="utf-8")
     )
-    current_packet_payload = None
-    current_packet_path = worker_root / "current_packet.json"
-    if current_packet_path.exists():
-        current_packet_payload = json.loads(current_packet_path.read_text(encoding="utf-8"))
     worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
     proposal = json.loads(
         (
@@ -302,7 +298,6 @@ def _run_multi_recipe_phase_fixture(tmp_path: Path) -> dict[str, object]:
         "runner": runner,
         "worker_root": worker_root,
         "worker_manifest": worker_manifest,
-        "current_packet_payload": current_packet_payload,
         "worker_status": worker_status,
         "proposal": proposal,
     }
@@ -365,11 +360,9 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
 
     worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
     assert "worker_manifest.json" in worker_prompt
-    assert "current_packet.json" in worker_prompt
-    assert "current_result_path.txt" in worker_prompt
-    assert "current_hint.md" in worker_prompt
-    assert "leased recipe packet" in worker_prompt
-    assert "Do not invent your own queue scheduler" in worker_prompt
+    assert "assigned_tasks.json" in worker_prompt
+    assert "Write the final compact JSON result to the stable `out/*.json` path" in worker_prompt
+    assert "Do not invent queue control files" in worker_prompt
     assert "Stay inside this workspace" in worker_prompt
     assert "Legacy keys are invalid here" in worker_prompt
     assert "SHARD_PACKET.md" not in worker_prompt
@@ -378,16 +371,14 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
     assert "scratch/_prepared_drafts.json" not in worker_prompt
     assert worker_manifest["entry_files"] == [
         "worker_manifest.json",
-        "current_packet.json",
-        "current_hint.md",
-        "current_result_path.txt",
-        "packet_lease_status.json",
-        "assigned_shards.json",
+        "assigned_tasks.json",
     ]
-    assert worker_manifest["current_packet_file"] == "current_packet.json"
-    assert worker_manifest["current_hint_file"] == "current_hint.md"
-    assert worker_manifest["current_result_path_file"] == "current_result_path.txt"
-    assert worker_manifest["packet_lease_status_file"] == "packet_lease_status.json"
+    assert worker_manifest["assigned_tasks_file"] == "assigned_tasks.json"
+    assert worker_manifest["assigned_shards_file"] is None
+    assert worker_manifest["current_packet_file"] is None
+    assert worker_manifest["current_hint_file"] is None
+    assert worker_manifest["current_result_path_file"] is None
+    assert worker_manifest["packet_lease_status_file"] is None
     assert worker_manifest["output_contract_file"] is None
     assert worker_manifest["examples_dir"] is None
     assert worker_manifest["tools_dir"] is None
@@ -395,26 +386,25 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
     assert worker_manifest["mirrored_example_files"] == []
     assert worker_manifest["mirrored_tool_files"] == []
 
-
-def test_recipe_phase_runtime_uses_packet_lease_files_instead_of_task_sidecars(
+def test_recipe_phase_runtime_uses_fixed_assignment_task_manifest(
     tmp_path: Path,
 ) -> None:
     fixture = _run_multi_recipe_phase_fixture(tmp_path)
     worker_root = fixture["worker_root"]
-    current_packet_payload = fixture["current_packet_payload"]
-    lease_status = json.loads(
-        (worker_root / "packet_lease_status.json").read_text(encoding="utf-8")
+    assigned_tasks = json.loads(
+        (worker_root / "assigned_tasks.json").read_text(encoding="utf-8")
     )
-
-    assert current_packet_payload is None
-    assert lease_status["worker_state"] == "completed_packet_queue"
-    assert lease_status["queue_complete"] is True
+    assert [row["task_id"] for row in assigned_tasks] == [
+        "recipe-shard-0000-r0000-r0001.task-001",
+        "recipe-shard-0000-r0000-r0001.task-002",
+        "recipe-shard-0001-r0002-r0002",
+    ]
     assert not (worker_root / "CURRENT_TASK.md").exists()
     assert not (worker_root / "CURRENT_TASK_FEEDBACK.md").exists()
     assert not (worker_root / "current_task.json").exists()
     assert not (worker_root / "SHARD_PACKET.md").exists()
     assert not (worker_root / "scratch").exists()
-    assert not (worker_root / "assigned_tasks.json").exists()
+    assert not (worker_root / "current_packet.json").exists()
 
 
 def test_recipe_phase_runtime_writes_packet_outputs_and_session_telemetry(
@@ -480,7 +470,7 @@ def test_recipe_phase_runtime_short_circuits_fragmentary_scaffolds_before_worker
     )
 
     assert "recipe-shard-0001-r0001-r0001" not in worker_prompt
-    assert not (worker_root / "assigned_tasks.json").exists()
+    assert (worker_root / "assigned_tasks.json").exists()
     assert (worker_root / "out" / "recipe-shard-0000-r0000-r0000.json").exists()
     assert (worker_root / "out" / "recipe-shard-0001-r0001-r0001.json").exists()
     assert fragmentary_proposal["payload"]["r"][0]["rid"] == "urn:recipe:test:fragmentary"
@@ -712,6 +702,55 @@ def test_recipe_prompt_target_count_balances_multi_recipe_shards(
         },
     ]
     assert [len(shard["owned_ids"]) for shard in shard_manifest] == [2, 1]
+
+
+def test_recipe_prompt_target_count_is_a_hard_cap(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    settings = RunSettings.model_validate(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(tmp_path / "pack"),
+            "recipe_prompt_target_count": 1,
+        }
+    )
+    for name in ("pipelines", "prompts", "schemas"):
+        (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=_build_multi_recipe_conversion_result(source),
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=FakeCodexExecRunner(output_builder=_build_recipe_shard_output),
+    )
+
+    runtime_dir = apply_result.llm_raw_dir / "recipe_phase_runtime"
+    phase_manifest = json.loads((runtime_dir / "phase_manifest.json").read_text(encoding="utf-8"))
+    worker_assignments = json.loads(
+        (runtime_dir / "worker_assignments.json").read_text(encoding="utf-8")
+    )
+    shard_manifest = [
+        json.loads(line)
+        for line in (runtime_dir / "shard_manifest.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    assert phase_manifest["shard_count"] == 1
+    assert phase_manifest["worker_count"] == 1
+    assert [assignment["shard_ids"] for assignment in worker_assignments] == [
+        ["recipe-shard-0000-r0000-r0002"]
+    ]
+    assert [shard["owned_ids"] for shard in shard_manifest] == [
+        [
+            "urn:recipe:test:toast",
+            "urn:recipe:test:tea",
+            "urn:recipe:test:cereal",
+        ]
+    ]
 
 
 def test_recipe_workspace_worker_with_valid_files_and_prose_final_message_stays_valid(

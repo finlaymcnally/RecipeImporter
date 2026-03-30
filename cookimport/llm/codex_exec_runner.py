@@ -33,6 +33,7 @@ _DIRECT_EXEC_DEBUG_DIR_NAME = "debug"
 _DIRECT_EXEC_HINTS_DIR_NAME = "hints"
 _DIRECT_EXEC_LOGS_DIR_NAME = "logs"
 _DIRECT_EXEC_SHARDS_DIR_NAME = "shards"
+_DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME = "assigned_tasks.json"
 _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME = "assigned_shards.json"
 _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME = "worker_manifest.json"
 _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME = "current_phase.json"
@@ -54,6 +55,7 @@ DirectExecWorkspaceMode = Literal["structured_json", "workspace_worker"]
 _WORKSPACE_ALLOWED_PATH_ROOTS = {
     ".",
     "./",
+    _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
     _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
     _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
@@ -1007,14 +1009,19 @@ class FakeCodexExecRunner:
             for shard_row in assigned_task_rows:
                 if not isinstance(shard_row, Mapping):
                     continue
-                shard_id = str(
+                unit_id = str(
                     shard_row.get("task_id")
                     or shard_row.get("shard_id")
                     or ""
                 ).strip()
-                if not shard_id:
+                if not unit_id:
                     continue
-                input_path = execution_working_dir / _DIRECT_EXEC_INPUT_DIR_NAME / f"{shard_id}.json"
+                metadata = shard_row.get("metadata")
+                metadata_payload = dict(metadata) if isinstance(metadata, Mapping) else {}
+                input_relpath = str(metadata_payload.get("input_path") or "").strip()
+                if not input_relpath:
+                    input_relpath = f"{_DIRECT_EXEC_INPUT_DIR_NAME}/{unit_id}.json"
+                input_path = execution_working_dir / input_relpath
                 if not input_path.exists():
                     continue
                 try:
@@ -1022,7 +1029,12 @@ class FakeCodexExecRunner:
                 except json.JSONDecodeError:
                     continue
                 output_payload = self.output_builder(input_payload)
-                (out_dir / f"{shard_id}.json").write_text(
+                output_relpath = str(metadata_payload.get("result_path") or "").strip()
+                if not output_relpath:
+                    output_relpath = f"{_DIRECT_EXEC_OUTPUT_DIR_NAME}/{unit_id}.json"
+                output_path = execution_working_dir / output_relpath
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text(
                     json.dumps(output_payload, indent=2, sort_keys=True),
                     encoding="utf-8",
                 )
@@ -1156,6 +1168,7 @@ def build_direct_exec_workspace_manifest(
         "source_working_dir": str(source_working_dir) if source_working_dir else None,
         "execution_working_dir": str(execution_working_dir) if execution_working_dir else None,
         "execution_agents_path": str(execution_agents_path) if execution_agents_path else None,
+        "assigned_tasks_path": None,
         "assigned_shards_path": None,
         "worker_manifest_path": None,
         "current_phase_path": None,
@@ -1188,6 +1201,9 @@ def build_direct_exec_workspace_manifest(
     )
     if execution_root is None or not execution_root.exists():
         return payload
+    assigned_tasks_path = execution_root / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
+    if assigned_tasks_path.exists():
+        payload["assigned_tasks_path"] = str(assigned_tasks_path)
     assigned_shards_path = execution_root / _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME
     if assigned_shards_path.exists():
         payload["assigned_shards_path"] = str(assigned_shards_path)
@@ -1324,6 +1340,10 @@ def _populate_direct_exec_workspace(
     mode: DirectExecWorkspaceMode,
 ) -> None:
     _copy_if_present(
+        source_working_dir / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
+        execution_working_dir / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME,
+    )
+    _copy_if_present(
         source_working_dir / _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
         execution_working_dir / _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME,
     )
@@ -1422,6 +1442,14 @@ def _copy_tree_if_present(source: Path, destination: Path) -> None:
 
 
 def _read_workspace_manifest_rows(*, execution_working_dir: Path) -> list[Any]:
+    assigned_tasks_path = execution_working_dir / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
+    if assigned_tasks_path.exists():
+        try:
+            assigned_tasks = json.loads(assigned_tasks_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            assigned_tasks = []
+        if isinstance(assigned_tasks, list):
+            return assigned_tasks
     assigned_shards_path = execution_working_dir / _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME
     if assigned_shards_path.exists():
         try:
@@ -1447,22 +1475,20 @@ def _build_direct_exec_agents_text(
             "You are not working on the RecipeImport repository itself.\n"
             "Use only the files inside this directory.\n"
             "The current working directory is already the workspace root.\n"
-            "Start by reading `worker_manifest.json`, then open the prompt-named local files directly.\n"
+            "Start by reading `worker_manifest.json`, then the immutable assignment file named there.\n"
             "When `OUTPUT_CONTRACT.md` or `examples/` exists, treat those repo-written files as the authoritative output-shape reference.\n"
             "When `tools/` exists, prefer its repo-written helper CLI or scripts before inventing ad hoc local transforms.\n"
-            "When the workspace includes `current_phase.json`, `CURRENT_PHASE.md`, or `CURRENT_PHASE_FEEDBACK.md`, treat that repo-written phase surface as authoritative and open it before the broader queue.\n"
-            "When the workspace includes `current_packet.json`, `current_hint.md`, and `current_result_path.txt`, treat only those current-packet files as authoritative until the repo advances the lease.\n"
-            "Read the local task manifests and input files directly.\n"
-            "Use `scratch/` or short-lived local temp files such as `/tmp` or `/var/tmp` for bounded helper files. Write completed results only to the local path named by `current_result_path.txt` or the prompt.\n"
+            "Read the assigned task/shard rows plus the named local input and hint files directly.\n"
+            "Write one finished result file per owned unit to the stable `out/` paths named in the assignment metadata, then stop.\n"
+            "Use `scratch/` or short-lived local temp files such as `/tmp` or `/var/tmp` for bounded helper files.\n"
             "Do not inspect parent directories, repository-wide AGENTS files, project docs, or source code.\n"
             "Do not run repo-specific commands such as `npm run docs:list` or `git`.\n"
             "Prefer opening the named files directly instead of exploring the workspace or dumping whole manifests just to orient yourself.\n"
-            "The happy path is file-first: open the named files directly and write only the approved result path.\n"
-            "Do not reach for shell on the happy path. If a tiny local helper is truly necessary, keep it narrowly grounded on prompt-named files and avoid inventing schedulers or queue-control rewrites.\n"
+            "The happy path is file-first: open the named files directly and write only the approved stable output paths.\n"
+            "Do not reach for shell on the happy path. If a tiny local helper is truly necessary, keep it narrowly grounded on prompt-named files and avoid inventing schedulers or control files.\n"
             "The watchdog is boundary-based: stay inside this workspace, keep every visible path local or in approved temp roots, and avoid repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
             "Do not inspect parent directories or the repository, and do not leave this workspace.\n"
             "Do not modify immutable input files unless the prompt explicitly allows it.\n"
-            "When the prompt gives you a leased-packet loop, finish the current packet, then re-open the current-packet files instead of inventing your own batch scheduler.\n"
             "When the workspace offers repo-written helpers, start with the smallest prompt-named helper surface first and treat broader recovery helpers as fallback, not routine startup.\n"
         )
     return (
@@ -2508,6 +2534,9 @@ def _write_direct_exec_worker_manifest(
     mode: DirectExecWorkspaceMode,
 ) -> None:
     rendered_task_label = str(task_label or "structured shard task").strip()
+    has_assigned_tasks = (
+        workspace_root / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
+    ).exists()
     has_assigned_shards = (
         workspace_root / _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME
     ).exists()
@@ -2523,21 +2552,8 @@ def _write_direct_exec_worker_manifest(
     has_work_dir = (workspace_root / _DIRECT_EXEC_WORK_DIR_NAME).exists()
     has_repair_dir = (workspace_root / _DIRECT_EXEC_REPAIR_DIR_NAME).exists()
     entry_files = [_DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME]
-    if has_current_phase:
-        entry_files.append(_DIRECT_EXEC_CURRENT_PHASE_FILE_NAME)
-        if (workspace_root / _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME).exists():
-            entry_files.append(_DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME)
-        if (workspace_root / _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME).exists():
-            entry_files.append(_DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME)
-    if has_packet_leasing:
-        entry_files.extend(
-            [
-                _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME,
-                _DIRECT_EXEC_CURRENT_HINT_FILE_NAME,
-                _DIRECT_EXEC_CURRENT_RESULT_PATH_FILE_NAME,
-                _DIRECT_EXEC_PACKET_LEASE_STATUS_FILE_NAME,
-            ]
-        )
+    if has_assigned_tasks:
+        entry_files.append(_DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME)
     if has_assigned_shards:
         entry_files.append(_DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME)
     payload = {
@@ -2546,6 +2562,9 @@ def _write_direct_exec_worker_manifest(
         "workspace_mode": mode,
         "workspace_root": str(workspace_root),
         "entry_files": entry_files,
+        "assigned_tasks_file": (
+            _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME if has_assigned_tasks else None
+        ),
         "assigned_shards_file": (
             _DIRECT_EXEC_ASSIGNED_SHARDS_FILE_NAME if has_assigned_shards else None
         ),
@@ -2614,12 +2633,9 @@ def _write_direct_exec_worker_manifest(
                 "The current working directory is already the workspace root.",
                 "Open named workspace files directly; do not dump whole inventories just to orient yourself.",
                 (
-                    "Treat the repo-written current-packet files as authoritative until "
-                    "the repo advances the lease."
-                    if has_packet_leasing
-                    else "Treat `CURRENT_PHASE.md`, `current_phase.json`, and `CURRENT_PHASE_FEEDBACK.md` as the authoritative phase surface when present. Treat `assigned_shards.json` as the ordered ownership/queue reference."
-                    if has_current_phase
-                    else "Treat `assigned_shards.json` as the ordered ownership/queue reference when present."
+                    "Treat `assigned_tasks.json` as the immutable ordered ownership reference."
+                    if has_assigned_tasks
+                    else "Treat `assigned_shards.json` as the immutable ordered ownership reference when present."
                 ),
                 (
                     "Use `work/`, `repair/`, or short-lived local temp roots such as `/tmp` for helper work, and the approved `out/` path for final results."
@@ -2630,46 +2646,33 @@ def _write_direct_exec_worker_manifest(
             if note is not None
         ],
         "workspace_shell_policy": (
-            "Packet-leased workspaces are file-first. Shell helpers are fallback only, "
-            "must stay tiny, and must not replace repo-owned packet advancement or result installation."
-            if has_packet_leasing
-            else "Allow ordinary local shell use inside this workspace, including bounded "
+            "Allow ordinary local shell use inside this workspace, including bounded "
             "`python`/`python3`/`node` transforms plus short-lived helper files in "
             "local temp roots such as `/tmp`. Block non-temp visible path escapes and "
             "obvious repo/network/package-manager tools."
         ),
         "workspace_local_shell_examples": (
-            []
-            if has_packet_leasing
-            else (
+            [
                 (
-                    [
-                        "sed -n '1,120p' CURRENT_PHASE.md",
-                        "sed -n '1,120p' CURRENT_PHASE_FEEDBACK.md",
-                        "jq '.metadata' current_phase.json",
-                    ]
-                    if has_current_phase
-                    else []
-                )
-                + [
-                    (
-                        "sed -n '1,80p' hints/<shard_id>.md"
-                        if has_current_phase
-                        else "sed -n '1,80p' hints/<task>.md"
-                    ),
+                    "sed -n '1,120p' assigned_tasks.json"
+                    if has_assigned_tasks
+                    else "sed -n '1,120p' assigned_shards.json"
+                ),
+                (
+                    "sed -n '1,80p' hints/<task_id>.md"
+                    if has_assigned_tasks
+                    else "sed -n '1,80p' hints/<shard_id>.md"
+                ),
+            ]
+            + (
+                [
+                    "python3 tools/line_role_worker.py overview",
                 ]
-                + (
-                    [
-                        "python3 tools/line_role_worker.py overview",
-                        "python3 tools/line_role_worker.py check-phase",
-                        "python3 tools/line_role_worker.py install-phase",
-                    ]
-                    if "line_role_worker.py" in mirrored_tool_files
-                    else [
-                        "python3 -c \"from pathlib import Path; Path('out/shard-001.json').write_text(Path('in/shard-001.json').read_text())\"",
-                        "cat <<'EOF' > /tmp/local-helper.json",
-                    ]
-                )
+                if "line_role_worker.py" in mirrored_tool_files
+                else [
+                    "python3 -c \"from pathlib import Path; Path('out/task-001.json').write_text(Path('in/task-001.json').read_text())\"",
+                    "cat <<'EOF' > /tmp/local-helper.json",
+                ]
             )
         ),
         "workspace_commands_forbidden": [

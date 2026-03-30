@@ -76,7 +76,7 @@ def test_prepare_direct_exec_workspace_mirrors_local_inputs_and_writes_agents(
     assert "Prefer reading the local task file directly" not in agents_text
 
 
-def test_prepare_direct_exec_workspace_worker_mode_permits_local_phase_loop(
+def test_prepare_direct_exec_workspace_worker_mode_uses_fixed_assignment_manifest(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
@@ -84,8 +84,6 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_phase_loop(
     (source_root / "hints").mkdir(parents=True, exist_ok=True)
     (source_root / "examples").mkdir(parents=True, exist_ok=True)
     (source_root / "tools").mkdir(parents=True, exist_ok=True)
-    (source_root / "work").mkdir(parents=True, exist_ok=True)
-    (source_root / "repair").mkdir(parents=True, exist_ok=True)
     (source_root / "assigned_shards.json").write_text(
         json.dumps(
             [
@@ -95,32 +93,10 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_phase_loop(
                         "input_path": "in/shard-001.json",
                         "hint_path": "hints/shard-001.md",
                         "result_path": "out/shard-001.json",
-                        "work_path": "work/shard-001.json",
-                        "repair_path": "repair/shard-001.json",
                     },
                 }
             ]
         ),
-        encoding="utf-8",
-    )
-    (source_root / "current_phase.json").write_text(
-        json.dumps(
-            {
-                "shard_id": "shard-001",
-                "metadata": {
-                    "input_path": "in/shard-001.json",
-                    "hint_path": "hints/shard-001.md",
-                    "result_path": "out/shard-001.json",
-                    "work_path": "work/shard-001.json",
-                    "repair_path": "repair/shard-001.json",
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    (source_root / "CURRENT_PHASE.md").write_text("# Current Line-Role Phase\n", encoding="utf-8")
-    (source_root / "CURRENT_PHASE_FEEDBACK.md").write_text(
-        "# Current Phase Feedback\n",
         encoding="utf-8",
     )
     (source_root / "in" / "shard-001.json").write_text(
@@ -143,10 +119,6 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_phase_loop(
         "print('helper')\n",
         encoding="utf-8",
     )
-    (source_root / "work" / "shard-001.json").write_text(
-        json.dumps({"rows": [{"atomic_index": 1, "label": "OTHER"}]}),
-        encoding="utf-8",
-    )
 
     workspace = prepare_direct_exec_workspace(
         source_working_dir=source_root,
@@ -163,43 +135,36 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_phase_loop(
     )
     assert worker_manifest["entry_files"] == [
         "worker_manifest.json",
-        "current_phase.json",
-        "CURRENT_PHASE.md",
-        "CURRENT_PHASE_FEEDBACK.md",
         "assigned_shards.json",
     ]
-    assert worker_manifest["current_phase_file"] == "current_phase.json"
-    assert worker_manifest["current_phase_brief_file"] == "CURRENT_PHASE.md"
-    assert worker_manifest["current_phase_feedback_file"] == "CURRENT_PHASE_FEEDBACK.md"
+    assert worker_manifest["assigned_tasks_file"] is None
+    assert worker_manifest["current_phase_file"] is None
+    assert worker_manifest["current_phase_brief_file"] is None
+    assert worker_manifest["current_phase_feedback_file"] is None
     assert worker_manifest["output_contract_file"] == "OUTPUT_CONTRACT.md"
     assert worker_manifest["examples_dir"] == "examples"
     assert worker_manifest["tools_dir"] == "tools"
     assert worker_manifest["hints_dir"] == "hints"
     assert worker_manifest["scratch_dir"] is None
-    assert worker_manifest["work_dir"] == "work"
-    assert worker_manifest["repair_dir"] == "repair"
+    assert worker_manifest["work_dir"] is None
+    assert worker_manifest["repair_dir"] is None
     assert worker_manifest["mirrored_example_files"] == ["valid_repaired_task_output.json"]
     assert worker_manifest["mirrored_tool_files"] == ["line_role_worker.py"]
     assert worker_manifest["workspace_shell_policy"].startswith(
         "Allow ordinary local shell use inside this workspace"
     )
+    assert "sed -n '1,120p' assigned_shards.json" in worker_manifest["workspace_local_shell_examples"]
     assert "sed -n '1,80p' hints/<shard_id>.md" in worker_manifest["workspace_local_shell_examples"]
-    assert "sed -n '1,120p' CURRENT_PHASE.md" in worker_manifest["workspace_local_shell_examples"]
-    assert "jq '.metadata' current_phase.json" in worker_manifest["workspace_local_shell_examples"]
     assert "python3 tools/line_role_worker.py overview" in worker_manifest["workspace_local_shell_examples"]
-    assert "python3 tools/line_role_worker.py check-phase" in worker_manifest["workspace_local_shell_examples"]
-    assert "python3 tools/line_role_worker.py install-phase" in worker_manifest["workspace_local_shell_examples"]
     assert worker_manifest["workspace_commands_forbidden"] == [
         "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
         "non-temp absolute paths outside approved local temp roots",
         "parent-directory traversal",
     ]
-    assert "Read the local task manifests and input files directly." in agents_text
-    assert "Start by reading `worker_manifest.json`" in agents_text
+    assert "Read the assigned task/shard rows plus the named local input and hint files directly." in agents_text
+    assert "Start by reading `worker_manifest.json`, then the immutable assignment file named there." in agents_text
     assert "When `OUTPUT_CONTRACT.md` or `examples/` exists" in agents_text
     assert "When `tools/` exists, prefer its repo-written helper CLI" in agents_text
-    assert "When the workspace includes `current_phase.json`, `CURRENT_PHASE.md`, or `CURRENT_PHASE_FEEDBACK.md`" in agents_text
-    assert "`current_packet.json`, `current_hint.md`, and `current_result_path.txt`" in agents_text
     assert "Do not reach for shell on the happy path." in agents_text
     assert "The watchdog is boundary-based" in agents_text
     assert "avoid repo/network/package-manager commands such as `git`, `curl`, or `npm`" in agents_text
@@ -207,37 +172,40 @@ def test_prepare_direct_exec_workspace_worker_mode_permits_local_phase_loop(
     assert "dumping whole manifests just to orient yourself" in agents_text
     assert "If a tiny local helper is truly necessary" in agents_text
     assert "start with the smallest prompt-named helper surface first" in agents_text
-    current_phase = json.loads(
-        (workspace.execution_working_dir / "current_phase.json").read_text(encoding="utf-8")
-    )
-    assert current_phase["shard_id"] == "shard-001"
     assert (workspace.execution_working_dir / "OUTPUT_CONTRACT.md").exists()
     assert (workspace.execution_working_dir / "examples" / "valid_repaired_task_output.json").exists()
     assert (workspace.execution_working_dir / "tools" / "line_role_worker.py").exists()
     assert (workspace.execution_working_dir / "hints" / "shard-001.md").exists()
-    assert (workspace.execution_working_dir / "work" / "shard-001.json").exists()
-    assert (workspace.execution_working_dir / "repair").exists()
+    assert not (workspace.execution_working_dir / "current_phase.json").exists()
 
 
-def test_prepare_direct_exec_workspace_worker_mode_mirrors_packet_lease_files(
+def test_prepare_direct_exec_workspace_worker_mode_mirrors_assigned_tasks_files(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
-    (source_root / "scratch").mkdir(parents=True, exist_ok=True)
-    (source_root / "current_packet.json").write_text(
-        json.dumps({"task_id": "task-001", "result_path": "out/task-001.json"}),
+    (source_root / "in").mkdir(parents=True, exist_ok=True)
+    (source_root / "hints").mkdir(parents=True, exist_ok=True)
+    (source_root / "assigned_tasks.json").write_text(
+        json.dumps(
+            [
+                {
+                    "task_id": "task-001",
+                    "metadata": {
+                        "input_path": "in/task-001.json",
+                        "hint_path": "hints/task-001.md",
+                        "result_path": "out/task-001.json",
+                    },
+                }
+            ]
+        ),
         encoding="utf-8",
     )
-    (source_root / "current_hint.md").write_text(
+    (source_root / "in" / "task-001.json").write_text(
+        json.dumps({"sid": "task-001", "r": []}),
+        encoding="utf-8",
+    )
+    (source_root / "hints" / "task-001.md").write_text(
         "# hint\n",
-        encoding="utf-8",
-    )
-    (source_root / "current_result_path.txt").write_text(
-        "out/task-001.json\n",
-        encoding="utf-8",
-    )
-    (source_root / "packet_lease_status.json").write_text(
-        json.dumps({"worker_state": "leased_current_packet", "current_task_id": "task-001"}),
         encoding="utf-8",
     )
 
@@ -255,32 +223,25 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_packet_lease_files(
     )
     assert worker_manifest["entry_files"] == [
         "worker_manifest.json",
-        "current_packet.json",
-        "current_hint.md",
-        "current_result_path.txt",
-        "packet_lease_status.json",
+        "assigned_tasks.json",
     ]
+    assert worker_manifest["assigned_tasks_file"] == "assigned_tasks.json"
     assert worker_manifest["assigned_shards_file"] is None
-    assert worker_manifest["current_packet_file"] == "current_packet.json"
-    assert worker_manifest["current_hint_file"] == "current_hint.md"
-    assert worker_manifest["current_result_path_file"] == "current_result_path.txt"
-    assert worker_manifest["packet_lease_status_file"] == "packet_lease_status.json"
-    assert worker_manifest["scratch_dir"] == "scratch"
-    assert (workspace.execution_working_dir / "current_packet.json").exists()
-    assert (workspace.execution_working_dir / "current_hint.md").exists()
-    assert (workspace.execution_working_dir / "current_result_path.txt").exists()
-    assert (workspace.execution_working_dir / "packet_lease_status.json").exists()
-    assert (workspace.execution_working_dir / "scratch").exists()
+    assert worker_manifest["current_packet_file"] is None
+    assert worker_manifest["current_hint_file"] is None
+    assert worker_manifest["current_result_path_file"] is None
+    assert worker_manifest["packet_lease_status_file"] is None
+    assert (workspace.execution_working_dir / "assigned_tasks.json").exists()
+    assert (workspace.execution_working_dir / "in" / "task-001.json").exists()
+    assert (workspace.execution_working_dir / "hints" / "task-001.md").exists()
 
 
-def test_prepare_direct_exec_workspace_worker_mode_knows_knowledge_packet_lease_helpers(
+def test_prepare_direct_exec_workspace_worker_mode_knows_assignment_first_knowledge_helpers(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
     (source_root / "in").mkdir(parents=True, exist_ok=True)
     (source_root / "hints").mkdir(parents=True, exist_ok=True)
-    (source_root / "scratch").mkdir(parents=True, exist_ok=True)
-    (source_root / "tools").mkdir(parents=True, exist_ok=True)
     (source_root / "assigned_shards.json").write_text(
         json.dumps(
             [
@@ -294,30 +255,6 @@ def test_prepare_direct_exec_workspace_worker_mode_knows_knowledge_packet_lease_
                 }
             ]
         ),
-        encoding="utf-8",
-    )
-    (source_root / "current_packet.json").write_text(
-        json.dumps(
-            {
-                "v": "1",
-                "task_id": "book.ks0000.nr.pass1",
-                "packet_kind": "pass1",
-                "shard_id": "book.ks0000.nr",
-                "rows": [{"block_index": 1, "text": "Use low heat."}],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (source_root / "current_hint.md").write_text(
-        "# Current Knowledge Packet\n",
-        encoding="utf-8",
-    )
-    (source_root / "current_result_path.txt").write_text(
-        "scratch/book.ks0000.nr.pass1.json\n",
-        encoding="utf-8",
-    )
-    (source_root / "packet_lease_status.json").write_text(
-        json.dumps({"worker_state": "leased_current_packet"}),
         encoding="utf-8",
     )
     (source_root / "in" / "book.ks0000.nr.json").write_text(
@@ -344,32 +281,24 @@ def test_prepare_direct_exec_workspace_worker_mode_knows_knowledge_packet_lease_
     )
     assert worker_manifest["entry_files"] == [
         "worker_manifest.json",
-        "current_packet.json",
-        "current_hint.md",
-        "current_result_path.txt",
-        "packet_lease_status.json",
         "assigned_shards.json",
     ]
     assert worker_manifest["assigned_shards_file"] == "assigned_shards.json"
-    assert worker_manifest["current_packet_file"] == "current_packet.json"
-    assert worker_manifest["current_hint_file"] == "current_hint.md"
-    assert worker_manifest["current_result_path_file"] == "current_result_path.txt"
-    assert worker_manifest["packet_lease_status_file"] == "packet_lease_status.json"
-    assert "current_batch_file" not in worker_manifest
-    assert "current_batch_brief_file" not in worker_manifest
-    assert "current_batch_feedback_file" not in worker_manifest
+    assert worker_manifest["assigned_tasks_file"] is None
+    assert worker_manifest["current_packet_file"] is None
+    assert worker_manifest["current_hint_file"] is None
+    assert worker_manifest["current_result_path_file"] is None
+    assert worker_manifest["packet_lease_status_file"] is None
     assert worker_manifest["workspace_shell_policy"].startswith(
-        "Packet-leased workspaces are file-first."
+        "Allow ordinary local shell use inside this workspace"
     )
-    assert worker_manifest["workspace_local_shell_examples"] == []
+    assert "sed -n '1,120p' assigned_shards.json" in worker_manifest["workspace_local_shell_examples"]
     assert worker_manifest["workspace_commands_forbidden"] == [
         "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
         "non-temp absolute paths outside approved local temp roots",
         "parent-directory traversal",
     ]
-    assert not (workspace.execution_working_dir / "current_batch.json").exists()
-    assert not (workspace.execution_working_dir / "CURRENT_BATCH.md").exists()
-    assert not (workspace.execution_working_dir / "CURRENT_BATCH_FEEDBACK.md").exists()
+    assert (workspace.execution_working_dir / "assigned_shards.json").exists()
     assert not (workspace.execution_working_dir / "current_phase.json").exists()
     assert not (workspace.execution_working_dir / "CURRENT_PHASE.md").exists()
 

@@ -140,6 +140,7 @@ class _SingleBookBenchmarkComputationResult:
     session_root: Path
     session_processed_root: Path
     succeeded: int
+    has_codex_variants: bool
     comparison_json_path: Path | None
     summary_md_path: Path | None
 
@@ -206,7 +207,7 @@ def _publish_single_book_benchmark_result(
                 flattened_summary_path = None
 
     upload_bundle_dir: Path | None = None
-    if result.succeeded > 0:
+    if result.succeeded > 0 and result.has_codex_variants:
         upload_bundle_dir = _write_benchmark_upload_bundle(
             source_root=result.session_root,
             output_dir=result.session_root / BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
@@ -520,6 +521,10 @@ def _interactive_single_book_benchmark(
         session_root=session_root,
         session_processed_root=session_processed_root,
         succeeded=succeeded,
+        has_codex_variants=any(
+            codex_surfaces_enabled(variant_settings.to_run_config_dict())
+            for _variant_slug, variant_settings in variants
+        ),
         comparison_json_path=comparison_json_path,
         summary_md_path=summary_md_path,
     )

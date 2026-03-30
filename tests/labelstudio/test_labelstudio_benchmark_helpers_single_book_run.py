@@ -697,12 +697,16 @@ def test_interactive_single_book_markdown_enabled_writes_one_top_level_summary(
     assert "codex_vs_vanilla_comparison.json" in summary_text
     assert not (session_root / "codex_vs_vanilla_comparison.md").exists()
 
-def test_interactive_single_book_starts_background_oracle_upload(
+def test_interactive_single_book_vanilla_skips_background_oracle_upload(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     selected_settings = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "off"},
+        {
+            "llm_recipe_pipeline": "off",
+            "line_role_pipeline": "off",
+            "atomic_block_splitter": "off",
+        },
         warn_context="test oracle single-book",
     )
     benchmark_eval_output = (
@@ -728,13 +732,9 @@ def test_interactive_single_book_starts_background_oracle_upload(
         lambda **_kwargs: None,
     )
 
-    session_bundle_dir = (
-        benchmark_eval_output
-        / "single-book-benchmark"
-        / cli.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
-    )
+    upload_bundle_calls: list[dict[str, object]] = []
     _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
-        lambda **_kwargs: session_bundle_dir,
+        lambda **kwargs: upload_bundle_calls.append(dict(kwargs)),
     )
     launch_calls: list[dict[str, object]] = []
     _patch_cli_attr(monkeypatch, "_start_benchmark_bundle_oracle_upload_background",
@@ -748,20 +748,16 @@ def test_interactive_single_book_starts_background_oracle_upload(
     )
 
     assert completed is True
-    assert launch_calls == [
-        {
-            "bundle_dir": session_bundle_dir,
-            "scope": "single_book",
-        }
-    ]
+    assert upload_bundle_calls == []
+    assert launch_calls == []
 
 
-def test_interactive_single_book_writes_capped_high_level_upload_bundle(
+def test_interactive_single_book_codex_writes_capped_high_level_upload_bundle(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     selected_settings = cli.RunSettings.from_dict(
-        {"llm_recipe_pipeline": "off"},
+        {"llm_recipe_pipeline": "codex-recipe-shard-v1"},
         warn_context="test capped single-book upload bundle",
     )
     benchmark_eval_output = (

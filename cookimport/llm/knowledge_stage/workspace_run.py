@@ -605,7 +605,12 @@ def _evaluate_knowledge_output_file(
         return None, ("response_json_invalid",), {}, "invalid"
     if not isinstance(payload, Mapping):
         return None, ("response_not_json_object",), {}, "invalid"
-    normalized_payload, normalization_metadata = normalize_knowledge_worker_payload(dict(payload))
+    try:
+        normalized_payload, normalization_metadata = normalize_knowledge_worker_payload(
+            dict(payload)
+        )
+    except Exception as exc:  # noqa: BLE001
+        return None, ("schema_invalid",), {"parse_error": str(exc)}, "invalid"
     valid, validation_errors, validation_metadata = validate_knowledge_shard_output(
         shard,
         normalized_payload,
@@ -822,7 +827,6 @@ def _run_phase_knowledge_worker_assignment_v1(
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
 
     assigned_shard_rows: list[dict[str, Any]] = []
-    shard_states: dict[str, _KnowledgeLeasedShardState] = {}
     for shard in assigned_shards:
         shard_id = str(shard.shard_id).strip()
         input_relpath = str(Path("in") / f"{shard_id}.json")
@@ -846,20 +850,14 @@ def _run_phase_knowledge_worker_assignment_v1(
             input_text=shard.input_text,
         )
         _write_knowledge_worker_hint(path=hints_dir / f"{shard_id}.md", shard=shard)
-        hint_text = (hints_dir / f"{shard_id}.md").read_text(encoding="utf-8")
-        shard_states[shard_id] = _KnowledgeLeasedShardState(
-            shard=shard,
-            input_payload=dict(shard.input_payload or {}),
-            hint_text=hint_text,
-        )
     _write_json(assigned_shard_rows, worker_root / "assigned_shards.json")
     write_knowledge_worker_examples(worker_root=worker_root)
     write_knowledge_output_contract(worker_root=worker_root)
 
     if not assigned_shards:
         _write_json(
-            {"worker_state": "queue_completed", "queue_total_shard_count": 0},
-            worker_root / "packet_lease_status.json",
+            {"state": "completed", "reason_code": "no_shards_assigned"},
+            worker_root / "live_status.json",
         )
         worker_runner_payload = _aggregate_worker_runner_payload(
             pipeline_id=pipeline_id,
@@ -904,25 +902,20 @@ def _run_phase_knowledge_worker_assignment_v1(
                 metadata={
                     "input_path": str(Path("in") / f"{shard.shard_id}.json"),
                     "hint_path": str(Path("hints") / f"{shard.shard_id}.md"),
-                    "workspace_processing_contract": "knowledge_packet_lease_v1",
+                    "workspace_processing_contract": "knowledge_fixed_assignment_v1",
                 },
             )
 
     worker_prompt_text = _build_knowledge_workspace_worker_prompt(shards=assigned_shards)
     worker_prompt_path = worker_root / "prompt.txt"
     worker_prompt_path.write_text(worker_prompt_text, encoding="utf-8")
-    packet_lease_controller = _KnowledgePacketLeaseController(
-        worker_root=worker_root,
-        shard_states=shard_states,
-        shard_order=tuple(str(shard.shard_id) for shard in assigned_shards),
-    )
     run_result = runner.run_workspace_worker(
         prompt_text=worker_prompt_text,
         working_dir=worker_root,
         env=env,
         model=model,
         reasoning_effort=reasoning_effort,
-        workspace_task_label="knowledge packet lease worker session",
+        workspace_task_label="knowledge fixed-assignment worker session",
         supervision_callback=_build_strict_json_watchdog_callback(
             live_status_path=worker_root / "live_status.json",
             allow_workspace_commands=True,
@@ -930,7 +923,6 @@ def _run_phase_knowledge_worker_assignment_v1(
             expected_workspace_output_paths=[
                 out_dir / f"{shard.shard_id}.json" for shard in assigned_shards
             ],
-            task_queue_controller=packet_lease_controller,
             workspace_output_observer=(
                 None
                 if progress_state is None
@@ -967,7 +959,31 @@ def _run_phase_knowledge_worker_assignment_v1(
             if response_path.exists()
             else None
         )
-        shard_summary = packet_lease_controller.shard_summary(shard.shard_id)
+        shard_summary = {
+            "packet_count": 1 if response_text is not None else 0,
+            "repair_packet_count": 0,
+            "repair_attempted": False,
+            "repair_recovered": False,
+            "current_task_id": None,
+            "current_packet_kind": None,
+            "current_result_relpath": str(Path("out") / f"{shard.shard_id}.json"),
+            "current_packet_state": (
+                "completed" if response_text is not None else "missing_output"
+            ),
+            "current_result_observed": response_text is not None,
+            "promotion_attempted": response_text is not None,
+            "promotion_succeeded": False,
+            "last_runtime_action": (
+                "assignment_completed"
+                if response_text is not None
+                else "assignment_missing_output"
+            ),
+            "terminal_status": "pending",
+            "terminal_reason_code": None,
+            "terminal_reason_detail": None,
+            "last_validation_errors": [],
+            "last_validation_metadata": {},
+        }
         runner_payload = _build_knowledge_workspace_task_runner_payload(
             pipeline_id=pipeline_id,
             worker_id=assignment.worker_id,
@@ -982,6 +998,124 @@ def _run_phase_knowledge_worker_assignment_v1(
             task_count=task_total,
             task_index=task_index,
         )
+        payload, validation_errors, validation_metadata, proposal_status = (
+            _evaluate_knowledge_output_file(
+                shard=shard,
+                response_text=response_text,
+            )
+        )
+        task_root = worker_root / "shards" / shard.shard_id
+        explicit_terminal_reason_code: str | None = None
+        explicit_terminal_reason_detail: str | None = None
+        explicit_terminal_reason_metadata: dict[str, Any] = {}
+        if proposal_status == "no_final_output":
+            (
+                explicit_terminal_reason_code,
+                explicit_terminal_reason_detail,
+                explicit_terminal_reason_metadata,
+            ) = _classify_missing_packet_result(
+                worker_root=worker_root,
+                shard=shard,
+                run_result=run_result,
+                shard_summary=shard_summary,
+            )
+        elif proposal_status == "invalid":
+            task_root.mkdir(parents=True, exist_ok=True)
+            repair_run_result = _run_knowledge_repair_attempt(
+                runner=runner,
+                worker_root=worker_root,
+                shard=shard,
+                env=env,
+                output_schema_path=None,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                original_response_text=str(response_text or ""),
+                validation_errors=validation_errors,
+                validation_metadata=validation_metadata,
+                live_status_path=task_root / "repair_live_status.json",
+            )
+            _write_json(
+                {"text": repair_run_result.response_text},
+                task_root / "repair_last_message.json",
+            )
+            _write_json(
+                dict(repair_run_result.usage or {}),
+                task_root / "repair_usage.json",
+            )
+            (
+                repair_payload,
+                repair_validation_errors,
+                repair_validation_metadata,
+                repair_proposal_status,
+            ) = _evaluate_knowledge_output_file(
+                shard=shard,
+                response_text=repair_run_result.response_text,
+            )
+            shard_summary.update(
+                {
+                    "repair_packet_count": 1,
+                    "repair_attempted": True,
+                    "repair_recovered": (
+                        repair_proposal_status == "validated" and repair_payload is not None
+                    ),
+                }
+            )
+            if repair_proposal_status == "validated" and repair_payload is not None:
+                _write_json(dict(repair_payload), response_path)
+                payload = repair_payload
+                validation_errors = ()
+                validation_metadata = dict(repair_validation_metadata or {})
+                proposal_status = "validated"
+                _write_json(
+                    {
+                        "shard_id": shard.shard_id,
+                        "repair_status": "repaired",
+                        "validation_errors": [],
+                    },
+                    task_root / "repair_status.json",
+                )
+            else:
+                payload = None
+                validation_errors = tuple(repair_validation_errors or validation_errors)
+                validation_metadata = {
+                    **dict(validation_metadata or {}),
+                    **dict(repair_validation_metadata or {}),
+                }
+                proposal_status = "invalid"
+                explicit_terminal_reason_code = (
+                    str(repair_run_result.supervision_reason_code or "").strip()
+                    or "repair_packet_exhausted"
+                )
+                explicit_terminal_reason_detail = (
+                    str(repair_run_result.supervision_reason_detail or "").strip()
+                    or _render_validation_reason_detail(
+                        prefix="repair packet was exhausted without a promotable final output",
+                        validation_errors=validation_errors,
+                        validation_metadata=validation_metadata,
+                    )
+                )
+                _write_json(
+                    {
+                        "shard_id": shard.shard_id,
+                        "repair_status": "failed",
+                        "validation_errors": list(validation_errors),
+                    },
+                    task_root / "repair_status.json",
+                )
+        validation_metadata = {
+            **dict(validation_metadata or {}),
+            **dict(shard_summary),
+            **dict(explicit_terminal_reason_metadata or {}),
+        }
+        if proposal_status == "validated":
+            validation_metadata["promotion_succeeded"] = True
+            validation_metadata["terminal_status"] = "validated"
+            validation_metadata["terminal_reason_code"] = "validated"
+        elif proposal_status != "no_final_output":
+            validation_metadata["terminal_status"] = "failed"
+        if explicit_terminal_reason_code:
+            validation_metadata["terminal_reason_code"] = explicit_terminal_reason_code
+            validation_metadata["terminal_reason_detail"] = explicit_terminal_reason_detail
         runner_payload["packet_lease"] = dict(shard_summary)
         worker_runner_results.append(dict(runner_payload))
         runner_rows = (
@@ -1005,34 +1139,6 @@ def _run_phase_knowledge_worker_assignment_v1(
                         }
                     )
                     stage_rows.append(stage_row)
-        payload, validation_errors, validation_metadata, proposal_status = (
-            _evaluate_knowledge_output_file(
-                shard=shard,
-                response_text=response_text,
-            )
-        )
-        explicit_terminal_reason_code: str | None = None
-        explicit_terminal_reason_detail: str | None = None
-        explicit_terminal_reason_metadata: dict[str, Any] = {}
-        if proposal_status == "no_final_output":
-            (
-                explicit_terminal_reason_code,
-                explicit_terminal_reason_detail,
-                explicit_terminal_reason_metadata,
-            ) = _classify_missing_packet_result(
-                worker_root=worker_root,
-                shard=shard,
-                run_result=run_result,
-                shard_summary=shard_summary,
-            )
-        validation_metadata = {
-            **dict(validation_metadata or {}),
-            **dict(shard_summary),
-            **dict(explicit_terminal_reason_metadata or {}),
-        }
-        if explicit_terminal_reason_code:
-            validation_metadata["terminal_reason_code"] = explicit_terminal_reason_code
-            validation_metadata["terminal_reason_detail"] = explicit_terminal_reason_detail
         proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
         _write_json(
             {

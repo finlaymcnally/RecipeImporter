@@ -115,9 +115,9 @@ def build_line_role_workspace_shard_metadata(
     input_payload: Mapping[str, Any] | None,
     input_path: str,
     hint_path: str,
-    work_path: str,
     result_path: str,
-    repair_path: str,
+    work_path: str | None = None,
+    repair_path: str | None = None,
 ) -> dict[str, Any]:
     rows = []
     if isinstance(input_payload, Mapping):
@@ -133,18 +133,21 @@ def build_line_role_workspace_shard_metadata(
         except (TypeError, ValueError):
             continue
         owned_atomic_indices.append(atomic_index)
-    return {
+    payload = {
         "phase_key": "label_rows",
         "shard_id": str(shard_id),
         "input_path": str(input_path),
         "hint_path": str(hint_path),
-        "work_path": str(work_path),
         "result_path": str(result_path),
-        "repair_path": str(repair_path),
         "owned_row_count": len(owned_atomic_indices),
         "atomic_index_start": owned_atomic_indices[0] if owned_atomic_indices else None,
         "atomic_index_end": owned_atomic_indices[-1] if owned_atomic_indices else None,
     }
+    if work_path:
+        payload["work_path"] = str(work_path)
+    if repair_path:
+        payload["repair_path"] = str(repair_path)
+    return payload
 
 
 def build_line_role_workspace_scaffold(shard_row: Mapping[str, Any]) -> dict[str, Any]:

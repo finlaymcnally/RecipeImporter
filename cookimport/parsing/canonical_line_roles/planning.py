@@ -265,9 +265,7 @@ def _build_line_role_worker_shard_row(
         input_payload=_coerce_mapping_dict(shard.input_payload),
         input_path=f"in/{shard.shard_id}.json",
         hint_path=f"hints/{shard.shard_id}.md",
-        work_path=f"work/{shard.shard_id}.json",
         result_path=f"out/{shard.shard_id}.json",
-        repair_path=f"repair/{shard.shard_id}.json",
     )
     return {
         "shard_id": shard.shard_id,
@@ -467,38 +465,32 @@ def _build_line_role_workspace_worker_prompt(
     shards: Sequence[ShardManifestEntryV1],
 ) -> str:
     assignments = "\n".join(
-        f"- `{shard.shard_id}`: read `hints/{shard.shard_id}.md`, edit `work/{shard.shard_id}.json`, validate with `check-phase`, then install to `out/{shard.shard_id}.json`"
+        f"- `{shard.shard_id}`: read `in/{shard.shard_id}.json`, use `hints/{shard.shard_id}.md` only if helpful, then write `out/{shard.shard_id}.json`"
         for shard in shards
     )
     return (
         "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger.\n\n"
         "Worker contract:\n"
         "- The current working directory is already the workspace root.\n"
-        "- Start by opening `worker_manifest.json`, then `CURRENT_PHASE.md`. Open `current_phase.json` when you need the exact metadata fields or file paths.\n"
-        "- The normal path is repo-written already: open the current work ledger named in `current_phase.json`, then the authoritative raw input in `in/<shard_id>.json`; use `hints/<shard_id>.md` only if you want a short reminder.\n"
-        "- Run `python3 tools/line_role_worker.py check-phase` after editing the work ledger. If `CURRENT_PHASE_FEEDBACK.md` names a repair file, fix only those unresolved rows in the existing work ledger.\n"
-        "- Run `python3 tools/line_role_worker.py install-phase` only after the current work ledger validates cleanly. Installing advances the phase surface to the next shard when one remains.\n"
-        "- There is no separate repo-owned repair model pass for line-role. The active workspace ledger is the authoritative fix loop.\n"
-        "- Accepted rows are meant to stay frozen. Do not reopen already-installed shard ledgers just to hunt for novelty.\n"
+        "- Start by opening `worker_manifest.json`, then `assigned_shards.json`.\n"
+        "- For each assigned shard, open the authoritative raw input in `in/<shard_id>.json`; use `hints/<shard_id>.md` only if you want a short reminder.\n"
+        "- Write the finished result directly to `out/<shard_id>.json`.\n"
+        "- There is one output file per assigned shard. Do not invent phase ledgers, install loops, or queue-control files.\n"
         "- After the last shard is installed, send one brief completion message naming the finished outputs and then stop.\n"
-        "- If `tools/line_role_worker.py` exists, use it as the paved road before inventing ad hoc shell helpers.\n"
-        "- `python3 tools/line_role_worker.py overview`, `show <shard_id>`, and `scaffold <shard_id> --dest <path>` are fallback/debug tools, not the default starting path.\n"
-        "- Long handwritten `jq` transforms are unnecessary here because the helper already owns validation and install.\n"
+        "- `tools/line_role_worker.py`, when present, is fallback/debug help only. It is not the normal path.\n"
         "- Prefer opening the named files directly. If you still need shell helpers, keep them narrow and grounded on the named local files only.\n"
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
-        "- Treat `CURRENT_PHASE.md` as the cheapest repo-written first read. Use `current_phase.json` only for the exact metadata and named file paths.\n"
-        "- Use `assigned_shards.json` only for ordered ownership/progress context.\n"
-        "- For each assigned shard, start from the scaffolded work ledger, then read the raw input ledger in order.\n"
+        "- Use `assigned_shards.json` for ordered ownership/progress context.\n"
+        "- For each assigned shard, read the raw input ledger in order, then write the final output ledger directly.\n"
         "- Treat `hints/<shard_id>.md` as optional guidance and `in/<shard_id>.json` as the authoritative shard input for the active phase.\n"
-        "- Open `OUTPUT_CONTRACT.md` only when the scaffolded work ledger and validator feedback are insufficient to recover the exact output shape.\n"
-        "- Write and revise the active shard only in `work/<shard_id>.json`. The helper installs the validated ledger to `out/<shard_id>.json`.\n"
+        "- Open `OUTPUT_CONTRACT.md` only when the named shard files are insufficient to recover the exact output shape.\n"
         "- If `out/<shard_id>.json` already exists and is complete, leave it alone and continue.\n"
         "- Do not modify files under `in/`, `debug/`, or `hints/`.\n"
         "- Stay inside this workspace; do not inspect parent directories or the repository.\n"
         "- Keep working through the assigned shard files until all of them are handled or you truly cannot proceed.\n\n"
         "Each shard input file has this shape:\n"
         '{"v":2,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[[122,"Earlier context"]],"rows":[[123,"1 cup flour"],[124,"Stir well."]],"context_after_rows":[[125,"Later context"]]}\n\n'
-        "Each work/install ledger must have this shape:\n"
+        "Each output ledger must have this shape:\n"
         '{"rows":[{"atomic_index":123,"label":"INGREDIENT_LINE"}]}\n\n'
         "Rules:\n"
         "- Use only the keys `rows`, `atomic_index`, `label`, and optional `exclusion_reason` in each ledger.\n"
@@ -519,7 +511,7 @@ def _build_line_role_workspace_worker_prompt(
         "- Do not use `HOWTO_SECTION` for chapter, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, or `Starches`.\n"
         "- A heading by itself is weak evidence. Keep topic headings such as `Balancing Fat` or `WHAT IS ACID?` as `NONRECIPE_CANDIDATE` unless nearby rows prove recipe-local structure.\n"
         "- First-person narrative or memoir prose is usually `NONRECIPE_CANDIDATE`, not recipe structure.\n\n"
-        "Do not return row labels in your final message. The authoritative results are the installed `out/<shard_id>.json` files.\n\n"
+        "Do not return row labels in your final message. The authoritative results are the written `out/<shard_id>.json` files.\n\n"
         "Assigned shard files:\n"
         f"{assignments}\n"
     )
