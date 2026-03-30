@@ -612,7 +612,7 @@ def _write_knowledge_stage_status(
     _write_json(
         {
             "schema_version": _KNOWLEDGE_STAGE_STATUS_SCHEMA_VERSION,
-            "stage_key": "nonrecipe_knowledge_review",
+            "stage_key": "nonrecipe_finalize",
             "stage_state": str(stage_state).strip() or None,
             "termination_cause": str(termination_cause).strip() or None,
             "finalization_completeness": str(finalization_completeness).strip() or None,

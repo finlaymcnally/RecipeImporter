@@ -118,7 +118,7 @@ Current behavior notes:
 - agent-run environments are blocked from that live non-interactive Codex path; use prompt preview or a fake-codex-farm rehearsal instead
 - knowledge-phase progress now reports task packets rather than top-level shard counts, and worker rows can show packet-scale labels such as `book.ks0000.nr (47/48 task packets)`
 - interrupted benchmark runs now write `partial_benchmark_summary.json` plus `benchmark_status.json` so the preserved worker/artifact tree stays diagnosable after an abort
-- interrupted benchmark runs now also record `interruption_cause = "operator"` in both files, and when the prediction run contains `raw/llm/<workbook>/knowledge/stage_status.json` the partial summary carries forward the normalized knowledge-stage attribution instead of treating missing wrap-up artifacts as generic failure by default
+- interrupted benchmark runs now also record `interruption_cause = "operator"` in both files, and when the prediction run contains `raw/llm/<workbook>/nonrecipe_finalize/stage_status.json` the partial summary carries forward the normalized knowledge-stage attribution instead of treating missing wrap-up artifacts as generic failure by default
 - benchmark-side actual-cost review should now use the finished recipe / knowledge / line-role rows in `prompt_budget_summary.json` when asking whether spend came from main workspace workers or from repo-owned follow-up/finalization; those rows now carry the same work-unit / worker / follow-up vocabulary used by the stage-local summary artifacts
 
 Interactive benchmark modes are still active and remain offline canonical-text workflows:
@@ -264,7 +264,7 @@ Current line-role and knowledge behavior:
   - outside-recipe `KNOWLEDGE` versus `OTHER` labels in that projection must come from the final non-recipe authority, not the pre-knowledge seed
 - those line-role artifacts now expose `decided_by`, `reason_tags`, and `escalation_reasons`; scalar trust/confidence fields are gone
 - `09_nonrecipe_authority.json` is the authoritative scored outside-span contract; benchmark scoring and projection must read this file only when they need final outside-recipe truth
-- `08_nonrecipe_seed_routing.json` and `09_nonrecipe_review_status.json` are debugging/progress artifacts; they can explain routing or incompleteness but must not be treated as scored truth
+- `08_nonrecipe_route.json` and `09_nonrecipe_finalize_status.json` are debugging/progress artifacts; they can explain routing or incompleteness but must not be treated as scored truth
 - `line-role-pipeline/line_role_predictions.jsonl` may still preserve provisional outside-recipe line-role labels for debugging, but `line-role-pipeline/stage_block_predictions.json` must fail closed and use explicit final authority only for scored outside-recipe `KNOWLEDGE`
 - prompt preview and live knowledge harvest both rebuild from the same compact `build_knowledge_jobs(...)` inputs
 - knowledge worker manifests and per-shard status files may now end with explicit knowledge-runtime reason codes such as `workspace_outputs_stabilized`, `watchdog_malformed_final_output`, or `watchdog_retry_oversized_skipped`; these mean the worker stopped after stabilized owned outputs, a strict retry emitted malformed pseudo-final JSON, or a multi-chunk oversized watchdog retry was intentionally skipped
@@ -327,9 +327,9 @@ Current bundle rules:
 - reviewer-facing topology should be derived from the normalized model, not guessed from path layout
 - `analysis.recipe_pipeline_context` and `analysis.stage_separated_comparison` come from that model seam and expose semantic recipe stages (`recipe_topology_key`, ordered `recipe_stages`) instead of older numbered stage fields
 - current semantic recipe-stage values are:
-  - `build_intermediate_det`
-  - `recipe_llm_correct_and_link`
-  - `build_final_recipe`
+  - `recipe_build_intermediate`
+  - `recipe_refine`
+  - `recipe_build_final`
 - `cookimport/bench/upload_bundle_v1_existing_output.py` should emit semantic recipe pipeline context only; do not add older recipe-topology metadata back into new bundles
 - `cookimport/bench/followup_bundle.py` should resolve `knowledge_manifest_json` only for the live knowledge-manifest seam; older knowledge-stage locator names belong only in archived/local reader code
 - `scripts/benchmark_cutdown_for_external_ai.py` now treats semantic stage rows, `recipe_manifest.json` stage states, and `recipe_correction_audit` diagnostics as the primary existing-output contract; archived prompt rows with numbered stage labels are history input only, not a new-output shape
@@ -340,10 +340,10 @@ Current bundle rules:
   - when a required knowledge manifest lives outside the session root, the bundle should mirror it into a derived payload row so `navigation.row_locators.knowledge_by_run` still resolves bundle-locally
 - upload-bundle runtime snapshots should prefer row-level prompt telemetry when it is present, but they must fall back to aggregate prompt-budget stage totals when archived/full-prompt rows are missing token coverage or omit whole stages such as `line_role`
 - upload-bundle diagnostics must keep stage blame and trace parity semantically honest:
-  - `final_recipe_empty_mapping` only counts actual `build_final_recipe` empty-mapping output
-  - `analysis.recipe_pipeline_context.observed_recipe_stage_call_counts.build_final_recipe` counts only observed final-recipe calls, not correction-stage calls
+  - `final_recipe_empty_mapping` only counts actual `recipe_build_final` empty-mapping output
+  - `analysis.recipe_pipeline_context.observed_recipe_stage_call_counts.recipe_build_final` counts only observed final-recipe calls, not correction-stage calls
   - `16_baseline_trace_parity.json` should treat derived bundle-local trace rows as present when run diagnostics already mirrored those artifacts into the bundle
-- compact recipe-correction outputs are still real outputs. When existing-output readers inspect `recipe_llm_correct_and_link`, compact `payload.r[].cr.i` / `payload.r[].cr.s` rows count as non-empty correction output even when the compact mapping itself is empty. `empty_output_signal` should mean "no correction output at all," not merely "empty mapping."
+- compact recipe-correction outputs are still real outputs. When existing-output readers inspect `recipe_refine`, compact `payload.r[].cr.i` / `payload.r[].cr.s` rows count as non-empty correction output even when the compact mapping itself is empty. `empty_output_signal` should mean "no correction output at all," not merely "empty mapping."
 - `regression_casebook` fallback selection must stay honest when there are no negative-delta recipes. In that case the fallback source/reason should be signal-based instead of pretending `top_negative_delta_recipes` existed, and bundle generation should fail loudly if parsed correction outputs are visibly non-empty while stage observability still claims every correction output is empty.
 - new cutdown and starter-pack outputs should write semantic `stage_key` values only. If archived prompt logs still carry `pass*` labels, normalize them in the read helper instead of synthesizing `pass*` fields back into current output
 - knowledge extraction must surface explicitly through bundle analysis/index fields instead of being implied by generic prompt artifacts
@@ -465,11 +465,11 @@ Primary benchmark modules:
 ## 9. Recent Durable Notes
 
 - In canonical-text benchmarking, `eval_report.json -> per_label.RECIPE_TITLE` is the title-label metric. `eval_report.json -> recipe_counts.predicted_recipe_count` is a separate import-level recipe total and can diverge sharply.
-- When post-refactor CodexFarm canonical-text quality drops toward vanilla, inspect the `KNOWLEDGE` seam first. Stage 7 now only routes outside-recipe review, while the knowledge stage owns review-eligible `KNOWLEDGE` vs `OTHER` for benchmark truth.
+- When post-refactor CodexFarm canonical-text quality drops toward vanilla, inspect the `KNOWLEDGE` seam first. The non-recipe route stage now only routes outside-recipe review, while the finalize stage owns review-eligible `KNOWLEDGE` vs `OTHER` for benchmark truth.
 - Single-book benchmark folder naming is about Codex participation, not every deterministic helper. A run with recipe Codex off and only deterministic line-role still belongs under `vanilla/`; only actual Codex-backed line-role belongs in the Codex/hybrid branch.
 - High Codex recipe task counts in single-book runs usually mean grouped recipe-span overproduction upstream, not retry storms inside CodexFarm.
 - Tiny line-role token spend in a Codex single-book run does not mean line-role was skipped; older helper paths only sent escalated rows to live Codex and then scored a projected artifact built from authoritative outputs.
-- Canonical benchmark scoring should project explicit final non-recipe authority, not raw deterministic seed labels. The current contract is Stage 7 routing plus optional knowledge-stage review merged into final scored `KNOWLEDGE` / `OTHER`.
+- Canonical benchmark scoring should project explicit final non-recipe authority, not raw deterministic seed labels. The current contract is non-recipe routing plus optional finalize-stage review merged into final scored `KNOWLEDGE` / `OTHER`.
 - Benchmark prompt export should include every CodexFarm interaction the reviewer cares about:
   - recipe correction
   - line-role prompt artifacts copied from `line-role-pipeline/prompts`

@@ -773,7 +773,7 @@ def _build_token_lane_brief(
         f"- Benchmark root: `{target.source_root}`",
         f"- benchmark total tokens: `{_format_int_metric(runtime_summary.get('total_tokens'))}`",
         f"- knowledge tokens: `{_format_int_metric(knowledge_stage.get('tokens_total'))}`",
-        f"- knowledge token share: `{_format_metric(runtime_summary.get('nonrecipe_knowledge_review_token_share'), digits=4)}`",
+        f"- knowledge token share: `{_format_metric(runtime_summary.get('nonrecipe_finalize_token_share'), digits=4)}`",
         f"- knowledge wrapper overhead tokens: `{_format_int_metric(knowledge_stage.get('wrapper_overhead_tokens'))}`",
         f"- line-role tokens: `{_format_int_metric(line_role_stage.get('tokens_total'))}`",
         f"- recipe correction tokens: `{_format_int_metric(recipe_stage.get('tokens_total'))}`",

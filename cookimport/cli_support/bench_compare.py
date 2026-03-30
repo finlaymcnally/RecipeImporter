@@ -268,7 +268,7 @@ def _has_llm_artifact_evidence(
     if not llm_root.exists() or not llm_root.is_dir():
         return False
     recipe_stage_dirs = {
-        stage_artifact_stem("recipe_llm_correct_and_link"),
+        stage_artifact_stem("recipe_refine"),
     }
     for workbook_dir in llm_root.iterdir():
         if not workbook_dir.is_dir():

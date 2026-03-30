@@ -50,6 +50,7 @@ from cookimport.llm.prompt_artifacts import (
     build_codex_farm_prompt_type_samples_markdown,
     write_prompt_log_summary,
 )
+from cookimport.runs.stage_names import stage_artifact_stem, stage_label
 from cookimport.parsing.canonical_line_roles import (
     CanonicalLineRolePrediction,
     LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT,
@@ -254,9 +255,9 @@ def write_prompt_preview_for_existing_run(
             codex_cmd=effective_codex_cmd,
             prompt_target_count=resolved_recipe_prompt_target_count,
         )
-        stage_plans["recipe_llm_correct_and_link"] = _build_direct_shard_phase_plan(
-            stage_key="recipe_llm_correct_and_link",
-            stage_label="Recipe Correction",
+        stage_plans["recipe_refine"] = _build_direct_shard_phase_plan(
+            stage_key="recipe_refine",
+            stage_label=stage_label("recipe_refine"),
             stage_order=1,
             surface_pipeline=llm_recipe_pipeline,
             runtime_pipeline_id=_DEFAULT_RECIPE_PIPELINE_ID,
@@ -270,7 +271,7 @@ def write_prompt_preview_for_existing_run(
         )
         _annotate_rows_from_phase_plan(
             rows=recipe_rows,
-            phase_plan=stage_plans["recipe_llm_correct_and_link"],
+            phase_plan=stage_plans["recipe_refine"],
         )
         rows.extend(recipe_rows)
         counts["recipe_interaction_count"] = len(recipe_rows)
@@ -289,9 +290,9 @@ def write_prompt_preview_for_existing_run(
             input_char_budget=resolved_knowledge_packet_input_char_budget,
             output_char_budget=resolved_knowledge_packet_output_char_budget,
         )
-        stage_plans["nonrecipe_knowledge_review"] = _build_direct_shard_phase_plan(
-            stage_key="nonrecipe_knowledge_review",
-            stage_label="Non-Recipe Knowledge Review",
+        stage_plans["nonrecipe_finalize"] = _build_direct_shard_phase_plan(
+            stage_key="nonrecipe_finalize",
+            stage_label=stage_label("nonrecipe_finalize"),
             stage_order=4,
             surface_pipeline=llm_knowledge_pipeline,
             runtime_pipeline_id=_DEFAULT_KNOWLEDGE_PIPELINE_ID,
@@ -302,7 +303,7 @@ def write_prompt_preview_for_existing_run(
         )
         _annotate_rows_from_phase_plan(
             rows=knowledge_rows,
-            phase_plan=stage_plans["nonrecipe_knowledge_review"],
+            phase_plan=stage_plans["nonrecipe_finalize"],
         )
         rows.extend(knowledge_rows)
         counts["knowledge_interaction_count"] = len(knowledge_rows)
@@ -461,7 +462,7 @@ def _load_existing_run_preview_context(*, run_path: Path) -> ExistingRunPreviewC
         full_blocks = full_blocks_from_labeled_lines
     block_labels_payload = _read_json(
         processed_run_dir
-        / "group_recipe_spans"
+        / "recipe_boundary"
         / workbook_slug
         / "authoritative_block_labels.json"
     )
@@ -471,7 +472,7 @@ def _load_existing_run_preview_context(*, run_path: Path) -> ExistingRunPreviewC
         if isinstance(row, dict)
     ]
     recipe_spans_payload = _read_json(
-        processed_run_dir / "group_recipe_spans" / workbook_slug / "recipe_spans.json"
+        processed_run_dir / "recipe_boundary" / workbook_slug / "recipe_spans.json"
     )
     recipe_spans = [
         _normalize_recipe_span(row)
@@ -530,7 +531,7 @@ def _build_recipe_preview_rows(
         pipeline_id=_DEFAULT_RECIPE_PIPELINE_ID,
     )
     stage_dir = (
-        out_dir / "raw" / "llm" / context.workbook_slug / "recipe_llm_correct_and_link"
+        out_dir / "raw" / "llm" / context.workbook_slug / stage_artifact_stem("recipe_refine")
     )
     in_dir = stage_dir / "in"
     in_dir.mkdir(parents=True, exist_ok=True)
@@ -671,11 +672,11 @@ def _build_recipe_shard_preview_rows(
                 input_payload=shard_payload,
                 input_text=serialized_input,
                 input_path=input_path,
-                stage_key="recipe_llm_correct_and_link",
-                stage_label="Recipe Correction",
+                stage_key="recipe_refine",
+                stage_label=stage_label("recipe_refine"),
                 stage_order=1,
-                stage_dir_name="recipe_llm_correct_and_link",
-                stage_artifact_stem="recipe_correction",
+                stage_dir_name="recipe_refine",
+                stage_artifact_stem=stage_artifact_stem("recipe_refine"),
                 surface_pipeline=surface_pipeline,
                 model_override=model_override,
                 reasoning_effort_override=reasoning_effort_override,
@@ -710,7 +711,7 @@ def _build_knowledge_preview_rows(
         pipeline_root=pipeline_root,
         pipeline_id=_DEFAULT_KNOWLEDGE_PIPELINE_ID,
     )
-    stage_dir = out_dir / "raw" / "llm" / context.workbook_slug / "knowledge"
+    stage_dir = out_dir / "raw" / "llm" / context.workbook_slug / stage_artifact_stem("nonrecipe_finalize")
     in_dir = stage_dir / "in"
     in_dir.mkdir(parents=True, exist_ok=True)
 
@@ -750,11 +751,11 @@ def _build_knowledge_preview_rows(
                 input_payload=input_payload,
                 input_text=serialized_input,
                 input_path=input_path,
-                stage_key="nonrecipe_knowledge_review",
-                stage_label="Non-Recipe Knowledge Review",
+                stage_key="nonrecipe_finalize",
+                stage_label=stage_label("nonrecipe_finalize"),
                 stage_order=4,
-                stage_dir_name="knowledge",
-                stage_artifact_stem="knowledge",
+                stage_dir_name=stage_artifact_stem("nonrecipe_finalize"),
+                stage_artifact_stem=stage_artifact_stem("nonrecipe_finalize"),
                 surface_pipeline=surface_pipeline,
                 model_override=model_override,
                 reasoning_effort_override=reasoning_effort_override,
@@ -1315,11 +1316,11 @@ def _assign_preview_workers(*, requested_worker_count: int, shard_count: int) ->
 
 def _preview_owned_ids_for_row(*, stage_key: str, row: Mapping[str, Any]) -> list[str]:
     payload = _coerce_dict(row.get("request_input_payload"))
-    if stage_key == "recipe_llm_correct_and_link":
+    if stage_key == "recipe_refine":
         owned_recipe_ids = payload.get("owned_recipe_ids")
         if isinstance(owned_recipe_ids, list):
             return [str(item).strip() for item in owned_recipe_ids if str(item).strip()]
-    if stage_key == "nonrecipe_knowledge_review":
+    if stage_key == "nonrecipe_finalize":
         return knowledge_input_packet_ids(payload)
     if stage_key == "line_role" or stage_key.startswith("line_role_"):
         rows = payload.get("rows")
@@ -1578,7 +1579,7 @@ def _processed_run_has_codex_artifacts(processed_run_dir: Path) -> bool:
             continue
         if (workbook_dir / "recipe_phase_runtime" / "workers").is_dir():
             return True
-        if (workbook_dir / "knowledge" / "workers").is_dir():
+        if (workbook_dir / stage_artifact_stem("nonrecipe_finalize") / "workers").is_dir():
             return True
         if (workbook_dir / "recipe_manifest.json").is_file():
             return True
@@ -1678,7 +1679,7 @@ def _load_labeled_line_rows(
     processed_run_dir: Path,
     workbook_slug: str,
 ) -> list[dict[str, Any]]:
-    path = processed_run_dir / "label_det" / workbook_slug / "labeled_lines.jsonl"
+    path = processed_run_dir / "label_deterministic" / workbook_slug / "labeled_lines.jsonl"
     if not path.exists() or not path.is_file():
         return []
     rows: list[dict[str, Any]] = []

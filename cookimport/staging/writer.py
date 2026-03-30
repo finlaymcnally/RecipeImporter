@@ -42,6 +42,20 @@ from cookimport.staging.jsonld import (
     authoritative_recipe_semantics_to_jsonld,
     recipe_candidate_to_jsonld,
 )
+from cookimport.staging.output_names import (
+    NONRECIPE_AUTHORITY_FILE_NAME,
+    NONRECIPE_AUTHORITY_SCHEMA_VERSION,
+    NONRECIPE_EXCLUSIONS_FILE_NAME,
+    NONRECIPE_FINALIZE_STATUS_FILE_NAME,
+    NONRECIPE_FINALIZE_STATUS_SCHEMA_VERSION,
+    NONRECIPE_FINAL_CATEGORY_FIELD,
+    NONRECIPE_KNOWLEDGE_GROUPS_FILE_NAME,
+    NONRECIPE_KNOWLEDGE_GROUPS_SCHEMA_VERSION,
+    NONRECIPE_ROUTE_FIELD,
+    NONRECIPE_ROUTE_FILE_NAME,
+    NONRECIPE_ROUTE_SCHEMA_VERSION,
+    NONRECIPE_CANDIDATE_INPUT_MODE,
+)
 from cookimport.staging.stage_block_predictions import build_stage_block_predictions
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -56,12 +70,6 @@ _OUTPUT_CATEGORY_BENCH = "benchArtifacts"
 _OUTPUT_CATEGORY_NONRECIPE = "nonRecipe"
 _OUTPUT_CATEGORY_KNOWLEDGE = "knowledge"
 _OUTPUT_CATEGORY_RECIPE_AUTHORITY = "recipeAuthority"
-
-NONRECIPE_SEED_ROUTING_FILE_NAME = "08_nonrecipe_seed_routing.json"
-NONRECIPE_EXCLUSIONS_FILE_NAME = "08_nonrecipe_exclusions.jsonl"
-NONRECIPE_AUTHORITY_FILE_NAME = "09_nonrecipe_authority.json"
-NONRECIPE_KNOWLEDGE_GROUPS_FILE_NAME = "09_nonrecipe_knowledge_groups.json"
-NONRECIPE_CANDIDATE_STATUS_FILE_NAME = "09_nonrecipe_candidate_status.json"
 
 _IO_PACE_EVERY_WRITES_ENV = "COOKIMPORT_IO_PACE_EVERY_WRITES"
 _IO_PACE_SLEEP_MS_ENV = "COOKIMPORT_IO_PACE_SLEEP_MS"
@@ -940,7 +948,7 @@ def write_nonrecipe_stage_outputs(
     *,
     output_stats: OutputStats | None = None,
 ) -> Path:
-    path = write_nonrecipe_seed_routing_artifact(
+    path = write_nonrecipe_route_artifact(
         stage_result,
         output_dir,
         output_stats=output_stats,
@@ -990,13 +998,13 @@ def _knowledge_counts_for_block_map(block_category_by_index: Mapping[int, str]) 
     }
 
 
-def write_nonrecipe_seed_routing_artifact(
+def write_nonrecipe_route_artifact(
     stage_result: NonRecipeStageResult,
     output_dir: Path,
     *,
     output_stats: OutputStats | None = None,
 ) -> Path:
-    path = output_dir / NONRECIPE_SEED_ROUTING_FILE_NAME
+    path = output_dir / NONRECIPE_ROUTE_FILE_NAME
     routing = stage_result.routing
     candidate_block_ids = [
         _block_id_for_stage_result(stage_result, int(block_index))
@@ -1007,7 +1015,7 @@ def write_nonrecipe_seed_routing_artifact(
         for block_index in routing.excluded_block_indices
     ]
     payload = {
-        "schema_version": "nonrecipe_seed_routing.v2",
+        "schema_version": NONRECIPE_ROUTE_SCHEMA_VERSION,
         "counts": {
             "seed_nonrecipe_spans": len(stage_result.seed.seed_nonrecipe_spans),
             "seed_candidate_spans": len(stage_result.seed.seed_candidate_spans),
@@ -1113,7 +1121,7 @@ def write_knowledge_outputs_artifact(
         knowledge_group_records=knowledge_group_records,
         output_stats=output_stats,
     )
-    return write_nonrecipe_candidate_status_artifact(
+    return write_nonrecipe_finalize_status_artifact(
         run_root=run_root,
         stage_result=stage_result,
         llm_report=llm_report,
@@ -1131,7 +1139,7 @@ def write_nonrecipe_authority_artifact(
     path = run_root / NONRECIPE_AUTHORITY_FILE_NAME
     authority = stage_result.authority
     payload = {
-        "schema_version": "nonrecipe_authority.v2",
+        "schema_version": NONRECIPE_AUTHORITY_SCHEMA_VERSION,
         "authority_mode": str(
             stage_result.refinement_report.get("authority_mode")
             or "deterministic_route_only"
@@ -1184,7 +1192,7 @@ def write_nonrecipe_knowledge_groups_artifact(
 ) -> Path:
     path = run_root / NONRECIPE_KNOWLEDGE_GROUPS_FILE_NAME
     payload = {
-        "schema_version": "nonrecipe_knowledge_groups.v1",
+        "schema_version": NONRECIPE_KNOWLEDGE_GROUPS_SCHEMA_VERSION,
         "count": len(knowledge_group_records or []),
         "knowledge_groups": list(knowledge_group_records or []),
     }
@@ -1197,7 +1205,7 @@ def write_nonrecipe_knowledge_groups_artifact(
     return path
 
 
-def write_nonrecipe_candidate_status_artifact(
+def write_nonrecipe_finalize_status_artifact(
     *,
     run_root: Path,
     stage_result: NonRecipeStageResult,
@@ -1213,7 +1221,7 @@ def write_nonrecipe_candidate_status_artifact(
                 str(key): raw_counts.get(key)
                 for key in raw_counts
             }
-    path = run_root / NONRECIPE_CANDIDATE_STATUS_FILE_NAME
+    path = run_root / NONRECIPE_FINALIZE_STATUS_FILE_NAME
     routing = stage_result.routing
     authority = stage_result.authority
     candidate_status_result = stage_result.candidate_status
@@ -1233,10 +1241,10 @@ def write_nonrecipe_candidate_status_artifact(
     if not candidate_status:
         candidate_status = "not_run" if not bool((llm_report or {}).get("enabled")) else "unknown"
     payload = {
-        "schema_version": "nonrecipe_candidate_status.v1",
+        "schema_version": NONRECIPE_FINALIZE_STATUS_SCHEMA_VERSION,
         "input_mode": str(
             (llm_report or {}).get("input_mode")
-            or "stage7_candidate_nonrecipe_spans"
+            or NONRECIPE_CANDIDATE_INPUT_MODE
         ),
         "candidate_status": candidate_status,
         "stage_status": str((llm_report or {}).get("stage_status") or ""),

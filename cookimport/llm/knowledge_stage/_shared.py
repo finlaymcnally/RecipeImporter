@@ -26,8 +26,8 @@ from cookimport.staging.nonrecipe_stage import (
 )
 from cookimport.staging.writer import (
     NONRECIPE_AUTHORITY_FILE_NAME,
-    NONRECIPE_CANDIDATE_STATUS_FILE_NAME,
-    NONRECIPE_SEED_ROUTING_FILE_NAME,
+    NONRECIPE_FINALIZE_STATUS_FILE_NAME,
+    NONRECIPE_ROUTE_FILE_NAME,
 )
 
 from ..codex_farm_ids import sanitize_for_filename

@@ -882,7 +882,7 @@ def _run_interrupt_partial_artifacts_fixture(
             json.dumps(
                 {
                     "schema_version": "knowledge_stage_status.v1",
-                    "stage_key": "nonrecipe_knowledge_review",
+                    "stage_key": "nonrecipe_finalize",
                     "stage_state": "interrupted",
                     "termination_cause": "operator_interrupt",
                     "finalization_completeness": "interrupted_before_finalization",

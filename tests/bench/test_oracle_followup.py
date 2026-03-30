@@ -430,7 +430,7 @@ def test_run_oracle_benchmark_followup_dry_run_accepts_recipe_stage_filters_from
                 "ask_id: correction_projection_gap",
                 "question: Export the correction-stage and final-stage linkage evidence for the top signal recipes.",
                 "outputs: case_export, prompt_link_audit, uncertainty",
-                "stage_filters: recipe_llm_correct_and_link, build_final_recipe",
+                "stage_filters: recipe_refine, recipe_build_final",
                 "include_recipe_ids: urn:recipeimport:epub:789eb99e92fd73a31c559131124ac317fd039c440c1c759ed41d99d85af97f8c:label_span_4",
                 "hypothesis: A projection or mapping link is dropping correction outputs.",
                 "smallest_useful_packet: One recipe is enough.",
@@ -450,7 +450,7 @@ def test_run_oracle_benchmark_followup_dry_run_accepts_recipe_stage_filters_from
     assert result.success is True
     request_payload = json.loads(workspace.request_json_path.read_text(encoding="utf-8"))
     stage_filters = request_payload["asks"][0]["selectors"]["stage_filters"]
-    assert stage_filters == ["recipe_llm_correct_and_link", "build_final_recipe"]
+    assert stage_filters == ["recipe_refine", "recipe_build_final"]
     assert (workspace.followup_packet_dir / "asks" / "correction_projection_gap" / "index.json").is_file()
 
 

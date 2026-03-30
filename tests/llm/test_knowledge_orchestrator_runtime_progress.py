@@ -12,7 +12,7 @@ from cookimport.llm.codex_exec_runner import (
     FakeCodexExecRunner,
 )
 from cookimport.llm.codex_farm_knowledge_orchestrator import (
-    run_codex_farm_nonrecipe_knowledge_review,
+    run_codex_farm_nonrecipe_finalize,
 )
 from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output
 from tests.llm.knowledge_packet_test_support import (
@@ -34,7 +34,7 @@ def _run_live_shard_progress_fixture(
     pack_root, run_root = make_runtime_pack_and_run_dirs(tmp_path)
     settings = make_runtime_settings(pack_root=pack_root, worker_count=1)
     progress_messages: list[str] = []
-    run_codex_farm_nonrecipe_knowledge_review(
+    run_codex_farm_nonrecipe_finalize(
         conversion_result=make_runtime_conversion_result(
             ["Knowledge zero.", "Recipe gap.", "Knowledge two."]
         ),
@@ -125,7 +125,7 @@ def test_knowledge_orchestrator_runs_shard_workers_concurrently(
 
     pack_root, run_root = make_runtime_pack_and_run_dirs(tmp_path)
     settings = make_runtime_settings(pack_root=pack_root, worker_count=2)
-    apply_result = run_codex_farm_nonrecipe_knowledge_review(
+    apply_result = run_codex_farm_nonrecipe_finalize(
         conversion_result=make_runtime_conversion_result(
             ["Knowledge zero.", "Recipe gap.", "Knowledge two."]
         ),

@@ -147,9 +147,9 @@ Raw collision rule:
 
 2. `recipe-boundary`
 - runs label-first boundary detection through `build_label_first_stage_result(...)`
-- writes deterministic label artifacts under `label_det/...`
-- writes grouped recipe-boundary diagnostics under `group_recipe_spans/...`
-- writes `label_llm_correct/...` only when a non-`off` line-role pipeline is active
+- writes deterministic label artifacts under `label_deterministic/...`
+- writes grouped recipe-boundary diagnostics under `recipe_boundary/...`
+- writes `label_refine/...` only when a non-`off` line-role pipeline is active
 
 3. `recipe-refine`
 - keeps deterministic projections when `llm_recipe_pipeline=off`
@@ -292,9 +292,9 @@ PDF ordering is still heuristic:
 ## Output Structure And Contracts
 
 Typical stage outputs under `data/output/<timestamp>/` now include:
-- `label_det/<workbook_slug>/...`
-- `label_llm_correct/<workbook_slug>/...` when line-role correction runs
-- `group_recipe_spans/<workbook_slug>/...`
+- `label_deterministic/<workbook_slug>/...`
+- `label_refine/<workbook_slug>/...` when line-role correction runs
+- `recipe_boundary/<workbook_slug>/...`
 - `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json`
 - `intermediate drafts/<workbook_slug>/r{index}.jsonld`
 - `final drafts/<workbook_slug>/r{index}.json`
@@ -305,11 +305,11 @@ Typical stage outputs under `data/output/<timestamp>/` now include:
 - `raw/source/<workbook_slug>/source_blocks.jsonl`
 - `raw/source/<workbook_slug>/source_support.json`
 - `raw/<importer>/<source_hash>/...`
-- `08_nonrecipe_seed_routing.json`
+- `08_nonrecipe_route.json`
 - `08_nonrecipe_exclusions.jsonl`
 - `09_nonrecipe_authority.json`
 - `09_nonrecipe_knowledge_groups.json`
-- `09_nonrecipe_candidate_status.json`
+- `09_nonrecipe_finalize_status.json`
 - `.bench/<workbook_slug>/stage_block_predictions.json`
 - `<workbook_slug>.excel_import_report.json`
 - `processing_timeseries.jsonl`

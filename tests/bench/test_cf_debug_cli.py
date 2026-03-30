@@ -737,8 +737,8 @@ def test_pack_includes_knowledge_audit_and_case_export(tmp_path: Path) -> None:
     assert case_row["knowledge_summary"]["enabled"] is True
     assert any(
         (
-            "prompt_nonrecipe_knowledge_review.txt" in row["path"]
-            or "prompt_nonrecipe_knowledge_review_stage.txt" in row["path"]
+            "prompt_nonrecipe_finalize.txt" in row["path"]
+            or "prompt_nonrecipe_finalize_stage.txt" in row["path"]
         )
         for row in case_row["knowledge_artifacts"]
     )

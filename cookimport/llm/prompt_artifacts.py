@@ -13,8 +13,10 @@ from cookimport.core.slug import slugify_name
 from cookimport.runs import (
     KNOWLEDGE_MANIFEST_FILE_NAME,
     RECIPE_MANIFEST_FILE_NAME,
+    stage_label,
     stage_artifact_stem,
 )
+from cookimport.runs.stage_names import canonical_stage_key
 
 PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION = "prompt_run_descriptor.v1"
 PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION = "prompt_stage_descriptor.v1"
@@ -30,18 +32,18 @@ ACTIVITY_TRACE_SUMMARY_MD_NAME = "activity_trace_summary.md"
 
 _CODEXFARM_STAGE_SPECS: tuple[dict[str, Any], ...] = (
     {
-        "stage_key": "recipe_llm_correct_and_link",
+        "stage_key": "recipe_refine",
         "stage_order": 1,
-        "stage_label": "Recipe Correction",
-        "stage_artifact_stem": "recipe_correction",
+        "stage_label": stage_label("recipe_refine"),
+        "stage_artifact_stem": stage_artifact_stem("recipe_refine"),
         "default_pipeline_id": "recipe.correction.compact.v1",
         "manifest_name": RECIPE_MANIFEST_FILE_NAME,
     },
     {
-        "stage_key": "nonrecipe_knowledge_review",
+        "stage_key": "nonrecipe_finalize",
         "stage_order": 4,
-        "stage_label": "Non-Recipe Knowledge Review",
-        "stage_artifact_stem": "knowledge",
+        "stage_label": stage_label("nonrecipe_finalize"),
+        "stage_artifact_stem": stage_artifact_stem("nonrecipe_finalize"),
         "default_pipeline_id": "recipe.knowledge.packet.v1",
         "manifest_name": KNOWLEDGE_MANIFEST_FILE_NAME,
     },
@@ -56,7 +58,8 @@ _PROMPT_STAGE_LABELS_BY_KEY = {
         str(spec["stage_key"]): str(spec["stage_label"])
         for spec in _CODEXFARM_STAGE_SPECS
     },
-    "knowledge": "Non-Recipe Knowledge Review",
+    "recipe_correction": stage_label("recipe_refine"),
+    "knowledge": stage_label("nonrecipe_finalize"),
 }
 
 _TEXT_ATTACHMENT_SUFFIXES = {
@@ -96,7 +99,7 @@ def summarize_prompt_log(*, full_prompt_log_path: Path) -> dict[str, Any] | None
         if not isinstance(row, Mapping):
             continue
         total_rows += 1
-        stage_key = str(row.get("stage_key") or "").strip() or "unknown"
+        stage_key = canonical_stage_key(str(row.get("stage_key") or "").strip()) or "unknown"
         stage_payload = by_stage.setdefault(
             stage_key,
             {
@@ -105,7 +108,10 @@ def summarize_prompt_log(*, full_prompt_log_path: Path) -> dict[str, Any] | None
                     stage_key,
                     stage_key.replace("_", " ").title(),
                 ),
-                "stage_artifact_stem": str(row.get("stage_artifact_stem") or "").strip() or None,
+                "stage_artifact_stem": (
+                    str(row.get("stage_artifact_stem") or "").strip()
+                    or stage_artifact_stem(stage_key)
+                ),
                 "row_count": 0,
                 "runtime_shard_count": 0,
                 "runtime_worker_count": 0,
@@ -450,13 +456,13 @@ def _resolve_process_run_payload_for_stage(
     stage_key: str,
     manifest_payload: dict[str, Any],
 ) -> dict[str, Any] | None:
-    if stage_key == "recipe_llm_correct_and_link":
+    if stage_key == "recipe_refine":
         process_runs = manifest_payload.get("process_runs")
         if not isinstance(process_runs, dict):
             return None
         pass_payload = process_runs.get("recipe_correction")
         return pass_payload if isinstance(pass_payload, dict) else None
-    if stage_key == "nonrecipe_knowledge_review":
+    if stage_key == "nonrecipe_finalize":
         process_run = manifest_payload.get("process_run")
         if isinstance(process_run, dict):
             return process_run
@@ -476,7 +482,7 @@ def _resolve_manifest_pipeline_id_for_stage(
 ) -> str | None:
     stage_spec = _CODEXFARM_STAGE_SPEC_BY_KEY.get(stage_key, {})
     default_pipeline_id = _clean_prompt_stage_text(stage_spec.get("default_pipeline_id"))
-    if stage_key == "recipe_llm_correct_and_link":
+    if stage_key == "recipe_refine":
         process_run = _resolve_process_run_payload_for_stage(
             stage_key=stage_key,
             manifest_payload=manifest_payload,
@@ -491,7 +497,7 @@ def _resolve_manifest_pipeline_id_for_stage(
             if candidate is not None:
                 return candidate
         return default_pipeline_id
-    if stage_key == "nonrecipe_knowledge_review":
+    if stage_key == "nonrecipe_finalize":
         candidate = _clean_text(manifest_payload.get("pipeline_id"))
         if candidate is not None:
             return candidate
@@ -518,12 +524,12 @@ def _resolve_stage_in_out_dirs(
             paths_payload = raw_paths
 
     input_key_map = {
-        "recipe_llm_correct_and_link": "recipe_phase_input_dir",
-        "nonrecipe_knowledge_review": "knowledge_in_dir",
+        "recipe_refine": "recipe_phase_input_dir",
+        "nonrecipe_finalize": "knowledge_in_dir",
     }
     output_key_map = {
-        "recipe_llm_correct_and_link": "recipe_phase_proposals_dir",
-        "nonrecipe_knowledge_review": "proposals_dir",
+        "recipe_refine": "recipe_phase_proposals_dir",
+        "nonrecipe_finalize": "proposals_dir",
     }
 
     input_key = input_key_map.get(stage_key)
@@ -534,14 +540,14 @@ def _resolve_stage_in_out_dirs(
     in_dir = Path(str(pass_in)) if isinstance(pass_in, str) else None
     out_dir = Path(str(pass_out)) if isinstance(pass_out, str) else None
     if in_dir is None or not in_dir.exists():
-        if stage_key == "recipe_llm_correct_and_link":
+        if stage_key == "recipe_refine":
             in_dir = run_dir / "recipe_phase_runtime" / "inputs"
         else:
             in_dir = run_dir / stage_dir_name / "in"
     if out_dir is None or not out_dir.exists():
-        if stage_key == "recipe_llm_correct_and_link":
+        if stage_key == "recipe_refine":
             out_dir = run_dir / "recipe_phase_runtime" / "proposals"
-        elif stage_key == "nonrecipe_knowledge_review":
+        elif stage_key == "nonrecipe_finalize":
             out_dir = run_dir / stage_dir_name / "proposals"
         else:
             out_dir = run_dir / stage_dir_name / "out"
@@ -549,7 +555,7 @@ def _resolve_stage_in_out_dirs(
 
 
 def _runtime_stage_dir_name(stage_key: str) -> str:
-    if stage_key == "recipe_llm_correct_and_link":
+    if stage_key == "recipe_refine":
         return "recipe_phase_runtime"
     return stage_artifact_stem(stage_key)
 
@@ -2646,9 +2652,9 @@ def _append_line_role_prompt_artifacts(
     if category_path is not None and category_path not in manifest_lines:
         manifest_lines.append(category_path)
         stage_order_by_manifest_path = {
-            str(prompts_dir / "prompt_recipe_llm_correct_and_link.txt"): 1,
+            str(prompts_dir / "prompt_recipe_refine.txt"): 1,
             str(prompts_dir / "prompt_line_role.txt"): 2,
-            str(prompts_dir / "prompt_nonrecipe_knowledge_review.txt"): 4,
+            str(prompts_dir / "prompt_nonrecipe_finalize.txt"): 4,
         }
         manifest_lines.sort(
             key=lambda path: (
@@ -2759,10 +2765,10 @@ def render_prompt_artifacts_from_descriptors(
                 category_lines.setdefault(category_key, [])
                 category_has_payload.setdefault(category_key, False)
                 runtime_stage_root = None
-                if stage.stage_key == "recipe_llm_correct_and_link":
+                if stage.stage_key == "recipe_refine":
                     runtime_stage_root = run_dir / "recipe_phase_runtime"
-                elif stage.stage_key == "nonrecipe_knowledge_review":
-                    runtime_stage_root = run_dir / "knowledge"
+                elif stage.stage_key == "nonrecipe_finalize":
+                    runtime_stage_root = run_dir / stage_artifact_stem(stage.stage_key)
                 runtime_index = (
                     _load_phase_runtime_index(runtime_stage_root)
                     if isinstance(runtime_stage_root, Path)
@@ -2919,7 +2925,7 @@ def render_prompt_artifacts_from_descriptors(
                             or _clean_text(_coerce_dict(parsed_output).get("shard_id"))
                             or (
                                 call_stem
-                                if stage.stage_key == "nonrecipe_knowledge_review"
+                                if stage.stage_key == "nonrecipe_finalize"
                                 else None
                             )
                         ),

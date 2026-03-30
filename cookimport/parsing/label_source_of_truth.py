@@ -300,9 +300,9 @@ def build_label_first_stage_result(
         ],
     )
 
-    from cookimport.parsing.recipe_span_grouping import group_recipe_spans_from_labels
+    from cookimport.parsing.recipe_span_grouping import recipe_boundary_from_labels
 
-    recipe_spans, span_decisions, normalized_block_labels = group_recipe_spans_from_labels(
+    recipe_spans, span_decisions, normalized_block_labels = recipe_boundary_from_labels(
         block_labels,
         labeled_lines,
     )

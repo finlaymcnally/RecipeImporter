@@ -39,7 +39,7 @@ def _build_noop_knowledge_llm_report(
         "enabled": True,
         "pipeline": run_settings.llm_knowledge_pipeline.value,
         "pipeline_id": pipeline_id,
-        "input_mode": "stage7_candidate_nonrecipe_spans",
+        "input_mode": "nonrecipe_candidate_spans",
         "authority_mode": authority_mode,
         "scored_effect": "route_only",
         "output_schema_path": output_schema_path,
@@ -73,12 +73,12 @@ def _build_noop_knowledge_llm_report(
         },
         "timing": {"total_seconds": 0.0},
         "paths": {
-            "nonrecipe_seed_routing_path": str(
-                run_root / NONRECIPE_SEED_ROUTING_FILE_NAME
+            "nonrecipe_route_path": str(
+                run_root / NONRECIPE_ROUTE_FILE_NAME
             ),
             "nonrecipe_authority_path": str(run_root / NONRECIPE_AUTHORITY_FILE_NAME),
-            "nonrecipe_candidate_status_path": str(
-                run_root / NONRECIPE_CANDIDATE_STATUS_FILE_NAME
+            "nonrecipe_finalize_status_path": str(
+                run_root / NONRECIPE_FINALIZE_STATUS_FILE_NAME
             ),
             "knowledge_in_dir": str(knowledge_in_dir),
             "knowledge_phase_dir": str(knowledge_stage_dir),
@@ -118,7 +118,7 @@ def _build_noop_knowledge_llm_report(
         "candidate_status": "complete",
         "stage_status": stage_status,
         "phase_worker_runtime": {
-            "phase_key": "nonrecipe_knowledge_review",
+            "phase_key": "nonrecipe_finalize",
             "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
             "worker_count": 0,
             "shard_count": 0,
@@ -147,7 +147,7 @@ def _build_runtime_failed_knowledge_llm_report(
         "enabled": True,
         "pipeline": run_settings.llm_knowledge_pipeline.value,
         "pipeline_id": pipeline_id,
-        "input_mode": "stage7_candidate_nonrecipe_spans",
+        "input_mode": "nonrecipe_candidate_spans",
         "authority_mode": "knowledge_not_run_runtime_failed",
         "scored_effect": "route_only",
         "output_schema_path": output_schema_path,
@@ -185,12 +185,12 @@ def _build_runtime_failed_knowledge_llm_report(
         },
         "timing": {"total_seconds": elapsed_seconds},
         "paths": {
-            "nonrecipe_seed_routing_path": str(
-                run_root / NONRECIPE_SEED_ROUTING_FILE_NAME
+            "nonrecipe_route_path": str(
+                run_root / NONRECIPE_ROUTE_FILE_NAME
             ),
             "nonrecipe_authority_path": str(run_root / NONRECIPE_AUTHORITY_FILE_NAME),
-            "nonrecipe_candidate_status_path": str(
-                run_root / NONRECIPE_CANDIDATE_STATUS_FILE_NAME
+            "nonrecipe_finalize_status_path": str(
+                run_root / NONRECIPE_FINALIZE_STATUS_FILE_NAME
             ),
             "knowledge_in_dir": str(knowledge_in_dir),
             "knowledge_phase_dir": str(knowledge_stage_dir),
@@ -225,7 +225,7 @@ def _build_runtime_failed_knowledge_llm_report(
         "stage_status": "runtime_failed",
         "error": error,
         "phase_worker_runtime": {
-            "phase_key": "nonrecipe_knowledge_review",
+            "phase_key": "nonrecipe_finalize",
             "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
             "worker_count": 0,
             "shard_count": int(build_report.shards_written),

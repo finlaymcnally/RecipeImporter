@@ -39,11 +39,13 @@ from cookimport.runs import (
     write_stage_observability_report,
 )
 from cookimport.staging.import_session import execute_stage_import_session_from_result
-from cookimport.staging.writer import (
+from cookimport.staging.output_names import (
     NONRECIPE_AUTHORITY_FILE_NAME,
-    NONRECIPE_CANDIDATE_STATUS_FILE_NAME,
     NONRECIPE_EXCLUSIONS_FILE_NAME,
-    NONRECIPE_SEED_ROUTING_FILE_NAME,
+    NONRECIPE_FINALIZE_STATUS_FILE_NAME,
+    NONRECIPE_ROUTE_FILE_NAME,
+)
+from cookimport.staging.writer import (
     OutputStats,
     write_report,
 )
@@ -144,18 +146,18 @@ def _write_stage_run_manifest(
     if report_paths:
         artifacts["reports"] = [path.name for path in report_paths]
     for path_name, artifact_key in (
-        (NONRECIPE_SEED_ROUTING_FILE_NAME, "nonrecipe_seed_routing_json"),
+        (NONRECIPE_ROUTE_FILE_NAME, "nonrecipe_route_json"),
         (NONRECIPE_EXCLUSIONS_FILE_NAME, "nonrecipe_exclusions_jsonl"),
         (NONRECIPE_AUTHORITY_FILE_NAME, "nonrecipe_authority_json"),
-        (NONRECIPE_CANDIDATE_STATUS_FILE_NAME, "nonrecipe_candidate_status_json"),
+        (NONRECIPE_FINALIZE_STATUS_FILE_NAME, "nonrecipe_finalize_status_json"),
     ):
         target = run_root / path_name
         if target.exists():
             artifacts[artifact_key] = path_name
     for path_key, artifact_key in (
-        ("label_det", "label_det_dir"),
-        ("label_llm_correct", "label_llm_correct_dir"),
-        ("group_recipe_spans", "group_recipe_spans_dir"),
+        ("label_deterministic", "label_deterministic_dir"),
+        ("label_refine", "label_refine_dir"),
+        ("recipe_boundary", "recipe_boundary_dir"),
         ("intermediate drafts", "intermediate_drafts_dir"),
         ("final drafts", "final_drafts_dir"),
         ("chunks", "chunks_dir"),

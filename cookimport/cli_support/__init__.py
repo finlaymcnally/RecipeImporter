@@ -206,7 +206,7 @@ from cookimport.labelstudio.prelabel import (
     normalize_codex_reasoning_effort,
     normalize_prelabel_granularity,
 )
-from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_nonrecipe_knowledge_review
+from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_nonrecipe_finalize
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.llm.prompt_budget import (
@@ -247,9 +247,9 @@ from cookimport.staging.job_planning import (
 )
 from cookimport.staging.writer import (
     NONRECIPE_AUTHORITY_FILE_NAME,
-    NONRECIPE_CANDIDATE_STATUS_FILE_NAME,
+    NONRECIPE_FINALIZE_STATUS_FILE_NAME,
     NONRECIPE_EXCLUSIONS_FILE_NAME,
-    NONRECIPE_SEED_ROUTING_FILE_NAME,
+    NONRECIPE_ROUTE_FILE_NAME,
     OutputStats,
     write_chunk_outputs,
     write_draft_outputs,

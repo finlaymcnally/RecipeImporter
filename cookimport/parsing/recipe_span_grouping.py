@@ -31,7 +31,7 @@ _BRIDGEABLE_RECIPE_STRUCTURE_LABELS = _RECIPE_LOCAL_LABELS - _TITLE_LIKE_LABELS
 _NONRECIPE_GAP_LABELS = {"NONRECIPE_CANDIDATE"}
 
 
-def group_recipe_spans_from_labels(
+def recipe_boundary_from_labels(
     block_labels: Sequence[AuthoritativeBlockLabel],
     labeled_lines: Sequence[AuthoritativeLabeledLine],
 ) -> tuple[list[RecipeSpan], list[RecipeSpanDecision], list[AuthoritativeBlockLabel]]:

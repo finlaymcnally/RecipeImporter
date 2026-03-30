@@ -1438,9 +1438,9 @@ def _build_single_correction_manifest(
             final_assembly_status=state.final_assembly_status,
         )
         row = {
-            "build_intermediate_det": "ok",
-            "recipe_llm_correct_and_link": state.single_correction_status,
-            "build_final_recipe": state.final_assembly_status,
+            "recipe_build_intermediate": "ok",
+            "recipe_refine": state.single_correction_status,
+            "recipe_build_final": state.final_assembly_status,
             "final_recipe_authority_status": final_recipe_authority_status,
             "final_recipe_authority_reason": final_recipe_authority_reason,
             "warnings": list(state.warnings),
@@ -1474,7 +1474,7 @@ def _build_single_correction_manifest(
         "codex_farm_workspace_root": run_settings.codex_farm_workspace_root,
         "counts": {
             "recipes_total": len(states),
-            "build_intermediate_det_ok": len(states),
+            "recipe_build_intermediate_ok": len(states),
             "recipe_shards_total": len(recipe_shards),
             "recipe_workers_total": int(
                 (phase_runtime_summary or {}).get("worker_count") or 0
@@ -1505,17 +1505,17 @@ def _build_single_correction_manifest(
             "recipe_correction_not_a_recipe": sum(
                 1 for state in states if state.correction_output_status == "not_a_recipe"
             ),
-            "build_final_recipe_ok": sum(
+            "recipe_build_final_ok": sum(
                 1
                 for state in states
                 if state.final_assembly_status == "ok"
             ),
-            "build_final_recipe_error": sum(
+            "recipe_build_final_error": sum(
                 1
                 for state in states
                 if state.final_assembly_status == "error"
             ),
-            "build_final_recipe_skipped": sum(
+            "recipe_build_final_skipped": sum(
                 1 for state in states if state.final_assembly_status == "skipped"
             ),
             "final_recipe_authority_promoted": sum(
@@ -3145,7 +3145,6 @@ def _run_direct_recipe_worker_assignment_v1(
 ) -> _DirectRecipeWorkerResult:
     worker_root = Path(assignment.workspace_root)
     runner_env = dict(env)
-    runner_env.setdefault("CODEX_HOME", str(run_root / ".codex-recipe"))
     in_dir = worker_root / "in"
     hints_dir = worker_root / "hints"
     shard_dir = worker_root / "shards"
@@ -3712,7 +3711,7 @@ def _run_single_correction_recipe_pipeline(
     phase_runtime_summary: dict[str, Any] = {}
     if recipe_shards:
         phase_manifest, worker_reports = _run_direct_recipe_workers_v1(
-            phase_key="recipe_llm_correct_and_link",
+            phase_key="recipe_refine",
             pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID,
             run_root=phase_runtime_dir,
             shards=[
@@ -4054,13 +4053,13 @@ def _build_single_correction_execution_plan(
                 "bundle_name": state.bundle_name,
                 "shard_id": shard_ids_by_recipe_id.get(state.recipe_id),
                 "planned_stages": [
-                    {"stage_key": "build_intermediate_det", "kind": "deterministic"},
+                    {"stage_key": "recipe_build_intermediate", "kind": "deterministic"},
                     {
-                        "stage_key": "recipe_llm_correct_and_link",
+                        "stage_key": "recipe_refine",
                         "kind": "llm",
                         "pipeline_id": SINGLE_CORRECTION_STAGE_PIPELINE_ID,
                     },
-                    {"stage_key": "build_final_recipe", "kind": "deterministic"},
+                    {"stage_key": "recipe_build_final", "kind": "deterministic"},
                 ],
             }
         )

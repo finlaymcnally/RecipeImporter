@@ -323,7 +323,7 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     assert manifest["counts"]["recipe_shards_total"] == 2
     assert manifest["counts"]["recipe_workers_total"] == 1
     assert manifest["counts"]["recipe_correction_ok"] == 3
-    assert manifest["counts"]["build_final_recipe_ok"] == 3
+    assert manifest["counts"]["recipe_build_final_ok"] == 3
     assert manifest["process_runs"]["recipe_correction"]["runtime_mode"] == "direct_codex_exec_v1"
 
     assert phase_manifest["worker_count"] == 1
@@ -622,6 +622,44 @@ def test_recipe_phase_runtime_forwards_structured_progress(
         (payload.get("artifact_counts") or {}).get("repair_attempted") is not None
         for payload in payloads
     )
+
+
+def test_recipe_phase_runtime_uses_configured_codex_home_for_sterile_exec_workspace(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    codex_home = tmp_path / "codex-home"
+    monkeypatch.setenv("COOKIMPORT_CODEX_FARM_CODEX_HOME", str(codex_home))
+    monkeypatch.setenv("CODEX_FARM_CODEX_HOME_RECIPE", str(codex_home))
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    settings = RunSettings.model_validate(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(tmp_path / "pack"),
+            "recipe_prompt_target_count": 2,
+            "recipe_worker_count": 1,
+        }
+    )
+    for name in ("pipelines", "prompts", "schemas"):
+        (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
+
+    runner = FakeCodexExecRunner(output_builder=_build_recipe_shard_output)
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=_build_multi_recipe_conversion_result(source),
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert len(runner.calls) == 1
+    expected_prefix = str(codex_home / "recipeimport-direct-exec-workspaces")
+    assert str(runner.calls[0]["execution_working_dir"]).startswith(expected_prefix)
+    assert not (apply_result.llm_raw_dir / "recipe_phase_runtime" / ".codex-recipe").exists()
 
 
 def test_recipe_prompt_target_count_balances_multi_recipe_shards(

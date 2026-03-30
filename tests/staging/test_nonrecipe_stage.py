@@ -130,16 +130,16 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
         (tmp_path / "09_nonrecipe_authority.json").read_text(encoding="utf-8")
     )
 
-    assert nonrecipe_payload["schema_version"] == "nonrecipe_seed_routing.v2"
+    assert nonrecipe_payload["schema_version"] == "nonrecipe_route.v1"
     assert nonrecipe_payload["counts"]["candidate_blocks"] == 1
     assert nonrecipe_payload["counts"]["excluded_blocks"] == 1
     assert nonrecipe_payload["candidate_block_ids"] == ["b1"]
     assert nonrecipe_payload["excluded_block_ids"] == ["b0"]
-    assert authority_payload["schema_version"] == "nonrecipe_authority.v2"
+    assert authority_payload["schema_version"] == "nonrecipe_authority.v1"
     assert authority_payload["counts"]["final_authority_blocks"] == 1
     assert authority_payload["authoritative_block_category_by_index"] == {"0": "other"}
     assert candidate_status_payload["pipeline"] == "off"
-    assert candidate_status_payload["schema_version"] == "nonrecipe_candidate_status.v1"
+    assert candidate_status_payload["schema_version"] == "nonrecipe_finalize_status.v1"
     assert candidate_status_payload["candidate_status"] == "not_run"
     assert candidate_status_payload["counts"]["snippets_written"] == 0
     assert candidate_status_payload["counts"]["final_authority_blocks"] == 1
@@ -219,7 +219,7 @@ def test_nonrecipe_stage_writes_exclusion_ledger(tmp_path: Path) -> None:
     write_nonrecipe_stage_outputs(stage_result, tmp_path)
 
     payload = json.loads(
-        (tmp_path / "08_nonrecipe_seed_routing.json").read_text(encoding="utf-8")
+        (tmp_path / "08_nonrecipe_route.json").read_text(encoding="utf-8")
     )
     ledger_rows = [
         json.loads(line)
@@ -306,7 +306,7 @@ def test_nonrecipe_late_output_rows_use_candidate_queue_before_review() -> None:
     )
 
     assert [row["index"] for row in rows] == [1]
-    assert rows[0]["stage7_category"] == "candidate"
+    assert rows[0]["nonrecipe_final_category"] == "candidate"
 
 
 def test_nonrecipe_authority_contract_uses_candidate_queue_before_review() -> None:

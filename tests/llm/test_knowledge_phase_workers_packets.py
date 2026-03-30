@@ -63,7 +63,7 @@ def test_knowledge_phase_workers_reject_off_surface_group_outputs(tmp_path: Path
     )
 
     manifest, reports = run_phase_workers_v1(
-        phase_key="nonrecipe_knowledge_review",
+        phase_key="nonrecipe_finalize",
         pipeline_id="recipe.knowledge.packet.v1",
         run_root=runtime_root,
         shards=[
@@ -113,7 +113,7 @@ def test_knowledge_phase_workers_accept_valid_shard_outputs(tmp_path: Path) -> N
     runner = FakeCodexFarmRunner()
 
     manifest, reports = run_phase_workers_v1(
-        phase_key="nonrecipe_knowledge_review",
+        phase_key="nonrecipe_finalize",
         pipeline_id="recipe.knowledge.packet.v1",
         run_root=runtime_root,
         shards=[

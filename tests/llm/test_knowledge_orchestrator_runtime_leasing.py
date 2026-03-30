@@ -7,7 +7,7 @@ import pytest
 
 from cookimport.llm.codex_exec_runner import CodexExecRunResult, FakeCodexExecRunner
 from cookimport.llm.codex_farm_knowledge_orchestrator import (
-    run_codex_farm_nonrecipe_knowledge_review,
+    run_codex_farm_nonrecipe_finalize,
 )
 from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output
 from cookimport.runs.stage_observability import summarize_knowledge_stage_artifacts
@@ -34,7 +34,7 @@ def _run_runtime_phase(
         worker_count=1,
         knowledge_prompt_target_count=2,
     )
-    apply_result = run_codex_farm_nonrecipe_knowledge_review(
+    apply_result = run_codex_farm_nonrecipe_finalize(
         conversion_result=make_runtime_conversion_result(
             ["Knowledge zero.", "Recipe gap.", "Knowledge two."]
         ),
@@ -48,7 +48,7 @@ def _run_runtime_phase(
         runner=runner,
     )
 
-    phase_dir = run_root / "raw" / "llm" / "book" / "knowledge"
+    phase_dir = run_root / "raw" / "llm" / "book" / "nonrecipe_finalize"
     worker_root = phase_dir / "workers" / "worker-001"
     return {
         "runner": runner,

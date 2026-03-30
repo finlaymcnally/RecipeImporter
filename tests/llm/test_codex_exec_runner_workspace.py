@@ -761,6 +761,129 @@ def test_subprocess_runner_uses_sterile_execution_workspace(
     assert result.execution_agents_path == str(cwd / "AGENTS.md")
 
 
+def test_workspace_worker_uses_configured_codex_home_even_under_output_run_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    codex_home = tmp_path / "configured-codex-home"
+    monkeypatch.setenv("COOKIMPORT_CODEX_FARM_CODEX_HOME", str(codex_home))
+    monkeypatch.setenv("CODEX_FARM_CODEX_HOME_RECIPE", str(codex_home))
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    source_root = (
+        tmp_path
+        / "data"
+        / "output"
+        / "2026-03-30_10.55.05"
+        / "raw"
+        / "llm"
+        / "book"
+        / "recipe_phase_runtime"
+        / "workers"
+        / "worker-001"
+    )
+    (source_root / "in").mkdir(parents=True, exist_ok=True)
+    (source_root / "assigned_shards.json").write_text(
+        json.dumps([{"shard_id": "shard-001"}]),
+        encoding="utf-8",
+    )
+    (source_root / "in" / "shard-001.json").write_text(
+        json.dumps({"shard_id": "shard-001"}),
+        encoding="utf-8",
+    )
+
+    captured: dict[str, object] = {}
+
+    class _FakeStdin:
+        def write(self, text: str) -> int:
+            captured["input"] = text
+            return len(text)
+
+        def close(self) -> None:
+            return None
+
+    class _Stream:
+        def __init__(self, lines: list[str]) -> None:
+            self._lines = list(lines)
+
+        def readline(self) -> str:
+            if self._lines:
+                return self._lines.pop(0)
+            return ""
+
+        def close(self) -> None:
+            return None
+
+    class _FakeProcess:
+        def __init__(self, command, _fake_stdin_cls=_FakeStdin, **kwargs):  # noqa: ANN001
+            captured["command"] = list(command)
+            captured["cwd"] = kwargs.get("cwd")
+            captured["env"] = dict(kwargs.get("env") or {})
+            self.stdin = _fake_stdin_cls()
+            self.stdout = _Stream(
+                [
+                    json.dumps({"type": "thread.started"}) + "\n",
+                    json.dumps(
+                        {
+                            "type": "item.completed",
+                            "item": {
+                                "type": "agent_message",
+                                "text": "Completed local workspace task.",
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps(
+                        {
+                            "type": "turn.completed",
+                            "usage": {
+                                "input_tokens": 100,
+                                "cached_input_tokens": 10,
+                                "output_tokens": 20,
+                                "reasoning_tokens": 0,
+                            },
+                        }
+                    )
+                    + "\n",
+                ]
+            )
+            self.stderr = _Stream([])
+            self.returncode = 0
+
+        def poll(self) -> int:
+            return self.returncode
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_exec_runner.subprocess.Popen",
+        _FakeProcess,
+    )
+
+    runner = SubprocessCodexExecRunner(cmd="codex exec")
+    result = runner.run_workspace_worker(
+        prompt_text="Process local worker files and write outputs under out/.",
+        working_dir=source_root,
+        env={},
+        workspace_task_label="recipe correction worker session",
+    )
+
+    cwd = Path(str(captured["cwd"]))
+    env = dict(captured["env"] or {})
+    expected_prefix = codex_home / "recipeimport-direct-exec-workspaces"
+
+    assert str(cwd).startswith(str(expected_prefix))
+    assert str(cwd).startswith(str(source_root.parent.parent.parent)) is False
+    assert env["CODEX_HOME"] == str(codex_home)
+    assert env["CODEX_FARM_CODEX_HOME_RECIPE"] == str(codex_home)
+    assert result.execution_working_dir == str(cwd)
+    assert result.source_working_dir == str(source_root)
+
+
 def test_subprocess_runner_can_terminate_from_streamed_watchdog_snapshot(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

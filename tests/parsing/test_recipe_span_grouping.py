@@ -4,10 +4,10 @@ from cookimport.parsing.label_source_of_truth import (
     AuthoritativeBlockLabel,
     AuthoritativeLabeledLine,
 )
-from cookimport.parsing.recipe_span_grouping import group_recipe_spans_from_labels
+from cookimport.parsing.recipe_span_grouping import recipe_boundary_from_labels
 
 
-def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> None:
+def test_recipe_boundary_from_labels_splits_on_non_recipe_boundaries() -> None:
     labeled_lines = [
         AuthoritativeLabeledLine(
             source_block_id="block:0",
@@ -106,7 +106,7 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
         ),
     ]
 
-    spans, span_decisions, normalized_blocks = group_recipe_spans_from_labels(
+    spans, span_decisions, normalized_blocks = recipe_boundary_from_labels(
         block_labels,
         labeled_lines,
     )
@@ -124,7 +124,7 @@ def test_group_recipe_spans_from_labels_splits_on_non_recipe_boundaries() -> Non
     assert spans[1].title_block_index == 4
 
 
-def test_group_recipe_spans_from_labels_rejects_recipeish_blocks_without_title() -> None:
+def test_recipe_boundary_from_labels_rejects_recipeish_blocks_without_title() -> None:
     labeled_lines = [
         AuthoritativeLabeledLine(
             source_block_id="block:0",
@@ -164,7 +164,7 @@ def test_group_recipe_spans_from_labels_rejects_recipeish_blocks_without_title()
         ),
     ]
 
-    spans, span_decisions, _normalized_blocks = group_recipe_spans_from_labels(
+    spans, span_decisions, _normalized_blocks = recipe_boundary_from_labels(
         block_labels,
         labeled_lines,
     )
@@ -178,7 +178,7 @@ def test_group_recipe_spans_from_labels_rejects_recipeish_blocks_without_title()
     assert "span_missing_title_block" in span_decisions[0].decision_notes
 
 
-def test_group_recipe_spans_from_labels_rejects_title_only_note_span_without_body() -> None:
+def test_recipe_boundary_from_labels_rejects_title_only_note_span_without_body() -> None:
     labeled_lines = [
         AuthoritativeLabeledLine(
             source_block_id="block:0",
@@ -218,7 +218,7 @@ def test_group_recipe_spans_from_labels_rejects_title_only_note_span_without_bod
         ),
     ]
 
-    spans, span_decisions, _normalized_blocks = group_recipe_spans_from_labels(
+    spans, span_decisions, _normalized_blocks = recipe_boundary_from_labels(
         block_labels,
         labeled_lines,
     )
@@ -232,7 +232,7 @@ def test_group_recipe_spans_from_labels_rejects_title_only_note_span_without_bod
     assert "span_missing_recipe_body" in span_decisions[0].decision_notes
 
 
-def test_group_recipe_spans_from_labels_routes_rejected_title_only_blocks_to_nonrecipe() -> None:
+def test_recipe_boundary_from_labels_routes_rejected_title_only_blocks_to_nonrecipe() -> None:
     labeled_lines = [
         AuthoritativeLabeledLine(
             source_block_id="block:40",
@@ -257,7 +257,7 @@ def test_group_recipe_spans_from_labels_routes_rejected_title_only_blocks_to_non
         ),
     ]
 
-    spans, span_decisions, normalized_blocks = group_recipe_spans_from_labels(
+    spans, span_decisions, normalized_blocks = recipe_boundary_from_labels(
         block_labels,
         labeled_lines,
     )
@@ -271,7 +271,7 @@ def test_group_recipe_spans_from_labels_routes_rejected_title_only_blocks_to_non
     assert "recipe_span_rejected_to_route" in normalized_blocks[0].reason_tags
 
 
-def test_group_recipe_spans_from_labels_accepts_title_plus_yield_stub() -> None:
+def test_recipe_boundary_from_labels_accepts_title_plus_yield_stub() -> None:
     labeled_lines = [
         AuthoritativeLabeledLine(
             source_block_id="block:0",
@@ -311,7 +311,7 @@ def test_group_recipe_spans_from_labels_accepts_title_plus_yield_stub() -> None:
         ),
     ]
 
-    spans, span_decisions, _normalized_blocks = group_recipe_spans_from_labels(
+    spans, span_decisions, _normalized_blocks = recipe_boundary_from_labels(
         block_labels,
         labeled_lines,
     )
@@ -322,7 +322,7 @@ def test_group_recipe_spans_from_labels_accepts_title_plus_yield_stub() -> None:
     assert span_decisions[0].rejection_reason is None
 
 
-def test_group_recipe_spans_from_labels_keeps_anchored_recipe_through_single_nonrecipe_candidate_gap() -> None:
+def test_recipe_boundary_from_labels_keeps_anchored_recipe_through_single_nonrecipe_candidate_gap() -> None:
     labeled_lines = [
         AuthoritativeLabeledLine(
             source_block_id="block:0",
@@ -430,7 +430,7 @@ def test_group_recipe_spans_from_labels_keeps_anchored_recipe_through_single_non
         ),
     ]
 
-    spans, span_decisions, _normalized_blocks = group_recipe_spans_from_labels(
+    spans, span_decisions, _normalized_blocks = recipe_boundary_from_labels(
         block_labels,
         labeled_lines,
     )

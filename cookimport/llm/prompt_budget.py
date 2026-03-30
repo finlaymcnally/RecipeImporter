@@ -9,6 +9,7 @@ import tiktoken
 
 from cookimport.llm.codex_exec_runner import summarize_direct_telemetry_rows
 from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output
+from cookimport.runs.stage_names import canonical_stage_key, stage_label
 from cookimport.runs.stage_observability import (
     build_knowledge_stage_summary,
     build_line_role_stage_summary as build_stage_observability_line_role_summary,
@@ -55,9 +56,9 @@ _EXECUTION_MODE_COUNT_KEYS = (
 )
 
 _PREVIEW_STAGE_LABELS = {
-    "recipe_llm_correct_and_link": "Recipe Correction",
-    "nonrecipe_knowledge_review": "Non-Recipe Knowledge Review",
-    "line_role": "Line Role",
+    "recipe_refine": stage_label("recipe_refine"),
+    "nonrecipe_finalize": stage_label("nonrecipe_finalize"),
+    "line_role": stage_label("line_role"),
 }
 
 _SURFACE_CONFIG_BY_KEY = {
@@ -89,19 +90,20 @@ def build_prediction_run_prompt_budget_summary(
             for stage_name, stage_payload in sorted(process_runs.items()):
                 if not isinstance(stage_payload, Mapping):
                     continue
+                canonical_name = canonical_stage_key(str(stage_name))
                 stage_summary = _build_codex_farm_stage_summary(
-                    stage_name=str(stage_name),
+                    stage_name=canonical_name,
                     stage_payload=stage_payload,
                 )
                 if stage_summary is not None:
-                    by_stage[str(stage_name)] = stage_summary
-        if "recipe_correction" not in by_stage:
+                    by_stage[canonical_name] = stage_summary
+        if "recipe_refine" not in by_stage:
             recipe_summary = _build_codex_farm_stage_summary(
                 stage_name="recipe_correction",
                 stage_payload=llm_payload,
             )
             if recipe_summary is not None:
-                by_stage["recipe_correction"] = recipe_summary
+                by_stage["recipe_refine"] = recipe_summary
         knowledge_payload = llm_payload.get("knowledge")
         if isinstance(knowledge_payload, Mapping):
             knowledge_summary = _build_codex_farm_stage_summary(
@@ -115,7 +117,7 @@ def build_prediction_run_prompt_budget_summary(
                     knowledge_summary["authority_mode"] = authority_mode
                 if scored_effect:
                     knowledge_summary["scored_effect"] = scored_effect
-                by_stage["knowledge"] = knowledge_summary
+                by_stage["nonrecipe_finalize"] = knowledge_summary
 
     line_role_summary = _build_line_role_stage_summary(
         pred_manifest=pred_manifest,
@@ -708,12 +710,12 @@ def _build_codex_farm_stage_summary(
                 *stage_summary["pathological_flags"],
                 "token_usage_incomplete",
             ]
-    if stage_name in {"knowledge", "nonrecipe_knowledge_review"}:
+    if stage_name in {"knowledge", "nonrecipe_finalize"}:
         _attach_knowledge_stage_observability(
             stage_summary=stage_summary,
             stage_payload=stage_payload,
         )
-    if stage_name in {"recipe", "recipe_correction", "recipe_llm_correct_and_link"}:
+    if stage_name in {"recipe", "recipe_correction", "recipe_refine"}:
         _attach_recipe_stage_observability(
             stage_summary=stage_summary,
             stage_payload=stage_payload,
@@ -1281,9 +1283,9 @@ def _prediction_run_config(pred_manifest: Mapping[str, Any]) -> Mapping[str, Any
 
 def _surface_key_for_stage(stage_key: str) -> str | None:
     normalized = str(stage_key or "").strip()
-    if normalized in {"recipe_correction", "recipe_llm_correct_and_link"}:
+    if normalized in {"recipe_correction", "recipe_refine"}:
         return "recipe"
-    if normalized in {"knowledge", "nonrecipe_knowledge_review"}:
+    if normalized in {"knowledge", "nonrecipe_finalize"}:
         return "knowledge"
     if normalized == "line_role" or normalized.startswith("line_role_"):
         return "line_role"
@@ -1359,7 +1361,7 @@ def _extract_stage_shard_status_counts(
     *,
     stage_name: str,
 ) -> dict[str, int | None]:
-    is_knowledge_stage = stage_name in {"knowledge", "nonrecipe_knowledge_review"}
+    is_knowledge_stage = stage_name in {"knowledge", "nonrecipe_finalize"}
     candidates = (
         (),
         ("counts",),
@@ -2201,7 +2203,7 @@ def _build_prompt_preview_budget_warnings(
             }
         )
 
-    recipe_stage = by_stage.get("recipe_llm_correct_and_link")
+    recipe_stage = by_stage.get("recipe_refine")
     if isinstance(recipe_stage, Mapping):
         recipe_calls = _nonnegative_int(recipe_stage.get("call_count")) or 0
         recipe_chars = _nonnegative_int(recipe_stage.get("prompt_chars_total")) or 0
@@ -2217,7 +2219,7 @@ def _build_prompt_preview_budget_warnings(
             }
         )
 
-    knowledge_stage = by_stage.get("nonrecipe_knowledge_review")
+    knowledge_stage = by_stage.get("nonrecipe_finalize")
     if isinstance(knowledge_stage, Mapping):
         knowledge_calls = _nonnegative_int(knowledge_stage.get("call_count")) or 0
         if knowledge_calls >= 40:

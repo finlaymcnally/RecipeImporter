@@ -26,7 +26,7 @@ from .nonrecipe_authority_contract import (
     NonRecipeSpan,
     NonRecipeStageResult,
 )
-from .nonrecipe_review_status import build_nonrecipe_candidate_status_result
+from .nonrecipe_review_status import build_nonrecipe_finalize_status_result
 from .nonrecipe_routing import build_nonrecipe_routing_result
 from .nonrecipe_seed import (
     count_nonrecipe_reason_values,
@@ -48,7 +48,7 @@ def _default_nonrecipe_refinement_report(
     return {
         "enabled": False,
         "authority_mode": "deterministic_route_only",
-        "input_mode": "stage7_candidate_nonrecipe_spans",
+        "input_mode": "nonrecipe_candidate_spans",
         "seed_nonrecipe_span_count": len(seed.seed_nonrecipe_spans),
         "final_nonrecipe_span_count": len(authority.authoritative_nonrecipe_spans),
         "changed_block_count": 0,
@@ -144,7 +144,7 @@ def build_nonrecipe_stage_result(
         },
         authoritative_block_indices=routing.excluded_block_indices,
     )
-    candidate_status = build_nonrecipe_candidate_status_result(
+    candidate_status = build_nonrecipe_finalize_status_result(
         full_blocks_by_index=full_blocks_by_index,
         candidate_block_indices=routing.candidate_block_indices,
         authoritative_block_indices=authority.authoritative_block_indices,
@@ -187,7 +187,7 @@ def refine_nonrecipe_stage_result(
     reviewed_block_indices: set[int] = set()
 
     for block_index, raw_category in sorted(block_category_updates.items()):
-        normalized_category, warning = _normalize_stage7_category(str(raw_category))
+        normalized_category, warning = _normalize_nonrecipe_final_category(str(raw_category))
         reviewer_category = str(
             (reviewer_categories_by_block or {}).get(block_index) or ""
         ).strip() or None
@@ -223,7 +223,7 @@ def refine_nonrecipe_stage_result(
         block_category_by_index=final_block_category_by_index,
         authoritative_block_indices=sorted(final_block_category_by_index),
     )
-    candidate_status = build_nonrecipe_candidate_status_result(
+    candidate_status = build_nonrecipe_finalize_status_result(
         full_blocks_by_index=full_blocks_by_index,
         candidate_block_indices=stage_result.routing.candidate_block_indices,
         authoritative_block_indices=authority.authoritative_block_indices,
@@ -255,7 +255,7 @@ def refine_nonrecipe_stage_result(
                 if changed_blocks
                 else "knowledge_finalized_candidates"
             ),
-            "input_mode": "stage7_candidate_nonrecipe_spans",
+            "input_mode": "nonrecipe_candidate_spans",
             "seed_nonrecipe_span_count": len(stage_result.seed.seed_nonrecipe_spans),
             "final_nonrecipe_span_count": len(authority.authoritative_nonrecipe_spans),
             "final_knowledge_span_count": len(authority.authoritative_knowledge_spans),
@@ -280,7 +280,7 @@ def refine_nonrecipe_stage_result(
     )
 
 
-def _normalize_stage7_category(raw_label: str | None) -> tuple[str, str | None]:
+def _normalize_nonrecipe_final_category(raw_label: str | None) -> tuple[str, str | None]:
     try:
         return require_nonrecipe_final_category(raw_label, block_index=-1), None
     except ValueError as exc:

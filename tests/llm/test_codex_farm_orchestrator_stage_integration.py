@@ -106,4 +106,4 @@ def test_orchestrator_accepts_full_text_lines_when_blocks_missing(tmp_path: Path
     )
     assert manifest["counts"]["recipe_shards_total"] == 1
     assert manifest["counts"]["recipe_correction_ok"] == 1
-    assert manifest["counts"]["build_final_recipe_ok"] == 1
+    assert manifest["counts"]["recipe_build_final_ok"] == 1

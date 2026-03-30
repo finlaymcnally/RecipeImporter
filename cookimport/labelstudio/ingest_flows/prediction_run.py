@@ -113,7 +113,7 @@ from cookimport.labelstudio.prelabel import (
     resolve_codex_model,
 )
 from cookimport.llm.codex_farm_knowledge_orchestrator import (
-    run_codex_farm_nonrecipe_knowledge_review,
+    run_codex_farm_nonrecipe_finalize,
 )
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
@@ -977,7 +977,7 @@ def generate_pred_run_artifacts(
     if processed_output_root is None and run_settings.llm_knowledge_pipeline.value != "off":
         _notify("Running codex-farm non-recipe knowledge review...")
         try:
-            knowledge_apply = run_codex_farm_nonrecipe_knowledge_review(
+            knowledge_apply = run_codex_farm_nonrecipe_finalize(
                 conversion_result=result,
                 nonrecipe_stage_result=(
                     nonrecipe_stage_result

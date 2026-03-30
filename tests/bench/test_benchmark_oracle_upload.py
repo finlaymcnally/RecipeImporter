@@ -176,7 +176,7 @@ def _write_profile_bundle_context(bundle_dir: Path) -> None:
             "call_inventory_runtime": {
                 "summary": {
                     "total_tokens": 33699633,
-                    "nonrecipe_knowledge_review_token_share": 0.8535,
+                    "nonrecipe_finalize_token_share": 0.8535,
                 }
             },
         }

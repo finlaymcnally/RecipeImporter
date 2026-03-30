@@ -92,7 +92,7 @@ The point is simple: every later stage reasons over the same internal coordinate
 
 This stage is label-first.
 
-It starts with `label_det`, which creates the deterministic line and block labels. That pass answers practical questions like:
+It starts with `label_deterministic`, which creates the deterministic line and block labels. That pass answers practical questions like:
 
 - is this line title-like
 - is this line an ingredient line
@@ -103,9 +103,9 @@ It starts with `label_det`, which creates the deterministic line and block label
 
 That deterministic pass still matters even when LLM stages are on. It gives the run a reproducible baseline and a clear artifact trail.
 
-If line-role Codex review is enabled, `label_llm_correct` reviews those labels through the worker-local `check-phase` / `install-phase` loop. The safety rule is now simple: same-session repair is the normal path, one bounded LLM watchdog retry is allowed if the worker session is killed for a retryable watchdog reason, and otherwise the shard fails closed with explicit repair artifacts. There is no hidden deterministic row fallback on the live worker path.
+If line-role Codex review is enabled, `label_refine` reviews those labels through the worker-local `check-phase` / `install-phase` loop. The safety rule is now simple: same-session repair is the normal path, one bounded LLM watchdog retry is allowed if the worker session is killed for a retryable watchdog reason, and otherwise the shard fails closed with explicit repair artifacts. There is no hidden deterministic row fallback on the live worker path.
 
-After labeling, `group_recipe_spans` groups the accepted recipe lines into candidate spans and decides which of those spans count as real recipes.
+After labeling, `recipe_boundary` groups the accepted recipe lines into candidate spans and decides which of those spans count as real recipes.
 
 An accepted recipe span now needs both:
 
@@ -216,10 +216,10 @@ This is the place where the system makes its final semantic claim about outside-
 
 In artifact terms:
 
-- `08_nonrecipe_seed_routing.json` is the deterministic routing view
+- `08_nonrecipe_route.json` is the deterministic routing view
 - `09_nonrecipe_authority.json` is the final machine-readable truth
 - `09_nonrecipe_knowledge_groups.json` records the promoted model-authored related-idea groups
-- `09_nonrecipe_review_status.json` explains what was reviewed, skipped, changed, or left unresolved
+- `09_nonrecipe_finalize_status.json` explains what was reviewed, skipped, changed, or left unresolved
 
 If reviewer-facing knowledge output is written, `knowledge.md` is the readable rendering of those promoted authority decisions and groups. Reviewer-facing snippet ledgers are no longer part of the live contract.
 

@@ -57,9 +57,9 @@ Architecture priorities:
 - `cookimport/staging/nonrecipe_stage.py` and `cookimport/staging/stage_block_predictions.py` are now thin public seams. The owned logic lives under `nonrecipe_authority_contract.py`, `nonrecipe_seed.py`, `nonrecipe_routing.py`, `nonrecipe_authority.py`, `nonrecipe_review_status.py`, `recipe_block_evidence.py`, `knowledge_block_evidence.py`, and `block_label_resolution.py`.
 - output-writing primitives live in `cookimport/staging/writer.py`.
 - recipe-ID reassignment logic lives in `cookimport/staging/pdf_jobs.py`.
-- stage import session now builds the label-first authority seam before drafting: `label_det`, optional `label_llm_correct`, and `group_recipe_spans` artifacts are written under the stage run root and drive downstream stage block predictions.
-- when label-first regrouping yields zero recipes, the run explains that outcome through `group_recipe_spans/<workbook_slug>/recipe_spans.json` and `span_decisions.json`; stage-backed flows no longer compare against importer recipe candidates.
-- The legacy Stage 7 non-recipe lane now runs through explicit `nonrecipe-route` and `knowledge-final` runtime results; `ConversionResult.non_recipe_blocks` is repopulated only from final non-recipe authority afterward as a downstream cache.
+- stage import session now builds the label-first authority seam before drafting: `label_deterministic`, optional `label_refine`, and `recipe_boundary` artifacts are written under the stage run root and drive downstream stage block predictions.
+- when label-first regrouping yields zero recipes, the run explains that outcome through `recipe_boundary/<workbook_slug>/recipe_spans.json` and `span_decisions.json`; stage-backed flows no longer compare against importer recipe candidates.
+- The legacy numbered non-recipe lane now runs through explicit `nonrecipe-route` and `knowledge-final` runtime results; `ConversionResult.non_recipe_blocks` is repopulated only from final non-recipe authority afterward as a downstream cache.
 
 ### Optional Label Studio lane
 - `cookimport/labelstudio/ingest_flows/prediction_run.py` and `cookimport/labelstudio/ingest_flows/upload.py` can:
@@ -75,7 +75,7 @@ Architecture priorities:
 
 - label-first grouped spans and normalized block labels are the recipe/non-recipe authority boundary for stage-backed flows.
 - `recipe-refine` may improve recipe content, but it may not change recipe ownership decided by `recipe-boundary`.
-- The legacy Stage 7 nickname now refers to the outside-recipe routing seam, not one mixed semantic classifier.
+- The legacy numbered nickname now refers to the outside-recipe routing seam, not one mixed semantic classifier.
 - `nonrecipe-route` only honors obvious-junk exclusions and packages surviving outside-recipe rows into one category-neutral candidate queue.
 - obvious-junk exclusions become final `other` immediately; `knowledge-final` is the only live semantic owner of candidate outside-recipe `knowledge` versus `other`.
 - scalar trust/confidence is no longer part of the label-first line-role contract.
@@ -90,16 +90,16 @@ Architecture priorities:
 - the active recipe Codex path now promotes one canonical recipe-semantics payload per accepted recipe span before draft writing. Repo code still validates, normalizes, and writes final files, but later staging code should project from `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json` instead of re-deciding recipe meaning from separate override lanes.
 - `cookimport/llm/codex_farm_orchestrator.py` is now a thin public facade over `cookimport/llm/recipe_stage/`. Planning, runtime/workspace setup, validation, promotion, and reporting now have explicit package owner files, while the large private implementation moved behind `cookimport/llm/recipe_stage_shared.py`.
 - current semantic recipe-stage observability for new runs uses:
-  - `build_intermediate_det`
-  - `recipe_llm_correct_and_link`
-  - `build_final_recipe`
+  - `recipe_build_intermediate`
+  - `recipe_refine`
+  - `recipe_build_final`
 
 ### March 2026 refactor phase map
 
 - Phase 1 established `stage_observability.json` as the one semantic stage index for new runs. Summaries, manifests, prompt exports, and reviewer tooling should read that contract instead of reconstructing stage truth from pass-slot names or raw folder guesses.
-- Phase 2 moved stage-backed flows to label-first authority. `label_det`, optional `label_llm_correct`, and `group_recipe_spans` are written before drafting, and rejected or empty recipe-boundary outcomes are explained directly through span artifacts instead of importer-comparison diagnostics.
+- Phase 2 moved stage-backed flows to label-first authority. `label_deterministic`, optional `label_refine`, and `recipe_boundary` are written before drafting, and rejected or empty recipe-boundary outcomes are explained directly through span artifacts instead of importer-comparison diagnostics.
 - Phase 3 collapsed the recipe LLM surface into deterministic build -> one correction/link stage -> deterministic final rebuild. The later shard-runtime cutover changed the execution plumbing and public pipeline id, but it did not change that authority shape.
-- Phase 4 split the old Stage 7 story into a routing seam plus a final-authority seam. The live run-level contract is now split across `08_nonrecipe_seed_routing.json`, `08_nonrecipe_exclusions.jsonl`, `09_nonrecipe_authority.json`, and `09_nonrecipe_candidate_status.json`, and optional knowledge extraction/refinement is scoped to the `nonrecipe-route` candidate queue instead of whole-residue mining.
+- Phase 4 split the old numbered non-recipe story into a routing seam plus a final-authority seam. The live run-level contract is now split across `08_nonrecipe_route.json`, `08_nonrecipe_exclusions.jsonl`, `09_nonrecipe_authority.json`, and `09_nonrecipe_finalize_status.json`, and optional knowledge extraction/refinement is scoped to the `nonrecipe-route` candidate queue instead of whole-residue mining.
 - These phases were destructive migrations, not dual-backbone rollouts. Historical ids and pass-slot names may still appear in logs, plans, or archived fixtures, but new writes should stay on semantic stage rows and current manifests only.
 
 ### Known current debt
@@ -198,11 +198,11 @@ For `cookimport stage`, each run uses a timestamped root:
 - `<out>/<timestamp>/chunks/<workbook_slug>/c{index}.json` (+ `chunks.md` when chunks exist and `--write-markdown`)
 - `<out>/<timestamp>/tables/<workbook_slug>/tables.jsonl` (+ `tables.md` when `--write-markdown`)
 - `<out>/<timestamp>/.bench/<workbook_slug>/stage_block_predictions.json`
-- `<out>/<timestamp>/08_nonrecipe_seed_routing.json`
+- `<out>/<timestamp>/08_nonrecipe_route.json`
 - `<out>/<timestamp>/08_nonrecipe_exclusions.jsonl`
 - `<out>/<timestamp>/09_nonrecipe_authority.json`
 - `<out>/<timestamp>/09_nonrecipe_knowledge_groups.json`
-- `<out>/<timestamp>/09_nonrecipe_candidate_status.json`
+- `<out>/<timestamp>/09_nonrecipe_finalize_status.json`
 - `<out>/<timestamp>/raw/<importer>/<source_hash>/<location_id>.<ext>`
 - `<out>/<timestamp>/raw/source/<workbook_slug>/source_blocks.jsonl`
 - `<out>/<timestamp>/raw/source/<workbook_slug>/source_support.json`
@@ -210,9 +210,9 @@ For `cookimport stage`, each run uses a timestamped root:
 - `<out>/<timestamp>/run_manifest.json`
 
 Optional stage lanes:
-- `<out>/<timestamp>/label_det/<workbook_slug>/...` for deterministic authoritative labeled-line and block-label artifacts
-- `<out>/<timestamp>/label_llm_correct/<workbook_slug>/...` for final corrected authoritative labels plus label diffs when line-role correction is enabled
-- `<out>/<timestamp>/group_recipe_spans/<workbook_slug>/...` for deterministic recipe-span grouping and normalized authoritative block-label outputs
+- `<out>/<timestamp>/label_deterministic/<workbook_slug>/...` for deterministic authoritative labeled-line and block-label artifacts
+- `<out>/<timestamp>/label_refine/<workbook_slug>/...` for final corrected authoritative labels plus label diffs when line-role correction is enabled
+- `<out>/<timestamp>/recipe_boundary/<workbook_slug>/...` for deterministic recipe-span grouping and normalized authoritative block-label outputs
 - `<out>/<timestamp>/knowledge/<workbook_slug>/...` and `<out>/<timestamp>/knowledge/knowledge_index.json` when knowledge-pass artifacts exist
 
 Important clarification:
@@ -356,10 +356,10 @@ Current architecture is still deterministic-first:
 When you need the shortest accurate mental model, describe the repo this way:
 
 - The current runtime is a label-first staging system, not an importer-candidates-first writer pipeline.
-- `cookimport/staging/import_session.py` writes authoritative label artifacts first (`label_det`, optional `label_llm_correct`, `group_recipe_spans`) and only then builds recipe drafts.
-- If authoritative regrouping finds zero recipes, inspect `group_recipe_spans/<workbook_slug>/recipe_spans.json` and `span_decisions.json`; those are the recipe-boundary explanation surfaces.
-- `09_nonrecipe_authority.json` is the machine-readable authority for outside-recipe `knowledge` vs `other`; `08_nonrecipe_seed_routing.json`, `08_nonrecipe_exclusions.jsonl`, and `09_nonrecipe_candidate_status.json` answer routing/debugging questions but are not truth surfaces.
-- Stage 7 now has an explicit routing-vs-final authority seam: deterministic labels can exclude obvious junk and package a candidate queue, optional knowledge harvest can merge block decisions into the final non-recipe authority, and scored benchmark artifacts should project that final authority rather than the provisional queue.
+- `cookimport/staging/import_session.py` writes authoritative label artifacts first (`label_deterministic`, optional `label_refine`, `recipe_boundary`) and only then builds recipe drafts.
+- If authoritative regrouping finds zero recipes, inspect `recipe_boundary/<workbook_slug>/recipe_spans.json` and `span_decisions.json`; those are the recipe-boundary explanation surfaces.
+- `09_nonrecipe_authority.json` is the machine-readable authority for outside-recipe `knowledge` vs `other`; `08_nonrecipe_route.json`, `08_nonrecipe_exclusions.jsonl`, and `09_nonrecipe_finalize_status.json` answer routing/debugging questions but are not truth surfaces.
+- The non-recipe route/finalize split now has an explicit routing-vs-final authority seam: deterministic labels can exclude obvious junk and package a candidate queue, optional knowledge harvest can merge block decisions into the final non-recipe authority, and scored benchmark artifacts should project that final authority rather than the provisional queue.
 - `stage_observability.json` is the run-level semantic stage index and should be the naming backbone for docs, prompt exports, and reviewer tooling.
 - Inline recipe tags are part of recipe correction plus deterministic normalization; there is no separate live tagging runtime package anymore.
 

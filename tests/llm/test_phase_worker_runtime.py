@@ -370,7 +370,7 @@ def test_phase_worker_runtime_emits_structured_progress_snapshots(tmp_path: Path
         return False, ("synthetic_rejection",), {}
 
     manifest, reports = run_phase_workers_v1(
-        phase_key="recipe_llm_correct_and_link",
+        phase_key="recipe_refine",
         pipeline_id="recipe.correction.compact.v1",
         run_root=tmp_path / "runtime",
         shards=[

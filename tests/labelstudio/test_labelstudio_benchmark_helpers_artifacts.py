@@ -146,7 +146,7 @@ def _build_codex_farm_prompt_log_fixture(tmp_path: Path) -> dict[str, object]:
     recipe_phase_runtime_dir = run_dir / "recipe_phase_runtime"
     correction_in = recipe_phase_runtime_dir / "inputs"
     correction_out = recipe_phase_runtime_dir / "proposals"
-    knowledge_in = run_dir / "knowledge" / "in"
+    knowledge_in = run_dir / "nonrecipe_finalize" / "in"
     knowledge_out = run_dir / "knowledge" / "out"
     tags_in = run_dir / "tags" / "in"
     tags_out = run_dir / "tags" / "out"
@@ -434,14 +434,14 @@ def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     assert log_path == eval_output_dir / "prompts" / "prompt_request_response_log.txt"
     assert log_path is not None and log_path.exists()
     combined = log_path.read_text(encoding="utf-8")
-    assert "INPUT recipe_llm_correct_and_link => r0000.json" in combined
-    recipe_path = eval_output_dir / "prompts" / "prompt_recipe_llm_correct_and_link.txt"
-    knowledge_path = eval_output_dir / "prompts" / "prompt_nonrecipe_knowledge_review.txt"
+    assert "INPUT recipe_refine => r0000.json" in combined
+    recipe_path = eval_output_dir / "prompts" / "prompt_recipe_refine.txt"
+    knowledge_path = eval_output_dir / "prompts" / "prompt_nonrecipe_finalize.txt"
     for category_path in (recipe_path, knowledge_path):
         assert category_path.exists()
 
     recipe_text = recipe_path.read_text(encoding="utf-8")
-    assert "ATTACHMENT recipe_llm_correct_and_link =>" in recipe_text
+    assert "ATTACHMENT recipe_refine =>" in recipe_text
     assert str(attached) in recipe_text
     assert "attachment content" in recipe_text
 
@@ -470,13 +470,13 @@ def test_build_codex_farm_prompt_response_log_backfills_full_prompt_rows_from_te
     ]
     assert len(full_prompt_rows) == 2
     assert {str(row.get("stage_key") or "") for row in full_prompt_rows} == {
-        "recipe_llm_correct_and_link",
-        "nonrecipe_knowledge_review",
+        "recipe_refine",
+        "nonrecipe_finalize",
     }
     correction_row = next(
         row
         for row in full_prompt_rows
-        if row.get("stage_key") == "recipe_llm_correct_and_link"
+        if row.get("stage_key") == "recipe_refine"
     )
     assert correction_row["call_id"] == "r0000"
     assert correction_row["request_messages"][0]["role"] == "user"
@@ -535,8 +535,8 @@ def test_build_codex_farm_prompt_response_log_exports_prompt_type_samples(
     )
     assert prompt_samples_path.exists()
     prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
-    assert "## recipe_llm_correct_and_link (Recipe Correction)" in prompt_samples
-    assert "## nonrecipe_knowledge_review (Non-Recipe Knowledge Review)" in prompt_samples
+    assert "## recipe_refine (Recipe Refine)" in prompt_samples
+    assert "## nonrecipe_finalize (Non-Recipe Finalize)" in prompt_samples
     assert "call_id: `r0000`" in prompt_samples
     assert "Telemetry prompt body" in prompt_samples
     assert "Activity Trace:" in prompt_samples
@@ -566,7 +566,7 @@ def test_build_codex_farm_prompt_response_log_writes_activity_trace_summary(
     ]
     assert len(trace_rows) == 2
     correction_trace_row = next(
-        row for row in trace_rows if row.get("stage_key") == "recipe_llm_correct_and_link"
+        row for row in trace_rows if row.get("stage_key") == "recipe_refine"
     )
     assert correction_trace_row["activity_trace_exists"] is True
     assert correction_trace_row["command_count"] == 1
@@ -576,7 +576,7 @@ def test_build_codex_farm_prompt_response_log_writes_activity_trace_summary(
     trace_summary_md = activity_trace_summary_md_path.read_text(encoding="utf-8")
     assert "# CodexFarm Activity Trace Summary" in trace_summary_md
     assert "- total_rows: `2`" in trace_summary_md
-    assert "## recipe_llm_correct_and_link (Recipe Correction)" in trace_summary_md
+    assert "## recipe_refine (Recipe Refine)" in trace_summary_md
 
 
 def test_build_codex_farm_activity_trace_summary_reads_exported_trace_json(
@@ -594,7 +594,7 @@ def test_build_codex_farm_activity_trace_summary_reads_exported_trace_json(
                 "path": str(exported_trace_path),
                 "available": True,
                 "call_id": "r0000",
-                "stage_key": "recipe_llm_correct_and_link",
+                "stage_key": "recipe_refine",
                 "command_count": 3,
                 "agent_message_count": 1,
                 "reasoning_event_count": 0,
@@ -616,7 +616,7 @@ def test_build_codex_farm_activity_trace_summary_reads_exported_trace_json(
             {
                 "call_id": "r0000",
                 "recipe_id": "recipe:0",
-                "stage_key": "recipe_llm_correct_and_link",
+                "stage_key": "recipe_refine",
                 "activity_trace": {
                     "path": str(exported_trace_path),
                     "available": False,
@@ -835,8 +835,8 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
         repo_root=tmp_path,
     )
     assert log_path is not None and log_path.exists()
-    assert (eval_output_dir / "prompts" / "prompt_recipe_llm_correct_and_link.txt").exists()
-    assert not (eval_output_dir / "prompts" / "prompt_nonrecipe_knowledge_review.txt").exists()
+    assert (eval_output_dir / "prompts" / "prompt_recipe_refine.txt").exists()
+    assert not (eval_output_dir / "prompts" / "prompt_nonrecipe_finalize.txt").exists()
     assert not (eval_output_dir / "prompts" / "prompt_tags.txt").exists()
     full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
     full_prompt_rows = [
@@ -845,7 +845,7 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
         if line.strip()
     ]
     assert len(full_prompt_rows) == 1
-    assert full_prompt_rows[0]["stage_key"] == "recipe_llm_correct_and_link"
+    assert full_prompt_rows[0]["stage_key"] == "recipe_refine"
     prompt_samples_path = (
         eval_output_dir
         / "prompts"
@@ -853,8 +853,8 @@ def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     )
     assert prompt_samples_path.exists()
     prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
-    assert "## recipe_llm_correct_and_link (Recipe Correction)" in prompt_samples
-    assert "## nonrecipe_knowledge_review (Non-Recipe Knowledge Review)" in prompt_samples
+    assert "## recipe_refine (Recipe Refine)" in prompt_samples
+    assert "## nonrecipe_finalize (Non-Recipe Finalize)" in prompt_samples
     assert "_No rows captured for this stage._" in prompt_samples
 
 
@@ -912,7 +912,7 @@ def test_build_codex_farm_prompt_response_log_uses_recipe_correction_stage_label
     )
 
     assert log_path is not None and log_path.exists()
-    correction_path = eval_output_dir / "prompts" / "prompt_recipe_llm_correct_and_link.txt"
+    correction_path = eval_output_dir / "prompts" / "prompt_recipe_refine.txt"
     assert correction_path.exists()
 
     full_prompt_log_path = eval_output_dir / "prompts" / "full_prompt_log.jsonl"
@@ -924,11 +924,11 @@ def test_build_codex_farm_prompt_response_log_uses_recipe_correction_stage_label
     correction_row = next(
         row
         for row in full_prompt_rows
-        if row.get("stage_key") == "recipe_llm_correct_and_link"
+        if row.get("stage_key") == "recipe_refine"
     )
-    assert correction_row["stage_key"] == "recipe_llm_correct_and_link"
-    assert correction_row["stage_artifact_stem"] == "recipe_correction"
-    assert correction_row["stage_label"] == "Recipe Correction"
+    assert correction_row["stage_key"] == "recipe_refine"
+    assert correction_row["stage_artifact_stem"] == "recipe_refine"
+    assert correction_row["stage_label"] == "Recipe Refine"
 
     prompt_samples_path = (
         eval_output_dir
@@ -936,7 +936,7 @@ def test_build_codex_farm_prompt_response_log_uses_recipe_correction_stage_label
         / "prompt_type_samples_from_full_prompt_log.md"
     )
     prompt_samples = prompt_samples_path.read_text(encoding="utf-8")
-    assert "## recipe_llm_correct_and_link (Recipe Correction)" in prompt_samples
+    assert "## recipe_refine (Recipe Refine)" in prompt_samples
     assert "recipe correction prompt" in prompt_samples
 
 
@@ -1007,7 +1007,7 @@ def test_build_codex_farm_prompt_response_log_follows_benchmark_stage_run_pointe
     assert log_path == eval_output_dir / "prompts" / "prompt_request_response_log.txt"
     assert log_path is not None and log_path.exists()
     assert (eval_output_dir / "prompts" / "full_prompt_log.jsonl").exists()
-    assert (eval_output_dir / "prompts" / "prompt_recipe_llm_correct_and_link.txt").exists()
+    assert (eval_output_dir / "prompts" / "prompt_recipe_refine.txt").exists()
 
 
 def _build_line_role_only_prompt_log_fixture(tmp_path: Path) -> dict[str, object]:
@@ -1610,7 +1610,7 @@ def test_write_stage_run_manifest_includes_prompt_artifacts(tmp_path: Path) -> N
         encoding="utf-8",
     )
     (prompts_dir / "prompt_category_logs_manifest.txt").write_text(
-        "prompt_recipe_llm_correct_and_link.txt\n",
+        "prompt_recipe_refine.txt\n",
         encoding="utf-8",
     )
     (prompts_dir / "full_prompt_log.jsonl").write_text(
@@ -1680,8 +1680,8 @@ def test_write_prompt_log_summary_tracks_rows_separately_from_runtime_shards(
             [
                 json.dumps(
                     {
-                        "stage_key": "recipe_llm_correct_and_link",
-                        "stage_artifact_stem": "recipe_correction",
+                        "stage_key": "recipe_refine",
+                        "stage_artifact_stem": "recipe_refine",
                         "runtime_shard_id": "recipe-shard-0000",
                         "runtime_worker_id": "worker-001",
                         "runtime_owned_ids": ["recipe:0"],
@@ -1690,8 +1690,8 @@ def test_write_prompt_log_summary_tracks_rows_separately_from_runtime_shards(
                 ),
                 json.dumps(
                     {
-                        "stage_key": "recipe_llm_correct_and_link",
-                        "stage_artifact_stem": "recipe_correction",
+                        "stage_key": "recipe_refine",
+                        "stage_artifact_stem": "recipe_refine",
                         "runtime_shard_id": "recipe-shard-0000",
                         "runtime_worker_id": "worker-001",
                         "runtime_owned_ids": ["recipe:1"],
@@ -1700,8 +1700,8 @@ def test_write_prompt_log_summary_tracks_rows_separately_from_runtime_shards(
                 ),
                 json.dumps(
                     {
-                        "stage_key": "recipe_llm_correct_and_link",
-                        "stage_artifact_stem": "recipe_correction",
+                        "stage_key": "recipe_refine",
+                        "stage_artifact_stem": "recipe_refine",
                         "runtime_shard_id": "recipe-shard-0001",
                         "runtime_worker_id": "worker-002",
                         "runtime_owned_ids": ["recipe:2"],
@@ -1733,12 +1733,12 @@ def test_write_prompt_log_summary_tracks_rows_separately_from_runtime_shards(
     assert summary["full_prompt_log_rows"] == 4
     assert summary["runtime_shard_count"] == 3
     assert summary["runtime_shard_count_status"] == "complete"
-    assert summary["by_stage"]["recipe_llm_correct_and_link"]["row_count"] == 3
+    assert summary["by_stage"]["recipe_refine"]["row_count"] == 3
     assert (
-        summary["by_stage"]["recipe_llm_correct_and_link"]["runtime_shard_count"] == 2
+        summary["by_stage"]["recipe_refine"]["runtime_shard_count"] == 2
     )
     assert (
-        summary["by_stage"]["recipe_llm_correct_and_link"]["runtime_owned_id_count"] == 3
+        summary["by_stage"]["recipe_refine"]["runtime_owned_id_count"] == 3
     )
     assert summary["by_stage"]["line_role"]["row_count"] == 1
     assert summary["by_stage"]["line_role"]["runtime_shard_count"] == 1
@@ -1799,7 +1799,7 @@ def test_pred_run_context_enriches_codex_runtime_from_llm_manifest_fallback(
                 "line_role_pipeline_telemetry_path": str(line_role_telemetry_path),
                 "llm_codex_farm": {
                     "process_runs": {
-                        "recipe_llm_correct_and_link": {
+                        "recipe_refine": {
                             "process_payload": {
                                 "codex_model": "gpt-5.3-codex-spark",
                                 "codex_reasoning_effort": None,
@@ -1908,7 +1908,7 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
         "line_role_pipeline_telemetry_path": str(telemetry_path),
         "llm_codex_farm": {
             "process_runs": {
-                "recipe_llm_correct_and_link": {
+                "recipe_refine": {
                     "telemetry_report": {
                         "summary": {
                             "call_count": 2,
@@ -1921,7 +1921,7 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
                         }
                     }
                 },
-                "build_intermediate_det": {
+                "recipe_build_intermediate": {
                     "telemetry_report": {
                         "summary": {
                             "call_count": 1,
@@ -1957,10 +1957,10 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
     summary_path = write_prediction_run_prompt_budget_summary(pred_run, summary)
 
     written = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert written["by_stage"]["recipe_llm_correct_and_link"]["call_count"] == 2
-    assert written["by_stage"]["build_intermediate_det"]["tokens_total"] == 104
-    assert written["by_stage"]["knowledge"]["call_count"] == 4
-    assert written["by_stage"]["knowledge"]["tokens_total"] == 360
+    assert written["by_stage"]["recipe_refine"]["call_count"] == 2
+    assert written["by_stage"]["recipe_build_intermediate"]["tokens_total"] == 104
+    assert written["by_stage"]["nonrecipe_finalize"]["call_count"] == 4
+    assert written["by_stage"]["nonrecipe_finalize"]["tokens_total"] == 360
     assert written["by_stage"]["line_role"]["call_count"] == 2
     assert written["by_stage"]["line_role"]["attempt_count"] == 3
     assert written["totals"]["tokens_total"] == 651
@@ -2183,14 +2183,14 @@ def test_prompt_budget_summary_reads_top_level_codex_farm_telemetry_rows(
 
     summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
 
-    assert summary["by_stage"]["recipe_correction"]["tokens_input"] == 300
-    assert summary["by_stage"]["recipe_correction"]["tokens_cached_input"] == 50
-    assert summary["by_stage"]["recipe_correction"]["tokens_output"] == 25
-    assert summary["by_stage"]["recipe_correction"]["tokens_total"] == 325
-    assert summary["by_stage"]["knowledge"]["tokens_input"] == 50
-    assert summary["by_stage"]["knowledge"]["tokens_cached_input"] == 5
-    assert summary["by_stage"]["knowledge"]["tokens_output"] == 8
-    assert summary["by_stage"]["knowledge"]["tokens_total"] == 58
+    assert summary["by_stage"]["recipe_refine"]["tokens_input"] == 300
+    assert summary["by_stage"]["recipe_refine"]["tokens_cached_input"] == 50
+    assert summary["by_stage"]["recipe_refine"]["tokens_output"] == 25
+    assert summary["by_stage"]["recipe_refine"]["tokens_total"] == 325
+    assert summary["by_stage"]["nonrecipe_finalize"]["tokens_input"] == 50
+    assert summary["by_stage"]["nonrecipe_finalize"]["tokens_cached_input"] == 5
+    assert summary["by_stage"]["nonrecipe_finalize"]["tokens_output"] == 8
+    assert summary["by_stage"]["nonrecipe_finalize"]["tokens_total"] == 58
     assert summary["totals"]["tokens_input"] == 350
     assert summary["totals"]["tokens_cached_input"] == 55
     assert summary["totals"]["tokens_output"] == 33
@@ -2253,7 +2253,7 @@ def test_prompt_budget_summary_surfaces_pathological_spend_metrics(
 
     summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
 
-    knowledge = summary["by_stage"]["knowledge"]
+    knowledge = summary["by_stage"]["nonrecipe_finalize"]
     assert knowledge["command_executing_shard_count"] == 1
     assert knowledge["reasoning_heavy_shard_count"] == 1
     assert knowledge["invalid_output_shard_count"] == 1
@@ -2309,7 +2309,7 @@ def _build_current_shard_runtime_budget_summary_fixture(tmp_path: Path) -> dict[
             "process_runs": {
                 "recipe_correction": {
                     "telemetry_report": {
-                        "phase_key": "recipe_llm_correct_and_link",
+                        "phase_key": "recipe_refine",
                         "worker_count": 1,
                         "shard_count": 2,
                     },
@@ -2393,17 +2393,17 @@ def test_prompt_budget_summary_recovers_current_shard_runtime_recipe_and_knowled
     summary = fixture["summary"]
     assert isinstance(summary, dict)
 
-    assert summary["by_stage"]["recipe_correction"]["call_count"] == 2
-    assert summary["by_stage"]["recipe_correction"]["duration_total_ms"] == 2200
-    assert summary["by_stage"]["recipe_correction"]["tokens_input"] == 250
-    assert summary["by_stage"]["recipe_correction"]["tokens_cached_input"] == 25
-    assert summary["by_stage"]["recipe_correction"]["tokens_output"] == 45
-    assert summary["by_stage"]["recipe_correction"]["tokens_total"] == 295
+    assert summary["by_stage"]["recipe_refine"]["call_count"] == 2
+    assert summary["by_stage"]["recipe_refine"]["duration_total_ms"] == 2200
+    assert summary["by_stage"]["recipe_refine"]["tokens_input"] == 250
+    assert summary["by_stage"]["recipe_refine"]["tokens_cached_input"] == 25
+    assert summary["by_stage"]["recipe_refine"]["tokens_output"] == 45
+    assert summary["by_stage"]["recipe_refine"]["tokens_total"] == 295
 
-    assert summary["by_stage"]["knowledge"]["call_count"] == 1
-    assert summary["by_stage"]["knowledge"]["tokens_total"] == 230
-    assert summary["by_stage"]["knowledge"]["authority_mode"] == "knowledge_refined_final"
-    assert summary["by_stage"]["knowledge"]["scored_effect"] == "final_authority"
+    assert summary["by_stage"]["nonrecipe_finalize"]["call_count"] == 1
+    assert summary["by_stage"]["nonrecipe_finalize"]["tokens_total"] == 230
+    assert summary["by_stage"]["nonrecipe_finalize"]["authority_mode"] == "knowledge_refined_final"
+    assert summary["by_stage"]["nonrecipe_finalize"]["scored_effect"] == "final_authority"
 
 
 def test_prompt_budget_summary_recovers_processed_line_role_and_totals(
@@ -2436,7 +2436,7 @@ def test_prompt_budget_summary_sums_call_count_and_duration_across_worker_rows(
             "process_runs": {
                 "recipe_correction": {
                     "telemetry_report": {
-                        "phase_key": "recipe_llm_correct_and_link",
+                        "phase_key": "recipe_refine",
                         "worker_count": 2,
                         "shard_count": 2,
                     },
@@ -2495,12 +2495,12 @@ def test_prompt_budget_summary_sums_call_count_and_duration_across_worker_rows(
 
     summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
 
-    assert summary["by_stage"]["recipe_correction"]["call_count"] == 2
-    assert summary["by_stage"]["recipe_correction"]["duration_total_ms"] == 2400
-    assert summary["by_stage"]["recipe_correction"]["tokens_input"] == 250
-    assert summary["by_stage"]["recipe_correction"]["tokens_cached_input"] == 25
-    assert summary["by_stage"]["recipe_correction"]["tokens_output"] == 45
-    assert summary["by_stage"]["recipe_correction"]["tokens_total"] == 295
+    assert summary["by_stage"]["recipe_refine"]["call_count"] == 2
+    assert summary["by_stage"]["recipe_refine"]["duration_total_ms"] == 2400
+    assert summary["by_stage"]["recipe_refine"]["tokens_input"] == 250
+    assert summary["by_stage"]["recipe_refine"]["tokens_cached_input"] == 25
+    assert summary["by_stage"]["recipe_refine"]["tokens_output"] == 45
+    assert summary["by_stage"]["recipe_refine"]["tokens_total"] == 295
 
 
 def test_prompt_budget_summary_prefers_top_level_knowledge_telemetry_over_worker_duplicates(
@@ -2558,12 +2558,12 @@ def test_prompt_budget_summary_prefers_top_level_knowledge_telemetry_over_worker
 
     summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
 
-    assert summary["by_stage"]["knowledge"]["call_count"] == 1
-    assert summary["by_stage"]["knowledge"]["duration_total_ms"] == 900
-    assert summary["by_stage"]["knowledge"]["tokens_input"] == 200
-    assert summary["by_stage"]["knowledge"]["tokens_cached_input"] == 20
-    assert summary["by_stage"]["knowledge"]["tokens_output"] == 30
-    assert summary["by_stage"]["knowledge"]["tokens_total"] == 230
+    assert summary["by_stage"]["nonrecipe_finalize"]["call_count"] == 1
+    assert summary["by_stage"]["nonrecipe_finalize"]["duration_total_ms"] == 900
+    assert summary["by_stage"]["nonrecipe_finalize"]["tokens_input"] == 200
+    assert summary["by_stage"]["nonrecipe_finalize"]["tokens_cached_input"] == 20
+    assert summary["by_stage"]["nonrecipe_finalize"]["tokens_output"] == 30
+    assert summary["by_stage"]["nonrecipe_finalize"]["tokens_total"] == 230
 
 
 def test_prompt_budget_summary_marks_partial_workspace_worker_token_usage_unavailable(
@@ -2620,7 +2620,7 @@ def test_prompt_budget_summary_marks_partial_workspace_worker_token_usage_unavai
 
     summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
 
-    knowledge = summary["by_stage"]["knowledge"]
+    knowledge = summary["by_stage"]["nonrecipe_finalize"]
     assert knowledge["call_count"] == 2
     assert knowledge["token_usage_status"] == "partial"
     assert knowledge["token_usage_available_call_count"] == 1
@@ -2764,7 +2764,7 @@ def _build_knowledge_prompt_budget_summary_fixture(tmp_path: Path) -> dict[str, 
         json.dumps(
             {
                 "schema_version": "knowledge_stage_status.v1",
-                "stage_key": "nonrecipe_knowledge_review",
+                "stage_key": "nonrecipe_finalize",
                 "stage_state": "completed_with_failures",
                 "termination_cause": "completed",
                 "finalization_completeness": "complete",
@@ -2866,7 +2866,7 @@ def _build_knowledge_prompt_budget_summary_fixture(tmp_path: Path) -> dict[str, 
 
     summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
     return {
-        "knowledge_stage": summary["by_stage"]["knowledge"],
+        "knowledge_stage": summary["by_stage"]["nonrecipe_finalize"],
         "summary": summary,
     }
 
@@ -2902,7 +2902,7 @@ def test_prompt_budget_summary_normalizes_legacy_knowledge_missing_output_counts
     }
 
     summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
-    knowledge_stage = summary["by_stage"]["knowledge"]
+    knowledge_stage = summary["by_stage"]["nonrecipe_finalize"]
 
     assert knowledge_stage["no_final_output_shard_count"] == 2
     assert knowledge_stage.get("missing_output_shard_count") is None
@@ -2986,7 +2986,7 @@ def test_prompt_budget_summary_reports_recipe_run_count_deviation_from_requested
             "process_runs": {
                 "recipe_correction": {
                     "telemetry_report": {
-                        "phase_key": "recipe_llm_correct_and_link",
+                        "phase_key": "recipe_refine",
                         "worker_count": 2,
                         "shard_count": 2,
                     },
@@ -3036,7 +3036,7 @@ def test_prompt_budget_summary_reports_recipe_run_count_deviation_from_requested
 
     summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
 
-    recipe_stage = summary["by_stage"]["recipe_correction"]
+    recipe_stage = summary["by_stage"]["recipe_refine"]
     assert recipe_stage["requested_run_count"] == 5
     assert recipe_stage["actual_run_count"] == 2
     assert recipe_stage["call_count"] == 3
@@ -3045,7 +3045,7 @@ def test_prompt_budget_summary_reports_recipe_run_count_deviation_from_requested
     assert recipe_stage["requested_worker_count"] == 5
     assert recipe_stage["actual_worker_count"] == 2
     assert len(summary["run_count_deviations"]) == 1
-    assert summary["run_count_deviations"][0]["stage"] == "recipe_correction"
+    assert summary["run_count_deviations"][0]["stage"] == "recipe_refine"
 
 
 def test_prompt_budget_summary_reports_line_role_surface_target_separately_from_total_calls(

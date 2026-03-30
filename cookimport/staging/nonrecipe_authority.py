@@ -62,7 +62,7 @@ def _block_rows_for_indices(
         payload = dict(block)
         payload["index"] = block_index
         if block_index in block_category_by_index:
-            payload["stage7_category"] = str(block_category_by_index[block_index])
+            payload["nonrecipe_final_category"] = str(block_category_by_index[block_index])
         rows.append(payload)
     return rows
 

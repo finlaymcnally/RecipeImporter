@@ -199,7 +199,7 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
     mismatch_path = (
         tmp_path
         / "out"
-        / "group_recipe_spans"
+        / "recipe_boundary"
         / "book"
         / "authority_mismatch.json"
     )

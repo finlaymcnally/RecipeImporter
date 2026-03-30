@@ -67,14 +67,14 @@ def test_build_stage_observability_report_for_single_correction_recipe_run(tmp_p
     )
 
     assert _stage_keys(report) == [
-        "build_intermediate_det",
-        "recipe_llm_correct_and_link",
-        "build_final_recipe",
+        "recipe_build_intermediate",
+        "recipe_refine",
+        "recipe_build_final",
     ]
     assert [row.stage_label for row in report.stages] == [
-        "Build Intermediate Recipe",
-        "Recipe LLM Correction",
-        "Build Final Recipe",
+        "Recipe Build Intermediate",
+        "Recipe Refine",
+        "Recipe Build Final",
     ]
 
 
@@ -82,9 +82,9 @@ def test_build_stage_observability_report_for_knowledge_enabled_run(tmp_path: Pa
     run_root = tmp_path / "run"
     llm_root = run_root / "raw" / "llm" / "book"
     (llm_root / "knowledge" / "in").mkdir(parents=True)
-    (run_root / "08_nonrecipe_seed_routing.json").write_text("{}", encoding="utf-8")
+    (run_root / "08_nonrecipe_route.json").write_text("{}", encoding="utf-8")
     (run_root / "09_nonrecipe_authority.json").write_text("{}", encoding="utf-8")
-    (run_root / "09_nonrecipe_candidate_status.json").write_text("{}", encoding="utf-8")
+    (run_root / "09_nonrecipe_finalize_status.json").write_text("{}", encoding="utf-8")
     _write_json(
         llm_root / KNOWLEDGE_MANIFEST_FILE_NAME,
         {"pipeline_id": "recipe.knowledge.compact.v1"},
@@ -98,11 +98,11 @@ def test_build_stage_observability_report_for_knowledge_enabled_run(tmp_path: Pa
     )
 
     assert _stage_keys(report) == [
-        "classify_nonrecipe",
-        "nonrecipe_knowledge_review",
+        "nonrecipe_route",
+        "nonrecipe_finalize",
         "write_outputs",
     ]
-    assert report.stages[1].stage_label == "Non-Recipe Knowledge Review"
+    assert report.stages[1].stage_label == "Non-Recipe Finalize"
     assert report.stages[1].workbooks[0].manifest_path == (
         "raw/llm/book/knowledge_manifest.json"
     )
@@ -129,7 +129,7 @@ def test_write_stage_observability_report_writes_knowledge_stage_summary_artifac
     tmp_path: Path,
 ) -> None:
     run_root = tmp_path / "run"
-    stage_root = run_root / "raw" / "llm" / "book" / "knowledge"
+    stage_root = run_root / "raw" / "llm" / "book" / "nonrecipe_finalize"
     stage_root.mkdir(parents=True, exist_ok=True)
     (stage_root.parent / KNOWLEDGE_MANIFEST_FILE_NAME).write_text(
         json.dumps({"pipeline_id": "recipe.knowledge.compact.v1"}, sort_keys=True),
@@ -139,7 +139,7 @@ def test_write_stage_observability_report_writes_knowledge_stage_summary_artifac
         stage_root / KNOWLEDGE_STAGE_STATUS_FILE_NAME,
         {
             "schema_version": "knowledge_stage_status.v1",
-            "stage_key": "nonrecipe_knowledge_review",
+            "stage_key": "nonrecipe_finalize",
             "stage_state": "completed",
             "termination_cause": "completed",
             "finalization_completeness": "complete",
@@ -283,7 +283,7 @@ def test_write_stage_observability_report_writes_recipe_and_line_role_stage_summ
         line_role_root / "workers" / "worker-001" / "shards" / "line-role-canonical-0001" / "status.json",
         {"status": "validated"},
     )
-    label_llm_dir = run_root / "label_llm_correct" / "book"
+    label_llm_dir = run_root / "label_refine" / "book"
     label_llm_dir.mkdir(parents=True, exist_ok=True)
     (label_llm_dir / "labeled_lines.jsonl").write_text(
         json.dumps(
@@ -312,7 +312,7 @@ def test_write_stage_observability_report_writes_recipe_and_line_role_stage_summ
     path = write_stage_observability_report(run_root=run_root, report=report)
     payload = json.loads(path.read_text(encoding="utf-8"))
     recipe_stage = next(
-        stage for stage in payload["stages"] if stage["stage_key"] == "recipe_llm_correct_and_link"
+        stage for stage in payload["stages"] if stage["stage_key"] == "recipe_refine"
     )
     line_role_stage = next(
         stage for stage in payload["stages"] if stage["stage_key"] == "line_role"
@@ -328,7 +328,7 @@ def test_build_stage_observability_report_surfaces_processing_attention_summarie
     tmp_path: Path,
 ) -> None:
     run_root = tmp_path / "run"
-    label_llm_dir = run_root / "label_llm_correct" / "book"
+    label_llm_dir = run_root / "label_refine" / "book"
     label_llm_dir.mkdir(parents=True, exist_ok=True)
     (label_llm_dir / "labeled_lines.jsonl").write_text(
         json.dumps(
@@ -343,7 +343,7 @@ def test_build_stage_observability_report_surfaces_processing_attention_summarie
         + "\n",
         encoding="utf-8",
     )
-    group_dir = run_root / "group_recipe_spans" / "book"
+    group_dir = run_root / "recipe_boundary" / "book"
     group_dir.mkdir(parents=True, exist_ok=True)
     _write_json(
         group_dir / "span_decisions.json",
@@ -362,7 +362,7 @@ def test_build_stage_observability_report_surfaces_processing_attention_summarie
             ]
         },
     )
-    (run_root / "08_nonrecipe_seed_routing.json").write_text("{}", encoding="utf-8")
+    (run_root / "08_nonrecipe_route.json").write_text("{}", encoding="utf-8")
     (run_root / "08_nonrecipe_exclusions.jsonl").write_text(
         json.dumps(
             {
@@ -403,10 +403,10 @@ def test_build_stage_observability_report_surfaces_processing_attention_summarie
     )
     payload = report.model_dump(exclude_none=True)
 
-    label_stage = next(stage for stage in payload["stages"] if stage["stage_key"] == "label_llm_correct")
-    span_stage = next(stage for stage in payload["stages"] if stage["stage_key"] == "group_recipe_spans")
-    nonrecipe_stage = next(stage for stage in payload["stages"] if stage["stage_key"] == "classify_nonrecipe")
-    final_recipe_stage = next(stage for stage in payload["stages"] if stage["stage_key"] == "build_final_recipe")
+    label_stage = next(stage for stage in payload["stages"] if stage["stage_key"] == "label_refine")
+    span_stage = next(stage for stage in payload["stages"] if stage["stage_key"] == "recipe_boundary")
+    nonrecipe_stage = next(stage for stage in payload["stages"] if stage["stage_key"] == "nonrecipe_route")
+    final_recipe_stage = next(stage for stage in payload["stages"] if stage["stage_key"] == "recipe_build_final")
 
     assert label_stage["workbooks"][0]["attention_summary"]["zero_target_counts"]["codex_policy_rejected_row_count"] == 1
     assert span_stage["workbooks"][0]["attention_summary"]["zero_target_counts"]["rejected_pseudo_recipe_span_count"] == 1
@@ -531,7 +531,7 @@ def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: 
         stage_root / "workers" / "worker-001" / "shards" / "line-role-canonical-0001" / "status.json",
         {"status": "validated"},
     )
-    label_llm_dir = tmp_path / "label_llm_correct" / "book"
+    label_llm_dir = tmp_path / "label_refine" / "book"
     label_llm_dir.mkdir(parents=True, exist_ok=True)
     (label_llm_dir / "labeled_lines.jsonl").write_text(
         "\n".join(
@@ -601,7 +601,7 @@ def test_summarize_knowledge_stage_artifacts_uses_status_file(tmp_path: Path) ->
         stage_root / KNOWLEDGE_STAGE_STATUS_FILE_NAME,
         {
             "schema_version": "knowledge_stage_status.v1",
-            "stage_key": "nonrecipe_knowledge_review",
+            "stage_key": "nonrecipe_finalize",
             "stage_state": "interrupted",
             "termination_cause": "operator_interrupt",
             "finalization_completeness": "interrupted_before_finalization",
@@ -649,7 +649,7 @@ def test_summarize_knowledge_stage_artifacts_marks_unexpected_missing(tmp_path: 
         stage_root / KNOWLEDGE_STAGE_STATUS_FILE_NAME,
         {
             "schema_version": "knowledge_stage_status.v1",
-            "stage_key": "nonrecipe_knowledge_review",
+            "stage_key": "nonrecipe_finalize",
             "stage_state": "completed",
             "termination_cause": "completed",
             "finalization_completeness": "complete",
@@ -853,7 +853,7 @@ def _build_knowledge_stage_rollup_fixture(tmp_path: Path) -> dict[str, object]:
         stage_root / KNOWLEDGE_STAGE_STATUS_FILE_NAME,
         {
             "schema_version": "knowledge_stage_status.v1",
-            "stage_key": "nonrecipe_knowledge_review",
+            "stage_key": "nonrecipe_finalize",
             "stage_state": "completed_with_failures",
             "termination_cause": "completed",
             "finalization_completeness": "complete",

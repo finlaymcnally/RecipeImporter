@@ -240,7 +240,7 @@ Canonical line-role projection note:
 - compare action for benchmark runs (`labelstudio-benchmark compare`)
 - line-role gating (`--line-role-gated`) for canonical Milestone-5 regression checks
 - benchmark prediction-generation scratch stays inside the resolved `eval_output_dir` artifact root, so one benchmark session does not spill sibling timestamp roots under `data/golden/benchmark-vs-golden`
-- when processed outputs are requested, benchmark/prediction runs reuse the stage-produced authoritative label artifacts (`label_det`, `label_llm_correct`, `group_recipe_spans`) and mirror the resulting `stage_block_predictions.json` into the prediction run root
+- when processed outputs are requested, benchmark/prediction runs reuse the stage-produced authoritative label artifacts (`label_deterministic`, `label_refine`, `recipe_boundary`) and mirror the resulting `stage_block_predictions.json` into the prediction run root
 - prediction generation no longer runs a second post-stage diagnostic `label_atomic_lines(...)` pass; freeform span projection reuses the authoritative labeled-line bundle from stage or builds the same bundle once in-memory for offline-only runs
 - canonical benchmark scoring follows the prediction manifest pointer pair; when authoritative line labels are projected, outside-recipe `KNOWLEDGE` versus `OTHER` still comes from the final non-recipe authority after knowledge refinement, and telemetry reports `mode=final_authority_projection`
 - canonical-text benchmark eval reports now also serialize structural segmentation metrics beside the older overlap-style `boundary` counts, so paired benchmark comparisons can tell whether a gain came from line classification, boundary structure, or both
@@ -307,7 +307,7 @@ Prediction-generation now reuses authoritative recipe-local line-role outputs fr
 `line_role_predictions.jsonl` is intentionally earlier in the contract than those scored artifacts: recipe-local labels stay semantic there, but outside-recipe labels stay route-first until knowledge finalization resolves them.
 Those authoritative and projected line-role rows now carry `decided_by`, `reason_tags`, and `escalation_reasons`; scalar trust/confidence fields are gone from this seam.
 Final non-recipe authority is still only a binary outside-recipe seam. It may arbitrate rows already labeled `OTHER` or `KNOWLEDGE`, but it must not collapse clear outside-recipe structural labels such as recipe-tail `RECIPE_NOTES` back into `OTHER`.
-Stage-backed `group_recipe_spans/<workbook_slug>/span_decisions.json` is the recipe-level reviewer/debug companion for the same reason-based escalation contract.
+Stage-backed `recipe_boundary/<workbook_slug>/span_decisions.json` is the recipe-level reviewer/debug companion for the same reason-based escalation contract.
 Canonical line-role codex inflight is now resolved inside `canonical_line_roles.py`; `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` remains the explicit override.
 `atomic_block_splitter=off` keeps one line-role candidate per extracted block; `atomic_block_splitter=atomic-v1` enables deterministic boundary splitting before line-role labeling.
 When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots also write diagnostics under `line-role-pipeline/`:
@@ -343,7 +343,7 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 - If `line_role_pipeline != off`, benchmark manifests include line-role diagnostics pointers and an optional `line_role_pipeline_recipe_projection` summary.
 - Manifest/return payloads no longer expose separate line-role stage/extracted scorer pointers; canonical scorer pointers are always `stage_block_predictions_path` and `extracted_archive_path`.
 - Eval/benchmark manifests should resolve the prediction-run directory from `artifacts.artifact_root_dir`; do not add new readers that prefer eval-root-relative fallbacks when the prediction artifacts live elsewhere.
-- New-format benchmark/prediction runs do not write or consume the old knowledge-stage merge report; Stage 7 ownership is already baked into the reused stage artifacts.
+- New-format benchmark/prediction runs do not write or consume the old knowledge-stage merge report; non-recipe route/finalize ownership is already baked into the reused stage artifacts.
 
 ## 7) Current Gotchas
 

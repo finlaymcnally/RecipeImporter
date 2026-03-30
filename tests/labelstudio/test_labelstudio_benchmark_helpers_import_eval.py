@@ -567,7 +567,7 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
                 "line_role_pipeline_telemetry_path": str(line_role_telemetry_path),
                 "llm_codex_farm": {
                     "process_runs": {
-                        "recipe_llm_correct_and_link": {
+                        "recipe_refine": {
                             "process_payload": {
                                 "telemetry": {
                                     "rows": [

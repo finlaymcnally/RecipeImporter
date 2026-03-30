@@ -152,7 +152,7 @@ def test_second_wave_owner_roots_stay_small_and_explicit() -> None:
 
     assert "from .planning import CodexFarmNonrecipeKnowledgeReviewResult" in knowledge_text
     assert "from .recovery import _preflight_knowledge_shard" in knowledge_text
-    assert "from .runtime import run_codex_farm_nonrecipe_knowledge_review" in knowledge_text
+    assert "from .runtime import run_codex_farm_nonrecipe_finalize" in knowledge_text
     assert len(knowledge_text.splitlines()) <= 40
 
     assert "from . import planning as _planning_module" in recipe_stage_text

@@ -17,7 +17,7 @@ from cookimport.core.slug import slugify_name
 from cookimport.core.source_model import resolve_conversion_source_model, source_blocks_to_rows
 from cookimport.llm.codex_farm_knowledge_orchestrator import (
     CodexFarmNonrecipeKnowledgeReviewResult,
-    run_codex_farm_nonrecipe_knowledge_review,
+    run_codex_farm_nonrecipe_finalize,
 )
 from cookimport.llm.codex_farm_orchestrator import (
     CodexFarmApplyResult,
@@ -79,7 +79,7 @@ def _block_rows_for_indices(
         payload = dict(raw_block)
         payload["index"] = block_index
         if category_by_index is not None and block_index in category_by_index:
-            payload["stage7_category"] = category_by_index[block_index]
+            payload["nonrecipe_final_category"] = category_by_index[block_index]
         by_index[block_index] = payload
     rows: list[dict[str, Any]] = []
     for block_index in block_indices:
@@ -333,7 +333,7 @@ def run_knowledge_final_stage(
 
     if run_settings.llm_knowledge_pipeline.value != "off":
         try:
-            knowledge_apply_result = run_codex_farm_nonrecipe_knowledge_review(
+            knowledge_apply_result = run_codex_farm_nonrecipe_finalize(
                 conversion_result=recipe_refine_result.conversion_result,
                 nonrecipe_stage_result=stage_result,
                 recipe_spans=list(recipe_boundary_result.label_first_result.recipe_spans),

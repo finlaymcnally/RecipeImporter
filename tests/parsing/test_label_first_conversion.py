@@ -13,7 +13,7 @@ from cookimport.parsing.label_source_of_truth import (
     RecipeSpanDecision,
     _atomize_archive_blocks,
 )
-from cookimport.parsing.recipe_span_grouping import group_recipe_spans_from_labels
+from cookimport.parsing.recipe_span_grouping import recipe_boundary_from_labels
 
 
 def _make_empty_label_first_original_result(
@@ -263,7 +263,7 @@ def _run_title_only_span_rejection_fixture() -> dict[str, object]:
             decided_by="rule",
         ),
     ]
-    recipe_spans, span_decisions, _normalized_blocks = group_recipe_spans_from_labels(
+    recipe_spans, span_decisions, _normalized_blocks = recipe_boundary_from_labels(
         block_labels,
         labeled_lines,
     )

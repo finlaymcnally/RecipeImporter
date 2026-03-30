@@ -2,6 +2,7 @@
 
 from .eval_manifest import build_eval_run_manifest, write_eval_run_manifest
 from .manifest import RunManifest, RunSource, load_run_manifest, write_run_manifest
+from .stage_names import recipe_stage_keys_for_pipeline, stage_artifact_stem, stage_label, stage_order
 from .stage_observability import (
     KNOWLEDGE_MANIFEST_FILE_NAME,
     KNOWLEDGE_STAGE_STATUS_FILE_NAME,
@@ -12,10 +13,6 @@ from .stage_observability import (
     build_stage_observability_report,
     classify_knowledge_stage_artifacts,
     load_stage_observability_report,
-    recipe_stage_keys_for_pipeline,
-    stage_artifact_stem,
-    stage_label,
-    stage_order,
     summarize_knowledge_stage_artifacts,
     write_stage_observability_report,
 )

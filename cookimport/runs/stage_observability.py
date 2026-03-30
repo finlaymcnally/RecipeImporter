@@ -12,12 +12,26 @@ from cookimport.llm.knowledge_runtime_state import (
     KNOWLEDGE_PACKET_EXPLICIT_NO_FINAL_OUTPUT_REASON_CODES,
     knowledge_reason_is_explicit_no_final_output,
 )
-from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
-from cookimport.staging.writer import (
+from cookimport.runs.stage_names import (
+    NONRECIPE_FINALIZE_STAGE_KEY,
+    NONRECIPE_ROUTE_STAGE_KEY,
+    RECIPE_BUILD_FINAL_STAGE_KEY,
+    RECIPE_BUILD_INTERMEDIATE_STAGE_KEY,
+    RECIPE_REFINE_STAGE_KEY,
+    LABEL_DETERMINISTIC_STAGE_KEY,
+    LABEL_REFINE_STAGE_KEY,
+    RECIPE_BOUNDARY_STAGE_KEY,
+    recipe_stage_keys_for_pipeline,
+    stage_artifact_stem,
+    stage_family,
+    stage_label,
+    stage_order,
+)
+from cookimport.staging.output_names import (
     NONRECIPE_AUTHORITY_FILE_NAME,
-    NONRECIPE_CANDIDATE_STATUS_FILE_NAME,
     NONRECIPE_EXCLUSIONS_FILE_NAME,
-    NONRECIPE_SEED_ROUTING_FILE_NAME,
+    NONRECIPE_FINALIZE_STATUS_FILE_NAME,
+    NONRECIPE_ROUTE_FILE_NAME,
 )
 
 
@@ -124,104 +138,6 @@ class StageObservabilityReport(BaseModel):
     run_id: str
     created_at: str
     stages: list[ObservedStage] = Field(default_factory=list)
-
-
-_STAGE_DEFINITIONS: dict[str, dict[str, Any]] = {
-    "label_det": {
-        "label": "Deterministic Labels",
-        "artifact_stem": "label_det",
-        "family": "label_stage",
-        "order": 5,
-    },
-    "label_llm_correct": {
-        "label": "Label LLM Correction",
-        "artifact_stem": "label_llm_correct",
-        "family": "label_stage",
-        "order": 6,
-    },
-    "group_recipe_spans": {
-        "label": "Group Recipe Spans",
-        "artifact_stem": "group_recipe_spans",
-        "family": "label_stage",
-        "order": 7,
-    },
-    "classify_nonrecipe": {
-        "label": "Classify Non-Recipe",
-        "artifact_stem": "classify_nonrecipe",
-        "family": "deterministic",
-        "order": 8,
-    },
-    "build_intermediate_det": {
-        "label": "Build Intermediate Recipe",
-        "artifact_stem": "build_intermediate_det",
-        "family": "recipe_deterministic",
-        "order": 10,
-    },
-    "recipe_llm_correct_and_link": {
-        "label": "Recipe LLM Correction",
-        "artifact_stem": "recipe_correction",
-        "family": "recipe_llm",
-        "order": 20,
-    },
-    "build_final_recipe": {
-        "label": "Build Final Recipe",
-        "artifact_stem": "build_final_recipe",
-        "family": "recipe_deterministic",
-        "order": 30,
-    },
-    "nonrecipe_knowledge_review": {
-        "label": "Non-Recipe Knowledge Review",
-        "artifact_stem": "knowledge",
-        "family": "knowledge_llm",
-        "order": 40,
-    },
-    "line_role": {
-        "label": "Canonical Line Role",
-        "artifact_stem": "line_role",
-        "family": "line_role_llm",
-        "order": 35,
-    },
-    "write_outputs": {
-        "label": "Write Outputs",
-        "artifact_stem": "write_outputs",
-        "family": "deterministic",
-        "order": 90,
-    },
-}
-
-
-def stage_label(stage_key: str) -> str:
-    definition = _STAGE_DEFINITIONS.get(stage_key, {})
-    return str(definition.get("label") or stage_key.replace("_", " ").title())
-
-
-def stage_artifact_stem(stage_key: str) -> str:
-    definition = _STAGE_DEFINITIONS.get(stage_key, {})
-    return str(definition.get("artifact_stem") or stage_key)
-
-
-def stage_order(stage_key: str) -> int:
-    definition = _STAGE_DEFINITIONS.get(stage_key, {})
-    try:
-        return int(definition.get("order") or 999)
-    except (TypeError, ValueError):
-        return 999
-
-
-def stage_family(stage_key: str) -> str:
-    definition = _STAGE_DEFINITIONS.get(stage_key, {})
-    return str(definition.get("family") or "stage")
-
-
-def recipe_stage_keys_for_pipeline(pipeline_id: str | None) -> tuple[str, ...]:
-    normalized = str(pipeline_id or "").strip()
-    if normalized == RECIPE_CODEX_FARM_PIPELINE_SHARD_V1:
-        return (
-            "build_intermediate_det",
-            "recipe_llm_correct_and_link",
-            "build_final_recipe",
-        )
-    return ()
 
 
 def _load_json_dict(path: Path) -> dict[str, Any] | None:
@@ -460,7 +376,7 @@ def _count_codex_policy_rejections_in_label_rows(
 
 def _load_all_label_llm_rows(run_root: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    label_root = run_root / "label_llm_correct"
+    label_root = run_root / "label_refine"
     if not label_root.exists() or not label_root.is_dir():
         return rows
     for workbook_dir in sorted(path for path in label_root.iterdir() if path.is_dir()):
@@ -551,7 +467,7 @@ def _build_nonrecipe_route_attention_summary(run_root: Path) -> dict[str, Any]:
     )
 
 
-def _build_final_recipe_attention_summary(workbook_dir: Path) -> dict[str, Any]:
+def _recipe_build_final_attention_summary(workbook_dir: Path) -> dict[str, Any]:
     manifest_payload = _load_json_dict(workbook_dir / RECIPE_MANIFEST_FILE_NAME) or {}
     counts = manifest_payload.get("counts")
     if not isinstance(counts, Mapping):
@@ -566,8 +482,8 @@ def _build_final_recipe_attention_summary(workbook_dir: Path) -> dict[str, Any]:
         },
         context_counts={
             "final_recipe_promoted_count": counts.get("final_recipe_authority_promoted"),
-            "build_final_recipe_ok_count": counts.get("build_final_recipe_ok"),
-            "build_final_recipe_skipped_count": counts.get("build_final_recipe_skipped"),
+            "recipe_build_final_ok_count": counts.get("recipe_build_final_ok"),
+            "recipe_build_final_skipped_count": counts.get("recipe_build_final_skipped"),
         },
     )
 
@@ -810,7 +726,7 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
         ),
         "stage_key": (
             str(status_payload.get("stage_key") or "").strip()
-            or "nonrecipe_knowledge_review"
+            or "nonrecipe_finalize"
         ),
         "stage_state": str(status_payload.get("stage_state") or "").strip() or None,
         "termination_cause": str(status_payload.get("termination_cause") or "").strip() or None,
@@ -1014,7 +930,7 @@ def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
         handled_locally_skip_llm = {}
     summary = {
         "schema_version": RECIPE_STAGE_SUMMARY_SCHEMA_VERSION,
-        "stage_key": "recipe_llm_correct_and_link",
+        "stage_key": "recipe_refine",
         "stage_state": _stage_summary_state(
             planned_total=planned_shard_total,
             completed_total=completed_shard_total,
@@ -1243,13 +1159,9 @@ def _recipe_stage_key_map(
     recipe_manifest_payload: Mapping[str, Any],
     workbook_dir: Path,
 ) -> tuple[str, ...]:
+    del workbook_dir
     pipeline_id = str(recipe_manifest_payload.get("pipeline") or "").strip() or None
-    candidate_keys = list(recipe_stage_keys_for_pipeline(pipeline_id))
-    if pipeline_id == RECIPE_CODEX_FARM_PIPELINE_SHARD_V1:
-        return tuple(candidate_keys)
-    if "final" in candidate_keys and not (workbook_dir / "final").exists():
-        candidate_keys = [key for key in candidate_keys if key != "final"]
-    return tuple(candidate_keys)
+    return tuple(recipe_stage_keys_for_pipeline(pipeline_id))
 
 
 def build_stage_observability_report(
@@ -1275,7 +1187,7 @@ def build_stage_observability_report(
                 recipe_manifest_payload=recipe_manifest_payload,
                 workbook_dir=workbook_dir,
             ):
-                if key == "recipe_llm_correct_and_link":
+                if key == "recipe_refine":
                     stage_dir = _path_from_manifest(
                         recipe_paths.get("recipe_phase_runtime_dir")
                     ) or (workbook_dir / "recipe_phase_runtime")
@@ -1290,15 +1202,15 @@ def build_stage_observability_report(
                     input_dir = stage_dir / "in"
                     output_dir = stage_dir / "out"
                 if (
-                    key == "recipe_llm_correct_and_link"
+                    key == "recipe_refine"
                     and not stage_dir.exists()
                     and not input_dir.exists()
                     and not output_dir.exists()
                 ):
                     continue
                 if key not in {
-                    "build_intermediate_det",
-                    "build_final_recipe",
+                    "recipe_build_intermediate",
+                    "recipe_build_final",
                 } and not stage_dir.exists() and not input_dir.exists() and not output_dir.exists():
                     continue
                 stage_rows.setdefault(
@@ -1312,8 +1224,8 @@ def build_stage_observability_report(
                     ),
                 )
                 attention_summary = (
-                    _build_final_recipe_attention_summary(workbook_dir)
-                    if key == "build_final_recipe" and recipe_manifest_path.exists()
+                    _recipe_build_final_attention_summary(workbook_dir)
+                    if key == "recipe_build_final" and recipe_manifest_path.exists()
                     else None
                 )
                 workbook_observation = StageWorkbookObservation(
@@ -1334,7 +1246,7 @@ def build_stage_observability_report(
             knowledge_paths = knowledge_manifest_payload.get("paths")
             if not isinstance(knowledge_paths, Mapping):
                 knowledge_paths = {}
-            knowledge_dir = workbook_dir / stage_artifact_stem("nonrecipe_knowledge_review")
+            knowledge_dir = workbook_dir / stage_artifact_stem("nonrecipe_finalize")
             knowledge_input_dir = _path_from_manifest(
                 knowledge_paths.get("knowledge_in_dir")
             ) or (knowledge_dir / "in")
@@ -1342,7 +1254,7 @@ def build_stage_observability_report(
                 knowledge_paths.get("proposals_dir")
             ) or (knowledge_dir / "proposals")
             if knowledge_manifest_path.exists() or knowledge_dir.exists():
-                key = "nonrecipe_knowledge_review"
+                key = "nonrecipe_finalize"
                 stage_rows.setdefault(
                     key,
                     ObservedStage(
@@ -1382,7 +1294,7 @@ def build_stage_observability_report(
 
 
     write_outputs_paths: dict[str, str] = {}
-    for stage_key in ("label_det", "label_llm_correct", "group_recipe_spans"):
+    for stage_key in ("label_deterministic", "label_refine", "recipe_boundary"):
         stage_dir = run_root / stage_artifact_stem(stage_key)
         if not stage_dir.exists() or not stage_dir.is_dir():
             continue
@@ -1403,9 +1315,9 @@ def build_stage_observability_report(
                 if path.is_file()
             }
             attention_summary = None
-            if stage_key == "label_llm_correct":
+            if stage_key == "label_refine":
                 attention_summary = _build_label_llm_attention_summary(workbook_dir)
-            elif stage_key == "group_recipe_spans":
+            elif stage_key == "recipe_boundary":
                 attention_summary = _build_recipe_boundary_attention_summary(workbook_dir)
             stage_rows[stage_key].workbooks.append(
                 StageWorkbookObservation(
@@ -1419,14 +1331,14 @@ def build_stage_observability_report(
                     },
                 )
             )
-    nonrecipe_seed_routing_path = run_root / NONRECIPE_SEED_ROUTING_FILE_NAME
+    nonrecipe_route_path = run_root / NONRECIPE_ROUTE_FILE_NAME
     nonrecipe_exclusions_path = run_root / NONRECIPE_EXCLUSIONS_FILE_NAME
-    if nonrecipe_seed_routing_path.exists() or nonrecipe_exclusions_path.exists():
-        stage_key = "classify_nonrecipe"
+    if nonrecipe_route_path.exists() or nonrecipe_exclusions_path.exists():
+        stage_key = "nonrecipe_route"
         artifact_paths = {}
-        if nonrecipe_seed_routing_path.exists():
-            artifact_paths["nonrecipe_seed_routing_json"] = (
-                _relative_to(run_root, nonrecipe_seed_routing_path) or ""
+        if nonrecipe_route_path.exists():
+            artifact_paths["nonrecipe_route_json"] = (
+                _relative_to(run_root, nonrecipe_route_path) or ""
             )
         if nonrecipe_exclusions_path.exists():
             artifact_paths["nonrecipe_exclusions_jsonl"] = (
@@ -1450,17 +1362,17 @@ def build_stage_observability_report(
             )
         ]
     nonrecipe_authority_path = run_root / NONRECIPE_AUTHORITY_FILE_NAME
-    nonrecipe_candidate_status_path = run_root / NONRECIPE_CANDIDATE_STATUS_FILE_NAME
-    if nonrecipe_authority_path.exists() or nonrecipe_candidate_status_path.exists():
-        stage_key = "nonrecipe_knowledge_review"
+    nonrecipe_finalize_status_path = run_root / NONRECIPE_FINALIZE_STATUS_FILE_NAME
+    if nonrecipe_authority_path.exists() or nonrecipe_finalize_status_path.exists():
+        stage_key = "nonrecipe_finalize"
         artifact_paths = {}
         if nonrecipe_authority_path.exists():
             artifact_paths["nonrecipe_authority_json"] = (
                 _relative_to(run_root, nonrecipe_authority_path) or ""
             )
-        if nonrecipe_candidate_status_path.exists():
-            artifact_paths["nonrecipe_candidate_status_json"] = (
-                _relative_to(run_root, nonrecipe_candidate_status_path) or ""
+        if nonrecipe_finalize_status_path.exists():
+            artifact_paths["nonrecipe_finalize_status_json"] = (
+                _relative_to(run_root, nonrecipe_finalize_status_path) or ""
             )
         stage_rows.setdefault(
             stage_key,
@@ -1571,8 +1483,8 @@ def write_stage_observability_report(
             continue
         stage_key = str(stage_payload.get("stage_key") or "").strip()
         if stage_key not in {
-            "nonrecipe_knowledge_review",
-            "recipe_llm_correct_and_link",
+            "nonrecipe_finalize",
+            "recipe_refine",
             "line_role",
         }:
             continue
@@ -1586,14 +1498,14 @@ def write_stage_observability_report(
             stage_dir = run_root / str(stage_dir_value) if isinstance(stage_dir_value, str) else None
             if stage_dir is None or not stage_dir.exists() or not stage_dir.is_dir():
                 continue
-            if stage_key == "nonrecipe_knowledge_review":
+            if stage_key == "nonrecipe_finalize":
                 summary_payload = build_knowledge_stage_summary(stage_root=stage_dir)
                 summary_path = write_knowledge_stage_summary(
                     stage_root=stage_dir,
                     summary=summary_payload,
                 )
                 artifact_key = "knowledge_stage_summary_json"
-            elif stage_key == "recipe_llm_correct_and_link":
+            elif stage_key == "recipe_refine":
                 summary_payload = build_recipe_stage_summary(stage_root=stage_dir)
                 summary_path = write_recipe_stage_summary(
                     stage_root=stage_dir,

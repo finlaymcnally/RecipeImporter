@@ -54,9 +54,9 @@ The central runtime seam is `cookimport/staging/import_session.py`.
 
 Every stage/prediction run now starts by building authoritative labels via `build_label_first_stage_result(...)`, then writing:
 
-- `label_det/<workbook_slug>/...`
-- `label_llm_correct/<workbook_slug>/...` when line-role Codex correction runs
-- `group_recipe_spans/<workbook_slug>/...`
+- `label_deterministic/<workbook_slug>/...`
+- `label_refine/<workbook_slug>/...` when line-role Codex correction runs
+- `recipe_boundary/<workbook_slug>/...`
 
 Those artifacts are the current source of truth for recipe ownership. Authoritative rows publish:
 
@@ -72,9 +72,9 @@ Important rule:
 
 Current semantic recipe stage keys are:
 
-- `build_intermediate_det`
-- `recipe_llm_correct_and_link`
-- `build_final_recipe`
+- `recipe_build_intermediate`
+- `recipe_refine`
+- `recipe_build_final`
 
 The current public recipe pipeline id is:
 
@@ -93,20 +93,21 @@ Inline recipe tagging is not a standalone subsystem anymore. Tags ride on the re
 
 ### 2.4 Non-recipe ownership and knowledge are stage-backed too
 
-Outside-recipe ownership is now handled by deterministic Stage 7 classification in `cookimport/staging/nonrecipe_stage.py`.
+Outside-recipe ownership is now handled by deterministic non-recipe routing plus finalization in `cookimport/staging/nonrecipe_stage.py`.
 
 Run-level non-recipe artifacts:
 
-- `08_nonrecipe_spans.json`
-- `09_knowledge_outputs.json`
+- `08_nonrecipe_route.json`
+- `09_nonrecipe_authority.json`
+- `09_nonrecipe_finalize_status.json`
 
 Optional knowledge extraction writes under:
 
 - `knowledge/<workbook_slug>/...`
-- `raw/llm/<workbook_slug>/knowledge/...`
+- `raw/llm/<workbook_slug>/nonrecipe_finalize/...`
 - `raw/llm/<workbook_slug>/knowledge_manifest.json`
 
-`08_nonrecipe_spans.json` is the authoritative `knowledge` vs `other` machine-readable seam. Reviewer-facing snippets are downstream evidence, not the main ownership contract.
+`09_nonrecipe_authority.json` is the authoritative `knowledge` vs `other` machine-readable seam. Reviewer-facing snippets are downstream evidence, not the main ownership contract.
 
 ### 2.5 Stage observability is semantic now
 
@@ -114,14 +115,14 @@ Run-level stage indexing lives in `stage_observability.json` and uses semantic k
 
 Current stage families include:
 
-- `label_det`
-- `label_llm_correct`
-- `group_recipe_spans`
-- `classify_nonrecipe`
-- `build_intermediate_det`
-- `recipe_llm_correct_and_link`
-- `build_final_recipe`
-- `nonrecipe_knowledge_review`
+- `label_deterministic`
+- `label_refine`
+- `recipe_boundary`
+- `nonrecipe_route`
+- `recipe_build_intermediate`
+- `recipe_refine`
+- `recipe_build_final`
+- `nonrecipe_finalize`
 - `write_outputs`
 
 If you are reading old docs, tests, or artifacts that still imply numbered pass slots, treat them as historical noise, not the current architecture.

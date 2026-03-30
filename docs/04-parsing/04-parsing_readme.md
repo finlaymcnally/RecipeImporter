@@ -138,7 +138,7 @@ Label-first recipe-span note:
 - `label_source_of_truth.py` plus `recipe_span_grouping.py` are now the parser-owned engine behind the `recipe-boundary` stage wrapper in `cookimport/staging/pipeline_runtime.py`.
 - pre-grouping line-role candidates no longer inherit importer recipe provenance. `within_recipe_span` is now `None` until corrected labels are grouped back into spans, and prompt-preview plus Label Studio ingest mirror that same span-free contract.
 - `cookimport/parsing/recipe_span_grouping.py` now treats recipe-boundary acceptance as one explicit gate: a span needs both a title-like anchor and recipe-body proof (`INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`, `YIELD_LINE`, or `TIME_LINE`) before it becomes an accepted recipe span.
-- rejected pseudo-recipe spans now also normalize their authoritative block labels back to downstream-safe `OTHER`, so Stage 7 never sees recipe-local labels on non-recipe blocks just because title detection briefly proposed a candidate recipe shell.
+- rejected pseudo-recipe spans now also normalize their authoritative block labels back to downstream-safe `OTHER`, so the non-recipe route/finalize seam never sees recipe-local labels on non-recipe blocks just because title detection briefly proposed a candidate recipe shell.
 - Title-anchored spans can now survive one intervening `OTHER`/`KNOWLEDGE` block when the very next block returns to strong recipe-body structure. This preserves real recipes through a single stray misclassified ingredient/prose block without reviving titleless pseudo-recipes.
 - Titleless structured runs remain visible in staging diagnostics as rejected pseudo-recipes, but they are not emitted into `recipe_spans.json` or downstream recipe drafting.
 - Title-only shells and title-plus-note junk are rejected during grouping as `rejected_missing_recipe_body`; title-plus-yield/time stubs still survive so short real recipes are not dropped.
@@ -166,7 +166,7 @@ Label-first recipe-span note:
 ### Chunk/highlight path
 
 1. Importers publish canonical `source_blocks` plus optional non-authoritative `source_support`; they do not own outside-recipe truth.
-2. The shared stage session builds authoritative outside-recipe ownership from that source model and writes the final Stage 7 non-recipe rows back into `ConversionResult.non_recipe_blocks`.
+2. The shared stage session builds authoritative outside-recipe ownership from that source model and writes the final non-recipe route/finalize rows back into `ConversionResult.non_recipe_blocks`.
 3. When knowledge review is off, stage and processed-ingest paths may still compute deterministic chunks from final non-recipe rows as optional fallback/debug artifacts.
 4. When knowledge review is on, the live knowledge LLM path does not consume or regenerate those parser chunks. `cookimport/llm/codex_farm_knowledge_jobs.py` plans ordered review packets directly from review-eligible outside-recipe block rows and leaves semantic grouping to the model.
 5. Highlight extraction inside `chunks.py` still reuses the internal advice extractor from `parsing/tips.py`, but those candidates are local deterministic chunk metadata rather than the final knowledge-group authority surface.

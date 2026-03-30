@@ -180,29 +180,29 @@ Recipe runtime note:
 - recipe worker shard folders now also write `prompt.txt`, `events.jsonl`, `usage.json`, `last_message.json`, and `cost_breakdown.json`, so prompt-preview and actual-cost reporting can talk about the same visible request/response surface
 - recipe worker folders now also write `workspace_manifest.json`, `status.json`, and `live_status.json`; `status.json` is the aggregate worker-session artifact, `telemetry.json` is the stage-level session ledger, and shard proposals carry `task_packet_status_by_task_id` so per-packet results stay separate from session cost accounting
 - repair artifacts are now packet-scoped and bounded: the live recipe path can write `shards/<task_id>/repair_packet.json` and `shards/<task_id>/repair_status.json`, but it no longer writes `same_session_fix_status.json`, `watchdog_retry/`, or recipe draft-install repair scaffolding on the happy path
-- `stage_observability.json` now reports the semantic recipe stages `build_intermediate_det`, `recipe_llm_correct_and_link`, and `build_final_recipe`
+- `stage_observability.json` now reports the semantic recipe stages `recipe_build_intermediate`, `recipe_refine`, and `recipe_build_final`
 
 Knowledge-stage writes:
 
-- `data/output/<ts>/08_nonrecipe_seed_routing.json`
+- `data/output/<ts>/08_nonrecipe_route.json`
 - `data/output/<ts>/08_nonrecipe_exclusions.jsonl`
 - `data/output/<ts>/09_nonrecipe_authority.json`
 - `data/output/<ts>/09_nonrecipe_knowledge_groups.json`
-- `data/output/<ts>/09_nonrecipe_candidate_status.json`
+- `data/output/<ts>/09_nonrecipe_finalize_status.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge_manifest.json`
-- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/in/*.json`
-- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/phase_manifest.json`
-- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/shard_manifest.jsonl`
-- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/task_manifest.jsonl`
-- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/worker_assignments.json`
-- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/promotion_report.json`
-- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/telemetry.json`
-- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/failures.json`
-- `data/output/<ts>/raw/llm/<workbook_slug>/knowledge/proposals/*.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/in/*.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/phase_manifest.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/shard_manifest.jsonl`
+- `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/task_manifest.jsonl`
+- `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/worker_assignments.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/promotion_report.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/telemetry.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/failures.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/proposals/*.json`
 - `data/output/<ts>/knowledge/<workbook_slug>/knowledge.md`
 - `data/output/<ts>/knowledge/knowledge_index.json`
 
-`08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` artifact. It keeps the candidate queue, exclusions, and previews, but not final semantic category guesses. `09_nonrecipe_authority.json` is the final machine-readable truth surface for outside-recipe `knowledge` versus `other`. `09_nonrecipe_knowledge_groups.json` records the promoted model-authored related-idea groups. `09_nonrecipe_candidate_status.json` is the runtime-status artifact for finalized and unresolved candidate rows. `knowledge.md` remains the reviewer-facing summary surface.
+`08_nonrecipe_route.json` is the deterministic `nonrecipe-route` artifact. It keeps the candidate queue, exclusions, and previews, but not final semantic category guesses. `09_nonrecipe_authority.json` is the final machine-readable truth surface for outside-recipe `knowledge` versus `other`. `09_nonrecipe_knowledge_groups.json` records the promoted model-authored related-idea groups. `09_nonrecipe_finalize_status.json` is the runtime-status artifact for finalized and unresolved candidate rows. `knowledge.md` remains the reviewer-facing summary surface.
 
 Knowledge runtime note:
 - the live knowledge implementation is no longer one direct `knowledge/in -> knowledge/out` CodexFarm call
@@ -226,7 +226,7 @@ Knowledge runtime note:
 - accepted knowledge outputs are compact shard outputs: top-level `packet_id`/shard id, ordered `block_decisions`, and model-authored `idea_groups`
 - the knowledge prompt/worker contract now also treats short conceptual headings as keepable when they directly introduce useful explanatory blocks in the same owned shard; decorative or menu-like headings still stay `other`
 - the knowledge prompt/worker contract must treat packet order as weak context, not proof of semantic continuity: large block-index jumps or abrupt topic shifts are cues that nearby packet rows may be unrelated, so block-local classification stays primary and grouping should require textual continuity rather than adjacency alone
-- the authoritative knowledge contract is now: `knowledge/in/*.json` immutable shard payloads, worker-local shard outputs under `workers/*/out/*.json`, `knowledge/proposals/*.json` validated repo-serialized shard proposals, then deterministic promotion into `08_nonrecipe_seed_routing.json`, `09_nonrecipe_authority.json`, `09_nonrecipe_candidate_status.json`, and reviewer-facing knowledge artifacts
+- the authoritative knowledge contract is now: `knowledge/in/*.json` immutable shard payloads, worker-local shard outputs under `workers/*/out/*.json`, `knowledge/proposals/*.json` validated repo-serialized shard proposals, then deterministic promotion into `08_nonrecipe_route.json`, `09_nonrecipe_authority.json`, `09_nonrecipe_finalize_status.json`, and reviewer-facing knowledge artifacts
 - valid knowledge worker shard outputs remain authoritative even if the workspace session ends with no final assistant message; `final_agent_message_state` is still recorded in telemetry/live-status for debugging, but follow-up recovery only keys off file-level validation failure
 - direct workspace-worker telemetry is now fail-closed on token accounting too: if a workspace session shows real work but no usable Codex usage payload, the runtime summary records `token_usage_status=partial|unavailable` and blanks billed-token totals instead of publishing literal zero spend
 - invalid but near-miss knowledge outputs now get one repo-owned repair attempt at task scope; task/shard folders can include `repair_prompt.txt`, `repair_events.jsonl`, `repair_last_message.json`, `repair_usage.json`, and `repair_status.json`, while proposal/status payloads record whether repair was attempted and whether the final validated output came from that repair pass
@@ -295,7 +295,7 @@ Prompt/debug artifacts:
 - `prediction-run/prompt_budget_summary.json` now also carries pathological direct-exec spend signals such as preflight-rejected shard counts, watchdog-killed shard counts, invalid-output shard counts/tokens, missing-output shard counts, repaired-shard counts, command-executing shard counts, reasoning-heavy shard counts, and merged `pathological_flags` so March 18-style blowups are visible without rereading worker `events.jsonl`
 - stage-local direct-exec summaries now also expose `prompt_input_mode_counts`, `workspace_worker_session_count`, `structured_followup_call_count`, and `execution_mode_summary`, so a finished run shows how much work came from main worker sessions versus shard-local retry / repair follow-up calls
 - the knowledge stage row inside `prediction-run/prompt_budget_summary.json` now also carries compact packet / worker / follow-up counters copied from `knowledge_stage_summary.json`, so cost review and outcome review use the same vocabulary
-- the knowledge stage now also publishes packet-economics rollups all the way through `raw/llm/<book>/knowledge/telemetry.json`, `knowledge_stage_summary.json`, and `prediction-run/prompt_budget_summary.json`: packet counts, repair-packet churn, owned-row totals, semantic-payload tokens, protocol-overhead tokens, and per-owned-row cost ratios all use the same repo-owned numbers
+- the knowledge stage now also publishes packet-economics rollups all the way through `raw/llm/<book>/nonrecipe_finalize/telemetry.json`, `knowledge_stage_summary.json`, and `prediction-run/prompt_budget_summary.json`: packet counts, repair-packet churn, owned-row totals, semantic-payload tokens, protocol-overhead tokens, and per-owned-row cost ratios all use the same repo-owned numbers
 - `prediction-run/prompt_budget_summary.json` now also reports requested-vs-actual run-count metadata per active Codex stage (`requested_run_count`, `actual_run_count`, `run_count_status`, `run_count_explanation`) so a finished run shows clearly when a `3/4/5` target was matched or when the planner legally used fewer/more shards
 - `prediction-run/prompt_budget_summary.json` now also falls back to current shard-runtime worker telemetry plus the linked processed-run `line-role-pipeline/telemetry_summary.json` when a benchmark/prediction manifest only carries lightweight phase summaries or a metadata-only benchmark copy
 - when line-role telemetry only exposes nested batch/attempt summaries, `prompt_budget_summary.json` should still recover those `tokens_total` values so the finished-run whole-run drain is not understated
@@ -309,7 +309,7 @@ Prompt/debug artifacts:
 - when `--run` points at a benchmark root, preview follows `run_manifest.json.artifacts.{processed_output_run_dir,stage_run_dir}` until it reaches the processed stage run with the real staged outputs
 - preview manifests now carry `phase_plans` keyed by stage, with worker count, shard count, owned-ID distributions, and first-turn payload distributions; prompt rows also carry `runtime_shard_id`, `runtime_worker_id`, and `runtime_owned_ids`
 - `cf-debug preview-shard-sweep --run ... --experiment-file docs/examples/shard_sweep_examples.json --out ...` runs several local worker/shard planning variants and writes one sweep manifest plus per-experiment preview dirs
-- preview export now always rebuilds recipe and knowledge shard payloads from the predictive-safe processed artifact itself; it does not depend on saved live payload copies under `raw/llm/<workbook_slug>/recipe_phase_runtime/inputs/` or `raw/llm/<workbook_slug>/knowledge/in/`
+- preview export now always rebuilds recipe and knowledge shard payloads from the predictive-safe processed artifact itself; it does not depend on saved live payload copies under `raw/llm/<workbook_slug>/recipe_phase_runtime/inputs/` or `raw/llm/<workbook_slug>/nonrecipe_finalize/in/`
 - preview export also writes `prompt_preview_budget_summary.json` and `prompt_preview_budget_summary.md`; it is predictive-only, prefers the paired deterministic/`vanilla` processed artifact when a benchmark root has both variants, uses structural prompt/output reconstruction for token estimates, reports stages as unavailable when that structure cannot be reconstructed safely, and hard-refuses Codex-backed or ambiguous processed runs
 - when preview rebuilds knowledge planning from older deterministic artifacts, stale recipe-local labels that survived outside recipe spans are treated as preview-only excluded `other` rows so old vanilla runs still produce a forward-looking estimate instead of crashing
 - reviewer-facing prompt files stay prompt-level on purpose; the durable cutover is to annotate them with runtime ownership metadata (`runtime_shard_id`, `runtime_worker_id`, `runtime_owned_ids`), not to invent a second legacy export family just for shard workers
@@ -331,11 +331,11 @@ Prompt/debug artifacts:
 - line-role shard validation is still structurally strict, and the semantic guard now applies directly to workspace-ledger harvest plus watchdog retry: if an edited shard collapses a diverse shard into pathological uniform or near-uniform labels, the shard stays invalid and the stage fails closed instead of silently promoting nonsense or borrowing deterministic baseline labels
 - line-role row transport is now split cleanly by seam: the inline compact prompt uses pipe-delimited target rows plus selective `ctx:` windows, the file-backed billed shard JSON is the tuple-based `v=1` transport, and a parallel debug copy keeps the richer local object rows
 - prompt/actual cost reporting for the direct phases now also carries a shared cost-breakdown vocabulary: `visible_input_tokens`, `cached_input_tokens`, `visible_output_tokens`, and `wrapper_overhead_tokens`
-- live line-role execution no longer needs one fresh Codex session per shard in the common multi-shard case; it now plans contiguous shards, groups them by worker assignment, lets one workspace-worker Codex session process several local shard files, validates exact owned-row coverage per harvested output file, and promotes accepted rows into the existing `label_llm_correct` outputs.
+- live line-role execution no longer needs one fresh Codex session per shard in the common multi-shard case; it now plans contiguous shards, groups them by worker assignment, lets one workspace-worker Codex session process several local shard files, validates exact owned-row coverage per harvested output file, and promotes accepted rows into the existing `label_refine` outputs.
 - prompt preview does not reconstruct a separate tags surface; inline recipe tags ride on the recipe contract and are projected into outputs after correction/normalization, so tagging changes do not add prompt input tokens unless the recipe prompt itself changes
 - preview-only runs may not have `var/run_assets/<run_id>/`; in that case prompt reconstruction falls back to pipeline metadata in `llm_pipelines/`
 - preview reconstruction is intentionally preview-only. Do not add a fake execution path into the live orchestrators just to make prompt previews work.
-- prompt artifacts are stage-named now (`stage_key`, `stage_label`, `stage_artifact_stem`) and emit stage-named files such as `prompt_nonrecipe_knowledge_review.txt`
+- prompt artifacts are stage-named now (`stage_key`, `stage_label`, `stage_artifact_stem`) and emit stage-named files such as `prompt_nonrecipe_finalize.txt`
 - active knowledge-stage follow-up/debug surfaces should use semantic `knowledge` selectors and audit names. Older numbered stage labels belong only to archived local readers.
 
 Run-level observability note:
@@ -410,8 +410,8 @@ Structured output contract:
 - Regenerated prompt preview on an old benchmark root is forward-looking, not retrospective truth. Use a fresh preview to answer "what would this cost now?", and use finished-run `prompt_budget_summary.json` / `cf-debug actual-costs` to answer "what did that old run actually cost?".
 - Large preview-vs-live gaps on current direct-exec runs are usually transport/runtime accounting issues such as cached-input replay, file reads, or larger real outputs than the structural estimate, not evidence that Codex secretly took extra turns or wandered the repo.
 - Recipe stage readers should not treat `recipe_correction/{in,out}` as runtime truth. Current readers and debug helpers should start from `recipe_phase_runtime/inputs/*.json`, `recipe_phase_runtime/proposals/*.json`, and `recipe_correction_audit/*.json`.
-- Stage 7 wording cleanup was a label/reporting pass, not a new runtime. The durable knowledge contract is still:
-  - deterministic Stage 7 / `nonrecipe-route` review routing
+- The numbered-stage wording cleanup was a label/reporting pass, not a new runtime. The durable knowledge contract is still:
+  - deterministic `nonrecipe-route` review routing
   - deterministic non-recipe routing plus packet planning before review
   - immutable `knowledge/in/*.json` inputs
   - validated `knowledge/proposals/*.json` outputs

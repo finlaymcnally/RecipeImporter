@@ -37,8 +37,8 @@ SUPPORTED_STAGE_FILTERS = {
     "line_role",
     "knowledge",
     "recipe",
-    "recipe_llm_correct_and_link",
-    "build_final_recipe",
+    "recipe_refine",
+    "recipe_build_final",
 }
 
 OUTSIDE_SPAN_CASE_ID_RE = re.compile(r"^outside_span_window_(?P<start>\d+)_(?P<end>\d+)$")
@@ -232,12 +232,12 @@ def _iter_prompt_category_manifest_paths(prompts_dir: Path) -> list[Path]:
 
 
 def _resolve_knowledge_prompt_task_path(prompts_dir: Path) -> Path | None:
-    candidates: list[Path] = [prompts_dir / "prompt_nonrecipe_knowledge_review.txt"]
+    candidates: list[Path] = [prompts_dir / "prompt_nonrecipe_finalize.txt"]
     for candidate in _iter_prompt_category_manifest_paths(prompts_dir):
         name = candidate.name.lower()
-        if name.startswith("prompt_nonrecipe_knowledge_review") and name.endswith(".txt"):
+        if name.startswith("prompt_nonrecipe_finalize") and name.endswith(".txt"):
             candidates.append(candidate)
-    candidates.extend(sorted(prompts_dir.glob("prompt_nonrecipe_knowledge_review*.txt")))
+    candidates.extend(sorted(prompts_dir.glob("prompt_nonrecipe_finalize*.txt")))
 
     seen: set[Path] = set()
     for candidate in candidates:

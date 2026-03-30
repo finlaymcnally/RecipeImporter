@@ -46,6 +46,8 @@ If RecipeImport launches CodexFarm normally, it should use the dedicated recipe 
 
 For direct `codex exec` shard workers, RecipeImport now also launches from a sterile external worker directory under `~/.codex-recipe/recipeimport-direct-exec-workspaces/`. That second seam is what prevents repo `AGENTS.md` inheritance during recipe, knowledge, and canonical line-role shard calls. The Codex home and the direct worker cwd are now intentionally separate concerns.
 
+Do not repoint recipe direct workers at a run-local `.codex-recipe` folder under `data/output/...`. That creates a fresh unauthenticated Codex home and breaks live `codex exec` auth. Keep the authenticated recipe profile as `CODEX_HOME`; only the worker cwd should be sterile.
+
 If you are debugging a RecipeImport CodexFarm run and it seems to be using the wrong Codex session, the first place to inspect is `cookimport/llm/codex_farm_runner.py`, not the pipeline JSON.
 
 ## Override rule

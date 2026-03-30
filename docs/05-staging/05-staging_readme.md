@@ -43,12 +43,12 @@ Staging is the boundary between importer/parsing internals and persisted artifac
 - `cookimport/staging/nonrecipe_seed.py`, `nonrecipe_routing.py`, `nonrecipe_authority.py`, `nonrecipe_review_status.py`
   - Small owners for seed spans, review-queue routing, final authority, late-output/scoring views, and reviewed/unreviewed bookkeeping.
 - `cookimport/staging/nonrecipe_stage.py`
-  - Thin public seam that assembles the owner modules above into the Stage 7 routing/final-authority runtime result.
+  - Thin public seam that assembles the owner modules above into the non-recipe route/final-authority runtime result.
 - `cookimport/staging/pipeline_runtime.py`
   - Defines the stage-owned runtime bundles now used by `import_session.py`: `ExtractedBookBundle`, `RecipeBoundaryResult`, `RecipeRefineResult`, `NonrecipeRouteResult`, and `KnowledgeFinalResult`.
   - Keeps the five-stage authority order explicit; the writer now emits split non-recipe seed-routing, final-authority, and review-status artifacts instead of one mixed file.
 - `cookimport/staging/writer.py`
-  - Writes recipe-authority artifacts, intermediate/final outputs, Stage 7 non-recipe artifacts, section artifacts, chunks, raw artifacts, and report JSON.
+  - Writes recipe-authority artifacts, intermediate/final outputs, non-recipe route/finalize artifacts, section artifacts, chunks, raw artifacts, and report JSON.
   - Generates/stabilizes IDs where needed.
 - `cookimport/staging/recipe_block_evidence.py`, `knowledge_block_evidence.py`, `block_label_resolution.py`
   - Owned builders for recipe-local evidence, final non-recipe knowledge evidence, and block-label priority resolution.
@@ -95,19 +95,19 @@ Per run, output root:
 
 Per workbook (slugified file stem):
 
-- `08_nonrecipe_seed_routing.json`
+- `08_nonrecipe_route.json`
 - `08_nonrecipe_exclusions.jsonl`
 - `09_nonrecipe_authority.json`
 - `09_nonrecipe_knowledge_groups.json`
-- `09_nonrecipe_candidate_status.json`
+- `09_nonrecipe_finalize_status.json`
 - `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json`
-- `label_det/<workbook_slug>/labeled_lines.jsonl`
-- `label_det/<workbook_slug>/block_labels.json`
-- `label_llm_correct/<workbook_slug>/labeled_lines.jsonl`
-- `label_llm_correct/<workbook_slug>/block_labels.json`
-- `group_recipe_spans/<workbook_slug>/recipe_spans.json`
-- `group_recipe_spans/<workbook_slug>/span_decisions.json`
-- `group_recipe_spans/<workbook_slug>/authoritative_block_labels.json`
+- `label_deterministic/<workbook_slug>/labeled_lines.jsonl`
+- `label_deterministic/<workbook_slug>/block_labels.json`
+- `label_refine/<workbook_slug>/labeled_lines.jsonl`
+- `label_refine/<workbook_slug>/block_labels.json`
+- `recipe_boundary/<workbook_slug>/recipe_spans.json`
+- `recipe_boundary/<workbook_slug>/span_decisions.json`
+- `recipe_boundary/<workbook_slug>/authoritative_block_labels.json`
 - `intermediate drafts/<workbook_slug>/r{index}.jsonld`
 - `final drafts/<workbook_slug>/r{index}.json`
 - `sections/<workbook_slug>/r{index}.sections.json`
@@ -124,7 +124,7 @@ Per workbook (slugified file stem):
 - `raw/llm/<workbook_slug>/recipe_correction_audit/*.json` (when recipe Codex correction ran)
 - `raw/llm/<workbook_slug>/recipe_phase_runtime/inputs/*.json` + `raw/llm/<workbook_slug>/recipe_phase_runtime/proposals/*.json` (when recipe Codex correction ran)
 - `raw/llm/<workbook_slug>/recipe_manifest.json`
-- `raw/llm/<workbook_slug>/knowledge/{in,out}/*.json` + `knowledge_manifest.json` (if knowledge harvesting is enabled)
+- `raw/llm/<workbook_slug>/nonrecipe_finalize/{in,out}/*.json` + `knowledge_manifest.json` (if knowledge harvesting is enabled)
 - `<workbook_slug>.excel_import_report.json` at run root
 - `processing_timeseries.jsonl` at run root (stage status snapshots + CPU utilization samples)
 - `stage_observability.json` at run root (canonical semantic stage index for the run)
@@ -135,8 +135,8 @@ Per workbook (slugified file stem):
 
 Label-first metadata note:
 
-- `label_det`, `label_llm_correct`, and `group_recipe_spans` now publish explicit `decided_by`, `reason_tags`, and `escalation_reasons` on authoritative line/block/span artifacts.
-- `group_recipe_spans/<workbook_slug>/recipe_spans.json` is the accepted authoritative span list only.
+- `label_deterministic`, `label_refine`, and `recipe_boundary` now publish explicit `decided_by`, `reason_tags`, and `escalation_reasons` on authoritative line/block/span artifacts.
+- `recipe_boundary/<workbook_slug>/recipe_spans.json` is the accepted authoritative span list only.
 - `span_decisions.json` is the compact reviewer/debug rollup for both accepted recipe spans and rejected pseudo-recipe runs, including explicit `decision` and `rejection_reason` fields.
 - Accepted grouped spans now already satisfy the minimum recipe-body rule. `build_conversion_result_from_label_spans(...)` no longer performs ordinary late `rejected_missing_recipe_body` demotion; an impossible title-only projection is surfaced only as an invariant warning.
 
@@ -172,11 +172,11 @@ Recipe-authority note:
 
 Stage-block `KNOWLEDGE` label contract:
 - `stage_block_predictions.json` now uses only the explicit final non-recipe authority recorded in `09_nonrecipe_authority.json`.
-- `08_nonrecipe_seed_routing.json` is the deterministic `nonrecipe-route` artifact. It keeps candidate/exclude routing, exclusion reasons, block ids, and previews, but it does not publish final semantic category guesses.
+- `08_nonrecipe_route.json` is the deterministic `nonrecipe-route` artifact. It keeps candidate/exclude routing, exclusion reasons, block ids, and previews, but it does not publish final semantic category guesses.
 - The nonrecipe router consumes authoritative block labels, not repair heuristics: `NONRECIPE_CANDIDATE` feeds the knowledge queue, `NONRECIPE_EXCLUDE` becomes immediate final `other`, and malformed authoritative labels are hard errors.
 - `09_nonrecipe_authority.json` is the only final-truth artifact for outside-recipe `knowledge` versus `other`. It contains only authoritative spans, categories, and block indices.
 - `09_nonrecipe_knowledge_groups.json` is the explicit promoted-group artifact for packet-reviewed related ideas. It is reviewer/debug context, not the category-authority file.
-- `09_nonrecipe_candidate_status.json` is the runtime-status artifact for finalized and unresolved candidate rows. It keeps unresolved candidate metadata out of the authority file while still making incompleteness visible.
+- `09_nonrecipe_finalize_status.json` is the runtime-status artifact for finalized and unresolved candidate rows. It keeps unresolved candidate metadata out of the authority file while still making incompleteness visible.
 - `08_nonrecipe_exclusions.jsonl` is the row-level explanation ledger for the upstream obvious-junk veto. When knowledge input looks too large or a row seems to have disappeared before review, inspect this file before changing scorer math or knowledge prompts.
 - Optional knowledge groups are reviewer-facing context; Codex `block_decisions` are what refine final `KNOWLEDGE` versus `OTHER`, and the promoted group artifact records how the model grouped those kept blocks.
 - Candidate rows that remain unresolved now stay explicit in benchmark/Label Studio metadata as `unresolved_candidate_*`; semantic scoring excludes them instead of flattening them into `OTHER`.

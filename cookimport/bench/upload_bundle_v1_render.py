@@ -81,7 +81,7 @@ def _recipe_stage_metric_key(
     stage_key: str,
     pass_stage_per_label_metrics: dict[str, Any],
 ) -> str | None:
-    if stage_key == "build_intermediate_det":
+    if stage_key == "recipe_build_intermediate":
         return None
     return stage_key
 
@@ -93,14 +93,14 @@ def _build_recipe_stage_row(
 ) -> dict[str, Any]:
     stage_key = str(recipe_stage.get("stage_key") or "")
     stage_label = str(recipe_stage.get("stage_label") or stage_key)
-    if stage_key == "build_intermediate_det":
+    if stage_key == "recipe_build_intermediate":
         return {
             "stage_key": stage_key,
             "stage_label": stage_label,
             "status": str(row.get("build_intermediate_status") or "ok"),
             "deterministic_stage": True,
         }
-    if stage_key == "recipe_llm_correct_and_link":
+    if stage_key == "recipe_refine":
         return {
             "stage_key": stage_key,
             "stage_label": stage_label,
@@ -118,7 +118,7 @@ def _build_recipe_stage_row(
             ),
             "empty_mapping": bool(row.get("correction_empty_mapping")),
         }
-    if stage_key == "build_final_recipe":
+    if stage_key == "recipe_build_final":
         return {
             "stage_key": stage_key,
             "stage_label": stage_label,

@@ -6,7 +6,7 @@ from .nonrecipe_authority_contract import NonRecipeCandidateStatusResult
 from .nonrecipe_seed import build_nonrecipe_spans_from_categories
 
 
-def build_nonrecipe_candidate_status_result(
+def build_nonrecipe_finalize_status_result(
     *,
     full_blocks_by_index: Mapping[int, Mapping[str, Any]],
     candidate_block_indices: Sequence[int],

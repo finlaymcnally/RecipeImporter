@@ -200,22 +200,22 @@ def test_existing_output_adapter_falls_back_to_discovered_runs(tmp_path: Path) -
     ]
     assert model.topology["recipe_topology_key"] == "single_correction"
     assert model.topology["observed_recipe_stage_call_counts"] == {
-        "build_intermediate_det": 0,
-        "recipe_llm_correct_and_link": 0,
-        "build_final_recipe": 0,
+        "recipe_build_intermediate": 0,
+        "recipe_refine": 0,
+        "recipe_build_final": 0,
     }
     assert model.topology["recipe_stages"] == [
         {
-            "stage_key": "build_intermediate_det",
-            "stage_label": "Build Intermediate Recipe",
+            "stage_key": "recipe_build_intermediate",
+            "stage_label": "Recipe Build Intermediate",
         },
         {
-            "stage_key": "recipe_llm_correct_and_link",
-            "stage_label": "Recipe LLM Correction",
+            "stage_key": "recipe_refine",
+            "stage_label": "Recipe Refine",
         },
         {
-            "stage_key": "build_final_recipe",
-            "stage_label": "Build Final Recipe",
+            "stage_key": "recipe_build_final",
+            "stage_label": "Recipe Build Final",
         },
     ]
     assert model.topology["runtime_runs"] == [
@@ -283,9 +283,9 @@ def test_existing_output_adapter_counts_final_recipe_calls_only_when_observed(
     )
 
     assert model.topology["observed_recipe_stage_call_counts"] == {
-        "build_intermediate_det": 1,
-        "recipe_llm_correct_and_link": 1,
-        "build_final_recipe": 0,
+        "recipe_build_intermediate": 1,
+        "recipe_refine": 1,
+        "recipe_build_final": 0,
     }
 
 

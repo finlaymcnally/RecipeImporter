@@ -146,7 +146,7 @@ def build_minimal_upload_bundle(
             encoding="utf-8",
         )
 
-        prompt_knowledge_path = prompts_dir / "prompt_nonrecipe_knowledge_review.txt"
+        prompt_knowledge_path = prompts_dir / "prompt_nonrecipe_finalize.txt"
         prompt_knowledge_path.write_text("knowledge prompt body\n", encoding="utf-8")
 
         prompt_budget_path = prediction_run_dir / "prompt_budget_summary.json"

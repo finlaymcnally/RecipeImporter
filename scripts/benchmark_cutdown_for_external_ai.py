@@ -234,7 +234,7 @@ AGGREGATED_ROOT_SUMMARY_MD = "benchmark_summary.md"
 PROMPT_LOG_FILE_NAME = "codexfarm_prompt_log.dedup.txt"
 FULL_PROMPT_LOG_FILE_NAME = "full_prompt_log.jsonl"
 PROMPT_TYPE_SAMPLES_FILE_NAME = "prompt_type_samples_from_full_prompt_log.md"
-KNOWLEDGE_PROMPT_FILE_NAME = "prompt_nonrecipe_knowledge_review.txt"
+KNOWLEDGE_PROMPT_FILE_NAME = "prompt_nonrecipe_finalize.txt"
 KNOWLEDGE_MANIFEST_FILE_NAME = "knowledge_manifest.json"
 PROMPT_WARNING_AGGREGATE_FILE_NAME = "prompt_warning_aggregate.json"
 PROJECTION_TRACE_FILE_NAME = "projection_trace.codex_to_benchmark.json"
@@ -260,23 +260,23 @@ PROMPT_SECTION_HEADER_RE = re.compile(
 PROMPT_ENTRY_RE = re.compile(r"^(INPUT|OUTPUT)\s+([0-9A-Za-z_-]+)\s*=>\s*(.+)$")
 PROMPT_CATEGORY_SORT_RE = re.compile(r"^([a-z]+)(\d+)(.*)$")
 LLM_STAGE_MAP = {
-    "build_intermediate_det": {
-        "artifact_stem": stage_artifact_stem("build_intermediate_det"),
+    "recipe_build_intermediate": {
+        "artifact_stem": stage_artifact_stem("recipe_build_intermediate"),
         "pipeline_id": None,
         "sort_order": 0,
     },
-    "recipe_llm_correct_and_link": {
-        "artifact_stem": stage_artifact_stem("recipe_llm_correct_and_link"),
+    "recipe_refine": {
+        "artifact_stem": stage_artifact_stem("recipe_refine"),
         "pipeline_id": "recipe.correction.compact.v1",
         "sort_order": 1,
     },
-    "build_final_recipe": {
-        "artifact_stem": stage_artifact_stem("build_final_recipe"),
+    "recipe_build_final": {
+        "artifact_stem": stage_artifact_stem("recipe_build_final"),
         "pipeline_id": None,
         "sort_order": 2,
     },
-    "nonrecipe_knowledge_review": {
-        "artifact_stem": stage_artifact_stem("nonrecipe_knowledge_review"),
+    "nonrecipe_finalize": {
+        "artifact_stem": stage_artifact_stem("nonrecipe_finalize"),
         "pipeline_id": "recipe.knowledge.compact.v1",
         "sort_order": 4,
     },
@@ -1762,7 +1762,7 @@ def _summarize_prompt_warning_aggregate(full_prompt_log_path: Path) -> dict[str,
         warnings = _coerce_str_list(parsed_response.get("warnings"))
         correction_outputs = (
             _upload_bundle_recipe_correction_output_rows(parsed_response)
-            if stage_key == "recipe_llm_correct_and_link"
+            if stage_key == "recipe_refine"
             else []
         )
         if correction_outputs:
@@ -1826,7 +1826,7 @@ def _build_recipe_spans_from_full_prompt_rows(rows: list[dict[str, Any]]) -> lis
     seen: set[tuple[str, int, int]] = set()
     for row in rows:
         stage_key = _prompt_row_stage_key(row)
-        if stage_key not in {"recipe_llm_correct_and_link", "build_intermediate_det"}:
+        if stage_key not in {"recipe_refine", "recipe_build_intermediate"}:
             continue
         request_input_payload = _parse_json_like(row.get("request_input_payload"))
         if not isinstance(request_input_payload, dict):
@@ -2559,9 +2559,9 @@ def _resolve_knowledge_prompt_path(run_dir: Path) -> Path | None:
             continue
         for candidate in _iter_prompt_category_manifest_paths(prompts_dir):
             name = candidate.name.lower()
-            if name.startswith("prompt_nonrecipe_knowledge_review") and name.endswith(".txt"):
+            if name.startswith("prompt_nonrecipe_finalize") and name.endswith(".txt"):
                 candidate_paths.append(candidate)
-        candidate_paths.extend(sorted(prompts_dir.glob("prompt_nonrecipe_knowledge_review*.txt")))
+        candidate_paths.extend(sorted(prompts_dir.glob("prompt_nonrecipe_finalize*.txt")))
     seen: set[Path] = set()
     for candidate in candidate_paths:
         resolved = candidate.resolve(strict=False)
@@ -2783,13 +2783,13 @@ def _load_llm_manifest_recipe_diagnostics(
 
             extracted = {
                 "build_intermediate_status": _manifest_pass_status(
-                    recipe_payload.get("build_intermediate_det")
+                    recipe_payload.get("recipe_build_intermediate")
                 ),
                 "correction_status": _manifest_pass_status(
-                    recipe_payload.get("recipe_llm_correct_and_link")
+                    recipe_payload.get("recipe_refine")
                 ),
                 "build_final_status": _manifest_pass_status(
-                    recipe_payload.get("build_final_recipe")
+                    recipe_payload.get("recipe_build_final")
                 ),
                 "final_mapping_status": str(recipe_payload.get("mapping_status") or "").strip(),
                 "final_mapping_reason": str(recipe_payload.get("mapping_reason") or "").strip(),
@@ -3074,13 +3074,13 @@ def _reconstruct_full_prompt_log(
                     continue
                 input_by_name = {path.name: path for path in input_files}
                 output_by_name = {path.name: path for path in output_files}
-                if stage_key == "nonrecipe_knowledge_review":
+                if stage_key == "nonrecipe_finalize":
                     pass_process_payload = (
                         knowledge_payload.get("process_run")
                         if isinstance(knowledge_payload.get("process_run"), dict)
                         else None
                     )
-                elif stage_key == "recipe_llm_correct_and_link":
+                elif stage_key == "recipe_refine":
                     pass_process_payload = (
                         process_runs.get("recipe_correction")
                         if isinstance(process_runs, dict)
@@ -3131,7 +3131,7 @@ def _reconstruct_full_prompt_log(
                         recipe_id = str(parsed_input.get("recipe_id") or "").strip() or None
                     if recipe_id is None and isinstance(parsed_output, dict):
                         recipe_id = str(parsed_output.get("recipe_id") or "").strip() or None
-                    if recipe_id is None and stage_key == "nonrecipe_knowledge_review":
+                    if recipe_id is None and stage_key == "nonrecipe_finalize":
                         chunk_id = None
                         if isinstance(parsed_input, dict):
                             chunk_id = str(parsed_input.get("chunk_id") or "").strip() or None
@@ -3248,7 +3248,7 @@ def _build_projection_trace(
         warnings = _coerce_str_list(parsed_response.get("warnings"))
         correction_outputs = (
             _upload_bundle_recipe_correction_output_rows(parsed_response)
-            if stage_key == "recipe_llm_correct_and_link"
+            if stage_key == "recipe_refine"
             else []
         )
         if correction_outputs:
@@ -3886,8 +3886,8 @@ def _prompt_case_score(
     changed_lines_for_recipe: int,
 ) -> int:
     stage_weights = {
-        "recipe_llm_correct_and_link": 6,
-        "nonrecipe_knowledge_review": 3,
+        "recipe_refine": 6,
+        "nonrecipe_finalize": 3,
         "tags": 1,
     }
     return (
@@ -4095,7 +4095,7 @@ def _output_excerpt_for_prompt_row(row: dict[str, Any], *, excerpt_limit: int) -
         return _excerpt(_normalize_whitespace(warnings[0]), max_len=excerpt_limit)
 
     stage_key = _prompt_row_stage_key(row)
-    if stage_key == "recipe_llm_correct_and_link":
+    if stage_key == "recipe_refine":
         canonical_recipe = (
             parsed_response.get("canonical_recipe")
             if isinstance(parsed_response.get("canonical_recipe"), dict)
@@ -4377,7 +4377,7 @@ def _build_pair_diagnostics(
         parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
         warnings = _coerce_str_list(parsed_response.get("warnings"))
         empty_mapping = False
-        if stage_key == "recipe_llm_correct_and_link":
+        if stage_key == "recipe_refine":
             correction_outputs = _upload_bundle_recipe_correction_output_rows(parsed_response)
             if correction_outputs:
                 warnings = []
@@ -4460,9 +4460,9 @@ def _build_pair_diagnostics(
     for row in sorted(codex_prompt_rows, key=_prompt_row_identity_key):
         stage_key = _prompt_row_stage_key(row)
         if stage_key not in {
-            "build_intermediate_det",
-            "recipe_llm_correct_and_link",
-            "build_final_recipe",
+            "recipe_build_intermediate",
+            "recipe_refine",
+            "recipe_build_final",
         }:
             continue
         for recipe_id in _prompt_row_owned_recipe_ids(row):
@@ -4541,13 +4541,13 @@ def _build_pair_diagnostics(
         delta_codex_minus_baseline = _delta(codex_accuracy, baseline_accuracy)
 
         build_intermediate_row = stage_rows_by_recipe.get(recipe_id, {}).get(
-            "build_intermediate_det"
+            "recipe_build_intermediate"
         )
         correction_row = stage_rows_by_recipe.get(recipe_id, {}).get(
-            "recipe_llm_correct_and_link"
+            "recipe_refine"
         )
         build_final_row = stage_rows_by_recipe.get(recipe_id, {}).get(
-            "build_final_recipe"
+            "recipe_build_final"
         )
         manifest_diagnostics = manifest_diagnostics_by_recipe.get(recipe_id, {})
         build_intermediate_blocks: list[dict[str, Any]] = []
@@ -4801,7 +4801,7 @@ def _build_pair_diagnostics(
         request_input_payload = (
             request_input_payload if isinstance(request_input_payload, dict) else {}
         )
-        if stage_key == "recipe_llm_correct_and_link":
+        if stage_key == "recipe_refine":
             correction_outputs = _upload_bundle_recipe_correction_output_rows(parsed_response)
             input_block_count = _upload_bundle_recipe_correction_input_block_count(
                 request_input_payload
@@ -4830,7 +4830,7 @@ def _build_pair_diagnostics(
         elif stage_key == "line_role":
             row_payload = request_input_payload.get("rows")
             input_block_count = len(row_payload) if isinstance(row_payload, list) else 0
-        elif stage_key == "build_final_recipe":
+        elif stage_key == "recipe_build_final":
             draft_payload = _parse_json_like(parsed_response.get("draft_v1"))
             draft_payload = draft_payload if isinstance(draft_payload, dict) else {}
             steps_payload = draft_payload.get("steps")
@@ -5388,13 +5388,13 @@ def _build_warning_and_trace_summary(
         "correction_degraded_recipe_count": correction_degraded_recipe_count,
         "build_final_fallback_recipe_count": build_final_fallback_recipe_count,
         "recipe_stage_status_counts": {
-            "build_intermediate_det": _counter_to_sorted_dict(
+            "recipe_build_intermediate": _counter_to_sorted_dict(
                 build_intermediate_status_counts
             ),
-            "recipe_llm_correct_and_link": _counter_to_sorted_dict(
+            "recipe_refine": _counter_to_sorted_dict(
                 correction_status_counts
             ),
-            "build_final_recipe": _counter_to_sorted_dict(build_final_status_counts),
+            "recipe_build_final": _counter_to_sorted_dict(build_final_status_counts),
         },
         "correction_degradation_severity_counts": _counter_to_sorted_dict(
             correction_degradation_severity_counts
@@ -5649,13 +5649,13 @@ def _warning_summary_for_recipe(row: dict[str, Any]) -> str:
     correction_warning_count = int(_coerce_int(row.get("correction_warning_count")) or 0)
     if correction_warning_count > 0:
         chunks.append(
-            "recipe_llm_correct_and_link"
+            "recipe_refine"
             f"({correction_warning_count}): "
             f"{_serialize_pipe_list(_coerce_str_list(row.get('correction_warning_buckets')))}"
         )
     final_mapping_status = str(row.get("final_mapping_status") or "").strip()
     if final_mapping_status:
-        chunks.append(f"build_final_recipe_mapping: {final_mapping_status}")
+        chunks.append(f"recipe_build_final_mapping: {final_mapping_status}")
     structural_status = str(row.get("structural_status") or "").strip()
     if structural_status:
         chunks.append(f"structural_status: {structural_status}")
@@ -5763,7 +5763,7 @@ def _build_selected_recipe_packets(
                 continue
             stage_key = str(recipe_stage.get("stage_key") or "").strip()
             stage_label = str(recipe_stage.get("stage_label") or stage_key).strip()
-            if stage_key == "build_intermediate_det":
+            if stage_key == "recipe_build_intermediate":
                 recipe_stage_summaries.append(
                     {
                         "stage_key": stage_key,
@@ -5772,7 +5772,7 @@ def _build_selected_recipe_packets(
                     }
                 )
                 continue
-            if stage_key == "recipe_llm_correct_and_link":
+            if stage_key == "recipe_refine":
                 recipe_stage_summaries.append(
                     {
                         "stage_key": stage_key,
@@ -5781,7 +5781,7 @@ def _build_selected_recipe_packets(
                     }
                 )
                 continue
-            if stage_key == "build_final_recipe":
+            if stage_key == "recipe_build_final":
                 recipe_stage_summaries.append(
                     {
                         "stage_key": stage_key,
@@ -5866,7 +5866,7 @@ def _render_starter_pack_casebook(packets: list[dict[str, Any]]) -> str:
                 "",
                 "### Stage Excerpts",
                 (
-                    "- build_intermediate_det: "
+                    "- recipe_build_intermediate: "
                     f"status={packet.get('build_intermediate_summary', {}).get('status')} "
                     "deterministic_stage=yes "
                     f"input_block_count={packet.get('build_intermediate_summary', {}).get('input_block_count')}"
@@ -5884,7 +5884,7 @@ def _render_starter_pack_casebook(packets: list[dict[str, Any]]) -> str:
                 continue
             stage_label = str(recipe_stage.get("stage_label") or recipe_stage.get("stage_key") or "")
             stage_key = str(recipe_stage.get("stage_key") or "")
-            if stage_key == "build_intermediate_det":
+            if stage_key == "recipe_build_intermediate":
                 lines.extend(
                     [
                         (
@@ -5895,7 +5895,7 @@ def _render_starter_pack_casebook(packets: list[dict[str, Any]]) -> str:
                     ]
                 )
                 continue
-            if stage_key == "recipe_llm_correct_and_link":
+            if stage_key == "recipe_refine":
                 lines.extend(
                     [
                         (
@@ -8128,12 +8128,12 @@ def _upload_bundle_collect_stage_reports_for_run(
     final_outputs: dict[str, dict[str, Any]] = {}
     for llm_run_dir in llm_run_dirs:
         correction_in_dir = (
-            llm_run_dir / stage_artifact_stem("recipe_llm_correct_and_link") / "in"
+            llm_run_dir / stage_artifact_stem("recipe_refine") / "in"
         )
         correction_out_dir = (
-            llm_run_dir / stage_artifact_stem("recipe_llm_correct_and_link") / "out"
+            llm_run_dir / stage_artifact_stem("recipe_refine") / "out"
         )
-        final_out_dir = llm_run_dir / stage_artifact_stem("build_final_recipe") / "out"
+        final_out_dir = llm_run_dir / stage_artifact_stem("recipe_build_final") / "out"
 
         for path in sorted(correction_in_dir.glob("*.json")):
             payload = _upload_bundle_load_json_object(path)
@@ -8173,12 +8173,12 @@ def _upload_bundle_collect_stage_reports_for_run(
                 correction_label_hits += 1
     if correction_label_hits > 0:
         try:
-            reports["recipe_llm_correct_and_link"] = compute_block_metrics(
+            reports["recipe_refine"] = compute_block_metrics(
                 gold_labels,
                 correction_prediction,
             )
         except Exception:  # noqa: BLE001
-            reports["recipe_llm_correct_and_link"] = {}
+            reports["recipe_refine"] = {}
 
     final_prediction = dict(default_prediction)
     final_label_hits = 0
@@ -8204,12 +8204,12 @@ def _upload_bundle_collect_stage_reports_for_run(
                 final_label_hits += 1
     if final_label_hits > 0:
         try:
-            reports["build_final_recipe"] = compute_block_metrics(
+            reports["recipe_build_final"] = compute_block_metrics(
                 gold_labels,
                 final_prediction,
             )
         except Exception:  # noqa: BLE001
-            reports["build_final_recipe"] = {}
+            reports["recipe_build_final"] = {}
 
     return reports
 
@@ -8243,7 +8243,7 @@ def _upload_bundle_collect_stage_per_label_metrics(
         )
 
     output: dict[str, Any] = {}
-    for stage_key in ("recipe_llm_correct_and_link", "build_final_recipe"):
+    for stage_key in ("recipe_refine", "recipe_build_final"):
         labels_agg: dict[str, dict[str, Any]] = {}
         runs_scored = 0
         for run_id in sorted(codex_run_ids):
@@ -8491,9 +8491,9 @@ def _upload_bundle_build_failure_ledger(
         recipe_id = str(call_row.get("recipe_id") or "").strip()
         stage_key = str(call_row.get("stage_key") or "").strip()
         if not recipe_id or stage_key not in {
-            "build_intermediate_det",
-            "recipe_llm_correct_and_link",
-            "build_final_recipe",
+            "recipe_build_intermediate",
+            "recipe_refine",
+            "recipe_build_final",
         }:
             continue
         retry_counts[(run_id, recipe_id, stage_key)] += 1
@@ -8519,7 +8519,7 @@ def _upload_bundle_build_failure_ledger(
 
         stage_rows = [
             {
-                "stage_key": "build_intermediate_det",
+                "stage_key": "recipe_build_intermediate",
                 "call_id": build_intermediate_call_id,
                 "status": build_intermediate_status or "ok",
                 "reason": "",
@@ -8538,7 +8538,7 @@ def _upload_bundle_build_failure_ledger(
                 "empty_output_signal": False,
             },
             {
-                "stage_key": "recipe_llm_correct_and_link",
+                "stage_key": "recipe_refine",
                 "call_id": correction_call_id,
                 "status": correction_status or "unknown",
                 "reason": "",
@@ -8556,7 +8556,7 @@ def _upload_bundle_build_failure_ledger(
                 "empty_output_signal": bool(triage_row.get("correction_empty_output")),
             },
             {
-                "stage_key": "build_final_recipe",
+                "stage_key": "recipe_build_final",
                 "call_id": build_final_call_id,
                 "status": build_final_status or "unknown",
                 "reason": final_mapping_reason,
@@ -8603,9 +8603,9 @@ def _upload_bundle_build_failure_ledger(
             retry_attempted = (
                 retry_counts[(run_id, recipe_id, stage_key)] > 1
                 if stage_key in {
-                    "build_intermediate_det",
-                    "recipe_llm_correct_and_link",
-                    "build_final_recipe",
+                    "recipe_build_intermediate",
+                    "recipe_refine",
+                    "recipe_build_final",
                 }
                 else False
             )
@@ -8638,7 +8638,7 @@ def _upload_bundle_build_failure_ledger(
                 if bool(stage_row["empty_output_signal"]) and (
                     bool(stage_row["call_observed"]) or bool(stage_row["output_signal"])
                 ):
-                    if stage_key == "recipe_llm_correct_and_link":
+                    if stage_key == "recipe_refine":
                         stage_semantics = "empty_output_without_manifest_status"
                         stage_semantics_explanation = (
                             "Recipe correction execution was observed, but the parsed correction "
@@ -8650,7 +8650,7 @@ def _upload_bundle_build_failure_ledger(
                             "Stage execution was observed, but the available output signal is empty."
                         )
                 elif bool(stage_row["call_observed"]) or bool(stage_row["output_signal"]):
-                    if stage_key == "recipe_llm_correct_and_link":
+                    if stage_key == "recipe_refine":
                         stage_semantics = "nonempty_output_without_manifest_status"
                         stage_semantics_explanation = (
                             "Recipe correction execution was observed and the parsed correction "
@@ -8928,9 +8928,9 @@ def _upload_bundle_iter_unique_run_dirs(
 def _upload_bundle_normalize_runtime_stage_key(stage_key: str | None) -> str:
     rendered = str(stage_key or "").strip()
     if rendered == "recipe_correction":
-        return "recipe_llm_correct_and_link"
+        return "recipe_refine"
     if rendered == "knowledge":
-        return "nonrecipe_knowledge_review"
+        return "nonrecipe_finalize"
     return rendered
 
 
@@ -9121,10 +9121,10 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
         process_payload_by_stage = {
             "recipe_correction": (
                 process_runs.get("recipe_correction")
-                or process_runs.get("recipe_llm_correct_and_link")
+                or process_runs.get("recipe_refine")
             ),
-            "nonrecipe_knowledge_review": (
-                process_runs.get("nonrecipe_knowledge_review")
+            "nonrecipe_finalize": (
+                process_runs.get("nonrecipe_finalize")
                 or (
                     knowledge_payload.get("process_run")
                     if isinstance(knowledge_payload.get("process_run"), dict)
@@ -11057,7 +11057,7 @@ def _upload_bundle_assert_recipe_correction_output_accounting(
         else {}
     )
     stage_payload = (
-        stage_rows.get("recipe_llm_correct_and_link")
+        stage_rows.get("recipe_refine")
         if isinstance(stage_rows, dict)
         else {}
     )
@@ -11083,7 +11083,7 @@ def _upload_bundle_assert_recipe_correction_output_accounting(
         row
         for row in (call_inventory_rows or [])
         if isinstance(row, dict)
-        and str(row.get("stage_key") or "").strip() == "recipe_llm_correct_and_link"
+        and str(row.get("stage_key") or "").strip() == "recipe_refine"
     ]
     compact_nonempty_excerpt_re = re.compile(
         r'"cr"\s*:\s*\{.*?"(?:i|s)"\s*:\s*\[\s*"',
@@ -11243,8 +11243,8 @@ def _upload_bundle_build_turn1_summary(
     diagnosis_flags: list[str] = []
     if bool(active_recipe_span_breakout.get("all_scored_lines_outside_active_recipe_spans")):
         diagnosis_flags.append("outside_span_contamination_dominant")
-    if _stage_gap_count("recipe_llm_correct_and_link") > 0 or _stage_gap_count(
-        "build_final_recipe"
+    if _stage_gap_count("recipe_refine") > 0 or _stage_gap_count(
+        "recipe_build_final"
     ) > 0:
         diagnosis_flags.append("stage_projection_gap_present")
     if _coerce_float(pair_delta_summary.get("worst_pair_delta_overall_line_accuracy")) is not None:
@@ -12669,7 +12669,7 @@ def _upload_bundle_build_top_regression_packets_with_decision_trace(
             "selection_reason": str(packet.get("selection_reason") or ""),
             "build_intermediate_summary": packet.get("build_intermediate_summary"),
             "recipe_correction_summary": packet.get("correction_summary"),
-            "build_final_recipe_summary": packet.get("build_final_summary"),
+            "recipe_build_final_summary": packet.get("build_final_summary"),
             "transport_summary": packet.get("transport_summary"),
             "evidence_normalization_summary": packet.get(
                 "evidence_normalization_summary"
@@ -15088,9 +15088,9 @@ def _write_upload_bundle_three_files(
         ]
     )
     for stage_key in (
-        "build_intermediate_det",
-        "recipe_llm_correct_and_link",
-        "build_final_recipe",
+        "recipe_build_intermediate",
+        "recipe_refine",
+        "recipe_build_final",
         "final_result",
     ):
         stage_payload = (

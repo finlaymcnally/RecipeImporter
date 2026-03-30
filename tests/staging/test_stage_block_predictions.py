@@ -163,7 +163,7 @@ def test_build_stage_block_predictions_without_nonrecipe_authority_do_not_projec
     )
 
 
-def test_build_stage_block_predictions_ignores_stage7_other_blocks() -> None:
+def test_build_stage_block_predictions_ignores_nonrecipe_finalize_other_blocks() -> None:
     result = _build_result()
 
     payload = build_stage_block_predictions(

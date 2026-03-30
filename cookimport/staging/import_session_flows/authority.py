@@ -5,6 +5,16 @@ from pathlib import Path
 from typing import Any
 
 from cookimport.parsing.label_source_of_truth import LabelFirstStageResult
+from cookimport.staging.output_names import (
+    AUTHORITATIVE_BLOCK_LABELS_SCHEMA_VERSION,
+    LABEL_DETERMINISTIC_DIR_NAME,
+    LABEL_DETERMINISTIC_SCHEMA_VERSION,
+    LABEL_REFINE_DIR_NAME,
+    LABEL_REFINE_SCHEMA_VERSION,
+    RECIPE_BOUNDARY_DECISIONS_SCHEMA_VERSION,
+    RECIPE_BOUNDARY_DIR_NAME,
+    RECIPE_BOUNDARY_SCHEMA_VERSION,
+)
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -35,15 +45,15 @@ def _write_label_first_artifacts(
     label_first_result: LabelFirstStageResult,
     line_role_pipeline: str,
 ) -> dict[str, Path]:
-    det_lines_path = run_root / "label_det" / workbook_slug / "labeled_lines.jsonl"
-    det_blocks_path = run_root / "label_det" / workbook_slug / "block_labels.json"
-    final_lines_path = run_root / "label_llm_correct" / workbook_slug / "labeled_lines.jsonl"
-    final_blocks_path = run_root / "label_llm_correct" / workbook_slug / "block_labels.json"
-    final_diffs_path = run_root / "label_llm_correct" / workbook_slug / "label_diffs.jsonl"
-    span_path = run_root / "group_recipe_spans" / workbook_slug / "recipe_spans.json"
-    span_decisions_path = run_root / "group_recipe_spans" / workbook_slug / "span_decisions.json"
+    det_lines_path = run_root / LABEL_DETERMINISTIC_DIR_NAME / workbook_slug / "labeled_lines.jsonl"
+    det_blocks_path = run_root / LABEL_DETERMINISTIC_DIR_NAME / workbook_slug / "block_labels.json"
+    final_lines_path = run_root / LABEL_REFINE_DIR_NAME / workbook_slug / "labeled_lines.jsonl"
+    final_blocks_path = run_root / LABEL_REFINE_DIR_NAME / workbook_slug / "block_labels.json"
+    final_diffs_path = run_root / LABEL_REFINE_DIR_NAME / workbook_slug / "label_diffs.jsonl"
+    span_path = run_root / RECIPE_BOUNDARY_DIR_NAME / workbook_slug / "recipe_spans.json"
+    span_decisions_path = run_root / RECIPE_BOUNDARY_DIR_NAME / workbook_slug / "span_decisions.json"
     authoritative_blocks_path = (
-        run_root / "group_recipe_spans" / workbook_slug / "authoritative_block_labels.json"
+        run_root / RECIPE_BOUNDARY_DIR_NAME / workbook_slug / "authoritative_block_labels.json"
     )
 
     det_line_rows = [
@@ -61,7 +71,7 @@ def _write_label_first_artifacts(
         for row in label_first_result.labeled_lines
     ]
     det_block_rows = {
-        "schema_version": "label_det.v1",
+        "schema_version": LABEL_DETERMINISTIC_SCHEMA_VERSION,
         "workbook_slug": workbook_slug,
         "block_labels": [
             {
@@ -97,7 +107,7 @@ def _write_label_first_artifacts(
             for row in label_first_result.labeled_lines
         ]
         final_block_rows = {
-            "schema_version": "label_llm_correct.v1",
+            "schema_version": LABEL_REFINE_SCHEMA_VERSION,
             "workbook_slug": workbook_slug,
             "block_labels": [
                 row.model_dump(mode="json")
@@ -122,7 +132,7 @@ def _write_label_first_artifacts(
     _write_json(
         span_path,
         {
-            "schema_version": "group_recipe_spans.v1",
+            "schema_version": RECIPE_BOUNDARY_SCHEMA_VERSION,
             "workbook_slug": workbook_slug,
             "recipe_spans": [
                 row.model_dump(mode="json") for row in label_first_result.recipe_spans
@@ -132,7 +142,7 @@ def _write_label_first_artifacts(
     _write_json(
         span_decisions_path,
         {
-            "schema_version": "group_recipe_span_decisions.v2",
+            "schema_version": RECIPE_BOUNDARY_DECISIONS_SCHEMA_VERSION,
             "workbook_slug": workbook_slug,
             "span_decisions": [
                 _serialize_span_decision(row)
@@ -143,7 +153,7 @@ def _write_label_first_artifacts(
     _write_json(
         authoritative_blocks_path,
         {
-            "schema_version": "authoritative_block_labels.v1",
+            "schema_version": AUTHORITATIVE_BLOCK_LABELS_SCHEMA_VERSION,
             "workbook_slug": workbook_slug,
             "block_labels": [
                 row.model_dump(mode="json") for row in label_first_result.block_labels
@@ -152,8 +162,8 @@ def _write_label_first_artifacts(
     )
 
     paths = {
-        "label_det_lines_path": det_lines_path,
-        "label_det_blocks_path": det_blocks_path,
+        "label_deterministic_lines_path": det_lines_path,
+        "label_deterministic_blocks_path": det_blocks_path,
         "recipe_spans_path": span_path,
         "span_decisions_path": span_decisions_path,
         "authoritative_block_labels_path": authoritative_blocks_path,

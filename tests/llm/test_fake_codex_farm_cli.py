@@ -9,7 +9,7 @@ import pytest
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.models import ConversionReport, ConversionResult, RawArtifact, RecipeCandidate
-from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_nonrecipe_knowledge_review
+from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_nonrecipe_finalize
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.parsing.canonical_line_roles import label_atomic_lines
 from cookimport.parsing.label_source_of_truth import RecipeSpan
@@ -375,7 +375,7 @@ def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
         }
     )
 
-    apply_result = run_codex_farm_nonrecipe_knowledge_review(
+    apply_result = run_codex_farm_nonrecipe_finalize(
         conversion_result=_knowledge_conversion_result(source),
         nonrecipe_stage_result=make_stage_result(
             seed=make_seed_result(
@@ -445,7 +445,7 @@ def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
     )
 
     manifest = json.loads(apply_result.manifest_path.read_text(encoding="utf-8"))
-    phase_dir = apply_result.llm_raw_dir / "knowledge"
+    phase_dir = apply_result.llm_raw_dir / "nonrecipe_finalize"
     proposals = sorted(path.name for path in (phase_dir / "proposals").glob("*.json"))
 
     assert manifest["stage_status"] == "completed"
@@ -476,7 +476,7 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
         }
     )
 
-    apply_result = run_codex_farm_nonrecipe_knowledge_review(
+    apply_result = run_codex_farm_nonrecipe_finalize(
         conversion_result=_knowledge_conversion_result(source),
         nonrecipe_stage_result=make_stage_result(
             seed=make_seed_result(
@@ -545,7 +545,7 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
         workbook_slug="book",
     )
 
-    phase_dir = apply_result.llm_raw_dir / "knowledge"
+    phase_dir = apply_result.llm_raw_dir / "nonrecipe_finalize"
     worker_root = phase_dir / "workers" / "worker-001"
     status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
     lease_status = json.loads((worker_root / "packet_lease_status.json").read_text(encoding="utf-8"))

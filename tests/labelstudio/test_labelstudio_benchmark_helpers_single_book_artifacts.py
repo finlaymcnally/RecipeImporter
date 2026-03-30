@@ -496,7 +496,7 @@ def test_single_book_comparison_includes_codex_runtime_from_llm_manifest_fallbac
                 "codex_farm_model": None,
                 "codex_farm_reasoning_effort": None,
                 "process_runs": {
-                    "recipe_llm_correct_and_link": {
+                    "recipe_refine": {
                         "process_payload": {
                             "codex_model": "gpt-5.3-codex-spark",
                             "codex_reasoning_effort": None,

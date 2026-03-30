@@ -191,7 +191,7 @@ def _write_prediction_run_stage_outputs(
     llm_run_dir = prediction_run / "raw" / "llm" / "fixture-slug"
     safe_recipe_name = recipe_id.replace(":", "_")
     _write_json(
-        llm_run_dir / "recipe_correction" / "in" / f"{safe_recipe_name}.json",
+        llm_run_dir / "recipe_refine" / "in" / f"{safe_recipe_name}.json",
         {
             "recipe_id": recipe_id,
             "evidence_rows": [
@@ -203,7 +203,7 @@ def _write_prediction_run_stage_outputs(
         },
     )
     _write_json(
-        llm_run_dir / "recipe_correction" / "out" / f"{safe_recipe_name}.json",
+        llm_run_dir / "recipe_refine" / "out" / f"{safe_recipe_name}.json",
         {
             "recipe_id": recipe_id,
             "canonical_recipe": {
@@ -216,7 +216,7 @@ def _write_prediction_run_stage_outputs(
         },
     )
     _write_json(
-        llm_run_dir / "build_final_recipe" / "out" / f"{safe_recipe_name}.json",
+        llm_run_dir / "recipe_build_final" / "out" / f"{safe_recipe_name}.json",
         {
             "recipe_id": recipe_id,
             "draft_v1": {
@@ -245,9 +245,9 @@ def _semantic_recipe_manifest_row(
     errors: list[str] | None = None,
 ) -> dict[str, object]:
     return {
-        "build_intermediate_det": build_intermediate_status,
-        "recipe_llm_correct_and_link": correction_status,
-        "build_final_recipe": build_final_status,
+        "recipe_build_intermediate": build_intermediate_status,
+        "recipe_refine": correction_status,
+        "recipe_build_final": build_final_status,
         "mapping_status": mapping_status,
         "mapping_reason": mapping_reason,
         "structural_status": structural_status,
@@ -282,7 +282,7 @@ def _write_knowledge_artifacts(
         + "\n",
         encoding="utf-8",
     )
-    (prompts_dir / "prompt_nonrecipe_knowledge_review.txt").write_text(
+    (prompts_dir / "prompt_nonrecipe_finalize.txt").write_text(
         "knowledge raw prompt body\n",
         encoding="utf-8",
     )
@@ -447,7 +447,7 @@ def _write_prediction_run_knowledge_stage_outputs(
 ) -> None:
     llm_run_dir = prediction_run / "raw" / "llm" / workbook_slug
     _write_json(
-        llm_run_dir / "knowledge" / "in" / "r0000.json",
+        llm_run_dir / "nonrecipe_finalize" / "in" / "r0000.json",
         {
             "v": "2",
             "bid": "knowledge:bundle0",
@@ -464,7 +464,7 @@ def _write_prediction_run_knowledge_stage_outputs(
         },
     )
     _write_json(
-        llm_run_dir / "knowledge" / "out" / "r0000.json",
+        llm_run_dir / "nonrecipe_finalize" / "out" / "r0000.json",
         {
             "bundle_version": "2",
             "bundle_id": "knowledge:bundle0",
@@ -537,7 +537,7 @@ def _set_eval_report_metrics(
 def _prompt_rows_for_cutdown_fixture() -> list[dict[str, object]]:
     return [
         {
-            "stage_key": "build_intermediate_det",
+            "stage_key": "recipe_build_intermediate",
             "call_id": "fixture-build-intermediate",
             "recipe_id": "recipe:c0",
             "parsed_response": {
@@ -549,7 +549,7 @@ def _prompt_rows_for_cutdown_fixture() -> list[dict[str, object]]:
             "request_input_payload": {"blocks_candidate": [{"text": "Dish Title"}]},
         },
         {
-            "stage_key": "build_final_recipe",
+            "stage_key": "recipe_build_final",
             "call_id": "fixture-build-final",
             "recipe_id": "recipe:c0",
             "parsed_response": {
@@ -564,7 +564,7 @@ def _prompt_rows_for_cutdown_fixture() -> list[dict[str, object]]:
 def _prompt_rows_for_starter_pack_fixture() -> list[dict[str, object]]:
     return [
         {
-            "stage_key": "build_intermediate_det",
+            "stage_key": "recipe_build_intermediate",
             "call_id": "starter-build-intermediate",
             "recipe_id": "recipe:c0",
             "timestamp_utc": "2026-03-03T10:00:00Z",
@@ -589,7 +589,7 @@ def _prompt_rows_for_starter_pack_fixture() -> list[dict[str, object]]:
             },
         },
         {
-            "stage_key": "recipe_llm_correct_and_link",
+            "stage_key": "recipe_refine",
             "call_id": "starter-correction",
             "recipe_id": "recipe:c0",
             "timestamp_utc": "2026-03-03T10:00:05Z",
@@ -614,7 +614,7 @@ def _prompt_rows_for_starter_pack_fixture() -> list[dict[str, object]]:
             },
         },
         {
-            "stage_key": "build_final_recipe",
+            "stage_key": "recipe_build_final",
             "call_id": "starter-build-final",
             "recipe_id": "recipe:c0",
             "timestamp_utc": "2026-03-03T10:00:10Z",
@@ -641,7 +641,7 @@ def _prompt_rows_for_starter_pack_fixture() -> list[dict[str, object]]:
 def _prompt_rows_for_sharded_recipe_fixture() -> list[dict[str, object]]:
     return [
         {
-            "stage_key": "recipe_llm_correct_and_link",
+            "stage_key": "recipe_refine",
             "call_id": "recipe-shard-0000-r0000-r0001",
             "recipe_id": "recipe-shard-0000-r0000-r0001",
             "timestamp_utc": "2026-03-03T10:00:05Z",
@@ -674,7 +674,7 @@ def _prompt_rows_for_sharded_recipe_fixture() -> list[dict[str, object]]:
 def _prompt_rows_for_compact_recipe_correction_fixture() -> list[dict[str, object]]:
     return [
         {
-            "stage_key": "recipe_llm_correct_and_link",
+            "stage_key": "recipe_refine",
             "call_id": "recipe-shard-0000-r0000-r0001",
             "recipe_id": "recipe-shard-0000-r0000-r0001",
             "timestamp_utc": "2026-03-03T10:00:05Z",
@@ -868,7 +868,7 @@ def test_summarize_prompt_warning_aggregate_counts_warnings(tmp_path: Path) -> N
         full_prompt_log_path,
         [
             {
-                "stage_key": "recipe_llm_correct_and_link",
+                "stage_key": "recipe_refine",
                 "recipe_id": "r0",
                 "parsed_response": {
                     "warnings": [
@@ -878,12 +878,12 @@ def test_summarize_prompt_warning_aggregate_counts_warnings(tmp_path: Path) -> N
                 },
             },
             {
-                "stage_key": "build_final_recipe",
+                "stage_key": "recipe_build_final",
                 "recipe_id": "r0",
                 "parsed_response": {"warnings": [], "ingredient_step_mapping": "{}"},
             },
             {
-                "stage_key": "build_final_recipe",
+                "stage_key": "recipe_build_final",
                 "recipe_id": "r1",
                 "parsed_response": {
                     "warnings": ["No explicit cooking instructions were provided."],
@@ -907,7 +907,7 @@ def test_build_pair_diagnostics_emits_changed_lines_and_breakdowns(tmp_path: Pat
     module = _load_cutdown_module()
     codex_prompt_rows = [
         {
-            "stage_key": "build_intermediate_det",
+            "stage_key": "recipe_build_intermediate",
             "call_id": "c0-build-intermediate",
             "recipe_id": "recipe:c0",
             "parsed_response": {
@@ -920,7 +920,7 @@ def test_build_pair_diagnostics_emits_changed_lines_and_breakdowns(tmp_path: Pat
             "request_input_payload": {"blocks_candidate": [{"text": "Dish Title"}]},
         },
         {
-            "stage_key": "build_final_recipe",
+            "stage_key": "recipe_build_final",
             "call_id": "c0-build-final",
             "recipe_id": "recipe:c0",
             "parsed_response": {
@@ -1072,8 +1072,8 @@ def test_build_upload_bundle_reconciles_sharded_recipe_ids_to_per_recipe_counts(
     assert failure_ledger["summary"]["recipe_count"] == 2
 
     stage_observability = index_payload["analysis"]["stage_observability_summary"]["by_stage"]
-    assert stage_observability["recipe_llm_correct_and_link"]["recipe_count"] == 2
-    assert stage_observability["build_final_recipe"]["recipe_count"] == 2
+    assert stage_observability["recipe_refine"]["recipe_count"] == 2
+    assert stage_observability["recipe_build_final"]["recipe_count"] == 2
 
 
 def test_build_pair_diagnostics_enriches_triage_with_manifest_diagnostics(tmp_path: Path) -> None:
@@ -1132,9 +1132,9 @@ def test_build_pair_diagnostics_enriches_triage_with_manifest_diagnostics(tmp_pa
         recipe_triage_rows=diagnostics.recipe_triage_rows,
         outside_span_trace_rows=diagnostics.outside_span_trace_rows,
     )
-    assert summary["recipe_stage_status_counts"]["build_intermediate_det"]["ok"] == 1
-    assert summary["recipe_stage_status_counts"]["recipe_llm_correct_and_link"]["degraded"] == 1
-    assert summary["recipe_stage_status_counts"]["build_final_recipe"]["fallback"] == 1
+    assert summary["recipe_stage_status_counts"]["recipe_build_intermediate"]["ok"] == 1
+    assert summary["recipe_stage_status_counts"]["recipe_refine"]["degraded"] == 1
+    assert summary["recipe_stage_status_counts"]["recipe_build_final"]["fallback"] == 1
     assert summary["final_mapping_status_counts"]["fallback"] == 1
     assert summary["structural_status_counts"]["warning"] == 1
 
@@ -1231,7 +1231,7 @@ def test_build_pair_diagnostics_parses_compact_recipe_correction_outputs_per_rec
     call_row = next(
         row
         for row in diagnostics.call_inventory_rows
-        if row["stage_key"] == "recipe_llm_correct_and_link"
+        if row["stage_key"] == "recipe_refine"
     )
     assert call_row["input_block_count"] == 6
     assert call_row["extracted_ingredient_count"] == 2
@@ -1245,7 +1245,7 @@ def test_build_pair_diagnostics_parses_compact_recipe_correction_outputs_per_rec
     correction_rows = [
         row
         for row in failure_ledger["rows"]
-        if row["stage_key"] == "recipe_llm_correct_and_link"
+        if row["stage_key"] == "recipe_refine"
     ]
     assert len(correction_rows) == 2
     assert all(row["output_signal"] is True for row in correction_rows)
@@ -1258,7 +1258,7 @@ def test_build_pair_diagnostics_parses_compact_recipe_correction_outputs_per_rec
     stage_observability = module._upload_bundle_build_stage_observability_summary(
         failure_ledger
     )
-    correction_stage = stage_observability["by_stage"]["recipe_llm_correct_and_link"]
+    correction_stage = stage_observability["by_stage"]["recipe_refine"]
     assert correction_stage["recipe_count"] == 2
     assert correction_stage["output_signal_count"] == 2
     assert correction_stage["empty_output_signal_count"] == 0
@@ -1275,7 +1275,7 @@ def test_build_pair_diagnostics_parses_compact_recipe_correction_outputs_per_rec
     assert warning_summary["correction_empty_output_count"] == 0
     assert warning_summary["correction_empty_mapping_with_nonempty_output_count"] == 1
     assert (
-        warning_summary["recipe_stage_status_counts"]["recipe_llm_correct_and_link"][
+        warning_summary["recipe_stage_status_counts"]["recipe_refine"][
             "nonempty_output_without_manifest_status"
         ]
         == 2
@@ -1341,7 +1341,7 @@ def test_build_pair_diagnostics_reads_recipe_manifest_from_processed_output_run_
     final_row = next(
         row
         for row in failure_ledger["rows"]
-        if row["recipe_id"] == "recipe:c0" and row["stage_key"] == "build_final_recipe"
+        if row["recipe_id"] == "recipe:c0" and row["stage_key"] == "recipe_build_final"
     )
     assert final_row["status"] == "ok"
     assert final_row["status_semantics"] == "recorded_status_with_empty_output_signal"
@@ -1360,7 +1360,7 @@ def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> N
         ],
         full_prompt_rows=[
             {
-                "stage_key": "build_intermediate_det",
+                "stage_key": "recipe_build_intermediate",
                 "call_id": "case-build-intermediate",
                 "recipe_id": "recipe:c0",
                 "parsed_response": {
@@ -1372,7 +1372,7 @@ def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> N
                 "request_input_payload": {"blocks_candidate": [{"text": "Dish Title"}]},
             },
             {
-                "stage_key": "build_final_recipe",
+                "stage_key": "recipe_build_final",
                 "call_id": "case-build-final",
                 "recipe_id": "recipe:c0",
                 "parsed_response": {
@@ -2226,9 +2226,9 @@ def test_main_starter_pack_summarizes_warnings_and_selected_packets(tmp_path: Pa
     assert isinstance(warning_summary, dict)
     assert isinstance(selected_packets, list)
 
-    assert warning_summary["recipe_stage_status_counts"]["build_intermediate_det"]["ok"] == 1
-    assert warning_summary["recipe_stage_status_counts"]["recipe_llm_correct_and_link"]["degraded"] == 1
-    assert warning_summary["recipe_stage_status_counts"]["build_final_recipe"]["fallback"] == 1
+    assert warning_summary["recipe_stage_status_counts"]["recipe_build_intermediate"]["ok"] == 1
+    assert warning_summary["recipe_stage_status_counts"]["recipe_refine"]["degraded"] == 1
+    assert warning_summary["recipe_stage_status_counts"]["recipe_build_final"]["fallback"] == 1
     assert warning_summary["final_mapping_status_counts"]["fallback"] == 1
     assert "recipe_stage_status_counts" in warning_summary
 
@@ -2239,15 +2239,15 @@ def test_main_starter_pack_summarizes_warnings_and_selected_packets(tmp_path: Pa
         for stage in first_packet["recipe_stages"]
         if isinstance(stage, dict)
     }
-    assert recipe_stage_summaries["recipe_llm_correct_and_link"]["status"] == "degraded"
-    assert recipe_stage_summaries["recipe_llm_correct_and_link"]["warning_count"] == 1
-    assert recipe_stage_summaries["build_final_recipe"]["status"] == "fallback"
-    assert recipe_stage_summaries["build_final_recipe"]["mapping_status"] == "fallback"
+    assert recipe_stage_summaries["recipe_refine"]["status"] == "degraded"
+    assert recipe_stage_summaries["recipe_refine"]["warning_count"] == 1
+    assert recipe_stage_summaries["recipe_build_final"]["status"] == "fallback"
+    assert recipe_stage_summaries["recipe_build_final"]["mapping_status"] == "fallback"
     assert (
-        recipe_stage_summaries["build_final_recipe"]["mapping_reason"]
+        recipe_stage_summaries["recipe_build_final"]["mapping_reason"]
         == "deterministic final assembly kept fallback mapping"
     )
-    assert recipe_stage_summaries["build_final_recipe"]["structural_status"] == "warning"
+    assert recipe_stage_summaries["recipe_build_final"]["structural_status"] == "warning"
     assert first_packet["transport_summary"] == {}
 
 
@@ -2668,16 +2668,16 @@ def test_build_upload_bundle_for_existing_output_includes_analysis_payloads(
     assert recipe_pipeline_context.get("recipe_topology_key") == "single_correction"
     assert recipe_pipeline_context.get("recipe_stages") == [
         {
-            "stage_key": "build_intermediate_det",
-            "stage_label": "Build Intermediate Recipe",
+            "stage_key": "recipe_build_intermediate",
+            "stage_label": "Recipe Build Intermediate",
         },
         {
-            "stage_key": "recipe_llm_correct_and_link",
-            "stage_label": "Recipe LLM Correction",
+            "stage_key": "recipe_refine",
+            "stage_label": "Recipe Refine",
         },
         {
-            "stage_key": "build_final_recipe",
-            "stage_label": "Build Final Recipe",
+            "stage_key": "recipe_build_final",
+            "stage_label": "Recipe Build Final",
         },
     ]
     run_settings_rows = config_meta.get("runs")
@@ -2715,9 +2715,9 @@ def test_build_upload_bundle_for_existing_output_includes_analysis_payloads(
     runtime_summary = index_payload["analysis"]["call_inventory_runtime"]["summary"]
     assert isinstance(runtime_summary.get("cost_signal"), dict)
     assert runtime_summary["cost_signal"]["available"] is False
-    assert "build_final_recipe" in runtime_summary["by_stage"]
-    assert "recipe_llm_correct_and_link" in runtime_summary["by_stage"]
-    assert "build_final_recipe" in runtime_summary["by_stage"]
+    assert "recipe_build_final" in runtime_summary["by_stage"]
+    assert "recipe_refine" in runtime_summary["by_stage"]
+    assert "recipe_build_final" in runtime_summary["by_stage"]
     assert (
         "recognized cost fields"
         in str(runtime_summary["cost_signal"]["unavailable_reason"])
@@ -2748,7 +2748,7 @@ def test_build_upload_bundle_for_existing_output_includes_analysis_payloads(
     stage_observability = index_payload["analysis"]["stage_observability_summary"]
     assert isinstance(stage_observability, dict)
     assert isinstance(stage_observability.get("by_stage"), dict)
-    correction_stage = stage_observability["by_stage"]["recipe_llm_correct_and_link"]
+    correction_stage = stage_observability["by_stage"]["recipe_refine"]
     assert isinstance(correction_stage.get("status_semantics_counts"), dict)
 
 
@@ -2876,7 +2876,7 @@ def test_recipe_correction_output_accounting_check_rejects_nonempty_compact_outp
             correction_prompt_rows=_prompt_rows_for_compact_recipe_correction_fixture(),
             stage_observability_summary={
                 "by_stage": {
-                    "recipe_llm_correct_and_link": {
+                    "recipe_refine": {
                         "recipe_count": 2,
                         "output_signal_count": 0,
                         "empty_output_signal_count": 2,
@@ -3159,9 +3159,9 @@ def test_build_upload_bundle_stage_separated_comparison_scores_recipe_correction
         for stage in ingredient_row["recipe_stages"]
         if isinstance(stage, dict)
     }
-    correction_stage = recipe_stages["recipe_llm_correct_and_link"]
-    final_stage = recipe_stages["build_final_recipe"]
-    intermediate_stage = recipe_stages["build_intermediate_det"]
+    correction_stage = recipe_stages["recipe_refine"]
+    final_stage = recipe_stages["recipe_build_final"]
+    intermediate_stage = recipe_stages["recipe_build_intermediate"]
 
     assert correction_stage["label_scored"] is True
     assert final_stage["label_scored"] is True
@@ -3236,16 +3236,16 @@ def test_build_upload_bundle_uses_single_correction_stage_labels_only(
     ]
     assert recipe_pipeline_context["recipe_stages"] == [
         {
-            "stage_key": "build_intermediate_det",
-            "stage_label": "Build Intermediate Recipe",
+            "stage_key": "recipe_build_intermediate",
+            "stage_label": "Recipe Build Intermediate",
         },
         {
-            "stage_key": "recipe_llm_correct_and_link",
-            "stage_label": "Recipe LLM Correction",
+            "stage_key": "recipe_refine",
+            "stage_label": "Recipe Refine",
         },
         {
-            "stage_key": "build_final_recipe",
-            "stage_label": "Build Final Recipe",
+            "stage_key": "recipe_build_final",
+            "stage_label": "Recipe Build Final",
         },
     ]
     assert "historical_recipe_stages" not in recipe_pipeline_context
@@ -3256,16 +3256,16 @@ def test_build_upload_bundle_uses_single_correction_stage_labels_only(
     assert stage_separated["recipe_topology_key"] == "single_correction"
     assert stage_separated["recipe_stages"] == [
         {
-            "stage_key": "build_intermediate_det",
-            "stage_label": "Build Intermediate Recipe",
+            "stage_key": "recipe_build_intermediate",
+            "stage_label": "Recipe Build Intermediate",
         },
         {
-            "stage_key": "recipe_llm_correct_and_link",
-            "stage_label": "Recipe LLM Correction",
+            "stage_key": "recipe_refine",
+            "stage_label": "Recipe Refine",
         },
         {
-            "stage_key": "build_final_recipe",
-            "stage_label": "Build Final Recipe",
+            "stage_key": "recipe_build_final",
+            "stage_label": "Recipe Build Final",
         },
     ]
 
@@ -3277,9 +3277,9 @@ def test_build_upload_bundle_uses_single_correction_stage_labels_only(
     overview_text = _read_text(bundle_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME)
     assert "## Recipe Pipeline Context" in overview_text
     assert "codex-recipe-shard-v1" in overview_text
-    assert "Build Intermediate Recipe" in overview_text
-    assert "Recipe LLM Correction" in overview_text
-    assert "Build Final Recipe" in overview_text
+    assert "Recipe Build Intermediate" in overview_text
+    assert "Recipe Refine" in overview_text
+    assert "Recipe Build Final" in overview_text
 
     payload_rows = _jsonl_rows_by_path(bundle_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
     casebook = payload_rows[
@@ -3287,10 +3287,10 @@ def test_build_upload_bundle_uses_single_correction_stage_labels_only(
     ]["content_text"]
     assert "recipe_pipeline_id: codex-recipe-shard-v1" in str(casebook)
     assert (
-        "recipe_stages: Build Intermediate Recipe, Recipe LLM Correction, Build Final Recipe"
+        "recipe_stages: Recipe Build Intermediate, Recipe Refine, Recipe Build Final"
         in str(casebook)
     )
-    assert "- Recipe LLM Correction:" in str(casebook)
+    assert "- Recipe Refine:" in str(casebook)
 
 
 def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_prediction_manifest(
@@ -3340,9 +3340,9 @@ def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_pre
     assert int(runtime_summary["call_count"]) == 2
     assert int(runtime_summary["calls_with_runtime"]) == 2
     assert int(runtime_summary["total_tokens"]) == 120000
-    assert float(runtime_summary["recipe_llm_correct_and_link_token_share"]) == 1.0
+    assert float(runtime_summary["recipe_refine_token_share"]) == 1.0
     by_stage = runtime_summary["by_stage"]
-    assert int(by_stage["recipe_llm_correct_and_link"]["total_tokens"]) == 120000
+    assert int(by_stage["recipe_refine"]["total_tokens"]) == 120000
     assert runtime_summary["estimated_cost_signal"]["available"] is False
 
 
@@ -3395,7 +3395,7 @@ def test_build_upload_bundle_prefers_prompt_budget_summary_and_includes_line_rol
     assert float(runtime_summary["line_role_token_share"]) == round(50000 / 170000, 4)
     assert int(runtime_summary["by_stage"]["line_role"]["total_tokens"]) == 50000
     assert (
-        int(runtime_summary["by_stage"]["recipe_llm_correct_and_link"]["total_tokens"]) == 120000
+        int(runtime_summary["by_stage"]["recipe_refine"]["total_tokens"]) == 120000
     )
 
 
@@ -3424,7 +3424,7 @@ def test_build_upload_bundle_merges_prompt_budget_summary_when_call_rows_lack_ru
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
         full_prompt_rows=[
             {
-                "stage_key": "recipe_llm_correct_and_link",
+                "stage_key": "recipe_refine",
                 "call_id": "recipe-001",
                 "recipe_id": "recipe:c0",
                 "timestamp_utc": "2026-03-03T10:00:05Z",
@@ -3434,7 +3434,7 @@ def test_build_upload_bundle_merges_prompt_budget_summary_when_call_rows_lack_ru
                 "request_telemetry": None,
             },
             {
-                "stage_key": "nonrecipe_knowledge_review",
+                "stage_key": "nonrecipe_finalize",
                 "call_id": "knowledge-001",
                 "recipe_id": "knowledge:c0",
                 "timestamp_utc": "2026-03-03T10:00:10Z",
@@ -3494,16 +3494,16 @@ def test_build_upload_bundle_merges_prompt_budget_summary_when_call_rows_lack_ru
     assert int(runtime_summary["calls_with_runtime"]) == 0
     assert int(runtime_summary["total_tokens"]) == 7796192
     assert set(runtime_summary["by_stage"].keys()) == {
-        "recipe_llm_correct_and_link",
-        "nonrecipe_knowledge_review",
+        "recipe_refine",
+        "nonrecipe_finalize",
         "line_role",
     }
     assert (
-        int(runtime_summary["by_stage"]["recipe_llm_correct_and_link"]["total_tokens"])
+        int(runtime_summary["by_stage"]["recipe_refine"]["total_tokens"])
         == 120000
     )
     assert (
-        int(runtime_summary["by_stage"]["nonrecipe_knowledge_review"]["total_tokens"])
+        int(runtime_summary["by_stage"]["nonrecipe_finalize"]["total_tokens"])
         == 1141186
     )
     assert int(runtime_summary["by_stage"]["line_role"]["total_tokens"]) == 6535006
@@ -3564,7 +3564,7 @@ def test_build_upload_bundle_merges_realistic_codex_call_telemetry_with_prompt_b
                 },
             },
             {
-                "stage_key": "recipe_llm_correct_and_link",
+                "stage_key": "recipe_refine",
                 "call_id": "recipe-001",
                 "recipe_id": "recipe:c0",
                 "timestamp_utc": "2026-03-03T10:00:05Z",
@@ -3586,7 +3586,7 @@ def test_build_upload_bundle_merges_realistic_codex_call_telemetry_with_prompt_b
                 },
             },
             {
-                "stage_key": "build_final_recipe",
+                "stage_key": "recipe_build_final",
                 "call_id": "final-001",
                 "recipe_id": "recipe:c0",
                 "timestamp_utc": "2026-03-03T10:00:09Z",
@@ -3624,7 +3624,7 @@ def test_build_upload_bundle_merges_realistic_codex_call_telemetry_with_prompt_b
                             }
                         }
                     },
-                    "nonrecipe_knowledge_review": {
+                    "nonrecipe_finalize": {
                         "telemetry_report": {
                             "summary": {
                                 "tokens_total": 25000,
@@ -3689,16 +3689,16 @@ def test_build_upload_bundle_merges_realistic_codex_call_telemetry_with_prompt_b
     assert float(runtime_summary["total_cost_usd"]) == 0.42
     assert float(runtime_summary["total_estimated_cost_usd"]) > 0.42
     assert set(runtime_summary["by_stage"].keys()) == {
-        "recipe_llm_correct_and_link",
-        "nonrecipe_knowledge_review",
+        "recipe_refine",
+        "nonrecipe_finalize",
         "line_role",
     }
     assert (
-        int(runtime_summary["by_stage"]["recipe_llm_correct_and_link"]["total_tokens"])
+        int(runtime_summary["by_stage"]["recipe_refine"]["total_tokens"])
         == 120000
     )
     assert (
-        int(runtime_summary["by_stage"]["nonrecipe_knowledge_review"]["total_tokens"])
+        int(runtime_summary["by_stage"]["nonrecipe_finalize"]["total_tokens"])
         == 25000
     )
     assert int(runtime_summary["by_stage"]["line_role"]["total_tokens"]) == 6535006
@@ -3782,7 +3782,7 @@ def test_build_upload_bundle_surfaces_knowledge_summary_and_locators(
         "prompts/prompt_type_samples_from_full_prompt_log.md"
     )
     assert locator_row["prompt_knowledge_txt"]["path"].endswith(
-        "prompts/prompt_nonrecipe_knowledge_review.txt"
+        "prompts/prompt_nonrecipe_finalize.txt"
     )
     assert locator_row["knowledge_manifest_json"]["path"].endswith(
         "prediction-run/raw/llm/fixture-slug/knowledge_manifest.json"
@@ -3886,7 +3886,7 @@ def test_build_upload_bundle_discovers_current_single_book_knowledge_layout(
         "prompts/prompt_type_samples_from_full_prompt_log.md"
     )
     assert codex_locator_row["prompt_knowledge_txt"]["path"].endswith(
-        "prompts/prompt_nonrecipe_knowledge_review.txt"
+        "prompts/prompt_nonrecipe_finalize.txt"
     )
     assert codex_locator_row["prompt_budget_summary_json"]["path"].endswith(
         "codexfarm/prompt_budget_summary.json"
@@ -3921,7 +3921,7 @@ def test_resolve_knowledge_prompt_path_supports_dynamic_stage_file_names(
     prompts_dir = run_dir / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
 
-    dynamic_path = prompts_dir / "prompt_nonrecipe_knowledge_review_stage.txt"
+    dynamic_path = prompts_dir / "prompt_nonrecipe_finalize_stage.txt"
     dynamic_path.write_text("dynamic knowledge content\n", encoding="utf-8")
     (prompts_dir / "prompt_category_logs_manifest.txt").write_text(
         str(dynamic_path) + "\n",
@@ -3962,7 +3962,7 @@ def test_reconstruct_full_prompt_log_includes_knowledge_rows(
     rows = _read_jsonl(output_path)
     assert len(rows) == 1
     row = rows[0]
-    assert row["stage_key"] == "nonrecipe_knowledge_review"
+    assert row["stage_key"] == "nonrecipe_finalize"
     assert row["pipeline_id"] == "recipe.knowledge.compact.v1"
     assert row["process_run_id"] == "run-knowledge-reconstruct"
     assert row["recipe_id"] is None
@@ -4044,7 +4044,7 @@ def test_build_upload_bundle_high_level_includes_lightweight_knowledge_artifacts
         f"{run_id}/prediction-run/raw/llm/fixture-slug/knowledge_manifest.json"
         in artifact_paths
     )
-    assert f"{run_id}/prompts/prompt_nonrecipe_knowledge_review.txt" not in artifact_paths
+    assert f"{run_id}/prompts/prompt_nonrecipe_finalize.txt" not in artifact_paths
 
     knowledge_summary = index_payload["analysis"]["knowledge"]["rows"][0]
     assert knowledge_summary["prompt_samples_in_bundle"] is True
@@ -4203,7 +4203,7 @@ def test_build_upload_bundle_high_level_only_enforces_final_bundle_size(
     def _make_large_prompt_rows(run_label: str) -> list[dict[str, object]]:
         return [
             {
-                "stage_key": "build_final_recipe",
+                "stage_key": "recipe_build_final",
                 "call_id": f"{run_label}-build-final-{index}",
                 "recipe_id": f"recipe:{run_label}:{index}",
                 "parsed_response": {

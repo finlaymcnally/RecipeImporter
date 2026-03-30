@@ -65,9 +65,9 @@ def _semantic_recipe_stage_call_counts(
     correction_count = int(observed_correction_call_count)
     final_build_count = int(observed_final_recipe_build_count)
     return {
-        "build_intermediate_det": max(correction_count, final_build_count),
-        "recipe_llm_correct_and_link": correction_count,
-        "build_final_recipe": final_build_count,
+        "recipe_build_intermediate": max(correction_count, final_build_count),
+        "recipe_refine": correction_count,
+        "recipe_build_final": final_build_count,
     }
 
 
@@ -168,18 +168,18 @@ def _summarize_runtime_stages_for_run(run_dir: Path) -> dict[str, Any]:
     for recipe_root in sorted((stage_run_dir / "raw" / "llm").glob("*/recipe_phase_runtime")):
         summary = _load_runtime_stage_summary(
             recipe_root,
-            stage_key="recipe_llm_correct_and_link",
+            stage_key="recipe_refine",
         )
         if summary is not None:
-            runtime_rows["recipe_llm_correct_and_link"] = summary
+            runtime_rows["recipe_refine"] = summary
             break
     for knowledge_root in sorted((stage_run_dir / "raw" / "llm").glob("*/knowledge")):
         summary = _load_runtime_stage_summary(
             knowledge_root,
-            stage_key="nonrecipe_knowledge_review",
+            stage_key="nonrecipe_finalize",
         )
         if summary is not None:
-            runtime_rows["nonrecipe_knowledge_review"] = summary
+            runtime_rows["nonrecipe_finalize"] = summary
             break
     line_role_summary = _load_runtime_stage_summary(
         stage_run_dir / "line-role-pipeline" / "runtime",

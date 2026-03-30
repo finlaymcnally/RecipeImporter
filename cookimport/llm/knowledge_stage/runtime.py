@@ -25,7 +25,7 @@ def _runtime_attr(name: str, default: Any) -> Any:
     return getattr(_shared_module, name, default)
 
 
-def run_codex_farm_nonrecipe_knowledge_review(
+def run_codex_farm_nonrecipe_finalize(
     *,
     conversion_result: ConversionResult,
     nonrecipe_stage_result: NonRecipeStageResult,
@@ -38,7 +38,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
     full_blocks: list[dict[str, Any]] | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> CodexFarmNonrecipeKnowledgeReviewResult:
-    """Optional Stage 7 review over non-recipe chunks via codex-farm."""
+    """Optional non-recipe finalize review over non-recipe chunks via codex-farm."""
     llm_raw_dir = run_root / "raw" / "llm" / sanitize_for_filename(workbook_slug)
     manifest_path = llm_raw_dir / KNOWLEDGE_MANIFEST_FILE_NAME
 
@@ -50,7 +50,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             refined_stage_result=nonrecipe_stage_result,
         )
 
-    knowledge_stage_dir = llm_raw_dir / stage_artifact_stem("nonrecipe_knowledge_review")
+    knowledge_stage_dir = llm_raw_dir / stage_artifact_stem("nonrecipe_finalize")
     knowledge_in_dir = knowledge_stage_dir / "in"
     knowledge_in_dir.mkdir(parents=True, exist_ok=True)
 
@@ -211,7 +211,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             "_run_direct_knowledge_workers_v1",
             _run_direct_knowledge_workers_v1,
         )(
-            phase_key="nonrecipe_knowledge_review",
+            phase_key="nonrecipe_finalize",
             pipeline_id=pipeline_id,
             run_root=knowledge_stage_dir,
             shards=build_report.shard_entries,
@@ -231,7 +231,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             },
             runtime_metadata={
                 "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
-                "input_mode": "stage7_candidate_nonrecipe_spans",
+                "input_mode": "nonrecipe_candidate_spans",
                 "workspace_root": str(workspace_root) if workspace_root is not None else None,
                 "configured_prompt_target_count": run_settings.knowledge_prompt_target_count,
                 "configured_packet_input_char_budget": run_settings.knowledge_packet_input_char_budget,
@@ -380,7 +380,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             "enabled": True,
             "pipeline": run_settings.llm_knowledge_pipeline.value,
             "pipeline_id": pipeline_id,
-            "input_mode": "stage7_candidate_nonrecipe_spans",
+            "input_mode": "nonrecipe_candidate_spans",
             "authority_mode": authority_mode,
             "scored_effect": str(
                 refined_stage_result.refinement_report.get("scored_effect")
@@ -427,14 +427,14 @@ def run_codex_farm_nonrecipe_knowledge_review(
             },
             "timing": {"total_seconds": elapsed_seconds},
             "paths": {
-                "nonrecipe_seed_routing_path": str(
-                    run_root / NONRECIPE_SEED_ROUTING_FILE_NAME
+                "nonrecipe_route_path": str(
+                    run_root / NONRECIPE_ROUTE_FILE_NAME
                 ),
                 "nonrecipe_authority_path": str(
                     run_root / NONRECIPE_AUTHORITY_FILE_NAME
                 ),
-                "nonrecipe_candidate_status_path": str(
-                    run_root / NONRECIPE_CANDIDATE_STATUS_FILE_NAME
+                "nonrecipe_finalize_status_path": str(
+                    run_root / NONRECIPE_FINALIZE_STATUS_FILE_NAME
                 ),
                 "knowledge_in_dir": str(knowledge_in_dir),
                 "knowledge_phase_dir": str(knowledge_stage_dir),
@@ -455,7 +455,7 @@ def run_codex_farm_nonrecipe_knowledge_review(
             "refinement_report": refined_report,
             "process_run": process_run_payload,
             "phase_worker_runtime": {
-                "phase_key": "nonrecipe_knowledge_review",
+                "phase_key": "nonrecipe_finalize",
                 "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
                 "configured_prompt_target_count": run_settings.knowledge_prompt_target_count,
                 "configured_packet_input_char_budget": run_settings.knowledge_packet_input_char_budget,

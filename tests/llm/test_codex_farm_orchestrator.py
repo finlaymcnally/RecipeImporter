@@ -371,7 +371,7 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
     assert manifest["counts"]["recipe_shards_total"] == 1
     assert manifest["counts"]["recipe_workers_total"] == 1
     assert manifest["counts"]["recipe_correction_ok"] == 1
-    assert manifest["counts"]["build_final_recipe_ok"] == 1
+    assert manifest["counts"]["recipe_build_final_ok"] == 1
     assert manifest["counts"]["final_recipe_authority_promoted"] == 1
     assert sorted(manifest["process_runs"].keys()) == ["recipe_correction"]
     assert manifest["recipes"]["urn:recipe:test:toast"]["final_recipe_authority_status"] == "promoted"
@@ -631,9 +631,9 @@ def test_execution_plan_uses_semantic_single_correction_stages(tmp_path: Path) -
     assert len(plan["planned_shards"]) == 1
     stages = plan["planned_tasks"][0]["planned_stages"]
     assert [stage["stage_key"] for stage in stages] == [
-        "build_intermediate_det",
-        "recipe_llm_correct_and_link",
-        "build_final_recipe",
+        "recipe_build_intermediate",
+        "recipe_refine",
+        "recipe_build_final",
     ]
     assert stages[1]["pipeline_id"] == SINGLE_CORRECTION_STAGE_PIPELINE_ID
 
@@ -774,8 +774,8 @@ def test_orchestrator_keeps_not_a_recipe_proposal_in_reports_but_skips_promotion
     assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
     assert apply_result.updated_conversion_result.recipes == []
     assert manifest["counts"]["recipe_correction_ok"] == 1
-    assert manifest["counts"]["build_final_recipe_ok"] == 0
-    assert manifest["counts"]["build_final_recipe_skipped"] == 1
+    assert manifest["counts"]["recipe_build_final_ok"] == 0
+    assert manifest["counts"]["recipe_build_final_skipped"] == 1
     assert manifest["counts"]["final_recipe_authority_not_promoted"] == 1
     assert manifest["recipes"][recipe_id]["correction_output_status"] == "not_a_recipe"
     assert manifest["recipes"][recipe_id]["correction_output_reason"] == "reference_table"
@@ -942,9 +942,9 @@ def test_orchestrator_rejects_complex_empty_mapping_without_reason_and_skips_pro
     assert proposal["repair_attempted"] is True
     assert manifest["counts"]["recipe_correction_ok"] == 0
     assert manifest["counts"]["recipe_correction_error"] == 1
-    assert manifest["counts"]["build_final_recipe_ok"] == 0
-    assert manifest["recipes"]["urn:recipe:test:toast"]["recipe_llm_correct_and_link"] == "error"
-    assert manifest["recipes"]["urn:recipe:test:toast"]["build_final_recipe"] == "error"
+    assert manifest["counts"]["recipe_build_final_ok"] == 0
+    assert manifest["recipes"]["urn:recipe:test:toast"]["recipe_refine"] == "error"
+    assert manifest["recipes"]["urn:recipe:test:toast"]["recipe_build_final"] == "error"
 
 
 def test_orchestrator_rejects_multi_ingredient_single_step_empty_mapping_without_reason(
@@ -1025,8 +1025,8 @@ def test_orchestrator_rejects_multi_ingredient_single_step_empty_mapping_without
     assert proposal["payload"] is None
     assert proposal["repair_attempted"] is True
     assert manifest["counts"]["recipe_correction_error"] == 1
-    assert manifest["recipes"]["urn:recipe:test:toast"]["recipe_llm_correct_and_link"] == "error"
-    assert manifest["recipes"]["urn:recipe:test:toast"]["build_final_recipe"] == "error"
+    assert manifest["recipes"]["urn:recipe:test:toast"]["recipe_refine"] == "error"
+    assert manifest["recipes"]["urn:recipe:test:toast"]["recipe_build_final"] == "error"
     assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
 
 

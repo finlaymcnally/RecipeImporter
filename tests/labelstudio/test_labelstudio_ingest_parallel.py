@@ -843,7 +843,7 @@ def test_write_processed_outputs_writes_report_total_mismatch_diagnostics(
     mismatch_path = run_root / "book.report_totals_mismatch_diagnostics.json"
     assert not mismatch_path.exists()
     authority_mismatch_path = (
-        run_root / "group_recipe_spans" / "book" / "authority_mismatch.json"
+        run_root / "recipe_boundary" / "book" / "authority_mismatch.json"
     )
     assert not authority_mismatch_path.exists()
 
@@ -2147,7 +2147,7 @@ def _build_final_nonrecipe_authority_fixture(
         refinement_report={
             "enabled": True,
             "authority_mode": "knowledge_refined_final",
-            "input_mode": "stage7_candidate_nonrecipe_spans",
+            "input_mode": "nonrecipe_candidate_spans",
             "seed_nonrecipe_span_count": 1,
             "final_nonrecipe_span_count": 1,
             "changed_block_count": 1,
