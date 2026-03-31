@@ -463,18 +463,27 @@ def _build_line_role_file_prompt_for_shard(
 def _build_line_role_workspace_worker_prompt(
     *,
     shards: Sequence[ShardManifestEntryV1],
+    fresh_session_resume: bool = False,
 ) -> str:
     assignments = "\n".join(
         f"- `{shard.shard_id}`"
         for shard in shards
     )
+    start_instruction = (
+        "- Resume from the existing `task.json` and current workspace state.\n"
+        if fresh_session_resume
+        else "- Open `task.json`, read the whole file once, edit only `/units/*/answer`, save the same file, and then run `python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff`.\n"
+    )
     return (
         "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger.\n\n"
         "Worker contract:\n"
         "- The current working directory is already the workspace root.\n"
-        "- Open `task.json`, read the whole file once, edit only `/units/*/answer`, save the same file, and then run `python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff`.\n"
+        f"{start_instruction}"
         "- `task.json` already contains the full assignment. You do not need extra control state, helper ledgers, or hidden context before editing it.\n"
         "- Do not invent phase ledgers, install loops, queue-control files, or alternate output files.\n"
+        "- If you need orientation first, run `python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff --status`.\n"
+        "- If the workspace feels inconsistent, run `python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff --doctor` before inventing shell scripts.\n"
+        "- If you already know a final answer object and want a repo-owned write path, use `python3 -m cookimport.llm.editable_task_file --set-answer <unit_id> '<answer_json>'`.\n"
         "- Prefer opening the named file directly. If you still need shell helpers, keep them narrow and grounded on `task.json` only.\n"
         "- After each edit pass, run `python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff` from the workspace root.\n"
         "- If the helper reports `repair_required`, reopen the rewritten `task.json` immediately, fix only the named issues, and run the helper again.\n"

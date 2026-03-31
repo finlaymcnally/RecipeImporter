@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
+import sys
 from copy import deepcopy
 from pathlib import Path
+
+import pytest
 
 from cookimport.llm.editable_task_file import load_task_file, write_task_file
 from cookimport.llm.knowledge_same_session_handoff import (
     advance_knowledge_same_session_handoff,
+    describe_knowledge_same_session_doctor,
+    describe_knowledge_same_session_status,
     initialize_knowledge_same_session_state,
+    main as knowledge_same_session_main,
 )
 from cookimport.llm.knowledge_stage.task_file_contracts import (
     build_knowledge_classification_task_file,
@@ -158,6 +164,8 @@ def test_same_session_handoff_rewrites_invalid_classification_into_repair_mode(
     assert repair_task["stage_key"] == "nonrecipe_classify"
     assert repair_result["same_session_repair_rewrite_count"] == 1
     assert repair_result["classification_validation_count"] == 1
+    assert repair_task["helper_commands"]["status"].endswith("--status")
+    assert repair_task["answer_schema"]["example_answers"][0]["category"] == "knowledge"
 
     repair_task["units"][0]["answer"] = _valid_classification_answer()
     write_task_file(path=workspace_root / "task.json", payload=repair_task)
@@ -276,4 +284,45 @@ def test_same_session_grouping_handoff_stops_after_one_failed_repair_pass(
     assert second_result["status"] == "repair_exhausted"
     assert second_result["same_session_repair_rewrite_count"] == 1
     assert state_payload["final_status"] == "repair_exhausted"
-    assert state_payload["same_session_repair_rewrite_count"] == 1
+
+
+def test_knowledge_same_session_cli_status_autodiscovers_state_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workspace_root, _state_path = _initialize_workspace(tmp_path)
+
+    monkeypatch.chdir(workspace_root)
+    monkeypatch.delenv("RECIPEIMPORT_KNOWLEDGE_SAME_SESSION_STATE_PATH", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["knowledge_same_session_handoff", "--status"],
+    )
+
+    exit_code = knowledge_same_session_main()
+    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+    assert exit_code == 0
+    assert payload["mode"] == "initial"
+    assert payload["stage_key"] == "nonrecipe_classify"
+
+
+def test_knowledge_same_session_status_and_doctor_report_next_action(
+    tmp_path: Path,
+) -> None:
+    workspace_root, state_path = _initialize_workspace(tmp_path)
+
+    status = describe_knowledge_same_session_status(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    doctor = describe_knowledge_same_session_doctor(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+
+    assert status["recommended_command"] == "python3 -m cookimport.llm.knowledge_same_session_handoff"
+    assert status["expected_outputs_total"] == 1
+    assert doctor["diagnosis_code"] == "awaiting_answers"

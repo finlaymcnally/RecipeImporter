@@ -215,6 +215,7 @@ def _build_line_role_shard_status_row(
     repair_attempted: bool,
     repair_status: str,
     resumed_from_existing_output: bool,
+    fresh_session_recovery_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     semantic_diagnostics = [
         str(value).strip()
@@ -250,6 +251,8 @@ def _build_line_role_shard_status_row(
         metadata["validation_metadata"] = dict(validation_metadata)
     if row_resolution_metadata:
         metadata["row_resolution"] = dict(row_resolution_metadata)
+    if fresh_session_recovery_metadata:
+        metadata["fresh_session_recovery"] = dict(fresh_session_recovery_metadata)
     return {
         "shard_id": shard.shard_id,
         "worker_id": worker_id,
@@ -321,7 +324,32 @@ def _normalize_line_role_shard_outcome(
     repair_status: str,
     resumed_from_existing_outputs: bool,
     row_resolution_metadata: Mapping[str, Any] | None = None,
+    fresh_session_recovery_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    def _with_fresh_session_recovery(result: dict[str, Any]) -> dict[str, Any]:
+        if not fresh_session_recovery_metadata:
+            return result
+        return {
+            **result,
+            **{
+                key: value
+                for key, value in dict(fresh_session_recovery_metadata).items()
+                if key
+                in {
+                    "fresh_session_recovery_attempted",
+                    "fresh_session_recovery_status",
+                    "fresh_session_recovery_count",
+                    "fresh_session_recovery_skipped_reason",
+                    "shared_retry_budget_spent",
+                    "prior_session_reason_code",
+                    "diagnosis_code",
+                    "recommended_command",
+                    "resume_summary",
+                    "assessment_path",
+                }
+            },
+        }
+
     raw_supervision_state = (
         str(run_result.supervision_state or "").strip() or None
         if run_result is not None
@@ -342,6 +370,12 @@ def _normalize_line_role_shard_outcome(
         if run_result is not None
         else False
     )
+    recovery_status = str(
+        (fresh_session_recovery_metadata or {}).get("fresh_session_recovery_status") or ""
+    ).strip()
+    prior_session_reason_code = str(
+        (fresh_session_recovery_metadata or {}).get("prior_session_reason_code") or ""
+    ).strip()
     unresolved_row_count = int(
         ((row_resolution_metadata or {}).get("unresolved_row_count") or 0)
     )
@@ -361,7 +395,7 @@ def _normalize_line_role_shard_outcome(
             detail = "line-role shard validated after a repair attempt corrected the final shard ledger."
             if raw_supervision_reason_code:
                 detail += f" Original workspace reason: {raw_supervision_reason_code}."
-            return {
+            return _with_fresh_session_recovery({
                 "state": "completed",
                 "reason_code": "repair_recovered",
                 "reason_detail": detail,
@@ -371,14 +405,14 @@ def _normalize_line_role_shard_outcome(
                 "raw_supervision_reason_code": raw_supervision_reason_code,
                 "raw_supervision_reason_detail": raw_supervision_reason_detail,
                 "raw_supervision_retryable": raw_supervision_retryable,
-            }
+            })
         if str(watchdog_retry_status).strip() == "recovered":
             detail = (
                 "line-role shard validated after a watchdog retry recovered a missing shard ledger."
             )
             if raw_supervision_reason_code:
                 detail += f" Original workspace reason: {raw_supervision_reason_code}."
-            return {
+            return _with_fresh_session_recovery({
                 "state": "completed",
                 "reason_code": "watchdog_retry_recovered",
                 "reason_detail": detail,
@@ -388,12 +422,29 @@ def _normalize_line_role_shard_outcome(
                 "raw_supervision_reason_code": raw_supervision_reason_code,
                 "raw_supervision_reason_detail": raw_supervision_reason_detail,
                 "raw_supervision_retryable": raw_supervision_retryable,
-            }
+            })
+        if recovery_status == "recovered":
+            detail = (
+                "line-role shard validated after one fresh-session recovery resumed the preserved workspace."
+            )
+            if prior_session_reason_code:
+                detail += f" Prior workspace reason: {prior_session_reason_code}."
+            return _with_fresh_session_recovery({
+                "state": "completed",
+                "reason_code": "fresh_session_recovery_recovered",
+                "reason_detail": detail,
+                "retryable": False,
+                "finalization_path": "fresh_session_recovery_recovered",
+                "raw_supervision_state": raw_supervision_state,
+                "raw_supervision_reason_code": raw_supervision_reason_code,
+                "raw_supervision_reason_detail": raw_supervision_reason_detail,
+                "raw_supervision_retryable": raw_supervision_retryable,
+            })
         if run_result is None:
             reason_code, reason_detail = _line_role_resume_reason_fields(
                 resumed_from_existing_outputs=resumed_from_existing_outputs
             )
-            return {
+            return _with_fresh_session_recovery({
                 "state": "completed",
                 "reason_code": reason_code,
                 "reason_detail": reason_detail,
@@ -403,7 +454,7 @@ def _normalize_line_role_shard_outcome(
                 "raw_supervision_reason_code": raw_supervision_reason_code,
                 "raw_supervision_reason_detail": raw_supervision_reason_detail,
                 "raw_supervision_retryable": raw_supervision_retryable,
-            }
+            })
         if str(raw_supervision_state or "").lower() == "watchdog_killed":
             detail = (
                 "line-role shard validated using a durable shard ledger even though the main "
@@ -411,7 +462,7 @@ def _normalize_line_role_shard_outcome(
             )
             if raw_supervision_reason_code:
                 detail += f" Original workspace reason: {raw_supervision_reason_code}."
-            return {
+            return _with_fresh_session_recovery({
                 "state": "completed",
                 "reason_code": "validated_after_watchdog_kill",
                 "reason_detail": detail,
@@ -421,8 +472,8 @@ def _normalize_line_role_shard_outcome(
                 "raw_supervision_reason_code": raw_supervision_reason_code,
                 "raw_supervision_reason_detail": raw_supervision_reason_detail,
                 "raw_supervision_retryable": raw_supervision_retryable,
-            }
-        return {
+            })
+        return _with_fresh_session_recovery({
             "state": str(raw_supervision_state or "completed"),
             "reason_code": raw_supervision_reason_code,
             "reason_detail": raw_supervision_reason_detail,
@@ -432,11 +483,11 @@ def _normalize_line_role_shard_outcome(
             "raw_supervision_reason_code": raw_supervision_reason_code,
             "raw_supervision_reason_detail": raw_supervision_reason_detail,
             "raw_supervision_retryable": raw_supervision_retryable,
-        }
+        })
 
     if run_result is None:
         if unresolved_row_count > 0:
-            return {
+            return _with_fresh_session_recovery({
                 "state": "repair_failed" if str(repair_status).strip() == "failed" else "invalid_output",
                 "reason_code": (
                     "same_session_repair_failed"
@@ -455,11 +506,11 @@ def _normalize_line_role_shard_outcome(
                 "raw_supervision_reason_code": raw_supervision_reason_code,
                 "raw_supervision_reason_detail": raw_supervision_reason_detail,
                 "raw_supervision_retryable": raw_supervision_retryable,
-            }
+            })
         reason_code, reason_detail = _line_role_resume_reason_fields(
             resumed_from_existing_outputs=resumed_from_existing_outputs
         )
-        return {
+        return _with_fresh_session_recovery({
             "state": "completed",
             "reason_code": reason_code,
             "reason_detail": reason_detail,
@@ -469,7 +520,7 @@ def _normalize_line_role_shard_outcome(
             "raw_supervision_reason_code": raw_supervision_reason_code,
             "raw_supervision_reason_detail": raw_supervision_reason_detail,
             "raw_supervision_retryable": raw_supervision_retryable,
-        }
+        })
 
     if unresolved_row_count > 0:
         detail = (
@@ -480,7 +531,7 @@ def _normalize_line_role_shard_outcome(
         )
         if raw_supervision_reason_detail:
             detail += f" Workspace detail: {raw_supervision_reason_detail}"
-        return {
+        return _with_fresh_session_recovery({
             "state": (
                 "repair_failed"
                 if str(repair_status).strip() == "failed"
@@ -503,9 +554,9 @@ def _normalize_line_role_shard_outcome(
             "raw_supervision_reason_code": raw_supervision_reason_code,
             "raw_supervision_reason_detail": raw_supervision_reason_detail,
             "raw_supervision_retryable": raw_supervision_retryable,
-        }
+        })
 
-    return {
+    return _with_fresh_session_recovery({
         "state": str(raw_supervision_state or "completed"),
         "reason_code": raw_supervision_reason_code,
         "reason_detail": raw_supervision_reason_detail,
@@ -515,7 +566,7 @@ def _normalize_line_role_shard_outcome(
         "raw_supervision_reason_code": raw_supervision_reason_code,
         "raw_supervision_reason_detail": raw_supervision_reason_detail,
         "raw_supervision_retryable": raw_supervision_retryable,
-    }
+    })
 
 
 def _annotate_line_role_final_outcome_row(
@@ -540,6 +591,20 @@ def _annotate_line_role_final_outcome_row(
     row["raw_supervision_retryable"] = normalized_outcome.get(
         "raw_supervision_retryable"
     )
+    for key in (
+        "fresh_session_recovery_attempted",
+        "fresh_session_recovery_status",
+        "fresh_session_recovery_count",
+        "fresh_session_recovery_skipped_reason",
+        "shared_retry_budget_spent",
+        "prior_session_reason_code",
+        "diagnosis_code",
+        "recommended_command",
+        "resume_summary",
+        "assessment_path",
+    ):
+        if key in normalized_outcome:
+            row[key] = normalized_outcome.get(key)
     if repair_attempted is not None:
         row["repair_attempted"] = bool(repair_attempted)
     if repair_status is not None:

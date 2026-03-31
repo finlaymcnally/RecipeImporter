@@ -9,6 +9,8 @@ from . import planning as _planning_module
 from . import recovery as _recovery_module
 from ..editable_task_file import (
     TASK_FILE_NAME,
+    load_task_file,
+    validate_edited_task_file,
     write_task_file,
 )
 from ..knowledge_same_session_handoff import (
@@ -95,6 +97,62 @@ _KNOWLEDGE_SAME_SESSION_STATE_FILE_NAME = "knowledge_same_session_state.json"
 
 def _knowledge_same_session_state_path(worker_root: Path) -> Path:
     return worker_root / "_repo_control" / _KNOWLEDGE_SAME_SESSION_STATE_FILE_NAME
+
+
+def _knowledge_task_file_useful_progress(
+    *,
+    task_file_path: Path,
+    original_task_file: Mapping[str, Any],
+    same_session_state_payload: Mapping[str, Any],
+) -> bool:
+    if int(same_session_state_payload.get("same_session_transition_count") or 0) > 0:
+        return True
+    if not task_file_path.exists():
+        return False
+    try:
+        edited_task_file = load_task_file(task_file_path)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return False
+    _answers_by_unit_id, _errors, metadata = validate_edited_task_file(
+        original_task_file=original_task_file,
+        edited_task_file=edited_task_file,
+        expected_schema_version=str(original_task_file.get("schema_version") or ""),
+        allow_immutable_field_changes=True,
+    )
+    return bool(int(metadata.get("changed_unit_count") or 0) > 0)
+
+
+def _knowledge_hard_boundary_failure(run_result: CodexExecRunResult) -> bool:
+    if str(run_result.supervision_state or "").strip() == "watchdog_killed":
+        return True
+    reason_code = str(run_result.supervision_reason_code or "").strip()
+    return reason_code.startswith("watchdog_") or "boundary" in reason_code
+
+
+def _should_attempt_knowledge_fresh_session_retry(
+    *,
+    run_result: CodexExecRunResult,
+    task_file_path: Path,
+    original_task_file: Mapping[str, Any],
+    same_session_state_payload: Mapping[str, Any],
+) -> tuple[bool, str]:
+    retry_limit = int(same_session_state_payload.get("fresh_session_retry_limit") or 0)
+    retry_count = int(same_session_state_payload.get("fresh_session_retry_count") or 0)
+    if retry_limit <= retry_count:
+        return False, "fresh_session_retry_budget_spent"
+    if bool(same_session_state_payload.get("completed")):
+        return False, "same_session_already_completed"
+    if _knowledge_hard_boundary_failure(run_result):
+        return False, "hard_boundary_failure"
+    if not run_result.completed_successfully():
+        return False, "worker_session_not_clean"
+    if not _knowledge_task_file_useful_progress(
+        task_file_path=task_file_path,
+        original_task_file=original_task_file,
+        same_session_state_payload=same_session_state_payload,
+    ):
+        return False, "no_preserved_progress"
+    return True, "preserved_progress_without_completion"
 
 
 def _task_file_answer_feedback(
@@ -532,6 +590,8 @@ def _run_phase_knowledge_worker_assignment_v1(
     grouping_validation_errors: tuple[str, ...] = ()
     grouping_validation_metadata: dict[str, Any] = {}
     semantic_run_results: list[CodexExecRunResult] = []
+    fresh_session_retry_count = 0
+    fresh_session_retry_status = "not_attempted"
     same_session_state_payload: dict[str, Any] = {}
     if task_file_payload is not None:
         state_path = _knowledge_same_session_state_path(worker_root)
@@ -593,49 +653,6 @@ def _run_phase_knowledge_worker_assignment_v1(
             watchdog_policy="workspace_worker_v1",
         )
         same_session_state_payload = _load_json_dict_safely(state_path)
-        classify_answers_by_unit_id = (
-            dict(same_session_state_payload.get("classification_answers_by_unit_id") or {})
-            or None
-        )
-        grouping_answers_by_unit_id = dict(
-            same_session_state_payload.get("grouping_answers_by_unit_id") or {}
-        )
-        worker_runner_payload = _build_knowledge_workspace_task_runner_payload(
-            pipeline_id=pipeline_id,
-            worker_id=assignment.worker_id,
-            shard_id=f"{assignment.worker_id}.same_session.01",
-            runtime_task_id=f"{assignment.worker_id}.same_session.01",
-            run_result=run_result,
-            model=model,
-            reasoning_effort=reasoning_effort,
-            request_input_file=worker_root / TASK_FILE_NAME,
-            worker_prompt_path=prompt_path,
-            worker_root=worker_root,
-            task_count=1,
-            task_index=0,
-        )
-        telemetry = worker_runner_payload.get("telemetry")
-        if isinstance(telemetry, Mapping):
-            rows = telemetry.get("rows")
-            if isinstance(rows, list):
-                for row in rows:
-                    if not isinstance(row, dict):
-                        continue
-                    _apply_knowledge_same_session_row_metadata(
-                        row=row,
-                        initial_task_file=task_file_payload,
-                        state_payload=same_session_state_payload,
-                    )
-                    stage_rows.append(dict(row))
-                telemetry["summary"] = _summarize_direct_rows(
-                    [dict(row) for row in rows if isinstance(row, Mapping)]
-                )
-        _attach_worker_guardrail_summary(
-            worker_runner_payload=worker_runner_payload,
-            task_file_guardrail=task_file_guardrail,
-            planned_happy_path_worker_cap=1,
-        )
-        worker_runner_results.append(worker_runner_payload)
         final_run_result = semantic_run_results[-1]
         (worker_root / "events.jsonl").write_text(
             _render_events_jsonl(final_run_result.events),
@@ -649,6 +666,164 @@ def _run_phase_knowledge_worker_assignment_v1(
         )
         _write_optional_text(worker_root / "stdout.txt", final_run_result.stdout_text)
         _write_optional_text(worker_root / "stderr.txt", final_run_result.stderr_text)
+        worker_session_runs: list[tuple[CodexExecRunResult, Path, bool]] = [
+            (run_result, prompt_path, False)
+        ]
+        should_retry, retry_reason = _should_attempt_knowledge_fresh_session_retry(
+            run_result=run_result,
+            task_file_path=worker_root / TASK_FILE_NAME,
+            original_task_file=task_file_payload,
+            same_session_state_payload=same_session_state_payload,
+        )
+        if should_retry:
+            fresh_session_retry_count = 1
+            fresh_session_retry_status = "attempted"
+            same_session_state_payload["fresh_session_retry_count"] = 1
+            same_session_state_payload["fresh_session_retry_status"] = "attempted"
+            fresh_session_retry_history = list(
+                same_session_state_payload.get("fresh_session_retry_history") or []
+            )
+            fresh_session_retry_history.append(
+                {
+                    "attempt": 1,
+                    "reason_code": retry_reason,
+                    "reason_detail": "clean first session preserved useful workspace state without completion",
+                }
+            )
+            same_session_state_payload["fresh_session_retry_history"] = fresh_session_retry_history
+            _write_json(same_session_state_payload, state_path)
+            current_task_file = load_task_file(worker_root / TASK_FILE_NAME)
+            resume_prompt_path = worker_root / "prompt_resume.txt"
+            resume_prompt_text = _build_knowledge_workspace_worker_prompt(
+                stage_key=str(
+                    current_task_file.get("stage_key")
+                    or same_session_state_payload.get("current_stage_key")
+                    or KNOWLEDGE_CLASSIFY_STAGE_KEY
+                ),
+                shards=assigned_shards,
+                fresh_session_resume=True,
+            )
+            resume_prompt_path.write_text(resume_prompt_text, encoding="utf-8")
+            run_result = runner.run_workspace_worker(
+                prompt_text=resume_prompt_text,
+                working_dir=worker_root,
+                env={
+                    **dict(env),
+                    KNOWLEDGE_SAME_SESSION_STATE_ENV: str(state_path),
+                },
+                model=model,
+                reasoning_effort=reasoning_effort,
+                workspace_task_label="knowledge fresh-session worker recovery",
+                supervision_callback=_build_strict_json_watchdog_callback(
+                    live_status_path=worker_root / "live_status.json",
+                    allow_workspace_commands=True,
+                    execution_workspace_root=worker_root,
+                    expected_workspace_output_paths=[
+                        out_dir / f"{shard.shard_id}.json" for shard in assigned_shards
+                    ],
+                    workspace_output_observer=(
+                        None
+                        if progress_state is None
+                        else lambda present_count, expected_count, _worker_id=assignment.worker_id: (
+                            progress_state.observe_workspace_outputs(
+                                worker_id=_worker_id,
+                                present_count=present_count,
+                                expected_count=expected_count,
+                            )
+                        )
+                    ),
+                ),
+            )
+            semantic_run_results.append(run_result)
+            _finalize_live_status(
+                worker_root / "live_status.json",
+                run_result=run_result,
+                watchdog_policy="workspace_worker_v1",
+            )
+            same_session_state_payload = _load_json_dict_safely(state_path)
+            fresh_session_retry_status = (
+                "completed"
+                if bool(same_session_state_payload.get("completed"))
+                else "failed"
+            )
+            same_session_state_payload["fresh_session_retry_count"] = 1
+            same_session_state_payload["fresh_session_retry_status"] = fresh_session_retry_status
+            same_session_state_payload["fresh_session_retry_history"] = [
+                {
+                    **dict(row),
+                    **(
+                        {
+                            "result_completed": bool(same_session_state_payload.get("completed")),
+                            "result_final_status": same_session_state_payload.get("final_status"),
+                        }
+                        if index == len(fresh_session_retry_history) - 1
+                        else {}
+                    ),
+                }
+                for index, row in enumerate(fresh_session_retry_history)
+                if isinstance(row, Mapping)
+            ]
+            _write_json(same_session_state_payload, state_path)
+            worker_session_runs.append((run_result, resume_prompt_path, True))
+            final_run_result = semantic_run_results[-1]
+            (worker_root / "events.jsonl").write_text(
+                _render_events_jsonl(final_run_result.events),
+                encoding="utf-8",
+            )
+            _write_json({"text": final_run_result.response_text}, worker_root / "last_message.json")
+            _write_json(dict(final_run_result.usage or {}), worker_root / "usage.json")
+            _write_json(
+                final_run_result.workspace_manifest(),
+                worker_root / "workspace_manifest.json",
+            )
+            _write_optional_text(worker_root / "stdout.txt", final_run_result.stdout_text)
+            _write_optional_text(worker_root / "stderr.txt", final_run_result.stderr_text)
+        for session_index, (session_run_result, session_prompt_path, fresh_session_resume) in enumerate(worker_session_runs, start=1):
+            worker_runner_payload = _build_knowledge_workspace_task_runner_payload(
+                pipeline_id=pipeline_id,
+                worker_id=assignment.worker_id,
+                shard_id=f"{assignment.worker_id}.same_session.{session_index:02d}",
+                runtime_task_id=f"{assignment.worker_id}.same_session.{session_index:02d}",
+                run_result=session_run_result,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                request_input_file=worker_root / TASK_FILE_NAME,
+                worker_prompt_path=session_prompt_path,
+                worker_root=worker_root,
+                task_count=1,
+                task_index=0,
+            )
+            telemetry = worker_runner_payload.get("telemetry")
+            if isinstance(telemetry, Mapping):
+                rows = telemetry.get("rows")
+                if isinstance(rows, list):
+                    for row in rows:
+                        if not isinstance(row, dict):
+                            continue
+                        row["fresh_session_resume"] = fresh_session_resume
+                        _apply_knowledge_same_session_row_metadata(
+                            row=row,
+                            initial_task_file=task_file_payload,
+                            state_payload=same_session_state_payload,
+                        )
+                        stage_rows.append(dict(row))
+                    telemetry["summary"] = _summarize_direct_rows(
+                        [dict(row) for row in rows if isinstance(row, Mapping)]
+                    )
+            worker_runner_payload["fresh_session_resume"] = fresh_session_resume
+            _attach_worker_guardrail_summary(
+                worker_runner_payload=worker_runner_payload,
+                task_file_guardrail=task_file_guardrail,
+                planned_happy_path_worker_cap=2,
+            )
+            worker_runner_results.append(worker_runner_payload)
+        classify_answers_by_unit_id = (
+            dict(same_session_state_payload.get("classification_answers_by_unit_id") or {})
+            or None
+        )
+        grouping_answers_by_unit_id = dict(
+            same_session_state_payload.get("grouping_answers_by_unit_id") or {}
+        )
 
     task_total = len(assigned_shards)
     run_result = semantic_run_results[-1]
@@ -941,10 +1116,12 @@ def _run_phase_knowledge_worker_assignment_v1(
         worker_runs=worker_runner_results,
         stage_rows=stage_rows,
     )
+    worker_runner_payload["fresh_session_retry_count"] = fresh_session_retry_count
+    worker_runner_payload["fresh_session_retry_status"] = fresh_session_retry_status
     _attach_worker_guardrail_summary(
         worker_runner_payload=worker_runner_payload,
         task_file_guardrail=task_file_guardrail,
-        planned_happy_path_worker_cap=1,
+        planned_happy_path_worker_cap=2,
         repair_followup_call_count=int(
             worker_runner_payload.get("telemetry", {})
             .get("summary", {})
@@ -978,6 +1155,8 @@ def _run_phase_knowledge_worker_assignment_v1(
                     worker_root / "packet_history.jsonl",
                 ),
                 "task_file_guardrail": dict(task_file_guardrail or {}),
+                "fresh_session_retry_count": fresh_session_retry_count,
+                "fresh_session_retry_status": fresh_session_retry_status,
             },
         ),
         proposals=tuple(worker_proposals),

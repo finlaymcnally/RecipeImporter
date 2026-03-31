@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import json
+import sys
 from copy import deepcopy
 from dataclasses import asdict
 from pathlib import Path
+
+import pytest
 
 from cookimport.llm.editable_task_file import load_task_file, write_task_file
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1, WorkerAssignmentV1
 from cookimport.parsing.canonical_line_roles.runtime import _build_line_role_task_file
 from cookimport.parsing.canonical_line_roles.same_session_handoff import (
     advance_line_role_same_session_handoff,
+    describe_line_role_same_session_doctor,
+    describe_line_role_same_session_status,
     initialize_line_role_same_session_state,
+    main as line_role_same_session_main,
 )
 
 
@@ -79,6 +85,8 @@ def test_line_role_same_session_handoff_repairs_invalid_exclusion_reason_and_com
     assert repair_result["status"] == "repair_required"
     assert repair_task["mode"] == "repair"
     assert repair_result["same_session_repair_rewrite_count"] == 1
+    assert repair_task["helper_commands"]["status"].endswith("--status")
+    assert repair_task["answer_schema"]["example_answers"][0]["label"] == "RECIPE_NOTES"
 
     repair_task["units"][0]["answer"] = {
         "label": "NONRECIPE_EXCLUDE",
@@ -129,3 +137,47 @@ def test_line_role_same_session_handoff_stops_after_one_failed_repair_pass(
     assert second_result["same_session_repair_rewrite_count"] == 1
     assert state_payload["final_status"] == "repair_exhausted"
     assert state_payload["same_session_repair_rewrite_count"] == 1
+
+
+def test_line_role_same_session_status_and_doctor_report_next_action(
+    tmp_path: Path,
+) -> None:
+    workspace_root, state_path = _initialize_workspace(tmp_path)
+
+    status = describe_line_role_same_session_status(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    doctor = describe_line_role_same_session_doctor(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+
+    assert status["recommended_command"] == (
+        "python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff"
+    )
+    assert status["expected_outputs_total"] == 1
+    assert doctor["diagnosis_code"] == "awaiting_answers"
+
+
+def test_line_role_same_session_cli_status_autodiscovers_state_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workspace_root, _state_path = _initialize_workspace(tmp_path)
+
+    monkeypatch.chdir(workspace_root)
+    monkeypatch.delenv("RECIPEIMPORT_LINE_ROLE_SAME_SESSION_STATE_PATH", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["line_role_same_session_handoff", "--status"],
+    )
+
+    exit_code = line_role_same_session_main()
+    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+    assert exit_code == 0
+    assert payload["mode"] == "initial"
+    assert payload["stage_key"] == "line_role"

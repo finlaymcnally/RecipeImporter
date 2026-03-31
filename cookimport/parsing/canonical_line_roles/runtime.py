@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 
 from cookimport.llm.editable_task_file import (
     TASK_FILE_NAME,
@@ -15,8 +15,15 @@ from cookimport.llm.task_file_guardrails import (
     build_worker_session_guardrails,
     summarize_task_file_guardrails,
 )
+from cookimport.llm.workspace_worker_progress import (
+    decorate_active_worker_label,
+    start_workspace_worker_progress_heartbeat,
+    summarize_workspace_worker_health,
+)
 from .same_session_handoff import (
     LINE_ROLE_SAME_SESSION_STATE_ENV,
+    describe_line_role_same_session_doctor,
+    describe_line_role_same_session_status,
     initialize_line_role_same_session_state,
 )
 
@@ -49,6 +56,254 @@ def _load_json_dict_safely(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         return {}
     return dict(payload) if isinstance(payload, Mapping) else {}
+
+
+def _line_role_task_file_useful_progress(
+    *,
+    task_file_path: Path,
+    original_task_file: Mapping[str, Any],
+    same_session_state_payload: Mapping[str, Any],
+) -> bool:
+    if int(same_session_state_payload.get("same_session_transition_count") or 0) > 0:
+        return True
+    if not task_file_path.exists():
+        return False
+    try:
+        edited_task_file = load_task_file(task_file_path)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return False
+    _answers_by_unit_id, _errors, metadata = validate_edited_task_file(
+        original_task_file=original_task_file,
+        edited_task_file=edited_task_file,
+        allow_immutable_field_changes=True,
+    )
+    return bool(int(metadata.get("changed_unit_count") or 0) > 0)
+
+
+def _line_role_hard_boundary_failure(run_result: CodexExecRunResult) -> bool:
+    reason_code = str(run_result.supervision_reason_code or "").strip()
+    if reason_code == "workspace_final_message_missing_output":
+        return False
+    if str(run_result.supervision_state or "").strip() == "boundary_interrupted":
+        return True
+    return reason_code.startswith("watchdog_") or "boundary" in reason_code
+
+
+def _should_attempt_line_role_fresh_session_retry(
+    *,
+    run_result: CodexExecRunResult,
+    task_file_path: Path,
+    original_task_file: Mapping[str, Any],
+    same_session_state_payload: Mapping[str, Any],
+) -> tuple[bool, str]:
+    retry_limit = int(same_session_state_payload.get("fresh_session_retry_limit") or 0)
+    retry_count = int(same_session_state_payload.get("fresh_session_retry_count") or 0)
+    if retry_limit <= retry_count:
+        return False, "fresh_session_retry_budget_spent"
+    if bool(same_session_state_payload.get("completed")):
+        return False, "same_session_already_completed"
+    if _line_role_hard_boundary_failure(run_result):
+        return False, "hard_boundary_failure"
+    if not run_result.completed_successfully():
+        return False, "worker_session_not_clean"
+    if not _line_role_task_file_useful_progress(
+        task_file_path=task_file_path,
+        original_task_file=original_task_file,
+        same_session_state_payload=same_session_state_payload,
+    ):
+        return False, "no_preserved_progress"
+    return True, "preserved_progress_without_completion"
+
+
+@dataclass(frozen=True)
+class _LineRoleRecoveryAssessment:
+    prior_session_reason_code: str
+    recoverable_by_fresh_session: bool
+    diagnosis_code: str
+    recommended_command: str | None
+    same_session_completed: bool
+    outputs_present: bool
+    fresh_session_retry_limit: int
+    fresh_session_retry_count: int
+    resume_summary: str | None
+    blocked_reason: str | None = None
+
+
+def _line_role_recovery_guidance_for_diagnosis(
+    diagnosis_code: str | None,
+) -> tuple[bool, str | None]:
+    code = str(diagnosis_code or "").strip()
+    if code == "completed":
+        return False, "same-session helper already completed this workspace"
+    if code == "answers_present_helper_not_run":
+        return (
+            True,
+            "task.json contains saved answers but the same-session helper has not produced out/<shard_id>.json yet",
+        )
+    if code == "ready_for_validation":
+        return (
+            True,
+            "answers are present and the same-session helper still needs to validate and install out/<shard_id>.json",
+        )
+    if code == "repair_ready_helper_not_run":
+        return (
+            True,
+            "repair answers are present but the same-session helper has not installed out/<shard_id>.json yet",
+        )
+    if code == "awaiting_answers":
+        return False, "task.json still has blank answer objects"
+    if code == "repair_answers_missing":
+        return False, "repair mode is active but corrected answers are still missing"
+    return False, None
+
+
+def _load_json_dict_with_error(path: Path) -> tuple[dict[str, Any], str | None]:
+    if not path.exists():
+        return {}, "missing"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {}, str(exc)
+    return (dict(payload) if isinstance(payload, Mapping) else {}), None
+
+
+def _assess_line_role_workspace_recovery(
+    *,
+    worker_root: Path,
+    state_path: Path,
+    run_result: CodexExecRunResult,
+    expected_workspace_output_paths: Sequence[Path],
+) -> tuple[_LineRoleRecoveryAssessment, dict[str, Any]]:
+    prior_session_reason_code = str(run_result.supervision_reason_code or "").strip()
+    output_status = _summarize_workspace_output_paths(expected_workspace_output_paths)
+    outputs_present = bool(output_status.get("complete"))
+    state_payload, state_error = _load_json_dict_with_error(state_path)
+    task_file_path = worker_root / TASK_FILE_NAME
+    task_file_error: str | None = None
+    if task_file_path.exists():
+        try:
+            load_task_file(task_file_path)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            task_file_error = str(exc)
+    else:
+        task_file_error = "missing"
+    retry_limit = int(state_payload.get("fresh_session_retry_limit") or 0)
+    retry_count = int(state_payload.get("fresh_session_retry_count") or 0)
+    status_payload: dict[str, Any] = {}
+    doctor_payload: dict[str, Any] = {}
+    status_error: str | None = None
+    doctor_error: str | None = None
+    if state_error is None:
+        try:
+            status_payload = describe_line_role_same_session_status(
+                workspace_root=worker_root,
+                state_path=state_path,
+            )
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            status_error = str(exc)
+        try:
+            doctor_payload = describe_line_role_same_session_doctor(
+                workspace_root=worker_root,
+                state_path=state_path,
+            )
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            doctor_error = str(exc)
+    diagnosis_code = str(doctor_payload.get("diagnosis_code") or "unavailable").strip()
+    recommended_command = str(doctor_payload.get("recommended_command") or "").strip() or None
+    same_session_completed = bool(
+        status_payload.get("same_session_completed")
+        if status_payload
+        else state_payload.get("completed")
+    )
+    recoverable_by_diagnosis, resume_summary = _line_role_recovery_guidance_for_diagnosis(
+        diagnosis_code
+    )
+    blocked_reason: str | None = None
+    if state_error is not None:
+        blocked_reason = "same_session_state_unavailable"
+    elif task_file_error is not None:
+        blocked_reason = "task_file_unavailable"
+    elif _line_role_hard_boundary_failure(run_result):
+        blocked_reason = "hard_boundary_failure"
+    elif outputs_present:
+        blocked_reason = "outputs_already_present"
+    elif retry_limit <= retry_count:
+        blocked_reason = "fresh_session_retry_budget_spent"
+    elif not recoverable_by_diagnosis:
+        blocked_reason = (
+            f"diagnosis_{diagnosis_code}" if diagnosis_code else "diagnosis_unknown"
+        )
+    assessment = _LineRoleRecoveryAssessment(
+        prior_session_reason_code=prior_session_reason_code,
+        recoverable_by_fresh_session=blocked_reason is None and recoverable_by_diagnosis,
+        diagnosis_code=diagnosis_code,
+        recommended_command=recommended_command,
+        same_session_completed=same_session_completed,
+        outputs_present=outputs_present,
+        fresh_session_retry_limit=retry_limit,
+        fresh_session_retry_count=retry_count,
+        resume_summary=resume_summary,
+        blocked_reason=blocked_reason,
+    )
+    artifact_payload = {
+        "created_at_utc": _format_utc_now(),
+        "prior_session_supervision_state": str(run_result.supervision_state or "").strip()
+        or None,
+        "prior_session_reason_code": prior_session_reason_code or None,
+        "prior_session_reason_detail": str(run_result.supervision_reason_detail or "").strip()
+        or None,
+        "prior_session_retryable": bool(run_result.supervision_retryable),
+        "same_session_state_path": str(state_path),
+        "same_session_state_available": state_error is None,
+        "same_session_state_error": state_error,
+        "task_file_path": str(task_file_path),
+        "task_file_available": task_file_error is None,
+        "task_file_error": task_file_error,
+        "workspace_output_status": dict(output_status),
+        "status_payload": dict(status_payload),
+        "status_error": status_error,
+        "doctor_payload": dict(doctor_payload),
+        "doctor_error": doctor_error,
+        "assessment": asdict(assessment),
+    }
+    return assessment, artifact_payload
+
+
+def _should_attempt_line_role_final_message_recovery(
+    *,
+    run_result: CodexExecRunResult,
+    assessment: _LineRoleRecoveryAssessment,
+) -> tuple[bool, str]:
+    if str(run_result.supervision_reason_code or "").strip() != "workspace_final_message_missing_output":
+        return False, "not_final_message_missing_output"
+    if not assessment.recoverable_by_fresh_session:
+        return False, str(assessment.blocked_reason or "not_recoverable")
+    return True, "workspace_final_message_missing_output"
+
+
+def _build_line_role_final_message_recovery_prompt(
+    *,
+    shards: Sequence[ShardManifestEntryV1],
+    assessment: _LineRoleRecoveryAssessment,
+) -> str:
+    assignments = "\n".join(f"- `{shard.shard_id}`" for shard in shards)
+    recommended_command = (
+        assessment.recommended_command
+        or "python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff"
+    )
+    return (
+        "Resume the existing canonical line-role workspace after the previous session emitted a final message without writing the required shard output.\n\n"
+        "Do this exactly:\n"
+        "- First run `python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff --status`.\n"
+        "- If the next step is still unclear, run `python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff --doctor`.\n"
+        f"- Follow the repo-owned recommended command: `{recommended_command}`.\n"
+        "- Prefer repo-owned helper commands over shell scripting.\n"
+        "- Stop as soon as the helper reports `completed`.\n\n"
+        f"Recovery diagnosis: {assessment.diagnosis_code or '[unknown]'}\n"
+        f"Resume summary: {assessment.resume_summary or '[none available]'}\n\n"
+        "Assigned shard ids represented in this task file:\n"
+        f"{assignments}\n"
+    )
 
 
 def _build_line_role_task_file(
@@ -100,6 +355,66 @@ def _build_line_role_task_file(
             assignment_id=assignment.worker_id,
             worker_id=assignment.worker_id,
             units=units,
+            helper_commands={
+                "summary": "python3 -m cookimport.llm.editable_task_file --summary",
+                "apply_answer_json": (
+                    "python3 -m cookimport.llm.editable_task_file --set-answer "
+                    "<unit_id> '<answer_json>'"
+                ),
+                "apply_answers_file": (
+                    "python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json"
+                ),
+                "status": (
+                    "python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff "
+                    "--status"
+                ),
+                "doctor": (
+                    "python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff "
+                    "--doctor"
+                ),
+                "handoff": (
+                    "python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff"
+                ),
+            },
+            next_action=(
+                "Set every /units/*/answer object, then run "
+                "python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff."
+            ),
+            answer_schema={
+                "editable_pointer_pattern": "/units/*/answer",
+                "required_keys": ["label"],
+                "optional_keys": ["exclusion_reason"],
+                "allowed_values": {
+                    "label": [
+                        "RECIPE_TITLE",
+                        "INGREDIENT_LINE",
+                        "INSTRUCTION_LINE",
+                        "TIME_LINE",
+                        "HOWTO_SECTION",
+                        "YIELD_LINE",
+                        "RECIPE_VARIANT",
+                        "RECIPE_NOTES",
+                        "NONRECIPE_CANDIDATE",
+                        "NONRECIPE_EXCLUDE",
+                    ],
+                    "exclusion_reason": [
+                        "navigation",
+                        "front_matter",
+                        "publishing_metadata",
+                        "copyright_legal",
+                        "endorsement",
+                        "publisher_promo",
+                        "page_furniture",
+                    ],
+                },
+                "example_answers": [
+                    {"label": "RECIPE_NOTES"},
+                    {
+                        "label": "NONRECIPE_EXCLUDE",
+                        "exclusion_reason": "navigation",
+                    },
+                ],
+            },
         ),
         unit_to_shard_id,
     )
@@ -833,7 +1148,9 @@ def _notify_line_role_progress(
     followup_total: int | None = None,
     followup_label: str | None = None,
     artifact_counts: dict[str, Any] | None = None,
+    last_activity_at: str | None = None,
     active_tasks: list[str] | None = None,
+    detail_lines: list[str] | None = None,
 ) -> None:
     if progress_callback is None:
         return
@@ -845,11 +1162,15 @@ def _notify_line_role_progress(
         running = max(0, int(running_units))
         message = f"{message} | running {running}"
     remaining = max(0, total - completed)
-    detail_lines = [
+    resolved_detail_lines = [
         f"queued {unit_label}s: {remaining}",
     ]
     if worker_total is not None:
-        detail_lines.insert(0, f"configured workers: {max(0, int(worker_total))}")
+        resolved_detail_lines.insert(0, f"configured workers: {max(0, int(worker_total))}")
+    for value in detail_lines or []:
+        cleaned = str(value).strip()
+        if cleaned and cleaned not in resolved_detail_lines:
+            resolved_detail_lines.append(cleaned)
     progress_callback(
         format_stage_progress(
             message,
@@ -867,9 +1188,12 @@ def _notify_line_role_progress(
             followup_total=followup_total,
             followup_label=followup_label,
             artifact_counts=artifact_counts,
-            last_activity_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            last_activity_at=(
+                str(last_activity_at or "").strip()
+                or datetime.now(timezone.utc).isoformat(timespec="seconds")
+            ),
             active_tasks=active_tasks,
-            detail_lines=detail_lines,
+            detail_lines=resolved_detail_lines,
         )
     )
 
@@ -1167,6 +1491,9 @@ def _run_line_role_workspace_worker_assignment_v1(
     runnable_shards = [shard for shard in valid_shards if shard.shard_id in runnable_shard_ids]
     task_file_guardrail: dict[str, Any] | None = None
     line_role_same_session_state_payload: dict[str, Any] = {}
+    fresh_session_retry_count = 0
+    fresh_session_retry_status = "not_attempted"
+    fresh_session_recovery_metadata: dict[str, Any] = {}
     if runnable_shards:
         task_file_payload, unit_to_shard_id = _build_line_role_task_file(
             assignment=assignment,
@@ -1259,6 +1586,253 @@ def _run_line_role_workspace_worker_assignment_v1(
         _write_optional_runtime_text(worker_root / "stdout.txt", session_run_result.stdout_text)
         _write_optional_runtime_text(worker_root / "stderr.txt", session_run_result.stderr_text)
         line_role_same_session_state_payload = _load_json_dict_safely(state_path)
+        expected_workspace_output_paths = [
+            out_dir / f"{shard.shard_id}.json" for shard in runnable_shards
+        ]
+        worker_session_runs: list[tuple[CodexExecRunResult, Path, bool, str | None]] = [
+            (session_run_result, worker_prompt_path, False, None)
+        ]
+        final_message_recovery_assessment_path = (
+            worker_root / "final_message_recovery_assessment.json"
+        )
+        should_retry = False
+        retry_reason = "not_attempted"
+        retry_prompt_path: Path | None = None
+        retry_prompt_text: str | None = None
+        retry_workspace_task_label = "canonical line-role fresh-session recovery"
+        if (
+            str(session_run_result.supervision_reason_code or "").strip()
+            == "workspace_final_message_missing_output"
+        ):
+            assessment, assessment_payload = _assess_line_role_workspace_recovery(
+                worker_root=worker_root,
+                state_path=state_path,
+                run_result=session_run_result,
+                expected_workspace_output_paths=expected_workspace_output_paths,
+            )
+            should_retry, retry_reason = _should_attempt_line_role_final_message_recovery(
+                run_result=session_run_result,
+                assessment=assessment,
+            )
+            fresh_session_recovery_metadata = {
+                "fresh_session_recovery_attempted": False,
+                "fresh_session_recovery_status": "attempted" if should_retry else "skipped",
+                "fresh_session_recovery_count": 0,
+                "fresh_session_recovery_skipped_reason": (
+                    None if should_retry else retry_reason
+                ),
+                "shared_retry_budget_spent": (
+                    int(assessment.fresh_session_retry_count)
+                    >= int(assessment.fresh_session_retry_limit)
+                ),
+                "prior_session_reason_code": assessment.prior_session_reason_code or None,
+                "diagnosis_code": assessment.diagnosis_code or None,
+                "recommended_command": assessment.recommended_command,
+                "resume_summary": assessment.resume_summary,
+                "assessment_path": _relative_runtime_path(
+                    run_root, final_message_recovery_assessment_path
+                ),
+            }
+            _write_runtime_json(
+                final_message_recovery_assessment_path,
+                {
+                    **assessment_payload,
+                    **fresh_session_recovery_metadata,
+                },
+            )
+            if should_retry:
+                retry_prompt_path = worker_root / "prompt_resume_final_message.txt"
+                retry_prompt_text = _build_line_role_final_message_recovery_prompt(
+                    shards=runnable_shards,
+                    assessment=assessment,
+                )
+                retry_workspace_task_label = (
+                    "canonical line-role final-message missing-output recovery"
+                )
+        else:
+            should_retry, retry_reason = _should_attempt_line_role_fresh_session_retry(
+                run_result=session_run_result,
+                task_file_path=worker_root / TASK_FILE_NAME,
+                original_task_file=task_file_payload,
+                same_session_state_payload=line_role_same_session_state_payload,
+            )
+        if should_retry:
+            fresh_session_retry_count = 1
+            fresh_session_retry_status = "attempted"
+            line_role_same_session_state_payload["fresh_session_retry_count"] = 1
+            line_role_same_session_state_payload["fresh_session_retry_status"] = "attempted"
+            fresh_session_retry_history = list(
+                line_role_same_session_state_payload.get("fresh_session_retry_history") or []
+            )
+            fresh_session_retry_history.append(
+                {
+                    "attempt": 1,
+                    "reason_code": retry_reason,
+                    "reason_detail": (
+                        "workspace final message was observed without required shard outputs"
+                        if retry_reason == "workspace_final_message_missing_output"
+                        else "clean first session preserved useful workspace state without completion"
+                    ),
+                }
+            )
+            line_role_same_session_state_payload["fresh_session_retry_history"] = fresh_session_retry_history
+            _write_runtime_json(state_path, line_role_same_session_state_payload)
+            resume_prompt_path = retry_prompt_path or (worker_root / "prompt_resume.txt")
+            resume_prompt_text = retry_prompt_text or _build_line_role_workspace_worker_prompt(
+                shards=runnable_shards,
+                fresh_session_resume=True,
+            )
+            resume_prompt_path.write_text(resume_prompt_text, encoding="utf-8")
+            session_run_result = runner.run_workspace_worker(
+                prompt_text=resume_prompt_text,
+                working_dir=worker_root,
+                env={
+                    **dict(env),
+                    LINE_ROLE_SAME_SESSION_STATE_ENV: str(state_path),
+                },
+                model=model,
+                reasoning_effort=reasoning_effort,
+                timeout_seconds=timeout_seconds,
+                workspace_task_label=retry_workspace_task_label,
+                supervision_callback=_build_strict_json_watchdog_callback(
+                    live_status_path=worker_live_status_path,
+                    live_status_paths=shard_live_status_paths,
+                    cohort_watchdog_state=cohort_watchdog_state,
+                    watchdog_policy="workspace_worker_v1",
+                    allow_workspace_commands=True,
+                    expected_workspace_output_paths=expected_workspace_output_paths,
+                ),
+            )
+            _finalize_live_status(
+                worker_live_status_path,
+                run_result=session_run_result,
+                watchdog_policy="workspace_worker_v1",
+            )
+            for live_status_path in shard_live_status_paths:
+                _finalize_live_status(
+                    live_status_path,
+                    run_result=session_run_result,
+                    watchdog_policy="workspace_worker_v1",
+                )
+            (worker_root / "events.jsonl").write_text(
+                _render_codex_events_jsonl(session_run_result.events),
+                encoding="utf-8",
+            )
+            _write_runtime_json(
+                worker_root / "last_message.json",
+                {"text": session_run_result.response_text},
+            )
+            _write_runtime_json(worker_root / "usage.json", dict(session_run_result.usage or {}))
+            _write_runtime_json(
+                worker_root / "workspace_manifest.json",
+                session_run_result.workspace_manifest(),
+            )
+            _write_optional_runtime_text(worker_root / "stdout.txt", session_run_result.stdout_text)
+            _write_optional_runtime_text(worker_root / "stderr.txt", session_run_result.stderr_text)
+            line_role_same_session_state_payload = _load_json_dict_safely(state_path)
+            fresh_session_retry_status = (
+                "completed"
+                if bool(line_role_same_session_state_payload.get("completed"))
+                else "failed"
+            )
+            line_role_same_session_state_payload["fresh_session_retry_count"] = 1
+            line_role_same_session_state_payload["fresh_session_retry_status"] = fresh_session_retry_status
+            line_role_same_session_state_payload["fresh_session_retry_history"] = [
+                {
+                    **dict(row),
+                    **(
+                        {
+                            "result_completed": bool(line_role_same_session_state_payload.get("completed")),
+                            "result_final_status": line_role_same_session_state_payload.get("final_status"),
+                        }
+                        if index == len(fresh_session_retry_history) - 1
+                        else {}
+                    ),
+                }
+                for index, row in enumerate(fresh_session_retry_history)
+                if isinstance(row, Mapping)
+            ]
+            _write_runtime_json(state_path, line_role_same_session_state_payload)
+            if fresh_session_recovery_metadata:
+                recovery_outputs_present = bool(
+                    _summarize_workspace_output_paths(expected_workspace_output_paths).get(
+                        "complete"
+                    )
+                )
+                fresh_session_recovery_metadata = {
+                    **fresh_session_recovery_metadata,
+                    "fresh_session_recovery_attempted": True,
+                    "fresh_session_recovery_status": (
+                        "recovered"
+                        if bool(line_role_same_session_state_payload.get("completed"))
+                        or recovery_outputs_present
+                        else "exhausted"
+                    ),
+                    "fresh_session_recovery_count": 1,
+                    "fresh_session_recovery_skipped_reason": None,
+                    "shared_retry_budget_spent": True,
+                }
+                existing_assessment_payload = _load_json_dict_safely(
+                    final_message_recovery_assessment_path
+                )
+                _write_runtime_json(
+                    final_message_recovery_assessment_path,
+                    {
+                        **existing_assessment_payload,
+                        **fresh_session_recovery_metadata,
+                    },
+                )
+            worker_session_runs.append(
+                (session_run_result, resume_prompt_path, True, retry_reason)
+            )
+        shard_count = max(1, len(runnable_shards))
+        for session_index, (
+            session_result,
+            session_prompt_file,
+            fresh_session_resume,
+            fresh_session_resume_reason_code,
+        ) in enumerate(worker_session_runs, start=1):
+            for shard_index, shard in enumerate(runnable_shards):
+                shard_id = shard.shard_id
+                input_path = in_dir / f"{shard_id}.json"
+                debug_path = debug_dir / f"{shard_id}.json"
+                runner_payload = _build_line_role_workspace_task_runner_payload(
+                    pipeline_id=pipeline_id,
+                    worker_id=assignment.worker_id,
+                    shard_id=shard_id,
+                    runtime_shard_id=shard_id,
+                    run_result=session_result,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    request_input_file=input_path,
+                    debug_input_file=debug_path,
+                    worker_prompt_path=session_prompt_file,
+                    worker_root=worker_root,
+                    task_count=shard_count,
+                    task_index=min(shard_index, shard_count - 1),
+                )
+                telemetry = runner_payload.get("telemetry")
+                row_payloads = telemetry.get("rows") if isinstance(telemetry, dict) else None
+                if isinstance(row_payloads, list):
+                    for row_payload in row_payloads:
+                        if isinstance(row_payload, dict):
+                            row_payload["fresh_session_resume"] = fresh_session_resume
+                            row_payload["fresh_session_resume_reason_code"] = (
+                                fresh_session_resume_reason_code
+                            )
+                            stage_rows.append(dict(row_payload))
+                runner_payload["fresh_session_resume"] = fresh_session_resume
+                runner_payload["fresh_session_resume_reason_code"] = (
+                    fresh_session_resume_reason_code
+                )
+                process_payload = runner_payload.get("process_payload")
+                if isinstance(process_payload, dict):
+                    process_payload["fresh_session_resume"] = fresh_session_resume
+                    process_payload["fresh_session_resume_reason_code"] = (
+                        fresh_session_resume_reason_code
+                    )
+                    process_payload["session_index"] = session_index
+                worker_runner_results.append(dict(runner_payload))
     else:
         _write_runtime_json(
             worker_root / "live_status.json",
@@ -1279,7 +1853,6 @@ def _run_line_role_workspace_worker_assignment_v1(
             },
         )
 
-    shard_count = max(1, len(runnable_shards))
     for shard_index, shard in enumerate(valid_shards):
         shard_id = shard.shard_id
         input_path = in_dir / f"{shard_id}.json"
@@ -1291,41 +1864,14 @@ def _run_line_role_workspace_worker_assignment_v1(
             output_path if output_path.exists() else resumed_output_path_by_shard_id.get(shard_id)
         )
         response_text: str | None = None
-        if (
-            session_run_result is not None
-            and shard_id in runnable_shard_ids
-            and worker_prompt_path is not None
-        ):
-            runner_payload = _build_line_role_workspace_task_runner_payload(
-                pipeline_id=pipeline_id,
-                worker_id=assignment.worker_id,
-                shard_id=shard_id,
-                runtime_shard_id=shard_id,
-                run_result=session_run_result,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                request_input_file=input_path,
-                debug_input_file=debug_path,
-                worker_prompt_path=worker_prompt_path,
-                worker_root=worker_root,
-                task_count=shard_count,
-                task_index=min(shard_index, shard_count - 1),
-            )
-            worker_runner_results.append(dict(runner_payload))
-            telemetry = runner_payload.get("telemetry")
-            row_payloads = telemetry.get("rows") if isinstance(telemetry, dict) else None
-            if isinstance(row_payloads, list):
-                for row_payload in row_payloads:
-                    if isinstance(row_payload, dict):
-                        stage_rows.append(dict(row_payload))
-            primary_row = stage_rows[-1] if stage_rows else None
-            primary_runner_row = (
-                row_payloads[0]
-                if isinstance(row_payloads, list)
-                and row_payloads
-                and isinstance(row_payloads[0], dict)
-                else None
-            )
+        if session_run_result is not None and shard_id in runnable_shard_ids:
+            matching_rows = [
+                row
+                for row in stage_rows
+                if str(row.get("runtime_shard_id") or "").strip() == shard_id
+            ]
+            primary_row = matching_rows[-1] if matching_rows else None
+            primary_runner_row = primary_row
         else:
             primary_row = None
             primary_runner_row = None
@@ -1617,6 +2163,11 @@ def _run_line_role_workspace_worker_assignment_v1(
             "raw_output_invalid": raw_output_status != "validated",
             "raw_output_missing": raw_output_status == "missing_output",
             "row_resolution": dict(row_resolution_metadata),
+            **(
+                {"fresh_session_recovery": dict(fresh_session_recovery_metadata)}
+                if fresh_session_recovery_metadata
+                else {}
+            ),
         }
         _write_runtime_json(
             task_root / "repair_status.json",
@@ -1670,6 +2221,13 @@ def _run_line_role_workspace_worker_assignment_v1(
                     "repair"
                     if repair_attempted
                     else (
+                        "fresh_session_recovery"
+                        if bool(
+                            fresh_session_recovery_metadata.get(
+                                "fresh_session_recovery_attempted"
+                            )
+                        )
+                        else (
                         "watchdog_retry"
                         if watchdog_retry_attempted
                         else (
@@ -1677,6 +2235,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                             if shard_id in resumed_output_path_by_shard_id
                             and shard_id not in runnable_shard_ids
                             else "main_worker"
+                        )
                         )
                     )
                 ),
@@ -1691,6 +2250,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                     shard_id in resumed_output_path_by_shard_id
                     and shard_id not in runnable_shard_ids
                 ),
+                fresh_session_recovery_metadata=fresh_session_recovery_metadata,
             )
         )
         normalized_outcome = _normalize_line_role_shard_outcome(
@@ -1703,6 +2263,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 and shard_id not in runnable_shard_ids
             ),
             row_resolution_metadata=row_resolution_metadata,
+            fresh_session_recovery_metadata=fresh_session_recovery_metadata,
         )
         shard_root = shard_dir / shard.shard_id
         if session_run_result is None and not (shard_root / "live_status.json").exists():
@@ -1738,6 +2299,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 "watchdog_retry_status": watchdog_retry_status,
                 "repair_attempted": repair_attempted,
                 "repair_status": repair_status,
+                **dict(fresh_session_recovery_metadata),
             },
         )
         _write_runtime_json(
@@ -1795,6 +2357,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 "watchdog_retry_status": watchdog_retry_status,
                 "repair_attempted": repair_attempted,
                 "repair_status": repair_status,
+                **dict(fresh_session_recovery_metadata),
                 "finalization_path": normalized_outcome.get("finalization_path"),
                 "state": shard_state,
                 "reason_code": shard_reason_code,
@@ -1869,6 +2432,8 @@ def _run_line_role_workspace_worker_assignment_v1(
         shard_runner_payload["raw_supervision_retryable"] = normalized_outcome.get(
             "raw_supervision_retryable"
         )
+        if fresh_session_recovery_metadata:
+            shard_runner_payload.update(dict(fresh_session_recovery_metadata))
         runner_results_by_shard_id[shard.shard_id] = shard_runner_payload
         if proposal_status != "validated" or shard_state != "completed":
             worker_failure_count += 1
@@ -1887,6 +2452,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                     "validation_errors": list(final_validation_errors),
                     "state": shard_state,
                     "reason_code": shard_reason_code,
+                    **dict(fresh_session_recovery_metadata),
                 }
             )
         else:
@@ -1917,6 +2483,10 @@ def _run_line_role_workspace_worker_assignment_v1(
         pipeline_id=pipeline_id,
         worker_runs=worker_runner_results,
     )
+    worker_runner_payload["fresh_session_retry_count"] = fresh_session_retry_count
+    worker_runner_payload["fresh_session_retry_status"] = fresh_session_retry_status
+    if fresh_session_recovery_metadata:
+        worker_runner_payload.update(dict(fresh_session_recovery_metadata))
     _write_runtime_json(worker_root / "status.json", worker_runner_payload)
     return _DirectLineRoleWorkerResult(
         report=WorkerExecutionReportV1(
@@ -1941,6 +2511,9 @@ def _run_line_role_workspace_worker_assignment_v1(
                 "shards_dir": _relative_runtime_path(run_root, shard_dir),
                 "log_dir": _relative_runtime_path(run_root, logs_dir),
                 "task_file_guardrail": dict(task_file_guardrail or {}),
+                "fresh_session_retry_count": fresh_session_retry_count,
+                "fresh_session_retry_status": fresh_session_retry_status,
+                **dict(fresh_session_recovery_metadata),
             },
         ),
         proposals=tuple(worker_proposals),
@@ -2091,6 +2664,10 @@ def _run_line_role_direct_workers_v1(
         assignment.worker_id: list(assignment.shard_ids)
         for assignment in assignments
     }
+    worker_roots_by_id = {
+        assignment.worker_id: run_root / "workers" / assignment.worker_id
+        for assignment in assignments
+    }
 
     def _line_role_worker_followup_status(
         *,
@@ -2149,6 +2726,9 @@ def _run_line_role_direct_workers_v1(
         return f"{base_label} ({completed_worker_shards}/{len(worker_shard_ids)} shards)"
 
     def _emit_progress_locked(*, force: bool = False) -> None:
+        worker_health = summarize_workspace_worker_health(
+            worker_roots_by_id=worker_roots_by_id,
+        )
         completed_shard_ids: set[str] = set()
         for assignment in assignments:
             out_dir = run_root / "workers" / assignment.worker_id / "out"
@@ -2161,9 +2741,12 @@ def _run_line_role_direct_workers_v1(
             label
             for assignment in assignments
             for label in [
-                _render_line_role_progress_label(
-                    worker_id=assignment.worker_id,
-                    completed_shard_ids=completed_shard_ids,
+                decorate_active_worker_label(
+                    _render_line_role_progress_label(
+                        worker_id=assignment.worker_id,
+                        completed_shard_ids=completed_shard_ids,
+                    ),
+                    worker_health.attention_suffix_by_worker_id.get(assignment.worker_id),
                 )
             ]
             if label is not None
@@ -2201,10 +2784,27 @@ def _run_line_role_direct_workers_v1(
             finalize_workers,
             proposal_count,
             tuple(active_tasks),
+            worker_health.warning_worker_count,
+            worker_health.stalled_worker_count,
+            tuple(worker_health.attention_lines),
+            worker_health.last_activity_at,
         )
         if not force and snapshot == getattr(_emit_progress_locked, "_last_snapshot", None):
             return
         setattr(_emit_progress_locked, "_last_snapshot", snapshot)
+        detail_lines = []
+        if worker_health.warning_worker_count > 0:
+            detail_lines.append(
+                f"watchdog warnings: {worker_health.warning_worker_count}"
+            )
+        if worker_health.stalled_worker_count > 0:
+            detail_lines.append(
+                f"stalled workers: {worker_health.stalled_worker_count}"
+            )
+        if worker_health.attention_lines:
+            detail_lines.append(
+                "attention: " + "; ".join(worker_health.attention_lines)
+            )
         _notify_line_role_progress(
             progress_callback=progress_callback,
             completed_units=completed_tasks,
@@ -2227,7 +2827,9 @@ def _run_line_role_direct_workers_v1(
                 "shards_completed": completed_shards,
                 "shards_total": total_shards,
             },
+            last_activity_at=worker_health.last_activity_at,
             active_tasks=active_tasks,
+            detail_lines=detail_lines,
         )
 
     def _mark_shard_completed(*, worker_id: str, shard_id: str) -> None:
@@ -2242,41 +2844,62 @@ def _run_line_role_direct_workers_v1(
     if progress_callback is not None and total_tasks > 0:
         _emit_progress_locked(force=True)
 
-    with ThreadPoolExecutor(
-        max_workers=max(1, len(assignments)),
-        thread_name_prefix="line-role-worker",
-    ) as executor:
-        futures_by_worker_id = {
-            assignment.worker_id: executor.submit(
-                _run_line_role_direct_worker_assignment_v1,
-                run_root=run_root,
-                assignment=assignment,
-                artifacts=artifacts,
-                shard_by_id=shard_by_id,
-                debug_payload_by_shard_id=debug_payload_by_shard_id,
-                deterministic_baseline_by_shard_id=deterministic_baseline_by_shard_id,
-                runner=runner,
-                pipeline_id=pipeline_id,
-                env=env,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                output_schema_path=output_schema_path,
-                timeout_seconds=timeout_seconds,
-                cohort_watchdog_state=cohort_watchdog_state,
-                shard_completed_callback=_mark_shard_completed,
-                prompt_state=prompt_state,
-                validator=validator,
-            )
-            for assignment in assignments
-        }
-        for assignment in assignments:
-            result = futures_by_worker_id[assignment.worker_id].result()
-            worker_reports.append(result.report)
-            all_proposals.extend(result.proposals)
-            failures.extend(result.failures)
-            stage_rows.extend(result.stage_rows)
-            task_status_rows.extend(result.task_status_rows)
-            runner_results_by_shard_id.update(result.runner_results_by_shard_id)
+    def _heartbeat_emit() -> None:
+        with progress_lock:
+            _emit_progress_locked()
+
+    heartbeat_stop_event: threading.Event | None = None
+    heartbeat_thread: threading.Thread | None = None
+    if progress_callback is not None and assignments:
+        heartbeat_stop_event, heartbeat_thread = start_workspace_worker_progress_heartbeat(
+            emit_progress=_heartbeat_emit,
+            thread_name="line-role-progress-heartbeat",
+        )
+
+    try:
+        with ThreadPoolExecutor(
+            max_workers=max(1, len(assignments)),
+            thread_name_prefix="line-role-worker",
+        ) as executor:
+            futures_by_worker_id = {
+                assignment.worker_id: executor.submit(
+                    _run_line_role_direct_worker_assignment_v1,
+                    run_root=run_root,
+                    assignment=assignment,
+                    artifacts=artifacts,
+                    shard_by_id=shard_by_id,
+                    debug_payload_by_shard_id=debug_payload_by_shard_id,
+                    deterministic_baseline_by_shard_id=deterministic_baseline_by_shard_id,
+                    runner=runner,
+                    pipeline_id=pipeline_id,
+                    env=env,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    output_schema_path=output_schema_path,
+                    timeout_seconds=timeout_seconds,
+                    cohort_watchdog_state=cohort_watchdog_state,
+                    shard_completed_callback=_mark_shard_completed,
+                    prompt_state=prompt_state,
+                    validator=validator,
+                )
+                for assignment in assignments
+            }
+            for assignment in assignments:
+                result = futures_by_worker_id[assignment.worker_id].result()
+                worker_reports.append(result.report)
+                all_proposals.extend(result.proposals)
+                failures.extend(result.failures)
+                stage_rows.extend(result.stage_rows)
+                task_status_rows.extend(result.task_status_rows)
+                runner_results_by_shard_id.update(result.runner_results_by_shard_id)
+    finally:
+        if heartbeat_stop_event is not None:
+            heartbeat_stop_event.set()
+        if heartbeat_thread is not None:
+            heartbeat_thread.join(timeout=2.0)
+    if progress_callback is not None and total_tasks > 0:
+        with progress_lock:
+            _emit_progress_locked(force=True)
 
     _write_runtime_jsonl(run_root / artifacts["shard_status"], task_status_rows)
 
@@ -2353,7 +2976,7 @@ def _run_line_role_direct_workers_v1(
         ]
     )
     worker_session_guardrails = build_worker_session_guardrails(
-        planned_happy_path_worker_cap=len(assignments),
+        planned_happy_path_worker_cap=len(assignments) * 2,
         actual_happy_path_worker_sessions=int(
             telemetry["summary"].get("workspace_worker_session_count") or 0
         ),
@@ -2374,6 +2997,10 @@ def _run_line_role_direct_workers_v1(
         **dict(runtime_metadata or {}),
         "task_file_guardrails": task_file_guardrails,
         "worker_session_guardrails": worker_session_guardrails,
+        "fresh_session_retry_count": sum(
+            int(dict(report.metadata or {}).get("fresh_session_retry_count") or 0)
+            for report in worker_reports
+        ),
     }
     manifest = PhaseManifestV1(
         schema_version="phase_worker_runtime.phase_manifest.v1",
@@ -2703,6 +3330,8 @@ def _build_strict_json_watchdog_callback(
     completion_wait_started_elapsed_seconds: float | None = None
     completion_wait_agent_message_count: int | None = None
     completion_wait_turn_completed_count: int | None = None
+    final_message_missing_output_started_elapsed_seconds: float | None = None
+    final_message_missing_output_deadline_elapsed_seconds: float | None = None
 
     def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
         nonlocal last_complete_workspace_signature
@@ -2710,6 +3339,8 @@ def _build_strict_json_watchdog_callback(
         nonlocal completion_wait_started_elapsed_seconds
         nonlocal completion_wait_agent_message_count
         nonlocal completion_wait_turn_completed_count
+        nonlocal final_message_missing_output_started_elapsed_seconds
+        nonlocal final_message_missing_output_deadline_elapsed_seconds
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
         warning_codes: list[str] = []
@@ -2752,6 +3383,14 @@ def _build_strict_json_watchdog_callback(
             completion_wait_started_elapsed_seconds = None
             completion_wait_agent_message_count = None
             completion_wait_turn_completed_count = None
+        final_message_missing_output_grace_seconds = float(
+            _runtime_attr(
+                "_LINE_ROLE_FINAL_MESSAGE_MISSING_OUTPUT_GRACE_SECONDS",
+                _LINE_ROLE_FINAL_MESSAGE_MISSING_OUTPUT_GRACE_SECONDS,
+            )
+        )
+        final_message_missing_output_grace_active = False
+        final_message_missing_output_deadline_reached = False
         completion_waiting_for_exit = False
         completion_post_signal_observed = False
         if snapshot.command_execution_count > 0:
@@ -2835,6 +3474,39 @@ def _build_strict_json_watchdog_callback(
                     ),
                     retryable=True,
                 )
+        if (
+            decision is None
+            and allow_workspace_commands
+            and int(workspace_output_status["expected_count"] or 0) > 0
+            and snapshot.has_final_agent_message
+            and not workspace_output_status["complete"]
+        ):
+            if final_message_missing_output_started_elapsed_seconds is None:
+                final_message_missing_output_started_elapsed_seconds = snapshot.elapsed_seconds
+                final_message_missing_output_deadline_elapsed_seconds = (
+                    snapshot.elapsed_seconds + final_message_missing_output_grace_seconds
+                )
+            final_message_missing_output_grace_active = True
+            final_message_missing_output_deadline_reached = (
+                final_message_missing_output_deadline_elapsed_seconds is not None
+                and snapshot.elapsed_seconds
+                >= final_message_missing_output_deadline_elapsed_seconds
+            )
+            if final_message_missing_output_deadline_reached:
+                missing_files = ", ".join(workspace_output_status["missing_files"]) or "[unknown]"
+                decision = CodexExecSupervisionDecision.terminate(
+                    reason_code="workspace_final_message_missing_output",
+                    reason_detail=(
+                        "workspace worker emitted a final agent message but the required output files "
+                        f"were still missing after {final_message_missing_output_grace_seconds:.1f} "
+                        f"seconds: {missing_files}"
+                    ),
+                    retryable=True,
+                    supervision_state="watchdog_killed",
+                )
+        else:
+            final_message_missing_output_started_elapsed_seconds = None
+            final_message_missing_output_deadline_elapsed_seconds = None
         status_payload = {
             "state": (
                 str(decision.supervision_state or "boundary_interrupted").strip()
@@ -2884,6 +3556,27 @@ def _build_strict_json_watchdog_callback(
             "workspace_output_complete": workspace_output_status["complete"],
             "workspace_output_missing_files": workspace_output_status["missing_files"],
             "workspace_output_stable_passes": workspace_output_stable_passes,
+            "final_message_missing_output_grace_active": (
+                final_message_missing_output_grace_active
+            ),
+            "final_message_missing_output_started_at_elapsed_seconds": (
+                round(final_message_missing_output_started_elapsed_seconds, 3)
+                if final_message_missing_output_started_elapsed_seconds is not None
+                else None
+            ),
+            "final_message_missing_output_grace_seconds": (
+                final_message_missing_output_grace_seconds
+                if final_message_missing_output_grace_active
+                else None
+            ),
+            "final_message_missing_output_deadline_elapsed_seconds": (
+                round(final_message_missing_output_deadline_elapsed_seconds, 3)
+                if final_message_missing_output_deadline_elapsed_seconds is not None
+                else None
+            ),
+            "final_message_missing_output_deadline_reached": (
+                final_message_missing_output_deadline_reached
+            ),
             "workspace_completion_waiting_for_exit": completion_waiting_for_exit,
             "workspace_completion_quiescence_seconds": (
                 _LINE_ROLE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS

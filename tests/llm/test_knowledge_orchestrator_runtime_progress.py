@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from cookimport.core.progress_messages import parse_stage_progress
+from cookimport.llm.knowledge_stage import runtime as knowledge_module
 from cookimport.llm.codex_exec_runner import (
     FakeCodexExecRunner,
 )
@@ -99,6 +100,76 @@ def test_knowledge_orchestrator_progress_detail_lines_track_live_shards(
         "completed shards: 1/2" in (payload.get("detail_lines") or [])
         for payload in live_payloads
     )
+
+
+def test_knowledge_orchestrator_surfaces_worker_attention_in_progress(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
+
+    class WarningRunner(FakeCodexExecRunner):
+        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            supervision_callback = kwargs.get("supervision_callback")
+            if callable(supervision_callback):
+                supervision_callback(
+                    knowledge_module.CodexExecLiveSnapshot(
+                        elapsed_seconds=80.0,
+                        last_event_seconds_ago=55.0,
+                        event_count=9,
+                        command_execution_count=301,
+                        reasoning_item_count=0,
+                        last_command="python3 helper.py",
+                        last_command_repeat_count=21,
+                        has_final_agent_message=False,
+                        timeout_seconds=None,
+                    )
+                )
+                time.sleep(1.2)
+            return super().run_workspace_worker(*args, **kwargs)
+
+    pack_root, run_root = make_runtime_pack_and_run_dirs(tmp_path)
+    settings = make_runtime_settings(pack_root=pack_root, worker_count=1)
+    progress_messages: list[str] = []
+    run_codex_farm_nonrecipe_finalize(
+        conversion_result=make_runtime_conversion_result(
+            ["Knowledge zero.", "Recipe gap.", "Knowledge two."]
+        ),
+        nonrecipe_stage_result=make_runtime_nonrecipe_stage_result(
+            spans=[knowledge_span(0), knowledge_span(2)]
+        ),
+        recipe_spans=[],
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=WarningRunner(
+            output_builder=lambda payload: build_structural_pipeline_output(
+                "recipe.knowledge.packet.v1",
+                dict(payload or {}),
+            )
+        ),
+        progress_callback=progress_messages.append,
+    )
+
+    payloads = [
+        payload
+        for message in progress_messages
+        for payload in [parse_stage_progress(message)]
+        if payload is not None
+    ]
+    assert any(
+        "watchdog warnings: 1" in (payload.get("detail_lines") or [])
+        for payload in payloads
+    )
+    assert any(
+        "stalled workers: 1" in (payload.get("detail_lines") or [])
+        for payload in payloads
+    )
+    assert any(
+        any("[command loop]" in str(task) for task in (payload.get("active_tasks") or []))
+        for payload in payloads
+    )
+    assert any(payload.get("last_activity_at") for payload in payloads)
 
 
 def test_knowledge_orchestrator_runs_shard_workers_concurrently(

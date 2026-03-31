@@ -180,12 +180,14 @@ cookimport/llm/phase_worker_runtime.py
 cookimport/llm/prompt_artifacts.py
 cookimport/llm/prompt_budget.py
 cookimport/llm/prompt_preview.py
+cookimport/llm/recipe_same_session_handoff.py
 cookimport/llm/recipe_stage_shared.py
 cookimport/llm/recipe_tagging_guide.py
 cookimport/llm/recipe_workspace_tools.py
 cookimport/llm/shard_prompt_targets.py
 cookimport/llm/task_file_guardrails.py
 cookimport/llm/worker_hint_sidecars.py
+cookimport/llm/workspace_worker_progress.py
 cookimport/llm/knowledge_stage/__init__.py
 cookimport/llm/knowledge_stage/_shared.py
 cookimport/llm/knowledge_stage/planning.py
@@ -248,6 +250,7 @@ cookimport/parsing/canonical_line_roles/planning.py
 cookimport/parsing/canonical_line_roles/policy.py
 cookimport/parsing/canonical_line_roles/prompt_inputs.py
 cookimport/parsing/canonical_line_roles/runtime.py
+cookimport/parsing/canonical_line_roles/same_session_handoff.py
 cookimport/parsing/canonical_line_roles/validation.py
 cookimport/plugins/__init__.py
 cookimport/plugins/base.py

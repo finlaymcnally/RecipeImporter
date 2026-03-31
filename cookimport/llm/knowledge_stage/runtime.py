@@ -5,6 +5,9 @@ from . import planning as _planning_module
 from . import promotion as _promotion_module
 from . import recovery as _recovery_module
 from . import workspace_run as _workspace_run_module
+from ..workspace_worker_progress import (
+    start_workspace_worker_progress_heartbeat,
+)
 
 for _module in (
     _shared_module,
@@ -663,6 +666,10 @@ def _run_direct_knowledge_workers_v1(
         total_task_packets=max(total_shards - len(bypassed_shard_ids), 0),
         worker_total=displayed_worker_total,
         worker_order=tuple(assignment.worker_id for assignment in assignments),
+        worker_roots_by_id={
+            assignment.worker_id: run_root / "workers" / assignment.worker_id
+            for assignment in assignments
+        },
         worker_states={
             assignment.worker_id: _KnowledgeWorkerProgressState(
                 worker_id=assignment.worker_id,
@@ -674,6 +681,15 @@ def _run_direct_knowledge_workers_v1(
         },
     )
     progress_state.emit(force=True)
+    heartbeat_stop_event: threading.Event | None = None
+    heartbeat_thread: threading.Thread | None = None
+    if progress_callback is not None and assignments:
+        heartbeat_stop_event, heartbeat_thread = (
+            start_workspace_worker_progress_heartbeat(
+                emit_progress=progress_state.emit,
+                thread_name="knowledge-progress-heartbeat",
+            )
+        )
     cohort_watchdog_state = _KnowledgeCohortWatchdogState()
     interruption_requested = threading.Event()
 
@@ -755,8 +771,13 @@ def _run_direct_knowledge_workers_v1(
             executor.shutdown(wait=False, cancel_futures=True)
             raise
     finally:
+        if heartbeat_stop_event is not None:
+            heartbeat_stop_event.set()
+        if heartbeat_thread is not None:
+            heartbeat_thread.join(timeout=2.0)
         if not interruption_requested.is_set():
             executor.shutdown(wait=True, cancel_futures=False)
+    progress_state.emit(force=True)
     manifest = _write_knowledge_runtime_summary_artifacts(
         phase_key=phase_key,
         pipeline_id=pipeline_id,

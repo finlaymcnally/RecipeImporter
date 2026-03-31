@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
-from .editable_task_file import TASK_FILE_NAME, load_task_file, write_task_file
+from .editable_task_file import TASK_FILE_NAME, load_task_file, summarize_task_file, write_task_file
 from .knowledge_stage.task_file_contracts import (
     KnowledgeTaskFileTransition,
     transition_knowledge_classification_task_file,
@@ -15,6 +15,7 @@ from .knowledge_stage.task_file_contracts import (
 
 KNOWLEDGE_SAME_SESSION_HANDOFF_SCHEMA_VERSION = "knowledge_same_session_handoff.v1"
 KNOWLEDGE_SAME_SESSION_STATE_ENV = "RECIPEIMPORT_KNOWLEDGE_SAME_SESSION_STATE_PATH"
+_KNOWLEDGE_SAME_SESSION_STATE_FILE_NAME = "knowledge_same_session_state.json"
 
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -59,6 +60,10 @@ def initialize_knowledge_same_session_state(
         "final_output_shard_count": 0,
         "completed": False,
         "final_status": None,
+        "fresh_session_retry_limit": 1,
+        "fresh_session_retry_count": 0,
+        "fresh_session_retry_status": "not_attempted",
+        "fresh_session_retry_history": [],
         "transition_history": [],
     }
     _write_json(state_path, payload)
@@ -110,6 +115,113 @@ def _record_transition_counters(
         state["grouping_transition_count"] = int(
             state.get("grouping_transition_count") or 0
         ) + 1
+
+
+def _knowledge_recommended_command() -> str:
+    return "python3 -m cookimport.llm.knowledge_same_session_handoff"
+
+
+def _default_knowledge_same_session_state_path(*, workspace_root: Path) -> Path:
+    return workspace_root / "_repo_control" / _KNOWLEDGE_SAME_SESSION_STATE_FILE_NAME
+
+
+def _resolve_knowledge_same_session_state_path(
+    *,
+    workspace_root: Path,
+    candidate: str | None,
+) -> Path:
+    candidate_text = str(candidate or "").strip()
+    if candidate_text:
+        return Path(candidate_text).expanduser()
+    return _default_knowledge_same_session_state_path(workspace_root=workspace_root)
+
+
+def _current_task_file_or_original(*, workspace_root: Path, state: Mapping[str, Any]) -> dict[str, Any]:
+    task_file_path = workspace_root / TASK_FILE_NAME
+    if task_file_path.exists():
+        return load_task_file(task_file_path)
+    return dict(state.get("current_original_task_file") or {})
+
+
+def describe_knowledge_same_session_status(
+    *,
+    workspace_root: Path,
+    state_path: Path,
+) -> dict[str, Any]:
+    state = _load_json_dict(state_path)
+    task_file = _current_task_file_or_original(workspace_root=workspace_root, state=state)
+    task_summary = summarize_task_file(payload=task_file, task_file_path=str(workspace_root / TASK_FILE_NAME))
+    unit_to_shard_id = {
+        str(unit_id): str(shard_id)
+        for unit_id, shard_id in dict(state.get("unit_to_shard_id") or {}).items()
+    }
+    expected_shard_ids = sorted({shard_id for shard_id in unit_to_shard_id.values() if shard_id})
+    output_dir = Path(str(state.get("output_dir") or workspace_root / "out")).expanduser()
+    expected_outputs_present = sum(
+        1 for shard_id in expected_shard_ids if (output_dir / f"{shard_id}.json").exists()
+    )
+    current_stage_key = str(state.get("current_stage_key") or task_file.get("stage_key") or "nonrecipe_classify").strip()
+    mode = str(task_file.get("mode") or "initial").strip() or "initial"
+    if bool(state.get("completed")):
+        next_action = "outputs are already complete; stop"
+    elif mode == "repair":
+        next_action = "fix the named repair units and rerun same_session_handoff"
+    elif int(task_summary.get("answered_units") or 0) < int(task_summary.get("total_units") or 0):
+        next_action = "fill the remaining answer objects, then run same_session_handoff"
+    else:
+        next_action = "run same_session_handoff to validate or advance the task file"
+    return {
+        "stage_key": current_stage_key,
+        "mode": mode,
+        "answered_units": int(task_summary.get("answered_units") or 0),
+        "total_units": int(task_summary.get("total_units") or 0),
+        "same_session_completed": bool(state.get("completed")),
+        "expected_outputs_present": expected_outputs_present,
+        "expected_outputs_total": len(expected_shard_ids),
+        "recommended_command": _knowledge_recommended_command(),
+        "next_action": next_action,
+        "fresh_session_retry_count": int(state.get("fresh_session_retry_count") or 0),
+        "fresh_session_retry_limit": int(state.get("fresh_session_retry_limit") or 0),
+        "fresh_session_retry_status": str(state.get("fresh_session_retry_status") or "not_attempted"),
+    }
+
+
+def describe_knowledge_same_session_doctor(
+    *,
+    workspace_root: Path,
+    state_path: Path,
+) -> dict[str, Any]:
+    status = describe_knowledge_same_session_status(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    if bool(status.get("same_session_completed")):
+        diagnosis_code = "completed"
+        message = "same-session helper already completed this workspace"
+    elif str(status.get("mode") or "") == "repair":
+        if int(status.get("answered_units") or 0) > 0:
+            diagnosis_code = "repair_ready_helper_not_run"
+            message = "repair answers are present; rerun the same-session helper"
+        else:
+            diagnosis_code = "repair_answers_missing"
+            message = "repair mode is active but the named units still need corrected answers"
+    elif int(status.get("answered_units") or 0) == 0:
+        diagnosis_code = "awaiting_answers"
+        message = "task.json still has blank answer objects"
+    elif int(status.get("expected_outputs_present") or 0) < int(status.get("expected_outputs_total") or 0):
+        diagnosis_code = "answers_present_helper_not_run"
+        message = "task.json contains edited answers but the same-session helper has not produced final shard outputs yet"
+    else:
+        diagnosis_code = "ready_for_validation"
+        message = "answers are present; run the same-session helper now"
+    return {
+        "stage_key": str(status.get("stage_key") or "nonrecipe_classify"),
+        "mode": str(status.get("mode") or "initial"),
+        "diagnosis_code": diagnosis_code,
+        "message": message,
+        "recommended_command": _knowledge_recommended_command(),
+        "same_session_completed": bool(status.get("same_session_completed")),
+    }
 
 
 def _write_final_outputs(*, output_dir: Path, final_outputs: Mapping[str, Mapping[str, Any]]) -> None:
@@ -253,18 +365,48 @@ def _parse_args() -> argparse.Namespace:
         default=".",
         help="Workspace root containing task.json. Defaults to the current directory.",
     )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Print a read-only workspace status summary.",
+    )
+    parser.add_argument(
+        "--doctor",
+        action="store_true",
+        help="Print a read-only workspace diagnosis.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = _parse_args()
-    state_path = Path(str(args.state_path or "")).expanduser()
-    if not str(args.state_path or "").strip():
-        raise SystemExit(f"missing --state-path or ${KNOWLEDGE_SAME_SESSION_STATE_ENV}")
-    result = advance_knowledge_same_session_handoff(
-        workspace_root=Path(str(args.workspace_root)).expanduser(),
-        state_path=state_path,
+    workspace_root = Path(str(args.workspace_root)).expanduser()
+    state_path = _resolve_knowledge_same_session_state_path(
+        workspace_root=workspace_root,
+        candidate=args.state_path,
     )
+    if not state_path.exists():
+        raise SystemExit(
+            "missing same-session state file; expected "
+            f"{state_path} or set --state-path / ${KNOWLEDGE_SAME_SESSION_STATE_ENV}"
+        )
+    if args.status and args.doctor:
+        raise SystemExit("use either --status or --doctor, not both")
+    if args.status:
+        result = describe_knowledge_same_session_status(
+            workspace_root=workspace_root,
+            state_path=state_path,
+        )
+    elif args.doctor:
+        result = describe_knowledge_same_session_doctor(
+            workspace_root=workspace_root,
+            state_path=state_path,
+        )
+    else:
+        result = advance_knowledge_same_session_handoff(
+            workspace_root=workspace_root,
+            state_path=state_path,
+        )
     print(json.dumps(result, sort_keys=True))
     return 0
 

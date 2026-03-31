@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -30,9 +31,12 @@ def build_task_file(
     units: Sequence[Mapping[str, Any]],
     mode: str = "initial",
     schema_version: str = TASK_FILE_SCHEMA_VERSION,
+    helper_commands: Mapping[str, Any] | None = None,
+    next_action: str | None = None,
+    answer_schema: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized_units = [dict(unit) for unit in units if isinstance(unit, Mapping)]
-    return {
+    payload = {
         "schema_version": str(schema_version),
         "stage_key": str(stage_key),
         "assignment_id": str(assignment_id),
@@ -43,6 +47,111 @@ def build_task_file(
         ],
         "units": normalized_units,
     }
+    if isinstance(helper_commands, Mapping):
+        payload["helper_commands"] = dict(helper_commands)
+    if next_action is not None:
+        payload["next_action"] = str(next_action)
+    if isinstance(answer_schema, Mapping):
+        payload["answer_schema"] = dict(answer_schema)
+    return payload
+
+
+def summarize_task_file(
+    *,
+    payload: Mapping[str, Any],
+    task_file_path: str | None = None,
+) -> dict[str, Any]:
+    units = [
+        dict(unit)
+        for unit in (payload.get("units") or [])
+        if isinstance(unit, Mapping)
+    ]
+    unanswered_unit_ids: list[str] = []
+    answered_unit_ids: list[str] = []
+    for index, unit in enumerate(units):
+        unit_id = str(unit.get("unit_id") or "").strip() or f"unit-{index:03d}"
+        answer_payload = unit.get("answer")
+        if _payload_has_meaningful_content(answer_payload):
+            answered_unit_ids.append(unit_id)
+        else:
+            unanswered_unit_ids.append(unit_id)
+    return {
+        "task_file": str(task_file_path or TASK_FILE_NAME),
+        "schema_version": str(payload.get("schema_version") or ""),
+        "stage_key": str(payload.get("stage_key") or ""),
+        "assignment_id": str(payload.get("assignment_id") or ""),
+        "worker_id": str(payload.get("worker_id") or ""),
+        "mode": str(payload.get("mode") or ""),
+        "answered_units": len(answered_unit_ids),
+        "total_units": len(units),
+        "unanswered_unit_ids": unanswered_unit_ids,
+        "editable_json_pointers": [
+            str(pointer)
+            for pointer in (payload.get("editable_json_pointers") or [])
+            if str(pointer).strip()
+        ],
+        "helper_commands": dict(payload.get("helper_commands") or {})
+        if isinstance(payload.get("helper_commands"), Mapping)
+        else {},
+        "next_action": str(payload.get("next_action") or "").strip() or None,
+    }
+
+
+def apply_answers_to_task_file(
+    *,
+    path: Path,
+    answers_by_unit_id: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    task_file = load_task_file(path)
+    normalized_answers = {
+        str(unit_id).strip(): dict(answer_payload)
+        for unit_id, answer_payload in answers_by_unit_id.items()
+        if str(unit_id).strip() and isinstance(answer_payload, Mapping)
+    }
+    applied_unit_ids: list[str] = []
+    skipped_unit_ids: list[str] = []
+    known_unit_ids: set[str] = set()
+    changed = False
+    for index, unit in enumerate(task_file.get("units") or []):
+        if not isinstance(unit, Mapping):
+            continue
+        unit_dict = dict(unit)
+        unit_id = str(unit_dict.get("unit_id") or "").strip() or f"unit-{index:03d}"
+        known_unit_ids.add(unit_id)
+        if unit_id not in normalized_answers:
+            continue
+        next_answer = dict(normalized_answers[unit_id])
+        if unit_dict.get("answer") != next_answer:
+            unit_dict["answer"] = next_answer
+            task_file["units"][index] = unit_dict
+            changed = True
+        applied_unit_ids.append(unit_id)
+    for unit_id in sorted(normalized_answers):
+        if unit_id not in known_unit_ids:
+            skipped_unit_ids.append(unit_id)
+    if changed:
+        write_task_file(path=path, payload=task_file)
+    return {
+        "task_file": str(path),
+        "applied_unit_ids": applied_unit_ids,
+        "skipped_unit_ids": skipped_unit_ids,
+        "applied_count": len(applied_unit_ids),
+        "skipped_count": len(skipped_unit_ids),
+        "changed": changed,
+        "summary": summarize_task_file(payload=task_file, task_file_path=str(path)),
+    }
+
+
+def _payload_has_meaningful_content(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        return any(_payload_has_meaningful_content(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_payload_has_meaningful_content(item) for item in value)
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
 
 
 def validate_edited_task_file(
@@ -233,4 +342,118 @@ def build_repair_task_file(
         mode="repair",
         units=units,
         schema_version=str(original_task_file.get("schema_version") or TASK_FILE_SCHEMA_VERSION),
+        helper_commands=(
+            dict(original_task_file.get("helper_commands") or {})
+            if isinstance(original_task_file.get("helper_commands"), Mapping)
+            else None
+        ),
+        next_action=(
+            str(original_task_file.get("next_action") or "")
+            if str(original_task_file.get("next_action") or "").strip()
+            else None
+        ),
+        answer_schema=(
+            dict(original_task_file.get("answer_schema") or {})
+            if isinstance(original_task_file.get("answer_schema"), Mapping)
+            else None
+        ),
     )
+
+
+def _parse_answer_payload(raw: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid answer JSON: {exc}") from exc
+    if not isinstance(payload, Mapping):
+        raise ValueError("answer JSON must be one object")
+    return dict(payload)
+
+
+def _load_answer_mapping_file(path: Path) -> dict[str, dict[str, Any]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(payload, Mapping):
+        nested_mapping = payload.get("answers_by_unit_id")
+        if isinstance(nested_mapping, Mapping):
+            return {
+                str(unit_id).strip(): dict(answer_payload)
+                for unit_id, answer_payload in nested_mapping.items()
+                if str(unit_id).strip() and isinstance(answer_payload, Mapping)
+            }
+        direct_mapping = {
+            str(unit_id).strip(): dict(answer_payload)
+            for unit_id, answer_payload in payload.items()
+            if str(unit_id).strip() and isinstance(answer_payload, Mapping)
+        }
+        if direct_mapping:
+            return direct_mapping
+    if isinstance(payload, list):
+        output: dict[str, dict[str, Any]] = {}
+        for row in payload:
+            if not isinstance(row, Mapping):
+                continue
+            unit_id = str(row.get("unit_id") or "").strip()
+            answer_payload = row.get("answer")
+            if unit_id and isinstance(answer_payload, Mapping):
+                output[unit_id] = dict(answer_payload)
+        if output:
+            return output
+    raise ValueError("answer mapping file must be {unit_id: answer}, {answers_by_unit_id: ...}, or a list of {unit_id, answer}")
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Summarize or apply answers to one editable task.json file."
+    )
+    parser.add_argument(
+        "--task-file",
+        default=TASK_FILE_NAME,
+        help="Path to task.json. Defaults to ./task.json.",
+    )
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="Print a compact JSON summary of the task file. This is the default action.",
+    )
+    parser.add_argument(
+        "--set-answer",
+        action="append",
+        nargs=2,
+        metavar=("UNIT_ID", "ANSWER_JSON"),
+        help="Apply one answer object to one unit_id.",
+    )
+    parser.add_argument(
+        "--apply-answers-file",
+        help="Apply answers from a JSON file keyed by unit_id or from a list of {unit_id, answer} rows.",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = _parse_args()
+    task_file_path = Path(str(args.task_file)).expanduser()
+    set_answer_rows = list(args.set_answer or [])
+    if args.apply_answers_file and set_answer_rows:
+        raise SystemExit("use either --apply-answers-file or --set-answer, not both")
+    if args.apply_answers_file or set_answer_rows:
+        answers_by_unit_id: dict[str, dict[str, Any]] = {}
+        if args.apply_answers_file:
+            answers_by_unit_id = _load_answer_mapping_file(
+                Path(str(args.apply_answers_file)).expanduser()
+            )
+        else:
+            for unit_id, answer_json in set_answer_rows:
+                answers_by_unit_id[str(unit_id).strip()] = _parse_answer_payload(answer_json)
+        result = apply_answers_to_task_file(
+            path=task_file_path,
+            answers_by_unit_id=answers_by_unit_id,
+        )
+    else:
+        task_file = load_task_file(task_file_path)
+        result = summarize_task_file(payload=task_file, task_file_path=str(task_file_path))
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

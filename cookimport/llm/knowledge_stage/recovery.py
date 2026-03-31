@@ -691,6 +691,7 @@ def _build_knowledge_workspace_worker_prompt(
     stage_key: str,
     shards: Sequence[ShardManifestEntryV1] | None = None,
     tasks: Sequence[TaskManifestEntryV1] | None = None,
+    fresh_session_resume: bool = False,
 ) -> str:
     del tasks
     shard_ids = [
@@ -700,7 +701,15 @@ def _build_knowledge_workspace_worker_prompt(
     ]
     lines = [
         "You are processing non-recipe finalize shards inside one bounded local workspace.",
-        f"Open `{TASK_FILE_NAME}`, read it once, edit only `/units/*/answer`, save the same file, and then run `python3 -m cookimport.llm.knowledge_same_session_handoff`.",
+        (
+            "Resume from the existing `task.json` and current workspace state."
+            if fresh_session_resume
+            else (
+                f"Open `{TASK_FILE_NAME}`, read it once, edit only `/units/*/answer`, "
+                "save the same file, and then run "
+                "`python3 -m cookimport.llm.knowledge_same_session_handoff`."
+            )
+        ),
         "`task.json` is the whole job at each step. You do not need to discover extra control files or hidden repo state before editing it.",
         "",
         "The current working directory is already the workspace root.",
@@ -708,7 +717,10 @@ def _build_knowledge_workspace_worker_prompt(
         "",
         "Worker contract:",
         "- Start with `task.json`.",
+        "- If you need orientation first, run `python3 -m cookimport.llm.knowledge_same_session_handoff --status`.",
+        "- If the workspace feels inconsistent, run `python3 -m cookimport.llm.knowledge_same_session_handoff --doctor` before inventing shell scripts.",
         "- Edit only the `answer` object inside each unit.",
+        "- If you already know a final answer object and want a repo-owned write path, use `python3 -m cookimport.llm.editable_task_file --set-answer <unit_id> '<answer_json>'`.",
         "- After each edit pass, run `python3 -m cookimport.llm.knowledge_same_session_handoff` from the workspace root.",
         "- After the helper returns, trust the current `task.json` as the new whole job. You do not need to inspect other files to figure out what changed.",
         "- If the helper reports `repair_required` or `advance_to_grouping`, reopen the rewritten `task.json` immediately and continue in the same session.",

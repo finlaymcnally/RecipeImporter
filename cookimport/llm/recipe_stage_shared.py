@@ -88,6 +88,10 @@ from .recipe_same_session_handoff import (
     RECIPE_SAME_SESSION_STATE_ENV,
     initialize_recipe_same_session_state,
 )
+from .workspace_worker_progress import (
+    decorate_active_worker_label,
+    summarize_workspace_worker_health,
+)
 from .worker_hint_sidecars import preview_text, write_worker_hint_markdown
 
 logger = logging.getLogger(__name__)
@@ -275,6 +279,56 @@ def _build_recipe_task_file_unit(
     }
 
 
+def _recipe_task_file_helper_commands() -> dict[str, str]:
+    return {
+        "summary": "python3 -m cookimport.llm.editable_task_file --summary",
+        "apply_answer_json": (
+            "python3 -m cookimport.llm.editable_task_file --set-answer "
+            "<unit_id> '<answer_json>'"
+        ),
+        "apply_answers_file": (
+            "python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json"
+        ),
+        "status": "python3 -m cookimport.llm.recipe_same_session_handoff --status",
+        "doctor": "python3 -m cookimport.llm.recipe_same_session_handoff --doctor",
+        "handoff": "python3 -m cookimport.llm.recipe_same_session_handoff",
+    }
+
+
+def _recipe_task_file_answer_schema() -> dict[str, Any]:
+    return {
+        "editable_pointer_pattern": "/units/*/answer",
+        "required_keys": [
+            "status",
+            "canonical_recipe",
+            "ingredient_step_mapping",
+            "ingredient_step_mapping_reason",
+            "selected_tags",
+            "warnings",
+        ],
+        "allowed_values": {
+            "status": ["repaired", "fragmentary", "not_a_recipe"],
+        },
+        "example_answers": [
+            {
+                "status": "repaired",
+                "status_reason": None,
+                "canonical_recipe": {
+                    "title": "Toast",
+                    "ingredients": ["1 slice bread"],
+                    "steps": ["Toast the bread."],
+                    "description": None,
+                    "recipe_yield": None,
+                },
+                "ingredient_step_mapping": [],
+                "ingredient_step_mapping_reason": "not_needed_single_step",
+                "selected_tags": [],
+                "warnings": [],
+            }
+        ],
+    }
+
+
 def _build_recipe_task_file(
     *,
     assignment: WorkerAssignmentV1,
@@ -288,6 +342,12 @@ def _build_recipe_task_file(
             _build_recipe_task_file_unit(task_plan=task_plan)
             for task_plan in runnable_tasks
         ],
+        helper_commands=_recipe_task_file_helper_commands(),
+        next_action=(
+            "Fill every /units/*/answer object, then run "
+            "python3 -m cookimport.llm.recipe_same_session_handoff."
+        ),
+        answer_schema=_recipe_task_file_answer_schema(),
     )
 
 
@@ -1708,6 +1768,61 @@ def _recipe_same_session_state_path(worker_root: Path) -> Path:
     return worker_root / "_repo_control" / _RECIPE_SAME_SESSION_STATE_FILE_NAME
 
 
+def _recipe_task_file_useful_progress(
+    *,
+    task_file_path: Path,
+    original_task_file: Mapping[str, Any],
+    same_session_state_payload: Mapping[str, Any],
+) -> bool:
+    if int(same_session_state_payload.get("same_session_transition_count") or 0) > 0:
+        return True
+    if not task_file_path.exists():
+        return False
+    try:
+        edited_task_file = load_task_file(task_file_path)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return False
+    _answers_by_unit_id, _errors, metadata = validate_edited_task_file(
+        original_task_file=original_task_file,
+        edited_task_file=edited_task_file,
+        allow_immutable_field_changes=True,
+    )
+    return bool(int(metadata.get("changed_unit_count") or 0) > 0)
+
+
+def _recipe_hard_boundary_failure(run_result: CodexExecRunResult) -> bool:
+    if str(run_result.supervision_state or "").strip() == "watchdog_killed":
+        return True
+    reason_code = str(run_result.supervision_reason_code or "").strip()
+    return reason_code.startswith("watchdog_") or "boundary" in reason_code
+
+
+def _should_attempt_recipe_fresh_session_retry(
+    *,
+    run_result: CodexExecRunResult,
+    task_file_path: Path,
+    original_task_file: Mapping[str, Any],
+    same_session_state_payload: Mapping[str, Any],
+) -> tuple[bool, str]:
+    retry_limit = int(same_session_state_payload.get("fresh_session_retry_limit") or 0)
+    retry_count = int(same_session_state_payload.get("fresh_session_retry_count") or 0)
+    if retry_limit <= retry_count:
+        return False, "fresh_session_retry_budget_spent"
+    if bool(same_session_state_payload.get("completed")):
+        return False, "same_session_already_completed"
+    if _recipe_hard_boundary_failure(run_result):
+        return False, "hard_boundary_failure"
+    if not run_result.completed_successfully():
+        return False, "worker_session_not_clean"
+    if not _recipe_task_file_useful_progress(
+        task_file_path=task_file_path,
+        original_task_file=original_task_file,
+        same_session_state_payload=same_session_state_payload,
+    ):
+        return False, "no_preserved_progress"
+    return True, "preserved_progress_without_completion"
+
+
 def _coerce_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
@@ -2203,11 +2318,24 @@ def _write_recipe_task_payload(
     )
 
 
-def _build_recipe_task_file_worker_prompt(*, task_count: int, repair_mode: bool) -> str:
+def _build_recipe_task_file_worker_prompt(
+    *,
+    task_count: int,
+    repair_mode: bool,
+    fresh_session_resume: bool = False,
+) -> str:
     lines = [
         "You are a recipe correction worker in a bounded local workspace.",
         "",
-        f"Open `{TASK_FILE_NAME}`, read the whole file once, edit only `/units/*/answer`, save the same file, and then run `python3 -m cookimport.llm.recipe_same_session_handoff`.",
+        (
+            "Resume from the existing `task.json` and current workspace state."
+            if fresh_session_resume
+            else (
+                f"Open `{TASK_FILE_NAME}`, read the whole file once, edit only "
+                "`/units/*/answer`, save the same file, and then run "
+                "`python3 -m cookimport.llm.recipe_same_session_handoff`."
+            )
+        ),
         "`task.json` already contains the full job for this worker. You do not need extra manifests, queue state, or hidden context before editing it.",
         "The helper is the only repo-side handoff seam. It validates the edited file and either completes the assignment or rewrites `task.json` into repair mode for the same session.",
         "If you briefly reread part of the file or make a small local false start, correct it and continue.",
@@ -2237,7 +2365,10 @@ def _build_recipe_task_file_worker_prompt(*, task_count: int, repair_mode: bool)
             "",
             "Worker contract:",
             "- Start with `task.json`.",
+            "- If you need orientation first, run `python3 -m cookimport.llm.recipe_same_session_handoff --status`.",
+            "- If the workspace feels inconsistent, run `python3 -m cookimport.llm.recipe_same_session_handoff --doctor` before inventing shell scripts.",
             "- Edit only the `answer` object inside each unit.",
+            "- If you already know the final answer JSON and want a repo-owned write path, use `python3 -m cookimport.llm.editable_task_file --set-answer <unit_id> '<answer_json>'`.",
             "- After each edit pass, run `python3 -m cookimport.llm.recipe_same_session_handoff` from the workspace root.",
             "- If the helper reports `repair_required`, reopen the rewritten `task.json` immediately, fix only the named issues, and run the helper again.",
             "- Stop only after the helper reports `completed`.",
@@ -2619,6 +2750,8 @@ def _run_recipe_workspace_worker_assignment_v1(
     )
     task_file_guardrail: dict[str, Any] | None = None
     repair_worker_session_count = 0
+    fresh_session_retry_count = 0
+    fresh_session_retry_status = "not_attempted"
     same_session_state_payload: dict[str, Any] = {}
     if runnable_tasks:
         task_file_path = worker_root / TASK_FILE_NAME
@@ -2696,7 +2829,7 @@ def _run_recipe_workspace_worker_assignment_v1(
                 live_status_path,
                 run_result=run_result,
                 watchdog_policy="workspace_worker_v1",
-            )
+        )
         (worker_root / "events.jsonl").write_text(
             _render_events_jsonl(run_result.events),
             encoding="utf-8",
@@ -2704,34 +2837,133 @@ def _run_recipe_workspace_worker_assignment_v1(
         _write_json({"text": run_result.response_text}, worker_root / "last_message.json")
         _write_json(dict(run_result.usage or {}), worker_root / "usage.json")
         _write_json(run_result.workspace_manifest(), worker_root / "workspace_manifest.json")
-        worker_runner_payload = _build_recipe_workspace_session_runner_payload(
-            pipeline_id=pipeline_id,
-            worker_id=assignment.worker_id,
-            primary_shard_id=(
-                runnable_shards[0].shard_id
-                if runnable_shards
-                else (assignment.shard_ids[0] if assignment.shard_ids else assignment.worker_id)
-            ),
-            run_result=run_result,
-            model=model,
-            reasoning_effort=reasoning_effort,
-            worker_prompt_path=worker_prompt_path,
-            worker_root=worker_root,
-            task_count=len(runnable_tasks),
-            parent_shard_ids=[shard.shard_id for shard in runnable_shards],
-            repair_task_count=0,
-        )
-        worker_runner_results.append(dict(worker_runner_payload))
-        telemetry_rows = (
-            worker_runner_payload.get("telemetry", {}).get("rows")
-            if isinstance(worker_runner_payload.get("telemetry"), Mapping)
-            else None
-        )
-        if isinstance(telemetry_rows, list):
-            for row_payload in telemetry_rows:
-                if isinstance(row_payload, Mapping):
-                    stage_rows.append(dict(row_payload))
         same_session_state_payload = _load_json_dict_safely(state_path)
+        should_retry, retry_reason = _should_attempt_recipe_fresh_session_retry(
+            run_result=run_result,
+            task_file_path=task_file_path,
+            original_task_file=original_task_file,
+            same_session_state_payload=same_session_state_payload,
+        )
+        worker_session_runs: list[tuple[CodexExecRunResult, Path, bool]] = [
+            (run_result, worker_prompt_path, False)
+        ]
+        if should_retry:
+            fresh_session_retry_count = 1
+            fresh_session_retry_status = "attempted"
+            same_session_state_payload["fresh_session_retry_count"] = 1
+            same_session_state_payload["fresh_session_retry_status"] = "attempted"
+            fresh_session_retry_history = list(
+                same_session_state_payload.get("fresh_session_retry_history") or []
+            )
+            fresh_session_retry_history.append(
+                {
+                    "attempt": 1,
+                    "reason_code": retry_reason,
+                    "reason_detail": "clean first session preserved useful workspace state without completion",
+                }
+            )
+            same_session_state_payload["fresh_session_retry_history"] = fresh_session_retry_history
+            _write_json(same_session_state_payload, state_path)
+            current_task_file = load_task_file(task_file_path)
+            resume_prompt_path = worker_root / "prompt_resume.txt"
+            resume_prompt_text = _build_recipe_task_file_worker_prompt(
+                task_count=len(runnable_tasks),
+                repair_mode=str(current_task_file.get("mode") or "") == "repair",
+                fresh_session_resume=True,
+            )
+            resume_prompt_path.write_text(resume_prompt_text, encoding="utf-8")
+            run_result = runner.run_workspace_worker(
+                prompt_text=resume_prompt_text,
+                working_dir=worker_root,
+                env={
+                    **dict(env),
+                    RECIPE_SAME_SESSION_STATE_ENV: str(state_path),
+                },
+                model=model,
+                reasoning_effort=reasoning_effort,
+                workspace_task_label="recipe correction worker fresh-session recovery",
+                supervision_callback=base_watchdog_callback,
+            )
+            _finalize_live_status(
+                worker_live_status_path,
+                run_result=run_result,
+                watchdog_policy="workspace_worker_v1",
+            )
+            for live_status_path in shard_live_status_paths:
+                _finalize_live_status(
+                    live_status_path,
+                    run_result=run_result,
+                    watchdog_policy="workspace_worker_v1",
+                )
+            (worker_root / "events.jsonl").write_text(
+                _render_events_jsonl(run_result.events),
+                encoding="utf-8",
+            )
+            _write_json({"text": run_result.response_text}, worker_root / "last_message.json")
+            _write_json(dict(run_result.usage or {}), worker_root / "usage.json")
+            _write_json(
+                run_result.workspace_manifest(),
+                worker_root / "workspace_manifest.json",
+            )
+            worker_session_runs.append((run_result, resume_prompt_path, True))
+            same_session_state_payload = _load_json_dict_safely(state_path)
+            fresh_session_retry_status = (
+                "completed"
+                if bool(same_session_state_payload.get("completed"))
+                else "failed"
+            )
+            same_session_state_payload["fresh_session_retry_count"] = 1
+            same_session_state_payload["fresh_session_retry_status"] = fresh_session_retry_status
+            same_session_state_payload["fresh_session_retry_history"] = [
+                {
+                    **(dict(row) if isinstance(row, Mapping) else {}),
+                    **(
+                        {
+                            "result_completed": bool(same_session_state_payload.get("completed")),
+                            "result_final_status": same_session_state_payload.get("final_status"),
+                        }
+                        if index == len(fresh_session_retry_history) - 1
+                        else {}
+                    ),
+                }
+                for index, row in enumerate(fresh_session_retry_history)
+            ]
+            _write_json(same_session_state_payload, state_path)
+        else:
+            fresh_session_retry_status = "not_attempted"
+        for session_run_result, session_prompt_path, fresh_session_resume in worker_session_runs:
+            worker_runner_payload = _build_recipe_workspace_session_runner_payload(
+                pipeline_id=pipeline_id,
+                worker_id=assignment.worker_id,
+                primary_shard_id=(
+                    runnable_shards[0].shard_id
+                    if runnable_shards
+                    else (assignment.shard_ids[0] if assignment.shard_ids else assignment.worker_id)
+                ),
+                run_result=session_run_result,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                worker_prompt_path=session_prompt_path,
+                worker_root=worker_root,
+                task_count=len(runnable_tasks),
+                parent_shard_ids=[shard.shard_id for shard in runnable_shards],
+                repair_task_count=0,
+            )
+            telemetry_rows = (
+                worker_runner_payload.get("telemetry", {}).get("rows")
+                if isinstance(worker_runner_payload.get("telemetry"), Mapping)
+                else None
+            )
+            if isinstance(telemetry_rows, list):
+                for row_payload in telemetry_rows:
+                    if isinstance(row_payload, dict):
+                        row_payload["fresh_session_resume"] = fresh_session_resume
+                        stage_rows.append(dict(row_payload))
+            process_payload = worker_runner_payload.get("process_payload")
+            if isinstance(process_payload, dict):
+                process_payload["fresh_session_resume"] = fresh_session_resume
+            worker_runner_payload["fresh_session_resume"] = fresh_session_resume
+            worker_runner_results.append(dict(worker_runner_payload))
         task_payloads_by_task_id.update(
             {
                 str(task_id): dict(payload)
@@ -2976,7 +3208,7 @@ def _run_recipe_workspace_worker_assignment_v1(
             [task_file_guardrail]
         )
         worker_session_guardrails = build_worker_session_guardrails(
-            planned_happy_path_worker_cap=1,
+            planned_happy_path_worker_cap=2,
             actual_happy_path_worker_sessions=int(
                 worker_summary.get("workspace_worker_session_count") or 0
             ),
@@ -3016,6 +3248,8 @@ def _run_recipe_workspace_worker_assignment_v1(
                 "log_dir": _relative_path(run_root, logs_dir),
                 "task_file_guardrail": dict(task_file_guardrail or {}),
                 "repair_worker_session_count": repair_worker_session_count,
+                "fresh_session_retry_count": fresh_session_retry_count,
+                "fresh_session_retry_status": fresh_session_retry_status,
             },
         ),
         proposals=tuple(worker_proposals),
@@ -3143,6 +3377,10 @@ def _run_direct_recipe_workers_v1(
         assignment.worker_id: list(assignment.shard_ids)
         for assignment in assignments
     }
+    worker_roots_by_id = {
+        assignment.worker_id: run_root / "workers" / assignment.worker_id
+        for assignment in assignments
+    }
 
     def _recipe_worker_followup_status(
         *,
@@ -3187,6 +3425,9 @@ def _run_direct_recipe_workers_v1(
             return
         if total_tasks <= 0 and total_shards <= 0:
             return
+        worker_health = summarize_workspace_worker_health(
+            worker_roots_by_id=worker_roots_by_id,
+        )
         completed_task_ids: set[str] = set()
         for assignment in assignments:
             out_dir = run_root / "workers" / assignment.worker_id / "out"
@@ -3199,9 +3440,12 @@ def _run_direct_recipe_workers_v1(
             label
             for assignment in assignments
             for label in [
-                _render_recipe_progress_label(
-                    worker_id=assignment.worker_id,
-                    completed_task_ids=completed_task_ids,
+                decorate_active_worker_label(
+                    _render_recipe_progress_label(
+                        worker_id=assignment.worker_id,
+                        completed_task_ids=completed_task_ids,
+                    ),
+                    worker_health.attention_suffix_by_worker_id.get(assignment.worker_id),
                 )
             ]
             if label is not None
@@ -3243,6 +3487,18 @@ def _run_direct_recipe_workers_v1(
                 )
             if repair_running > 0:
                 detail_lines.append(f"repair calls running: {repair_running}")
+            if worker_health.warning_worker_count > 0:
+                detail_lines.append(
+                    f"watchdog warnings: {worker_health.warning_worker_count}"
+                )
+            if worker_health.stalled_worker_count > 0:
+                detail_lines.append(
+                    f"stalled workers: {worker_health.stalled_worker_count}"
+                )
+            if worker_health.attention_lines:
+                detail_lines.append(
+                    "attention: " + "; ".join(worker_health.attention_lines)
+                )
             snapshot = (
                 completed_tasks,
                 total_tasks,
@@ -3257,6 +3513,7 @@ def _run_direct_recipe_workers_v1(
                 repair_running,
                 finalize_workers,
                 proposal_count,
+                worker_health.last_activity_at,
             )
             if not force and snapshot == last_progress_snapshot:
                 return
@@ -3285,7 +3542,10 @@ def _run_direct_recipe_workers_v1(
                         "shards_completed": completed_shards,
                         "shards_total": total_shards,
                     },
-                    last_activity_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    last_activity_at=(
+                        worker_health.last_activity_at
+                        or datetime.now(timezone.utc).isoformat(timespec="seconds")
+                    ),
                     active_tasks=active_tasks,
                     detail_lines=detail_lines,
                 )
@@ -3476,7 +3736,7 @@ def _run_direct_recipe_workers_v1(
         ]
     )
     worker_session_guardrails = build_worker_session_guardrails(
-        planned_happy_path_worker_cap=len(assignments),
+        planned_happy_path_worker_cap=len(assignments) * 2,
         actual_happy_path_worker_sessions=int(
             telemetry["summary"].get("workspace_worker_session_count") or 0
         ),
@@ -3511,6 +3771,10 @@ def _run_direct_recipe_workers_v1(
         **dict(runtime_metadata or {}),
         "task_file_guardrails": task_file_guardrails,
         "worker_session_guardrails": worker_session_guardrails,
+        "fresh_session_retry_count": sum(
+            int(dict(report.metadata or {}).get("fresh_session_retry_count") or 0)
+            for report in worker_reports
+        ),
     }
     manifest = PhaseManifestV1(
         schema_version="phase_worker_runtime.phase_manifest.v1",

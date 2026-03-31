@@ -1,7 +1,15 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+from cookimport.llm.editable_task_file import _load_answer_mapping_file
+from cookimport.llm.editable_task_file import apply_answers_to_task_file
 from cookimport.llm.editable_task_file import build_repair_task_file
 from cookimport.llm.editable_task_file import build_task_file
+from cookimport.llm.editable_task_file import load_task_file
+from cookimport.llm.editable_task_file import summarize_task_file
+from cookimport.llm.editable_task_file import write_task_file
 from cookimport.llm.editable_task_file import validate_edited_task_file
 
 
@@ -10,6 +18,9 @@ def _base_task_file() -> dict[str, object]:
         stage_key="line_role",
         assignment_id="worker-001",
         worker_id="worker-001",
+        helper_commands={"status": "python3 -m stage --status"},
+        next_action="fill answers then run helper",
+        answer_schema={"example_answers": [{"label": "RECIPE_NOTES"}]},
         units=[
             {
                 "unit_id": "line::0",
@@ -127,3 +138,61 @@ def test_build_repair_task_file_keeps_only_failed_units_with_feedback() -> None:
     assert repair["units"][0]["validation_feedback"] == {  # type: ignore[index]
         "errors": ["label_not_allowed_here"]
     }
+    assert repair["helper_commands"] == {"status": "python3 -m stage --status"}
+    assert repair["next_action"] == "fill answers then run helper"
+    assert repair["answer_schema"] == {
+        "example_answers": [{"label": "RECIPE_NOTES"}]
+    }
+
+
+def test_summarize_task_file_reports_answer_progress() -> None:
+    task_file = _base_task_file()
+    task_file["units"][0]["answer"] = {  # type: ignore[index]
+        "label": "RECIPE_NOTES",
+        "exclusion_reason": None,
+    }
+
+    summary = summarize_task_file(payload=task_file, task_file_path="task.json")
+
+    assert summary["stage_key"] == "line_role"
+    assert summary["answered_units"] == 2
+    assert summary["total_units"] == 2
+    assert summary["unanswered_unit_ids"] == []
+
+
+def test_apply_answers_to_task_file_updates_only_answer_objects(tmp_path: Path) -> None:
+    task_file_path = tmp_path / "task.json"
+    write_task_file(path=task_file_path, payload=_base_task_file())
+
+    result = apply_answers_to_task_file(
+        path=task_file_path,
+        answers_by_unit_id={
+            "line::0": {"label": "RECIPE_NOTES"},
+            "missing-unit": {"label": "NONRECIPE_CANDIDATE"},
+        },
+    )
+
+    updated_task_file = load_task_file(task_file_path)
+    assert updated_task_file["units"][0]["answer"] == {"label": "RECIPE_NOTES"}  # type: ignore[index]
+    assert updated_task_file["units"][0]["evidence"]["text"] == "Ambiguous line"  # type: ignore[index]
+    assert result["applied_unit_ids"] == ["line::0"]
+    assert result["skipped_unit_ids"] == ["missing-unit"]
+    assert result["changed"] is True
+
+
+def test_load_answer_mapping_file_prefers_nested_answers_by_unit_id(tmp_path: Path) -> None:
+    mapping_path = tmp_path / "answers.json"
+    mapping_path.write_text(
+        json.dumps(
+            {
+                "answers_by_unit_id": {
+                    "line::0": {"label": "RECIPE_NOTES"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = _load_answer_mapping_file(mapping_path)
+
+    assert result == {"line::0": {"label": "RECIPE_NOTES"}}

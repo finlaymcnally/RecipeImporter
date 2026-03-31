@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 import time
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -18,11 +19,14 @@ from cookimport.llm.canonical_line_role_prompt import (
 )
 from cookimport.llm.codex_exec_runner import CodexExecLiveSnapshot, FakeCodexExecRunner
 from cookimport.llm.codex_exec_runner import CodexExecRunResult
-from cookimport.llm.editable_task_file import load_task_file
+from cookimport.llm.editable_task_file import load_task_file, write_task_file
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 from cookimport.parsing import canonical_line_roles as canonical_line_roles_module
 from cookimport.parsing.canonical_line_roles import _preflight_line_role_shard, label_atomic_lines
-from cookimport.parsing.canonical_line_roles.runtime import _expand_line_role_task_file_outputs
+from cookimport.parsing.canonical_line_roles.runtime import (
+    _expand_line_role_task_file_outputs,
+    _line_role_recovery_guidance_for_diagnosis,
+)
 from cookimport.parsing.recipe_block_atomizer import (
     AtomicLineCandidate,
     atomize_blocks,
@@ -269,6 +273,160 @@ class _NoFinalWorkspaceMessageRunner(FakeCodexExecRunner):
             supervision_reason_detail=result.supervision_reason_detail,
             supervision_retryable=result.supervision_retryable,
         )
+
+
+class _FreshSessionLineRoleRunner(FakeCodexExecRunner):
+    def __init__(self, *, hard_boundary: bool = False) -> None:
+        super().__init__(
+            output_builder=lambda payload: {
+                "rows": [
+                    {"atomic_index": int(row[0]), "label": "NONRECIPE_CANDIDATE"}
+                    for row in (dict(payload or {}).get("rows") or [])
+                    if isinstance(row, (list, tuple)) and row
+                ]
+            }
+        )
+        self.workspace_run_calls = 0
+        self.hard_boundary = hard_boundary
+
+    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+        self.workspace_run_calls += 1
+        working_dir = Path(kwargs.get("working_dir"))
+        if self.workspace_run_calls == 1:
+            task_file = load_task_file(working_dir / "task.json")
+            edited = deepcopy(task_file)
+            for unit in edited["units"]:
+                unit["answer"] = {"label": "NONRECIPE_CANDIDATE"}
+            write_task_file(path=working_dir / "task.json", payload=edited)
+            return CodexExecRunResult(
+                command=["codex", "exec"],
+                subprocess_exit_code=0,
+                output_schema_path=None,
+                prompt_text=str(kwargs.get("prompt_text") or ""),
+                response_text='{"status":"session_exhausted"}',
+                turn_failed_message=None,
+                usage={
+                    "input_tokens": 1,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 1,
+                    "reasoning_tokens": 0,
+                },
+                source_working_dir=str(working_dir),
+                execution_working_dir=str(working_dir),
+                execution_agents_path=None,
+                duration_ms=1,
+                started_at_utc="2026-01-01T00:00:00Z",
+                finished_at_utc="2026-01-01T00:00:00Z",
+                workspace_mode="workspace_worker",
+                supervision_state="watchdog_killed" if self.hard_boundary else "completed",
+                supervision_reason_code=(
+                    "watchdog_command_execution_forbidden" if self.hard_boundary else None
+                ),
+            )
+        return super().run_workspace_worker(**kwargs)
+
+
+class _FinalMessageMissingOutputRunner(FakeCodexExecRunner):
+    def __init__(
+        self,
+        *,
+        set_answers_before_exit: bool,
+        spend_retry_budget: bool = False,
+    ) -> None:
+        super().__init__(
+            output_builder=lambda payload: {
+                "rows": [
+                    {"atomic_index": int(row[0]), "label": "NONRECIPE_CANDIDATE"}
+                    for row in (dict(payload or {}).get("rows") or [])
+                    if isinstance(row, (list, tuple)) and row
+                ]
+            }
+        )
+        self.workspace_run_calls = 0
+        self.set_answers_before_exit = set_answers_before_exit
+        self.spend_retry_budget = spend_retry_budget
+
+    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+        self.workspace_run_calls += 1
+        working_dir = Path(kwargs.get("working_dir"))
+        if self.workspace_run_calls == 1:
+            task_file_path = working_dir / "task.json"
+            if self.set_answers_before_exit:
+                task_file = load_task_file(task_file_path)
+                edited = deepcopy(task_file)
+                for unit in edited["units"]:
+                    unit["answer"] = {"label": "NONRECIPE_CANDIDATE"}
+                write_task_file(path=task_file_path, payload=edited)
+            state_path = Path(
+                str(kwargs.get("env", {}).get("RECIPEIMPORT_LINE_ROLE_SAME_SESSION_STATE_PATH"))
+            )
+            if self.spend_retry_budget and state_path.exists():
+                state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+                state_payload["fresh_session_retry_count"] = 1
+                state_payload["fresh_session_retry_status"] = "completed"
+                state_payload["fresh_session_retry_limit"] = 1
+                state_path.write_text(
+                    json.dumps(state_payload, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+            callback = kwargs.get("supervision_callback")
+            assert callback is not None
+            first = callback(
+                CodexExecLiveSnapshot(
+                    elapsed_seconds=0.1,
+                    last_event_seconds_ago=0.0,
+                    event_count=2,
+                    command_execution_count=0,
+                    reasoning_item_count=0,
+                    last_command=None,
+                    last_command_repeat_count=0,
+                    has_final_agent_message=True,
+                    agent_message_count=1,
+                    timeout_seconds=kwargs.get("timeout_seconds"),
+                )
+            )
+            assert first is None
+            decision = callback(
+                CodexExecLiveSnapshot(
+                    elapsed_seconds=2.2,
+                    last_event_seconds_ago=0.0,
+                    event_count=3,
+                    command_execution_count=0,
+                    reasoning_item_count=0,
+                    last_command=None,
+                    last_command_repeat_count=0,
+                    has_final_agent_message=True,
+                    agent_message_count=1,
+                    timeout_seconds=kwargs.get("timeout_seconds"),
+                )
+            )
+            assert decision is not None
+            return CodexExecRunResult(
+                command=["codex", "exec"],
+                subprocess_exit_code=0,
+                output_schema_path=None,
+                prompt_text=str(kwargs.get("prompt_text") or ""),
+                response_text='{"status":"worker_completed"}',
+                turn_failed_message=None,
+                usage={
+                    "input_tokens": 1,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 1,
+                    "reasoning_tokens": 0,
+                },
+                source_working_dir=str(working_dir),
+                execution_working_dir=str(working_dir),
+                execution_agents_path=None,
+                duration_ms=1,
+                started_at_utc="2026-01-01T00:00:00Z",
+                finished_at_utc="2026-01-01T00:00:00Z",
+                workspace_mode="workspace_worker",
+                supervision_state=decision.supervision_state,
+                supervision_reason_code=decision.reason_code,
+                supervision_reason_detail=decision.reason_detail,
+                supervision_retryable=decision.retryable,
+            )
+        return super().run_workspace_worker(**kwargs)
 
 
 def test_label_atomic_lines_hollandaise_note_and_howto_rules() -> None:
@@ -4401,6 +4559,187 @@ def test_line_role_workspace_watchdog_observes_output_stabilization_without_forc
     assert live_status["workspace_completion_post_signal_observed"] is False
 
 
+def test_line_role_workspace_watchdog_starts_final_message_missing_output_grace_window(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "out" / "line-role-canonical-0001-a000000-a000000.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+        expected_workspace_output_paths=[output_path],
+    )
+
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=1.0,
+            last_event_seconds_ago=0.0,
+            event_count=3,
+            command_execution_count=0,
+            reasoning_item_count=0,
+            last_command=None,
+            last_command_repeat_count=0,
+            has_final_agent_message=True,
+            agent_message_count=1,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["final_message_missing_output_grace_active"] is True
+    assert (
+        live_status["final_message_missing_output_started_at_elapsed_seconds"] == 1.0
+    )
+    assert live_status["final_message_missing_output_grace_seconds"] == 2.0
+    assert live_status["final_message_missing_output_deadline_elapsed_seconds"] == 3.0
+    assert live_status["final_message_missing_output_deadline_reached"] is False
+    assert live_status["reason_code"] is None
+
+
+def test_line_role_workspace_watchdog_allows_output_to_land_during_final_message_grace_window(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "out" / "line-role-canonical-0001-a000000-a000000.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+        expected_workspace_output_paths=[output_path],
+    )
+
+    first = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.4,
+            last_event_seconds_ago=0.0,
+            event_count=2,
+            command_execution_count=0,
+            reasoning_item_count=0,
+            last_command=None,
+            last_command_repeat_count=0,
+            has_final_agent_message=True,
+            agent_message_count=1,
+            timeout_seconds=30,
+        )
+    )
+    output_path.write_text(
+        json.dumps({"rows": [{"atomic_index": 0, "label": "RECIPE_NOTES"}]}),
+        encoding="utf-8",
+    )
+    second = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=1.2,
+            last_event_seconds_ago=0.0,
+            event_count=3,
+            command_execution_count=0,
+            reasoning_item_count=0,
+            last_command=None,
+            last_command_repeat_count=0,
+            has_final_agent_message=True,
+            agent_message_count=1,
+            timeout_seconds=30,
+        )
+    )
+
+    assert first is None
+    assert second is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["final_message_missing_output_grace_active"] is False
+    assert live_status["workspace_output_complete"] is True
+    assert live_status["reason_code"] is None
+
+
+def test_line_role_workspace_watchdog_kills_after_final_message_missing_output_grace_window(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "out" / "line-role-canonical-0001-a000000-a000000.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+        expected_workspace_output_paths=[output_path],
+    )
+
+    first = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.2,
+            last_event_seconds_ago=0.0,
+            event_count=2,
+            command_execution_count=0,
+            reasoning_item_count=0,
+            last_command=None,
+            last_command_repeat_count=0,
+            has_final_agent_message=True,
+            agent_message_count=1,
+            timeout_seconds=30,
+        )
+    )
+    second = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=2.5,
+            last_event_seconds_ago=0.0,
+            event_count=3,
+            command_execution_count=0,
+            reasoning_item_count=0,
+            last_command=None,
+            last_command_repeat_count=0,
+            has_final_agent_message=True,
+            agent_message_count=1,
+            timeout_seconds=30,
+        )
+    )
+
+    assert first is None
+    assert second is not None
+    assert second.reason_code == "workspace_final_message_missing_output"
+    assert second.supervision_state == "watchdog_killed"
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["final_message_missing_output_deadline_reached"] is True
+    assert live_status["reason_code"] == "workspace_final_message_missing_output"
+
+
+@pytest.mark.parametrize(
+    ("diagnosis_code", "recoverable", "summary"),
+    [
+        ("completed", False, "same-session helper already completed this workspace"),
+        (
+            "answers_present_helper_not_run",
+            True,
+            "task.json contains saved answers but the same-session helper has not produced out/<shard_id>.json yet",
+        ),
+        (
+            "ready_for_validation",
+            True,
+            "answers are present and the same-session helper still needs to validate and install out/<shard_id>.json",
+        ),
+        (
+            "repair_ready_helper_not_run",
+            True,
+            "repair answers are present but the same-session helper has not installed out/<shard_id>.json yet",
+        ),
+        ("awaiting_answers", False, "task.json still has blank answer objects"),
+        (
+            "repair_answers_missing",
+            False,
+            "repair mode is active but corrected answers are still missing",
+        ),
+        ("unknown_code", False, None),
+    ],
+)
+def test_line_role_recovery_guidance_maps_diagnosis_codes(
+    diagnosis_code: str,
+    recoverable: bool,
+    summary: str | None,
+) -> None:
+    assert _line_role_recovery_guidance_for_diagnosis(diagnosis_code) == (
+        recoverable,
+        summary,
+    )
+
+
 def test_label_atomic_lines_allows_line_role_jq_fallback_operator_output_command(
     tmp_path: Path,
 ) -> None:
@@ -5919,6 +6258,8 @@ def test_label_atomic_lines_writes_one_shard_owned_ledger_without_line_role_task
         "/units/2/answer",
         "/units/3/answer",
     ]
+    assert task_file_payload["helper_commands"]["status"].endswith("--status")
+    assert task_file_payload["answer_schema"]["example_answers"][0]["label"] == "RECIPE_NOTES"
     assert all(
         "deterministic_hint_label" not in unit["evidence"]
         for unit in task_file_payload["units"]
@@ -5946,6 +6287,285 @@ def test_label_atomic_lines_writes_one_shard_owned_ledger_without_line_role_task
     assert proposal_payload["validation_errors"] == []
     assert len(proposal_payload["payload"]["rows"]) == 4
     assert proposal_payload["validation_metadata"]["row_resolution"]["unresolved_row_count"] == 0
+
+
+def test_line_role_runtime_retries_one_fresh_session_after_preserved_progress(
+    tmp_path: Path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:fresh:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"Ambiguous line {index}",
+            within_recipe_span=None,
+            rule_tags=[],
+        )
+        for index in range(2)
+    ]
+    runner = _FreshSessionLineRoleRunner()
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-route-v2", line_role_prompt_target_count=1),
+        artifact_root=tmp_path,
+        codex_batch_size=2,
+        codex_runner=runner,
+        live_llm_allowed=True,
+    )
+
+    worker_root = (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+    )
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+    phase_manifest = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "phase_manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert len(predictions) == 2
+    assert runner.workspace_run_calls == 2
+    assert worker_status["fresh_session_retry_count"] == 1
+    assert worker_status["fresh_session_retry_status"] == "completed"
+    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 2
+    assert (
+        phase_manifest["runtime_metadata"]["worker_session_guardrails"][
+            "actual_happy_path_worker_sessions"
+        ]
+        == 2
+    )
+
+
+def test_line_role_runtime_does_not_retry_after_hard_boundary_failure(
+    tmp_path: Path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:hard:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous line 0",
+            within_recipe_span=None,
+            rule_tags=[],
+        )
+    ]
+    runner = _FreshSessionLineRoleRunner(hard_boundary=True)
+
+    with pytest.raises(canonical_line_roles_module.LineRoleRepairFailureError):
+        label_atomic_lines(
+            candidates,
+            _settings("codex-line-role-route-v2", line_role_prompt_target_count=1),
+            artifact_root=tmp_path,
+            codex_batch_size=1,
+            codex_runner=runner,
+            live_llm_allowed=True,
+        )
+
+    worker_root = (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+    )
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+
+    assert runner.workspace_run_calls == 1
+    assert worker_status["fresh_session_retry_count"] == 0
+
+
+def test_line_role_runtime_recovers_after_final_message_missing_output(
+    tmp_path: Path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:final-message:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"Ambiguous line {index}",
+            within_recipe_span=None,
+            rule_tags=[],
+        )
+        for index in range(2)
+    ]
+    runner = _FinalMessageMissingOutputRunner(set_answers_before_exit=True)
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-route-v2", line_role_prompt_target_count=1),
+        artifact_root=tmp_path,
+        codex_batch_size=2,
+        codex_runner=runner,
+        live_llm_allowed=True,
+    )
+
+    worker_root = (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+    )
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+    recovery_assessment = json.loads(
+        (worker_root / "final_message_recovery_assessment.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    shard_status = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "workers"
+            / "worker-001"
+            / "shards"
+            / "line-role-canonical-0001-a000000-a000001"
+            / "status.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert len(predictions) == 2
+    assert runner.workspace_run_calls == 2
+    assert worker_status["fresh_session_retry_count"] == 1
+    assert worker_status["fresh_session_retry_status"] == "completed"
+    assert worker_status["fresh_session_recovery_attempted"] is True
+    assert worker_status["fresh_session_recovery_status"] == "recovered"
+    assert (
+        recovery_assessment["prior_session_reason_code"]
+        == "workspace_final_message_missing_output"
+    )
+    assert recovery_assessment["assessment"]["recoverable_by_fresh_session"] is True
+    assert recovery_assessment["assessment"]["diagnosis_code"] == (
+        "answers_present_helper_not_run"
+    )
+    assert recovery_assessment["fresh_session_recovery_status"] == "recovered"
+    assert shard_status["watchdog_retry_status"] == "not_attempted"
+    assert shard_status["fresh_session_recovery_status"] == "recovered"
+    assert not list(worker_root.rglob("watchdog_retry_status.json"))
+
+
+def test_line_role_runtime_skips_final_message_recovery_when_answers_are_missing(
+    tmp_path: Path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:missing-answers:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous line 0",
+            within_recipe_span=None,
+            rule_tags=[],
+        )
+    ]
+    runner = _FinalMessageMissingOutputRunner(set_answers_before_exit=False)
+
+    with pytest.raises(canonical_line_roles_module.LineRoleRepairFailureError):
+        label_atomic_lines(
+            candidates,
+            _settings("codex-line-role-route-v2", line_role_prompt_target_count=1),
+            artifact_root=tmp_path,
+            codex_batch_size=1,
+            codex_runner=runner,
+            live_llm_allowed=True,
+        )
+
+    worker_root = (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+    )
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+    recovery_assessment = json.loads(
+        (worker_root / "final_message_recovery_assessment.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert runner.workspace_run_calls == 1
+    assert worker_status["fresh_session_retry_count"] == 0
+    assert worker_status["fresh_session_recovery_attempted"] is False
+    assert worker_status["fresh_session_recovery_status"] == "skipped"
+    assert worker_status["fresh_session_recovery_skipped_reason"] == (
+        "diagnosis_awaiting_answers"
+    )
+    assert recovery_assessment["assessment"]["recoverable_by_fresh_session"] is False
+    assert recovery_assessment["assessment"]["diagnosis_code"] == "awaiting_answers"
+
+
+def test_line_role_runtime_skips_final_message_recovery_when_shared_budget_is_spent(
+    tmp_path: Path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:budget-spent:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous line 0",
+            within_recipe_span=None,
+            rule_tags=[],
+        )
+    ]
+    runner = _FinalMessageMissingOutputRunner(
+        set_answers_before_exit=True,
+        spend_retry_budget=True,
+    )
+
+    with pytest.raises(canonical_line_roles_module.LineRoleRepairFailureError):
+        label_atomic_lines(
+            candidates,
+            _settings("codex-line-role-route-v2", line_role_prompt_target_count=1),
+            artifact_root=tmp_path,
+            codex_batch_size=1,
+            codex_runner=runner,
+            live_llm_allowed=True,
+        )
+
+    worker_root = (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+    )
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+    recovery_assessment = json.loads(
+        (worker_root / "final_message_recovery_assessment.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert runner.workspace_run_calls == 1
+    assert worker_status["fresh_session_retry_count"] == 0
+    assert worker_status["fresh_session_recovery_status"] == "skipped"
+    assert worker_status["fresh_session_recovery_skipped_reason"] == (
+        "fresh_session_retry_budget_spent"
+    )
+    assert worker_status["shared_retry_budget_spent"] is True
+    assert recovery_assessment["assessment"]["recoverable_by_fresh_session"] is False
+    assert recovery_assessment["shared_retry_budget_spent"] is True
 
 
 def test_label_atomic_lines_writes_canonical_line_table_and_shard_status(
@@ -6220,6 +6840,80 @@ def test_label_atomic_lines_codex_progress_callback_reports_shard_runtime_start_
     assert shard_progress_texts[-1] == (
         "Running canonical line-role pipeline... shard 3/3 | running 0"
     )
+
+
+def test_label_atomic_lines_codex_progress_callback_surfaces_worker_attention() -> None:
+    class _WarningLineRoleRunner(FakeCodexExecRunner):
+        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            supervision_callback = kwargs.get("supervision_callback")
+            if callable(supervision_callback):
+                supervision_callback(
+                    CodexExecLiveSnapshot(
+                        elapsed_seconds=82.0,
+                        last_event_seconds_ago=58.0,
+                        event_count=11,
+                        command_execution_count=canonical_line_roles_module._LINE_ROLE_WORKSPACE_MAX_COMMAND_COUNT + 1,  # noqa: SLF001
+                        reasoning_item_count=0,
+                        last_command="python3 helper.py",
+                        last_command_repeat_count=canonical_line_roles_module._LINE_ROLE_WORKSPACE_MAX_REPEAT_COUNT + 1,  # noqa: SLF001
+                        has_final_agent_message=False,
+                        timeout_seconds=None,
+                    )
+                )
+                time.sleep(1.2)
+            return super().run_workspace_worker(*args, **kwargs)
+
+    candidates: list[AtomicLineCandidate] = []
+    for atomic_index in range(2):
+        candidates.append(
+            AtomicLineCandidate(
+                recipe_id="recipe:0",
+                block_id=f"block:attention:{atomic_index}",
+                block_index=atomic_index,
+                atomic_index=atomic_index,
+                text=f"Ambiguous line {atomic_index}",
+                within_recipe_span=True,
+                rule_tags=["recipe_span_fallback"],
+            )
+        )
+
+    progress_messages: list[str] = []
+    label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-route-v2",
+            line_role_worker_count=1,
+            line_role_prompt_target_count=None,
+        ),
+        codex_batch_size=1,
+        codex_runner=_WarningLineRoleRunner(
+            output_builder=_line_role_runner(
+                {0: "RECIPE_NOTES", 1: "RECIPE_NOTES"}
+            ).output_builder
+        ),
+        live_llm_allowed=True,
+        progress_callback=progress_messages.append,
+    )
+
+    payloads = [
+        payload
+        for message in progress_messages
+        for payload in [parse_stage_progress(message)]
+        if payload is not None
+    ]
+    assert any(
+        "watchdog warnings: 1" in (payload.get("detail_lines") or [])
+        for payload in payloads
+    )
+    assert any(
+        "stalled workers: 1" in (payload.get("detail_lines") or [])
+        for payload in payloads
+    )
+    assert any(
+        any("[command loop]" in str(task) for task in (payload.get("active_tasks") or []))
+        for payload in payloads
+    )
+    assert any(payload.get("last_activity_at") for payload in payloads)
 
 
 def test_label_atomic_lines_codex_max_inflight_override_takes_precedence(

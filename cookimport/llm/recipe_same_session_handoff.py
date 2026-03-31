@@ -11,6 +11,7 @@ from .editable_task_file import (
     TASK_FILE_NAME,
     build_repair_task_file,
     load_task_file,
+    summarize_task_file,
     validate_edited_task_file,
     write_task_file,
 )
@@ -18,6 +19,7 @@ from .phase_worker_runtime import ShardManifestEntryV1
 
 RECIPE_SAME_SESSION_HANDOFF_SCHEMA_VERSION = "recipe_same_session_handoff.v1"
 RECIPE_SAME_SESSION_STATE_ENV = "RECIPEIMPORT_RECIPE_SAME_SESSION_STATE_PATH"
+_RECIPE_SAME_SESSION_STATE_FILE_NAME = "recipe_same_session_state.json"
 
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -71,6 +73,10 @@ def initialize_recipe_same_session_state(
         "completed": False,
         "final_status": None,
         "completed_task_count": 0,
+        "fresh_session_retry_limit": 1,
+        "fresh_session_retry_count": 0,
+        "fresh_session_retry_status": "not_attempted",
+        "fresh_session_retry_history": [],
         "transition_history": [],
     }
     _write_json(state_path, payload)
@@ -140,6 +146,111 @@ def _current_task_records(state: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 def _coerce_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _current_task_file_or_original(*, workspace_root: Path, state: Mapping[str, Any]) -> dict[str, Any]:
+    task_file_path = workspace_root / TASK_FILE_NAME
+    if task_file_path.exists():
+        return load_task_file(task_file_path)
+    return dict(state.get("current_original_task_file") or {})
+
+
+def _recipe_recommended_command() -> str:
+    return "python3 -m cookimport.llm.recipe_same_session_handoff"
+
+
+def _default_recipe_same_session_state_path(*, workspace_root: Path) -> Path:
+    return workspace_root / "_repo_control" / _RECIPE_SAME_SESSION_STATE_FILE_NAME
+
+
+def _resolve_recipe_same_session_state_path(
+    *,
+    workspace_root: Path,
+    candidate: str | None,
+) -> Path:
+    candidate_text = str(candidate or "").strip()
+    if candidate_text:
+        return Path(candidate_text).expanduser()
+    return _default_recipe_same_session_state_path(workspace_root=workspace_root)
+
+
+def describe_recipe_same_session_status(
+    *,
+    workspace_root: Path,
+    state_path: Path,
+) -> dict[str, Any]:
+    state = _load_json_dict(state_path)
+    current_original_task_file = dict(state.get("current_original_task_file") or {})
+    task_file = _current_task_file_or_original(workspace_root=workspace_root, state=state)
+    task_summary = summarize_task_file(payload=task_file, task_file_path=str(workspace_root / TASK_FILE_NAME))
+    expected_output_paths = [
+        workspace_root / str(record.get("result_path") or "").strip()
+        for record in _current_task_records(state)
+        if str(record.get("result_path") or "").strip()
+    ]
+    expected_outputs_present = sum(1 for path in expected_output_paths if path.exists())
+    mode = str(task_file.get("mode") or current_original_task_file.get("mode") or "initial").strip()
+    recommended_command = _recipe_recommended_command()
+    if bool(state.get("completed")):
+        next_action = "outputs are already complete; stop"
+    elif mode == "repair":
+        next_action = "fix the named repair units and rerun same_session_handoff"
+    elif int(task_summary.get("answered_units") or 0) < int(task_summary.get("total_units") or 0):
+        next_action = "fill the remaining answer objects, then run same_session_handoff"
+    else:
+        next_action = "run same_session_handoff to validate and expand outputs"
+    return {
+        "stage_key": str(task_file.get("stage_key") or current_original_task_file.get("stage_key") or "recipe_refine"),
+        "mode": mode or "initial",
+        "answered_units": int(task_summary.get("answered_units") or 0),
+        "total_units": int(task_summary.get("total_units") or 0),
+        "same_session_completed": bool(state.get("completed")),
+        "expected_outputs_present": expected_outputs_present,
+        "expected_outputs_total": len(expected_output_paths),
+        "recommended_command": recommended_command,
+        "next_action": next_action,
+        "fresh_session_retry_count": int(state.get("fresh_session_retry_count") or 0),
+        "fresh_session_retry_limit": int(state.get("fresh_session_retry_limit") or 0),
+        "fresh_session_retry_status": str(state.get("fresh_session_retry_status") or "not_attempted"),
+    }
+
+
+def describe_recipe_same_session_doctor(
+    *,
+    workspace_root: Path,
+    state_path: Path,
+) -> dict[str, Any]:
+    status = describe_recipe_same_session_status(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    if bool(status.get("same_session_completed")):
+        diagnosis_code = "completed"
+        message = "same-session helper already completed this workspace"
+    elif str(status.get("mode") or "") == "repair":
+        if int(status.get("answered_units") or 0) > 0:
+            diagnosis_code = "repair_ready_helper_not_run"
+            message = "repair answers are present; rerun the same-session helper"
+        else:
+            diagnosis_code = "repair_answers_missing"
+            message = "repair mode is active but the named units still need corrected answers"
+    elif int(status.get("answered_units") or 0) == 0:
+        diagnosis_code = "awaiting_answers"
+        message = "task.json still has blank answer objects"
+    elif int(status.get("expected_outputs_present") or 0) < int(status.get("expected_outputs_total") or 0):
+        diagnosis_code = "answers_present_helper_not_run"
+        message = "task.json contains edited answers but the same-session helper has not produced outputs yet"
+    else:
+        diagnosis_code = "ready_for_validation"
+        message = "answers are present; run the same-session helper now"
+    return {
+        "stage_key": str(status.get("stage_key") or "recipe_refine"),
+        "mode": str(status.get("mode") or "initial"),
+        "diagnosis_code": diagnosis_code,
+        "message": message,
+        "recommended_command": _recipe_recommended_command(),
+        "same_session_completed": bool(status.get("same_session_completed")),
+    }
 
 
 def _write_recipe_task_payload(
@@ -541,17 +652,48 @@ def _parse_args() -> argparse.Namespace:
         default=".",
         help="Workspace root containing task.json. Defaults to the current directory.",
     )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Print a read-only workspace status summary.",
+    )
+    parser.add_argument(
+        "--doctor",
+        action="store_true",
+        help="Print a read-only workspace diagnosis.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = _parse_args()
-    if not str(args.state_path or "").strip():
-        raise SystemExit(f"missing --state-path or ${RECIPE_SAME_SESSION_STATE_ENV}")
-    result = advance_recipe_same_session_handoff(
-        workspace_root=Path(str(args.workspace_root)).expanduser(),
-        state_path=Path(str(args.state_path)).expanduser(),
+    workspace_root = Path(str(args.workspace_root)).expanduser()
+    state_path = _resolve_recipe_same_session_state_path(
+        workspace_root=workspace_root,
+        candidate=args.state_path,
     )
+    if not state_path.exists():
+        raise SystemExit(
+            "missing same-session state file; expected "
+            f"{state_path} or set --state-path / ${RECIPE_SAME_SESSION_STATE_ENV}"
+        )
+    if args.status and args.doctor:
+        raise SystemExit("use either --status or --doctor, not both")
+    if args.status:
+        result = describe_recipe_same_session_status(
+            workspace_root=workspace_root,
+            state_path=state_path,
+        )
+    elif args.doctor:
+        result = describe_recipe_same_session_doctor(
+            workspace_root=workspace_root,
+            state_path=state_path,
+        )
+    else:
+        result = advance_recipe_same_session_handoff(
+            workspace_root=workspace_root,
+            state_path=state_path,
+        )
     print(json.dumps(result, sort_keys=True))
     return 0
 

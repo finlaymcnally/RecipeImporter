@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
 
 from cookimport.llm.codex_exec_runner import CodexExecRunResult, FakeCodexExecRunner
-from cookimport.llm.editable_task_file import load_task_file
+from cookimport.llm.editable_task_file import load_task_file, write_task_file
 from cookimport.llm.codex_farm_knowledge_orchestrator import (
     run_codex_farm_nonrecipe_finalize,
 )
@@ -159,7 +160,11 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
         "/units/1/answer",
     ]
     assert classify_snapshot["ontology"]["catalog_version"] == "cookbook-tag-catalog-2026-03-30"
+    assert classify_snapshot["helper_commands"]["status"].endswith("--status")
+    assert classify_snapshot["answer_schema"]["example_answers"][0]["category"] == "knowledge"
     assert task_file["stage_key"] == "knowledge_group"
+    assert task_file["helper_commands"]["doctor"].endswith("--doctor")
+    assert task_file["answer_schema"]["example_answers"][0]["group_key"] == "heat-control"
     assert first_output["packet_id"] == "book.ks0000.nr"
     assert first_output["block_decisions"][0]["block_index"] == 0
     assert first_output["block_decisions"][0]["category"] == "knowledge"
@@ -195,6 +200,42 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
         ]
         == 1
     )
+
+
+def test_knowledge_orchestrator_retries_one_fresh_session_after_preserved_progress(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = _FreshSessionKnowledgeRunner()
+    fixture = _run_runtime_phase(monkeypatch, tmp_path, runner=runner)
+    phase_dir = Path(fixture["phase_dir"])
+    worker_root = Path(fixture["worker_root"])
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+    phase_manifest = json.loads((phase_dir / "phase_manifest.json").read_text(encoding="utf-8"))
+
+    assert runner.workspace_run_calls == 2
+    assert worker_status["fresh_session_retry_count"] == 1
+    assert worker_status["fresh_session_retry_status"] == "completed"
+    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 2
+    assert (
+        phase_manifest["runtime_metadata"]["worker_session_guardrails"][
+            "actual_happy_path_worker_sessions"
+        ]
+        == 2
+    )
+
+
+def test_knowledge_orchestrator_does_not_retry_after_hard_boundary_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner = _FreshSessionKnowledgeRunner(hard_boundary=True)
+    fixture = _run_runtime_phase(monkeypatch, tmp_path, runner=runner)
+    worker_root = Path(fixture["worker_root"])
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+
+    assert runner.workspace_run_calls == 1
+    assert worker_status["fresh_session_retry_count"] == 0
 
 
 class _NoOutputLeaseRunner(FakeCodexExecRunner):
@@ -233,6 +274,69 @@ class _NoOutputLeaseRunner(FakeCodexExecRunner):
             supervision_state=self._supervision_state,
             supervision_reason_code=self._supervision_reason_code,
         )
+
+
+class _FreshSessionKnowledgeRunner(FakeCodexExecRunner):
+    def __init__(self, *, hard_boundary: bool = False) -> None:
+        super().__init__(
+            output_builder=lambda payload: build_structural_pipeline_output(
+                "recipe.knowledge.packet.v1",
+                dict(payload or {}),
+            )
+        )
+        self.workspace_run_calls = 0
+        self.hard_boundary = hard_boundary
+
+    def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        self.workspace_run_calls += 1
+        working_dir = Path(kwargs.get("working_dir"))
+        if self.workspace_run_calls == 1:
+            task_file = load_task_file(working_dir / "task.json")
+            edited = deepcopy(task_file)
+            for unit in edited["units"]:
+                unit["answer"] = {
+                    "category": "knowledge",
+                    "reviewer_category": "knowledge",
+                    "retrieval_concept": "Recovered concept",
+                    "grounding": {
+                        "tag_keys": [],
+                        "category_keys": [],
+                        "proposed_tags": [
+                            {
+                                "key": "recovered-concept",
+                                "display_name": "Recovered concept",
+                                "category_key": "techniques",
+                            }
+                        ],
+                    },
+                }
+            write_task_file(path=working_dir / "task.json", payload=edited)
+            return CodexExecRunResult(
+                command=["codex", "exec"],
+                subprocess_exit_code=0,
+                output_schema_path=None,
+                prompt_text=str(kwargs.get("prompt_text") or ""),
+                response_text='{"status":"session_exhausted"}',
+                turn_failed_message=None,
+                usage={
+                    "input_tokens": 1,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 1,
+                    "reasoning_tokens": 0,
+                },
+                source_working_dir=str(working_dir),
+                execution_working_dir=str(working_dir),
+                execution_agents_path=None,
+                duration_ms=1,
+                started_at_utc="2026-01-01T00:00:00Z",
+                finished_at_utc="2026-01-01T00:00:00Z",
+                workspace_mode="workspace_worker",
+                supervision_state="watchdog_killed" if self.hard_boundary else "completed",
+                supervision_reason_code=(
+                    "watchdog_command_execution_forbidden" if self.hard_boundary else None
+                ),
+            )
+        return super().run_workspace_worker(*args, **kwargs)
 
 
 def _load_task_status_rows(path: Path) -> dict[str, dict[str, object]]:

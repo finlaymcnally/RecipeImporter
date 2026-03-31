@@ -885,6 +885,56 @@ def test_format_stage_progress_round_trips_typed_fields() -> None:
     }
 
 
+def test_run_with_progress_status_renders_last_activity_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress(
+            format_stage_progress(
+                "Running recipe correction... task 1/3",
+                stage_label="recipe pipeline",
+                task_current=1,
+                task_total=3,
+                last_activity_at="2026-03-31T12:00:00+00:00",
+            )
+        )
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running import...",
+        progress_prefix="Import",
+        run=_run,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert any("last activity:" in message for message in capture.messages)
+
+
 def test_run_with_progress_status_renders_worker_activity_summary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

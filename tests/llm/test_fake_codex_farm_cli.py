@@ -567,11 +567,11 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
     assert {
         (row.get("supervision_state"), row.get("supervision_reason_code"))
         for row in status["telemetry"]["rows"]
-    } == {("completed", None)}
+    } == {("completed", "workspace_expected_outputs_completed")}
     assert status["telemetry"]["summary"]["workspace_worker_session_count"] == 1
     assert status["telemetry"]["rows"][0]["same_session_transition_count"] == 2
     assert live_status["state"] == "completed"
-    assert live_status["reason_code"] == "process_exited_without_watchdog_intervention"
+    assert live_status["reason_code"] == "workspace_expected_outputs_completed"
     assert live_status["warning_count"] == 0
     assert worker_manifest["entry_files"] == ["task.json"]
     assert worker_manifest["single_file_worker_runtime"] is True

@@ -699,6 +699,21 @@ def _run_with_progress_status(
             return None
         return "repo follow-up: " + " | ".join(summary_parts)
 
+    def _render_last_activity_line(last_activity_at: str | None) -> str | None:
+        cleaned = str(last_activity_at or "").strip()
+        if not cleaned:
+            return None
+        normalized = cleaned.replace("Z", "+00:00")
+        try:
+            parsed = dt.datetime.fromisoformat(normalized)
+        except ValueError:
+            return f"last activity: {cleaned}"
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        now_utc = dt.datetime.now(dt.timezone.utc)
+        delta_seconds = max(0, int(round((now_utc - parsed.astimezone(dt.timezone.utc)).total_seconds())))
+        return f"last activity: {_format_processing_time(float(delta_seconds))} ago"
+
     def _inject_worker_summary_lines(snapshot: str) -> str:
         with state_lock:
             running_workers = latest_running_workers
@@ -733,6 +748,7 @@ def _run_with_progress_status(
             followup_total = latest_followup_total
             followup_label = latest_followup_label
             artifact_counts = dict(latest_artifact_counts)
+            last_activity_at = latest_last_activity_at
             task_counter = latest_counter
         if (
             running_workers is None
@@ -749,6 +765,7 @@ def _run_with_progress_status(
             and followup_total is None
             and not followup_label
             and not artifact_counts
+            and not last_activity_at
             and task_counter is None
         ):
             return snapshot
@@ -770,6 +787,7 @@ def _run_with_progress_status(
             and followup_total is None
             and not followup_label
             and not artifact_counts
+            and not last_activity_at
             and task_counter is None
         ):
             return "\n".join(lines)
@@ -819,6 +837,7 @@ def _run_with_progress_status(
                     followup_completed=followup_completed,
                     followup_total=followup_total,
                 ),
+                _render_last_activity_line(last_activity_at),
                 _render_artifact_counts_line(artifact_counts),
             )
             if line

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from . import _shared as _shared_module
+from ..workspace_worker_progress import (
+    decorate_active_worker_label,
+    summarize_workspace_worker_health,
+)
 
 globals().update(
     {
@@ -101,6 +105,7 @@ def _notify_knowledge_progress(
     followup_total: int | None = None,
     followup_label: str | None = None,
     artifact_counts: dict[str, Any] | None = None,
+    last_activity_at: str | None = None,
     active_tasks: list[str] | None = None,
     detail_lines: list[str] | None = None,
 ) -> None:
@@ -133,7 +138,10 @@ def _notify_knowledge_progress(
             followup_total=followup_total,
             followup_label=followup_label,
             artifact_counts=artifact_counts,
-            last_activity_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            last_activity_at=(
+                str(last_activity_at or "").strip()
+                or datetime.now(timezone.utc).isoformat(timespec="seconds")
+            ),
             active_tasks=active_tasks,
             detail_lines=resolved_detail_lines,
         )
@@ -183,6 +191,7 @@ class _KnowledgePhaseProgressState:
     total_task_packets: int
     worker_total: int
     worker_order: tuple[str, ...]
+    worker_roots_by_id: dict[str, Path]
     worker_states: dict[str, _KnowledgeWorkerProgressState]
     completed_shard_ids: set[str] = field(default_factory=set)
     running_followup_counts: dict[str, int] = field(default_factory=dict)
@@ -325,10 +334,18 @@ class _KnowledgePhaseProgressState:
             self._emit_locked()
 
     def _emit_locked(self, *, force: bool = False) -> None:
+        worker_health = summarize_workspace_worker_health(
+            worker_roots_by_id=self.worker_roots_by_id,
+        )
         active_tasks = [
             label
             for worker_id in self.worker_order
-            for label in [self.worker_states[worker_id].render_worker_label()]
+            for label in [
+                decorate_active_worker_label(
+                    self.worker_states[worker_id].render_worker_label(),
+                    worker_health.attention_suffix_by_worker_id.get(worker_id),
+                )
+            ]
             if label is not None
         ]
         completed_task_packets = min(
@@ -358,12 +375,25 @@ class _KnowledgePhaseProgressState:
             detail_lines.append(f"repair calls running: {repair_running}")
         if retry_running > 0:
             detail_lines.append(f"retry calls running: {retry_running}")
+        if worker_health.warning_worker_count > 0:
+            detail_lines.append(
+                f"watchdog warnings: {worker_health.warning_worker_count}"
+            )
+        if worker_health.stalled_worker_count > 0:
+            detail_lines.append(
+                f"stalled workers: {worker_health.stalled_worker_count}"
+            )
+        if worker_health.attention_lines:
+            detail_lines.append(
+                "attention: " + "; ".join(worker_health.attention_lines)
+            )
         snapshot_key = (
             completed_task_packets,
             self.total_task_packets,
             running_workers,
             tuple(active_tasks),
             tuple(detail_lines),
+            worker_health.last_activity_at,
         )
         if not force and snapshot_key == self.last_snapshot_key:
             return
@@ -387,6 +417,7 @@ class _KnowledgePhaseProgressState:
                 "shards_completed": len(self.completed_shard_ids),
                 "shards_total": self.total_shards,
             },
+            last_activity_at=worker_health.last_activity_at,
             active_tasks=active_tasks,
             detail_lines=detail_lines,
         )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from copy import deepcopy
 from pathlib import Path
 
 from cookimport.config.run_settings import RunSettings
@@ -12,7 +13,7 @@ from cookimport.llm.codex_exec_runner import CodexExecLiveSnapshot
 from cookimport.llm.codex_exec_runner import CodexExecRunResult
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
-from cookimport.llm.editable_task_file import load_task_file
+from cookimport.llm.editable_task_file import load_task_file, write_task_file
 
 
 def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult:
@@ -235,7 +236,70 @@ class _NoFinalWorkspaceMessageRunner(FakeCodexExecRunner):
         )
 
 
-def _run_multi_recipe_phase_fixture(tmp_path: Path) -> dict[str, object]:
+class _FreshSessionRecoveryRunner(FakeCodexExecRunner):
+    def __init__(self, *, hard_boundary: bool = False) -> None:
+        super().__init__(output_builder=_build_recipe_shard_output)
+        self.workspace_run_calls = 0
+        self.hard_boundary = hard_boundary
+
+    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+        self.workspace_run_calls += 1
+        working_dir = Path(kwargs.get("working_dir"))
+        if self.workspace_run_calls == 1:
+            task_file = load_task_file(working_dir / "task.json")
+            edited = deepcopy(task_file)
+            for unit in edited["units"]:
+                evidence = dict(unit.get("evidence") or {})
+                hint = dict(evidence.get("hint") or {})
+                unit["answer"] = {
+                    "status": "repaired",
+                    "status_reason": None,
+                    "canonical_recipe": {
+                        "title": hint.get("title"),
+                        "ingredients": list(hint.get("ingredients") or []),
+                        "steps": list(hint.get("steps") or []),
+                        "description": None,
+                        "recipe_yield": None,
+                    },
+                    "ingredient_step_mapping": [],
+                    "ingredient_step_mapping_reason": "not_needed_single_step",
+                    "selected_tags": [],
+                    "warnings": [],
+                }
+            write_task_file(path=working_dir / "task.json", payload=edited)
+            return CodexExecRunResult(
+                command=["codex", "exec"],
+                subprocess_exit_code=0,
+                output_schema_path=None,
+                prompt_text=str(kwargs.get("prompt_text") or ""),
+                response_text='{"status":"session_exhausted"}',
+                turn_failed_message=None,
+                usage={
+                    "input_tokens": 1,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 1,
+                    "reasoning_tokens": 0,
+                },
+                source_working_dir=str(working_dir),
+                execution_working_dir=str(working_dir),
+                execution_agents_path=None,
+                duration_ms=1,
+                started_at_utc="2026-01-01T00:00:00Z",
+                finished_at_utc="2026-01-01T00:00:00Z",
+                workspace_mode="workspace_worker",
+                supervision_state="watchdog_killed" if self.hard_boundary else "completed",
+                supervision_reason_code=(
+                    "watchdog_command_execution_forbidden" if self.hard_boundary else None
+                ),
+            )
+        return super().run_workspace_worker(**kwargs)
+
+
+def _run_multi_recipe_phase_fixture(
+    tmp_path: Path,
+    *,
+    runner: FakeCodexExecRunner | None = None,
+) -> dict[str, object]:
     source = tmp_path / "book.txt"
     source.write_text("source", encoding="utf-8")
     settings = RunSettings.model_validate(
@@ -250,7 +314,7 @@ def _run_multi_recipe_phase_fixture(tmp_path: Path) -> dict[str, object]:
     for name in ("pipelines", "prompts", "schemas"):
         (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
 
-    runner = FakeCodexExecRunner(output_builder=_build_recipe_shard_output)
+    runner = runner or FakeCodexExecRunner(output_builder=_build_recipe_shard_output)
 
     apply_result = run_codex_farm_recipe_pipeline(
         conversion_result=_build_multi_recipe_conversion_result(source),
@@ -279,8 +343,11 @@ def _run_multi_recipe_phase_fixture(tmp_path: Path) -> dict[str, object]:
         if line.strip()
     ]
     worker_root = runtime_dir / "workers" / "worker-001"
-    worker_manifest = json.loads(
-        (worker_root / "worker_manifest.json").read_text(encoding="utf-8")
+    worker_manifest_path = worker_root / "worker_manifest.json"
+    worker_manifest = (
+        json.loads(worker_manifest_path.read_text(encoding="utf-8"))
+        if worker_manifest_path.exists()
+        else None
     )
     worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
     proposal = json.loads(
@@ -408,6 +475,9 @@ def test_recipe_phase_runtime_uses_fixed_assignment_task_manifest(
         "urn:recipe:test:tea",
         "urn:recipe:test:cereal",
     ]
+    assert task_file["helper_commands"]["status"].endswith("--status")
+    assert task_file["helper_commands"]["doctor"].endswith("--doctor")
+    assert task_file["answer_schema"]["example_answers"][0]["status"] == "repaired"
     assert not (worker_root / "CURRENT_TASK.md").exists()
     assert not (worker_root / "CURRENT_TASK_FEEDBACK.md").exists()
     assert not (worker_root / "assigned_tasks.json").exists()
@@ -438,7 +508,7 @@ def test_recipe_phase_runtime_writes_packet_outputs_and_session_telemetry(
         worker_status["telemetry"]["summary"]["worker_session_guardrails"][
             "planned_happy_path_worker_cap"
         ]
-        == 1
+        == 2
     )
     assert (
         worker_status["telemetry"]["summary"]["task_file_guardrails"]["assignment_count"]
@@ -451,6 +521,58 @@ def test_recipe_phase_runtime_writes_packet_outputs_and_session_telemetry(
         == 1
     )
     assert proposal["validation_metadata"]["task_aggregation"]["task_count"] == 2
+
+
+def test_recipe_phase_runtime_retries_one_fresh_session_after_preserved_progress(
+    tmp_path: Path,
+) -> None:
+    runner = _FreshSessionRecoveryRunner()
+    fixture = _run_multi_recipe_phase_fixture(tmp_path, runner=runner)
+    worker_status = fixture["worker_status"]
+    phase_manifest = fixture["phase_manifest"]
+    proposal = fixture["proposal"]
+
+    assert runner.workspace_run_calls == 2
+    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 2
+    assert (
+        phase_manifest["runtime_metadata"]["worker_session_guardrails"][
+            "actual_happy_path_worker_sessions"
+        ]
+        == 2
+    )
+    assert proposal["state"] == "completed"
+
+
+def test_recipe_phase_runtime_does_not_retry_after_hard_boundary_failure(
+    tmp_path: Path,
+) -> None:
+    runner = _FreshSessionRecoveryRunner(hard_boundary=True)
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    settings = RunSettings.model_validate(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(tmp_path / "pack"),
+            "recipe_prompt_target_count": 2,
+            "recipe_worker_count": 1,
+        }
+    )
+    for name in ("pipelines", "prompts", "schemas"):
+        (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=_build_multi_recipe_conversion_result(source),
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+    worker_root = apply_result.llm_raw_dir / "recipe_phase_runtime" / "workers" / "worker-001"
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+
+    assert runner.workspace_run_calls == 1
+    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 1
 
 
 def test_recipe_phase_runtime_repairs_invalid_task_file_answers_in_same_session(
@@ -721,6 +843,81 @@ def test_recipe_phase_runtime_forwards_structured_progress(
         (payload.get("artifact_counts") or {}).get("repair_attempted") is not None
         for payload in payloads
     )
+
+
+def test_recipe_phase_runtime_surfaces_worker_attention_in_progress(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    class _WarningFakeCodexExecRunner(FakeCodexExecRunner):
+        def run_workspace_worker(self, *args, **kwargs):
+            supervision_callback = kwargs.get("supervision_callback")
+            if callable(supervision_callback):
+                supervision_callback(
+                    recipe_module.CodexExecLiveSnapshot(
+                        elapsed_seconds=75.0,
+                        last_event_seconds_ago=61.0,
+                        event_count=12,
+                        command_execution_count=301,
+                        reasoning_item_count=0,
+                        last_command="python3 helper.py",
+                        last_command_repeat_count=21,
+                        has_final_agent_message=False,
+                        timeout_seconds=None,
+                    )
+                )
+                time.sleep(0.35)
+            return super().run_workspace_worker(*args, **kwargs)
+
+    codex_home = str(tmp_path / "codex-home")
+    monkeypatch.setenv("COOKIMPORT_CODEX_FARM_CODEX_HOME", codex_home)
+    monkeypatch.setenv("CODEX_FARM_CODEX_HOME_RECIPE", codex_home)
+    monkeypatch.setenv("CODEX_HOME", codex_home)
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    settings = RunSettings.model_validate(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(tmp_path / "pack"),
+            "recipe_prompt_target_count": 2,
+            "recipe_worker_count": 1,
+        }
+    )
+    for name in ("pipelines", "prompts", "schemas"):
+        (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
+
+    progress_messages: list[str] = []
+    runner = _WarningFakeCodexExecRunner(output_builder=_build_recipe_shard_output)
+
+    run_codex_farm_recipe_pipeline(
+        conversion_result=_build_multi_recipe_conversion_result(source),
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+        progress_callback=progress_messages.append,
+    )
+
+    payloads = [
+        payload
+        for message in progress_messages
+        for payload in [parse_stage_progress(message)]
+        if payload is not None
+    ]
+    assert any(
+        "watchdog warnings: 1" in (payload.get("detail_lines") or [])
+        for payload in payloads
+    )
+    assert any(
+        "stalled workers: 1" in (payload.get("detail_lines") or [])
+        for payload in payloads
+    )
+    assert any(
+        any("[command loop]" in str(task) for task in (payload.get("active_tasks") or []))
+        for payload in payloads
+    )
+    assert any(payload.get("last_activity_at") for payload in payloads)
 
 
 def test_recipe_phase_runtime_uses_configured_codex_home_for_sterile_exec_workspace(

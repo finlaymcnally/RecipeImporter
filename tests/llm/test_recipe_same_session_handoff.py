@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import json
+import sys
 from copy import deepcopy
 from dataclasses import asdict
 from pathlib import Path
+
+import pytest
 
 from cookimport.llm import recipe_stage_shared as recipe_runtime
 from cookimport.llm.editable_task_file import load_task_file, write_task_file
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1, WorkerAssignmentV1
 from cookimport.llm.recipe_same_session_handoff import (
     advance_recipe_same_session_handoff,
+    describe_recipe_same_session_doctor,
+    describe_recipe_same_session_status,
     initialize_recipe_same_session_state,
+    main as recipe_same_session_main,
 )
 
 
@@ -129,6 +135,8 @@ def test_recipe_same_session_handoff_rewrites_invalid_answer_into_repair_and_com
     assert repair_result["status"] == "repair_required"
     assert repair_task["mode"] == "repair"
     assert repair_result["same_session_repair_rewrite_count"] == 1
+    assert repair_task["helper_commands"]["status"].endswith("--status")
+    assert repair_task["answer_schema"]["example_answers"][0]["status"] == "repaired"
 
     repair_task["units"][0]["answer"] = _valid_answer()
     write_task_file(path=workspace_root / "task.json", payload=repair_task)
@@ -180,3 +188,46 @@ def test_recipe_same_session_handoff_stops_after_one_failed_repair_pass(
     assert second_result["same_session_repair_rewrite_count"] == 1
     assert state_payload["final_status"] == "repair_exhausted"
     assert state_payload["same_session_repair_rewrite_count"] == 1
+
+
+def test_recipe_same_session_status_and_doctor_report_next_action(
+    tmp_path: Path,
+) -> None:
+    workspace_root, state_path, _task_plan = _initialize_workspace(tmp_path)
+
+    status = describe_recipe_same_session_status(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    doctor = describe_recipe_same_session_doctor(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+
+    assert status["recommended_command"] == "python3 -m cookimport.llm.recipe_same_session_handoff"
+    assert status["answered_units"] == 0
+    assert status["expected_outputs_total"] == 1
+    assert doctor["diagnosis_code"] == "awaiting_answers"
+
+
+def test_recipe_same_session_cli_status_autodiscovers_state_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workspace_root, _state_path, _task_plan = _initialize_workspace(tmp_path)
+
+    monkeypatch.chdir(workspace_root)
+    monkeypatch.delenv("RECIPEIMPORT_RECIPE_SAME_SESSION_STATE_PATH", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["recipe_same_session_handoff", "--status"],
+    )
+
+    exit_code = recipe_same_session_main()
+    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+    assert exit_code == 0
+    assert payload["mode"] == "initial"
+    assert payload["recommended_command"] == "python3 -m cookimport.llm.recipe_same_session_handoff"
