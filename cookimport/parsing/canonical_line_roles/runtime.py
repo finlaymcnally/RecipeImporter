@@ -1044,6 +1044,16 @@ def _run_line_role_phase_runtime(
                 codex_batch_size=codex_batch_size,
                 total_candidates=sum(len(plan.candidates) for plan in shard_plans),
             ),
+            "workspace_completion_quiescence_seconds": getattr(
+                settings,
+                "workspace_completion_quiescence_seconds",
+                15.0,
+            ),
+            "completed_termination_grace_seconds": getattr(
+                settings,
+                "completed_termination_grace_seconds",
+                15.0,
+            ),
         },
         runtime_metadata={
             "surface_pipeline": LINE_ROLE_PIPELINE_ROUTE_V2,
@@ -1317,6 +1327,7 @@ def _run_line_role_workspace_worker_assignment_v1(
     env: dict[str, str],
     model: str | None,
     reasoning_effort: str | None,
+    settings: Mapping[str, Any],
     output_schema_path: Path | None,
     timeout_seconds: int,
     cohort_watchdog_state: _LineRoleCohortWatchdogState,
@@ -1571,6 +1582,9 @@ def _run_line_role_workspace_worker_assignment_v1(
             model=model,
             reasoning_effort=reasoning_effort,
             timeout_seconds=timeout_seconds,
+            completed_termination_grace_seconds=float(
+                settings.get("completed_termination_grace_seconds") or 15.0
+            ),
             workspace_task_label="canonical line-role worker session",
             supervision_callback=_build_strict_json_watchdog_callback(
                 live_status_path=worker_live_status_path,
@@ -1582,6 +1596,12 @@ def _run_line_role_workspace_worker_assignment_v1(
                 expected_workspace_output_paths=[
                     out_dir / f"{shard.shard_id}.json" for shard in runnable_shards
                 ],
+                workspace_completion_quiescence_seconds=float(
+                    settings.get("workspace_completion_quiescence_seconds") or 15.0
+                ),
+                final_message_missing_output_grace_seconds=float(
+                    settings.get("workspace_completion_quiescence_seconds") or 15.0
+                ),
             ),
         )
         _finalize_live_status(
@@ -1718,6 +1738,9 @@ def _run_line_role_workspace_worker_assignment_v1(
                 model=model,
                 reasoning_effort=reasoning_effort,
                 timeout_seconds=timeout_seconds,
+                completed_termination_grace_seconds=float(
+                    settings.get("completed_termination_grace_seconds") or 15.0
+                ),
                 workspace_task_label=retry_workspace_task_label,
                 supervision_callback=_build_strict_json_watchdog_callback(
                     live_status_path=worker_live_status_path,
@@ -1727,6 +1750,12 @@ def _run_line_role_workspace_worker_assignment_v1(
                     watchdog_policy="workspace_worker_v1",
                     allow_workspace_commands=True,
                     expected_workspace_output_paths=expected_workspace_output_paths,
+                    workspace_completion_quiescence_seconds=float(
+                        settings.get("workspace_completion_quiescence_seconds") or 15.0
+                    ),
+                    final_message_missing_output_grace_seconds=float(
+                        settings.get("workspace_completion_quiescence_seconds") or 15.0
+                    ),
                 ),
             )
             _finalize_live_status(
@@ -2576,6 +2605,7 @@ def _run_line_role_direct_worker_assignment_v1(
     env: dict[str, str],
     model: str | None,
     reasoning_effort: str | None,
+    settings: Mapping[str, Any],
     output_schema_path: Path | None,
     timeout_seconds: int,
     cohort_watchdog_state: _LineRoleCohortWatchdogState,
@@ -2617,6 +2647,7 @@ def _run_line_role_direct_worker_assignment_v1(
         env=env,
         model=model,
         reasoning_effort=reasoning_effort,
+        settings=settings,
         output_schema_path=output_schema_path,
         timeout_seconds=timeout_seconds,
         cohort_watchdog_state=cohort_watchdog_state,
@@ -2912,6 +2943,7 @@ def _run_line_role_direct_workers_v1(
                     env=env,
                     model=model,
                     reasoning_effort=reasoning_effort,
+                    settings=settings,
                     output_schema_path=output_schema_path,
                     timeout_seconds=timeout_seconds,
                     cohort_watchdog_state=cohort_watchdog_state,
@@ -3357,12 +3389,24 @@ def _build_strict_json_watchdog_callback(
     watchdog_policy: str = _STRICT_JSON_WATCHDOG_POLICY,
     allow_workspace_commands: bool = False,
     expected_workspace_output_paths: Sequence[Path] | None = None,
+    workspace_completion_quiescence_seconds: float | None = None,
+    final_message_missing_output_grace_seconds: float | None = None,
 ) -> Callable[[CodexExecLiveSnapshot], CodexExecSupervisionDecision | None]:
     target_paths: list[Path] = []
     if live_status_path is not None:
         target_paths.append(live_status_path)
     if live_status_paths is not None:
         target_paths.extend(Path(path) for path in live_status_paths)
+    completion_quiescence_seconds = float(
+        workspace_completion_quiescence_seconds
+        if workspace_completion_quiescence_seconds is not None
+        else _LINE_ROLE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+    )
+    missing_output_grace_seconds = float(
+        final_message_missing_output_grace_seconds
+        if final_message_missing_output_grace_seconds is not None
+        else _LINE_ROLE_FINAL_MESSAGE_MISSING_OUTPUT_GRACE_SECONDS
+    )
     last_complete_workspace_signature: tuple[tuple[str, int, int], ...] | None = None
     workspace_output_stable_passes = 0
     completion_wait_started_elapsed_seconds: float | None = None
@@ -3443,12 +3487,6 @@ def _build_strict_json_watchdog_callback(
             completion_wait_started_elapsed_seconds = None
             completion_wait_agent_message_count = None
             completion_wait_turn_completed_count = None
-        final_message_missing_output_grace_seconds = float(
-            _runtime_attr(
-                "_LINE_ROLE_FINAL_MESSAGE_MISSING_OUTPUT_GRACE_SECONDS",
-                _LINE_ROLE_FINAL_MESSAGE_MISSING_OUTPUT_GRACE_SECONDS,
-            )
-        )
         final_message_missing_output_grace_active = False
         final_message_missing_output_deadline_reached = False
         completion_waiting_for_exit = False
@@ -3486,11 +3524,11 @@ def _build_strict_json_watchdog_callback(
             )
             completion_quiescence_reached = (
                 completion_wait_elapsed_seconds
-                >= _LINE_ROLE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+                >= completion_quiescence_seconds
                 and (
                     snapshot.last_event_seconds_ago is None
                     or snapshot.last_event_seconds_ago
-                    >= _LINE_ROLE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+                    >= completion_quiescence_seconds
                     or workspace_output_stable_passes >= 2
                 )
             )
@@ -3622,7 +3660,7 @@ def _build_strict_json_watchdog_callback(
             if final_message_missing_output_started_elapsed_seconds is None:
                 final_message_missing_output_started_elapsed_seconds = snapshot.elapsed_seconds
                 final_message_missing_output_deadline_elapsed_seconds = (
-                    snapshot.elapsed_seconds + final_message_missing_output_grace_seconds
+                    snapshot.elapsed_seconds + missing_output_grace_seconds
                 )
             final_message_missing_output_grace_active = True
             final_message_missing_output_deadline_reached = (
@@ -3636,7 +3674,7 @@ def _build_strict_json_watchdog_callback(
                     reason_code="workspace_final_message_missing_output",
                     reason_detail=(
                         "workspace worker emitted a final agent message but the required output files "
-                        f"were still missing after {final_message_missing_output_grace_seconds:.1f} "
+                        f"were still missing after {missing_output_grace_seconds:.1f} "
                         f"seconds: {missing_files}"
                     ),
                     retryable=True,
@@ -3705,7 +3743,7 @@ def _build_strict_json_watchdog_callback(
                 else None
             ),
             "final_message_missing_output_grace_seconds": (
-                final_message_missing_output_grace_seconds
+                missing_output_grace_seconds
                 if final_message_missing_output_grace_active
                 else None
             ),
@@ -3719,7 +3757,7 @@ def _build_strict_json_watchdog_callback(
             ),
             "workspace_completion_waiting_for_exit": completion_waiting_for_exit,
             "workspace_completion_quiescence_seconds": (
-                _LINE_ROLE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+                completion_quiescence_seconds
                 if completion_waiting_for_exit
                 else None
             ),

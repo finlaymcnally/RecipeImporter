@@ -1722,6 +1722,35 @@ def _line_role_rows_for_selector(
     return context.changed_lines_for_range(source_key, start, end)
 
 
+def _classify_line_role_authority_gap(
+    *,
+    parsed_label: str | None,
+    final_label: str | None,
+    codex_pred: str | None,
+    gold_label: str | None,
+) -> tuple[str | None, str | None]:
+    parsed = str(parsed_label or "").strip().upper()
+    final = str(final_label or "").strip().upper()
+    codex = str(codex_pred or "").strip().upper()
+    gold = str(gold_label or "").strip().upper()
+    if parsed and final and parsed != final:
+        return (
+            "post_route_label_change",
+            "The parsed line-role label changed before the final line-role output was saved.",
+        )
+    if final == "NONRECIPE_EXCLUDE" and codex == "KNOWLEDGE":
+        return (
+            "exclusion_leak_into_final_knowledge",
+            "Line-role excluded this row, but final authority still surfaced KNOWLEDGE.",
+        )
+    if final == "NONRECIPE_CANDIDATE" and codex == "KNOWLEDGE" and gold == "OTHER":
+        return (
+            "route_broadness_other_promoted_to_knowledge",
+            "Line-role routed this row into knowledge review and final authority kept KNOWLEDGE against OTHER gold.",
+        )
+    return None, None
+
+
 def _build_line_role_audit_rows(
     *,
     context: FollowupBundleContext,
@@ -1755,6 +1784,14 @@ def _build_line_role_audit_rows(
                 violations.append("prompt_artifact_missing")
             if parsed_label and final_label and parsed_label != final_label:
                 violations.append("postprocess_changed_label")
+            authority_gap_kind, authority_gap_note = _classify_line_role_authority_gap(
+                parsed_label=parsed_label,
+                final_label=final_label,
+                codex_pred=codex_pred,
+                gold_label=gold_label,
+            )
+            if authority_gap_kind == "exclusion_leak_into_final_knowledge":
+                violations.append("excluded_row_became_final_knowledge")
             if baseline_pred is None:
                 violations.append("baseline_join_missing")
             rows.append(
@@ -1773,6 +1810,8 @@ def _build_line_role_audit_rows(
                     "raw_model_label": raw_model_label,
                     "parsed_label": parsed_label,
                     "final_label_after_postprocess": final_label,
+                    "authority_gap_kind": authority_gap_kind,
+                    "authority_gap_note": authority_gap_note,
                     "escalation_reasons": escalation_reasons,
                     "decided_by": line_role_row.get("decided_by"),
                     "prompt_file": str(prompt_link.prompt_file) if prompt_link and prompt_link.prompt_file else None,

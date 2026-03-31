@@ -29,10 +29,19 @@ BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES = (
     "recipe_score_bronze_min",
     "recipe_score_min_ingredient_lines",
     "recipe_score_min_instruction_lines",
+    "epub_title_backtrack_limit",
+    "epub_anchor_title_backtrack_limit",
+    "epub_ingredient_run_window",
+    "epub_ingredient_header_window",
+    "epub_title_max_length",
     "pdf_column_gap_ratio",
     "codex_farm_failure_mode",
     "ocr_device",
     "ocr_batch_size",
+    "workspace_completion_quiescence_seconds",
+    "completed_termination_grace_seconds",
+    "knowledge_group_task_max_units",
+    "knowledge_group_task_max_evidence_chars",
 )
 
 RECIPE_CODEX_FARM_PIPELINE_SHARD_V1 = "codex-recipe-shard-v1"

@@ -20,6 +20,11 @@ from typing import Any, Callable, Literal, Mapping, Protocol, Sequence
 
 import tiktoken
 
+from cookimport.config.runtime_support import (
+    resolve_completed_termination_grace_seconds,
+    workspace_allowed_temp_roots,
+    workspace_fs_cage_mktemp_template,
+)
 from .codex_farm_runner import (
     CodexFarmRunnerError,
     _merge_env,
@@ -70,7 +75,6 @@ _DIRECT_EXEC_REPAIR_DIR_NAME = "repair"
 _DIRECT_EXEC_INTERNAL_DIR_NAME = "_repo_control"
 _DIRECT_EXEC_ORIGINAL_TASK_FILE_NAME = "original_task.json"
 _DIRECT_EXEC_HELPER_IMPORTS_ROOT_NAME = "recipeimport-helper-imports"
-_DIRECT_EXEC_COMPLETED_TERMINATION_GRACE_SECONDS = 5.0
 DirectExecWorkspaceMode = Literal["structured_json", "workspace_worker"]
 _WORKSPACE_ALLOWED_PATH_ROOTS = {
     ".",
@@ -102,11 +106,6 @@ _WORKSPACE_ALLOWED_PATH_ROOTS = {
 _WORKSPACE_ALLOWED_NULL_SINKS = {
     "/dev/null",
 }
-_WORKSPACE_ALLOWED_TEMP_ROOTS = (
-    "/private/tmp",
-    "/var/tmp",
-    "/tmp",
-)
 _DIRECT_EXEC_RUNTIME_CONTROL_PATHS = (
     _DIRECT_EXEC_WORKER_MANIFEST_FILE_NAME,
     _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
@@ -204,6 +203,7 @@ class CodexExecRunner(Protocol):
         model: str | None = None,
         reasoning_effort: str | None = None,
         timeout_seconds: int | None = None,
+        completed_termination_grace_seconds: float | None = None,
         workspace_task_label: str | None = None,
         supervision_callback: Callable[
             ["CodexExecLiveSnapshot"], "CodexExecSupervisionDecision | None"
@@ -221,6 +221,7 @@ class CodexExecRunner(Protocol):
         model: str | None = None,
         reasoning_effort: str | None = None,
         timeout_seconds: int | None = None,
+        completed_termination_grace_seconds: float | None = None,
         workspace_task_label: str | None = None,
         supervision_callback: Callable[
             ["CodexExecLiveSnapshot"], "CodexExecSupervisionDecision | None"
@@ -509,6 +510,7 @@ class SubprocessCodexExecRunner:
         model: str | None = None,
         reasoning_effort: str | None = None,
         timeout_seconds: int | None = None,
+        completed_termination_grace_seconds: float | None = None,
         workspace_task_label: str | None = None,
         supervision_callback: Callable[
             [CodexExecLiveSnapshot], CodexExecSupervisionDecision | None
@@ -523,6 +525,7 @@ class SubprocessCodexExecRunner:
             model=model,
             reasoning_effort=reasoning_effort,
             timeout_seconds=timeout_seconds,
+            completed_termination_grace_seconds=completed_termination_grace_seconds,
             workspace_task_label=workspace_task_label,
             supervision_callback=supervision_callback,
             workspace_mode="structured_json",
@@ -540,6 +543,7 @@ class SubprocessCodexExecRunner:
         model: str | None = None,
         reasoning_effort: str | None = None,
         timeout_seconds: int | None = None,
+        completed_termination_grace_seconds: float | None = None,
         workspace_task_label: str | None = None,
         supervision_callback: Callable[
             [CodexExecLiveSnapshot], CodexExecSupervisionDecision | None
@@ -554,6 +558,7 @@ class SubprocessCodexExecRunner:
             model=model,
             reasoning_effort=reasoning_effort,
             timeout_seconds=timeout_seconds,
+            completed_termination_grace_seconds=completed_termination_grace_seconds,
             workspace_task_label=workspace_task_label,
             supervision_callback=supervision_callback,
             workspace_mode="workspace_worker",
@@ -583,6 +588,7 @@ class SubprocessCodexExecRunner:
         model: str | None,
         reasoning_effort: str | None,
         timeout_seconds: int | None,
+        completed_termination_grace_seconds: float | None,
         workspace_task_label: str | None,
         supervision_callback: Callable[
             [CodexExecLiveSnapshot], CodexExecSupervisionDecision | None
@@ -654,6 +660,7 @@ class SubprocessCodexExecRunner:
             working_dir=execution_working_dir,
             env=process_env,
             timeout_seconds=timeout_seconds,
+            completed_termination_grace_seconds=completed_termination_grace_seconds,
             workspace_mode=workspace_mode,
             supervision_callback=_wrap_workspace_supervision_callback(
                 supervision_callback=supervision_callback,
@@ -1154,6 +1161,7 @@ class FakeCodexExecRunner:
         model: str | None = None,
         reasoning_effort: str | None = None,
         timeout_seconds: int | None = None,  # noqa: ARG002 - protocol parity
+        completed_termination_grace_seconds: float | None = None,  # noqa: ARG002 - protocol parity
         workspace_task_label: str | None = None,
         supervision_callback: Callable[
             [CodexExecLiveSnapshot], CodexExecSupervisionDecision | None
@@ -1170,6 +1178,7 @@ class FakeCodexExecRunner:
                 "model": model,
                 "reasoning_effort": reasoning_effort,
                 "timeout_seconds": timeout_seconds,
+                "completed_termination_grace_seconds": completed_termination_grace_seconds,
                 "workspace_task_label": workspace_task_label,
             }
         )
@@ -1248,6 +1257,7 @@ class FakeCodexExecRunner:
         model: str | None = None,
         reasoning_effort: str | None = None,
         timeout_seconds: int | None = None,
+        completed_termination_grace_seconds: float | None = None,  # noqa: ARG002 - protocol parity
         workspace_task_label: str | None = None,
         supervision_callback: Callable[
             [CodexExecLiveSnapshot], CodexExecSupervisionDecision | None
@@ -1278,6 +1288,7 @@ class FakeCodexExecRunner:
                 "model": model,
                 "reasoning_effort": reasoning_effort,
                 "timeout_seconds": timeout_seconds,
+                "completed_termination_grace_seconds": completed_termination_grace_seconds,
                 "workspace_task_label": workspace_task_label,
             }
         )
@@ -1913,6 +1924,11 @@ def _populate_direct_exec_workspace(
         source_working_dir / _DIRECT_EXEC_TASK_FILE_NAME,
         execution_working_dir / _DIRECT_EXEC_TASK_FILE_NAME,
     )
+    single_file_handoff_command = (
+        _single_file_workspace_handoff_command(workspace_root=source_working_dir)
+        if single_file_worker_runtime
+        else None
+    )
     if single_file_worker_runtime:
         agents_path = execution_working_dir / _DIRECT_EXEC_AGENTS_FILE_NAME
         agents_path.write_text(
@@ -1920,6 +1936,7 @@ def _populate_direct_exec_workspace(
                 task_label=task_label,
                 mode=mode,
                 single_file_worker_runtime=single_file_worker_runtime,
+                single_file_handoff_command=single_file_handoff_command,
             ),
             encoding="utf-8",
         )
@@ -2012,6 +2029,7 @@ def _populate_direct_exec_workspace(
             task_label=task_label,
             mode=mode,
             single_file_worker_runtime=single_file_worker_runtime,
+            single_file_handoff_command=single_file_handoff_command,
         ),
         encoding="utf-8",
     )
@@ -2059,15 +2077,37 @@ def _read_workspace_manifest_rows(*, execution_working_dir: Path) -> list[Any]:
     return []
 
 
+def _single_file_workspace_handoff_command(*, workspace_root: Path) -> str | None:
+    task_file_path = workspace_root / _DIRECT_EXEC_TASK_FILE_NAME
+    if not task_file_path.exists():
+        return None
+    try:
+        task_file_payload = load_task_file(task_file_path)
+    except Exception:  # noqa: BLE001
+        return None
+    helper_commands = task_file_payload.get("helper_commands")
+    if not isinstance(helper_commands, Mapping):
+        return None
+    handoff_command = str(helper_commands.get("handoff") or "").strip()
+    return handoff_command or None
+
+
 def _build_direct_exec_agents_text(
     *,
     task_label: str | None,
     mode: DirectExecWorkspaceMode,
     single_file_worker_runtime: bool = False,
+    single_file_handoff_command: str | None = None,
 ) -> str:
     rendered_task_label = str(task_label or "structured shard task").strip()
     if mode == "workspace_worker":
         if single_file_worker_runtime:
+            handoff_instruction = (
+                "run the repo-owned same-session helper command from "
+                f"`task.json` (`{single_file_handoff_command}`), then stop.\n"
+                if single_file_handoff_command
+                else "run the repo-owned same-session helper command named in `task.json`, then stop.\n"
+            )
             return (
                 "# RecipeImport Direct Codex Worker\n\n"
                 "This directory is an isolated runtime workspace for one RecipeImport "
@@ -2079,7 +2119,8 @@ def _build_direct_exec_agents_text(
                 "Start with `python3 -m cookimport.llm.editable_task_file --summary`.\n"
                 "If you need specific unit payloads, use `python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>` or `python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`.\n"
                 "If you want to apply several answers at once, use `python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json` instead of scripting a rewrite.\n"
-                "Then edit only `/units/*/answer`, save the same file, and stop.\n"
+                "Then edit only `/units/*/answer`, save the same file, and "
+                f"{handoff_instruction}"
                 "`task.json` is the whole job. You do not need to discover extra control state, hidden files, or repo context before editing it.\n"
                 "Treat everything outside `task.json` as immutable infrastructure, not task context.\n"
                 "If you briefly reread part of `task.json` or make a small local false start, just correct course and continue; deterministic validation happens after you save.\n"
@@ -2367,9 +2408,10 @@ def _build_workspace_worker_fs_cage_command(
     quoted_codex_home = shlex.quote(str(codex_home))
     quoted_direct_exec_root = shlex.quote(str(direct_exec_root))
     quoted_user_home = shlex.quote(str(user_home))
+    mktemp_template = shlex.quote(workspace_fs_cage_mktemp_template(env=explicit_env))
     shell_lines = [
         "set -eu",
-        "stage_dir=$(mktemp -d /tmp/recipeimport-workspace-fs-cage.XXXXXX)",
+        f"stage_dir=$(mktemp -d {mktemp_template})",
         "cleanup() {",
         '  umount "$stage_dir/ws" >/dev/null 2>&1 || true',
         '  umount "$stage_dir/codex" >/dev/null 2>&1 || true',
@@ -2524,6 +2566,7 @@ def _run_codex_exec_subprocess_streaming(
     working_dir: Path,
     env: Mapping[str, str],
     timeout_seconds: int | None,
+    completed_termination_grace_seconds: float | None,
     workspace_mode: DirectExecWorkspaceMode,
     supervision_callback: Callable[
         [CodexExecLiveSnapshot], CodexExecSupervisionDecision | None
@@ -2532,6 +2575,13 @@ def _run_codex_exec_subprocess_streaming(
 ) -> _StreamedCodexProcessResult:
     started_at = time.perf_counter()
     normalized_timeout = max(1, int(timeout_seconds)) if timeout_seconds is not None else None
+    normalized_completed_grace = resolve_completed_termination_grace_seconds(
+        {
+            "completed_termination_grace_seconds": completed_termination_grace_seconds
+        }
+        if completed_termination_grace_seconds is not None
+        else None
+    )
     try:
         process = subprocess.Popen(
             list(command),
@@ -2640,7 +2690,7 @@ def _run_codex_exec_subprocess_streaming(
                         and normalized_supervision_state.startswith("completed")
                     ):
                         graceful_termination_deadline = (
-                            current_time + _DIRECT_EXEC_COMPLETED_TERMINATION_GRACE_SECONDS
+                            current_time + normalized_completed_grace
                         )
                     else:
                         _terminate_codex_process(process)
@@ -3400,6 +3450,11 @@ def _write_direct_exec_worker_manifest(
 ) -> None:
     rendered_task_label = str(task_label or "structured shard task").strip()
     has_task_file = (workspace_root / _DIRECT_EXEC_TASK_FILE_NAME).exists()
+    single_file_handoff_command = (
+        _single_file_workspace_handoff_command(workspace_root=workspace_root)
+        if has_task_file
+        else None
+    )
     single_file_worker_runtime = _uses_single_file_worker_runtime(
         workspace_root=workspace_root,
         mode=mode,
@@ -3532,7 +3587,11 @@ def _write_direct_exec_worker_manifest(
                 "The current working directory is already the workspace root.",
                 "Open named workspace files directly; do not dump whole inventories just to orient yourself.",
                 (
-                    "Treat `task.json` as the editable worker contract when present: start with the repo-owned summary helper, inspect only the units you need, then edit answer fields in place, save, and stop."
+                    (
+                        "Treat `task.json` as the editable worker contract when present: start with the repo-owned summary helper, inspect only the units you need, then edit answer fields in place and run the repo-owned same-session helper named in `task.json`."
+                        if single_file_handoff_command is None
+                        else f"Treat `task.json` as the editable worker contract when present: start with the repo-owned summary helper, inspect only the units you need, then edit answer fields in place and run `{single_file_handoff_command}`."
+                    )
                     if has_task_file
                     else None
                 ),
@@ -3575,6 +3634,10 @@ def _write_direct_exec_worker_manifest(
                 "python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>",
                 "python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5",
                 "python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json",
+                (
+                    single_file_handoff_command
+                    or "<repo helper from task.json helper_commands.handoff>"
+                ),
                 "cp task.json /tmp/task-backup.json",
             ]
             if single_file_worker_runtime
@@ -4385,18 +4448,20 @@ def _is_tolerated_workspace_temp_path(token: str) -> bool:
     cleaned = str(token or "").strip()
     if not cleaned:
         return False
+    allowed_temp_roots = workspace_allowed_temp_roots()
     return any(
         cleaned == root or cleaned.startswith(f"{root}/")
-        for root in _WORKSPACE_ALLOWED_TEMP_ROOTS
+        for root in allowed_temp_roots
     )
 
 
 def _strip_allowed_workspace_temp_paths(shell_text: str) -> str:
     if not shell_text:
         return shell_text
+    allowed_temp_roots = workspace_allowed_temp_roots()
     root_pattern = "|".join(
         re.escape(root)
-        for root in sorted(_WORKSPACE_ALLOWED_TEMP_ROOTS, key=len, reverse=True)
+        for root in sorted(allowed_temp_roots, key=len, reverse=True)
     )
     return re.sub(
         rf"(^|[\s\"'])(?P<path>(?:{root_pattern})(?:/[^\s\"']*)?)",

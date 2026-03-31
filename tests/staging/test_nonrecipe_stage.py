@@ -426,3 +426,38 @@ def test_nonrecipe_authority_contract_uses_final_authority_after_review() -> Non
     assert [row["index"] for row in contract.final_blocks] == [0]
     assert [row["index"] for row in contract.late_output_blocks] == [0]
     assert contract.scoring_view.unresolved_candidate_block_indices == [1]
+
+
+def test_nonrecipe_stage_forces_excluded_rows_to_final_other_even_if_bad_map_leaks_in() -> None:
+    seed = build_nonrecipe_stage_result(
+        full_blocks=[
+            {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
+            {"index": 1, "block_id": "b1", "text": "Useful technique"},
+        ],
+        final_block_labels=[
+            _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
+            _block_label(1, "NONRECIPE_CANDIDATE"),
+        ],
+        recipe_spans=[],
+    )
+
+    refined = refine_nonrecipe_stage_result(
+        stage_result=seed,
+        full_blocks=[
+            {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
+            {"index": 1, "block_id": "b1", "text": "Useful technique"},
+        ],
+        block_category_updates={0: "knowledge", 1: "knowledge"},
+    )
+
+    assert refined.authority.authoritative_block_indices == [0, 1]
+    assert refined.authority.authoritative_block_category_by_index == {
+        0: "other",
+        1: "knowledge",
+    }
+    assert [span.span_id for span in refined.authority.authoritative_other_spans] == [
+        "nr.other.0.1"
+    ]
+    assert [span.span_id for span in refined.authority.authoritative_knowledge_spans] == [
+        "nr.knowledge.1.2"
+    ]

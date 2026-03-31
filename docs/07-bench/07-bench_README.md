@@ -133,6 +133,7 @@ Current interactive contracts:
 - `single_book` writes one session root under `data/golden/benchmark-vs-golden/<timestamp>/single-book-benchmark/<source_slug>/`
 - when Codex-backed recipe extraction is selected, paired runs are written under sibling `vanilla/` and `codexfarm/` roots in that session
 - paired benchmark variants now share the same selected `atomic_block_splitter`; benchmark helpers no longer hardcode `off` for `vanilla` and `atomic-v1` for `codexfarm`
+- benchmark prediction/import runs now resolve the same hidden runtime defaults as stage for EPUB segmentation, knowledge grouping caps, and workspace completion grace; support-only benchmark constants such as split-cache wait/poll, single-profile scheduler policy, and Oracle upload shard/poll budgets now live behind shared resolver helpers instead of scattered literals
 - paired success can emit:
   - `codex_vs_vanilla_comparison.json`
   - `single_book_summary.md`
@@ -171,6 +172,7 @@ Active use cases:
 - build additive `followup_dataN/` packets
 - when requested regression ids are missing and no negative-delta recipes remain, the base bundle casebook now falls back to high-signal recipes (outside-span density / changed-line / error pressure) instead of mislabeling zero-delta rows as top negative deltas
 - `analysis.explicit_escalation_changed_lines_packet` now joins changed canonical lines against line-role predictions by `line_index` first and falls back to `atomic_index` when canonical runs emit atomic-only prediction rows
+- explicit-escalation and follow-up bundle analysis now distinguish route broadness, post-route label change, and `NONRECIPE_EXCLUDE` leakage into final knowledge. Bundle blame can now attribute those leaked rows to `nonrecipe_authority` instead of collapsing them into generic line-role churn.
 
 Knowledge extraction is now a first-class follow-up seam:
 

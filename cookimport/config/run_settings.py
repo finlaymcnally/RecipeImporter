@@ -198,6 +198,81 @@ class RunSettings(BaseModel):
             description="EPUB HTML preprocessing mode before Unstructured partitioning.",
         ),
     )
+    epub_title_backtrack_limit: int = Field(
+        default=20,
+        ge=1,
+        le=200,
+        json_schema_extra=_ui_meta(
+            group="Extraction",
+            label="EPUB Title Backtrack Limit",
+            order=65,
+            description="Maximum blocks to scan backward when recovering a likely EPUB recipe title.",
+            step=1,
+            minimum=1,
+            maximum=200,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
+    epub_anchor_title_backtrack_limit: int = Field(
+        default=8,
+        ge=1,
+        le=200,
+        json_schema_extra=_ui_meta(
+            group="Extraction",
+            label="EPUB Anchor Title Backtrack Limit",
+            order=65,
+            description="Backtrack limit used when a yield or ingredient anchor triggers EPUB title recovery.",
+            step=1,
+            minimum=1,
+            maximum=200,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
+    epub_ingredient_run_window: int = Field(
+        default=8,
+        ge=1,
+        le=200,
+        json_schema_extra=_ui_meta(
+            group="Extraction",
+            label="EPUB Ingredient Run Window",
+            order=65,
+            description="Forward scan window used by EPUB title/anchor heuristics when checking for nearby ingredient runs.",
+            step=1,
+            minimum=1,
+            maximum=200,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
+    epub_ingredient_header_window: int = Field(
+        default=12,
+        ge=1,
+        le=200,
+        json_schema_extra=_ui_meta(
+            group="Extraction",
+            label="EPUB Ingredient Header Window",
+            order=65,
+            description="Forward scan window used by EPUB title heuristics when looking for a later ingredient header.",
+            step=1,
+            minimum=1,
+            maximum=200,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
+    epub_title_max_length: int = Field(
+        default=80,
+        ge=1,
+        le=400,
+        json_schema_extra=_ui_meta(
+            group="Extraction",
+            label="EPUB Title Max Length",
+            order=65,
+            description="Maximum characters for a block to qualify as an EPUB title candidate or short fallback heading.",
+            step=1,
+            minimum=1,
+            maximum=400,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
     multi_recipe_splitter: MultiRecipeSplitter = Field(
         default=MultiRecipeSplitter.rules_v1,
         json_schema_extra=_ui_meta(
@@ -820,6 +895,36 @@ class RunSettings(BaseModel):
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
+    knowledge_group_task_max_units: int = Field(
+        default=40,
+        ge=1,
+        le=500,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Knowledge Group Task Max Units",
+            order=115,
+            description="Maximum accepted knowledge rows grouped in one same-session grouping batch.",
+            step=1,
+            minimum=1,
+            maximum=500,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
+    knowledge_group_task_max_evidence_chars: int = Field(
+        default=12000,
+        ge=1,
+        le=500000,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Knowledge Group Task Max Evidence",
+            order=115,
+            description="Approximate evidence-character cap for one knowledge grouping batch.",
+            step=250,
+            minimum=1,
+            maximum=500000,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
     knowledge_worker_count: int | None = Field(
         default=None,
         ge=1,
@@ -947,6 +1052,36 @@ class RunSettings(BaseModel):
             label="Codex Farm Failure Mode",
             order=150,
             description="Fail the run on codex-farm setup errors or fallback to deterministic outputs.",
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
+    workspace_completion_quiescence_seconds: float = Field(
+        default=15.0,
+        ge=0.1,
+        le=600.0,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Workspace Completion Quiescence",
+            order=151,
+            description="Seconds a workspace worker may stay quietly complete before repo code terminates the session cleanly.",
+            step=1,
+            minimum=0.1,
+            maximum=600.0,
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
+    completed_termination_grace_seconds: float = Field(
+        default=15.0,
+        ge=0.1,
+        le=600.0,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Completed Termination Grace",
+            order=152,
+            description="Seconds the direct Codex runner waits before force-terminating a session already marked completed.",
+            step=1,
+            minimum=0.1,
+            maximum=600.0,
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )

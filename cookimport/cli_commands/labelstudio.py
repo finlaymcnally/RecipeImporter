@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import typer
 
+from cookimport.config.runtime_support import serialized_run_setting_default
 from cookimport.cli_support import (
     Annotated,
     Any,
@@ -1496,6 +1497,36 @@ def register(app: typer.Typer) -> dict[str, object]:
             "--epub-unstructured-preprocess-mode",
             help="EPUB HTML preprocess mode before Unstructured partitioning: none, br_split_v1.",
         )] = "br_split_v1",
+        epub_title_backtrack_limit: Annotated[int, typer.Option(
+            "--epub-title-backtrack-limit",
+            min=1,
+            hidden=True,
+            help="Max EPUB blocks to scan backward while recovering a recipe title.",
+        )] = int(serialized_run_setting_default("epub_title_backtrack_limit")),
+        epub_anchor_title_backtrack_limit: Annotated[int, typer.Option(
+            "--epub-anchor-title-backtrack-limit",
+            min=1,
+            hidden=True,
+            help="Max EPUB blocks to scan backward when a yield or anchor triggers title recovery.",
+        )] = int(serialized_run_setting_default("epub_anchor_title_backtrack_limit")),
+        epub_ingredient_run_window: Annotated[int, typer.Option(
+            "--epub-ingredient-run-window",
+            min=1,
+            hidden=True,
+            help="EPUB heuristic window for nearby ingredient-run detection.",
+        )] = int(serialized_run_setting_default("epub_ingredient_run_window")),
+        epub_ingredient_header_window: Annotated[int, typer.Option(
+            "--epub-ingredient-header-window",
+            min=1,
+            hidden=True,
+            help="EPUB heuristic window for detecting a later ingredient header.",
+        )] = int(serialized_run_setting_default("epub_ingredient_header_window")),
+        epub_title_max_length: Annotated[int, typer.Option(
+            "--epub-title-max-length",
+            min=1,
+            hidden=True,
+            help="Maximum EPUB title-candidate block length.",
+        )] = int(serialized_run_setting_default("epub_title_max_length")),
         section_detector_backend: Annotated[str, typer.Option(
             "--section-detector-backend",
             hidden=True,
@@ -1723,6 +1754,20 @@ def register(app: typer.Typer) -> dict[str, object]:
             hidden=True,
             help="Internal: maximum response-side character budget per knowledge packet.",
         )] = 12000,
+        knowledge_group_task_max_units: Annotated[int, typer.Option(
+            "--knowledge-group-task-max-units",
+            min=1,
+            hidden=True,
+            help="Internal: maximum knowledge-grouping units per task file.",
+        )] = int(serialized_run_setting_default("knowledge_group_task_max_units")),
+        knowledge_group_task_max_evidence_chars: Annotated[int, typer.Option(
+            "--knowledge-group-task-max-evidence-chars",
+            min=1,
+            hidden=True,
+            help="Internal: maximum serialized evidence chars per knowledge-grouping task file.",
+        )] = int(
+            serialized_run_setting_default("knowledge_group_task_max_evidence_chars")
+        ),
         line_role_prompt_target_count: Annotated[int, typer.Option(
             "--line-role-prompt-target-count",
             min=1,
@@ -1817,12 +1862,28 @@ def register(app: typer.Typer) -> dict[str, object]:
             "--codex-farm-knowledge-context-blocks",
             min=0,
             help="Blocks before/after each non-recipe finalize chunk included as context in packet bundles.",
-        )] = 2,
+        )] = int(serialized_run_setting_default("codex_farm_knowledge_context_blocks")),
         codex_farm_failure_mode: Annotated[str, typer.Option(
             "--codex-farm-failure-mode",
             hidden=True,
             help="Behavior when codex-farm setup/invocation fails: fail or fallback.",
         )] = "fail",
+        workspace_completion_quiescence_seconds: Annotated[float, typer.Option(
+            "--workspace-completion-quiescence-seconds",
+            min=0.1,
+            hidden=True,
+            help="Internal: quiet time required before a completed workspace worker is treated as done.",
+        )] = float(
+            serialized_run_setting_default("workspace_completion_quiescence_seconds")
+        ),
+        completed_termination_grace_seconds: Annotated[float, typer.Option(
+            "--completed-termination-grace-seconds",
+            min=0.1,
+            hidden=True,
+            help="Internal: grace window before terminating a finished workspace worker session.",
+        )] = float(
+            serialized_run_setting_default("completed_termination_grace_seconds")
+        ),
         single_book_split_cache_mode: Annotated[str, typer.Option(
             "--single-book-split-cache-mode",
             help=(
@@ -2156,6 +2217,11 @@ def register(app: typer.Typer) -> dict[str, object]:
                     epub_unstructured_html_parser_version=selected_html_parser_version,
                     epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
                     epub_unstructured_preprocess_mode=selected_preprocess_mode,
+                    epub_title_backtrack_limit=epub_title_backtrack_limit,
+                    epub_anchor_title_backtrack_limit=epub_anchor_title_backtrack_limit,
+                    epub_ingredient_run_window=epub_ingredient_run_window,
+                    epub_ingredient_header_window=epub_ingredient_header_window,
+                    epub_title_max_length=epub_title_max_length,
                     ocr_device=selected_ocr_device,
                     pdf_ocr_policy=selected_pdf_ocr_policy,
                     ocr_batch_size=ocr_batch_size,
@@ -2194,6 +2260,10 @@ def register(app: typer.Typer) -> dict[str, object]:
                     llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
                     atomic_block_splitter=selected_atomic_block_splitter,
                     line_role_pipeline=selected_line_role_pipeline,
+                    knowledge_group_task_max_units=knowledge_group_task_max_units,
+                    knowledge_group_task_max_evidence_chars=(
+                        knowledge_group_task_max_evidence_chars
+                    ),
                     codex_farm_cmd=codex_farm_cmd,
                     codex_farm_model=selected_codex_farm_model,
                     codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
@@ -2203,6 +2273,12 @@ def register(app: typer.Typer) -> dict[str, object]:
                     codex_farm_knowledge_context_blocks=codex_farm_knowledge_context_blocks,
                     codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                     codex_farm_failure_mode=selected_codex_farm_failure_mode,
+                    workspace_completion_quiescence_seconds=(
+                        workspace_completion_quiescence_seconds
+                    ),
+                    completed_termination_grace_seconds=(
+                        completed_termination_grace_seconds
+                    ),
                     all_epub=selected_source.suffix.lower() == ".epub",
                     effective_workers=compute_effective_workers(
                         workers=workers,
@@ -2265,6 +2341,15 @@ def register(app: typer.Typer) -> dict[str, object]:
                                     epub_unstructured_html_parser_version=selected_html_parser_version,
                                     epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
                                     epub_unstructured_preprocess_mode=selected_preprocess_mode,
+                                    epub_title_backtrack_limit=epub_title_backtrack_limit,
+                                    epub_anchor_title_backtrack_limit=(
+                                        epub_anchor_title_backtrack_limit
+                                    ),
+                                    epub_ingredient_run_window=epub_ingredient_run_window,
+                                    epub_ingredient_header_window=(
+                                        epub_ingredient_header_window
+                                    ),
+                                    epub_title_max_length=epub_title_max_length,
                                     ocr_device=selected_ocr_device,
                                     pdf_ocr_policy=selected_pdf_ocr_policy,
                                     ocr_batch_size=ocr_batch_size,
@@ -2322,6 +2407,12 @@ def register(app: typer.Typer) -> dict[str, object]:
                                     knowledge_packet_output_char_budget=(
                                         knowledge_packet_output_char_budget
                                     ),
+                                    knowledge_group_task_max_units=(
+                                        knowledge_group_task_max_units
+                                    ),
+                                    knowledge_group_task_max_evidence_chars=(
+                                        knowledge_group_task_max_evidence_chars
+                                    ),
                                     atomic_block_splitter=selected_atomic_block_splitter,
                                     line_role_pipeline=selected_line_role_pipeline,
                                     line_role_prompt_target_count=line_role_prompt_target_count,
@@ -2339,6 +2430,12 @@ def register(app: typer.Typer) -> dict[str, object]:
                                     ),
                                     codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                                     codex_farm_failure_mode=selected_codex_farm_failure_mode,
+                                    workspace_completion_quiescence_seconds=(
+                                        workspace_completion_quiescence_seconds
+                                    ),
+                                    completed_termination_grace_seconds=(
+                                        completed_termination_grace_seconds
+                                    ),
                                     allow_codex=bool(allow_codex),
                                     codex_execution_policy="execute",
                                     processed_output_root=processed_output_dir,
@@ -2388,6 +2485,13 @@ def register(app: typer.Typer) -> dict[str, object]:
                                 epub_unstructured_html_parser_version=selected_html_parser_version,
                                 epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
                                 epub_unstructured_preprocess_mode=selected_preprocess_mode,
+                                epub_title_backtrack_limit=epub_title_backtrack_limit,
+                                epub_anchor_title_backtrack_limit=(
+                                    epub_anchor_title_backtrack_limit
+                                ),
+                                epub_ingredient_run_window=epub_ingredient_run_window,
+                                epub_ingredient_header_window=epub_ingredient_header_window,
+                                epub_title_max_length=epub_title_max_length,
                                 ocr_device=selected_ocr_device,
                                 pdf_ocr_policy=selected_pdf_ocr_policy,
                                 ocr_batch_size=ocr_batch_size,
@@ -2445,6 +2549,12 @@ def register(app: typer.Typer) -> dict[str, object]:
                                 knowledge_packet_output_char_budget=(
                                     knowledge_packet_output_char_budget
                                 ),
+                                knowledge_group_task_max_units=(
+                                    knowledge_group_task_max_units
+                                ),
+                                knowledge_group_task_max_evidence_chars=(
+                                    knowledge_group_task_max_evidence_chars
+                                ),
                                 atomic_block_splitter=selected_atomic_block_splitter,
                                 line_role_pipeline=selected_line_role_pipeline,
                                 line_role_prompt_target_count=line_role_prompt_target_count,
@@ -2462,6 +2572,12 @@ def register(app: typer.Typer) -> dict[str, object]:
                                 ),
                                 codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
                                 codex_farm_failure_mode=selected_codex_farm_failure_mode,
+                                workspace_completion_quiescence_seconds=(
+                                    workspace_completion_quiescence_seconds
+                                ),
+                                completed_termination_grace_seconds=(
+                                    completed_termination_grace_seconds
+                                ),
                                 allow_codex=bool(allow_codex),
                                 processed_output_root=processed_output_dir,
                                 split_phase_slots=split_phase_slots,
@@ -3238,6 +3354,10 @@ def register(app: typer.Typer) -> dict[str, object]:
             "knowledge_prompt_target_count": knowledge_prompt_target_count,
             "knowledge_packet_input_char_budget": knowledge_packet_input_char_budget,
             "knowledge_packet_output_char_budget": knowledge_packet_output_char_budget,
+            "knowledge_group_task_max_units": knowledge_group_task_max_units,
+            "knowledge_group_task_max_evidence_chars": (
+                knowledge_group_task_max_evidence_chars
+            ),
             "atomic_block_splitter": selected_atomic_block_splitter,
             "line_role_pipeline": selected_line_role_pipeline,
             "line_role_prompt_target_count": line_role_prompt_target_count,
@@ -3249,6 +3369,17 @@ def register(app: typer.Typer) -> dict[str, object]:
                 codex_farm_knowledge_context_blocks
             ),
             "codex_farm_failure_mode": selected_codex_farm_failure_mode,
+            "workspace_completion_quiescence_seconds": (
+                workspace_completion_quiescence_seconds
+            ),
+            "completed_termination_grace_seconds": (
+                completed_termination_grace_seconds
+            ),
+            "epub_title_backtrack_limit": epub_title_backtrack_limit,
+            "epub_anchor_title_backtrack_limit": epub_anchor_title_backtrack_limit,
+            "epub_ingredient_run_window": epub_ingredient_run_window,
+            "epub_ingredient_header_window": epub_ingredient_header_window,
+            "epub_title_max_length": epub_title_max_length,
             "stage_block_predictions_path": str(stage_predictions_path),
                 },
                 benchmark_codex_execution,

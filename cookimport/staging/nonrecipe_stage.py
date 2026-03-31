@@ -145,6 +145,7 @@ def build_nonrecipe_stage_result(
             for block_index in routing.excluded_block_indices
         },
         authoritative_block_indices=routing.excluded_block_indices,
+        excluded_block_indices=routing.excluded_block_indices,
     )
     candidate_status = build_nonrecipe_finalize_status_result(
         full_blocks_by_index=full_blocks_by_index,
@@ -231,6 +232,7 @@ def refine_nonrecipe_stage_result(
         full_blocks_by_index=full_blocks_by_index,
         block_category_by_index=final_block_category_by_index,
         authoritative_block_indices=sorted(final_block_category_by_index),
+        excluded_block_indices=stage_result.routing.excluded_block_indices,
     )
     candidate_status = build_nonrecipe_finalize_status_result(
         full_blocks_by_index=full_blocks_by_index,

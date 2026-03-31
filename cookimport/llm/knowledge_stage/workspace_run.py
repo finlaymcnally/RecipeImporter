@@ -432,6 +432,7 @@ def _run_phase_knowledge_worker_assignment_v1(
     env: Mapping[str, str],
     model: str | None,
     reasoning_effort: str | None,
+    settings: Mapping[str, Any],
     cohort_watchdog_state: _KnowledgeCohortWatchdogState,
     shard_completed_callback: Callable[..., None] | None,
     progress_state: _KnowledgePhaseProgressState | None,
@@ -522,6 +523,12 @@ def _run_phase_knowledge_worker_assignment_v1(
         task_file_payload, unit_to_shard_id = build_knowledge_classification_task_file(
             assignment=assignment,
             shards=assigned_shards,
+            knowledge_group_task_max_units=int(
+                settings.get("knowledge_group_task_max_units") or 40
+            ),
+            knowledge_group_task_max_evidence_chars=int(
+                settings.get("knowledge_group_task_max_evidence_chars") or 12000
+            ),
         )
         task_file_guardrail = build_task_file_guardrail(
             payload=task_file_payload,
@@ -627,6 +634,9 @@ def _run_phase_knowledge_worker_assignment_v1(
             },
             model=model,
             reasoning_effort=reasoning_effort,
+            completed_termination_grace_seconds=float(
+                settings.get("completed_termination_grace_seconds") or 15.0
+            ),
             workspace_task_label="knowledge same-session worker session",
             supervision_callback=_build_strict_json_watchdog_callback(
                 live_status_path=worker_root / "live_status.json",
@@ -645,6 +655,9 @@ def _run_phase_knowledge_worker_assignment_v1(
                             expected_count=expected_count,
                         )
                     )
+                ),
+                workspace_completion_quiescence_seconds=float(
+                    settings.get("workspace_completion_quiescence_seconds") or 15.0
                 ),
             ),
         )
@@ -715,6 +728,9 @@ def _run_phase_knowledge_worker_assignment_v1(
                 },
                 model=model,
                 reasoning_effort=reasoning_effort,
+                completed_termination_grace_seconds=float(
+                    settings.get("completed_termination_grace_seconds") or 15.0
+                ),
                 workspace_task_label="knowledge fresh-session worker recovery",
                 supervision_callback=_build_strict_json_watchdog_callback(
                     live_status_path=worker_root / "live_status.json",
@@ -733,6 +749,9 @@ def _run_phase_knowledge_worker_assignment_v1(
                                 expected_count=expected_count,
                             )
                         )
+                    ),
+                    workspace_completion_quiescence_seconds=float(
+                        settings.get("workspace_completion_quiescence_seconds") or 15.0
                     ),
                 ),
             )

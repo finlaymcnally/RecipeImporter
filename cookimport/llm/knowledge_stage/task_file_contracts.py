@@ -283,6 +283,8 @@ def _grouping_batch_metadata(
     batch_index: int,
     batch_count: int,
     total_grouping_unit_count: int,
+    max_units_per_batch: int,
+    max_evidence_chars_per_batch: int,
 ) -> dict[str, Any]:
     shard_ids: list[str] = []
     seen_shard_ids: set[str] = set()
@@ -304,8 +306,8 @@ def _grouping_batch_metadata(
         "total_grouping_unit_count": max(0, int(total_grouping_unit_count)),
         "remaining_batches_after_this": max(0, int(batch_count) - int(batch_index)),
         "estimated_evidence_chars": evidence_chars,
-        "max_units_per_batch": KNOWLEDGE_GROUP_TASK_MAX_UNITS,
-        "max_evidence_chars_per_batch": KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS,
+        "max_units_per_batch": max(1, int(max_units_per_batch)),
+        "max_evidence_chars_per_batch": max(1, int(max_evidence_chars_per_batch)),
         "shard_ids": shard_ids,
     }
 
@@ -371,6 +373,9 @@ def _collect_knowledge_grouping_units(
 
 def _partition_knowledge_grouping_units(
     units: Sequence[Mapping[str, Any]],
+    *,
+    max_units_per_batch: int,
+    max_evidence_chars_per_batch: int,
 ) -> list[list[dict[str, Any]]]:
     batches: list[list[dict[str, Any]]] = []
     current_batch: list[dict[str, Any]] = []
@@ -381,8 +386,8 @@ def _partition_knowledge_grouping_units(
         unit_dict = dict(unit)
         unit_budget = _grouping_unit_budget(unit_dict)
         should_rotate = bool(current_batch) and (
-            len(current_batch) >= KNOWLEDGE_GROUP_TASK_MAX_UNITS
-            or current_budget + unit_budget > KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS
+            len(current_batch) >= max(1, int(max_units_per_batch))
+            or current_budget + unit_budget > max(1, int(max_evidence_chars_per_batch))
         )
         if should_rotate:
             batches.append(current_batch)
@@ -403,6 +408,8 @@ def _build_knowledge_grouping_task_file_from_units(
     batch_index: int,
     batch_count: int,
     total_grouping_unit_count: int,
+    max_units_per_batch: int,
+    max_evidence_chars_per_batch: int,
 ) -> dict[str, Any]:
     task_units = [
         {
@@ -432,6 +439,8 @@ def _build_knowledge_grouping_task_file_from_units(
             batch_index=batch_index,
             batch_count=batch_count,
             total_grouping_unit_count=total_grouping_unit_count,
+            max_units_per_batch=max_units_per_batch,
+            max_evidence_chars_per_batch=max_evidence_chars_per_batch,
         )
     return task_file
 
@@ -443,13 +452,19 @@ def build_knowledge_grouping_task_files(
     classification_task_file: Mapping[str, Any],
     classification_answers_by_unit_id: Mapping[str, Mapping[str, Any]],
     unit_to_shard_id: Mapping[str, str],
+    max_units_per_batch: int = KNOWLEDGE_GROUP_TASK_MAX_UNITS,
+    max_evidence_chars_per_batch: int = KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS,
 ) -> tuple[list[dict[str, Any]], dict[str, str], list[list[str]]]:
     units, grouping_unit_to_shard_id = _collect_knowledge_grouping_units(
         classification_task_file=classification_task_file,
         classification_answers_by_unit_id=classification_answers_by_unit_id,
         unit_to_shard_id=unit_to_shard_id,
     )
-    batches = _partition_knowledge_grouping_units(units)
+    batches = _partition_knowledge_grouping_units(
+        units,
+        max_units_per_batch=max_units_per_batch,
+        max_evidence_chars_per_batch=max_evidence_chars_per_batch,
+    )
     total_grouping_unit_count = len(units)
     task_files = [
         _build_knowledge_grouping_task_file_from_units(
@@ -459,6 +474,8 @@ def build_knowledge_grouping_task_files(
             batch_index=index + 1,
             batch_count=len(batches),
             total_grouping_unit_count=total_grouping_unit_count,
+            max_units_per_batch=max_units_per_batch,
+            max_evidence_chars_per_batch=max_evidence_chars_per_batch,
         )
         for index, batch_units in enumerate(batches)
     ]
@@ -477,6 +494,8 @@ def build_knowledge_classification_task_file(
     *,
     assignment: WorkerAssignmentV1,
     shards: Sequence[ShardManifestEntryV1],
+    knowledge_group_task_max_units: int = KNOWLEDGE_GROUP_TASK_MAX_UNITS,
+    knowledge_group_task_max_evidence_chars: int = KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     catalog = load_knowledge_tag_catalog()
     indexed_units: list[tuple[tuple[str, int], dict[str, Any]]] = []
@@ -541,6 +560,12 @@ def build_knowledge_classification_task_file(
     )
     task_file["ontology"] = catalog.task_scope_payload()
     task_file["review_contract"] = _knowledge_classification_review_contract()
+    task_file["grouping_limits"] = {
+        "max_units_per_batch": max(1, int(knowledge_group_task_max_units)),
+        "max_evidence_chars_per_batch": max(
+            1, int(knowledge_group_task_max_evidence_chars)
+        ),
+    }
     return (task_file, unit_to_shard_id)
 
 
@@ -829,6 +854,8 @@ def build_knowledge_grouping_task_file(
     classification_task_file: Mapping[str, Any],
     classification_answers_by_unit_id: Mapping[str, Mapping[str, Any]],
     unit_to_shard_id: Mapping[str, str],
+    max_units_per_batch: int = KNOWLEDGE_GROUP_TASK_MAX_UNITS,
+    max_evidence_chars_per_batch: int = KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     task_files, grouping_unit_to_shard_id, _batch_unit_ids = build_knowledge_grouping_task_files(
         assignment_id=assignment_id,
@@ -836,6 +863,8 @@ def build_knowledge_grouping_task_file(
         classification_task_file=classification_task_file,
         classification_answers_by_unit_id=classification_answers_by_unit_id,
         unit_to_shard_id=unit_to_shard_id,
+        max_units_per_batch=max_units_per_batch,
+        max_evidence_chars_per_batch=max_evidence_chars_per_batch,
     )
     if task_files:
         return task_files[0], grouping_unit_to_shard_id
@@ -847,6 +876,8 @@ def build_knowledge_grouping_task_file(
             batch_index=1,
             batch_count=1,
             total_grouping_unit_count=0,
+            max_units_per_batch=max_units_per_batch,
+            max_evidence_chars_per_batch=max_evidence_chars_per_batch,
         ),
         grouping_unit_to_shard_id,
     )
@@ -1082,6 +1113,7 @@ def transition_knowledge_classification_task_file(
                 else "unit_validation_failure",
             },
         )
+    grouping_limits = _coerce_dict(classification_source_task_file.get("grouping_limits"))
     grouping_task_files, _grouping_unit_to_shard_id, grouping_batch_unit_ids = (
         build_knowledge_grouping_task_files(
             assignment_id=str(original_task_file.get("assignment_id") or ""),
@@ -1089,6 +1121,14 @@ def transition_knowledge_classification_task_file(
             classification_task_file=classification_source_task_file,
             classification_answers_by_unit_id=combined_answers_by_unit_id,
             unit_to_shard_id=unit_to_shard_id,
+            max_units_per_batch=int(
+                grouping_limits.get("max_units_per_batch")
+                or KNOWLEDGE_GROUP_TASK_MAX_UNITS
+            ),
+            max_evidence_chars_per_batch=int(
+                grouping_limits.get("max_evidence_chars_per_batch")
+                or KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS
+            ),
         )
     )
     if grouping_task_files:
@@ -1232,6 +1272,17 @@ def transition_knowledge_grouping_task_file(
             1 + len(remaining_batch_unit_ids),
         )
         current_batch_index = max(int(batch_metadata.get("current_batch_index") or 0), 1)
+        max_units_per_batch = max(
+            1,
+            int(batch_metadata.get("max_units_per_batch") or KNOWLEDGE_GROUP_TASK_MAX_UNITS),
+        )
+        max_evidence_chars_per_batch = max(
+            1,
+            int(
+                batch_metadata.get("max_evidence_chars_per_batch")
+                or KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS
+            ),
+        )
         total_grouping_unit_count = max(
             int(batch_metadata.get("total_grouping_unit_count") or 0),
             len(combined_grouping_answers_by_unit_id) + sum(len(batch) for batch in later_batch_unit_ids),
@@ -1249,6 +1300,8 @@ def transition_knowledge_grouping_task_file(
             batch_index=current_batch_index + 1,
             batch_count=total_batch_count,
             total_grouping_unit_count=total_grouping_unit_count,
+            max_units_per_batch=max_units_per_batch,
+            max_evidence_chars_per_batch=max_evidence_chars_per_batch,
         )
         return KnowledgeTaskFileTransition(
             status="advance_to_grouping",

@@ -11,6 +11,8 @@ Detailed run-settings contracts live in `cookimport/config/CONVENTIONS.md`.
 - `codex_decision.py` is the shared Codex policy layer for top-tier profile patches, paired benchmark Codex/vanilla contracts, command-boundary approval checks, and persisted decision metadata.
 - `run_settings_adapters.py` is the single mapping layer from `RunSettings` to concrete `stage(...)` and `labelstudio_benchmark(...)` kwargs used by interactive flows, speed suite, and import entrypoints.
   - It intentionally merges operator, benchmark-lab, internal, and fixed-behavior slices instead of treating the full schema as one flat public contract.
+- `runtime_support.py` is the narrow shared resolver layer for runtime-sensitive defaults that should not drift across entry surfaces.
+  - It now owns canonical serialization helpers for hidden run-setting defaults plus dynamic temp/cache roots and benchmark/support env overrides.
 - `prediction_identity.py` narrows stage-specific reuse identities so prediction caches ignore runtime-only knobs but still miss when output-shaping settings change.
 - `last_run_store.py` persists quality-suite winner settings under canonical `history_root_for_output(<output_dir>)/qualitysuite_winner_run_settings.json`.
   - Winner files are disposable cache for the current contract: loads read the canonical file shape only, and stale payloads are ignored instead of being migrated.

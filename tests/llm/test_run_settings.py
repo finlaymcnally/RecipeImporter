@@ -39,6 +39,11 @@ def test_run_settings_default_serialization_matches_current_field_values() -> No
         "epub_unstructured_html_parser_version",
         "epub_unstructured_skip_headers_footers",
         "epub_unstructured_preprocess_mode",
+        "epub_title_backtrack_limit",
+        "epub_anchor_title_backtrack_limit",
+        "epub_ingredient_run_window",
+        "epub_ingredient_header_window",
+        "epub_title_max_length",
         "multi_recipe_splitter",
         "multi_recipe_min_ingredient_lines",
         "multi_recipe_min_instruction_lines",
@@ -76,6 +81,10 @@ def test_run_settings_default_serialization_matches_current_field_values() -> No
         "codex_farm_context_blocks",
         "codex_farm_knowledge_context_blocks",
         "codex_farm_failure_mode",
+        "knowledge_group_task_max_units",
+        "knowledge_group_task_max_evidence_chars",
+        "workspace_completion_quiescence_seconds",
+        "completed_termination_grace_seconds",
     )
     assert "bucket1_fixed_behavior_version" in run_config
     for field_name in representative_fields:
@@ -129,6 +138,15 @@ def test_run_settings_defaults_use_current_codex_farm_pipeline_pack_ids() -> Non
 
     assert settings.codex_farm_pipeline_knowledge == "recipe.knowledge.packet.v1"
     assert settings.codex_farm_knowledge_context_blocks == 0
+    assert settings.workspace_completion_quiescence_seconds == 15.0
+    assert settings.completed_termination_grace_seconds == 15.0
+    assert settings.epub_title_backtrack_limit == 20
+    assert settings.epub_anchor_title_backtrack_limit == 8
+    assert settings.epub_ingredient_run_window == 8
+    assert settings.epub_ingredient_header_window == 12
+    assert settings.epub_title_max_length == 80
+    assert settings.knowledge_group_task_max_units == 40
+    assert settings.knowledge_group_task_max_evidence_chars == 12000
     assert settings.recipe_prompt_target_count == 5
     assert settings.line_role_prompt_target_count == 5
     assert settings.knowledge_prompt_target_count == 5

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
+from cookimport.config.runtime_support import serialized_run_setting_default
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.ingest_flows.artifacts import (
     _path_for_manifest,
@@ -57,6 +58,21 @@ def run_labelstudio_import(
     epub_unstructured_html_parser_version: str | None = None,
     epub_unstructured_skip_headers_footers: bool | str | None = None,
     epub_unstructured_preprocess_mode: str | None = None,
+    epub_title_backtrack_limit: int = int(
+        serialized_run_setting_default("epub_title_backtrack_limit")
+    ),
+    epub_anchor_title_backtrack_limit: int = int(
+        serialized_run_setting_default("epub_anchor_title_backtrack_limit")
+    ),
+    epub_ingredient_run_window: int = int(
+        serialized_run_setting_default("epub_ingredient_run_window")
+    ),
+    epub_ingredient_header_window: int = int(
+        serialized_run_setting_default("epub_ingredient_header_window")
+    ),
+    epub_title_max_length: int = int(
+        serialized_run_setting_default("epub_title_max_length")
+    ),
     ocr_device: str = "auto",
     pdf_ocr_policy: str = "auto",
     ocr_batch_size: int = 1,
@@ -102,6 +118,12 @@ def run_labelstudio_import(
     knowledge_prompt_target_count: int = 5,
     knowledge_packet_input_char_budget: int | None = 18000,
     knowledge_packet_output_char_budget: int | None = 12000,
+    knowledge_group_task_max_units: int = int(
+        serialized_run_setting_default("knowledge_group_task_max_units")
+    ),
+    knowledge_group_task_max_evidence_chars: int = int(
+        serialized_run_setting_default("knowledge_group_task_max_evidence_chars")
+    ),
     line_role_prompt_target_count: int = 5,
     codex_farm_cmd: str = "codex-farm",
     codex_farm_model: str | None = None,
@@ -110,10 +132,18 @@ def run_labelstudio_import(
     codex_farm_workspace_root: Path | str | None = None,
     codex_farm_pipeline_knowledge: str = "recipe.knowledge.packet.v1",
     codex_farm_context_blocks: int = 30,
-    codex_farm_knowledge_context_blocks: int = 2,
+    codex_farm_knowledge_context_blocks: int = int(
+        serialized_run_setting_default("codex_farm_knowledge_context_blocks")
+    ),
     codex_farm_recipe_mode: str = "extract",
     codex_farm_failure_mode: str = "fail",
     codex_execution_policy: str = "execute",
+    workspace_completion_quiescence_seconds: float = float(
+        serialized_run_setting_default("workspace_completion_quiescence_seconds")
+    ),
+    completed_termination_grace_seconds: float = float(
+        serialized_run_setting_default("completed_termination_grace_seconds")
+    ),
     processed_output_root: Path | None = None,
     split_phase_slots: int | None = None,
     split_phase_gate_dir: Path | str | None = None,
@@ -170,6 +200,11 @@ def run_labelstudio_import(
         epub_unstructured_html_parser_version=epub_unstructured_html_parser_version,
         epub_unstructured_skip_headers_footers=epub_unstructured_skip_headers_footers,
         epub_unstructured_preprocess_mode=epub_unstructured_preprocess_mode,
+        epub_title_backtrack_limit=epub_title_backtrack_limit,
+        epub_anchor_title_backtrack_limit=epub_anchor_title_backtrack_limit,
+        epub_ingredient_run_window=epub_ingredient_run_window,
+        epub_ingredient_header_window=epub_ingredient_header_window,
+        epub_title_max_length=epub_title_max_length,
         ocr_device=ocr_device,
         pdf_ocr_policy=pdf_ocr_policy,
         ocr_batch_size=ocr_batch_size,
@@ -215,6 +250,8 @@ def run_labelstudio_import(
         knowledge_prompt_target_count=knowledge_prompt_target_count,
         knowledge_packet_input_char_budget=knowledge_packet_input_char_budget,
         knowledge_packet_output_char_budget=knowledge_packet_output_char_budget,
+        knowledge_group_task_max_units=knowledge_group_task_max_units,
+        knowledge_group_task_max_evidence_chars=knowledge_group_task_max_evidence_chars,
         line_role_prompt_target_count=line_role_prompt_target_count,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_model=codex_farm_model,
@@ -227,6 +264,12 @@ def run_labelstudio_import(
         codex_farm_recipe_mode=codex_farm_recipe_mode,
         codex_farm_failure_mode=codex_farm_failure_mode,
         codex_execution_policy=codex_execution_policy,
+        workspace_completion_quiescence_seconds=(
+            workspace_completion_quiescence_seconds
+        ),
+        completed_termination_grace_seconds=(
+            completed_termination_grace_seconds
+        ),
         processed_output_root=processed_output_root,
         split_phase_slots=split_phase_slots,
         split_phase_gate_dir=split_phase_gate_dir,

@@ -20,22 +20,30 @@ def build_nonrecipe_authority_result(
     full_blocks_by_index: Mapping[int, Mapping[str, Any]],
     block_category_by_index: Mapping[int, str],
     authoritative_block_indices: Sequence[int],
+    excluded_block_indices: Sequence[int] | None = None,
 ) -> NonRecipeAuthorityResult:
+    excluded_index_set = {
+        int(index) for index in (excluded_block_indices or ()) if int(index) in full_blocks_by_index
+    }
+    authoritative_index_set = {
+        int(index) for index in authoritative_block_indices if int(index) in full_blocks_by_index
+    }
+    authoritative_index_set.update(excluded_index_set)
     authoritative_block_category_by_index = {
-        int(index): str(block_category_by_index[int(index)])
-        for index in authoritative_block_indices
-        if int(index) in block_category_by_index
+        int(index): (
+            "other"
+            if int(index) in excluded_index_set
+            else str(block_category_by_index[int(index)])
+        )
+        for index in sorted(authoritative_index_set)
+        if int(index) in excluded_index_set or int(index) in block_category_by_index
     }
     authoritative_nonrecipe_spans = build_nonrecipe_spans_from_categories(
         full_blocks_by_index=full_blocks_by_index,
         block_category_by_index=authoritative_block_category_by_index,
     )
     return NonRecipeAuthorityResult(
-        authoritative_block_indices=[
-            int(index)
-            for index in authoritative_block_indices
-            if int(index) in block_category_by_index
-        ],
+        authoritative_block_indices=sorted(authoritative_block_category_by_index),
         authoritative_block_category_by_index=authoritative_block_category_by_index,
         authoritative_nonrecipe_spans=authoritative_nonrecipe_spans,
         authoritative_knowledge_spans=[

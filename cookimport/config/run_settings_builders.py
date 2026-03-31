@@ -62,6 +62,11 @@ def build_run_settings(
     epub_unstructured_preprocess_mode: (
         str | UnstructuredPreprocessMode
     ) = UnstructuredPreprocessMode.br_split_v1,
+    epub_title_backtrack_limit: int = 20,
+    epub_anchor_title_backtrack_limit: int = 8,
+    epub_ingredient_run_window: int = 8,
+    epub_ingredient_header_window: int = 12,
+    epub_title_max_length: int = 80,
     ocr_device: str | OcrDevice,
     pdf_ocr_policy: str | PdfOcrPolicy = PdfOcrPolicy.auto,
     ocr_batch_size: int,
@@ -123,6 +128,8 @@ def build_run_settings(
     knowledge_prompt_target_count: int | None = 5,
     knowledge_packet_input_char_budget: int | None = 18000,
     knowledge_packet_output_char_budget: int | None = 6000,
+    knowledge_group_task_max_units: int = 40,
+    knowledge_group_task_max_evidence_chars: int = 12000,
     codex_farm_recipe_mode: str | CodexFarmRecipeMode = CodexFarmRecipeMode.extract,
     codex_farm_cmd: str = "codex-farm",
     codex_farm_model: str | None = None,
@@ -132,6 +139,8 @@ def build_run_settings(
     codex_farm_context_blocks: int = 30,
     codex_farm_knowledge_context_blocks: int = 0,
     codex_farm_failure_mode: str | CodexFarmFailureMode = CodexFarmFailureMode.fail,
+    workspace_completion_quiescence_seconds: float = 15.0,
+    completed_termination_grace_seconds: float = 15.0,
     mapping_path: Path | None = None,
     overrides_path: Path | None = None,
     file_paths: Sequence[Path] | None = None,
@@ -164,6 +173,11 @@ def build_run_settings(
             "epub_unstructured_preprocess_mode": _normalized_value(
                 epub_unstructured_preprocess_mode
             ),
+            "epub_title_backtrack_limit": int(epub_title_backtrack_limit),
+            "epub_anchor_title_backtrack_limit": int(epub_anchor_title_backtrack_limit),
+            "epub_ingredient_run_window": int(epub_ingredient_run_window),
+            "epub_ingredient_header_window": int(epub_ingredient_header_window),
+            "epub_title_max_length": int(epub_title_max_length),
             "ocr_device": _normalized_value(ocr_device),
             "pdf_ocr_policy": _normalized_value(pdf_ocr_policy),
             "ocr_batch_size": ocr_batch_size,
@@ -242,6 +256,10 @@ def build_run_settings(
                 if knowledge_packet_output_char_budget is not None
                 else None
             ),
+            "knowledge_group_task_max_units": int(knowledge_group_task_max_units),
+            "knowledge_group_task_max_evidence_chars": int(
+                knowledge_group_task_max_evidence_chars
+            ),
             "codex_farm_recipe_mode": _normalized_value(codex_farm_recipe_mode),
             "codex_farm_cmd": str(codex_farm_cmd).strip() or "codex-farm",
             "codex_farm_model": (
@@ -266,6 +284,12 @@ def build_run_settings(
             "codex_farm_context_blocks": int(codex_farm_context_blocks),
             "codex_farm_knowledge_context_blocks": int(codex_farm_knowledge_context_blocks),
             "codex_farm_failure_mode": _normalized_value(codex_farm_failure_mode),
+            "workspace_completion_quiescence_seconds": float(
+                workspace_completion_quiescence_seconds
+            ),
+            "completed_termination_grace_seconds": float(
+                completed_termination_grace_seconds
+            ),
             "effective_workers": resolved_effective_workers,
             "mapping_path": str(mapping_path) if mapping_path is not None else None,
             "overrides_path": str(overrides_path) if overrides_path is not None else None,

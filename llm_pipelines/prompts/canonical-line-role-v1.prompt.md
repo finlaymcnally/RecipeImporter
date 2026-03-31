@@ -34,11 +34,11 @@ Negative rules (must-not-do):
 - Local row evidence wins over shaky prior span assumptions. A title-like line followed by yield or ingredients can still be `RECIPE_TITLE` even if upstream recipe-span state is missing or noisy.
 - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `NONRECIPE_CANDIDATE`.
 - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `NONRECIPE_CANDIDATE`, not `HOWTO_SECTION`.
-- Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `NONRECIPE_CANDIDATE` when surrounding rows are explanatory prose.
-- A lone question-style topic heading such as `What is Heat?` should stay `NONRECIPE_CANDIDATE` unless nearby rows clearly prove recipe-local structure.
-- Contents-style title lists such as `Winter: Roasted Radicchio and Roquefort` or `Torn Croutons` stay `NONRECIPE_CANDIDATE` until nearby rows prove one live recipe.
-- First-person narrative or memoir prose is usually `NONRECIPE_CANDIDATE`, not recipe structure.
-- Memoir, blurbs, endorsements, book-framing encouragement, and broad action-verb advice are usually `NONRECIPE_CANDIDATE`; only overwhelmingly obvious junk should become `NONRECIPE_EXCLUDE`.
+- Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` stay `NONRECIPE_CANDIDATE` only when surrounding rows clearly carry reusable explanatory prose.
+- A lone question-style or topic heading such as `What is Heat?` or `Balancing Fat` usually stays `NONRECIPE_EXCLUDE` unless nearby rows clearly show reusable lesson prose worth knowledge review.
+- Contents-style title lists such as `Winter: Roasted Radicchio and Roquefort` or `Torn Croutons` usually stay `NONRECIPE_EXCLUDE` with `navigation` unless nearby rows prove one live recipe.
+- First-person narrative or memoir framing is usually `NONRECIPE_EXCLUDE` when it reads like foreword/introduction setup rather than reusable cooking knowledge.
+- Endorsements, acknowledgments, foreword/introduction framing, memoir setup, and broad book-encouragement prose usually stay `NONRECIPE_EXCLUDE`; use `NONRECIPE_CANDIDATE` only when the line itself carries reusable cooking knowledge.
 - Use optional `exclusion_reason` only on outside-recipe rows labeled `NONRECIPE_EXCLUDE`.
 - Allowed `exclusion_reason` values: `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `publisher_promo`, `page_furniture`.
 - Use `NONRECIPE_EXCLUDE` only for obvious junk that should never reach the later knowledge stage.
@@ -101,9 +101,10 @@ Few-shot examples:
     Line: `Gentle Cooking Methods`
     Label: `NONRECIPE_CANDIDATE`
 
-15) Context: outside recipe, memoir or narrative prose
+15) Context: outside recipe, memoir or introduction framing prose
     Line: `Then I fell in love with Johnny, who introduced me to San Francisco.`
-    Label: `NONRECIPE_CANDIDATE`
+    Label: `NONRECIPE_EXCLUDE`
+    exclusion_reason: `front_matter`
 
 16) Context: outside recipe, reusable lesson prose with brief first-person framing
     Line: `Salt, Fat, Acid, and Heat were the four elements that guided basic decision making in every single dish, no matter what.`
@@ -115,7 +116,8 @@ Few-shot examples:
 
 18) Context: outside recipe, lone question heading without explanatory support
     Line: `What is Heat?`
-    Label: `NONRECIPE_CANDIDATE`
+    Label: `NONRECIPE_EXCLUDE`
+    exclusion_reason: `navigation`
 
 19) Context: front matter or contents heading, not a live recipe
     Line: `The Four Elements of Good Cooking`

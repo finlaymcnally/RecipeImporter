@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import cookimport.labelstudio.prelabel as prelabel_module
 from cookimport.labelstudio.prelabel import (
     CodexFarmProvider,
@@ -221,6 +223,18 @@ def test_prelabel_freeform_task_allows_explicit_empty_array_output() -> None:
     assert annotation is not None
     assert annotation["result"] == []
     assert annotation["meta"]["mode"] == "empty"
+
+
+def test_codex_farm_provider_respects_xdg_cache_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg-cache"))
+
+    provider = CodexFarmProvider(cmd="codex-farm", timeout_s=60)
+
+    assert provider.cache_dir == tmp_path / "xdg-cache" / "cookimport" / "prelabel"
+    assert provider.cache_dir.is_dir()
 
 
 def test_prelabel_span_mode_repairs_quote_block_index_mismatch() -> None:
@@ -560,4 +574,3 @@ def test_prelabel_prompt_uses_file_templates(monkeypatch, tmp_path: Path) -> Non
     )
     assert span_annotation is not None
     assert "SPAN urn:cookimport:segment:testhash:0:1" in span_provider.prompts[0]
-

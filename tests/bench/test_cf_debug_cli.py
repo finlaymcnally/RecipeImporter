@@ -172,6 +172,36 @@ def test_default_line_role_followup_ask_falls_back_to_highest_signal_recipe_when
     assert "highest-signal line-role issue" in ask["question"]
 
 
+def test_line_role_authority_gap_classifier_distinguishes_failure_classes() -> None:
+    assert followup_bundle._classify_line_role_authority_gap(
+        parsed_label="NONRECIPE_CANDIDATE",
+        final_label="NONRECIPE_EXCLUDE",
+        codex_pred="OTHER",
+        gold_label="OTHER",
+    ) == (
+        "post_route_label_change",
+        "The parsed line-role label changed before the final line-role output was saved.",
+    )
+    assert followup_bundle._classify_line_role_authority_gap(
+        parsed_label="NONRECIPE_EXCLUDE",
+        final_label="NONRECIPE_EXCLUDE",
+        codex_pred="KNOWLEDGE",
+        gold_label="OTHER",
+    ) == (
+        "exclusion_leak_into_final_knowledge",
+        "Line-role excluded this row, but final authority still surfaced KNOWLEDGE.",
+    )
+    assert followup_bundle._classify_line_role_authority_gap(
+        parsed_label="NONRECIPE_CANDIDATE",
+        final_label="NONRECIPE_CANDIDATE",
+        codex_pred="KNOWLEDGE",
+        gold_label="OTHER",
+    ) == (
+        "route_broadness_other_promoted_to_knowledge",
+        "Line-role routed this row into knowledge review and final authority kept KNOWLEDGE against OTHER gold.",
+    )
+
+
 def test_request_template_writes_web_ai_followup_manifest(tmp_path: Path) -> None:
     sample_bundle = _make_sample_bundle(tmp_path)
     out_path = tmp_path / "followup_request.json"

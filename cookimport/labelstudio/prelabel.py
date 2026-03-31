@@ -14,6 +14,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Callable, Protocol
 
+from cookimport.config.runtime_support import resolve_prelabel_cache_dir
 from cookimport.llm.codex_farm_runner import (
     CodexFarmRunner,
     SubprocessCodexFarmRunner,
@@ -66,9 +67,7 @@ class CodexFarmProvider:
             codex_farm_workspace_root
         )
         self.runner = runner
-        if cache_dir is None:
-            cache_dir = Path.home() / ".cache" / "cookimport" / "prelabel"
-        self.cache_dir = Path(cache_dir)
+        self.cache_dir = resolve_prelabel_cache_dir(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._usage_lock = threading.Lock()
         self._calls_total = 0

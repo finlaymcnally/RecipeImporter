@@ -6462,11 +6462,24 @@ def _write_starter_pack_v1(
         comparison_pairs=comparison_pairs,
         recipe_triage_rows=sorted_recipe_triage_rows,
     )
+    (
+        explicit_escalation_changed_lines_summary,
+        explicit_escalation_changed_lines_rows,
+    ) = _upload_bundle_build_explicit_escalation_changed_lines_packet(
+        source_root=output_dir,
+        run_dir_by_id=starter_pack_run_dir_by_id,
+        changed_line_rows=changed_line_rows,
+    )
+    _write_jsonl(
+        starter_pack_dir / STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME,
+        explicit_escalation_changed_lines_rows,
+    )
     net_error_blame_summary = _upload_bundle_build_net_error_blame_summary(
         changed_line_rows=changed_line_rows,
         recipe_triage_rows=sorted_recipe_triage_rows,
         comparison_pairs=comparison_pairs,
         recipe_pipeline_context=recipe_pipeline_context,
+        explicit_escalation_rows=explicit_escalation_changed_lines_rows,
     )
     _write_json(
         starter_pack_dir / STARTER_PACK_NET_ERROR_BLAME_FILE_NAME,
@@ -6481,18 +6494,6 @@ def _write_starter_pack_v1(
     _write_json(
         starter_pack_dir / STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME,
         config_version_metadata,
-    )
-    (
-        explicit_escalation_changed_lines_summary,
-        explicit_escalation_changed_lines_rows,
-    ) = _upload_bundle_build_explicit_escalation_changed_lines_packet(
-        source_root=output_dir,
-        run_dir_by_id=starter_pack_run_dir_by_id,
-        changed_line_rows=changed_line_rows,
-    )
-    _write_jsonl(
-        starter_pack_dir / STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME,
-        explicit_escalation_changed_lines_rows,
     )
     baseline_trace_parity = _starter_pack_build_baseline_trace_parity_cues(
         comparison_pairs=comparison_pairs,
@@ -11771,6 +11772,36 @@ def _upload_bundle_recipe_ids_equivalent(left: str, right: str) -> bool:
     )
 
 
+def _upload_bundle_normalized_label(value: Any) -> str:
+    return str(value or "").strip().upper()
+
+
+def _upload_bundle_classify_explicit_escalation_issue(
+    *,
+    line_role_label: Any,
+    codex_pred: Any,
+    gold_label: Any,
+) -> tuple[str | None, str | None]:
+    route_label = _upload_bundle_normalized_label(line_role_label)
+    final_label = _upload_bundle_normalized_label(codex_pred)
+    gold = _upload_bundle_normalized_label(gold_label)
+    if route_label == "NONRECIPE_EXCLUDE" and final_label == "KNOWLEDGE":
+        return (
+            "exclusion_leak_into_final_knowledge",
+            "line-role excluded this row, but final authority still surfaced KNOWLEDGE.",
+        )
+    if (
+        route_label == "NONRECIPE_CANDIDATE"
+        and final_label == "KNOWLEDGE"
+        and gold == "OTHER"
+    ):
+        return (
+            "route_broadness_other_promoted_to_knowledge",
+            "line-role routed this row into knowledge review and final authority kept KNOWLEDGE against OTHER gold.",
+        )
+    return None, None
+
+
 def _upload_bundle_collect_line_role_prediction_rows(
     *,
     source_root: Path,
@@ -11896,6 +11927,8 @@ def _upload_bundle_build_explicit_escalation_changed_lines_packet(
         return candidates[0]
 
     packet_rows: list[dict[str, Any]] = []
+    issue_kind_counts: Counter[str] = Counter()
+    attribution_bucket_counts: Counter[str] = Counter()
     for changed_row in changed_line_rows:
         if not isinstance(changed_row, dict):
             continue
@@ -11928,6 +11961,19 @@ def _upload_bundle_build_explicit_escalation_changed_lines_packet(
         escalation_reasons = _coerce_str_list(selected.get("escalation_reasons"))
         if not escalation_reasons:
             continue
+        issue_kind, issue_note = _upload_bundle_classify_explicit_escalation_issue(
+            line_role_label=selected.get("label"),
+            codex_pred=changed_row.get("codex_pred"),
+            gold_label=changed_row.get("gold_label"),
+        )
+        attribution_bucket_hint = (
+            "nonrecipe_authority"
+            if issue_kind == "exclusion_leak_into_final_knowledge"
+            else "line_role"
+        )
+        if issue_kind:
+            issue_kind_counts[issue_kind] += 1
+        attribution_bucket_counts[attribution_bucket_hint] += 1
         packet_rows.append(
             {
                 "source_key": str(changed_row.get("source_key") or ""),
@@ -11939,6 +11985,9 @@ def _upload_bundle_build_explicit_escalation_changed_lines_packet(
                 "escalation_reasons": escalation_reasons,
                 "label": str(selected.get("label") or "OTHER"),
                 "decided_by": str(selected.get("decided_by") or "unknown"),
+                "issue_kind": issue_kind,
+                "issue_note": issue_note,
+                "attribution_bucket_hint": attribution_bucket_hint,
                 "gold_label": str(changed_row.get("gold_label") or ""),
                 "baseline_pred": str(
                     changed_row.get("vanilla_pred") or changed_row.get("baseline_pred") or ""
@@ -11969,6 +12018,8 @@ def _upload_bundle_build_explicit_escalation_changed_lines_packet(
             "changed_line_rows_considered": len(changed_line_rows),
             "matched_prediction_rows": len(packet_rows),
             "row_count": len(packet_rows),
+            "issue_kind_counts": _counter_to_sorted_dict(issue_kind_counts),
+            "attribution_bucket_counts": _counter_to_sorted_dict(attribution_bucket_counts),
             "empty_packet_note": (
                 ""
                 if packet_rows
@@ -11988,6 +12039,7 @@ def _upload_bundle_build_net_error_blame_summary(
     recipe_triage_rows: list[dict[str, Any]],
     comparison_pairs: list[dict[str, Any]],
     recipe_pipeline_context: dict[str, Any] | None = None,
+    explicit_escalation_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     line_role_pipeline_by_run_id: dict[str, str] = {}
     for pair in comparison_pairs:
@@ -12019,6 +12071,24 @@ def _upload_bundle_build_net_error_blame_summary(
                 row,
             )
 
+    explicit_issue_by_changed_line_key: dict[
+        tuple[str, str, str, str, int], str
+    ] = {}
+    for row in explicit_escalation_rows or []:
+        if not isinstance(row, dict):
+            continue
+        source_key = str(row.get("source_key") or "")
+        codex_run_id = str(row.get("codex_run_id") or "")
+        baseline_run_id = str(row.get("baseline_run_id") or "")
+        recipe_id = str(row.get("recipe_id") or "")
+        line_index = _coerce_int(row.get("line_index"))
+        issue_kind = str(row.get("issue_kind") or "").strip()
+        if not (source_key and codex_run_id and issue_kind and line_index is not None):
+            continue
+        explicit_issue_by_changed_line_key[
+            (source_key, codex_run_id, baseline_run_id, recipe_id, int(line_index))
+        ] = issue_kind
+
     def _triage_row_for_changed_line(row: dict[str, Any]) -> dict[str, Any] | None:
         source_key = str(row.get("source_key") or "")
         codex_run_id = str(row.get("codex_run_id") or "")
@@ -12037,6 +12107,17 @@ def _upload_bundle_build_net_error_blame_summary(
         changed_row: dict[str, Any],
         triage_row: dict[str, Any] | None,
     ) -> str:
+        explicit_issue = explicit_issue_by_changed_line_key.get(
+            (
+                str(changed_row.get("source_key") or ""),
+                str(changed_row.get("codex_run_id") or ""),
+                str(changed_row.get("baseline_run_id") or ""),
+                str(changed_row.get("recipe_id") or ""),
+                int(_coerce_int(changed_row.get("line_index")) or 0),
+            )
+        )
+        if explicit_issue == "exclusion_leak_into_final_knowledge":
+            return "nonrecipe_authority"
         blame_bucket = "line_role"
         if isinstance(triage_row, dict):
             transport_mismatch = bool(triage_row.get("transport_mismatch"))
@@ -12138,6 +12219,7 @@ def _upload_bundle_build_net_error_blame_summary(
             )
 
     ordered_buckets = [
+        "nonrecipe_authority",
         "line_role",
         "recipe_correction",
         "final_recipe",
@@ -12172,6 +12254,7 @@ def _upload_bundle_build_net_error_blame_summary(
     return {
         "schema_version": UPLOAD_BUNDLE_NET_ERROR_BLAME_SCHEMA_VERSION,
         "bucket_definitions": {
+            "nonrecipe_authority": "Rows where line-role explicitly excluded the text but final authority still leaked it into KNOWLEDGE.",
             "line_role": "Rows where codex line-role decisions are most likely responsible.",
             "recipe_correction": "Rows with recipe-correction warnings or degradation signals suggesting correction-stage loss.",
             "final_recipe": "Rows with final-recipe empty-mapping, warnings, or failing final-stage status.",
@@ -13524,11 +13607,21 @@ def _write_upload_bundle_three_files(
         changed_line_rows
     )
     triage_packet_rows = _upload_bundle_build_triage_packet_rows(recipe_triage_rows)
+    (
+        explicit_escalation_changed_lines_summary,
+        explicit_escalation_changed_lines_rows,
+    ) = _upload_bundle_build_explicit_escalation_changed_lines_packet(
+        source_root=source_root,
+        run_dir_by_id=run_dir_by_id,
+        changed_line_rows=changed_line_rows,
+        run_dirs=run_dirs_for_analysis,
+    )
     net_error_blame_summary = _upload_bundle_build_net_error_blame_summary(
         changed_line_rows=changed_line_rows,
         recipe_triage_rows=recipe_triage_rows,
         comparison_pairs=comparison_pairs,
         recipe_pipeline_context=recipe_pipeline_context,
+        explicit_escalation_rows=explicit_escalation_changed_lines_rows,
     )
     config_version_metadata = _upload_bundle_build_config_version_metadata(
         source_root=source_root,
@@ -13542,15 +13635,6 @@ def _write_upload_bundle_three_files(
         run_rows=run_rows,
         run_dir_by_id=run_dir_by_id,
         run_diagnostics=run_diagnostics,
-    )
-    (
-        explicit_escalation_changed_lines_summary,
-        explicit_escalation_changed_lines_rows,
-    ) = _upload_bundle_build_explicit_escalation_changed_lines_packet(
-        source_root=source_root,
-        run_dir_by_id=run_dir_by_id,
-        changed_line_rows=changed_line_rows,
-        run_dirs=run_dirs_for_analysis,
     )
     source_metadata = _upload_bundle_source_metadata(
         run_rows=[row for row in run_rows if isinstance(row, dict)],

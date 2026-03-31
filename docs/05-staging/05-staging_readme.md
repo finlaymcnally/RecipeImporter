@@ -174,6 +174,7 @@ Stage-block `KNOWLEDGE` label contract:
 - `stage_block_predictions.json` now uses only the explicit final non-recipe authority recorded in `09_nonrecipe_authority.json`.
 - `08_nonrecipe_route.json` is the deterministic `nonrecipe-route` artifact. It keeps candidate/exclude routing, exclusion reasons, block ids, and previews, but it does not publish final semantic category guesses.
 - The nonrecipe router consumes authoritative block labels, not repair heuristics: `NONRECIPE_CANDIDATE` feeds the knowledge queue, `NONRECIPE_EXCLUDE` becomes immediate final `other`, and malformed authoritative labels are hard errors.
+- `build_nonrecipe_authority_result(...)` now hard-enforces that excluded block indices stay final `other` even if a later refine/projection map tries to leak them back into final `knowledge`.
 - `09_nonrecipe_authority.json` is the only final-truth artifact for outside-recipe `knowledge` versus `other`. It contains only authoritative spans, categories, and block indices.
 - `09_nonrecipe_knowledge_groups.json` is the explicit promoted-group artifact for packet-reviewed related ideas. It is reviewer/debug context, not the category-authority file.
 - `09_nonrecipe_finalize_status.json` is the runtime-status artifact for finalized and unresolved candidate rows. It keeps unresolved candidate metadata out of the authority file while still making incompleteness visible.

@@ -506,13 +506,13 @@ def _build_line_role_workspace_worker_prompt(
         "- `HOWTO_SECTION` is book-optional: some books legitimately use zero of them, so emit it only with immediate recipe-local support.\n"
         "- `RECIPE_VARIANT`: alternate recipe names or variant headers inside a recipe.\n"
         "- `RECIPE_NOTES`: recipe-local prose that belongs with the current recipe but is not ingredient or instruction structure.\n"
-        "- `NONRECIPE_CANDIDATE`: outside-recipe material that should go to knowledge later.\n"
-        "- `NONRECIPE_EXCLUDE`: obvious outside-recipe junk that should never go to knowledge.\n"
+        "- `NONRECIPE_CANDIDATE`: outside-recipe teaching prose that carries reusable cooking knowledge and should go to knowledge later.\n"
+        "- `NONRECIPE_EXCLUDE`: navigation, front matter, endorsement/book-framing prose, or isolated topic headings that should never go to knowledge.\n"
         "- Do not use `INSTRUCTION_LINE` for generic culinary advice or cookbook teaching prose.\n"
         "- Generic cooking advice that spans many dishes belongs in `NONRECIPE_CANDIDATE` here, not `INSTRUCTION_LINE`.\n"
         "- Do not use `HOWTO_SECTION` for chapter, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, or `Starches`.\n"
-        "- A heading by itself is weak evidence. Keep topic headings such as `Balancing Fat` or `WHAT IS ACID?` as `NONRECIPE_CANDIDATE` unless nearby rows prove recipe-local structure.\n"
-        "- First-person narrative or memoir prose is usually `NONRECIPE_CANDIDATE`, not recipe structure.\n\n"
+        "- A heading by itself is weak evidence. Isolated topic headings such as `Balancing Fat` or `WHAT IS ACID?` usually stay `NONRECIPE_EXCLUDE` unless nearby rows clearly provide reusable explanatory lesson prose.\n"
+        "- First-person narrative, memoir framing, endorsements, and intro/foreword setup usually stay `NONRECIPE_EXCLUDE`, not recipe structure.\n\n"
         "Do not return row labels in your final message. The authoritative result is the edited `task.json` file.\n\n"
         "Assigned shard ids represented in this task file:\n"
         f"{assignments}\n"
@@ -543,6 +543,7 @@ def _write_line_role_worker_hint(
         "Start from raw line text plus nearby context. There is no deterministic answer key in this workspace.",
         "`HOWTO_SECTION` is only for short recipe-internal subsection headings such as `FOR THE SAUCE` or `TO FINISH`.",
         "Do not use `HOWTO_SECTION` for chapter, topic, lesson, or contents headings.",
+        "Contents-style title lists, intro framing, endorsements, and isolated topic headings should default to `NONRECIPE_EXCLUDE` unless nearby rows show reusable lesson prose.",
         "Neighbor rows in `context_before_rows` / `context_after_rows` are reference-only and must never appear in output JSON.",
     ]
     write_worker_hint_markdown(

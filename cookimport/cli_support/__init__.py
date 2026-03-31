@@ -80,6 +80,10 @@ from cookimport.config.run_settings_contracts import (
     project_run_config_payload,
     summarize_run_config_payload,
 )
+from cookimport.config.runtime_support import (
+    resolve_single_book_split_cache_poll_seconds,
+    resolve_single_book_split_cache_wait_seconds,
+)
 from cookimport.config.run_settings import (
     KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
     LINE_ROLE_PIPELINE_ROUTE_V2,
@@ -336,8 +340,8 @@ SINGLE_BOOK_PER_LABEL_BREAKDOWN_SCHEMA_VERSION = "single_book_per_label_breakdow
 SINGLE_BOOK_SPLIT_CACHE_SCHEMA_VERSION = "single_book_split_cache.v1"
 SINGLE_BOOK_SPLIT_CACHE_KEY_SCHEMA_VERSION = "single_book_split_cache_key.v1"
 SINGLE_BOOK_SPLIT_CACHE_ROOT_ENV = "COOKIMPORT_SINGLE_BOOK_SPLIT_CACHE_ROOT"
-SINGLE_BOOK_SPLIT_CACHE_WAIT_SECONDS = 120.0
-SINGLE_BOOK_SPLIT_CACHE_POLL_SECONDS = 0.25
+SINGLE_BOOK_SPLIT_CACHE_WAIT_SECONDS = resolve_single_book_split_cache_wait_seconds()
+SINGLE_BOOK_SPLIT_CACHE_POLL_SECONDS = resolve_single_book_split_cache_poll_seconds()
 SINGLE_BOOK_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
 BENCHMARK_UPLOAD_BUNDLE_DIR_NAME = "upload_bundle_v1"
 BENCHMARK_SINGLE_BOOK_UPLOAD_BUNDLE_TARGET_BYTES = 30 * 1024 * 1024

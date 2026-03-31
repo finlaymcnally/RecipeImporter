@@ -18,6 +18,7 @@ from cookimport.config.codex_decision import (
     bucket1_fixed_behavior,
     resolve_codex_execution_policy,
 )
+from cookimport.config.runtime_support import serialized_run_setting_default
 from cookimport.config.run_settings import (
     KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
     build_run_settings,
@@ -189,6 +190,21 @@ def generate_pred_run_artifacts(
     epub_unstructured_html_parser_version: str | None = None,
     epub_unstructured_skip_headers_footers: bool | str | None = None,
     epub_unstructured_preprocess_mode: str | None = None,
+    epub_title_backtrack_limit: int = int(
+        serialized_run_setting_default("epub_title_backtrack_limit")
+    ),
+    epub_anchor_title_backtrack_limit: int = int(
+        serialized_run_setting_default("epub_anchor_title_backtrack_limit")
+    ),
+    epub_ingredient_run_window: int = int(
+        serialized_run_setting_default("epub_ingredient_run_window")
+    ),
+    epub_ingredient_header_window: int = int(
+        serialized_run_setting_default("epub_ingredient_header_window")
+    ),
+    epub_title_max_length: int = int(
+        serialized_run_setting_default("epub_title_max_length")
+    ),
     ocr_device: str = "auto",
     pdf_ocr_policy: str = "auto",
     ocr_batch_size: int = 1,
@@ -234,6 +250,12 @@ def generate_pred_run_artifacts(
     knowledge_prompt_target_count: int = 5,
     knowledge_packet_input_char_budget: int | None = 18000,
     knowledge_packet_output_char_budget: int | None = 12000,
+    knowledge_group_task_max_units: int = int(
+        serialized_run_setting_default("knowledge_group_task_max_units")
+    ),
+    knowledge_group_task_max_evidence_chars: int = int(
+        serialized_run_setting_default("knowledge_group_task_max_evidence_chars")
+    ),
     atomic_block_splitter: str = "off",
     line_role_pipeline: str = "off",
     line_role_prompt_target_count: int = 5,
@@ -244,9 +266,17 @@ def generate_pred_run_artifacts(
     codex_farm_workspace_root: Path | str | None = None,
     codex_farm_pipeline_knowledge: str = "recipe.knowledge.packet.v1",
     codex_farm_context_blocks: int = 30,
-    codex_farm_knowledge_context_blocks: int = 2,
+    codex_farm_knowledge_context_blocks: int = int(
+        serialized_run_setting_default("codex_farm_knowledge_context_blocks")
+    ),
     codex_farm_recipe_mode: str = "extract",
     codex_farm_failure_mode: str = "fail",
+    workspace_completion_quiescence_seconds: float = float(
+        serialized_run_setting_default("workspace_completion_quiescence_seconds")
+    ),
+    completed_termination_grace_seconds: float = float(
+        serialized_run_setting_default("completed_termination_grace_seconds")
+    ),
     processed_output_root: Path | None = None,
     write_markdown: bool = True,
     write_label_studio_tasks: bool = True,
@@ -383,6 +413,11 @@ def generate_pred_run_artifacts(
         epub_unstructured_html_parser_version=selected_html_parser_version,
         epub_unstructured_skip_headers_footers=selected_skip_headers_footers,
         epub_unstructured_preprocess_mode=selected_preprocess_mode,
+        epub_title_backtrack_limit=epub_title_backtrack_limit,
+        epub_anchor_title_backtrack_limit=epub_anchor_title_backtrack_limit,
+        epub_ingredient_run_window=epub_ingredient_run_window,
+        epub_ingredient_header_window=epub_ingredient_header_window,
+        epub_title_max_length=epub_title_max_length,
         ocr_device=ocr_device,
         pdf_ocr_policy=pdf_ocr_policy,
         ocr_batch_size=ocr_batch_size,
@@ -423,6 +458,8 @@ def generate_pred_run_artifacts(
         knowledge_prompt_target_count=knowledge_prompt_target_count,
         knowledge_packet_input_char_budget=knowledge_packet_input_char_budget,
         knowledge_packet_output_char_budget=knowledge_packet_output_char_budget,
+        knowledge_group_task_max_units=knowledge_group_task_max_units,
+        knowledge_group_task_max_evidence_chars=knowledge_group_task_max_evidence_chars,
         atomic_block_splitter=atomic_block_splitter,
         line_role_pipeline=line_role_pipeline,
         line_role_prompt_target_count=line_role_prompt_target_count,
@@ -435,6 +472,12 @@ def generate_pred_run_artifacts(
         codex_farm_knowledge_context_blocks=selected_codex_farm_knowledge_context_blocks,
         codex_farm_recipe_mode=selected_codex_farm_recipe_mode,
         codex_farm_failure_mode=selected_codex_farm_failure_mode,
+        workspace_completion_quiescence_seconds=(
+            workspace_completion_quiescence_seconds
+        ),
+        completed_termination_grace_seconds=(
+            completed_termination_grace_seconds
+        ),
         all_epub=path.suffix.lower() == ".epub",
         effective_workers=compute_effective_workers(
             workers=workers,

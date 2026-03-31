@@ -19,6 +19,7 @@ from cookimport.bench.followup_bundle import (
     write_selector_manifest,
     write_uncertainty_export,
 )
+from cookimport.config.runtime_support import serialized_run_setting_default
 from cookimport.core.slug import slugify_name
 from cookimport.llm.prompt_preview import write_prompt_preview_for_existing_run
 
@@ -273,7 +274,7 @@ def preview_prompts(
     ),
     codex_farm_context_blocks: int = typer.Option(30, "--codex-farm-context-blocks", min=0),
     codex_farm_knowledge_context_blocks: int = typer.Option(
-        0,
+        int(serialized_run_setting_default("codex_farm_knowledge_context_blocks")),
         "--codex-farm-knowledge-context-blocks",
         min=0,
     ),
@@ -466,7 +467,7 @@ def preview_shard_sweep(
     ),
     codex_farm_context_blocks: int = typer.Option(30, "--codex-farm-context-blocks", min=0),
     codex_farm_knowledge_context_blocks: int = typer.Option(
-        0,
+        int(serialized_run_setting_default("codex_farm_knowledge_context_blocks")),
         "--codex-farm-knowledge-context-blocks",
         min=0,
     ),

@@ -16,6 +16,7 @@ from typing import Any, Callable, Mapping, Sequence
 from cookimport.config.prediction_identity import (
     build_line_role_cache_identity_payload,
 )
+from cookimport.config.runtime_support import resolve_workspace_completion_quiescence_seconds
 from cookimport.config.run_settings import (
     LINE_ROLE_PIPELINE_ROUTE_V2,
     RunSettings,
@@ -140,8 +141,12 @@ _LINE_ROLE_COHORT_WATCHDOG_MAX_EXAMPLES = 2
 _LINE_ROLE_WORKSPACE_MAX_COMMAND_COUNT = 16
 _LINE_ROLE_WORKSPACE_MAX_REPEAT_COUNT = 4
 _LINE_ROLE_WORKSPACE_OUTPUT_STABLE_PASSES = 2
-_LINE_ROLE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS = 2.0
-_LINE_ROLE_FINAL_MESSAGE_MISSING_OUTPUT_GRACE_SECONDS = 2.0
+_LINE_ROLE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS = (
+    resolve_workspace_completion_quiescence_seconds()
+)
+_LINE_ROLE_FINAL_MESSAGE_MISSING_OUTPUT_GRACE_SECONDS = (
+    resolve_workspace_completion_quiescence_seconds()
+)
 _LINE_ROLE_PATHOLOGY_MIN_ROWS = 4
 _LINE_ROLE_PATHOLOGY_MIN_BASELINE_DISTINCT_LABELS = 3
 _LINE_ROLE_PATHOLOGY_NEAR_UNIFORM_MIN_ROWS = 8

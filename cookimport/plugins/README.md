@@ -10,3 +10,4 @@ EPUB importer notes:
 - Uses ebooklib when available; otherwise reads container.xml + OPF spine from the EPUB zip to extract XHTML blocks.
 - Falls back to yield-line anchors and heuristic step detection when explicit section headers are missing.
 - When yield anchors are used, title backtracking walks consecutive title-like blocks to avoid leaving duplicate title lines in the previous recipe.
+- The title-backtrack, ingredient-window, and title-length heuristics are now runtime settings, so stage, benchmark, and Label Studio prediction paths can change EPUB segmentation without patching importer code.

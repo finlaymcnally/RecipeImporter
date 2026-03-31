@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 
+from cookimport.config.runtime_support import resolve_single_profile_scheduler_policy
 from .command_resolution import resolve_registered_command
 
 runtime = sys.modules["cookimport.cli_support.bench"]
@@ -932,9 +933,10 @@ def _interactive_single_profile_all_matched_benchmark(
 
     failures: list[tuple[AllMethodTarget, str]] = []
     total_targets = len(targets)
-    parallel_books_cap = 3
-    worker_scale_numerator = 8
-    worker_scale_denominator = 10
+    scheduler_policy = resolve_single_profile_scheduler_policy()
+    parallel_books_cap = scheduler_policy.parallel_books_cap
+    worker_scale_numerator = scheduler_policy.worker_scale_numerator
+    worker_scale_denominator = scheduler_policy.worker_scale_denominator
     max_parallel_targets = (
         min(parallel_books_cap, total_targets) if total_targets > 1 else 1
     )
@@ -956,7 +958,7 @@ def _interactive_single_profile_all_matched_benchmark(
         )
 
     if max_parallel_targets > 1:
-        split_phase_slots = 1
+        split_phase_slots = scheduler_policy.split_phase_slots
         split_phase_gate_dir = single_profile_root / ".split_phase_slots"
         split_phase_gate_dir.mkdir(parents=True, exist_ok=True)
         single_profile_dashboard = _SingleProfileProgressDashboard(

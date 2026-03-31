@@ -2649,6 +2649,7 @@ def _run_recipe_workspace_worker_assignment_v1(
     model: str | None,
     reasoning_effort: str | None,
     output_schema_path: Path | None,
+    settings: Mapping[str, Any],
     shard_completed_callback: Callable[..., None] | None,
 ) -> _DirectRecipeWorkerResult:
     out_dir = worker_root / "out"
@@ -2876,6 +2877,9 @@ def _run_recipe_workspace_worker_assignment_v1(
             },
             model=model,
             reasoning_effort=reasoning_effort,
+            completed_termination_grace_seconds=float(
+                settings.get("completed_termination_grace_seconds") or 15.0
+            ),
             workspace_task_label="recipe correction worker session",
             supervision_callback=base_watchdog_callback,
         )
@@ -2941,6 +2945,9 @@ def _run_recipe_workspace_worker_assignment_v1(
                 },
                 model=model,
                 reasoning_effort=reasoning_effort,
+                completed_termination_grace_seconds=float(
+                    settings.get("completed_termination_grace_seconds") or 15.0
+                ),
                 workspace_task_label="recipe correction worker fresh-session recovery",
                 supervision_callback=base_watchdog_callback,
             )
@@ -3330,6 +3337,7 @@ def _run_direct_recipe_worker_assignment_v1(
     model: str | None,
     reasoning_effort: str | None,
     output_schema_path: Path | None,
+    settings: Mapping[str, Any],
     pipeline_assets: Mapping[str, Any],
     shard_completed_callback: Callable[..., None] | None,
 ) -> _DirectRecipeWorkerResult:
@@ -3361,6 +3369,7 @@ def _run_direct_recipe_worker_assignment_v1(
         model=model,
         reasoning_effort=reasoning_effort,
         output_schema_path=output_schema_path,
+        settings=settings,
         shard_completed_callback=shard_completed_callback,
     )
 
@@ -3675,6 +3684,7 @@ def _run_direct_recipe_workers_v1(
                 model=model,
                 reasoning_effort=reasoning_effort,
                 output_schema_path=output_schema_path,
+                settings=settings,
                 pipeline_assets=pipeline_assets,
                 shard_completed_callback=_mark_shard_completed,
             )

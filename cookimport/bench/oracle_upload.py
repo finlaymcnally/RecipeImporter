@@ -12,6 +12,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from cookimport.config.runtime_support import (
+    resolve_oracle_background_session_poll_interval_seconds,
+    resolve_oracle_background_session_poll_seconds,
+    resolve_oracle_browser_shard_target_bytes,
+)
 
 ORACLE_BROWSER_CMD = "/home/mcnal/.local/bin/oracle"
 ORACLE_BROWSER_CHROME_PATH = "/home/mcnal/.local/bin/chromium-oracle-auto"
@@ -60,14 +65,16 @@ ORACLE_THINKING_MODEL = os.environ.get(
     os.environ.get("ORACLE_DEEP_REVIEW_MODEL", ""),
 )
 ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES = 1_000_000
-ORACLE_BROWSER_SHARD_TARGET_BYTES = 900_000
+ORACLE_BROWSER_SHARD_TARGET_BYTES = resolve_oracle_browser_shard_target_bytes()
 ORACLE_BROWSER_REUSE_WAIT = "5m"
 ORACLE_BROWSER_PROFILE_LOCK_TIMEOUT = "30m"
 ORACLE_BROWSER_AUTO_REATTACH_DELAY = "30s"
 ORACLE_BROWSER_AUTO_REATTACH_INTERVAL = "30s"
 ORACLE_BROWSER_AUTO_REATTACH_TIMEOUT = "120s"
-ORACLE_BACKGROUND_SESSION_POLL_SECONDS = 3.0
-ORACLE_BACKGROUND_SESSION_POLL_INTERVAL_SECONDS = 0.1
+ORACLE_BACKGROUND_SESSION_POLL_SECONDS = resolve_oracle_background_session_poll_seconds()
+ORACLE_BACKGROUND_SESSION_POLL_INTERVAL_SECONDS = (
+    resolve_oracle_background_session_poll_interval_seconds()
+)
 ORACLE_CHATGPT_URL_ENV = "COOKIMPORT_ORACLE_CHATGPT_URL"
 ORACLE_DEFAULT_CHATGPT_URL = "https://chatgpt.com/"
 ORACLE_TEST_HELPER_ENV = "COOKIMPORT_ORACLE_TEST_HELPER"

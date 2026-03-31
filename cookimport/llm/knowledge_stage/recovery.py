@@ -1328,12 +1328,18 @@ def _build_strict_json_watchdog_callback(
     expected_workspace_output_paths: Sequence[Path] | None = None,
     task_queue_controller: _KnowledgeWorkspaceQueueController | None = None,
     workspace_output_observer: Callable[[int, int], None] | None = None,
+    workspace_completion_quiescence_seconds: float | None = None,
 ) -> Callable[[CodexExecLiveSnapshot], CodexExecSupervisionDecision | None]:
     target_paths: list[Path] = []
     if live_status_path is not None:
         target_paths.append(live_status_path)
     if live_status_paths is not None:
         target_paths.extend(Path(path) for path in live_status_paths)
+    completion_quiescence_seconds = float(
+        workspace_completion_quiescence_seconds
+        if workspace_completion_quiescence_seconds is not None
+        else _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+    )
     workspace_output_paths = [Path(path) for path in (expected_workspace_output_paths or [])]
     last_complete_workspace_signature: tuple[tuple[str, int, int], ...] | None = None
     workspace_output_stable_passes = 0
@@ -1468,11 +1474,11 @@ def _build_strict_json_watchdog_callback(
             )
             completion_quiescence_reached = (
                 completion_wait_elapsed_seconds
-                >= _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+                >= completion_quiescence_seconds
                 and (
                     snapshot.last_event_seconds_ago is None
                     or snapshot.last_event_seconds_ago
-                    >= _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+                    >= completion_quiescence_seconds
                     or completion_outputs_completed
                 )
             )
@@ -1746,7 +1752,7 @@ def _build_strict_json_watchdog_callback(
             "workspace_recent_output_progress": recent_workspace_output_progress,
             "workspace_completion_waiting_for_exit": completion_waiting_for_exit,
             "workspace_completion_quiescence_seconds": (
-                _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+                completion_quiescence_seconds
                 if completion_waiting_for_exit
                 else None
             ),

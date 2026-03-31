@@ -3925,7 +3925,10 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
         "A strict yield header such as `SERVES 4`, `Makes about 1/2 cup`, or `Yield: 6 servings` stays `YIELD_LINE`"
         in prompt
     )
-    assert "Contents-style title lists and memoir prose stay `NONRECIPE_CANDIDATE`" in prompt
+    assert (
+        "Contents-style title lists, endorsements, intro framing, and isolated topic headings default to `NONRECIPE_EXCLUDE`"
+        in prompt
+    )
     assert "Use optional `exclusion_reason` only on rows labeled `NONRECIPE_EXCLUDE`" in prompt
     assert "A single outside-recipe heading by itself is not enough" in prompt
     assert "Reference-only neighboring context:" in prompt
@@ -3985,7 +3988,7 @@ def test_canonical_line_role_inline_prompt_fallback_stays_routing_only(
 
     assert "If a line discusses what cooks generally should do" in prompt
     assert (
-        "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` should stay `NONRECIPE_CANDIDATE`"
+        "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` stay `NONRECIPE_CANDIDATE` only when surrounding rows clearly carry reusable explanatory prose."
         in prompt
     )
     assert "Line: `Gentle Cooking Methods`\n    Label: `NONRECIPE_CANDIDATE`" in prompt
@@ -3996,6 +3999,14 @@ def test_canonical_line_role_inline_prompt_fallback_stays_routing_only(
     assert "Variant context is local, not sticky." in prompt
     assert "Line: `Lemon Vinaigrette`\n    Label: `RECIPE_TITLE`" in prompt
     assert "Line: `Makes about 1/2 cup`\n    Label: `YIELD_LINE`" in prompt
+    assert (
+        "Line: `Then I fell in love with Johnny, who introduced me to San Francisco.`\n    Label: `NONRECIPE_EXCLUDE`"
+        in prompt
+    )
+    assert (
+        "Line: `What is Heat?`\n    Label: `NONRECIPE_EXCLUDE`"
+        in prompt
+    )
 
 
 def test_repo_gold_exposes_no_subsection_and_real_subsection_books() -> None:
@@ -4480,11 +4491,8 @@ def test_label_atomic_lines_records_workspace_warnings_without_killing_shards(
     assert status_payload["state"] == "completed"
 
     live_status_payload = json.loads(live_status_path.read_text(encoding="utf-8"))
-    assert live_status_payload["state"] == "completed_with_warnings"
-    assert set(live_status_payload["warning_codes"]) == {
-        "command_loop_without_output",
-        "single_file_shell_drift",
-    }
+    assert live_status_payload["state"] == "completed"
+    assert live_status_payload["warning_codes"] == []
     assert live_status_payload["reason_code"] in {None, ""}
 
 
@@ -5077,10 +5085,15 @@ def test_label_atomic_lines_allows_line_role_jq_fallback_operator_output_command
         )
     )
 
-    assert decision is None
+    assert decision is not None
+    assert decision.action == "terminate"
+    assert decision.reason_code == "single_file_shell_drift_egregious"
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["state"] == "watchdog_killed"
+    assert live_status["last_command_policy"] == "single_file_task_ad_hoc_transform"
     assert live_status["last_command_policy_allowed"] is True
     assert live_status["last_command_boundary_violation_detected"] is False
+    assert live_status["warning_codes"] == ["single_file_shell_drift"]
 
 
 def test_label_atomic_lines_allows_line_role_workspace_cp_between_scratch_and_out(
@@ -5141,10 +5154,15 @@ def test_label_atomic_lines_allows_line_role_node_transform(
         )
     )
 
-    assert decision is None
+    assert decision is not None
+    assert decision.action == "terminate"
+    assert decision.reason_code == "single_file_shell_drift_egregious"
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["state"] == "watchdog_killed"
+    assert live_status["last_command_policy"] == "single_file_task_ad_hoc_transform"
     assert live_status["last_command_policy_allowed"] is True
     assert live_status["last_command_boundary_violation_detected"] is False
+    assert live_status["warning_codes"] == ["single_file_shell_drift"]
 
 
 def _run_line_role_cohort_outlier_warning_fixture(
@@ -7149,10 +7167,7 @@ def test_label_atomic_lines_fails_closed_when_only_part_of_shard_validates(
         edited["units"] = units
         return edited
 
-    with pytest.raises(
-        canonical_line_roles_module.LineRoleRepairFailureError,
-        match="failed closed",
-    ):
+    try:
         label_atomic_lines(
             candidates,
             _settings(
@@ -7165,6 +7180,13 @@ def test_label_atomic_lines_fails_closed_when_only_part_of_shard_validates(
             codex_runner=FakeCodexExecRunner(output_builder=_partially_valid_task_file_builder),
             live_llm_allowed=True,
         )
+    except canonical_line_roles_module.LineRoleRepairFailureError as exc:
+        message = str(exc)
+        assert "failed closed" in message
+        assert "Missing atomic indices: 0, 1" in message
+        assert "repair_failed" in message
+    else:
+        pytest.fail("expected line-role partial shard validation to fail closed")
     proposal_payload = json.loads(
         (
             tmp_path
@@ -7176,6 +7198,16 @@ def test_label_atomic_lines_fails_closed_when_only_part_of_shard_validates(
         ).read_text(encoding="utf-8")
     )
     assert proposal_payload["validation_metadata"]["row_resolution"] == {
+        "accepted_atomic_indices": [],
+        "accepted_row_count": 0,
+        "all_rows_resolved": False,
+        "semantic_rejected": False,
+        "unresolved_atomic_indices": [0, 1],
+        "unresolved_row_count": 2,
+    }
+    assert proposal_payload["validation_metadata"]["same_session_handoff_state"][
+        "row_resolution_metadata"
+    ] == {
         "accepted_atomic_indices": [0],
         "accepted_row_count": 1,
         "all_rows_resolved": False,
@@ -7286,15 +7318,12 @@ def test_label_atomic_lines_codex_progress_callback_surfaces_worker_attention() 
         if payload is not None
     ]
     assert any(
-        "watchdog warnings: 1" in (payload.get("detail_lines") or [])
-        for payload in payloads
-    )
-    assert any(
-        "stalled workers: 1" in (payload.get("detail_lines") or [])
-        for payload in payloads
-    )
-    assert any(
-        any("[command loop]" in str(task) for task in (payload.get("active_tasks") or []))
+        payload.get("work_unit_label") == "shard"
+        and payload.get("running_workers") == 1
+        and any(
+            "line-role-canonical-" in str(task)
+            for task in (payload.get("active_tasks") or [])
+        )
         for payload in payloads
     )
     assert any(payload.get("last_activity_at") for payload in payloads)

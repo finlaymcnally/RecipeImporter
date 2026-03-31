@@ -2855,6 +2855,128 @@ def test_build_upload_bundle_explicit_escalation_packet_matches_atomic_index_onl
     assert sample_row["line_index"] == 1
     assert sample_row["atomic_index"] == 1
     assert sample_row["escalation_reasons"] == ["nonrecipe_finalize_excluded"]
+    assert sample_row["attribution_bucket_hint"] == "line_role"
+    assert sample_row["issue_kind"] is None
+
+
+def test_build_upload_bundle_flags_exclusion_leak_as_nonrecipe_authority(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-book-benchmark"
+    codex_run_id = "2026-03-31_13.18.44"
+    baseline_run_id = "2026-03-31_13.00.00"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
+        wrong_label_rows=[
+            {
+                "line_index": 87,
+                "gold_label": "OTHER",
+                "pred_label": "KNOWLEDGE",
+                "line_text": "Winter: Roasted Radicchio and Roquefort",
+            }
+        ],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+        line_role_prediction_rows=[
+            {
+                "atomic_index": 87,
+                "label": "NONRECIPE_EXCLUDE",
+                "decided_by": "codex",
+                "escalation_reasons": ["nonrecipe_excluded"],
+                "text": "Winter: Roasted Radicchio and Roquefort",
+                "within_recipe_span": False,
+                "page_type": "front_matter",
+                "chapter_title": "Contents",
+            }
+        ],
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 87, "pred_label": "OTHER"}],
+        full_prompt_rows=None,
+    )
+    _set_eval_report_metrics(
+        session_root / codex_run_id,
+        overall_line_accuracy=0.60,
+        macro_f1_excluding_other=0.55,
+        practical_f1=0.58,
+    )
+    _set_eval_report_metrics(
+        session_root / baseline_run_id,
+        overall_line_accuracy=0.70,
+        macro_f1_excluding_other=0.68,
+        practical_f1=0.69,
+    )
+    _write_json(
+        session_root / "codex_vs_vanilla_comparison.json",
+        {"schema_version": "codex_vs_vanilla_comparison.v2"},
+    )
+    changed_line_rows = [
+        {
+            "source_key": "source-hash",
+            "codex_run_id": codex_run_id,
+            "baseline_run_id": baseline_run_id,
+            "recipe_id": "",
+            "line_index": 87,
+            "gold_label": "OTHER",
+            "vanilla_pred": "OTHER",
+            "codex_pred": "KNOWLEDGE",
+            "current_line": "Winter: Roasted Radicchio and Roquefort",
+            "previous_line": "Autumn: Roasted Squash, Sage, and Hazelnut",
+            "next_line": "Spring: Asparagus and Feta with Mint",
+        }
+    ]
+
+    escalation_packet, escalation_rows = (
+        module._upload_bundle_build_explicit_escalation_changed_lines_packet(
+            source_root=session_root,
+            run_dir_by_id={
+                codex_run_id: session_root / codex_run_id,
+                baseline_run_id: session_root / baseline_run_id,
+            },
+            changed_line_rows=changed_line_rows,
+        )
+    )
+    assert escalation_packet["available"] is True
+    assert escalation_packet["issue_kind_counts"] == {
+        "exclusion_leak_into_final_knowledge": 1
+    }
+    sample_row = escalation_packet["sample_rows"][0]
+    assert sample_row["line_index"] == 87
+    assert sample_row["issue_kind"] == "exclusion_leak_into_final_knowledge"
+    assert sample_row["attribution_bucket_hint"] == "nonrecipe_authority"
+    assert "final authority still surfaced KNOWLEDGE" in str(
+        sample_row["issue_note"]
+    )
+
+    blame_summary = module._upload_bundle_build_net_error_blame_summary(
+        changed_line_rows=changed_line_rows,
+        recipe_triage_rows=[],
+        comparison_pairs=[
+            {
+                "codex_run": {
+                    "run_id": codex_run_id,
+                    "line_role_pipeline": "codex-line-role-route-v2",
+                }
+            }
+        ],
+        explicit_escalation_rows=escalation_rows,
+    )
+    bucket_rows = {
+        str(row.get("bucket") or ""): row
+        for row in blame_summary["bucket_rows"]
+        if isinstance(row, dict)
+    }
+    assert int(bucket_rows["nonrecipe_authority"]["new_error_count"] or 0) == 1
+    assert int(bucket_rows["line_role"]["new_error_count"] or 0) == 0
 
 
 def _build_existing_upload_bundle_fixture(tmp_path: Path) -> dict[str, object]:
@@ -2962,6 +3084,7 @@ def test_build_upload_bundle_for_existing_output_includes_analysis_payloads(
     bucket_rows = blame_summary.get("bucket_rows")
     assert isinstance(bucket_rows, list)
     assert {row.get("bucket") for row in bucket_rows if isinstance(row, dict)} == {
+        "nonrecipe_authority",
         "line_role",
         "recipe_correction",
         "final_recipe",
@@ -3604,6 +3727,7 @@ def test_build_upload_bundle_uses_single_correction_stage_labels_only(
 
     blame_summary = index_payload["analysis"]["net_error_blame_summary"]
     bucket_definitions = blame_summary["bucket_definitions"]
+    assert "explicitly excluded" in str(bucket_definitions["nonrecipe_authority"])
     assert "correction-stage loss" in str(bucket_definitions["recipe_correction"])
     assert "final-stage status" in str(bucket_definitions["final_recipe"])
 

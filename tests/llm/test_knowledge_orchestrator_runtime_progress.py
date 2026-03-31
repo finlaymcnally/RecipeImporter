@@ -167,7 +167,11 @@ def test_knowledge_orchestrator_surfaces_worker_attention_in_progress(
         for payload in payloads
     )
     assert any(
-        any("[command loop]" in str(task) for task in (payload.get("active_tasks") or []))
+        any(
+            marker in str(task)
+            for task in (payload.get("active_tasks") or [])
+            for marker in ("[command loop]", "[shell drift]")
+        )
         for payload in payloads
     )
     assert any(payload.get("last_activity_at") for payload in payloads)

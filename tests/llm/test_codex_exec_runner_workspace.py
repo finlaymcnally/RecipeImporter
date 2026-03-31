@@ -190,6 +190,7 @@ def test_prepare_direct_exec_workspace_worker_mode_uses_fixed_assignment_manifes
         "python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>",
         "python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5",
         "python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json",
+        "<repo helper from task.json helper_commands.handoff>",
         "cp task.json /tmp/task-backup.json",
     ]
     assert worker_manifest["workspace_commands_forbidden"] == [
@@ -203,6 +204,7 @@ def test_prepare_direct_exec_workspace_worker_mode_uses_fixed_assignment_manifes
     assert "Start with `python3 -m cookimport.llm.editable_task_file --summary`." in agents_text
     assert "--show-unit <unit_id>` or `python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`." in agents_text
     assert "--apply-answers-file answers.json` instead of scripting a rewrite." in agents_text
+    assert "run the repo-owned same-session helper command named in `task.json`, then stop." in agents_text
     assert "You do not need to discover extra control state" in agents_text
     assert "If you briefly reread part of `task.json` or make a small local false start" in agents_text
     assert "Do not dump the whole task file with `cat` or `sed`" in agents_text
@@ -1220,8 +1222,8 @@ def test_workspace_worker_supervision_syncs_live_outputs_before_callback(
 ) -> None:
     monkeypatch.setattr(
         exec_runner_module,
-        "_DIRECT_EXEC_COMPLETED_TERMINATION_GRACE_SECONDS",
-        0.05,
+        "resolve_completed_termination_grace_seconds",
+        lambda _settings=None: 0.05,
     )
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
     (source_root / "in").mkdir(parents=True, exist_ok=True)
@@ -1346,8 +1348,8 @@ def test_workspace_worker_completed_supervision_allows_turn_completed_usage_to_a
 ) -> None:
     monkeypatch.setattr(
         exec_runner_module,
-        "_DIRECT_EXEC_COMPLETED_TERMINATION_GRACE_SECONDS",
-        0.2,
+        "resolve_completed_termination_grace_seconds",
+        lambda _settings=None: 0.2,
     )
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
     (source_root / "in").mkdir(parents=True, exist_ok=True)

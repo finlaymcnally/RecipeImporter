@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from cookimport.config.runtime_support import serialized_run_setting_default
 from cookimport.core.models import RecipeCandidate
 from cookimport.core.slug import slugify_name
 from cookimport.labelstudio.prelabel import (
@@ -188,8 +189,12 @@ def write_prompt_preview_for_existing_run(
     codex_farm_cmd: str | None = None,
     codex_farm_model: str | None = None,
     codex_farm_reasoning_effort: str | None = None,
-    codex_farm_context_blocks: int = 30,
-    codex_farm_knowledge_context_blocks: int = 0,
+    codex_farm_context_blocks: int = int(
+        serialized_run_setting_default("codex_farm_context_blocks")
+    ),
+    codex_farm_knowledge_context_blocks: int = int(
+        serialized_run_setting_default("codex_farm_knowledge_context_blocks")
+    ),
     atomic_block_splitter: str = "off",
     recipe_worker_count: int | None = None,
     recipe_prompt_target_count: int | None = None,

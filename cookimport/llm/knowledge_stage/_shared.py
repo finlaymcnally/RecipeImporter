@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from cookimport.config.run_settings import RunSettings
+from cookimport.config.runtime_support import resolve_workspace_completion_quiescence_seconds
 from cookimport.core.progress_messages import format_stage_progress
 from cookimport.core.models import ConversionResult, ParsingOverrides
 from cookimport.parsing.label_source_of_truth import RecipeSpan
@@ -114,7 +115,9 @@ _KNOWLEDGE_COHORT_WATCHDOG_MAX_EXAMPLES = 2
 _KNOWLEDGE_WATCHDOG_RETRY_SILENCE_TIMEOUT_SECONDS = 90
 _KNOWLEDGE_WATCHDOG_RETRY_TIMEOUT_SECONDS = 300
 _KNOWLEDGE_WORKSPACE_OUTPUT_STABLE_PASSES = 2
-_KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS = 2.0
+_KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS = (
+    resolve_workspace_completion_quiescence_seconds()
+)
 _KNOWLEDGE_WORKSPACE_PROGRESS_GRACE_COMMANDS = 24
 _KNOWLEDGE_WORKSPACE_PREMATURE_EXIT_MAX_RELAUNCHES = 2
 _KNOWLEDGE_TASK_STATUS_FILE_NAME = "task_status.jsonl"

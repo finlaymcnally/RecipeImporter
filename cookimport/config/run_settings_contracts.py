@@ -32,6 +32,11 @@ _SUMMARY_ORDER = (
     "epub_unstructured_html_parser_version",
     "epub_unstructured_skip_headers_footers",
     "epub_unstructured_preprocess_mode",
+    "epub_title_backtrack_limit",
+    "epub_anchor_title_backtrack_limit",
+    "epub_ingredient_run_window",
+    "epub_ingredient_header_window",
+    "epub_title_max_length",
     "multi_recipe_splitter",
     "multi_recipe_min_ingredient_lines",
     "multi_recipe_min_instruction_lines",
@@ -78,6 +83,8 @@ _SUMMARY_ORDER = (
     "knowledge_prompt_target_count",
     "knowledge_packet_input_char_budget",
     "knowledge_packet_output_char_budget",
+    "knowledge_group_task_max_units",
+    "knowledge_group_task_max_evidence_chars",
     "line_role_pipeline",
     "line_role_prompt_target_count",
     "codex_farm_cmd",
@@ -89,6 +96,8 @@ _SUMMARY_ORDER = (
     "codex_farm_knowledge_context_blocks",
     "codex_farm_recipe_mode",
     "codex_farm_failure_mode",
+    "workspace_completion_quiescence_seconds",
+    "completed_termination_grace_seconds",
 )
 
 _CONFIGURED_RUN_SETTING_NAMES: tuple[str, ...] = ()

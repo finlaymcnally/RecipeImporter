@@ -186,3 +186,54 @@ def test_grouping_task_files_split_large_grouping_scope_into_bounded_batches() -
         f"knowledge::{block_index}" for block_index in range(block_count)
     }
     assert grouping_unit_to_shard_id[f"knowledge::{block_count - 1}"] == "book.ks0000.nr"
+
+
+def test_grouping_task_files_use_custom_limits_from_classification_task() -> None:
+    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[
+            ShardManifestEntryV1(
+                shard_id="book.ks0000.nr",
+                owned_ids=("book.ks0000.nr",),
+                input_payload={
+                    "v": "1",
+                    "bid": "book.ks0000.nr",
+                    "b": [
+                        {"i": 1, "id": "book.ks0000.nr:1", "t": "A" * 40},
+                        {"i": 2, "id": "book.ks0000.nr:2", "t": "B" * 40},
+                        {"i": 3, "id": "book.ks0000.nr:3", "t": "C" * 40},
+                    ],
+                },
+                metadata={"owned_block_indices": [1, 2, 3], "owned_block_count": 3},
+            )
+        ],
+        knowledge_group_task_max_units=2,
+        knowledge_group_task_max_evidence_chars=10_000,
+    )
+    classification_answers_by_unit_id = {
+        "knowledge::1": {"category": "knowledge", "reviewer_category": "knowledge"},
+        "knowledge::2": {"category": "knowledge", "reviewer_category": "knowledge"},
+        "knowledge::3": {"category": "knowledge", "reviewer_category": "knowledge"},
+    }
+
+    transition_task_file, _grouping_unit_to_shard_id = build_knowledge_grouping_task_file(
+        assignment_id="worker-001",
+        worker_id="worker-001",
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id=classification_answers_by_unit_id,
+        unit_to_shard_id=unit_to_shard_id,
+        max_units_per_batch=int(
+            classification_task_file["grouping_limits"]["max_units_per_batch"]
+        ),
+        max_evidence_chars_per_batch=int(
+            classification_task_file["grouping_limits"]["max_evidence_chars_per_batch"]
+        ),
+    )
+
+    assert classification_task_file["grouping_limits"] == {
+        "max_units_per_batch": 2,
+        "max_evidence_chars_per_batch": 10_000,
+    }
+    assert len(transition_task_file["units"]) == 2
+    assert transition_task_file["grouping_batch"]["max_units_per_batch"] == 2
+    assert transition_task_file["grouping_batch"]["total_batches"] == 2

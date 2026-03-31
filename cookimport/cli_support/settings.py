@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Mapping
 
+from cookimport.config.runtime_support import serialized_run_setting_default
 from cookimport.epub_extractor_names import (
     EPUB_EXTRACTOR_CANONICAL_SET,
     is_policy_locked_epub_extractor_name,
@@ -23,10 +24,44 @@ def _runtime():
 def _load_settings() -> Dict[str, Any]:
     runtime = _runtime()
     source_parallel_default = _all_method_default_parallel_sources_from_cpu()
+    run_setting_keys = (
+        "workers",
+        "pdf_split_workers",
+        "epub_split_workers",
+        "epub_extractor",
+        "epub_unstructured_html_parser_version",
+        "epub_unstructured_skip_headers_footers",
+        "epub_unstructured_preprocess_mode",
+        "web_schema_extractor",
+        "web_schema_normalizer",
+        "web_html_text_extractor",
+        "web_schema_policy",
+        "web_schema_min_confidence",
+        "web_schema_min_ingredients",
+        "web_schema_min_instruction_steps",
+        "llm_recipe_pipeline",
+        "llm_knowledge_pipeline",
+        "line_role_pipeline",
+        "atomic_block_splitter",
+        "pdf_ocr_policy",
+        "codex_farm_cmd",
+        "codex_farm_root",
+        "codex_farm_workspace_root",
+        "codex_farm_model",
+        "codex_farm_reasoning_effort",
+        "codex_farm_context_blocks",
+        "codex_farm_knowledge_context_blocks",
+        "ocr_device",
+        "ocr_batch_size",
+        "pdf_pages_per_job",
+        "epub_spine_items_per_job",
+        "warm_models",
+    )
     defaults = {
-        "workers": 7,
-        "pdf_split_workers": 7,
-        "epub_split_workers": 7,
+        **{
+            key: serialized_run_setting_default(key)
+            for key in run_setting_keys
+        },
         runtime.ALL_METHOD_MAX_PARALLEL_SOURCES_SETTING_KEY: source_parallel_default,
         runtime.ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY: runtime.ALL_METHOD_SCHEDULER_SCOPE_DEFAULT,
         runtime.ALL_METHOD_MAX_INFLIGHT_SETTING_KEY: runtime.ALL_METHOD_MAX_INFLIGHT_DEFAULT,
@@ -45,36 +80,8 @@ def _load_settings() -> Dict[str, Any]:
             runtime.ALL_METHOD_SOURCE_SHARD_MIN_VARIANTS_DEFAULT
         ),
         runtime.ALL_METHOD_SMART_SCHEDULER_SETTING_KEY: True,
-        "epub_extractor": "unstructured",
-        "epub_unstructured_html_parser_version": "v1",
-        "epub_unstructured_skip_headers_footers": True,
-        "epub_unstructured_preprocess_mode": "br_split_v1",
-        "web_schema_extractor": "builtin_jsonld",
-        "web_schema_normalizer": "simple",
-        "web_html_text_extractor": "bs4",
-        "web_schema_policy": "prefer_schema",
-        "web_schema_min_confidence": 0.75,
-        "web_schema_min_ingredients": 2,
-        "web_schema_min_instruction_steps": 1,
-        "llm_recipe_pipeline": "off",
-        "llm_knowledge_pipeline": "off",
-        "line_role_pipeline": "off",
-        "atomic_block_splitter": "off",
-        "pdf_ocr_policy": "auto",
-        "codex_farm_cmd": "codex-farm",
-        "codex_farm_root": None,
-        "codex_farm_workspace_root": None,
-        "codex_farm_model": None,
-        "codex_farm_reasoning_effort": None,
-        "codex_farm_context_blocks": 30,
-        "codex_farm_knowledge_context_blocks": 0,
         "label_studio_url": "",
         "label_studio_api_key": "",
-        "ocr_device": "auto",
-        "ocr_batch_size": 1,
-        "pdf_pages_per_job": 50,
-        "epub_spine_items_per_job": 10,
-        "warm_models": False,
         "output_dir": str(runtime.DEFAULT_INTERACTIVE_OUTPUT),
     }
     if not runtime.DEFAULT_CONFIG_PATH.exists():

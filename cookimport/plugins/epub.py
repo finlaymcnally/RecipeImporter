@@ -278,6 +278,7 @@ class EpubImporter:
         # Keep defaults initialized so probe paths share the same runtime contract.
         self._overrides = None
         self._section_detector_backend = "shared_v1"
+        self._runtime_run_settings: RunSettings | None = None
 
     def detect(self, path: Path) -> float:
         if path.suffix.lower() == ".epub":
@@ -349,6 +350,7 @@ class EpubImporter:
         raw_artifacts: list[RawArtifact] = []
         overrides = mapping.parsing_overrides if mapping else None
         self._overrides = overrides
+        self._runtime_run_settings = run_settings
         self._section_detector_backend = str(
             getattr(getattr(run_settings, "section_detector_backend", None), "value", "shared_v1")
         )
@@ -618,6 +620,7 @@ class EpubImporter:
         finally:
             self._overrides = None
             self._section_detector_backend = "shared_v1"
+            self._runtime_run_settings = None
 
     def _extract_docpack(
         self,
@@ -1172,7 +1175,11 @@ class EpubImporter:
             starts: List[Tuple[int, int]] = []
             seen_starts: set[int] = set()
             for idx in yield_indices:
-                title_idx = self._backtrack_for_title(blocks, idx, limit=8)
+                title_idx = self._backtrack_for_title(
+                    blocks,
+                    idx,
+                    limit=self._epub_anchor_title_backtrack_limit(),
+                )
                 start_idx = title_idx if title_idx != -1 else idx
                 if start_idx in seen_starts:
                     continue
@@ -1318,12 +1325,37 @@ class EpubImporter:
             }
         return rewritten, rewritten_meta, trace_payload
 
-    def _backtrack_for_title(self, blocks: List[Block], anchor_idx: int, limit: int = 20) -> int:
+    def _runtime_int_setting(self, name: str, default: int) -> int:
+        value = getattr(self._runtime_run_settings, name, default)
+        try:
+            return max(1, int(getattr(value, "value", value)))
+        except (TypeError, ValueError):
+            return int(default)
+
+    def _epub_title_backtrack_limit(self) -> int:
+        return self._runtime_int_setting("epub_title_backtrack_limit", 20)
+
+    def _epub_anchor_title_backtrack_limit(self) -> int:
+        return self._runtime_int_setting("epub_anchor_title_backtrack_limit", 8)
+
+    def _epub_ingredient_run_window(self) -> int:
+        return self._runtime_int_setting("epub_ingredient_run_window", 8)
+
+    def _epub_ingredient_header_window(self) -> int:
+        return self._runtime_int_setting("epub_ingredient_header_window", 12)
+
+    def _epub_title_max_length(self) -> int:
+        return self._runtime_int_setting("epub_title_max_length", 80)
+
+    def _backtrack_for_title(self, blocks: List[Block], anchor_idx: int, limit: int | None = None) -> int:
         """
         Look backwards from an anchor to find a likely title.
         """
+        resolved_limit = (
+            self._epub_title_backtrack_limit() if limit is None else max(1, int(limit))
+        )
         best_idx = -1
-        min_idx = max(-1, anchor_idx - limit)
+        min_idx = max(-1, anchor_idx - resolved_limit)
         for i in range(anchor_idx - 1, min_idx, -1):
             b = blocks[i]
             if b.features.get("exclude_from_candidate_detection"):
@@ -1348,7 +1380,7 @@ class EpubImporter:
                     start_idx = j
                     j -= 1
                 return start_idx
-            if best_idx == -1 and len(b.text.strip()) <= 80:
+            if best_idx == -1 and len(b.text.strip()) <= self._epub_title_max_length():
                 if not self._is_ingredient_like(b) and not self._is_instruction_like(b):
                     best_idx = i
         return best_idx
@@ -1723,10 +1755,13 @@ class EpubImporter:
         self,
         blocks: List[Block],
         start_idx: int,
-        window: int = 8,
+        window: int | None = None,
     ) -> bool:
+        resolved_window = (
+            self._epub_ingredient_run_window() if window is None else max(1, int(window))
+        )
         count = 0
-        for idx in range(start_idx, min(len(blocks), start_idx + window)):
+        for idx in range(start_idx, min(len(blocks), start_idx + resolved_window)):
             if self._is_ingredient_like(blocks[idx]):
                 count += 1
             if count >= 2:
@@ -1737,16 +1772,21 @@ class EpubImporter:
         self,
         blocks: List[Block],
         start_idx: int,
-        window: int = 12,
+        window: int | None = None,
     ) -> bool:
-        for idx in range(start_idx, min(len(blocks), start_idx + window)):
+        resolved_window = (
+            self._epub_ingredient_header_window()
+            if window is None
+            else max(1, int(window))
+        )
+        for idx in range(start_idx, min(len(blocks), start_idx + resolved_window)):
             if blocks[idx].features.get("is_ingredient_header"):
                 return True
         return False
 
     def _is_title_candidate(self, block: Block) -> bool:
         text = block.text.strip()
-        if not text or len(text) > 80:
+        if not text or len(text) > self._epub_title_max_length():
             return False
         if block.features.get("is_instruction_header"):
             return False

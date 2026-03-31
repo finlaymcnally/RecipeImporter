@@ -9,6 +9,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from cookimport.config.runtime_support import (
+    resolve_single_book_split_cache_poll_seconds,
+    resolve_single_book_split_cache_wait_seconds,
+)
 from cookimport.labelstudio.ingest_support import _notify_progress_callback
 
 try:  # pragma: no cover - Windows fallback keeps behavior deterministic.
@@ -18,8 +22,8 @@ except ImportError:  # pragma: no cover
 
 SINGLE_BOOK_SPLIT_CACHE_SCHEMA_VERSION = "single_book_split_cache.v1"
 SINGLE_BOOK_SPLIT_CACHE_LOCK_SUFFIX = ".lock"
-SINGLE_BOOK_SPLIT_CACHE_WAIT_SECONDS = 120.0
-SINGLE_BOOK_SPLIT_CACHE_POLL_SECONDS = 0.25
+SINGLE_BOOK_SPLIT_CACHE_WAIT_SECONDS = resolve_single_book_split_cache_wait_seconds()
+SINGLE_BOOK_SPLIT_CACHE_POLL_SECONDS = resolve_single_book_split_cache_poll_seconds()
 
 
 def _normalize_single_book_split_cache_mode(value: str | None) -> str:

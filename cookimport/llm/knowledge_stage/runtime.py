@@ -734,6 +734,7 @@ def _run_direct_knowledge_workers_v1(
                 env=env,
                 model=model,
                 reasoning_effort=reasoning_effort,
+                settings=settings,
                 cohort_watchdog_state=cohort_watchdog_state,
                 shard_completed_callback=_mark_shard_completed,
                 progress_state=progress_state,

@@ -109,6 +109,39 @@ def test_build_stage_call_kwargs_propagates_codex_prompt_targets() -> None:
     assert kwargs["llm_knowledge_pipeline"] == "codex-knowledge-candidate-v2"
 
 
+def test_build_stage_call_kwargs_propagates_runtime_defaults_knobs() -> None:
+    settings = RunSettings(
+        epub_title_backtrack_limit=31,
+        epub_anchor_title_backtrack_limit=11,
+        epub_ingredient_run_window=9,
+        epub_ingredient_header_window=14,
+        epub_title_max_length=96,
+        knowledge_group_task_max_units=17,
+        knowledge_group_task_max_evidence_chars=3456,
+        workspace_completion_quiescence_seconds=21.5,
+        completed_termination_grace_seconds=18.0,
+    )
+
+    kwargs = build_stage_call_kwargs_from_run_settings(
+        settings,
+        out=Path("/tmp/out"),
+        mapping=None,
+        overrides=None,
+        limit=None,
+        write_markdown=False,
+    )
+
+    assert kwargs["epub_title_backtrack_limit"] == 31
+    assert kwargs["epub_anchor_title_backtrack_limit"] == 11
+    assert kwargs["epub_ingredient_run_window"] == 9
+    assert kwargs["epub_ingredient_header_window"] == 14
+    assert kwargs["epub_title_max_length"] == 96
+    assert kwargs["knowledge_group_task_max_units"] == 17
+    assert kwargs["knowledge_group_task_max_evidence_chars"] == 3456
+    assert kwargs["workspace_completion_quiescence_seconds"] == 21.5
+    assert kwargs["completed_termination_grace_seconds"] == 18.0
+
+
 def test_build_benchmark_call_kwargs_propagates_webschema_fields() -> None:
     fixed_bucket1_behavior = bucket1_fixed_behavior()
     settings = RunSettings(
@@ -225,6 +258,40 @@ def test_build_benchmark_call_kwargs_propagates_codex_prompt_targets() -> None:
     assert kwargs["line_role_prompt_target_count"] == 5
     assert kwargs["knowledge_prompt_target_count"] == 4
     assert kwargs["llm_knowledge_pipeline"] == "codex-knowledge-candidate-v2"
+
+
+def test_build_benchmark_call_kwargs_propagates_runtime_defaults_knobs() -> None:
+    settings = RunSettings(
+        epub_title_backtrack_limit=29,
+        epub_anchor_title_backtrack_limit=10,
+        epub_ingredient_run_window=7,
+        epub_ingredient_header_window=13,
+        epub_title_max_length=88,
+        knowledge_group_task_max_units=23,
+        knowledge_group_task_max_evidence_chars=6789,
+        workspace_completion_quiescence_seconds=16.25,
+        completed_termination_grace_seconds=19.75,
+    )
+
+    kwargs = build_benchmark_call_kwargs_from_run_settings(
+        settings,
+        output_dir=Path("/tmp/output"),
+        eval_output_dir=Path("/tmp/eval"),
+        eval_mode="canonical-text",
+        no_upload=True,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+    )
+
+    assert kwargs["epub_title_backtrack_limit"] == 29
+    assert kwargs["epub_anchor_title_backtrack_limit"] == 10
+    assert kwargs["epub_ingredient_run_window"] == 7
+    assert kwargs["epub_ingredient_header_window"] == 13
+    assert kwargs["epub_title_max_length"] == 88
+    assert kwargs["knowledge_group_task_max_units"] == 23
+    assert kwargs["knowledge_group_task_max_evidence_chars"] == 6789
+    assert kwargs["workspace_completion_quiescence_seconds"] == 16.25
+    assert kwargs["completed_termination_grace_seconds"] == 19.75
 
 
 def test_build_benchmark_call_kwargs_matches_labelstudio_benchmark_signature() -> None:
