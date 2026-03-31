@@ -342,11 +342,6 @@ def _build_line_role_task_file(
                         "block_id": str(debug_row.get("block_id") or ""),
                         "text": text,
                         "within_recipe_span": debug_row.get("within_recipe_span"),
-                        "reason_hints": [
-                            str(value).strip()
-                            for value in (debug_row.get("escalation_reasons") or [])
-                            if str(value).strip()
-                        ],
                     },
                     "answer": {},
                 }

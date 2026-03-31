@@ -61,11 +61,15 @@ def test_worker_prompt_describes_task_file_contract() -> None:
 
     assert "task.json" in prompt
     assert (
-        "Open `task.json`, read it once, edit only `/units/*/answer`, save the same file, and then run "
-        "`python3 -m cookimport.llm.knowledge_same_session_handoff`." in prompt
+        "Start with `python3 -m cookimport.llm.editable_task_file --summary`." in prompt
+    )
+    assert (
+        "`python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>` or "
+        "`python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`." in prompt
     )
     assert "`task.json` is the whole job at each step." in prompt
     assert "- Start with `task.json`." in prompt
+    assert "- If the task file is large, inspect only the units you need with `--show-unit <unit_id>` or `--show-unanswered --limit 5`." in prompt
     assert "- Edit only the `answer` object inside each unit." in prompt
     assert (
         "- After each edit pass, run `python3 -m cookimport.llm.knowledge_same_session_handoff` "

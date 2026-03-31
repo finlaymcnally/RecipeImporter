@@ -190,6 +190,7 @@ def test_inspect_task_file_units_can_filter_and_page_unanswered_rows() -> None:
         "label": "RECIPE_NOTES",
         "exclusion_reason": None,
     }
+    task_file["units"][1]["answer"] = {}  # type: ignore[index]
 
     result = inspect_task_file_units(
         payload=task_file,

@@ -371,7 +371,14 @@ def test_prepare_direct_exec_workspace_worker_mode_knows_assignment_first_knowle
     assert worker_manifest["workspace_shell_policy"].startswith(
         "The happy path is direct in-place editing of `task.json`"
     )
-    assert "sed -n '1,220p' task.json" in worker_manifest["workspace_local_shell_examples"]
+    assert (
+        "python3 -m cookimport.llm.editable_task_file --summary"
+        in worker_manifest["workspace_local_shell_examples"]
+    )
+    assert (
+        "python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5"
+        in worker_manifest["workspace_local_shell_examples"]
+    )
     assert worker_manifest["workspace_commands_forbidden"] == [
         "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
         "non-temp absolute paths outside approved local temp roots",

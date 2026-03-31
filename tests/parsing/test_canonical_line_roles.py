@@ -6111,7 +6111,12 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
     )
     assert task_file_payload["stage_key"] == "line_role"
     assert task_file_payload["editable_json_pointers"] == ["/units/0/answer"]
-    assert "deterministic_hint_label" not in task_file_payload["units"][0]["evidence"]
+    assert task_file_payload["units"][0]["evidence"] == {
+        "atomic_index": 0,
+        "block_id": "block:0",
+        "text": "Ambiguous line 0",
+        "within_recipe_span": None,
+    }
     assigned_shards_payload = json.loads(
         (
             prompt_root
@@ -6265,7 +6270,12 @@ def test_label_atomic_lines_writes_one_shard_owned_ledger_without_line_role_task
     assert task_file_payload["helper_commands"]["show_unanswered"].endswith("--show-unanswered --limit 5")
     assert task_file_payload["answer_schema"]["example_answers"][0]["label"] == "RECIPE_NOTES"
     assert all(
-        "deterministic_hint_label" not in unit["evidence"]
+        set(unit["evidence"]) == {
+            "atomic_index",
+            "block_id",
+            "text",
+            "within_recipe_span",
+        }
         for unit in task_file_payload["units"]
     )
     assigned_shards = json.loads(
