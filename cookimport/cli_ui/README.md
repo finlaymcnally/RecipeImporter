@@ -1,6 +1,7 @@
 Interactive run-settings UI helpers.
 
 - `run_settings_flow.py` asks `Workflow for this run?` for interactive Import/Benchmark flows.
+- The interactive benchmark preset shortcut `saltfatacidheatcutdown_fast_codexfarm` reuses this module's normal CodexFarm top-tier harmonization, then pins all three Codex benchmark surfaces on, shard counts to `5/5/5`, model override to `gpt-5.3-codex-spark`, and reasoning effort to `low`.
 - The workflow toggle still collapses to `off` vs shard-backed Codex, but the menu renders only the family labels `Vanilla / no Codex` and `CodexFarm`.
 - Any non-`off` choice resolves `CodexFarm automatic top-tier` (winner-preferred when available).
 - Interactive Codex-enabled flows now reuse one consolidated Codex submenu after the workflow choice when CodexFarm is selected:

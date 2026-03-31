@@ -65,6 +65,9 @@ _CODEX_SURFACE_PROMPT_TARGET_FIELDS: dict[str, tuple[str, str]] = {
     "line_role": ("line_role_prompt_target_count", "Block labelling"),
     "knowledge": ("knowledge_prompt_target_count", "Knowledge"),
 }
+INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST = (
+    "saltfatacidheatcutdown_fast_codexfarm"
+)
 
 
 def _worker_utilization() -> float | None:
@@ -775,6 +778,42 @@ def choose_codex_ai_settings(
         selected_settings=selected_settings,
         menu_select=menu_select,
         back_action=back_action,
+    )
+
+
+def build_interactive_benchmark_preset_settings(
+    *,
+    preset_id: str,
+    global_defaults: RunSettings,
+    output_dir: Path,
+) -> RunSettings:
+    normalized_preset_id = str(preset_id or "").strip().lower()
+    if normalized_preset_id != INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST:
+        raise ValueError(f"Unknown interactive benchmark preset: {preset_id}")
+
+    qualitysuite_winner_settings = load_qualitysuite_winner_run_settings(output_dir)
+    selected_settings = (
+        qualitysuite_winner_settings
+        if qualitysuite_winner_settings is not None
+        else _default_top_tier_settings(global_defaults)
+    )
+    selected_settings = _harmonize_top_tier_pipeline_settings(
+        selected_settings,
+        profile="codexfarm",
+        warn_context="interactive benchmark preset top-tier harmonization",
+    )
+    return _patch_interactive_settings(
+        selected_settings,
+        warn_context="interactive benchmark preset overrides",
+        llm_recipe_pipeline=RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
+        line_role_pipeline=LINE_ROLE_PIPELINE_ROUTE_V2,
+        llm_knowledge_pipeline=KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
+        atomic_block_splitter=selected_settings.atomic_block_splitter.value,
+        recipe_prompt_target_count=5,
+        line_role_prompt_target_count=5,
+        knowledge_prompt_target_count=5,
+        codex_farm_model="gpt-5.3-codex-spark",
+        codex_farm_reasoning_effort="low",
     )
 
 

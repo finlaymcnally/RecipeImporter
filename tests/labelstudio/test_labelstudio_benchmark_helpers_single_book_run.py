@@ -395,6 +395,74 @@ def test_interactive_single_book_uses_book_slug_in_session_root_when_source_sele
         / "vanilla"
     )
 
+
+def test_interactive_single_book_uses_preselected_gold_when_resolving_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    selected_settings = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "off"},
+        warn_context="test preselected single-book gold",
+    )
+    benchmark_eval_output = (
+        tmp_path / "golden" / "benchmark-vs-golden" / "2026-03-02_12.34.56"
+    )
+    processed_output_root = tmp_path / "output"
+    source_file = tmp_path / "The Book Name.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = (
+        tmp_path
+        / "gold"
+        / "pulled-from-labelstudio"
+        / "saltfatacidheatcutdown"
+        / "exports"
+        / "freeform_span_labels.jsonl"
+    )
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    resolve_kwargs: dict[str, object] = {}
+
+    class _FakeStdin:
+        def isatty(self) -> bool:
+            return True
+
+    monkeypatch.setattr(cli.sys, "stdin", _FakeStdin())
+    _patch_cli_attr(monkeypatch, "_resolve_benchmark_gold_and_source",
+        lambda **kwargs: resolve_kwargs.update(kwargs) or (gold_spans, source_file),
+    )
+
+    benchmark_calls: list[dict[str, object]] = []
+
+    def fake_labelstudio_benchmark(**kwargs):
+        benchmark_calls.append(kwargs)
+        eval_output_dir = kwargs["eval_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps({"precision": 0.20, "recall": 0.30, "f1": 0.24}),
+            encoding="utf-8",
+        )
+        (eval_output_dir / "run_manifest.json").write_text(
+            json.dumps({"source": {"path": str(source_file)}}),
+            encoding="utf-8",
+        )
+
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+
+    completed = cli._interactive_single_book_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=processed_output_root,
+        preselected_gold_spans=gold_spans,
+    )
+
+    assert completed is True
+    assert resolve_kwargs["gold_spans"] == gold_spans
+    assert resolve_kwargs["source_file"] is None
+    assert len(benchmark_calls) == 1
+    assert benchmark_calls[0]["gold_spans"] == gold_spans
+
+
 def test_interactive_single_book_codex_disabled_runs_only_vanilla_and_skips_comparison(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

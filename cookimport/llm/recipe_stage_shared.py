@@ -282,6 +282,12 @@ def _build_recipe_task_file_unit(
 def _recipe_task_file_helper_commands() -> dict[str, str]:
     return {
         "summary": "python3 -m cookimport.llm.editable_task_file --summary",
+        "show_unit": (
+            "python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>"
+        ),
+        "show_unanswered": (
+            "python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5"
+        ),
         "apply_answer_json": (
             "python3 -m cookimport.llm.editable_task_file --set-answer "
             "<unit_id> '<answer_json>'"
@@ -2333,9 +2339,12 @@ def _build_recipe_task_file_worker_prompt(
             "Resume from the existing `task.json` and current workspace state."
             if fresh_session_resume
             else (
-                f"Open `{TASK_FILE_NAME}`, read the whole file once, edit only "
-                "`/units/*/answer`, save the same file, and then run "
-                "`python3 -m cookimport.llm.recipe_same_session_handoff`."
+                "Start with `python3 -m cookimport.llm.editable_task_file --summary`."
+                " If you need the payload for specific units, use "
+                "`python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>` "
+                "or `python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`."
+                f" Then edit only `/units/*/answer` in `{TASK_FILE_NAME}`, save the "
+                "same file, and run `python3 -m cookimport.llm.recipe_same_session_handoff`."
             )
         ),
         "`task.json` already contains the full job for this worker. You do not need extra manifests, queue state, or hidden context before editing it.",
@@ -2367,6 +2376,8 @@ def _build_recipe_task_file_worker_prompt(
             "",
             "Worker contract:",
             "- Start with `task.json`.",
+            "- Prefer `python3 -m cookimport.llm.editable_task_file --summary` before opening raw file contents.",
+            "- If the file is large, inspect only the units you need with `--show-unit <unit_id>` or `--show-unanswered --limit 5`.",
             "- If you need orientation first, run `python3 -m cookimport.llm.recipe_same_session_handoff --status`.",
             "- If the workspace feels inconsistent, run `python3 -m cookimport.llm.recipe_same_session_handoff --doctor` before inventing shell scripts.",
             "- Edit only the `answer` object inside each unit.",

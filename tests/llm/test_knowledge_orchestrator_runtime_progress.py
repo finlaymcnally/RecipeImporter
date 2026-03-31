@@ -9,6 +9,7 @@ import pytest
 
 from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.llm.knowledge_stage import runtime as knowledge_module
+from cookimport.llm.workspace_worker_progress import summarize_workspace_worker_health
 from cookimport.llm.codex_exec_runner import (
     FakeCodexExecRunner,
 )
@@ -170,6 +171,34 @@ def test_knowledge_orchestrator_surfaces_worker_attention_in_progress(
         for payload in payloads
     )
     assert any(payload.get("last_activity_at") for payload in payloads)
+
+
+def test_workspace_worker_progress_does_not_treat_inflight_final_message_as_missing_output(
+    tmp_path: Path,
+) -> None:
+    worker_root = tmp_path / "worker-001"
+    worker_root.mkdir(parents=True, exist_ok=True)
+    (worker_root / "live_status.json").write_text(
+        json.dumps(
+            {
+                "state": "running",
+                "has_final_agent_message": True,
+                "workspace_output_complete": False,
+                "final_message_missing_output_deadline_reached": False,
+                "last_event_seconds_ago": 2.0,
+                "warning_codes": [],
+                "warning_count": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = summarize_workspace_worker_health(
+        worker_roots_by_id={"worker-001": worker_root}
+    )
+
+    assert summary.attention_suffix_by_worker_id == {}
+    assert summary.attention_lines == ()
 
 
 def test_knowledge_orchestrator_runs_shard_workers_concurrently(

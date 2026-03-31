@@ -427,9 +427,11 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
     worker_manifest = fixture["worker_manifest"]
 
     worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
-    assert "Open `task.json`, read the whole file once" in worker_prompt
+    assert "Start with `python3 -m cookimport.llm.editable_task_file --summary`." in worker_prompt
+    assert "python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>` or `python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`." in worker_prompt
     assert "edit only `/units/*/answer`" in worker_prompt
     assert "`task.json` already contains the full job for this worker." in worker_prompt
+    assert "Prefer `python3 -m cookimport.llm.editable_task_file --summary` before opening raw file contents." in worker_prompt
     assert "If you briefly reread part of the file or make a small local false start" in worker_prompt
     assert "Do not invent helper ledgers, queue files, or alternate output files." in worker_prompt
     assert "run `python3 -m cookimport.llm.recipe_same_session_handoff`" in worker_prompt
@@ -477,6 +479,8 @@ def test_recipe_phase_runtime_uses_fixed_assignment_task_manifest(
     ]
     assert task_file["helper_commands"]["status"].endswith("--status")
     assert task_file["helper_commands"]["doctor"].endswith("--doctor")
+    assert task_file["helper_commands"]["show_unit"].endswith("--show-unit <unit_id>")
+    assert task_file["helper_commands"]["show_unanswered"].endswith("--show-unanswered --limit 5")
     assert task_file["answer_schema"]["example_answers"][0]["status"] == "repaired"
     assert not (worker_root / "CURRENT_TASK.md").exists()
     assert not (worker_root / "CURRENT_TASK_FEEDBACK.md").exists()

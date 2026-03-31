@@ -155,6 +155,12 @@ def build_task_file_answer_feedback(
 def _knowledge_helper_commands(*, stage_key: str) -> dict[str, str]:
     return {
         "summary": "python3 -m cookimport.llm.editable_task_file --summary",
+        "show_unit": (
+            "python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>"
+        ),
+        "show_unanswered": (
+            "python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5"
+        ),
         "apply_answer_json": (
             "python3 -m cookimport.llm.editable_task_file --set-answer "
             "<unit_id> '<answer_json>'"

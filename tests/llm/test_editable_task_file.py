@@ -7,6 +7,7 @@ from cookimport.llm.editable_task_file import _load_answer_mapping_file
 from cookimport.llm.editable_task_file import apply_answers_to_task_file
 from cookimport.llm.editable_task_file import build_repair_task_file
 from cookimport.llm.editable_task_file import build_task_file
+from cookimport.llm.editable_task_file import inspect_task_file_units
 from cookimport.llm.editable_task_file import load_task_file
 from cookimport.llm.editable_task_file import summarize_task_file
 from cookimport.llm.editable_task_file import write_task_file
@@ -160,6 +161,47 @@ def test_summarize_task_file_reports_answer_progress() -> None:
     assert summary["answered_units"] == 2
     assert summary["total_units"] == 2
     assert summary["unanswered_unit_ids"] == []
+    assert summary["editable_pointer_count"] == 2
+    assert summary["editable_json_pointers_sample"] == [
+        "/units/0/answer",
+        "/units/1/answer",
+    ]
+    assert summary["editable_json_pointers_truncated"] is False
+
+
+def test_inspect_task_file_units_returns_specific_requested_units() -> None:
+    task_file = _base_task_file()
+
+    result = inspect_task_file_units(
+        payload=task_file,
+        task_file_path="task.json",
+        unit_ids=["line::1", "missing-unit", "line::0"],
+    )
+
+    assert result["returned_unit_ids"] == ["line::1", "line::0"]
+    assert result["missing_unit_ids"] == ["missing-unit"]
+    assert [unit["unit_id"] for unit in result["units"]] == ["line::1", "line::0"]
+    assert result["matching_unit_count"] == 2
+
+
+def test_inspect_task_file_units_can_filter_and_page_unanswered_rows() -> None:
+    task_file = _base_task_file()
+    task_file["units"][0]["answer"] = {  # type: ignore[index]
+        "label": "RECIPE_NOTES",
+        "exclusion_reason": None,
+    }
+
+    result = inspect_task_file_units(
+        payload=task_file,
+        task_file_path="task.json",
+        answered=False,
+        limit=1,
+    )
+
+    assert result["answered_filter"] is False
+    assert result["matching_unit_count"] == 1
+    assert result["returned_unit_ids"] == ["line::1"]
+    assert result["units"][0]["evidence"]["text"] == "Discard me"
 
 
 def test_apply_answers_to_task_file_updates_only_answer_objects(tmp_path: Path) -> None:

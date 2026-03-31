@@ -267,6 +267,8 @@ def _interactive_single_book_benchmark(
     single_book_split_cache_mode: str = "auto",
     single_book_split_cache_dir: Path | None = None,
     single_book_split_cache_force: bool = False,
+    preselected_gold_spans: Path | None = None,
+    preselected_source_file: Path | None = None,
     publisher: Callable[
         [_SingleBookBenchmarkComputationResult],
         _SingleBookBenchmarkPublicationResult,
@@ -279,12 +281,16 @@ def _interactive_single_book_benchmark(
         typer.secho("No single-book benchmark variants were planned.", fg=typer.colors.YELLOW)
         return False
 
-    selected_gold: Path | None = None
-    selected_source: Path | None = None
-    if hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
+    selected_gold = preselected_gold_spans
+    selected_source = preselected_source_file
+    if (
+        (selected_gold is None or selected_source is None)
+        and hasattr(sys.stdin, "isatty")
+        and sys.stdin.isatty()
+    ):
         resolved_inputs = _resolve_benchmark_gold_and_source(
-            gold_spans=None,
-            source_file=None,
+            gold_spans=selected_gold,
+            source_file=selected_source,
             output_dir=resolved_golden_root,
             allow_cancel=True,
         )

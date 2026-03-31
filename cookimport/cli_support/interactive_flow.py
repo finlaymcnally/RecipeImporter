@@ -31,6 +31,39 @@ def _stats_dashboard_command():
 def _stage_command():
     return resolve_registered_command("cookimport.cli_commands.stage", "stage")
 
+
+def _resolve_interactive_benchmark_preset_gold(
+    *,
+    preset_id: str,
+    output_dir: Path,
+) -> Path | None:
+    normalized_preset_id = str(preset_id or "").strip().lower()
+    if (
+        normalized_preset_id
+        != INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST
+    ):
+        return None
+    target_display = "saltfatacidheatcutdown"
+    for path in _discover_freeform_gold_exports(output_dir):
+        display_label = _display_gold_export_path(path, output_dir).strip().lower()
+        if display_label == target_display:
+            return path
+    return None
+
+
+def _interactive_benchmark_preset_summary(preset_id: str) -> str:
+    normalized_preset_id = str(preset_id or "").strip().lower()
+    if (
+        normalized_preset_id
+        == INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST
+    ):
+        return (
+            "saltfatacidheatcutdown fast CodexFarm "
+            "(block labelling + recipe + knowledge, 5/5/5, "
+            "gpt-5.3-codex-spark, low)"
+        )
+    return normalized_preset_id or "interactive benchmark preset"
+
 def _interactive_mode(*, limit: int | None = None) -> None:
     """Run the interactive guided flow."""
     typer.secho("\n  Recipe Import Tool\n", fg=typer.colors.CYAN, bold=True)
@@ -598,6 +631,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 menu_help=(
                     "All modes are offline (no upload).\n"
                     "Single book runs one local prediction + eval vs freeform gold.\n"
+                    "Salt Fat Acid Heat preset jumps straight to one saved fast CodexFarm single-book run.\n"
                     "Selected matched books lets you pick specific books.\n"
                     "All matched books repeats that same config across each matched golden set."
                 ),
@@ -605,6 +639,13 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     questionary.Choice(
                         "Single Book: One local prediction + eval vs freeform gold",
                         value=INTERACTIVE_BENCHMARK_MODE_SINGLE_BOOK,
+                    ),
+                    questionary.Choice(
+                        (
+                            "Salt Fat Acid Heat preset: "
+                            "Fast CodexFarm single-book benchmark"
+                        ),
+                        value=INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST,
                     ),
                     questionary.Choice(
                         "Selected Matched Books: Pick which matched books to run",
@@ -628,20 +669,51 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 benchmark_defaults_payload,
                 warn_context="interactive benchmark global settings",
             )
-            selected_benchmark_settings = choose_run_settings(
-                global_defaults=benchmark_defaults,
-                output_dir=output_folder,
-                menu_select=_menu_select,
-                back_action=BACK_ACTION,
-                prompt_confirm=_prompt_confirm,
-                prompt_text=_prompt_text,
-                prompt_codex_ai_settings=True,
-                prompt_recipe_pipeline_menu=True,
-                prompt_benchmark_llm_surface_toggles=True,
-            )
-            if selected_benchmark_settings is None:
-                typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
-                continue
+            preset_gold_spans: Path | None = None
+            if (
+                benchmark_mode
+                == INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST
+            ):
+                selected_benchmark_settings = build_interactive_benchmark_preset_settings(
+                    preset_id=benchmark_mode,
+                    global_defaults=benchmark_defaults,
+                    output_dir=output_folder,
+                )
+                preset_gold_spans = _resolve_interactive_benchmark_preset_gold(
+                    preset_id=benchmark_mode,
+                    output_dir=DEFAULT_GOLDEN,
+                )
+                if preset_gold_spans is None:
+                    typer.secho(
+                        (
+                            "Benchmark cancelled. Could not find a freeform gold export "
+                            "labeled `saltfatacidheatcutdown`."
+                        ),
+                        fg=typer.colors.YELLOW,
+                    )
+                    continue
+                typer.secho(
+                    (
+                        "Using benchmark preset: "
+                        f"{_interactive_benchmark_preset_summary(benchmark_mode)}"
+                    ),
+                    fg=typer.colors.CYAN,
+                )
+            else:
+                selected_benchmark_settings = choose_run_settings(
+                    global_defaults=benchmark_defaults,
+                    output_dir=output_folder,
+                    menu_select=_menu_select,
+                    back_action=BACK_ACTION,
+                    prompt_confirm=_prompt_confirm,
+                    prompt_text=_prompt_text,
+                    prompt_codex_ai_settings=True,
+                    prompt_recipe_pipeline_menu=True,
+                    prompt_benchmark_llm_surface_toggles=True,
+                )
+                if selected_benchmark_settings is None:
+                    typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
+                    continue
 
             typer.secho(
                 f"Run settings hash: {selected_benchmark_settings.short_hash()}",
@@ -661,7 +733,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 default=False,
             )
 
-            if benchmark_mode == INTERACTIVE_BENCHMARK_MODE_SINGLE_BOOK:
+            if benchmark_mode in {
+                INTERACTIVE_BENCHMARK_MODE_SINGLE_BOOK,
+                INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST,
+            }:
                 _interactive_single_book_benchmark(
                     selected_benchmark_settings=selected_benchmark_settings,
                     benchmark_eval_output=benchmark_eval_output,
@@ -670,6 +745,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     write_markdown=benchmark_write_markdown,
                     write_label_studio_tasks=benchmark_write_labelstudio_tasks,
                     write_starter_pack=benchmark_write_single_book_starter_pack,
+                    preselected_gold_spans=preset_gold_spans,
                 )
             elif benchmark_mode in {
                 INTERACTIVE_BENCHMARK_MODE_SELECTED_MATCHED_BOOKS,

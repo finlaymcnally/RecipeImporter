@@ -978,6 +978,36 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
     assert selected.atomic_block_splitter.value == "off"
 
 
+def test_build_interactive_benchmark_preset_settings_resolves_fast_codexfarm_single_book(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "off"},
+        warn_context="test interactive benchmark preset defaults",
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+
+    selected = run_settings_flow.build_interactive_benchmark_preset_settings(
+        preset_id=run_settings_flow.INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST,
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+    )
+
+    assert selected.llm_recipe_pipeline.value == "codex-recipe-shard-v1"
+    assert selected.line_role_pipeline.value == "codex-line-role-route-v2"
+    assert selected.llm_knowledge_pipeline.value == "codex-knowledge-candidate-v2"
+    assert selected.recipe_prompt_target_count == 5
+    assert selected.line_role_prompt_target_count == 5
+    assert selected.knowledge_prompt_target_count == 5
+    assert str(selected.codex_farm_model) == "gpt-5.3-codex-spark"
+    assert selected.codex_farm_reasoning_effort is CodexReasoningEffort.low
+
+
 def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowledge_only(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,

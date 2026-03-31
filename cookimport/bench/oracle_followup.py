@@ -262,6 +262,46 @@ def _followup_browser_model_argument(model: str | None) -> str:
     return normalized or cleaned
 
 
+def _source_browser_profile_dir(source_metadata: dict[str, Any]) -> Path | None:
+    browser_profile_text = str(source_metadata.get("browser_profile_dir") or "").strip()
+    if not browser_profile_text:
+        return None
+    return Path(browser_profile_text).expanduser()
+
+
+def _followup_source_browser_model_argument(
+    *,
+    source: OracleFollowupSource,
+    source_metadata: dict[str, Any],
+    explicit_model: str | None,
+) -> str:
+    explicit_browser_model = _followup_browser_model_argument(explicit_model)
+    if explicit_browser_model:
+        return explicit_browser_model
+
+    launch_model = str(source_metadata.get("launch_model") or "").strip()
+    if launch_model:
+        return launch_model
+
+    source_model = _followup_browser_model_argument(str(source_metadata.get("model") or "").strip())
+    if source_model:
+        return source_model
+
+    session_payload = _read_oracle_session_meta_payload(
+        session_id=source.source_session_id,
+        browser_profile_dir=_source_browser_profile_dir(source_metadata),
+    )
+    if not isinstance(session_payload, dict):
+        return ""
+    options_payload = session_payload.get("options")
+    if isinstance(options_payload, dict):
+        for key in ("effectiveModelId", "model"):
+            candidate = str(options_payload.get(key) or "").strip()
+            if candidate:
+                return candidate
+    return str(session_payload.get("model") or "").strip()
+
+
 def parse_requested_followup_text(section_text: str) -> ParsedOracleFollowupRequest:
     cleaned = section_text.strip()
     if not cleaned:
@@ -841,7 +881,7 @@ def _codex_handoff_markdown(
 def _build_continue_session_command(
     *,
     source_session_id: str,
-    model: str | None,
+    browser_model: str,
     prompt: str,
     followup_packet_dir: Path,
 ) -> list[str]:
@@ -851,18 +891,16 @@ def _build_continue_session_command(
         source_session_id,
         prompt,
     ]
-    browser_model = _followup_browser_model_argument(model)
     if browser_model:
-        command.extend(["--model", browser_model])
+        command.extend(["--browser-model-strategy", "select", "--model", browser_model])
     command.extend(["--file", _oracle_file_argument(followup_packet_dir)])
     return command
 
 
 def _oracle_followup_browser_env(source_metadata: dict[str, Any]) -> dict[str, str]:
     env = _oracle_browser_env()
-    browser_profile_text = str(source_metadata.get("browser_profile_dir") or "").strip()
-    if browser_profile_text:
-        browser_profile_dir = Path(browser_profile_text).expanduser()
+    browser_profile_dir = _source_browser_profile_dir(source_metadata)
+    if browser_profile_dir is not None:
         env["ORACLE_BROWSER_PROFILE_DIR"] = str(browser_profile_dir)
         env["ORACLE_HOME_DIR"] = str(browser_profile_dir.parent)
     return env
@@ -970,21 +1008,25 @@ def run_oracle_benchmark_followup(
         request_manifest=request_manifest,
     )
     prompt_text = workspace.prompt_path.read_text(encoding="utf-8")
+    browser_model = _followup_source_browser_model_argument(
+        source=source,
+        source_metadata=source_metadata,
+        explicit_model=explicit_model,
+    )
     command = _build_continue_session_command(
         source_session_id=source.source_session_id,
-        model=explicit_model,
+        browser_model=browser_model,
         prompt=prompt_text,
         followup_packet_dir=workspace.followup_packet_dir,
     )
     browser_env = _oracle_followup_browser_env(source_metadata)
-    launch_model = _followup_browser_model_argument(explicit_model)
     metadata_payload = {
         "bundle_dir": str(target.bundle_dir),
         "source_root": str(target.source_root),
         "scope": target.scope,
         "mode": "browser",
         "model": resolved_model,
-        "launch_model": launch_model,
+        "launch_model": browser_model,
         "browser_profile_dir": str(browser_env.get("ORACLE_BROWSER_PROFILE_DIR") or ""),
         "command": command,
         "log_path": str(workspace.log_path),

@@ -472,7 +472,7 @@ def _build_line_role_workspace_worker_prompt(
     start_instruction = (
         "- Resume from the existing `task.json` and current workspace state.\n"
         if fresh_session_resume
-        else "- Open `task.json`, read the whole file once, edit only `/units/*/answer`, save the same file, and then run `python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff`.\n"
+        else "- Start with `python3 -m cookimport.llm.editable_task_file --summary`. If you need specific unit payloads, use `python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>` or `python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`. Then edit only `/units/*/answer`, save the same file, and run `python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff`.\n"
     )
     return (
         "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger.\n\n"
@@ -481,6 +481,8 @@ def _build_line_role_workspace_worker_prompt(
         f"{start_instruction}"
         "- `task.json` already contains the full assignment. You do not need extra control state, helper ledgers, or hidden context before editing it.\n"
         "- Do not invent phase ledgers, install loops, queue-control files, or alternate output files.\n"
+        "- Prefer `python3 -m cookimport.llm.editable_task_file --summary` before opening raw file contents.\n"
+        "- If the task file is large, inspect only the units you need with `--show-unit <unit_id>` or `--show-unanswered --limit 5`.\n"
         "- If you need orientation first, run `python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff --status`.\n"
         "- If the workspace feels inconsistent, run `python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff --doctor` before inventing shell scripts.\n"
         "- If you already know a final answer object and want a repo-owned write path, use `python3 -m cookimport.llm.editable_task_file --set-answer <unit_id> '<answer_json>'`.\n"

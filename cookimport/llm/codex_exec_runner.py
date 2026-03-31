@@ -2049,7 +2049,9 @@ def _build_direct_exec_agents_text(
                 "Use only the files inside this directory.\n"
                 "The current working directory is already the workspace root.\n"
                 "This workspace exposes one repo-written file: `task.json`.\n"
-                "Open `task.json`, read the whole file once, edit only `/units/*/answer`, save the same file, and stop.\n"
+                "Start with `python3 -m cookimport.llm.editable_task_file --summary`.\n"
+                "If you need specific unit payloads, use `python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>` or `python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`.\n"
+                "Then edit only `/units/*/answer`, save the same file, and stop.\n"
                 "`task.json` is the whole job. You do not need to discover extra control state, hidden files, or repo context before editing it.\n"
                 "Treat everything outside `task.json` as immutable infrastructure, not task context.\n"
                 "If you briefly reread part of `task.json` or make a small local false start, just correct course and continue; deterministic validation happens after you save.\n"
@@ -2067,7 +2069,7 @@ def _build_direct_exec_agents_text(
             "You are not working on the RecipeImport repository itself.\n"
             "Use only the files inside this directory.\n"
             "The current working directory is already the workspace root.\n"
-            "If `task.json` exists, read it directly, edit only its answer fields in place, save the same file, and stop.\n"
+            "If `task.json` exists, start with `python3 -m cookimport.llm.editable_task_file --summary`, inspect only the units you need with `--show-unit <unit_id>` or `--show-unanswered --limit 5`, edit only its answer fields in place, save the same file, and stop.\n"
             "If `task.json` is absent, fall back to the repo-written file named in `worker_manifest.json`.\n"
             "When `OUTPUT_CONTRACT.md` or `examples/` exists, treat those repo-written files as the authoritative output-shape reference.\n"
             "When `tools/` exists, prefer its repo-written helper CLI or scripts before inventing ad hoc local transforms.\n"
@@ -3501,7 +3503,7 @@ def _write_direct_exec_worker_manifest(
                 "The current working directory is already the workspace root.",
                 "Open named workspace files directly; do not dump whole inventories just to orient yourself.",
                 (
-                    "Treat `task.json` as the editable worker contract when present: read it once, edit only answer fields in place, save, and stop."
+                    "Treat `task.json` as the editable worker contract when present: start with the repo-owned summary helper, inspect only the units you need, then edit answer fields in place, save, and stop."
                     if has_task_file
                     else None
                 ),
@@ -3539,8 +3541,9 @@ def _write_direct_exec_worker_manifest(
         ),
         "workspace_local_shell_examples": (
             [
-                "sed -n '1,220p' task.json",
-                "python3 -c \"from pathlib import Path; print(len(Path('task.json').read_text()))\"",
+                "python3 -m cookimport.llm.editable_task_file --summary",
+                "python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>",
+                "python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5",
                 "cp task.json /tmp/task-backup.json",
             ]
             if single_file_worker_runtime

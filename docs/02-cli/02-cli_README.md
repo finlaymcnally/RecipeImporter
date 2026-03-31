@@ -405,8 +405,10 @@ Interactive benchmark now has a mode submenu before execution:
 
 1. Shows benchmark mode picker:
    - `Single Book: One local prediction + eval vs freeform gold` (default first choice)
+   - `Salt Fat Acid Heat preset: Fast CodexFarm single-book benchmark`
    - `Selected Matched Books: Pick which matched books to run`
    - `All Matched Books: Repeat one config for every matched golden set`
+   - the Salt Fat Acid Heat preset skips the normal run-settings and gold-export pickers when a freeform export labeled `saltfatacidheatcutdown` is available, and instead runs single-book with block labelling + recipe correction + non-recipe finalize enabled, shard counts `5/5/5`, `codex_farm_model=gpt-5.3-codex-spark`, and `codex_farm_reasoning_effort=low`
 2. Single book path:
    - resolves one selected automatic top-tier run profile family (same resolver used by interactive import),
    - benchmark setup can now independently choose recipe Codex, block-labelling Codex, and knowledge extraction before execution,

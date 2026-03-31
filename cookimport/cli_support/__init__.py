@@ -51,7 +51,9 @@ from rich.markup import escape as rich_escape
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 
 from cookimport.cli_ui.run_settings_flow import (
+    INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST,
     build_codex_farm_reasoning_effort_choices,
+    build_interactive_benchmark_preset_settings,
     choose_codex_ai_settings,
     choose_interactive_codex_surfaces,
     choose_run_settings,

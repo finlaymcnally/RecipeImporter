@@ -90,7 +90,14 @@ smallest_useful_packet: Two bad cases plus one exact range is enough.
     assert ask.hypothesis == "The issue is in line-role repair."
 
 
-def test_run_oracle_benchmark_followup_dry_run_prepares_packet_and_command(tmp_path: Path) -> None:
+def test_run_oracle_benchmark_followup_dry_run_prepares_packet_and_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "cookimport.bench.oracle_followup._read_oracle_session_meta_payload",
+        lambda **_kwargs: None,
+    )
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
     launch_dir = bundle_dir / ".oracle_upload_runs" / "2026-03-19_15.20.00"
@@ -387,8 +394,74 @@ def test_run_oracle_benchmark_followup_maps_explicit_instant_selector_to_browser
 
     assert result.success is True
     command = captured["command"]
+    assert "--browser-model-strategy" in command
+    assert command[command.index("--browser-model-strategy") + 1] == "select"
     assert "--model" in command
     assert command[command.index("--model") + 1] == "instant-browser-model"
+
+
+def test_run_oracle_benchmark_followup_reuses_source_launch_model_when_known(
+    tmp_path: Path,
+) -> None:
+    copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
+    bundle_dir = _copy_sample_bundle_root(copied_root)
+    launch_dir = bundle_dir / ".oracle_upload_runs" / "2026-03-31_13.21.15-quality"
+    launch_dir.mkdir(parents=True, exist_ok=True)
+    (launch_dir / "oracle_upload.json").write_text(
+        json.dumps(
+            {
+                "session_id": "you-are-reviewing-a-benchmark-401",
+                "conversation_url": "https://chatgpt.com/c/source-401",
+                "conversation_id": "source-401",
+                "model": "pro",
+                "launch_model": "gpt-5-pro",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (launch_dir / "oracle_upload.log").write_text(
+        "\n".join(
+            [
+                "Oracle command: oracle ...",
+                "Answer:",
+                "Top regressions",
+                "The main regression is line-role collapse.",
+                "",
+                "Likely cause buckets",
+                "Line-role repair dominates.",
+                "",
+                "Immediate next checks",
+                "Inspect the worst cases.",
+                "",
+                "Requested follow-up data",
+                "Ask 1",
+                "ask_id: ask_001_line_role",
+                "question: Show the line-role evidence for the worst negative cases.",
+                "outputs: case_export",
+                "stage_filters: line_role",
+                "hypothesis: The issue is in line-role repair.",
+                "smallest_useful_packet: One bad case is enough.",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    target = resolve_oracle_benchmark_bundle(bundle_dir)
+    result, _workspace = run_oracle_benchmark_followup(
+        target=target,
+        from_run="latest",
+        dry_run=True,
+    )
+
+    assert result.success is True
+    assert "--browser-model-strategy" in result.command
+    assert result.command[result.command.index("--browser-model-strategy") + 1] == "select"
+    assert "--model" in result.command
+    assert result.command[result.command.index("--model") + 1] == "gpt-5-pro"
 
 
 def test_run_oracle_benchmark_followup_dry_run_accepts_recipe_stage_filters_from_oracle(

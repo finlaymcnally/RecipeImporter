@@ -91,10 +91,18 @@ def _classify_attention(
     has_final_agent_message = bool(payload.get("has_final_agent_message"))
     workspace_output_complete = payload.get("workspace_output_complete")
     last_event_seconds_ago = _safe_float(payload.get("last_event_seconds_ago"))
+    final_message_missing_output_deadline_reached = bool(
+        payload.get("final_message_missing_output_deadline_reached")
+    )
 
     if (
-        has_final_agent_message
-        and workspace_output_complete is False
+        reason_code == "workspace_final_message_missing_output"
+        or final_message_missing_output_deadline_reached
+        or (
+            has_final_agent_message
+            and workspace_output_complete is False
+            and state not in {"", "pending", "running", "running_with_warnings"}
+        )
     ):
         return (
             "final message, no output",

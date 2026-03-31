@@ -10,6 +10,23 @@ from .task_file_guardrails import render_task_file_text
 
 TASK_FILE_NAME = "task.json"
 TASK_FILE_SCHEMA_VERSION = "editable_task_file.v1"
+SUMMARY_POINTER_SAMPLE_LIMIT = 10
+
+
+def _normalized_units(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    return [
+        dict(unit)
+        for unit in (payload.get("units") or [])
+        if isinstance(unit, Mapping)
+    ]
+
+
+def _unit_id_for_index(unit: Mapping[str, Any], index: int) -> str:
+    return str(unit.get("unit_id") or "").strip() or f"unit-{index:03d}"
+
+
+def _unit_has_answer(unit: Mapping[str, Any]) -> bool:
+    return _payload_has_meaningful_content(unit.get("answer"))
 
 
 def write_task_file(*, path: Path, payload: Mapping[str, Any]) -> None:
@@ -62,20 +79,20 @@ def summarize_task_file(
     payload: Mapping[str, Any],
     task_file_path: str | None = None,
 ) -> dict[str, Any]:
-    units = [
-        dict(unit)
-        for unit in (payload.get("units") or [])
-        if isinstance(unit, Mapping)
-    ]
+    units = _normalized_units(payload)
     unanswered_unit_ids: list[str] = []
     answered_unit_ids: list[str] = []
     for index, unit in enumerate(units):
-        unit_id = str(unit.get("unit_id") or "").strip() or f"unit-{index:03d}"
-        answer_payload = unit.get("answer")
-        if _payload_has_meaningful_content(answer_payload):
+        unit_id = _unit_id_for_index(unit, index)
+        if _unit_has_answer(unit):
             answered_unit_ids.append(unit_id)
         else:
             unanswered_unit_ids.append(unit_id)
+    editable_pointers = [
+        str(pointer)
+        for pointer in (payload.get("editable_json_pointers") or [])
+        if str(pointer).strip()
+    ]
     return {
         "task_file": str(task_file_path or TASK_FILE_NAME),
         "schema_version": str(payload.get("schema_version") or ""),
@@ -86,15 +103,87 @@ def summarize_task_file(
         "answered_units": len(answered_unit_ids),
         "total_units": len(units),
         "unanswered_unit_ids": unanswered_unit_ids,
-        "editable_json_pointers": [
-            str(pointer)
-            for pointer in (payload.get("editable_json_pointers") or [])
-            if str(pointer).strip()
-        ],
+        "editable_pointer_count": len(editable_pointers),
+        "editable_json_pointers_sample": editable_pointers[:SUMMARY_POINTER_SAMPLE_LIMIT],
+        "editable_json_pointers_truncated": (
+            len(editable_pointers) > SUMMARY_POINTER_SAMPLE_LIMIT
+        ),
         "helper_commands": dict(payload.get("helper_commands") or {})
         if isinstance(payload.get("helper_commands"), Mapping)
         else {},
         "next_action": str(payload.get("next_action") or "").strip() or None,
+    }
+
+
+def inspect_task_file_units(
+    *,
+    payload: Mapping[str, Any],
+    task_file_path: str | None = None,
+    unit_ids: Sequence[str] | None = None,
+    answered: bool | None = None,
+    offset: int = 0,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    units = _normalized_units(payload)
+    indexed_units = [
+        (_unit_id_for_index(unit, index), deepcopy(unit))
+        for index, unit in enumerate(units)
+    ]
+    by_unit_id = {unit_id: unit for unit_id, unit in indexed_units}
+    normalized_unit_ids = [
+        str(unit_id).strip()
+        for unit_id in (unit_ids or [])
+        if str(unit_id).strip()
+    ]
+    safe_offset = max(int(offset), 0)
+    safe_limit = None if limit is None else max(int(limit), 0)
+
+    if normalized_unit_ids:
+        selected_pairs = [
+            (unit_id, deepcopy(by_unit_id[unit_id]))
+            for unit_id in normalized_unit_ids
+            if unit_id in by_unit_id
+        ]
+        missing_unit_ids = [
+            unit_id for unit_id in normalized_unit_ids if unit_id not in by_unit_id
+        ]
+        if answered is not None:
+            selected_pairs = [
+                (unit_id, unit)
+                for unit_id, unit in selected_pairs
+                if _unit_has_answer(unit) is answered
+            ]
+    else:
+        selected_pairs = [
+            (unit_id, deepcopy(unit))
+            for unit_id, unit in indexed_units
+            if answered is None or _unit_has_answer(unit) is answered
+        ]
+        missing_unit_ids = []
+
+    matching_unit_count = len(selected_pairs)
+    if safe_offset:
+        selected_pairs = selected_pairs[safe_offset:]
+    if safe_limit is not None:
+        selected_pairs = selected_pairs[:safe_limit]
+
+    return {
+        "task_file": str(task_file_path or TASK_FILE_NAME),
+        "schema_version": str(payload.get("schema_version") or ""),
+        "stage_key": str(payload.get("stage_key") or ""),
+        "assignment_id": str(payload.get("assignment_id") or ""),
+        "worker_id": str(payload.get("worker_id") or ""),
+        "mode": str(payload.get("mode") or ""),
+        "total_units": len(units),
+        "matching_unit_count": matching_unit_count,
+        "returned_unit_count": len(selected_pairs),
+        "offset": safe_offset,
+        "limit": safe_limit,
+        "answered_filter": answered,
+        "requested_unit_ids": normalized_unit_ids,
+        "returned_unit_ids": [unit_id for unit_id, _ in selected_pairs],
+        "missing_unit_ids": missing_unit_ids,
+        "units": [unit for _, unit in selected_pairs],
     }
 
 
@@ -423,6 +512,33 @@ def _parse_args() -> argparse.Namespace:
         help="Print a compact JSON summary of the task file. This is the default action.",
     )
     parser.add_argument(
+        "--show-unit",
+        action="append",
+        metavar="UNIT_ID",
+        help="Print one specific unit payload by unit_id. May be repeated.",
+    )
+    parser.add_argument(
+        "--show-unanswered",
+        action="store_true",
+        help="Print unanswered unit payloads instead of the summary.",
+    )
+    parser.add_argument(
+        "--show-answered",
+        action="store_true",
+        help="Print answered unit payloads instead of the summary.",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        help="Maximum number of units to return for --show-unit/--show-unanswered/--show-answered.",
+    )
+    parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Skip this many matching units before returning rows for the show-unit modes.",
+    )
+    parser.add_argument(
         "--set-answer",
         action="append",
         nargs=2,
@@ -440,8 +556,15 @@ def main() -> int:
     args = _parse_args()
     task_file_path = Path(str(args.task_file)).expanduser()
     set_answer_rows = list(args.set_answer or [])
+    show_unit_ids = list(args.show_unit or [])
     if args.apply_answers_file and set_answer_rows:
         raise SystemExit("use either --apply-answers-file or --set-answer, not both")
+    if args.show_answered and args.show_unanswered:
+        raise SystemExit("use at most one of --show-answered or --show-unanswered")
+    if (args.apply_answers_file or set_answer_rows) and (
+        show_unit_ids or args.show_answered or args.show_unanswered
+    ):
+        raise SystemExit("show-unit modes cannot be combined with answer-apply modes")
     if args.apply_answers_file or set_answer_rows:
         answers_by_unit_id: dict[str, dict[str, Any]] = {}
         if args.apply_answers_file:
@@ -457,7 +580,18 @@ def main() -> int:
         )
     else:
         task_file = load_task_file(task_file_path)
-        result = summarize_task_file(payload=task_file, task_file_path=str(task_file_path))
+        if show_unit_ids or args.show_answered or args.show_unanswered:
+            answered_filter = True if args.show_answered else False if args.show_unanswered else None
+            result = inspect_task_file_units(
+                payload=task_file,
+                task_file_path=str(task_file_path),
+                unit_ids=show_unit_ids,
+                answered=answered_filter,
+                offset=args.offset,
+                limit=args.limit,
+            )
+        else:
+            result = summarize_task_file(payload=task_file, task_file_path=str(task_file_path))
     print(json.dumps(result, sort_keys=True))
     return 0
 

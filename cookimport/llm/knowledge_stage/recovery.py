@@ -705,8 +705,12 @@ def _build_knowledge_workspace_worker_prompt(
             "Resume from the existing `task.json` and current workspace state."
             if fresh_session_resume
             else (
-                f"Open `{TASK_FILE_NAME}`, read it once, edit only `/units/*/answer`, "
-                "save the same file, and then run "
+                "Start with `python3 -m cookimport.llm.editable_task_file --summary`."
+                " If you need specific unit payloads, use "
+                "`python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>` "
+                "or `python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`."
+                f" Then edit only `/units/*/answer` in `{TASK_FILE_NAME}`, "
+                "save the same file, and run "
                 "`python3 -m cookimport.llm.knowledge_same_session_handoff`."
             )
         ),
@@ -717,6 +721,8 @@ def _build_knowledge_workspace_worker_prompt(
         "",
         "Worker contract:",
         "- Start with `task.json`.",
+        "- Prefer `python3 -m cookimport.llm.editable_task_file --summary` before opening raw file contents.",
+        "- If the task file is large, inspect only the units you need with `--show-unit <unit_id>` or `--show-unanswered --limit 5`.",
         "- If you need orientation first, run `python3 -m cookimport.llm.knowledge_same_session_handoff --status`.",
         "- If the workspace feels inconsistent, run `python3 -m cookimport.llm.knowledge_same_session_handoff --doctor` before inventing shell scripts.",
         "- Edit only the `answer` object inside each unit.",

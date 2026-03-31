@@ -606,6 +606,70 @@ def test_interactive_benchmark_enables_per_surface_codex_toggle_prompt(
     assert len(helper_calls) == 1
 
 
+def test_interactive_benchmark_preset_skips_run_settings_and_passes_preselected_gold(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configured_output = tmp_path / "custom-output"
+    golden_root = tmp_path / "golden"
+    gold_spans = (
+        golden_root
+        / "pulled-from-labelstudio"
+        / "saltfatacidheatcutdown"
+        / "exports"
+        / "freeform_span_labels.jsonl"
+    )
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    selected_benchmark_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+            "recipe_prompt_target_count": 5,
+            "line_role_prompt_target_count": 5,
+            "knowledge_prompt_target_count": 5,
+            "codex_farm_model": "gpt-5.3-codex-spark",
+            "codex_farm_reasoning_effort": "low",
+        },
+        warn_context="test interactive benchmark preset settings",
+    )
+    menu_answers = iter(
+        [
+            "labelstudio_benchmark",
+            cli.INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST,
+            "exit",
+        ]
+    )
+    preset_kwargs: dict[str, object] = {}
+
+    _patch_cli_attr(monkeypatch, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
+    _patch_cli_attr(monkeypatch, "_list_importable_files", lambda *_: [])
+    _patch_cli_attr(monkeypatch, "_load_settings",
+        lambda: {"output_dir": str(configured_output), "epub_extractor": "beautifulsoup"},
+    )
+    _patch_cli_attr(monkeypatch, "DEFAULT_GOLDEN", golden_root)
+    _patch_cli_attr(monkeypatch, "choose_run_settings",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Preset flow should not open the interactive run-settings menus.")
+        ),
+    )
+    _patch_cli_attr(monkeypatch, "build_interactive_benchmark_preset_settings",
+        lambda **kwargs: preset_kwargs.update(kwargs) or selected_benchmark_settings,
+    )
+    helper_calls = _capture_interactive_single_book_helper(monkeypatch)
+
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
+
+    assert preset_kwargs["preset_id"] == cli.INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST
+    assert preset_kwargs["output_dir"] == configured_output
+    assert len(helper_calls) == 1
+    assert helper_calls[0]["selected_benchmark_settings"] is selected_benchmark_settings
+    assert helper_calls[0]["preselected_gold_spans"] == gold_spans
+    assert helper_calls[0]["benchmark_eval_output"].parent == golden_root / "benchmark-vs-golden"
+
+
 def test_interactive_generate_dashboard_runs_without_browser_prompt(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
