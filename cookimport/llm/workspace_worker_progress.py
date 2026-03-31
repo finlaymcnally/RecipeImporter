@@ -125,6 +125,8 @@ def _classify_attention(
         return ("runtime outlier", f"{worker_id} runtime outlier", 4, True)
     if "inline_python_heredoc_used" in warning_codes:
         return ("inline python", f"{worker_id} used inline python", 5, True)
+    if "single_file_shell_drift" in warning_codes:
+        return ("shell drift", f"{worker_id} single-file shell drift", 6, True)
     if (
         state.startswith("running")
         and last_event_seconds_ago is not None
@@ -134,13 +136,13 @@ def _classify_attention(
         return (
             f"quiet {quiet_seconds}s",
             f"{worker_id} quiet for {quiet_seconds}s",
-            6,
+            7,
             True,
         )
     if warning_codes:
-        return ("watchdog warning", f"{worker_id} watchdog warning", 7, False)
-    if state == "running_with_warnings":
         return ("watchdog warning", f"{worker_id} watchdog warning", 8, False)
+    if state == "running_with_warnings":
+        return ("watchdog warning", f"{worker_id} watchdog warning", 9, False)
     return None, None, 99, False
 
 

@@ -6,6 +6,7 @@ from cookimport.llm.editable_task_file import build_repair_task_file
 from cookimport.llm.knowledge_stage.task_file_contracts import (
     KNOWLEDGE_CLASSIFY_SCHEMA_VERSION,
     KNOWLEDGE_CLASSIFY_STAGE_KEY,
+    build_task_file_answer_feedback,
     build_knowledge_classification_task_file,
     validate_knowledge_classification_task_file,
 )
@@ -184,3 +185,50 @@ def test_classification_validator_enforces_reviewer_category_rules_and_repair_sc
     assert repair_task_file["mode"] == "repair"
     assert repair_task_file["schema_version"] == KNOWLEDGE_CLASSIFY_SCHEMA_VERSION
     assert [unit["unit_id"] for unit in repair_task_file["units"]] == ["knowledge::21"]
+
+
+def test_task_file_answer_feedback_is_filtered_to_each_failed_unit() -> None:
+    feedback_by_unit_id = build_task_file_answer_feedback(
+        validation_errors=(
+            "knowledge_reviewer_category_mismatch",
+            "knowledge_block_missing_grounding",
+        ),
+        validation_metadata={
+            "failed_unit_ids": ["knowledge::21", "knowledge::22"],
+            "error_details": [
+                {
+                    "path": "/units/knowledge::21/answer/reviewer_category",
+                    "code": "knowledge_reviewer_category_mismatch",
+                    "message": "knowledge reviewer category must match category",
+                },
+                {
+                    "path": "/units/knowledge::22/answer/grounding",
+                    "code": "knowledge_block_missing_grounding",
+                    "message": "knowledge rows must include grounding",
+                },
+            ],
+        },
+    )
+
+    assert feedback_by_unit_id == {
+        "knowledge::21": {
+            "validation_errors": ["knowledge_reviewer_category_mismatch"],
+            "error_details": [
+                {
+                    "path": "/units/knowledge::21/answer/reviewer_category",
+                    "code": "knowledge_reviewer_category_mismatch",
+                    "message": "knowledge reviewer category must match category",
+                }
+            ],
+        },
+        "knowledge::22": {
+            "validation_errors": ["knowledge_block_missing_grounding"],
+            "error_details": [
+                {
+                    "path": "/units/knowledge::22/answer/grounding",
+                    "code": "knowledge_block_missing_grounding",
+                    "message": "knowledge rows must include grounding",
+                }
+            ],
+        },
+    }

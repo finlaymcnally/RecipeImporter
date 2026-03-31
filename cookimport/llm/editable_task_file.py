@@ -30,6 +30,40 @@ def _unit_has_answer(unit: Mapping[str, Any]) -> bool:
     return _payload_has_meaningful_content(unit.get("answer"))
 
 
+def _normalized_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    cleaned_rows: list[str] = []
+    for row in value:
+        cleaned = str(row or "").strip()
+        if cleaned:
+            cleaned_rows.append(cleaned)
+    return cleaned_rows
+
+
+def _summarize_review_contract(payload: Mapping[str, Any]) -> dict[str, Any] | None:
+    review_contract = payload.get("review_contract")
+    if not isinstance(review_contract, Mapping):
+        return None
+    decision_policy = _normalized_string_list(review_contract.get("decision_policy"))
+    anti_patterns = _normalized_string_list(review_contract.get("anti_patterns"))
+    worker_role = str(review_contract.get("worker_role") or "").strip() or None
+    primary_question = str(review_contract.get("primary_question") or "").strip() or None
+    mode = str(review_contract.get("mode") or "").strip() or None
+    summary = {
+        "mode": mode,
+        "worker_role": worker_role,
+        "primary_question": primary_question,
+        "decision_policy": decision_policy[:4],
+        "decision_policy_truncated": len(decision_policy) > 4,
+        "anti_patterns": anti_patterns[:4],
+        "anti_patterns_truncated": len(anti_patterns) > 4,
+    }
+    if not any(summary.values()):
+        return None
+    return summary
+
+
 def write_task_file(*, path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_task_file_text(payload), encoding="utf-8")
@@ -118,6 +152,7 @@ def summarize_task_file(
         if isinstance(payload.get("helper_commands"), Mapping)
         else {},
         "next_action": str(payload.get("next_action") or "").strip() or None,
+        "review_contract": _summarize_review_contract(payload),
     }
 
 

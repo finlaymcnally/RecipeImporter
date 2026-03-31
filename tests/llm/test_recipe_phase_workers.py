@@ -434,6 +434,8 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
     assert "Prefer `python3 -m cookimport.llm.editable_task_file --summary` before opening raw file contents." in worker_prompt
     assert "If you briefly reread part of the file or make a small local false start" in worker_prompt
     assert "Do not invent helper ledgers, queue files, or alternate output files." in worker_prompt
+    assert "--apply-answers-file answers.json`." in worker_prompt
+    assert "Do not dump `task.json` with `cat` or `sed`" in worker_prompt
     assert "run `python3 -m cookimport.llm.recipe_same_session_handoff`" in worker_prompt
     assert "The helper is the only repo-side handoff seam." in worker_prompt
     assert "The repo will expand accepted answers into final artifacts after the helper validates them." in worker_prompt
@@ -918,7 +920,7 @@ def test_recipe_phase_runtime_surfaces_worker_attention_in_progress(
         for payload in payloads
     )
     assert any(
-        any("[command loop]" in str(task) for task in (payload.get("active_tasks") or []))
+        any("[shell drift]" in str(task) for task in (payload.get("active_tasks") or []))
         for payload in payloads
     )
     assert any(payload.get("last_activity_at") for payload in payloads)
@@ -1278,6 +1280,52 @@ def test_recipe_workspace_watchdog_allows_shell_work_until_command_loop(
 
     assert decision is None
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
-    assert live_status["last_command_policy"] == "tolerated_workspace_shell_command"
+    assert live_status["last_command_policy"] == "single_file_discouraged_shell_command"
     assert live_status["last_command_policy_allowed"] is True
     assert live_status["last_command_boundary_violation_detected"] is False
+    assert live_status["warning_codes"] == ["single_file_shell_drift"]
+
+
+def test_recipe_workspace_watchdog_warns_then_kills_single_file_shell_drift(
+    tmp_path: Path,
+) -> None:
+    callback = recipe_module._build_recipe_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        stage_label="workspace worker stage",
+        allow_workspace_commands=True,
+    )
+
+    first = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.2,
+            last_event_seconds_ago=0.0,
+            event_count=4,
+            command_execution_count=1,
+            reasoning_item_count=0,
+            last_command="/bin/bash -lc 'cat task.json'",
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+    second = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.4,
+            last_event_seconds_ago=0.0,
+            event_count=6,
+            command_execution_count=2,
+            reasoning_item_count=0,
+            last_command="/bin/bash -lc ls",
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert first is None
+    assert second is not None
+    assert second.reason_code == "single_file_shell_drift_repeated"
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["warning_codes"] == ["single_file_shell_drift"]
+    assert live_status["last_command_policy"] == "single_file_orientation_command"

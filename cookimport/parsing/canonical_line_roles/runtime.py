@@ -58,6 +58,27 @@ def _load_json_dict_safely(path: Path) -> dict[str, Any]:
     return dict(payload) if isinstance(payload, Mapping) else {}
 
 
+def _summarize_line_role_same_session_completion(
+    state_path: Path | None,
+) -> dict[str, Any]:
+    path = Path(state_path) if state_path is not None else None
+    state_payload = _load_json_dict_safely(path) if path is not None else {}
+    final_status = str(state_payload.get("final_status") or "").strip() or None
+    return {
+        "same_session_state_path": str(path) if path is not None else None,
+        "same_session_state_available": bool(path is not None and path.exists()),
+        "same_session_completed": bool(state_payload.get("completed")),
+        "same_session_final_status": final_status,
+        "same_session_completed_shard_count": int(
+            state_payload.get("completed_shard_count") or 0
+        ),
+        "same_session_transition_count": int(
+            state_payload.get("same_session_transition_count") or 0
+        ),
+        "same_session_validation_count": int(state_payload.get("validation_count") or 0),
+    }
+
+
 def _line_role_task_file_useful_progress(
     *,
     task_file_path: Path,
@@ -1554,6 +1575,7 @@ def _run_line_role_workspace_worker_assignment_v1(
             supervision_callback=_build_strict_json_watchdog_callback(
                 live_status_path=worker_live_status_path,
                 live_status_paths=shard_live_status_paths,
+                same_session_state_path=state_path,
                 cohort_watchdog_state=cohort_watchdog_state,
                 watchdog_policy="workspace_worker_v1",
                 allow_workspace_commands=True,
@@ -1700,6 +1722,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 supervision_callback=_build_strict_json_watchdog_callback(
                     live_status_path=worker_live_status_path,
                     live_status_paths=shard_live_status_paths,
+                    same_session_state_path=state_path,
                     cohort_watchdog_state=cohort_watchdog_state,
                     watchdog_policy="workspace_worker_v1",
                     allow_workspace_commands=True,
@@ -3328,6 +3351,7 @@ def _build_strict_json_watchdog_callback(
     *,
     live_status_path: Path | None = None,
     live_status_paths: Sequence[Path] | None = None,
+    same_session_state_path: Path | None = None,
     cohort_watchdog_state: _LineRoleCohortWatchdogState | None = None,
     shard_id: str | None = None,
     watchdog_policy: str = _STRICT_JSON_WATCHDOG_POLICY,
@@ -3346,6 +3370,16 @@ def _build_strict_json_watchdog_callback(
     completion_wait_turn_completed_count: int | None = None
     final_message_missing_output_started_elapsed_seconds: float | None = None
     final_message_missing_output_deadline_elapsed_seconds: float | None = None
+    persistent_warning_codes: list[str] = []
+    persistent_warning_details: list[str] = []
+    last_single_file_command_count = 0
+    single_file_shell_drift_count = 0
+
+    def _record_warning(code: str, detail: str) -> None:
+        if code not in persistent_warning_codes:
+            persistent_warning_codes.append(code)
+        if detail and detail not in persistent_warning_details:
+            persistent_warning_details.append(detail)
 
     def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
         nonlocal last_complete_workspace_signature
@@ -3355,11 +3389,14 @@ def _build_strict_json_watchdog_callback(
         nonlocal completion_wait_turn_completed_count
         nonlocal final_message_missing_output_started_elapsed_seconds
         nonlocal final_message_missing_output_deadline_elapsed_seconds
+        nonlocal last_single_file_command_count
+        nonlocal single_file_shell_drift_count
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
-        warning_codes: list[str] = []
-        warning_details: list[str] = []
-        last_command_verdict = _classify_line_role_workspace_command(snapshot.last_command)
+        last_command_verdict = _classify_line_role_workspace_command(
+            snapshot.last_command,
+            single_file_worker_policy=allow_workspace_commands,
+        )
         last_command_boundary_violation = detect_workspace_worker_boundary_violation(
             snapshot.last_command,
         )
@@ -3380,6 +3417,15 @@ def _build_strict_json_watchdog_callback(
             )
         workspace_output_status = _summarize_workspace_output_paths(
             expected_workspace_output_paths or ()
+        )
+        same_session_completion = _summarize_line_role_same_session_completion(
+            same_session_state_path
+        )
+        authoritative_same_session_success = bool(
+            allow_workspace_commands
+            and same_session_completion.get("same_session_completed")
+            and str(same_session_completion.get("same_session_final_status") or "").strip()
+            == "completed"
         )
         if workspace_output_status["complete"]:
             current_signature = tuple(workspace_output_status["signature"])
@@ -3421,6 +3467,83 @@ def _build_strict_json_watchdog_callback(
                     )
                 else:
                     command_execution_tolerated = True
+        authoritative_completion_ready = bool(
+            authoritative_same_session_success and workspace_output_status["complete"]
+        )
+        if decision is None and authoritative_completion_ready:
+            completion_waiting_for_exit = True
+            if completion_wait_started_elapsed_seconds is None:
+                completion_wait_started_elapsed_seconds = snapshot.elapsed_seconds
+                completion_wait_agent_message_count = snapshot.agent_message_count
+                completion_wait_turn_completed_count = snapshot.turn_completed_count
+            completion_post_signal_observed = (
+                snapshot.agent_message_count > int(completion_wait_agent_message_count or 0)
+                or snapshot.turn_completed_count > int(completion_wait_turn_completed_count or 0)
+            )
+            completion_wait_elapsed_seconds = (
+                snapshot.elapsed_seconds
+                - float(completion_wait_started_elapsed_seconds or 0.0)
+            )
+            completion_quiescence_reached = (
+                completion_wait_elapsed_seconds
+                >= _LINE_ROLE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+                and (
+                    snapshot.last_event_seconds_ago is None
+                    or snapshot.last_event_seconds_ago
+                    >= _LINE_ROLE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+                    or workspace_output_stable_passes >= 2
+                )
+            )
+            if completion_post_signal_observed or completion_quiescence_reached:
+                decision = CodexExecSupervisionDecision.terminate(
+                    reason_code="",
+                    reason_detail=(
+                        "canonical line-role same-session helper already completed "
+                        "and repo-owned shard outputs are durable"
+                    ),
+                    retryable=False,
+                    supervision_state="completed",
+                )
+        if snapshot.command_execution_count > 0:
+            if decision is None and allow_workspace_commands:
+                new_command_observed = (
+                    int(snapshot.command_execution_count or 0) > last_single_file_command_count
+                )
+                if new_command_observed:
+                    last_single_file_command_count = int(snapshot.command_execution_count or 0)
+                if (
+                    decision is None
+                    and new_command_observed
+                    and is_single_file_workspace_command_drift_policy(
+                        last_command_verdict.policy
+                    )
+                ):
+                    drift_detail = str(last_command_verdict.reason or "").strip() or (
+                        "single-file worker drifted off the helper-first task-file contract"
+                    )
+                    _record_warning("single_file_shell_drift", drift_detail)
+                    if (
+                        is_single_file_workspace_command_egregious(
+                            last_command_verdict.policy
+                        )
+                        and not workspace_output_status["complete"]
+                    ):
+                        decision = CodexExecSupervisionDecision.terminate(
+                            reason_code="single_file_shell_drift_egregious",
+                            reason_detail=drift_detail,
+                            retryable=False,
+                        )
+                    else:
+                        single_file_shell_drift_count += 1
+                        if (
+                            single_file_shell_drift_count >= 2
+                            and not workspace_output_status["complete"]
+                        ):
+                            decision = CodexExecSupervisionDecision.terminate(
+                                reason_code="single_file_shell_drift_repeated",
+                                reason_detail=drift_detail,
+                                retryable=False,
+                            )
                 if (
                     decision is None
                     and should_terminate_workspace_command_loop(
@@ -3429,12 +3552,12 @@ def _build_strict_json_watchdog_callback(
                         max_repeat_count=_LINE_ROLE_WORKSPACE_MAX_REPEAT_COUNT,
                     )
                 ):
-                    warning_codes.append("command_loop_without_output")
-                    warning_details.append(
+                    _record_warning(
+                        "command_loop_without_output",
                         format_watchdog_command_loop_reason_detail(
                             stage_label="workspace worker stage",
                             snapshot=snapshot,
-                        )
+                        ),
                     )
             elif decision is None:
                 decision = CodexExecSupervisionDecision.terminate(
@@ -3447,9 +3570,9 @@ def _build_strict_json_watchdog_callback(
                 )
         elif snapshot.reasoning_item_count >= 2 and not snapshot.has_final_agent_message:
             if allow_workspace_commands:
-                warning_codes.append("reasoning_without_output")
-                warning_details.append(
-                    "workspace worker emitted repeated reasoning without a final answer"
+                _record_warning(
+                    "reasoning_without_output",
+                    "workspace worker emitted repeated reasoning without a final answer",
                 )
             else:
                 decision = CodexExecSupervisionDecision.terminate(
@@ -3476,9 +3599,9 @@ def _build_strict_json_watchdog_callback(
             and not snapshot.has_final_agent_message
         ):
             if allow_workspace_commands:
-                warning_codes.append("cohort_runtime_outlier")
-                warning_details.append(
-                    "workspace worker exceeded sibling median runtime without reaching final output"
+                _record_warning(
+                    "cohort_runtime_outlier",
+                    "workspace worker exceeded sibling median runtime without reaching final output",
                 )
             else:
                 decision = CodexExecSupervisionDecision.terminate(
@@ -3493,6 +3616,7 @@ def _build_strict_json_watchdog_callback(
             and allow_workspace_commands
             and int(workspace_output_status["expected_count"] or 0) > 0
             and snapshot.has_final_agent_message
+            and not authoritative_same_session_success
             and not workspace_output_status["complete"]
         ):
             if final_message_missing_output_started_elapsed_seconds is None:
@@ -3527,7 +3651,7 @@ def _build_strict_json_watchdog_callback(
                 if isinstance(decision, CodexExecSupervisionDecision)
                 and decision.action == "terminate"
                 else "running_with_warnings"
-                if warning_codes
+                if persistent_warning_codes
                 else "running"
             ),
             "elapsed_seconds": round(snapshot.elapsed_seconds, 3),
@@ -3570,6 +3694,8 @@ def _build_strict_json_watchdog_callback(
             "workspace_output_complete": workspace_output_status["complete"],
             "workspace_output_missing_files": workspace_output_status["missing_files"],
             "workspace_output_stable_passes": workspace_output_stable_passes,
+            **same_session_completion,
+            "workspace_authoritative_completion_ready": authoritative_completion_ready,
             "final_message_missing_output_grace_active": (
                 final_message_missing_output_grace_active
             ),
@@ -3600,9 +3726,9 @@ def _build_strict_json_watchdog_callback(
             "workspace_completion_post_signal_observed": completion_post_signal_observed,
             "workspace_command_loop_max_count": _LINE_ROLE_WORKSPACE_MAX_COMMAND_COUNT,
             "workspace_command_loop_max_repeat_count": _LINE_ROLE_WORKSPACE_MAX_REPEAT_COUNT,
-            "warning_codes": warning_codes,
-            "warning_details": warning_details,
-            "warning_count": len(warning_codes),
+            "warning_codes": list(persistent_warning_codes),
+            "warning_details": list(persistent_warning_details),
+            "warning_count": len(persistent_warning_codes),
             "reason_code": decision.reason_code if decision is not None else None,
             "reason_detail": decision.reason_detail if decision is not None else None,
             "retryable": decision.retryable if decision is not None else False,
@@ -3616,8 +3742,13 @@ def _build_strict_json_watchdog_callback(
 
 def _classify_line_role_workspace_command(
     command_text: str | None,
+    *,
+    single_file_worker_policy: bool = False,
 ) -> WorkspaceCommandClassification:
-    return classify_workspace_worker_command(command_text)
+    return classify_workspace_worker_command(
+        command_text,
+        single_file_worker_policy=single_file_worker_policy,
+    )
 
 
 def _summarize_workspace_output_paths(paths: Sequence[Path]) -> dict[str, Any]:

@@ -760,11 +760,15 @@ def _build_token_lane_brief(
     prompt_budget = _read_prompt_budget_payload(target)
     by_stage = prompt_budget.get("by_stage") if isinstance(prompt_budget, dict) else {}
     by_stage = by_stage if isinstance(by_stage, dict) else {}
-    knowledge_stage = by_stage.get("knowledge")
+    knowledge_stage = by_stage.get("nonrecipe_finalize")
+    if not isinstance(knowledge_stage, dict):
+        knowledge_stage = by_stage.get("knowledge")
     knowledge_stage = knowledge_stage if isinstance(knowledge_stage, dict) else {}
     line_role_stage = by_stage.get("line_role")
     line_role_stage = line_role_stage if isinstance(line_role_stage, dict) else {}
-    recipe_stage = by_stage.get("recipe_correction")
+    recipe_stage = by_stage.get("recipe_refine")
+    if not isinstance(recipe_stage, dict):
+        recipe_stage = by_stage.get("recipe_correction")
     recipe_stage = recipe_stage if isinstance(recipe_stage, dict) else {}
 
     lines = [

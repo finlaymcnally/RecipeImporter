@@ -143,13 +143,29 @@ def build_task_file_answer_feedback(
     if not failed_unit_ids:
         return {}
     details = [dict(detail) for detail in (validation_metadata.get("error_details") or [])]
-    feedback = {
-        "validation_errors": [
-            str(error).strip() for error in validation_errors if str(error).strip()
-        ],
-        "error_details": details,
-    }
-    return {unit_id: dict(feedback) for unit_id in failed_unit_ids}
+    normalized_validation_errors = [
+        str(error).strip() for error in validation_errors if str(error).strip()
+    ]
+    feedback_by_unit_id: dict[str, dict[str, Any]] = {}
+    for unit_id in failed_unit_ids:
+        unit_path_prefix = f"/units/{unit_id}/"
+        unit_path_exact = f"/units/{unit_id}"
+        unit_details = [
+            detail
+            for detail in details
+            if str(detail.get("path") or "").strip().startswith(unit_path_prefix)
+            or str(detail.get("path") or "").strip() == unit_path_exact
+        ]
+        unit_codes = [
+            str(detail.get("code") or "").strip()
+            for detail in unit_details
+            if str(detail.get("code") or "").strip()
+        ]
+        feedback_by_unit_id[unit_id] = {
+            "validation_errors": unit_codes or normalized_validation_errors,
+            "error_details": unit_details,
+        }
+    return feedback_by_unit_id
 
 
 def _knowledge_helper_commands(*, stage_key: str) -> dict[str, str]:
@@ -215,6 +231,32 @@ def _knowledge_classification_answer_schema() -> dict[str, Any]:
                     "proposed_tags": [],
                 },
             },
+        ],
+    }
+
+
+def _knowledge_classification_review_contract() -> dict[str, Any]:
+    return {
+        "mode": "semantic_review",
+        "worker_role": (
+            "You are doing close semantic review of owned non-recipe blocks, not "
+            "writing a classifier or bulk heuristic."
+        ),
+        "primary_question": (
+            "Would this exact block be worth retrieving later as a standalone "
+            "cooking concept?"
+        ),
+        "decision_policy": [
+            "Read the owned block text first. That text is the primary evidence.",
+            "Use nearby context only to disambiguate edge cases, not to force nearby rows into the same answer.",
+            "Treat candidate tags, heading shape, and packet position as weak hints only.",
+            "Short conceptual headings can still be knowledge when they introduce real explanatory content; shortness alone is not enough to drop a block.",
+        ],
+        "anti_patterns": [
+            "Do not invent a rule that classifies many rows at once from heading level, casing, length, or title shape.",
+            "Do not treat the whole packet as one semantic unit just because the rows are adjacent.",
+            "Do not treat candidate tags as votes or proof that a block is knowledge.",
+            "If you feel tempted to batch or script the decision, stop and reread the actual owned block text instead.",
         ],
     }
 
@@ -299,6 +341,7 @@ def build_knowledge_classification_task_file(
         answer_schema=_knowledge_classification_answer_schema(),
     )
     task_file["ontology"] = catalog.task_scope_payload()
+    task_file["review_contract"] = _knowledge_classification_review_contract()
     return (task_file, unit_to_shard_id)
 
 

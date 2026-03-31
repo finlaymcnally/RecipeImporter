@@ -52,6 +52,8 @@ from .codex_exec_runner import (
     detect_workspace_worker_boundary_violation,
     format_watchdog_command_reason_detail,
     format_watchdog_command_loop_reason_detail,
+    is_single_file_workspace_command_drift_policy,
+    is_single_file_workspace_command_egregious,
     should_terminate_workspace_command_loop,
     summarize_direct_telemetry_rows,
 )
@@ -1155,12 +1157,22 @@ def _build_recipe_watchdog_callback(
         target_paths.append(live_status_path)
     if live_status_paths is not None:
         target_paths.extend(Path(path) for path in live_status_paths)
+    persistent_warning_codes: list[str] = []
+    persistent_warning_details: list[str] = []
+    last_single_file_command_count = 0
+    single_file_shell_drift_count = 0
+
+    def _record_warning(code: str, detail: str) -> None:
+        if code not in persistent_warning_codes:
+            persistent_warning_codes.append(code)
+        if detail and detail not in persistent_warning_details:
+            persistent_warning_details.append(detail)
 
     def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
+        nonlocal last_single_file_command_count
+        nonlocal single_file_shell_drift_count
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
-        warning_codes: list[str] = []
-        warning_details: list[str] = []
         allowed_absolute_roots = [
             path
             for path in (
@@ -1173,6 +1185,7 @@ def _build_recipe_watchdog_callback(
         last_command_verdict = classify_workspace_worker_command(
             snapshot.last_command,
             allowed_absolute_roots=allowed_absolute_roots,
+            single_file_worker_policy=allow_workspace_commands,
         )
         last_command_boundary_violation = detect_workspace_worker_boundary_violation(
             snapshot.last_command,
@@ -1192,13 +1205,45 @@ def _build_recipe_watchdog_callback(
                         retryable=False,
                         supervision_state="boundary_interrupted",
                     )
+                new_command_observed = (
+                    int(snapshot.command_execution_count or 0) > last_single_file_command_count
+                )
+                if new_command_observed:
+                    last_single_file_command_count = int(snapshot.command_execution_count or 0)
+                if (
+                    decision is None
+                    and new_command_observed
+                    and is_single_file_workspace_command_drift_policy(
+                        last_command_verdict.policy
+                    )
+                ):
+                    drift_detail = str(last_command_verdict.reason or "").strip() or (
+                        "single-file worker drifted off the helper-first task-file contract"
+                    )
+                    _record_warning("single_file_shell_drift", drift_detail)
+                    if is_single_file_workspace_command_egregious(
+                        last_command_verdict.policy
+                    ):
+                        decision = CodexExecSupervisionDecision.terminate(
+                            reason_code="single_file_shell_drift_egregious",
+                            reason_detail=drift_detail,
+                            retryable=False,
+                        )
+                    else:
+                        single_file_shell_drift_count += 1
+                        if single_file_shell_drift_count >= 2:
+                            decision = CodexExecSupervisionDecision.terminate(
+                                reason_code="single_file_shell_drift_repeated",
+                                reason_detail=drift_detail,
+                                retryable=False,
+                            )
                 if decision is None and should_terminate_workspace_command_loop(snapshot=snapshot):
-                    warning_codes.append("command_loop_without_output")
-                    warning_details.append(
+                    _record_warning(
+                        "command_loop_without_output",
                         format_watchdog_command_loop_reason_detail(
                             stage_label=stage_label,
                             snapshot=snapshot,
-                        )
+                        ),
                     )
             else:
                 decision = CodexExecSupervisionDecision.terminate(
@@ -1211,9 +1256,9 @@ def _build_recipe_watchdog_callback(
                 )
         elif snapshot.reasoning_item_count >= 2 and not snapshot.has_final_agent_message:
             if allow_workspace_commands:
-                warning_codes.append("reasoning_without_output")
-                warning_details.append(
-                    f"{stage_label} emitted repeated reasoning without a final answer"
+                _record_warning(
+                    "reasoning_without_output",
+                    f"{stage_label} emitted repeated reasoning without a final answer",
                 )
             else:
                 decision = CodexExecSupervisionDecision.terminate(
@@ -1227,7 +1272,7 @@ def _build_recipe_watchdog_callback(
                 if isinstance(decision, CodexExecSupervisionDecision)
                 and decision.action == "terminate"
                 else "running_with_warnings"
-                if warning_codes
+                if persistent_warning_codes
                 else "running"
             ),
             "elapsed_seconds": round(snapshot.elapsed_seconds, 3),
@@ -1264,9 +1309,9 @@ def _build_recipe_watchdog_callback(
             "execution_working_dir": snapshot.execution_working_dir,
             "watchdog_policy": watchdog_policy,
             "shard_id": shard_id,
-            "warning_codes": warning_codes,
-            "warning_details": warning_details,
-            "warning_count": len(warning_codes),
+            "warning_codes": list(persistent_warning_codes),
+            "warning_details": list(persistent_warning_details),
+            "warning_count": len(persistent_warning_codes),
             "reason_code": decision.reason_code if decision is not None else None,
             "reason_detail": decision.reason_detail if decision is not None else None,
             "retryable": decision.retryable if decision is not None else False,
@@ -2374,20 +2419,22 @@ def _build_recipe_task_file_worker_prompt(
     lines.extend(
         [
             "",
-            "Worker contract:",
-            "- Start with `task.json`.",
-            "- Prefer `python3 -m cookimport.llm.editable_task_file --summary` before opening raw file contents.",
-            "- If the file is large, inspect only the units you need with `--show-unit <unit_id>` or `--show-unanswered --limit 5`.",
-            "- If you need orientation first, run `python3 -m cookimport.llm.recipe_same_session_handoff --status`.",
-            "- If the workspace feels inconsistent, run `python3 -m cookimport.llm.recipe_same_session_handoff --doctor` before inventing shell scripts.",
-            "- Edit only the `answer` object inside each unit.",
-            "- If you already know the final answer JSON and want a repo-owned write path, use `python3 -m cookimport.llm.editable_task_file --set-answer <unit_id> '<answer_json>'`.",
-            "- After each edit pass, run `python3 -m cookimport.llm.recipe_same_session_handoff` from the workspace root.",
-            "- If the helper reports `repair_required`, reopen the rewritten `task.json` immediately, fix only the named issues, and run the helper again.",
-            "- Stop only after the helper reports `completed`.",
-            "- Other than that one helper command, avoid shell on the happy path.",
-            "",
-            "Recipe answer rules:",
+        "Worker contract:",
+        "- Start with `task.json`.",
+        "- Prefer `python3 -m cookimport.llm.editable_task_file --summary` before opening raw file contents.",
+        "- If the file is large, inspect only the units you need with `--show-unit <unit_id>` or `--show-unanswered --limit 5`.",
+        "- If you need orientation first, run `python3 -m cookimport.llm.recipe_same_session_handoff --status`.",
+        "- If the workspace feels inconsistent, run `python3 -m cookimport.llm.recipe_same_session_handoff --doctor` before inventing shell scripts.",
+        "- Edit only the `answer` object inside each unit.",
+        "- If you already know the final answer JSON and want a repo-owned write path, use `python3 -m cookimport.llm.editable_task_file --set-answer <unit_id> '<answer_json>'`.",
+        "- If you want to apply several finished answers at once, write them to `answers.json` and run `python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json`.",
+        "- After each edit pass, run `python3 -m cookimport.llm.recipe_same_session_handoff` from the workspace root.",
+        "- If the helper reports `repair_required`, reopen the rewritten `task.json` immediately, fix only the named issues, and run the helper again.",
+        "- Stop only after the helper reports `completed`.",
+        "- Do not dump `task.json` with `cat` or `sed`, do not use `ls` or `find` just to orient yourself, and do not write ad hoc inline Python, Node, or heredoc rewrites against `task.json`.",
+        "- Other than repo-owned helper commands and tiny temp-file helpers, avoid shell on the happy path.",
+        "",
+        "Recipe answer rules:",
             "- `status` must be one of `repaired`, `fragmentary`, or `not_a_recipe`.",
             "- When `status=repaired`, provide `canonical_recipe.title`, `ingredients`, and `steps`.",
             "- Use `ingredient_step_mapping` only for real ingredient-to-step links.",

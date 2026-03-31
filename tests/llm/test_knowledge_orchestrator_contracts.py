@@ -4,6 +4,7 @@ from pathlib import Path
 
 from cookimport.llm.codex_exec_runner import CodexExecLiveSnapshot
 from cookimport.llm.codex_farm_knowledge_orchestrator import _preflight_knowledge_shard
+from cookimport.llm.editable_task_file import build_repair_task_file, summarize_task_file
 from cookimport.llm.knowledge_stage import _shared as knowledge_stage_shared
 from cookimport.llm.knowledge_stage.recovery import (
     _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS,
@@ -11,7 +12,10 @@ from cookimport.llm.knowledge_stage.recovery import (
     _build_strict_json_watchdog_callback,
     _write_knowledge_worker_hint,
 )
-from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
+from cookimport.llm.knowledge_stage.task_file_contracts import (
+    build_knowledge_classification_task_file,
+)
+from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1, WorkerAssignmentV1
 
 
 def test_preflight_knowledge_shard_accepts_shard_payload() -> None:
@@ -71,6 +75,7 @@ def test_worker_prompt_describes_task_file_contract() -> None:
     assert "- Start with `task.json`." in prompt
     assert "- If the task file is large, inspect only the units you need with `--show-unit <unit_id>` or `--show-unanswered --limit 5`." in prompt
     assert "- Edit only the `answer` object inside each unit." in prompt
+    assert "--apply-answers-file answers.json`." in prompt
     assert (
         "- After each edit pass, run `python3 -m cookimport.llm.knowledge_same_session_handoff` "
         "from the workspace root." in prompt
@@ -87,13 +92,19 @@ def test_worker_prompt_describes_task_file_contract() -> None:
         "`completed_with_grouping`." in prompt
     )
     assert "Harmless local retries are not the point of failure here." in prompt
+    assert "Do not dump `task.json` with `cat` or `sed`" in prompt
     assert "Do not invent queue advancement, control files, helper ledgers, or alternate output files." in prompt
     assert "This is the classification step." in prompt
     assert "Answer each unit with `category`, `reviewer_category`, `retrieval_concept`, and `grounding`." in prompt
+    assert "You are doing close semantic review, not building a heuristic classifier" in prompt
+    assert "Treat `candidate_tag_keys`, heading shape, and packet position as weak hints only" in prompt
+    assert "If you feel tempted to invent a rule that covers many rows at once" in prompt
     assert (
         "If `category` is `knowledge`, `retrieval_concept` must be a short standalone concept" in prompt
     )
+    assert "Short conceptual headings can still be `knowledge`" in prompt
     assert "Proposed tags are allowed only for real retrieval-grade concepts" in prompt
+    assert "Do not compress the packet into one global keep/drop rule" in prompt
     assert "Do not invent `group_key`, `topic_label`, packet summaries, or cross-unit grouping notes in this step." in prompt
     assert "Do not return shard outputs in your final message." in prompt
     assert "Assigned shard ids represented in this task file: `book.ks0000.nr`." in prompt
@@ -148,6 +159,8 @@ def test_knowledge_worker_hint_stays_compact_and_keeps_high_signal_sections(
     assert "Nearby recipe guardrail block indices: `2, 3`." in rendered
     assert "gap_from_prev=14" in rendered
     assert "table_hint" in rendered
+    assert "Do not turn heading shape, candidate tags, or packet profile into a bulk heuristic" in rendered
+    assert "If a short heading feels ambiguous, ask whether it introduces portable cooking knowledge" in rendered
     assert rendered.count("## ") == 5
 
 
@@ -155,6 +168,104 @@ def test_knowledge_stage_shared_no_longer_imports_legacy_workspace_helper_surfac
     shared_source = Path(knowledge_stage_shared.__file__).read_text(encoding="utf-8")
 
     assert "knowledge_workspace_tools" not in shared_source
+
+
+def test_knowledge_task_file_summary_surfaces_semantic_review_contract() -> None:
+    task_file, _unit_to_shard = build_knowledge_classification_task_file(
+        assignment=WorkerAssignmentV1(
+            worker_id="worker-001",
+            shard_ids=("book.ks0000.nr",),
+            workspace_root="/tmp/worker-001",
+        ),
+        shards=[
+            ShardManifestEntryV1(
+                shard_id="book.ks0000.nr",
+                owned_ids=("book.ks0000.nr",),
+                input_payload={
+                    "v": "1",
+                    "bid": "book.ks0000.nr",
+                    "b": [{"i": 4, "t": "Heat control matters for browning."}],
+                },
+                input_text=None,
+                metadata={},
+            )
+        ],
+    )
+
+    review_contract = task_file.get("review_contract")
+    assert isinstance(review_contract, dict)
+    assert review_contract.get("mode") == "semantic_review"
+    assert "close semantic review" in str(review_contract.get("worker_role") or "")
+    assert "candidate tags" in " ".join(review_contract.get("anti_patterns") or []).lower()
+
+    summary = summarize_task_file(payload=task_file)
+    summary_contract = summary.get("review_contract")
+    assert isinstance(summary_contract, dict)
+    assert summary_contract.get("mode") == "semantic_review"
+    assert "standalone cooking concept" in str(
+        summary_contract.get("primary_question") or ""
+    )
+    assert any(
+        "weak hints" in row.lower()
+        for row in (summary_contract.get("decision_policy") or [])
+    )
+    assert any(
+        "many rows at once" in row.lower()
+        for row in (summary_contract.get("anti_patterns") or [])
+    )
+
+
+def test_knowledge_repair_task_file_preserves_semantic_review_contract() -> None:
+    original_task_file, _unit_to_shard = build_knowledge_classification_task_file(
+        assignment=WorkerAssignmentV1(
+            worker_id="worker-001",
+            shard_ids=("book.ks0000.nr",),
+            workspace_root="/tmp/worker-001",
+        ),
+        shards=[
+            ShardManifestEntryV1(
+                shard_id="book.ks0000.nr",
+                owned_ids=("book.ks0000.nr",),
+                input_payload={
+                    "v": "1",
+                    "bid": "book.ks0000.nr",
+                    "b": [{"i": 4, "t": "Heat control matters for browning."}],
+                },
+                input_text=None,
+                metadata={},
+            )
+        ],
+    )
+
+    repair_task_file = build_repair_task_file(
+        original_task_file=original_task_file,
+        failed_unit_ids=["knowledge::4"],
+        previous_answers_by_unit_id={
+            "knowledge::4": {
+                "category": "knowledge",
+                "reviewer_category": "knowledge",
+                "retrieval_concept": "Heat control",
+                "grounding": {
+                    "tag_keys": [],
+                    "category_keys": [],
+                    "proposed_tags": [
+                        {
+                            "key": "heat-control",
+                            "display_name": "Heat control",
+                            "category_key": "techniques",
+                        }
+                    ],
+                },
+            }
+        },
+        validation_feedback_by_unit_id={
+            "knowledge::4": {"validation_errors": ["example_feedback"]}
+        },
+    )
+
+    assert repair_task_file.get("review_contract") == original_task_file.get("review_contract")
+    summary = summarize_task_file(payload=repair_task_file)
+    assert summary.get("review_contract", {}).get("mode") == "semantic_review"
 
 
 def test_knowledge_workspace_watchdog_completes_after_stable_outputs_without_queue_controller(
@@ -225,3 +336,34 @@ def test_knowledge_workspace_watchdog_completes_after_stable_outputs_without_que
     live_status = (tmp_path / "live_status.json").read_text(encoding="utf-8")
     assert "workspace_output_complete" in live_status
     assert "workspace_completion_waiting_for_exit" in live_status
+
+
+def test_knowledge_workspace_watchdog_kills_egregious_single_file_shell_transform(
+    tmp_path: Path,
+) -> None:
+    callback = _build_strict_json_watchdog_callback(
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+    )
+
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.2,
+            last_event_seconds_ago=0.0,
+            event_count=4,
+            command_execution_count=1,
+            reasoning_item_count=0,
+            agent_message_count=0,
+            turn_completed_count=0,
+            last_command="/bin/bash -lc \"python3 -c 'from pathlib import Path; Path(\\\"task.json\\\").write_text(\\\"{}\\\")'\"",
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert decision is not None
+    assert decision.reason_code == "single_file_shell_drift_egregious"
+    live_status = (tmp_path / "live_status.json").read_text(encoding="utf-8")
+    assert "single_file_shell_drift" in live_status

@@ -482,6 +482,45 @@ def test_codex_exec_runner_classifies_workspace_commands_for_telemetry() -> None
     assert forbidden.policy == "forbidden_non_helper_executable"
 
 
+def test_codex_exec_runner_classifies_single_file_workspace_command_drift() -> None:
+    helper = classify_workspace_worker_command(
+        "/bin/bash -lc 'python3 -m cookimport.llm.editable_task_file --summary'",
+        single_file_worker_policy=True,
+    )
+    assert helper.allowed is True
+    assert helper.policy == "single_file_repo_helper_command"
+
+    handoff = classify_workspace_worker_command(
+        "/bin/bash -lc 'python3 -m cookimport.llm.recipe_same_session_handoff --status'",
+        single_file_worker_policy=True,
+    )
+    assert handoff.allowed is True
+    assert handoff.policy == "single_file_repo_handoff_command"
+
+    task_dump = classify_workspace_worker_command(
+        "/bin/bash -lc 'cat task.json'",
+        single_file_worker_policy=True,
+    )
+    assert task_dump.allowed is True
+    assert task_dump.policy == "single_file_task_file_shell_read"
+
+    orientation = classify_workspace_worker_command(
+        "/bin/bash -lc ls",
+        single_file_worker_policy=True,
+    )
+    assert orientation.allowed is True
+    assert orientation.policy == "single_file_orientation_command"
+
+    transform = classify_workspace_worker_command(
+        "/bin/bash -lc \"python3 -c "
+        "'from pathlib import Path; "
+        "Path(\\\"task.json\\\").write_text(Path(\\\"task.json\\\").read_text())'\"",
+        single_file_worker_policy=True,
+    )
+    assert transform.allowed is True
+    assert transform.policy == "single_file_task_ad_hoc_transform"
+
+
 def test_codex_exec_runner_detects_boundary_violations_separately_from_telemetry() -> None:
     assert (
         detect_workspace_worker_boundary_violation(

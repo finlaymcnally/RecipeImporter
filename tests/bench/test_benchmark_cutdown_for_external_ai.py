@@ -777,6 +777,7 @@ def _make_run_record(
     full_prompt_rows: list[dict[str, object]] | None = None,
     line_role_pipeline: str = "off",
     line_role_prediction_rows: list[dict[str, object]] | None = None,
+    projected_span_rows: list[dict[str, object]] | None = None,
     source_path: str = "/tmp/book.epub",
     source_hash: str = "source-hash",
 ) -> object:
@@ -793,6 +794,11 @@ def _make_run_record(
         _write_jsonl(
             run_dir / "line-role-pipeline" / "line_role_predictions.jsonl",
             line_role_prediction_rows,
+        )
+    if projected_span_rows is not None:
+        _write_jsonl(
+            run_dir / "line-role-pipeline" / "projected_spans.jsonl",
+            projected_span_rows,
         )
 
     artifacts: dict[str, object] = {}
@@ -978,6 +984,155 @@ def test_build_pair_diagnostics_emits_changed_lines_and_breakdowns(tmp_path: Pat
     assert diagnostics.targeted_prompt_case_rows[0]["empty_ingredient_step_mapping"] is True
 
 
+def test_build_pair_diagnostics_projects_recipe_spans_from_projected_spans(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    codex_prompt_rows = [
+        {
+            "stage_key": "recipe_build_intermediate",
+            "call_id": "c0-build-intermediate",
+            "recipe_id": "recipe:c0",
+            "parsed_response": {
+                "is_recipe": True,
+                "recipe_id": "recipe:c0",
+                "start_block_index": 10,
+                "end_block_index": 12,
+                "title": "Dish Title",
+            },
+            "request_input_payload": {"blocks_candidate": [{"text": "Dish Title"}]},
+        },
+        {
+            "stage_key": "recipe_refine",
+            "call_id": "c0-correction",
+            "recipe_id": "recipe:c0",
+            "parsed_response": {
+                "warnings": ["No explicit cooking instructions were provided."],
+                "canonical_recipe": {
+                    "title": "Dish Title",
+                    "ingredients": ["1 cup flour"],
+                    "steps": ["Mix gently"],
+                },
+                "ingredient_step_mapping": {},
+            },
+            "request_input_payload": {
+                "evidence_rows": [
+                    [10, "Dish Title"],
+                    [11, "1 cup flour"],
+                    [12, "Mix gently"],
+                ],
+                "canonical_text": "Dish Title\n1 cup flour\nMix gently\nChef note\n",
+            },
+        },
+        {
+            "stage_key": "recipe_build_final",
+            "call_id": "c0-build-final",
+            "recipe_id": "recipe:c0",
+            "parsed_response": {
+                "warnings": ["No extracted instructions were provided."],
+                "ingredient_step_mapping": "{}",
+            },
+            "request_input_payload": {"blocks_candidate": [{"text": "Mix gently"}]},
+        },
+    ]
+
+    codex_record = _make_run_record(
+        module,
+        run_root=tmp_path,
+        run_id="2026-03-02_10.00.00",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
+        wrong_label_rows=[
+            {"line_index": 1, "pred_label": "RECIPE_NOTES"},
+            {"line_index": 3, "pred_label": "KNOWLEDGE"},
+        ],
+        full_prompt_rows=codex_prompt_rows,
+        projected_span_rows=[
+            {
+                "atomic_index": 100,
+                "block_id": "b10",
+                "block_index": 10,
+                "label": "RECIPE_TITLE",
+                "line_index": 0,
+                "recipe_id": "recipe:0",
+                "recipe_index": 0,
+                "text": "Dish Title",
+                "within_recipe_span": True,
+            },
+            {
+                "atomic_index": 101,
+                "block_id": "b11",
+                "block_index": 11,
+                "label": "INGREDIENT_LINE",
+                "line_index": 1,
+                "recipe_id": "recipe:0",
+                "recipe_index": 0,
+                "text": "1 cup flour",
+                "within_recipe_span": True,
+            },
+            {
+                "atomic_index": 102,
+                "block_id": "b12",
+                "block_index": 12,
+                "label": "INSTRUCTION_LINE",
+                "line_index": 2,
+                "recipe_id": "recipe:0",
+                "recipe_index": 0,
+                "text": "Mix gently",
+                "within_recipe_span": True,
+            },
+            {
+                "atomic_index": 103,
+                "block_id": "b13",
+                "block_index": 13,
+                "label": "RECIPE_NOTES",
+                "line_index": 3,
+                "recipe_id": None,
+                "recipe_index": None,
+                "text": "Chef note",
+                "within_recipe_span": False,
+            },
+        ],
+    )
+    baseline_record = _make_run_record(
+        module,
+        run_root=tmp_path,
+        run_id="2026-03-02_09.59.00",
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+    )
+
+    diagnostics = module._build_pair_diagnostics(
+        source_key="source-hash",
+        source_file="book.epub",
+        codex_run=codex_record,
+        baseline_run=baseline_record,
+        excerpt_limit=120,
+        targeted_case_limit=10,
+    )
+
+    inside_row = next(
+        row
+        for row in diagnostics.pair_breakdown["region_breakdown"]
+        if row["region"] == "inside_active_recipe_span"
+    )
+    outside_row = next(
+        row
+        for row in diagnostics.pair_breakdown["region_breakdown"]
+        if row["region"] == "outside_active_recipe_span"
+    )
+    triage_row = next(
+        row for row in diagnostics.recipe_triage_rows if row["recipe_id"] == "recipe:c0"
+    )
+
+    assert inside_row["line_total"] == 3
+    assert outside_row["line_total"] == 1
+    assert triage_row["line_total"] == 3
+    assert triage_row["changed_lines_codex_vs_baseline"] == 1
+    assert triage_row["codex_accuracy"] is not None
+    assert triage_row["baseline_accuracy"] is not None
+
+
 def test_build_recipe_spans_from_full_prompt_rows_supports_sharded_recipe_payloads() -> None:
     module = _load_cutdown_module()
 
@@ -1074,6 +1229,184 @@ def test_build_upload_bundle_reconciles_sharded_recipe_ids_to_per_recipe_counts(
     stage_observability = index_payload["analysis"]["stage_observability_summary"]["by_stage"]
     assert stage_observability["recipe_refine"]["recipe_count"] == 2
     assert stage_observability["recipe_build_final"]["recipe_count"] == 2
+
+
+def test_build_upload_bundle_uses_projected_spans_for_recipe_stage_blame(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-book-benchmark"
+    codex_run_id = "codexfarm"
+    baseline_run_id = "vanilla"
+    codex_prompt_rows = [
+        {
+            "stage_key": "recipe_build_intermediate",
+            "call_id": "starter-build-intermediate",
+            "recipe_id": "recipe:c0",
+            "timestamp_utc": "2026-03-03T10:00:00Z",
+            "model": "gpt-test",
+            "parsed_response": {
+                "is_recipe": True,
+                "recipe_id": "recipe:c0",
+                "start_block_index": 10,
+                "end_block_index": 12,
+                "title": "Dish Title",
+                "excluded_block_ids": [],
+            },
+            "request_input_payload": {
+                "blocks_candidate": [
+                    {"index": 10, "block_id": "b10", "text": "Dish Title"},
+                    {"index": 11, "block_id": "b11", "text": "1 cup flour"},
+                    {"index": 12, "block_id": "b12", "text": "Mix gently"},
+                    {"index": 13, "block_id": "b13", "text": "Chef note"},
+                ],
+                "blocks_after": [],
+                "blocks_before": [],
+            },
+        },
+        {
+            "stage_key": "recipe_refine",
+            "call_id": "starter-correction",
+            "recipe_id": "recipe:c0",
+            "timestamp_utc": "2026-03-03T10:00:05Z",
+            "model": "gpt-test",
+            "parsed_response": {
+                "warnings": ["No explicit cooking instructions were provided."],
+                "canonical_recipe": {
+                    "title": "Dish Title",
+                    "ingredients": ["1 cup flour"],
+                    "steps": ["Mix gently"],
+                },
+                "ingredient_step_mapping": {},
+            },
+            "request_input_payload": {
+                "evidence_rows": [
+                    [10, "Dish Title"],
+                    [11, "1 cup flour"],
+                    [12, "Mix gently"],
+                ],
+                "canonical_text": "Dish Title\n1 cup flour\nMix gently\nChef note\n",
+            },
+        },
+        {
+            "stage_key": "recipe_build_final",
+            "call_id": "starter-build-final",
+            "recipe_id": "recipe:c0",
+            "timestamp_utc": "2026-03-03T10:00:10Z",
+            "model": "gpt-test",
+            "parsed_response": {
+                "warnings": ["No extracted instructions were provided."],
+                "ingredient_step_mapping": "{}",
+                "draft_v1": json.dumps(
+                    {
+                        "schema_v": 1,
+                        "recipe": {"title": "Dish Title"},
+                        "steps": [],
+                    }
+                ),
+            },
+            "request_input_payload": {
+                "extracted_ingredients": [{"text": "1 cup flour"}],
+                "extracted_instructions": [],
+            },
+        },
+    ]
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=codex_prompt_rows,
+        projected_span_rows=[
+            {
+                "atomic_index": 100,
+                "block_id": "b10",
+                "block_index": 10,
+                "label": "RECIPE_TITLE",
+                "line_index": 0,
+                "recipe_id": "recipe:0",
+                "recipe_index": 0,
+                "text": "Dish Title",
+                "within_recipe_span": True,
+            },
+            {
+                "atomic_index": 101,
+                "block_id": "b11",
+                "block_index": 11,
+                "label": "INGREDIENT_LINE",
+                "line_index": 1,
+                "recipe_id": "recipe:0",
+                "recipe_index": 0,
+                "text": "1 cup flour",
+                "within_recipe_span": True,
+            },
+            {
+                "atomic_index": 102,
+                "block_id": "b12",
+                "block_index": 12,
+                "label": "INSTRUCTION_LINE",
+                "line_index": 2,
+                "recipe_id": "recipe:0",
+                "recipe_index": 0,
+                "text": "Mix gently",
+                "within_recipe_span": True,
+            },
+            {
+                "atomic_index": 103,
+                "block_id": "b13",
+                "block_index": 13,
+                "label": "RECIPE_NOTES",
+                "line_index": 3,
+                "recipe_id": None,
+                "recipe_index": None,
+                "text": "Chef note",
+                "within_recipe_span": False,
+            },
+        ],
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[],
+    )
+
+    codex_prediction_run = _write_prediction_run(
+        session_root / codex_run_id,
+        with_extracted_archive=True,
+    )
+    _write_prediction_run_stage_outputs(codex_prediction_run, recipe_id="recipe:c0")
+    _set_pred_run_artifact(session_root / codex_run_id, "prediction-run")
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    active_span_breakout = index_payload["analysis"]["active_recipe_span_breakout"]
+    blame_rows = index_payload["analysis"]["net_error_blame_summary"]["bucket_rows"]
+    blame_by_bucket = {
+        str(row.get("bucket") or ""): row for row in blame_rows if isinstance(row, dict)
+    }
+    per_recipe_rows = index_payload["analysis"]["per_recipe_breakdown"]["pairs"][0][
+        "per_recipe_breakdown"
+    ]
+    recipe_row = next(row for row in per_recipe_rows if row["recipe_id"] == "recipe:c0")
+
+    assert active_span_breakout["inside_active_recipe_span"]["line_total"] == 3
+    assert active_span_breakout["outside_active_recipe_span"]["line_total"] == 1
+    assert recipe_row["line_total"] == 3
+    assert recipe_row["codex_accuracy"] is not None
+    assert int(blame_by_bucket["final_recipe"]["new_error_count"]) == 1
+    assert int(blame_by_bucket["line_role"]["new_error_count"]) == 0
 
 
 def test_build_pair_diagnostics_enriches_triage_with_manifest_diagnostics(tmp_path: Path) -> None:
@@ -3724,6 +4057,173 @@ def test_build_upload_bundle_merges_realistic_codex_call_telemetry_with_prompt_b
     top_estimated_cost_calls = runtime_payload["top_estimated_cost_calls"]
     assert top_estimated_cost_calls[0]["call_id"] == "recipe-001"
     assert float(top_estimated_cost_calls[0]["estimated_cost_usd"]) >= 0.42
+
+
+def test_build_upload_bundle_backfills_missing_stage_telemetry_from_prompt_budget_summary(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-book-benchmark"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id="vanilla",
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+        source_path="/tmp/book.epub",
+        source_hash="fixture-hash",
+    )
+
+    full_prompt_rows: list[dict[str, Any]] = []
+    for idx in range(5):
+        full_prompt_rows.append(
+            {
+                "stage_key": "line_role",
+                "call_id": f"line-role-{idx:03d}",
+                "recipe_id": f"line_role_{idx:03d}",
+                "timestamp_utc": f"2026-03-03T10:00:{idx:02d}Z",
+                "model": "gpt-test",
+                "parsed_response": {
+                    "response_payload": {
+                        "rows": [
+                            {"atomic_index": idx, "label": "OTHER"},
+                            {"atomic_index": idx + 1, "label": "RECIPE_TITLE"},
+                        ]
+                    }
+                },
+                "request_input_payload": {
+                    "rows": [
+                        {"atomic_index": idx, "text": "Front matter"},
+                        {"atomic_index": idx + 1, "text": "Dish Title"},
+                    ]
+                },
+                "request_telemetry": {
+                    "duration_ms": 100 + idx,
+                    "status": "ok",
+                    "attempt_index": 0,
+                    "tokens_input": 1000 + idx,
+                    "tokens_cached_input": 400 + idx,
+                    "tokens_output": 50 + idx,
+                    "tokens_total": 1050 + (2 * idx),
+                },
+            }
+        )
+    for idx in range(5):
+        full_prompt_rows.append(
+            {
+                "stage_key": "recipe_refine",
+                "call_id": f"recipe-{idx:03d}",
+                "recipe_id": f"recipe:c{idx}",
+                "timestamp_utc": f"2026-03-03T10:01:{idx:02d}Z",
+                "model": "gpt-test",
+                "parsed_response": {
+                    "canonical_recipe": {
+                        "ingredients": [],
+                        "steps": [],
+                    }
+                },
+                "request_input_payload": {
+                    "evidence_rows": [[idx, "Dish Title"]],
+                },
+                "request_telemetry": {
+                    "duration_ms": 200 + idx,
+                    "status": "ok",
+                    "attempt_index": 0,
+                    "tokens_input": 500 + idx,
+                    "tokens_cached_input": 200 + idx,
+                    "tokens_output": 25 + idx,
+                    "tokens_total": 525 + (2 * idx),
+                },
+            }
+        )
+    for idx in range(5):
+        full_prompt_rows.append(
+            {
+                "stage_key": "nonrecipe_finalize",
+                "call_id": f"knowledge-{idx:03d}",
+                "recipe_id": f"book.ks{idx:04d}.nr",
+                "timestamp_utc": f"2026-03-03T10:02:{idx:02d}Z",
+                "model": "gpt-test",
+                "parsed_response": {
+                    "payload": {
+                        "bid": f"book.ks{idx:04d}.nr",
+                        "d": [{"i": idx, "c": "other"}],
+                    }
+                },
+                "request_input_payload": {"bid": f"book.ks{idx:04d}.nr"},
+            }
+        )
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id="codexfarm",
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=full_prompt_rows,
+        source_path="/tmp/book.epub",
+        source_hash="fixture-hash",
+    )
+    codex_run_dir = session_root / "codexfarm"
+    _write_prediction_run(codex_run_dir, with_extracted_archive=True)
+    _write_json(
+        codex_run_dir / "prediction-run" / "prompt_budget_summary.json",
+        {
+            "schema_version": "prompt_budget_summary.v1",
+            "by_stage": {
+                "recipe_refine": {
+                    "call_count": 5,
+                    "duration_total_ms": 1010,
+                    "tokens_total": 4000,
+                },
+                "nonrecipe_finalize": {
+                    "call_count": 5,
+                    "duration_total_ms": 5000,
+                    "tokens_total": 9000,
+                },
+                "line_role": {
+                    "call_count": 5,
+                    "duration_total_ms": None,
+                    "tokens_total": 7000,
+                },
+            },
+        },
+    )
+    _write_json(
+        session_root / "codex_vs_vanilla_comparison.json",
+        {"schema_version": "codex_vs_vanilla_comparison.v2"},
+    )
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    runtime_summary = index_payload["analysis"]["call_inventory_runtime"]["summary"]
+
+    assert (
+        runtime_summary["runtime_source"]
+        == "call_inventory_rows_plus_prediction_run_prompt_budget_summary"
+    )
+    assert int(runtime_summary["call_count"]) == 15
+    assert int(runtime_summary["calls_with_runtime"]) == 15
+    assert int(runtime_summary["calls_with_estimated_cost"]) == 10
+    assert int(runtime_summary["total_tokens"]) == 20000
+    assert runtime_summary["estimated_cost_signal"]["available"] is True
+    assert runtime_summary["by_stage"]["nonrecipe_finalize"]["calls_with_runtime"] == 5
+    assert (
+        int(runtime_summary["by_stage"]["nonrecipe_finalize"]["total_tokens"]) == 9000
+    )
+    assert runtime_summary["by_stage"]["line_role"]["calls_with_runtime"] == 5
+    assert runtime_summary["by_stage"]["line_role"]["avg_duration_ms"] == 102.0
+    assert int(runtime_summary["by_stage"]["line_role"]["total_tokens"]) == 7000
 
 
 def test_build_upload_bundle_surfaces_knowledge_summary_and_locators(

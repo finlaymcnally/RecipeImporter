@@ -125,6 +125,33 @@ _DIRECT_EXEC_WORKSPACE_MIRRORED_PATH_ENV_KEYS = (
 )
 _WORKSPACE_COMMAND_LOOP_MAX_COMMAND_COUNT = 300
 _WORKSPACE_COMMAND_LOOP_MAX_REPEAT_COUNT = 20
+_SINGLE_FILE_WORKSPACE_HELPER_MODULES = {
+    "cookimport.llm.editable_task_file",
+    "cookimport.llm.recipe_same_session_handoff",
+    "cookimport.llm.knowledge_same_session_handoff",
+    "cookimport.parsing.canonical_line_roles.same_session_handoff",
+}
+_SINGLE_FILE_WORKSPACE_STAGE_HELPER_MODULES = {
+    "cookimport.llm.recipe_same_session_handoff",
+    "cookimport.llm.knowledge_same_session_handoff",
+    "cookimport.parsing.canonical_line_roles.same_session_handoff",
+}
+_SINGLE_FILE_WORKSPACE_INLINE_PROGRAM_EXECUTABLES = {
+    "jq",
+    "node",
+    "perl",
+    "python",
+    "python3",
+    "ruby",
+}
+_SINGLE_FILE_WORKSPACE_ALLOWED_POLICIES = {
+    "single_file_repo_helper_command",
+    "single_file_repo_handoff_command",
+    "single_file_temp_helper_command",
+}
+_SINGLE_FILE_WORKSPACE_EGREGIOUS_POLICIES = {
+    "single_file_task_ad_hoc_transform",
+}
 # These are the clearly egregious off-contract tools for long-lived workspace
 # workers. Local interpreters and read-only inspection commands stay allowed.
 _WORKSPACE_EGREGIOUS_BOUNDARY_EXECUTABLES = {
@@ -2051,14 +2078,16 @@ def _build_direct_exec_agents_text(
                 "This workspace exposes one repo-written file: `task.json`.\n"
                 "Start with `python3 -m cookimport.llm.editable_task_file --summary`.\n"
                 "If you need specific unit payloads, use `python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>` or `python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`.\n"
+                "If you want to apply several answers at once, use `python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json` instead of scripting a rewrite.\n"
                 "Then edit only `/units/*/answer`, save the same file, and stop.\n"
                 "`task.json` is the whole job. You do not need to discover extra control state, hidden files, or repo context before editing it.\n"
                 "Treat everything outside `task.json` as immutable infrastructure, not task context.\n"
                 "If you briefly reread part of `task.json` or make a small local false start, just correct course and continue; deterministic validation happens after you save.\n"
                 "Do not invent helper ledgers, alternate output files, queue files, or repair sidecars.\n"
+                "Do not dump the whole task file with `cat` or `sed`, do not use `ls` or `find` just to orient yourself, and do not write ad hoc inline Python, Node, or heredoc rewrites against `task.json`.\n"
                 "Do not inspect parent directories, repository-wide AGENTS files, project docs, or source code.\n"
                 "Do not run repo-specific commands such as `npm run docs:list` or `git`.\n"
-                "Do not reach for shell on the happy path. If a tiny local helper is truly necessary, keep it grounded on `task.json` and local temp files only.\n"
+                "Do not reach for shell on the happy path. If a tiny local temp helper is truly necessary, keep it grounded on `task.json` and local temp files only.\n"
                 "Hard boundaries still apply: stay inside this workspace, keep paths local or in approved temp roots, and avoid repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
                 "Do not modify immutable evidence or metadata fields.\n"
             )
@@ -3535,15 +3564,17 @@ def _write_direct_exec_worker_manifest(
         )
         if not single_file_worker_runtime
         else (
-            "The happy path is direct in-place editing of `task.json`. Bounded local "
-            "temp helpers are tolerated, but repo/network/package-manager tools and "
-            "visible path escapes remain forbidden."
+            "The happy path is direct in-place editing of `task.json` plus the "
+            "repo-owned editable-task and same-session helpers. Bounded local temp "
+            "helpers are tolerated, but raw task-file dumps, broad orientation shell, "
+            "and ad hoc inline rewrites are warning-or-kill drift."
         ),
         "workspace_local_shell_examples": (
             [
                 "python3 -m cookimport.llm.editable_task_file --summary",
                 "python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>",
                 "python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5",
+                "python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json",
                 "cp task.json /tmp/task-backup.json",
             ]
             if single_file_worker_runtime
@@ -3653,6 +3684,7 @@ def classify_workspace_worker_command(
     allow_orientation_commands: bool = True,
     allow_output_paths: bool = True,
     allowed_absolute_roots: Sequence[str | Path] | None = None,
+    single_file_worker_policy: bool = False,
 ) -> WorkspaceCommandClassification:
     boundary_violation = detect_workspace_worker_boundary_violation(
         command_text,
@@ -3663,6 +3695,13 @@ def classify_workspace_worker_command(
         return boundary_violation
     inner_tokens = _command_tokens_for_watchdog(command_text)
     cleaned_command = str(command_text or "").strip() or None
+    if single_file_worker_policy:
+        single_file_verdict = _classify_single_file_workspace_command(
+            command_text=cleaned_command,
+            tokens=inner_tokens,
+        )
+        if single_file_verdict is not None:
+            return single_file_verdict
     egregious_verdict = _workspace_egregious_command_verdict(
         command_text=cleaned_command,
         tokens=inner_tokens,
@@ -3740,6 +3779,117 @@ def classify_workspace_worker_command(
         policy="tolerated_workspace_shell_command",
         reason="command stayed inside the relaxed workspace-worker command policy",
     )
+
+
+def _classify_single_file_workspace_command(
+    *,
+    command_text: str | None,
+    tokens: Sequence[str],
+) -> WorkspaceCommandClassification | None:
+    cleaned_command = str(command_text or "").strip() or None
+    if cleaned_command is None:
+        return None
+    token_list = [
+        str(token or "").strip() for token in tokens if str(token or "").strip()
+    ]
+    module_name = _workspace_watchdog_module(token_list)
+    if module_name in _SINGLE_FILE_WORKSPACE_HELPER_MODULES:
+        if module_name in _SINGLE_FILE_WORKSPACE_STAGE_HELPER_MODULES:
+            return WorkspaceCommandClassification(
+                command_text=cleaned_command,
+                allowed=True,
+                policy="single_file_repo_handoff_command",
+                reason=(
+                    "repo-owned same-session helper command stayed on the single-file "
+                    "worker paved road"
+                ),
+            )
+        return WorkspaceCommandClassification(
+            command_text=cleaned_command,
+            allowed=True,
+            policy="single_file_repo_helper_command",
+            reason=(
+                "repo-owned editable-task helper command stayed on the single-file "
+                "worker paved road"
+            ),
+        )
+    if _looks_like_single_file_temp_helper_command(token_list):
+        return WorkspaceCommandClassification(
+            command_text=cleaned_command,
+            allowed=True,
+            policy="single_file_temp_helper_command",
+            reason=(
+                "single-file worker used a bounded local temp helper instead of "
+                "rewriting repo-owned control files"
+            ),
+        )
+    shell_body = _extract_workspace_shell_body(cleaned_command)
+    executable = _workspace_watchdog_executable(token_list)
+    if _looks_like_single_file_task_transform(
+        command_text=cleaned_command,
+        shell_body=shell_body,
+        executable=executable,
+    ):
+        return WorkspaceCommandClassification(
+            command_text=cleaned_command,
+            allowed=True,
+            policy="single_file_task_ad_hoc_transform",
+            reason=(
+                "single-file workers must not use ad hoc inline programs or shell "
+                "rewrites against `task.json`; edit the file directly or use the "
+                "repo-owned apply helpers"
+            ),
+        )
+    if executable in {"pwd", "ls", "find", "tree"}:
+        return WorkspaceCommandClassification(
+            command_text=cleaned_command,
+            allowed=True,
+            policy="single_file_orientation_command",
+            reason=(
+                "single-file workers should start from repo-owned task helpers rather "
+                "than broad shell orientation commands"
+            ),
+        )
+    if _references_single_file_task_file(cleaned_command):
+        return WorkspaceCommandClassification(
+            command_text=cleaned_command,
+            allowed=True,
+            policy="single_file_task_file_shell_read",
+            reason=(
+                "single-file workers should inspect `task.json` with repo-owned "
+                "summary or narrow-read helpers instead of raw shell reads"
+            ),
+        )
+    if shell_body is not None and _looks_like_workspace_shell_script(shell_body):
+        return WorkspaceCommandClassification(
+            command_text=cleaned_command,
+            allowed=True,
+            policy="single_file_shell_script_command",
+            reason=(
+                "single-file workers should not invent shell scripts when the repo "
+                "already provides helper-first task inspection and handoff commands"
+            ),
+        )
+    if executable:
+        return WorkspaceCommandClassification(
+            command_text=cleaned_command,
+            allowed=True,
+            policy="single_file_discouraged_shell_command",
+            reason=(
+                "single-file workers should stay on the helper-first task-file path "
+                "instead of generic shell commands"
+            ),
+        )
+    return None
+
+
+def is_single_file_workspace_command_drift_policy(policy: str | None) -> bool:
+    cleaned = str(policy or "").strip()
+    return cleaned.startswith("single_file_") and cleaned not in _SINGLE_FILE_WORKSPACE_ALLOWED_POLICIES
+
+
+def is_single_file_workspace_command_egregious(policy: str | None) -> bool:
+    return str(policy or "").strip() in _SINGLE_FILE_WORKSPACE_EGREGIOUS_POLICIES
 
 
 def detect_workspace_worker_boundary_violation(
@@ -4077,6 +4227,33 @@ def _workspace_watchdog_executable(inner_tokens: Sequence[str]) -> str | None:
     return executable
 
 
+def _workspace_watchdog_module(tokens: Sequence[str]) -> str | None:
+    token_list = [
+        str(token or "").strip() for token in tokens if str(token or "").strip()
+    ]
+    if not token_list:
+        return None
+    start_index = 0
+    if _workspace_watchdog_executable(token_list) == "env":
+        start_index = 1
+        while start_index < len(token_list):
+            current = token_list[start_index]
+            if not current or current.startswith("-"):
+                start_index += 1
+                continue
+            if "=" in current and "/" not in current and not current.startswith((".", "/")):
+                start_index += 1
+                continue
+            break
+    for index in range(start_index, len(token_list)):
+        token = token_list[index]
+        if token == "-m" and index + 1 < len(token_list):
+            return str(token_list[index + 1] or "").strip() or None
+        if token.startswith("-m") and len(token) > 2:
+            return str(token[2:] or "").strip() or None
+    return None
+
+
 def _workspace_watchdog_git_subcommand(tokens: Sequence[str]) -> str | None:
     if not tokens:
         return None
@@ -4089,6 +4266,68 @@ def _workspace_watchdog_git_subcommand(tokens: Sequence[str]) -> str | None:
             continue
         return cleaned
     return None
+
+
+def _looks_like_single_file_temp_helper_command(tokens: Sequence[str]) -> bool:
+    token_list = [str(token or "").strip() for token in tokens if str(token or "").strip()]
+    executable = _workspace_watchdog_executable(token_list)
+    if executable not in {"cp", "mv"}:
+        return False
+    path_arguments = [
+        token
+        for token in token_list[1:]
+        if token and not token.startswith("-")
+    ]
+    if len(path_arguments) != 2:
+        return False
+    source, destination = path_arguments
+    if source not in {TASK_FILE_NAME, f"./{TASK_FILE_NAME}"}:
+        return False
+    return _is_tolerated_workspace_temp_path(destination)
+
+
+def _references_single_file_task_file(command_text: str | None) -> bool:
+    cleaned = str(command_text or "").strip().lower()
+    if not cleaned:
+        return False
+    return bool(re.search(r"(^|[^a-z0-9_./-])task\.json($|[^a-z0-9_./-])", cleaned))
+
+
+def _looks_like_single_file_task_transform(
+    *,
+    command_text: str | None,
+    shell_body: str | None,
+    executable: str | None,
+) -> bool:
+    cleaned_command = str(command_text or "").strip()
+    if not cleaned_command:
+        return False
+    lowered_command = cleaned_command.lower()
+    lowered_body = str(shell_body or "").lower()
+    if executable in _SINGLE_FILE_WORKSPACE_INLINE_PROGRAM_EXECUTABLES:
+        return True
+    if executable == "cat" and "<<" in lowered_command:
+        return True
+    write_markers = (
+        "> task.json",
+        ">> task.json",
+        "task.json >",
+        "write_text('task.json'",
+        'write_text("task.json"',
+        "writefilesync('task.json'",
+        'writefilesync("task.json"',
+        "copyfile('task.json'",
+        'copyfile("task.json"',
+        "rename('task.json'",
+        'rename("task.json"',
+    )
+    if any(marker in lowered_command for marker in write_markers):
+        return True
+    if _references_single_file_task_file(lowered_command) and (
+        "<<" in lowered_body or "write_text(" in lowered_body or "writefilesync(" in lowered_body
+    ):
+        return True
+    return False
 
 
 def _workspace_egregious_command_verdict(

@@ -334,6 +334,50 @@ def test_build_oracle_benchmark_prompt_supports_token_lane(
     assert "`Requested follow-up data`" in prompt
 
 
+def test_build_token_lane_brief_reads_current_stage_names(
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+    profile = oracle_upload.resolve_oracle_benchmark_review_profile("token")
+    prompt_budget_path = bundle_dir.parent / "codexfarm" / "prompt_budget_summary.json"
+    prompt_budget_path.write_text(
+        json.dumps(
+            {
+                "by_stage": {
+                    "nonrecipe_finalize": {
+                        "tokens_total": 28762251,
+                        "wrapper_overhead_tokens": 14637956,
+                    },
+                    "line_role": {
+                        "tokens_total": 2952847,
+                    },
+                    "recipe_refine": {
+                        "tokens_total": 1984535,
+                    },
+                }
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    brief = oracle_upload._build_token_lane_brief(
+        target=target,
+        profile=profile,
+        missing_paths=[],
+    )
+
+    assert "- knowledge tokens: `28762251`" in brief
+    assert "- knowledge wrapper overhead tokens: `14637956`" in brief
+    assert "- line-role tokens: `2952847`" in brief
+    assert "- recipe correction tokens: `1984535`" in brief
+
+
 def test_build_oracle_benchmark_prompt_renders_editable_template_file_tokens(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

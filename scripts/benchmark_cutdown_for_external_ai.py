@@ -1940,6 +1940,110 @@ def _build_recipe_spans_from_full_prompt_rows(rows: list[dict[str, Any]]) -> lis
     return spans
 
 
+def _normalize_recipe_spans_to_line_coordinates(
+    *,
+    run_dir: Path,
+    recipe_spans: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not recipe_spans:
+        return []
+
+    normalized = [dict(span) for span in recipe_spans if isinstance(span, dict)]
+    needs_projection = False
+    for span in normalized:
+        start_line_index = _coerce_int(span.get("start_line_index"))
+        end_line_index = _coerce_int(span.get("end_line_index"))
+        if start_line_index is not None and end_line_index is not None:
+            continue
+        if "line_indices" in span:
+            continue
+        needs_projection = True
+
+    if not needs_projection:
+        return normalized
+
+    projected_rows = _iter_jsonl(run_dir / "line-role-pipeline" / "projected_spans.jsonl")
+    if not projected_rows:
+        return normalized
+
+    line_indices_by_block_index: dict[int, set[int]] = defaultdict(set)
+    for row in projected_rows:
+        block_index = _coerce_int(row.get("block_index"))
+        line_index = _coerce_int(row.get("line_index"))
+        if block_index is None or line_index is None:
+            continue
+        line_indices_by_block_index[int(block_index)].add(int(line_index))
+
+    if not line_indices_by_block_index:
+        return normalized
+
+    for span in normalized:
+        if "line_indices" in span:
+            continue
+        start_block_index = _coerce_int(span.get("start_block_index"))
+        end_block_index = _coerce_int(span.get("end_block_index"))
+        if start_block_index is None or end_block_index is None or end_block_index < start_block_index:
+            continue
+        projected_line_indices = sorted(
+            line_index
+            for block_index, line_indices in line_indices_by_block_index.items()
+            if start_block_index <= block_index <= end_block_index
+            for line_index in line_indices
+        )
+        span["line_indices"] = projected_line_indices
+        if projected_line_indices:
+            span["start_line_index"] = projected_line_indices[0]
+            span["end_line_index"] = projected_line_indices[-1]
+    return normalized
+
+
+def _span_line_indices(span: dict[str, Any]) -> list[int] | None:
+    if "line_indices" not in span:
+        return None
+    raw_values = span.get("line_indices")
+    if not isinstance(raw_values, list):
+        return []
+    seen: set[int] = set()
+    line_indices: list[int] = []
+    for value in raw_values:
+        parsed = _coerce_int(value)
+        if parsed is None or parsed in seen:
+            continue
+        seen.add(parsed)
+        line_indices.append(int(parsed))
+    line_indices.sort()
+    return line_indices
+
+
+def _span_line_bounds(span: dict[str, Any]) -> tuple[int | None, int | None]:
+    line_indices = _span_line_indices(span)
+    if line_indices is not None:
+        if not line_indices:
+            return None, None
+        return line_indices[0], line_indices[-1]
+
+    start_line_index = _coerce_int(span.get("start_line_index"))
+    end_line_index = _coerce_int(span.get("end_line_index"))
+    if start_line_index is not None and end_line_index is not None:
+        return int(start_line_index), int(end_line_index)
+
+    start_block_index = _coerce_int(span.get("start_block_index"))
+    end_block_index = _coerce_int(span.get("end_block_index"))
+    if start_block_index is None or end_block_index is None:
+        return None, None
+    return int(start_block_index), int(end_block_index)
+
+
+def _span_contains_line(*, span: dict[str, Any], line_index: int) -> bool:
+    line_indices = _span_line_indices(span)
+    if line_indices is not None:
+        return line_index in line_indices
+    start, end = _span_line_bounds(span)
+    if start is None or end is None:
+        return False
+    return start <= line_index <= end
+
+
 def _resolve_recipe_for_line(
     *,
     line_index: int,
@@ -1947,17 +2051,15 @@ def _resolve_recipe_for_line(
 ) -> tuple[str | None, str]:
     matches: list[dict[str, Any]] = []
     for span in recipe_spans:
-        start = int(span["start_block_index"])
-        end = int(span["end_block_index"])
-        if start <= line_index <= end:
+        if _span_contains_line(span=span, line_index=line_index):
             matches.append(span)
     if not matches:
         return None, "outside_active_recipe_span"
     best = sorted(
         matches,
         key=lambda span: (
-            int(span["end_block_index"]) - int(span["start_block_index"]),
-            int(span["start_block_index"]),
+            int((_span_line_bounds(span)[1] or 0) - (_span_line_bounds(span)[0] or 0)),
+            int(_span_line_bounds(span)[0] or 0),
             str(span["recipe_id"]),
         ),
     )[0]
@@ -1969,21 +2071,25 @@ def _build_line_prediction_view(
     run_dir: Path,
     recipe_spans: list[dict[str, Any]],
 ) -> LinePredictionView:
+    normalized_recipe_spans = _normalize_recipe_spans_to_line_coordinates(
+        run_dir=run_dir,
+        recipe_spans=recipe_spans,
+    )
     eval_report_path = run_dir / "eval_report.json"
     eval_report = _load_json(eval_report_path) if eval_report_path.is_file() else {}
     canonical = eval_report.get("canonical")
     if not isinstance(canonical, dict):
-        return LinePredictionView({}, {}, {}, {}, {}, recipe_spans)
+        return LinePredictionView({}, {}, {}, {}, {}, normalized_recipe_spans)
 
     canonical_text_path_raw = canonical.get("canonical_text_path")
     canonical_spans_path_raw = canonical.get("canonical_span_labels_path")
     if not isinstance(canonical_text_path_raw, str) or not isinstance(canonical_spans_path_raw, str):
-        return LinePredictionView({}, {}, {}, {}, {}, recipe_spans)
+        return LinePredictionView({}, {}, {}, {}, {}, normalized_recipe_spans)
 
     canonical_text_path = Path(canonical_text_path_raw)
     canonical_spans_path = Path(canonical_spans_path_raw)
     if not canonical_text_path.is_file() or not canonical_spans_path.is_file():
-        return LinePredictionView({}, {}, {}, {}, {}, recipe_spans)
+        return LinePredictionView({}, {}, {}, {}, {}, normalized_recipe_spans)
 
     canonical_text = canonical_text_path.read_text(encoding="utf-8")
     lines = _build_canonical_lines(canonical_text)
@@ -2015,7 +2121,7 @@ def _build_line_prediction_view(
         pred_label = predicted_overrides.get(line_index, gold_label)
         recipe_id, span_region = _resolve_recipe_for_line(
             line_index=line_index,
-            recipe_spans=recipe_spans,
+            recipe_spans=normalized_recipe_spans,
         )
 
         line_text_by_index[line_index] = line_text
@@ -2030,7 +2136,7 @@ def _build_line_prediction_view(
         pred_label_by_index=pred_label_by_index,
         recipe_id_by_index=recipe_id_by_index,
         recipe_span_by_index=recipe_span_by_index,
-        recipe_spans=recipe_spans,
+        recipe_spans=normalized_recipe_spans,
     )
 
 
@@ -4154,8 +4260,7 @@ def _nearest_recipe_id_for_line_index(
         recipe_id = str(span.get("recipe_id") or "").strip()
         if not recipe_id:
             continue
-        start = _coerce_int(span.get("start_block_index"))
-        end = _coerce_int(span.get("end_block_index"))
+        start, end = _span_line_bounds(span)
         if start is None or end is None:
             continue
         if start <= line_index <= end:
@@ -4214,7 +4319,10 @@ def _build_pair_diagnostics(
     targeted_case_limit: int,
 ) -> PairDiagnostics:
     codex_prompt_rows = _load_full_prompt_rows_for_run(codex_run)
-    recipe_spans = _build_recipe_spans_from_full_prompt_rows(codex_prompt_rows)
+    recipe_spans = _normalize_recipe_spans_to_line_coordinates(
+        run_dir=Path(codex_run.run_dir),
+        recipe_spans=_build_recipe_spans_from_full_prompt_rows(codex_prompt_rows),
+    )
 
     codex_view = _build_line_prediction_view(
         run_dir=Path(codex_run.run_dir),
@@ -9300,7 +9408,124 @@ def _upload_bundle_runtime_inventory_needs_fallback(
         fallback_total_tokens is not None or fallback_calls_with_runtime > 0
     ):
         return True
+    row_by_stage = row_summary.get("by_stage")
+    row_by_stage = row_by_stage if isinstance(row_by_stage, dict) else {}
+    fallback_by_stage = fallback_summary.get("by_stage")
+    fallback_by_stage = (
+        fallback_by_stage if isinstance(fallback_by_stage, dict) else {}
+    )
+    for stage_key, fallback_stage in fallback_by_stage.items():
+        if not isinstance(fallback_stage, dict):
+            continue
+        row_stage = row_by_stage.get(stage_key)
+        row_stage = row_stage if isinstance(row_stage, dict) else {}
+        row_stage_call_count = int(_coerce_int(row_stage.get("call_count")) or 0)
+        fallback_stage_call_count = int(
+            _coerce_int(fallback_stage.get("call_count")) or 0
+        )
+        row_stage_runtime = int(
+            _coerce_int(row_stage.get("calls_with_runtime")) or 0
+        )
+        fallback_stage_runtime = int(
+            _coerce_int(fallback_stage.get("calls_with_runtime")) or 0
+        )
+        row_stage_tokens = _coerce_int(row_stage.get("total_tokens"))
+        fallback_stage_tokens = _coerce_int(fallback_stage.get("total_tokens"))
+        if fallback_stage_runtime > row_stage_runtime:
+            return True
+        if row_stage_tokens is None and fallback_stage_tokens is not None:
+            return True
+        if (
+            fallback_stage_tokens is not None
+            and row_stage_tokens is not None
+            and fallback_stage_tokens > row_stage_tokens
+            and fallback_stage_call_count >= row_stage_call_count
+        ):
+            return True
     return False
+
+
+def _upload_bundle_stage_total_duration_ms(stage_payload: dict[str, Any]) -> int | None:
+    calls_with_runtime = int(_coerce_int(stage_payload.get("calls_with_runtime")) or 0)
+    avg_duration_ms = _coerce_float(stage_payload.get("avg_duration_ms"))
+    if calls_with_runtime <= 0 or avg_duration_ms is None:
+        return None
+    return int(round(avg_duration_ms * float(calls_with_runtime)))
+
+
+def _upload_bundle_merge_runtime_stage_summary(
+    *,
+    row_stage: dict[str, Any],
+    fallback_stage: dict[str, Any],
+) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    row_call_count = int(_coerce_int(row_stage.get("call_count")) or 0)
+    fallback_call_count = int(_coerce_int(fallback_stage.get("call_count")) or 0)
+    row_calls_with_runtime = int(
+        _coerce_int(row_stage.get("calls_with_runtime")) or 0
+    )
+    fallback_calls_with_runtime = int(
+        _coerce_int(fallback_stage.get("calls_with_runtime")) or 0
+    )
+    row_total_tokens = _coerce_int(row_stage.get("total_tokens"))
+    fallback_total_tokens = _coerce_int(fallback_stage.get("total_tokens"))
+    row_total_duration_ms = _upload_bundle_stage_total_duration_ms(row_stage)
+    fallback_total_duration_ms = _upload_bundle_stage_total_duration_ms(fallback_stage)
+
+    merged["call_count"] = max(row_call_count, fallback_call_count)
+    merged["calls_with_runtime"] = max(
+        row_calls_with_runtime,
+        fallback_calls_with_runtime,
+    )
+    merged["calls_with_cost"] = int(_coerce_int(row_stage.get("calls_with_cost")) or 0)
+    merged["calls_with_estimated_cost"] = int(
+        _coerce_int(row_stage.get("calls_with_estimated_cost")) or 0
+    )
+    if fallback_total_tokens is not None and (
+        row_total_tokens is None or fallback_total_tokens > row_total_tokens
+    ):
+        merged["total_tokens"] = fallback_total_tokens
+    else:
+        merged["total_tokens"] = row_total_tokens
+
+    merged_total_duration_ms: int | None
+    if fallback_total_duration_ms is not None and (
+        row_total_duration_ms is None or fallback_total_duration_ms > row_total_duration_ms
+    ):
+        merged_total_duration_ms = fallback_total_duration_ms
+    else:
+        merged_total_duration_ms = row_total_duration_ms
+    merged["avg_duration_ms"] = (
+        round(float(merged_total_duration_ms) / float(merged["calls_with_runtime"]), 3)
+        if merged_total_duration_ms is not None and merged["calls_with_runtime"] > 0
+        else None
+    )
+
+    row_total_cost = _coerce_float(row_stage.get("total_cost_usd"))
+    fallback_total_cost = _coerce_float(fallback_stage.get("total_cost_usd"))
+    merged["total_cost_usd"] = (
+        row_total_cost if row_total_cost is not None else fallback_total_cost
+    )
+    row_total_estimated_cost = _coerce_float(row_stage.get("total_estimated_cost_usd"))
+    fallback_total_estimated_cost = _coerce_float(
+        fallback_stage.get("total_estimated_cost_usd")
+    )
+    merged["total_estimated_cost_usd"] = (
+        row_total_estimated_cost
+        if row_total_estimated_cost is not None
+        else fallback_total_estimated_cost
+    )
+    merged["cost_coverage_ratio"] = (
+        round(merged["calls_with_cost"] / merged["call_count"], 6)
+        if merged["call_count"] > 0
+        else 0.0
+    )
+    merged["estimated_cost_coverage_ratio"] = (
+        round(merged["calls_with_estimated_cost"] / merged["call_count"], 6)
+        if merged["call_count"] > 0
+        else 0.0
+    )
+    return merged
 
 
 def _upload_bundle_merge_runtime_inventory_with_fallback(
@@ -9313,19 +9538,101 @@ def _upload_bundle_merge_runtime_inventory_with_fallback(
     row_summary = row_summary if isinstance(row_summary, dict) else {}
     fallback_summary = fallback_inventory.get("summary")
     fallback_summary = fallback_summary if isinstance(fallback_summary, dict) else {}
+    row_by_stage = row_summary.get("by_stage")
+    row_by_stage = row_by_stage if isinstance(row_by_stage, dict) else {}
+    fallback_by_stage = fallback_summary.get("by_stage")
+    fallback_by_stage = fallback_by_stage if isinstance(fallback_by_stage, dict) else {}
+    merged_by_stage: dict[str, dict[str, Any]] = {}
+    stage_keys = (
+        sorted(fallback_by_stage, key=_prompt_category_sort_key)
+        if fallback_by_stage
+        else sorted(row_by_stage, key=_prompt_category_sort_key)
+    )
+    for stage_key in stage_keys:
+        row_stage = row_by_stage.get(stage_key)
+        row_stage = row_stage if isinstance(row_stage, dict) else {}
+        fallback_stage = fallback_by_stage.get(stage_key)
+        fallback_stage = fallback_stage if isinstance(fallback_stage, dict) else {}
+        merged_by_stage[stage_key] = _upload_bundle_merge_runtime_stage_summary(
+            row_stage=row_stage,
+            fallback_stage=fallback_stage,
+        )
     merged_summary = dict(fallback_summary)
-    merged_summary["calls_with_cost"] = int(_coerce_int(row_summary.get("calls_with_cost")) or 0)
+    merged_summary["by_stage"] = merged_by_stage
+    merged_summary["call_count"] = int(
+        sum(int(payload.get("call_count") or 0) for payload in merged_by_stage.values())
+    )
+    merged_summary["calls_with_runtime"] = int(
+        sum(
+            int(payload.get("calls_with_runtime") or 0)
+            for payload in merged_by_stage.values()
+        )
+    )
+    merged_summary["calls_with_cost"] = int(
+        sum(int(payload.get("calls_with_cost") or 0) for payload in merged_by_stage.values())
+    )
     merged_summary["calls_with_estimated_cost"] = int(
-        _coerce_int(row_summary.get("calls_with_estimated_cost")) or 0
+        sum(
+            int(payload.get("calls_with_estimated_cost") or 0)
+            for payload in merged_by_stage.values()
+        )
     )
-    merged_summary["total_cost_usd"] = _coerce_float(row_summary.get("total_cost_usd"))
-    merged_summary["total_estimated_cost_usd"] = _coerce_float(
-        row_summary.get("total_estimated_cost_usd")
+    duration_totals = [
+        stage_total
+        for payload in merged_by_stage.values()
+        for stage_total in [_upload_bundle_stage_total_duration_ms(payload)]
+        if stage_total is not None
+    ]
+    merged_summary["total_duration_ms"] = (
+        int(sum(duration_totals)) if duration_totals else None
     )
-    merged_summary["cost_coverage_ratio"] = _coerce_float(row_summary.get("cost_coverage_ratio")) or 0.0
-    merged_summary["estimated_cost_coverage_ratio"] = _coerce_float(
-        row_summary.get("estimated_cost_coverage_ratio")
-    ) or 0.0
+    merged_summary["avg_duration_ms"] = (
+        round(
+            float(merged_summary["total_duration_ms"])
+            / float(merged_summary["calls_with_runtime"]),
+            3,
+        )
+        if merged_summary["total_duration_ms"] is not None
+        and merged_summary["calls_with_runtime"] > 0
+        else None
+    )
+    token_totals = [
+        _coerce_int(payload.get("total_tokens"))
+        for payload in merged_by_stage.values()
+        if _coerce_int(payload.get("total_tokens")) is not None
+    ]
+    merged_summary["total_tokens"] = int(sum(token_totals)) if token_totals else None
+    cost_totals = [
+        _coerce_float(payload.get("total_cost_usd"))
+        for payload in merged_by_stage.values()
+        if _coerce_float(payload.get("total_cost_usd")) is not None
+    ]
+    merged_summary["total_cost_usd"] = (
+        round(float(sum(cost_totals)), 8) if cost_totals else None
+    )
+    estimated_cost_totals = [
+        _coerce_float(payload.get("total_estimated_cost_usd"))
+        for payload in merged_by_stage.values()
+        if _coerce_float(payload.get("total_estimated_cost_usd")) is not None
+    ]
+    merged_summary["total_estimated_cost_usd"] = (
+        round(float(sum(estimated_cost_totals)), 8)
+        if estimated_cost_totals
+        else None
+    )
+    merged_summary["cost_coverage_ratio"] = (
+        round(merged_summary["calls_with_cost"] / merged_summary["call_count"], 6)
+        if merged_summary["call_count"] > 0
+        else 0.0
+    )
+    merged_summary["estimated_cost_coverage_ratio"] = (
+        round(
+            merged_summary["calls_with_estimated_cost"] / merged_summary["call_count"],
+            6,
+        )
+        if merged_summary["call_count"] > 0
+        else 0.0
+    )
     merged_summary["cost_signal"] = (
         dict(row_summary.get("cost_signal"))
         if isinstance(row_summary.get("cost_signal"), dict)
@@ -9336,11 +9643,31 @@ def _upload_bundle_merge_runtime_inventory_with_fallback(
         if isinstance(row_summary.get("estimated_cost_signal"), dict)
         else dict(fallback_summary.get("estimated_cost_signal") or {})
     )
+    merged_summary["cost_signal"]["available"] = merged_summary["calls_with_cost"] > 0
+    merged_summary["cost_signal"]["calls_with_cost"] = merged_summary["calls_with_cost"]
+    merged_summary["cost_signal"]["coverage_ratio"] = merged_summary["cost_coverage_ratio"]
+    if merged_summary["calls_with_cost"] > 0:
+        merged_summary["cost_signal"]["unavailable_reason"] = ""
+    merged_summary["estimated_cost_signal"]["available"] = (
+        merged_summary["calls_with_estimated_cost"] > 0
+    )
+    merged_summary["estimated_cost_signal"]["calls_with_estimated_cost"] = (
+        merged_summary["calls_with_estimated_cost"]
+    )
+    merged_summary["estimated_cost_signal"]["coverage_ratio"] = (
+        merged_summary["estimated_cost_coverage_ratio"]
+    )
     fallback_runtime_source = str(fallback_summary.get("runtime_source") or "").strip()
     merged_summary["runtime_source"] = (
         f"call_inventory_rows_plus_{fallback_runtime_source}"
         if fallback_runtime_source
         else "call_inventory_rows_plus_fallback"
+    )
+    merged_summary.update(
+        _upload_bundle_token_share_fields(
+            by_stage=merged_by_stage,
+            total_tokens=_coerce_int(merged_summary.get("total_tokens")),
+        )
     )
     merged["summary"] = merged_summary
     for key in (

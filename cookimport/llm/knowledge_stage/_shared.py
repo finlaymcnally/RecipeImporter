@@ -60,6 +60,8 @@ from ..codex_exec_runner import (
     detect_workspace_worker_boundary_violation,
     format_watchdog_command_reason_detail,
     format_watchdog_command_loop_reason_detail,
+    is_single_file_workspace_command_drift_policy,
+    is_single_file_workspace_command_egregious,
     should_terminate_workspace_command_loop,
     summarize_direct_telemetry_rows,
 )

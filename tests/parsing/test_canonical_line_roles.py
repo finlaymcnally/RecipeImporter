@@ -27,6 +27,9 @@ from cookimport.parsing.canonical_line_roles.runtime import (
     _expand_line_role_task_file_outputs,
     _line_role_recovery_guidance_for_diagnosis,
 )
+from cookimport.parsing.canonical_line_roles.same_session_handoff import (
+    advance_line_role_same_session_handoff,
+)
 from cookimport.parsing.recipe_block_atomizer import (
     AtomicLineCandidate,
     atomize_blocks,
@@ -427,6 +430,125 @@ class _FinalMessageMissingOutputRunner(FakeCodexExecRunner):
                 supervision_retryable=decision.retryable,
             )
         return super().run_workspace_worker(**kwargs)
+
+
+class _AuthoritativeCompletionRunner(FakeCodexExecRunner):
+    def __init__(self, *, emit_shell_drift: bool = False) -> None:
+        super().__init__(
+            output_builder=lambda payload: {
+                "rows": [
+                    {"atomic_index": int(row[0]), "label": "NONRECIPE_CANDIDATE"}
+                    for row in (dict(payload or {}).get("rows") or [])
+                    if isinstance(row, (list, tuple)) and row
+                ]
+            }
+        )
+        self.workspace_run_calls = 0
+        self.emit_shell_drift = emit_shell_drift
+
+    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+        self.workspace_run_calls += 1
+        working_dir = Path(kwargs.get("working_dir"))
+        callback = kwargs.get("supervision_callback")
+        assert callback is not None
+
+        if self.emit_shell_drift:
+            warning_decision = callback(
+                CodexExecLiveSnapshot(
+                    elapsed_seconds=0.1,
+                    last_event_seconds_ago=0.0,
+                    event_count=2,
+                    command_execution_count=1,
+                    reasoning_item_count=0,
+                    last_command="/bin/bash -lc 'cat task.json'",
+                    last_command_repeat_count=1,
+                    has_final_agent_message=False,
+                    timeout_seconds=kwargs.get("timeout_seconds"),
+                )
+            )
+            assert warning_decision is None
+
+        task_file = load_task_file(working_dir / "task.json")
+        edited = deepcopy(task_file)
+        for unit in edited["units"]:
+            unit["answer"] = {"label": "NONRECIPE_CANDIDATE"}
+        write_task_file(path=working_dir / "task.json", payload=edited)
+
+        state_path = Path(
+            str(kwargs.get("env", {}).get("RECIPEIMPORT_LINE_ROLE_SAME_SESSION_STATE_PATH"))
+        )
+        helper_result = advance_line_role_same_session_handoff(
+            workspace_root=working_dir,
+            state_path=state_path,
+        )
+        assert helper_result["status"] == "completed"
+
+        first = callback(
+            CodexExecLiveSnapshot(
+                elapsed_seconds=0.3,
+                last_event_seconds_ago=0.0,
+                event_count=4,
+                command_execution_count=(
+                    1 if self.emit_shell_drift else 0
+                ),
+                reasoning_item_count=0,
+                last_command=(
+                    "/bin/bash -lc 'cat task.json'" if self.emit_shell_drift else None
+                ),
+                last_command_repeat_count=1 if self.emit_shell_drift else 0,
+                has_final_agent_message=True,
+                agent_message_count=1,
+                timeout_seconds=kwargs.get("timeout_seconds"),
+            )
+        )
+        assert first is None
+
+        decision = callback(
+            CodexExecLiveSnapshot(
+                elapsed_seconds=2.7,
+                last_event_seconds_ago=2.3,
+                event_count=5,
+                command_execution_count=(
+                    1 if self.emit_shell_drift else 0
+                ),
+                reasoning_item_count=0,
+                last_command=(
+                    "/bin/bash -lc 'cat task.json'" if self.emit_shell_drift else None
+                ),
+                last_command_repeat_count=1 if self.emit_shell_drift else 0,
+                has_final_agent_message=True,
+                agent_message_count=1,
+                timeout_seconds=kwargs.get("timeout_seconds"),
+            )
+        )
+        assert decision is not None
+        assert decision.supervision_state == "completed"
+
+        return CodexExecRunResult(
+            command=["codex", "exec"],
+            subprocess_exit_code=0,
+            output_schema_path=None,
+            prompt_text=str(kwargs.get("prompt_text") or ""),
+            response_text='{"status":"completed"}',
+            turn_failed_message=None,
+            usage={
+                "input_tokens": 1,
+                "cached_input_tokens": 0,
+                "output_tokens": 1,
+                "reasoning_tokens": 0,
+            },
+            source_working_dir=str(working_dir),
+            execution_working_dir=str(working_dir),
+            execution_agents_path=None,
+            duration_ms=1,
+            started_at_utc="2026-01-01T00:00:00Z",
+            finished_at_utc="2026-01-01T00:00:00Z",
+            workspace_mode="workspace_worker",
+            supervision_state=decision.supervision_state,
+            supervision_reason_code=decision.reason_code,
+            supervision_reason_detail=decision.reason_detail,
+            supervision_retryable=decision.retryable,
+        )
 
 
 def test_label_atomic_lines_hollandaise_note_and_howto_rules() -> None:
@@ -4359,7 +4481,10 @@ def test_label_atomic_lines_records_workspace_warnings_without_killing_shards(
 
     live_status_payload = json.loads(live_status_path.read_text(encoding="utf-8"))
     assert live_status_payload["state"] == "completed_with_warnings"
-    assert live_status_payload["warning_codes"] == ["command_loop_without_output"]
+    assert set(live_status_payload["warning_codes"]) == {
+        "command_loop_without_output",
+        "single_file_shell_drift",
+    }
     assert live_status_payload["reason_code"] in {None, ""}
 
 
@@ -4388,7 +4513,7 @@ def test_line_role_strict_watchdog_still_kills_benign_commands_in_structured_mod
     assert "ls" in str(decision.reason_detail or "")
 
 
-def test_label_atomic_lines_allows_workspace_commands_without_immediate_kill(
+def test_label_atomic_lines_allows_repo_helper_commands_without_immediate_kill(
     tmp_path: Path,
 ) -> None:
     candidates = [
@@ -4408,17 +4533,18 @@ def test_label_atomic_lines_allows_workspace_commands_without_immediate_kill(
             supervision_callback = kwargs.get("supervision_callback")
             if supervision_callback is not None:
                 for command_count, last_command in (
-                    (1, "/bin/bash -lc pwd"),
-                    (2, "/bin/bash -lc 'find . -maxdepth 2 -type f | head -n 5 >/dev/null'"),
-                    (3, "/bin/bash -lc cat in/line-role-canonical-0001-a000000-a000000.json"),
-                    (5, "/bin/bash -lc sed -n '1,20p' in/line-role-canonical-0001-a000000-a000000.json"),
                     (
-                        7,
-                        "/bin/bash -lc \"cat <<'EOF' > scratch/helper.sh\n"
-                        "jq -M -c '.rows[0]' in/line-role-canonical-0001-a000000-a000000.json >/dev/null\n"
-                        "EOF\"",
+                        1,
+                        "/bin/bash -lc 'python3 -m cookimport.llm.editable_task_file --summary'",
                     ),
-                    (9, "/bin/bash -lc jq .rows[0] in/line-role-canonical-0001-a000000-a000000.json"),
+                    (
+                        2,
+                        "/bin/bash -lc 'python3 -m cookimport.llm.editable_task_file --show-unit line::0'",
+                    ),
+                    (
+                        3,
+                        "/bin/bash -lc 'python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff --status'",
+                    ),
                 ):
                     decision = supervision_callback(
                         CodexExecLiveSnapshot(
@@ -4475,9 +4601,51 @@ def test_label_atomic_lines_allows_line_role_workspace_orientation_commands(
 
     assert decision is None
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
-    assert live_status["last_command_policy"] == "tolerated_orientation_command"
+    assert live_status["last_command_policy"] == "single_file_orientation_command"
     assert live_status["last_command_policy_allowed"] is True
     assert live_status["last_command_boundary_violation_detected"] is False
+    assert live_status["warning_codes"] == ["single_file_shell_drift"]
+
+
+def test_line_role_workspace_watchdog_kills_repeated_single_file_shell_drift(
+    tmp_path: Path,
+) -> None:
+    callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+    )
+
+    first = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.1,
+            last_event_seconds_ago=0.0,
+            event_count=2,
+            command_execution_count=1,
+            reasoning_item_count=0,
+            last_command="/bin/bash -lc 'cat task.json'",
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+    second = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.2,
+            last_event_seconds_ago=0.0,
+            event_count=4,
+            command_execution_count=2,
+            reasoning_item_count=0,
+            last_command="/bin/bash -lc ls",
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert first is None
+    assert second is not None
+    assert second.reason_code == "single_file_shell_drift_repeated"
 
 
 def test_line_role_workspace_watchdog_observes_output_stabilization_without_forcing_exit(
@@ -4547,12 +4715,13 @@ def test_line_role_workspace_watchdog_observes_output_stabilization_without_forc
 
     assert first is None
     assert second is None
-    assert second_live_status["state"] == "running"
+    assert second_live_status["state"] == "running_with_warnings"
+    assert second_live_status["warning_codes"] == ["single_file_shell_drift"]
     assert second_live_status["workspace_completion_waiting_for_exit"] is False
     assert second_live_status["workspace_completion_post_signal_observed"] is False
     assert third is None
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
-    assert live_status["state"] == "running"
+    assert live_status["state"] == "running_with_warnings"
     assert live_status["reason_code"] is None
     assert live_status["workspace_output_complete"] is True
     assert live_status["workspace_output_stable_passes"] >= 2
@@ -4699,6 +4868,146 @@ def test_line_role_workspace_watchdog_kills_after_final_message_missing_output_g
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
     assert live_status["final_message_missing_output_deadline_reached"] is True
     assert live_status["reason_code"] == "workspace_final_message_missing_output"
+
+
+def test_line_role_workspace_watchdog_completes_after_authoritative_same_session_success(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "out" / "line-role-canonical-0001-a000000-a000000.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text('{"rows":[{"atomic_index":0,"label":"RECIPE_NOTES"}]}\n', encoding="utf-8")
+    state_path = tmp_path / "_repo_control" / "line_role_same_session_state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "completed": True,
+                "final_status": "completed",
+                "completed_shard_count": 1,
+                "same_session_transition_count": 1,
+                "validation_count": 1,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        same_session_state_path=state_path,
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+        expected_workspace_output_paths=[output_path],
+    )
+
+    first = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.2,
+            last_event_seconds_ago=0.0,
+            event_count=2,
+            command_execution_count=0,
+            reasoning_item_count=0,
+            last_command=None,
+            last_command_repeat_count=0,
+            has_final_agent_message=True,
+            agent_message_count=1,
+            timeout_seconds=30,
+        )
+    )
+    second = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=2.6,
+            last_event_seconds_ago=2.2,
+            event_count=3,
+            command_execution_count=0,
+            reasoning_item_count=0,
+            last_command=None,
+            last_command_repeat_count=0,
+            has_final_agent_message=True,
+            agent_message_count=1,
+            timeout_seconds=30,
+        )
+    )
+
+    assert first is None
+    assert second is not None
+    assert second.supervision_state == "completed"
+    assert second.reason_code in {None, ""}
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["state"] == "completed"
+    assert live_status["same_session_completed"] is True
+    assert live_status["workspace_authoritative_completion_ready"] is True
+    assert live_status["workspace_completion_waiting_for_exit"] is True
+    assert live_status["reason_code"] in {None, ""}
+
+
+def test_line_role_workspace_watchdog_waits_when_helper_completed_but_outputs_not_yet_present(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "out" / "line-role-canonical-0001-a000000-a000000.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path = tmp_path / "_repo_control" / "line_role_same_session_state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "completed": True,
+                "final_status": "completed",
+                "completed_shard_count": 1,
+                "same_session_transition_count": 1,
+                "validation_count": 1,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        same_session_state_path=state_path,
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+        expected_workspace_output_paths=[output_path],
+    )
+
+    first = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.2,
+            last_event_seconds_ago=0.0,
+            event_count=2,
+            command_execution_count=0,
+            reasoning_item_count=0,
+            last_command=None,
+            last_command_repeat_count=0,
+            has_final_agent_message=True,
+            agent_message_count=1,
+            timeout_seconds=30,
+        )
+    )
+    second = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=2.6,
+            last_event_seconds_ago=2.2,
+            event_count=3,
+            command_execution_count=0,
+            reasoning_item_count=0,
+            last_command=None,
+            last_command_repeat_count=0,
+            has_final_agent_message=True,
+            agent_message_count=1,
+            timeout_seconds=30,
+        )
+    )
+
+    assert first is None
+    assert second is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["same_session_completed"] is True
+    assert live_status["workspace_authoritative_completion_ready"] is False
+    assert live_status["reason_code"] is None
+    assert live_status["final_message_missing_output_grace_active"] is False
 
 
 @pytest.mark.parametrize(
@@ -6034,7 +6343,9 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert "python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>` or `python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`." in prompt_text
     assert "`task.json` already contains the full assignment." in prompt_text
     assert "Prefer `python3 -m cookimport.llm.editable_task_file --summary` before opening raw file contents." in prompt_text
-    assert "Prefer opening the named file directly. If you still need shell helpers, keep them narrow and grounded on `task.json` only." in prompt_text
+    assert "--apply-answers-file answers.json`." in prompt_text
+    assert "Do not dump `task.json` with `cat` or `sed`" in prompt_text
+    assert "Prefer opening the named file directly. If you still need shell helpers, keep them narrow and grounded on `task.json` or local temp files only." in prompt_text
     assert "If you briefly reread part of the file or make a small local false start" in prompt_text
     assert "Stay inside this workspace" in prompt_text
     assert "The task file already contains the immutable row evidence and the editable answer slots." in prompt_text
@@ -6113,7 +6424,7 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
     assert task_file_payload["editable_json_pointers"] == ["/units/0/answer"]
     assert task_file_payload["units"][0]["evidence"] == {
         "atomic_index": 0,
-        "block_id": "block:0",
+        "block_id": "block:compact:0",
         "text": "Ambiguous line 0",
         "within_recipe_span": None,
     }
@@ -6268,6 +6579,7 @@ def test_label_atomic_lines_writes_one_shard_owned_ledger_without_line_role_task
     assert task_file_payload["helper_commands"]["status"].endswith("--status")
     assert task_file_payload["helper_commands"]["show_unit"].endswith("--show-unit <unit_id>")
     assert task_file_payload["helper_commands"]["show_unanswered"].endswith("--show-unanswered --limit 5")
+    assert task_file_payload["helper_commands"]["apply_answers_file"].endswith("--apply-answers-file answers.json")
     assert task_file_payload["answer_schema"]["example_answers"][0]["label"] == "RECIPE_NOTES"
     assert all(
         set(unit["evidence"]) == {
@@ -6473,6 +6785,64 @@ def test_line_role_runtime_recovers_after_final_message_missing_output(
     assert shard_status["watchdog_retry_status"] == "not_attempted"
     assert shard_status["fresh_session_recovery_status"] == "recovered"
     assert not list(worker_root.rglob("watchdog_retry_status.json"))
+
+
+def test_line_role_runtime_treats_authoritative_same_session_completion_as_clean_success(
+    tmp_path: Path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:authoritative-complete:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous line 0",
+            within_recipe_span=None,
+            rule_tags=[],
+        )
+    ]
+    runner = _AuthoritativeCompletionRunner(emit_shell_drift=True)
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-route-v2", line_role_prompt_target_count=1),
+        artifact_root=tmp_path,
+        codex_batch_size=1,
+        codex_runner=runner,
+        live_llm_allowed=True,
+    )
+
+    worker_root = (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+    )
+    worker_live_status = json.loads(
+        (worker_root / "live_status.json").read_text(encoding="utf-8")
+    )
+    shard_status = next(
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in worker_root.rglob("status.json")
+        if "shards" in path.parts
+    )
+    telemetry_payload = json.loads(
+        (tmp_path / "line-role-pipeline" / "telemetry_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert len(predictions) == 1
+    assert runner.workspace_run_calls == 1
+    assert worker_live_status["state"] == "completed_with_warnings"
+    assert "single_file_shell_drift" in worker_live_status["warning_codes"]
+    assert worker_live_status["reason_code"] in {None, ""}
+    assert shard_status["finalization_path"] == "session_completed"
+    assert shard_status["raw_supervision_reason_code"] is None
+    assert telemetry_payload["summary"]["watchdog_recovered_shard_count"] == 0
+    assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 0
 
 
 def test_line_role_runtime_skips_final_message_recovery_when_answers_are_missing(

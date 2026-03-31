@@ -727,6 +727,7 @@ def _build_knowledge_workspace_worker_prompt(
         "- If the workspace feels inconsistent, run `python3 -m cookimport.llm.knowledge_same_session_handoff --doctor` before inventing shell scripts.",
         "- Edit only the `answer` object inside each unit.",
         "- If you already know a final answer object and want a repo-owned write path, use `python3 -m cookimport.llm.editable_task_file --set-answer <unit_id> '<answer_json>'`.",
+        "- If you want to apply several finished answers at once, write them to `answers.json` and run `python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json`.",
         "- After each edit pass, run `python3 -m cookimport.llm.knowledge_same_session_handoff` from the workspace root.",
         "- After the helper returns, trust the current `task.json` as the new whole job. You do not need to inspect other files to figure out what changed.",
         "- If the helper reports `repair_required` or `advance_to_grouping`, reopen the rewritten `task.json` immediately and continue in the same session.",
@@ -734,11 +735,17 @@ def _build_knowledge_workspace_worker_prompt(
         "- Do not invent queue advancement, control files, helper ledgers, or alternate output files.",
         "- `previous_answer` and `validation_feedback`, when present, are repair-only immutable context.",
         "- If you briefly reread part of `task.json` or make a small local false start, correct it and continue. Harmless local retries are not the point of failure here.",
-        "- Other than that one helper command, do not use shell helpers on the happy path. If a tiny local helper is truly unavoidable, keep it narrowly grounded on `task.json` only.",
+        "- Do not dump `task.json` with `cat` or `sed`, do not use `ls` or `find` just to orient yourself, and do not write ad hoc inline Python, Node, or heredoc rewrites against `task.json`.",
+        "- Other than repo-owned helper commands and tiny local temp helpers, do not use shell helpers on the happy path.",
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "",
         "Shard semantics:",
         "- The repo does not know the `knowledge` versus `other` answer ahead of time; you make that semantic call from the owned shard text.",
+        "- You are doing close semantic review, not building a heuristic classifier for the whole packet.",
+        "- Read the actual owned block text before deciding. That text is primary evidence.",
+        "- Use nearby rows only to disambiguate edge cases; do not force nearby rows into the same answer just because they are adjacent.",
+        "- Treat `candidate_tag_keys`, heading shape, and packet position as weak hints only, not votes or proof.",
+        "- If you feel tempted to invent a rule that covers many rows at once, stop and reread the actual owned rows instead.",
     ]
     if stage_key == "nonrecipe_classify":
         lines.extend(
@@ -750,8 +757,10 @@ def _build_knowledge_workspace_worker_prompt(
                 "- If `category` is `knowledge`, `retrieval_concept` must be a short standalone concept and `grounding` must include at least one existing `tag_key` or one proposed tag.",
                 "- If `category` is `other`, `reviewer_category` must be a non-knowledge reviewer category or `other`.",
                 "- If `category` is `other`, leave `retrieval_concept` null and keep grounding empty.",
+                "- Short conceptual headings can still be `knowledge` when they introduce real explanatory content; shortness alone is not enough to drop a block.",
                 "- `grounding.category_keys` are optional support only; category-only grounding is not enough to keep a block.",
                 "- Proposed tags are allowed only for real retrieval-grade concepts that do not fit an existing tag; use an existing `category_key` and a normalized slug `key`.",
+                "- Do not compress the packet into one global keep/drop rule, one heading rule, or one candidate-tag rule.",
                 "- Do not invent `group_key`, `topic_label`, packet summaries, or cross-unit grouping notes in this step.",
                 "- The owned block rows are authoritative. Nearby context is informational only.",
             ]
@@ -905,6 +914,8 @@ def _build_knowledge_hint_profile_and_policy(
     decision_policy = [
         "Decide `knowledge` versus `other` block-by-block before thinking about grouping.",
         "Use your own semantic judgment; the repo will validate only structure and coverage.",
+        "Do not turn heading shape, candidate tags, or packet profile into a bulk heuristic; read the actual owned block text.",
+        "If a short heading feels ambiguous, ask whether it introduces portable cooking knowledge, not whether it is merely short.",
         "Open `examples/` only when you need a contrast case or tie-breaker.",
     ]
     return profile_lines, interpretation_lines, decision_policy
@@ -1332,6 +1343,16 @@ def _build_strict_json_watchdog_callback(
     completion_wait_started_elapsed_seconds: float | None = None
     completion_wait_agent_message_count: int | None = None
     completion_wait_turn_completed_count: int | None = None
+    persistent_warning_codes: list[str] = []
+    persistent_warning_details: list[str] = []
+    last_single_file_command_count = 0
+    single_file_shell_drift_count = 0
+
+    def _record_warning(code: str, detail: str) -> None:
+        if code not in persistent_warning_codes:
+            persistent_warning_codes.append(code)
+        if detail and detail not in persistent_warning_details:
+            persistent_warning_details.append(detail)
 
     def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
         nonlocal last_complete_workspace_signature
@@ -1342,10 +1363,10 @@ def _build_strict_json_watchdog_callback(
         nonlocal completion_wait_started_elapsed_seconds
         nonlocal completion_wait_agent_message_count
         nonlocal completion_wait_turn_completed_count
+        nonlocal last_single_file_command_count
+        nonlocal single_file_shell_drift_count
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
-        warning_codes: list[str] = []
-        warning_details: list[str] = []
         last_command_stage_violation: _KnowledgeWorkspaceStageCommandViolation | None = None
         allowed_absolute_roots = (
             [execution_workspace_root]
@@ -1355,6 +1376,7 @@ def _build_strict_json_watchdog_callback(
         last_command_verdict = classify_workspace_worker_command(
             snapshot.last_command,
             allowed_absolute_roots=allowed_absolute_roots,
+            single_file_worker_policy=allow_workspace_commands,
         )
         last_command_boundary_violation = detect_workspace_worker_boundary_violation(
             snapshot.last_command,
@@ -1488,20 +1510,58 @@ def _build_strict_json_watchdog_callback(
                         str(snapshot.last_command or ""),
                     )
                 ):
-                    warning_codes.append("inline_python_heredoc_used")
-                    warning_details.append(
+                    _record_warning(
+                        "inline_python_heredoc_used",
                         "workspace worker used inline python heredoc execution instead "
-                        "of a short local file or direct task-file editing"
+                        "of a short local file or direct task-file editing",
                     )
                 if (
                     decision is None
                     and last_command_stage_violation is not None
                     and last_command_stage_violation.enforce
                 ):
-                    warning_codes.append(
-                        str(last_command_stage_violation.reason_code or "stage_violation")
+                    _record_warning(
+                        str(last_command_stage_violation.reason_code or "stage_violation"),
+                        last_command_stage_violation.reason,
                     )
-                    warning_details.append(last_command_stage_violation.reason)
+                new_command_observed = (
+                    int(snapshot.command_execution_count or 0) > last_single_file_command_count
+                )
+                if new_command_observed:
+                    last_single_file_command_count = int(snapshot.command_execution_count or 0)
+                if (
+                    decision is None
+                    and new_command_observed
+                    and is_single_file_workspace_command_drift_policy(
+                        last_command_verdict.policy
+                    )
+                ):
+                    drift_detail = str(last_command_verdict.reason or "").strip() or (
+                        "single-file worker drifted off the helper-first task-file contract"
+                    )
+                    _record_warning("single_file_shell_drift", drift_detail)
+                    if (
+                        is_single_file_workspace_command_egregious(
+                            last_command_verdict.policy
+                        )
+                        and not completion_waiting_for_exit
+                    ):
+                        decision = CodexExecSupervisionDecision.terminate(
+                            reason_code="single_file_shell_drift_egregious",
+                            reason_detail=drift_detail,
+                            retryable=False,
+                        )
+                    else:
+                        single_file_shell_drift_count += 1
+                        if (
+                            single_file_shell_drift_count >= 2
+                            and not completion_waiting_for_exit
+                        ):
+                            decision = CodexExecSupervisionDecision.terminate(
+                                reason_code="single_file_shell_drift_repeated",
+                                reason_detail=drift_detail,
+                                retryable=False,
+                            )
                 if decision is None and last_command_boundary_violation is None:
                     command_execution_tolerated = True
                 elif decision is None:
@@ -1522,12 +1582,12 @@ def _build_strict_json_watchdog_callback(
                         completed_output_count=current_workspace_present_count,
                     )
                 ):
-                    warning_codes.append("command_loop_without_output")
-                    warning_details.append(
+                    _record_warning(
+                        "command_loop_without_output",
                         format_watchdog_command_loop_reason_detail(
                             stage_label="workspace worker stage",
                             snapshot=snapshot,
-                        )
+                        ),
                     )
             elif decision is None:
                 decision = CodexExecSupervisionDecision.terminate(
@@ -1549,9 +1609,9 @@ def _build_strict_json_watchdog_callback(
             )
         elif snapshot.reasoning_item_count >= 2 and final_agent_message_state != "json_object":
             if allow_workspace_commands:
-                warning_codes.append("reasoning_without_output")
-                warning_details.append(
-                    "workspace worker emitted repeated reasoning without a final answer"
+                _record_warning(
+                    "reasoning_without_output",
+                    "workspace worker emitted repeated reasoning without a final answer",
                 )
             else:
                 decision = CodexExecSupervisionDecision.terminate(
@@ -1596,9 +1656,9 @@ def _build_strict_json_watchdog_callback(
             and final_agent_message_state != "json_object"
         ):
             if allow_workspace_commands:
-                warning_codes.append("cohort_runtime_outlier")
-                warning_details.append(
-                    "workspace worker exceeded sibling median runtime without reaching final output"
+                _record_warning(
+                    "cohort_runtime_outlier",
+                    "workspace worker exceeded sibling median runtime without reaching final output",
                 )
             else:
                 decision = CodexExecSupervisionDecision.terminate(
@@ -1614,7 +1674,7 @@ def _build_strict_json_watchdog_callback(
                 if isinstance(decision, CodexExecSupervisionDecision)
                 and decision.action == "terminate"
                 else "running_with_warnings"
-                if warning_codes
+                if persistent_warning_codes
                 else "running"
             ),
             "elapsed_seconds": round(snapshot.elapsed_seconds, 3),
@@ -1714,9 +1774,9 @@ def _build_strict_json_watchdog_callback(
             "reason_code": decision.reason_code if decision is not None else None,
             "reason_detail": decision.reason_detail if decision is not None else None,
             "retryable": decision.retryable if decision is not None else False,
-            "warning_codes": warning_codes,
-            "warning_details": warning_details,
-            "warning_count": len(warning_codes),
+            "warning_codes": list(persistent_warning_codes),
+            "warning_details": list(persistent_warning_details),
+            "warning_count": len(persistent_warning_codes),
         }
         for path in target_paths:
             _write_live_status(path, status_payload)
