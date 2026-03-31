@@ -180,8 +180,8 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert telemetry["summary"]["packet_economics"]["packet_count_total"] >= 2
     assert telemetry["summary"]["packet_economics"]["repair_packet_count_total"] == 0
     assert telemetry["summary"]["packet_economics"]["owned_row_count_total"] == 2
-    assert telemetry["summary"]["packet_economics"]["classification_session_count_total"] == 1
-    assert telemetry["summary"]["packet_economics"]["grouping_session_count_total"] == 1
+    assert telemetry["summary"]["packet_economics"]["classification_step_count_total"] == 1
+    assert telemetry["summary"]["packet_economics"]["grouping_step_count_total"] == 1
     assert telemetry["summary"]["packet_economics"]["classification_validation_count_total"] == 1
     assert telemetry["summary"]["packet_economics"]["grouping_validation_count_total"] == 1
     assert telemetry["summary"]["packet_economics"]["same_session_transition_count_total"] == 2

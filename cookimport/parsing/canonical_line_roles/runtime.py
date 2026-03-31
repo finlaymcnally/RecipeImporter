@@ -1097,7 +1097,6 @@ def _run_line_role_workspace_worker_assignment_v1(
         if str(shard_row.get("shard_id") or "").strip()
     }
     _write_runtime_json(worker_root / "assigned_shards.json", assigned_shard_rows)
-    _write_line_role_output_contract(worker_root=worker_root)
     for shard in valid_shards:
         shard_id = shard.shard_id
         shard_row = assigned_shard_row_by_shard_id.get(shard_id)

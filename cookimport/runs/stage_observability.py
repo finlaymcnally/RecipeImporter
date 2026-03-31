@@ -1019,7 +1019,7 @@ def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
             "reason_code_counts": worker_reason_code_counts,
         },
         "followups": {
-            "label": "packet_followup",
+            "label": "task_followup",
             "handled_locally_skip_llm_count": int(
                 handled_locally_skip_llm.get("count") or 0
             ),

@@ -414,7 +414,7 @@ def test_build_stage_observability_report_surfaces_processing_attention_summarie
     assert final_recipe_stage["workbooks"][0]["attention_summary"]["zero_target_counts"]["final_recipe_not_promoted_count"] == 2
 
 
-def test_build_recipe_stage_summary_reports_packet_followup_rollups(tmp_path: Path) -> None:
+def test_build_recipe_stage_summary_reports_task_followup_rollups(tmp_path: Path) -> None:
     stage_root = tmp_path / "raw" / "llm" / "book" / "recipe_phase_runtime"
     (stage_root / "proposals").mkdir(parents=True, exist_ok=True)
     (stage_root / "workers" / "worker-001" / "out").mkdir(parents=True, exist_ok=True)
@@ -492,7 +492,7 @@ def test_build_recipe_stage_summary_reports_packet_followup_rollups(tmp_path: Pa
     summary = build_recipe_stage_summary(stage_root)
 
     assert summary["schema_version"] == "recipe_stage_summary.v6"
-    assert summary["followups"]["label"] == "packet_followup"
+    assert summary["followups"]["label"] == "task_followup"
     assert summary["followups"]["handled_locally_skip_llm_count"] == 2
     assert summary["followups"]["repair_completed_count"] == 1
     assert summary["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 1

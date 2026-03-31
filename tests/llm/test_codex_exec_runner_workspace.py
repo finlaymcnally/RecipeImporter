@@ -189,6 +189,9 @@ def test_prepare_direct_exec_workspace_worker_mode_uses_fixed_assignment_manifes
     ]
     assert worker_manifest["task_file"] == "task.json"
     assert "This workspace exposes one repo-written file: `task.json`." in agents_text
+    assert "`task.json` is the whole job." in agents_text
+    assert "You do not need to discover extra control state" in agents_text
+    assert "If you briefly reread part of `task.json` or make a small local false start" in agents_text
     assert "If `task.json` is absent" not in agents_text
     assert "When `OUTPUT_CONTRACT.md` or `examples/` exists" not in agents_text
     assert "When `tools/` exists" not in agents_text

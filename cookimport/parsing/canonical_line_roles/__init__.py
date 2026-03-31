@@ -75,14 +75,9 @@ from cookimport.parsing.recipe_block_atomizer import (
     get_atomic_line_neighbor_texts,
 )
 from cookimport.parsing.line_role_workspace_tools import (
-    LINE_ROLE_OUTPUT_CONTRACT_MARKDOWN,
-    LINE_ROLE_WORKER_TOOL_FILENAME,
-    build_line_role_repair_request_payload,
     build_line_role_workspace_scaffold,
-    validate_line_role_output_payload,
     build_line_role_workspace_shard_metadata,
-    render_line_role_current_phase_brief,
-    render_line_role_worker_script,
+    validate_line_role_output_payload,
 )
 from .contracts import (
     CANONICAL_LINE_ROLE_ALLOWED_LABELS,
@@ -139,9 +134,6 @@ _STRICT_JSON_WATCHDOG_POLICY = "strict_json_no_tools_v1"
 _LINE_ROLE_COHORT_WATCHDOG_MIN_COMPLETED_SHARDS = 3
 _LINE_ROLE_COHORT_WATCHDOG_MIN_ELAPSED_MS = 1_000
 _LINE_ROLE_COHORT_WATCHDOG_MEDIAN_FACTOR = 4.0
-_LINE_ROLE_CURRENT_PHASE_FILE_NAME = "current_phase.json"
-_LINE_ROLE_CURRENT_PHASE_BRIEF_FILE_NAME = "CURRENT_PHASE.md"
-_LINE_ROLE_CURRENT_PHASE_FEEDBACK_FILE_NAME = "CURRENT_PHASE_FEEDBACK.md"
 _LINE_ROLE_COHORT_WATCHDOG_MAX_EXAMPLES = 2
 _LINE_ROLE_WORKSPACE_MAX_COMMAND_COUNT = 16
 _LINE_ROLE_WORKSPACE_MAX_REPEAT_COUNT = 4

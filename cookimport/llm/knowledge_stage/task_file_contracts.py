@@ -701,6 +701,9 @@ def transition_knowledge_classification_task_file(
     if answers_by_unit_id is not None:
         validated_answers_by_unit_id.update(dict(answers_by_unit_id))
     no_edits_detected = (
+        not validation_errors
+        and not validation_metadata.get("error_details")
+        and
         int(validation_metadata.get("changed_unit_count") or 0) <= 0
         and not validated_answers_by_unit_id
     )
@@ -713,10 +716,21 @@ def transition_knowledge_classification_task_file(
                 "no_edits_detected": True,
             },
         )
-    if validation_errors and validation_metadata.get("failed_unit_ids"):
+    if validation_errors or validation_metadata.get("error_details"):
+        failed_unit_ids = [
+            str(unit_id).strip()
+            for unit_id in (validation_metadata.get("failed_unit_ids") or [])
+            if str(unit_id).strip()
+        ]
+        if not failed_unit_ids:
+            failed_unit_ids = [
+                str(unit.get("unit_id") or "").strip()
+                for unit in (original_task_file.get("units") or [])
+                if isinstance(unit, Mapping) and str(unit.get("unit_id") or "").strip()
+            ]
         repair_task_file = build_repair_task_file(
             original_task_file=original_task_file,
-            failed_unit_ids=validation_metadata.get("failed_unit_ids") or (),
+            failed_unit_ids=failed_unit_ids,
             previous_answers_by_unit_id={
                 str(unit.get("unit_id") or "").strip(): (
                     dict(unit.get("answer") or {})
@@ -741,6 +755,9 @@ def transition_knowledge_classification_task_file(
             validation_metadata=dict(validation_metadata),
             transition_metadata={
                 "repair_unit_count": len(repair_task_file.get("units") or []),
+                "repair_reason": "task_file_contract_violation"
+                if not validation_metadata.get("failed_unit_ids")
+                else "unit_validation_failure",
             },
         )
     grouping_task_file, _ = build_knowledge_grouping_task_file(
@@ -796,6 +813,9 @@ def transition_knowledge_grouping_task_file(
     if answers_by_unit_id is not None:
         validated_answers_by_unit_id.update(dict(answers_by_unit_id))
     no_edits_detected = (
+        not validation_errors
+        and not validation_metadata.get("error_details")
+        and
         int(validation_metadata.get("changed_unit_count") or 0) <= 0
         and not validated_answers_by_unit_id
     )
@@ -808,10 +828,21 @@ def transition_knowledge_grouping_task_file(
                 "no_edits_detected": True,
             },
         )
-    if validation_errors and validation_metadata.get("failed_unit_ids"):
+    if validation_errors or validation_metadata.get("error_details"):
+        failed_unit_ids = [
+            str(unit_id).strip()
+            for unit_id in (validation_metadata.get("failed_unit_ids") or [])
+            if str(unit_id).strip()
+        ]
+        if not failed_unit_ids:
+            failed_unit_ids = [
+                str(unit.get("unit_id") or "").strip()
+                for unit in (original_task_file.get("units") or [])
+                if isinstance(unit, Mapping) and str(unit.get("unit_id") or "").strip()
+            ]
         repair_task_file = build_repair_task_file(
             original_task_file=original_task_file,
-            failed_unit_ids=validation_metadata.get("failed_unit_ids") or (),
+            failed_unit_ids=failed_unit_ids,
             previous_answers_by_unit_id={
                 str(unit.get("unit_id") or "").strip(): (
                     dict(unit.get("answer") or {})
@@ -836,6 +867,9 @@ def transition_knowledge_grouping_task_file(
             validation_metadata=dict(validation_metadata),
             transition_metadata={
                 "repair_unit_count": len(repair_task_file.get("units") or []),
+                "repair_reason": "task_file_contract_violation"
+                if not validation_metadata.get("failed_unit_ids")
+                else "unit_validation_failure",
             },
         )
     return KnowledgeTaskFileTransition(

@@ -473,8 +473,10 @@ def _build_line_role_workspace_worker_prompt(
         "Worker contract:\n"
         "- The current working directory is already the workspace root.\n"
         "- Open `task.json`, read the whole file once, edit only `/units/*/answer`, save the same file, and stop.\n"
+        "- `task.json` already contains the full assignment. You do not need extra control state, helper ledgers, or hidden context before editing it.\n"
         "- Do not invent phase ledgers, install loops, queue-control files, or alternate output files.\n"
         "- Prefer opening the named file directly. If you still need shell helpers, keep them narrow and grounded on `task.json` only.\n"
+        "- If you briefly reread part of the file or make a small local false start, correct it and continue; deterministic validation happens after you save.\n"
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
         "- The task file already contains the immutable row evidence and the editable answer slots.\n"
         "- Do not modify immutable evidence fields.\n\n"
@@ -499,22 +501,6 @@ def _build_line_role_workspace_worker_prompt(
         "Assigned shard ids represented in this task file:\n"
         f"{assignments}\n"
     )
-
-
-def _write_line_role_output_contract(*, worker_root: Path) -> None:
-    (worker_root / "OUTPUT_CONTRACT.md").write_text(
-        LINE_ROLE_OUTPUT_CONTRACT_MARKDOWN,
-        encoding="utf-8",
-    )
-
-
-def _write_line_role_worker_tools(*, worker_root: Path) -> list[str]:
-    tools_dir = worker_root / "tools"
-    tools_dir.mkdir(parents=True, exist_ok=True)
-    tool_path = tools_dir / LINE_ROLE_WORKER_TOOL_FILENAME
-    tool_path.write_text(render_line_role_worker_script(), encoding="utf-8")
-    return [LINE_ROLE_WORKER_TOOL_FILENAME]
-
 
 def _write_line_role_worker_hint(
     *,

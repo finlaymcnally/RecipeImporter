@@ -61,11 +61,15 @@ def test_worker_prompt_describes_task_file_contract() -> None:
         "Open `task.json`, read it once, edit only `/units/*/answer`, save the same file, and then run "
         "`python3 -m cookimport.llm.knowledge_same_session_handoff`." in prompt
     )
+    assert "`task.json` is the whole job at each step." in prompt
     assert "- Start with `task.json`." in prompt
     assert "- Edit only the `answer` object inside each unit." in prompt
     assert (
         "- After each edit pass, run `python3 -m cookimport.llm.knowledge_same_session_handoff` "
         "from the workspace root." in prompt
+    )
+    assert (
+        "- After the helper returns, trust the current `task.json` as the new whole job." in prompt
     )
     assert (
         "- If the helper reports `repair_required` or `advance_to_grouping`, reopen the rewritten "
@@ -75,6 +79,7 @@ def test_worker_prompt_describes_task_file_contract() -> None:
         "- Stop only after the helper reports `completed_without_grouping` or "
         "`completed_with_grouping`." in prompt
     )
+    assert "Harmless local retries are not the point of failure here." in prompt
     assert "Do not invent queue advancement, control files, helper ledgers, or alternate output files." in prompt
     assert "This is the classification step." in prompt
     assert "Answer each unit with `category`, `reviewer_category`, `retrieval_concept`, and `grounding`." in prompt

@@ -1232,10 +1232,10 @@ class FakeCodexExecRunner:
                     workspace_root=execution_working_dir,
                     state_path=Path(state_path),
                 )
-                if transition_result.get("status") not in {
-                    "advance_to_grouping",
-                    "repair_required",
-                }:
+                transition_status = str(transition_result.get("status") or "").strip()
+                if transition_status == "repair_required":
+                    break
+                if transition_status != "advance_to_grouping":
                     break
                 next_task_file_payload = load_task_file(task_file_path)
                 edited_task_file_payload = self._build_workspace_task_file_result(
@@ -1825,7 +1825,9 @@ def _build_direct_exec_agents_text(
                 "The current working directory is already the workspace root.\n"
                 "This workspace exposes one repo-written file: `task.json`.\n"
                 "Open `task.json`, read the whole file once, edit only `/units/*/answer`, save the same file, and stop.\n"
+                "`task.json` is the whole job. You do not need to discover extra control state, hidden files, or repo context before editing it.\n"
                 "Treat everything outside `task.json` as immutable infrastructure, not task context.\n"
+                "If you briefly reread part of `task.json` or make a small local false start, just correct course and continue; deterministic validation happens after you save.\n"
                 "Do not invent helper ledgers, alternate output files, queue files, or repair sidecars.\n"
                 "Do not inspect parent directories, repository-wide AGENTS files, project docs, or source code.\n"
                 "Do not run repo-specific commands such as `npm run docs:list` or `git`.\n"

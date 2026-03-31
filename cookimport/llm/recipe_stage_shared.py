@@ -1355,10 +1355,10 @@ def _collect_recipe_locally_finalized_skip_rows(
             ).items()
             if str(recipe_id).strip() and str(task_id).strip()
         }
-        task_packet_statuses = {
+        task_statuses = {
             str(task_id).strip(): _coerce_dict(status_payload)
             for task_id, status_payload in _coerce_dict(
-                proposal_metadata.get("task_packet_status_by_task_id")
+                proposal_metadata.get("task_status_by_task_id")
             ).items()
             if str(task_id).strip()
         }
@@ -1370,8 +1370,8 @@ def _collect_recipe_locally_finalized_skip_rows(
         for recipe_id, task_id in sorted(task_id_by_recipe_id.items()):
             if recipe_id in seen_recipe_ids:
                 continue
-            task_packet_status = task_packet_statuses.get(task_id, {})
-            dispatch = str(task_packet_status.get("llm_dispatch") or "").strip()
+            task_status = task_statuses.get(task_id, {})
+            dispatch = str(task_status.get("llm_dispatch") or "").strip()
             if dispatch != "handled_locally_skip_llm":
                 continue
             recipe_row = recipe_rows.get(recipe_id, {})
@@ -1383,13 +1383,13 @@ def _collect_recipe_locally_finalized_skip_rows(
                     "worker_id": proposal.worker_id,
                     "repair_status": str(recipe_row.get("st") or "").strip() or None,
                     "status_reason": str(recipe_row.get("sr") or "").strip() or None,
-                    "packet_status": str(
-                        task_packet_status.get("task_packet_status") or ""
+                    "task_status": str(
+                        task_status.get("task_status") or ""
                     ).strip()
                     or None,
                     "llm_dispatch": dispatch,
                     "llm_dispatch_reason": str(
-                        task_packet_status.get("llm_dispatch_reason") or ""
+                        task_status.get("llm_dispatch_reason") or ""
                     ).strip()
                     or None,
                 }
@@ -1881,7 +1881,7 @@ def _build_recipe_workspace_session_runner_payload(
     worker_root: Path,
     task_count: int,
     parent_shard_ids: Sequence[str],
-    repair_packet_count: int,
+    repair_task_count: int,
 ) -> dict[str, Any]:
     payload = run_result.to_payload(worker_id=worker_id, shard_id=primary_shard_id)
     payload["pipeline_id"] = pipeline_id
@@ -1900,8 +1900,8 @@ def _build_recipe_workspace_session_runner_payload(
         row_payload["worker_prompt_file"] = worker_prompt_file
         row_payload["worker_session_task_count"] = int(task_count)
         row_payload["worker_session_primary_row"] = True
-        row_payload["leased_packet_count"] = int(task_count)
-        row_payload["repair_packet_count"] = int(repair_packet_count)
+        row_payload["assigned_task_count"] = int(task_count)
+        row_payload["repair_task_count"] = int(repair_task_count)
         row_payload["runtime_parent_shard_id"] = primary_shard_id
         row_payload["runtime_parent_shard_ids"] = runtime_parent_shard_ids
         row_payload["events_path"] = str(worker_root / "events.jsonl")
@@ -1921,8 +1921,8 @@ def _build_recipe_workspace_session_runner_payload(
         "prompt_input_mode": "workspace_worker",
         "worker_prompt_file": worker_prompt_file,
         "worker_session_task_count": int(task_count),
-        "leased_packet_count": int(task_count),
-        "repair_packet_count": int(repair_packet_count),
+        "assigned_task_count": int(task_count),
+        "repair_task_count": int(repair_task_count),
         "runtime_parent_shard_id": primary_shard_id,
         "runtime_parent_shard_ids": runtime_parent_shard_ids,
         "events_path": str(worker_root / "events.jsonl"),
@@ -2194,127 +2194,13 @@ def _write_recipe_task_payload(
     )
 
 
-def _build_recipe_packet_hint_markdown(
-    *,
-    task_row: Mapping[str, Any],
-    validation_errors: Sequence[str] = (),
-    repair_attempted: bool = False,
-) -> str:
-    payload = _coerce_dict(task_row.get("input_payload"))
-    recipe_rows = [row for row in (payload.get("r") or []) if isinstance(row, Mapping)]
-    recipe_row = _coerce_dict(recipe_rows[0]) if recipe_rows else {}
-    hint_payload = _coerce_dict(recipe_row.get("h"))
-    recipe_id = str(recipe_row.get("rid") or "").strip() or "[unknown recipe]"
-    title_hint = str(hint_payload.get("n") or "").strip() or "[no title hint]"
-    ingredient_count = len(
-        [item for item in (hint_payload.get("i") or []) if str(item or "").strip()]
-    )
-    step_count = len(
-        [item for item in (hint_payload.get("s") or []) if str(item or "").strip()]
-    )
-    lines = [
-        "# Current Recipe Packet",
-        "",
-        "This file is additive guidance only. `current_packet.json` is authoritative.",
-        "",
-        f"- task id: `{str(task_row.get('task_id') or '').strip()}`",
-        f"- recipe id: `{recipe_id}`",
-        f"- title hint: `{preview_text(title_hint, max_chars=80)}`",
-        f"- deterministic hint counts: {ingredient_count} ingredient-like / {step_count} step-like",
-        "- write exactly one compact JSON object to the path named by `current_result_path.txt`",
-        "- valid `st` values are `repaired`, `fragmentary`, and `not_a_recipe`",
-        "- when `st=repaired`, `cr` must be a complete canonical recipe object",
-        "- keep `g` empty unless the tags are obvious from the packet evidence",
-        "- keep `m` and `mr` honest; if the mapping is empty, `mr` must explain why",
-        "- avoid shell commands on the normal path unless they materially help with a local read or rewrite",
-    ]
-    if repair_attempted:
-        lines.extend(
-            [
-                "",
-                "Repair packet:",
-                "- fix only the validation problems named below",
-                "- overwrite the same result path with the corrected compact payload",
-            ]
-        )
-    if validation_errors:
-        lines.extend(
-            [
-                "",
-                "Validation errors:",
-                *[f"- {error}" for error in validation_errors],
-            ]
-        )
-    return "\n".join(lines) + "\n"
-
-
-def _build_recipe_packet_worker_prompt(*, task_count: int) -> str:
-    lines = [
-        "You are a recipe correction worker in a bounded local workspace.",
-        "",
-        "Process one leased recipe packet at a time.",
-        "Open `worker_manifest.json`, then `current_packet.json`, then `current_hint.md` only if you need extra context.",
-        "Write the final compact JSON result only to the path named by `current_result_path.txt`.",
-        "After writing a result, re-open the current packet files. The repo will either lease the next packet, issue one repair packet for the same task, or mark the queue complete.",
-        "Do not invent your own queue scheduler or helper-command workflow.",
-        "The normal path should be command-light and usually command-free.",
-        "",
-        "Output contract:",
-        "- Write exactly one JSON object.",
-        "- Top level keys: `v`, `sid`, `r`.",
-        "- Per recipe row keys: `v`, `rid`, `st`, `sr`, `cr`, `m`, `mr`, `g`, `w`.",
-        "- `sid` must equal the current task id exactly.",
-        "- Return exactly one row for each owned `rid` in the current packet and no extras.",
-        "- Legacy keys are invalid here, including `results`, `recipes`, `recipe_id`, `repair_status`, `canonical_recipe`, `not_a_recipe`, `fragmentary`, and `notes`.",
-        "",
-        "Stay inside this workspace. Do not inspect the repository, parent directories, or use repo/network/package-manager commands.",
-    ]
-    if task_count > 0:
-        lines.extend(
-            [
-                "",
-                f"This worker session has {task_count} leased recipe packets in total.",
-            ]
-        )
-    return "\n".join(lines)
-
-
-def _build_recipe_assignment_worker_prompt(*, task_count: int) -> str:
-    lines = [
-        "You are a recipe correction worker in a bounded local workspace.",
-        "",
-        "Process every assigned recipe task exactly once.",
-        "Open `worker_manifest.json`, then `assigned_tasks.json`.",
-        "For each assigned task row, open the named `in/*.json` input payload and `hints/*.md` only if useful.",
-        "Write the final compact JSON result to the stable `out/*.json` path named in the task metadata.",
-        "After every assigned output exists, stop. Do not invent queue control files, packet loops, or install helpers.",
-        "The normal path should be command-light and usually command-free.",
-        "",
-        "Output contract:",
-        "- Write exactly one JSON object per assigned task.",
-        "- Top level keys: `v`, `sid`, `r`.",
-        "- Per recipe row keys: `v`, `rid`, `st`, `sr`, `cr`, `m`, `mr`, `g`, `w`.",
-        "- `sid` must equal the current task id exactly.",
-        "- Return exactly one row for each owned `rid` in the current task and no extras.",
-        "- Legacy keys are invalid here, including `results`, `recipes`, `recipe_id`, `repair_status`, `canonical_recipe`, `not_a_recipe`, `fragmentary`, and `notes`.",
-        "",
-        "Stay inside this workspace. Do not inspect the repository, parent directories, or use repo/network/package-manager commands.",
-    ]
-    if task_count > 0:
-        lines.extend(
-            [
-                "",
-                f"This worker session owns {task_count} recipe tasks.",
-            ]
-        )
-    return "\n".join(lines)
-
-
 def _build_recipe_task_file_worker_prompt(*, task_count: int, repair_mode: bool) -> str:
     lines = [
         "You are a recipe correction worker in a bounded local workspace.",
         "",
         f"Open `{TASK_FILE_NAME}`, read the whole file once, edit only `/units/*/answer`, save the same file, and stop.",
+        "`task.json` already contains the full job for this worker. You do not need extra manifests, queue state, or hidden context before editing it.",
+        "If you briefly reread part of the file or make a small local false start, correct it and continue; deterministic validation happens after you save.",
         "Do not rewrite immutable metadata or evidence fields.",
         "Do not invent helper ledgers, queue files, or alternate output files.",
         "The repo will validate the edited task file and expand accepted answers into final artifacts.",
@@ -2348,26 +2234,6 @@ def _build_recipe_task_file_worker_prompt(*, task_count: int, repair_mode: bool)
         ]
     )
     return "\n".join(lines)
-
-
-def _build_recipe_repair_prompt(
-    *,
-    task_row: Mapping[str, Any],
-    validation_errors: Sequence[str],
-) -> str:
-    task_id = str(task_row.get("task_id") or "").strip() or "[unknown task]"
-    lines = [
-        "You are fixing one invalid recipe task output after deterministic validation failed.",
-        "",
-        f"Repair task id: `{task_id}`.",
-        "Return one corrected compact JSON object only.",
-        "Keep ownership exact: preserve the same `sid` and the same owned `rid` rows.",
-        "Fix only the structural problems named below and fail closed rather than inventing unsupported fields.",
-        "",
-        "Validation errors:",
-    ]
-    lines.extend(f"- {error}" for error in validation_errors if str(error).strip())
-    return "\n".join(lines) + "\n"
 
 
 def _build_task_validation_feedback(
@@ -2525,249 +2391,6 @@ def _evaluate_recipe_task_file_answers(
     return payloads_by_task_id, errors_by_task_id, previous_answers_by_unit_id, feedback_by_unit_id
 
 
-@dataclass
-class _RecipePacketLeaseController:
-    worker_root: Path
-    task_rows: tuple[dict[str, Any], ...]
-    task_manifest_by_task_id: dict[str, ShardManifestEntryV1]
-    task_status_by_task_id: dict[str, dict[str, Any]]
-    current_index: int = 0
-    completed_task_ids: set[str] = field(default_factory=set)
-    failed_task_ids: set[str] = field(default_factory=set)
-    repair_attempted_task_ids: set[str] = field(default_factory=set)
-    current_packet_kind: str = "task"
-
-    def __post_init__(self) -> None:
-        self._write_current_packet_files()
-
-    def current_task_row(self) -> dict[str, Any] | None:
-        if self.current_index >= len(self.task_rows):
-            return None
-        return dict(self.task_rows[self.current_index])
-
-    def current_task_id(self) -> str | None:
-        row = self.current_task_row()
-        if row is None:
-            return None
-        return str(row.get("task_id") or "").strip() or None
-
-    def is_complete(self) -> bool:
-        return self.current_index >= len(self.task_rows)
-
-    def status_payload(self) -> dict[str, Any]:
-        return {
-            "worker_state": (
-                "completed_packet_queue"
-                if self.is_complete()
-                else "leased_current_packet"
-            ),
-            "queue_total_task_count": len(self.task_rows),
-            "queue_completed_task_count": len(self.completed_task_ids),
-            "queue_failed_task_count": len(self.failed_task_ids),
-            "queue_remaining_task_count": max(
-                len(self.task_rows) - self.current_index,
-                0,
-            ),
-            "queue_complete": self.is_complete(),
-            "current_task_id": self.current_task_id(),
-            "current_packet_kind": None if self.is_complete() else self.current_packet_kind,
-            "repair_packet_count": len(self.repair_attempted_task_ids),
-        }
-
-    def observe_current_output(
-        self,
-        *,
-        execution_workspace_root: Path | None = None,
-    ) -> dict[str, Any]:
-        task_row = self.current_task_row()
-        if task_row is None:
-            self._write_current_packet_files()
-            return {
-                "current_task_id": None,
-                "output_present": False,
-                "proposal_status": "queue_complete",
-                "queue_complete": True,
-            }
-        task_id = str(task_row.get("task_id") or "").strip()
-        task_manifest = self.task_manifest_by_task_id[task_id]
-        output_path = self.worker_root / recipe_worker_task_paths(task_row)["result_path"]
-        if not output_path.exists():
-            return {
-                "current_task_id": task_id,
-                "output_present": False,
-                "proposal_status": "missing_output",
-                "queue_complete": False,
-            }
-        try:
-            response_text = output_path.read_text(encoding="utf-8")
-        except OSError:
-            response_text = None
-        payload, validation_errors, validation_metadata, proposal_status = _evaluate_recipe_response(
-            shard=task_manifest,
-            response_text=response_text,
-        )
-        if proposal_status == "validated" and payload is not None:
-            status_row = self.task_status_by_task_id.setdefault(task_id, {})
-            status_row.update(
-                {
-                    "task_packet_status": (
-                        "validated_after_repair"
-                        if task_id in self.repair_attempted_task_ids
-                        else "validated"
-                    ),
-                    "repair_attempted": task_id in self.repair_attempted_task_ids,
-                    "repair_status": (
-                        "repaired"
-                        if task_id in self.repair_attempted_task_ids
-                        else "not_needed"
-                    ),
-                }
-            )
-            if task_id in self.repair_attempted_task_ids:
-                _write_json(
-                    {
-                        "task_id": task_id,
-                        "repair_status": "repaired",
-                        "validation_errors": [],
-                    },
-                    self.worker_root / "shards" / task_id / "repair_status.json",
-                )
-            self.completed_task_ids.add(task_id)
-            self.current_index += 1
-            self.current_packet_kind = "task"
-            self._write_current_packet_files()
-            return {
-                "current_task_id": task_id,
-                "output_present": True,
-                "proposal_status": "validated",
-                "payload": payload,
-                "validation_errors": tuple(validation_errors),
-                "validation_metadata": dict(validation_metadata or {}),
-                "queue_complete": self.is_complete(),
-            }
-        if task_id not in self.repair_attempted_task_ids:
-            self.repair_attempted_task_ids.add(task_id)
-            self.current_packet_kind = "repair"
-            _write_json(
-                {
-                    "task_id": task_id,
-                    "validation_errors": list(validation_errors),
-                    "validation_metadata": dict(validation_metadata or {}),
-                    "previous_output": str(response_text or ""),
-                },
-                self.worker_root / "shards" / task_id / "repair_packet.json",
-            )
-            self._delete_output_file(
-                relative_result_path=recipe_worker_task_paths(task_row)["result_path"],
-                execution_workspace_root=execution_workspace_root,
-            )
-            self._write_current_packet_files(
-                validation_errors=validation_errors,
-                previous_output=str(response_text or ""),
-            )
-            return {
-                "current_task_id": task_id,
-                "output_present": True,
-                "proposal_status": "repair_issued",
-                "validation_errors": tuple(validation_errors),
-                "validation_metadata": dict(validation_metadata or {}),
-                "queue_complete": False,
-            }
-        self.failed_task_ids.add(task_id)
-        self.task_status_by_task_id.setdefault(task_id, {}).update(
-            {
-                "task_packet_status": "failed_after_repair",
-                "repair_attempted": True,
-                "repair_status": "failed",
-                "validation_errors": list(validation_errors),
-            }
-        )
-        _write_json(
-            {
-                "task_id": task_id,
-                "repair_status": "failed",
-                "validation_errors": list(validation_errors),
-                "validation_metadata": dict(validation_metadata or {}),
-            },
-            self.worker_root / "shards" / task_id / "repair_status.json",
-        )
-        self._delete_output_file(
-            relative_result_path=recipe_worker_task_paths(task_row)["result_path"],
-            execution_workspace_root=execution_workspace_root,
-        )
-        self.current_index += 1
-        self.current_packet_kind = "task"
-        self._write_current_packet_files()
-        return {
-            "current_task_id": task_id,
-            "output_present": True,
-            "proposal_status": "invalid",
-            "validation_errors": tuple(validation_errors),
-            "validation_metadata": dict(validation_metadata or {}),
-            "queue_complete": self.is_complete(),
-        }
-
-    def _delete_output_file(
-        self,
-        *,
-        relative_result_path: str,
-        execution_workspace_root: Path | None,
-    ) -> None:
-        for root in (self.worker_root, execution_workspace_root):
-            if root is None:
-                continue
-            candidate = root / relative_result_path
-            try:
-                if candidate.exists():
-                    candidate.unlink()
-            except OSError:
-                continue
-
-    def _write_current_packet_files(
-        self,
-        *,
-        validation_errors: Sequence[str] = (),
-        previous_output: str | None = None,
-    ) -> None:
-        current_packet_path = self.worker_root / "current_packet.json"
-        current_hint_path = self.worker_root / "current_hint.md"
-        current_result_path = self.worker_root / "current_result_path.txt"
-        lease_status_path = self.worker_root / "packet_lease_status.json"
-        task_row = self.current_task_row()
-        if task_row is None:
-            for path in (current_packet_path, current_hint_path, current_result_path):
-                if path.exists():
-                    path.unlink()
-            _write_json(self.status_payload(), lease_status_path)
-            return
-        task_id = str(task_row.get("task_id") or "").strip()
-        packet_payload = dict(_coerce_dict(task_row.get("input_payload")))
-        packet_payload["packet_kind"] = self.current_packet_kind
-        packet_payload["task_id"] = task_id
-        packet_payload["parent_shard_id"] = str(task_row.get("parent_shard_id") or "").strip() or None
-        if self.current_packet_kind == "repair":
-            packet_payload["repair"] = {
-                "attempt": 1,
-                "validation_errors": list(validation_errors),
-                "previous_output": str(previous_output or ""),
-            }
-        else:
-            packet_payload.pop("repair", None)
-        _write_json(packet_payload, current_packet_path)
-        current_hint_path.write_text(
-            _build_recipe_packet_hint_markdown(
-                task_row=task_row,
-                validation_errors=validation_errors,
-                repair_attempted=self.current_packet_kind == "repair",
-            ),
-            encoding="utf-8",
-        )
-        current_result_path.write_text(
-            recipe_worker_task_paths(task_row)["result_path"] + "\n",
-            encoding="utf-8",
-        )
-        _write_json(self.status_payload(), lease_status_path)
-
 
 def _empty_recipe_workspace_run_result(
     *,
@@ -2833,7 +2456,7 @@ def _run_recipe_workspace_worker_assignment_v1(
     runnable_tasks: list[_RecipeTaskPlan] = []
     task_payloads_by_task_id: dict[str, dict[str, Any]] = {}
     task_validation_errors_by_task_id: dict[str, tuple[str, ...]] = {}
-    task_packet_status_by_task_id: dict[str, dict[str, Any]] = {}
+    task_status_by_task_id: dict[str, dict[str, Any]] = {}
     task_parent_shard_by_task_id: dict[str, str] = {}
     worker_prompt_path = worker_root / "prompt.txt"
     worker_prompt_text = ""
@@ -2948,8 +2571,8 @@ def _run_recipe_workspace_worker_assignment_v1(
             if deterministic_payload is not None:
                 task_payloads_by_task_id[task_id] = deterministic_payload
                 task_validation_errors_by_task_id[task_id] = ()
-                task_packet_status_by_task_id[task_id] = {
-                    "task_packet_status": "handled_locally_skip_llm",
+                task_status_by_task_id[task_id] = {
+                    "task_status": "handled_locally_skip_llm",
                     "llm_dispatch": "handled_locally_skip_llm",
                     "llm_dispatch_reason": "deterministic_terminal_scaffold",
                     "repair_attempted": False,
@@ -2960,9 +2583,9 @@ def _run_recipe_workspace_worker_assignment_v1(
                     payload=deterministic_payload,
                 )
                 continue
-            task_packet_status_by_task_id[task_id] = {
-                "task_packet_status": "leased_to_worker",
-                "llm_dispatch": "leased_packet_worker",
+            task_status_by_task_id[task_id] = {
+                "task_status": "assigned_to_worker",
+                "llm_dispatch": "task_file_worker",
                 "llm_dispatch_reason": "llm_required",
                 "repair_attempted": False,
                 "repair_status": "not_attempted",
@@ -3056,7 +2679,7 @@ def _run_recipe_workspace_worker_assignment_v1(
             worker_root=worker_root,
             task_count=len(runnable_tasks),
             parent_shard_ids=[shard.shard_id for shard in runnable_shards],
-            repair_packet_count=0,
+            repair_task_count=0,
         )
         worker_runner_results.append(dict(worker_runner_payload))
         telemetry_rows = (
@@ -3143,9 +2766,9 @@ def _run_recipe_workspace_worker_assignment_v1(
                         payload=repair_payloads[task.task_id],
                     )
                     task_validation_errors_by_task_id[task.task_id] = ()
-                    task_packet_status_by_task_id.setdefault(task.task_id, {}).update(
+                    task_status_by_task_id.setdefault(task.task_id, {}).update(
                         {
-                            "task_packet_status": "validated_after_repair",
+                            "task_status": "validated_after_repair",
                             "repair_attempted": True,
                             "repair_status": "repaired",
                             "validation_errors": [],
@@ -3164,9 +2787,9 @@ def _run_recipe_workspace_worker_assignment_v1(
                     task_validation_errors_by_task_id[task.task_id] = tuple(
                         failed_validation_errors
                     )
-                    task_packet_status_by_task_id.setdefault(task.task_id, {}).update(
+                    task_status_by_task_id.setdefault(task.task_id, {}).update(
                         {
-                            "task_packet_status": "failed_after_repair",
+                            "task_status": "failed_after_repair",
                             "repair_attempted": True,
                             "repair_status": "failed",
                             "validation_errors": failed_validation_errors,
@@ -3186,9 +2809,9 @@ def _run_recipe_workspace_worker_assignment_v1(
                         payload=first_pass_payloads[task.task_id],
                     )
                     task_validation_errors_by_task_id[task.task_id] = ()
-                    task_packet_status_by_task_id.setdefault(task.task_id, {}).update(
+                    task_status_by_task_id.setdefault(task.task_id, {}).update(
                         {
-                            "task_packet_status": "validated",
+                            "task_status": "validated",
                             "repair_attempted": False,
                             "repair_status": "not_needed",
                             "validation_errors": [],
@@ -3203,9 +2826,9 @@ def _run_recipe_workspace_worker_assignment_v1(
                         payload=first_pass_payloads[task.task_id],
                     )
                     task_validation_errors_by_task_id[task.task_id] = ()
-                    task_packet_status_by_task_id.setdefault(task.task_id, {}).update(
+                    task_status_by_task_id.setdefault(task.task_id, {}).update(
                         {
-                            "task_packet_status": "validated",
+                            "task_status": "validated",
                             "repair_attempted": False,
                             "repair_status": "not_needed",
                             "validation_errors": [],
@@ -3216,9 +2839,9 @@ def _run_recipe_workspace_worker_assignment_v1(
                     task_validation_errors_by_task_id[task.task_id] = tuple(
                         failed_validation_errors
                     )
-                    task_packet_status_by_task_id.setdefault(task.task_id, {}).update(
+                    task_status_by_task_id.setdefault(task.task_id, {}).update(
                         {
-                            "task_packet_status": "invalid",
+                            "task_status": "invalid",
                             "repair_attempted": False,
                             "repair_status": "not_attempted",
                             "validation_errors": failed_validation_errors,
@@ -3253,7 +2876,7 @@ def _run_recipe_workspace_worker_assignment_v1(
             )
         )
         shard_task_statuses = {
-            task_id: dict(task_packet_status_by_task_id.get(task_id) or {})
+            task_id: dict(task_status_by_task_id.get(task_id) or {})
             for task_id in shard_task_ids
         }
         repair_attempted = any(
@@ -3272,13 +2895,13 @@ def _run_recipe_workspace_worker_assignment_v1(
         validation_metadata = {
             "task_aggregation": aggregation_metadata,
             **dict(validation_metadata or {}),
-            "task_packet_status_by_task_id": {
+            "task_status_by_task_id": {
                 task_id: {
                     key: value
                     for key, value in status_payload.items()
                     if key
                     in {
-                        "task_packet_status",
+                        "task_status",
                         "llm_dispatch",
                         "llm_dispatch_reason",
                         "repair_attempted",
@@ -3846,22 +3469,22 @@ def _run_direct_recipe_workers_v1(
             },
             "recipes": [dict(row) for row in handled_locally_skip_llm_rows],
         },
-        "packet_counts": {
+        "task_counts": {
             status: sum(
                 1
                 for proposal in all_proposals
                 for status_payload in [
                     _coerce_dict(
-                        _coerce_dict(proposal.metadata).get("task_packet_status_by_task_id")
+                        _coerce_dict(proposal.metadata).get("task_status_by_task_id")
                     )
                 ]
                 for task_row in status_payload.values()
-                if str(_coerce_dict(task_row).get("task_packet_status") or "").strip()
+                if str(_coerce_dict(task_row).get("task_status") or "").strip()
                 == status
             )
             for status in (
                 "handled_locally_skip_llm",
-                "leased_to_worker",
+                "assigned_to_worker",
                 "validated",
                 "validated_after_repair",
                 "failed_after_repair",

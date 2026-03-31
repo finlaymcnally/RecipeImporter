@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import json
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -8,23 +7,8 @@ from typing import Any, Callable, Mapping, Sequence
 from . import _shared as _shared_module
 from . import planning as _planning_module
 from . import recovery as _recovery_module
-from ..knowledge_phase_workspace_tools import (
-    assemble_final_output,
-    build_knowledge_workspace_shard_metadata,
-    build_pass1_packet,
-    build_pass1_repair_packet,
-    build_pass2_packet,
-    build_pass2_repair_packet,
-    render_knowledge_packet_hint,
-    validate_pass1_packet_result,
-    validate_pass2_packet_result,
-    write_knowledge_output_contract,
-    write_knowledge_worker_examples,
-)
 from ..editable_task_file import (
     TASK_FILE_NAME,
-    build_repair_task_file,
-    load_task_file,
     write_task_file,
 )
 from ..knowledge_same_session_handoff import (
@@ -170,519 +154,6 @@ def _render_validation_reason_detail(
     return "; ".join(part for part in detail_parts if part)
 
 
-@dataclass(slots=True)
-class _KnowledgeLeasedShardState:
-    shard: ShardManifestEntryV1
-    input_payload: dict[str, Any]
-    hint_text: str
-    pass1_result: dict[str, Any] | None = None
-    pass2_result: dict[str, Any] | None = None
-    packet_count: int = 0
-    repair_packet_count: int = 0
-    repair_attempted: bool = False
-    repair_recovered: bool = False
-    last_validation_errors: tuple[str, ...] = ()
-    last_validation_metadata: dict[str, Any] = field(default_factory=dict)
-    current_task_id: str | None = None
-    current_packet_kind: str | None = None
-    current_result_relpath: str | None = None
-    current_packet_state: str = "pending"
-    current_result_observed: bool = False
-    promotion_attempted: bool = False
-    promotion_succeeded: bool = False
-    last_runtime_action: str = "pending"
-    terminal_status: str = "pending"
-    terminal_reason_code: str | None = None
-    terminal_reason_detail: str | None = None
-
-
-@dataclass(slots=True)
-class _KnowledgePacketLeaseController:
-    worker_root: Path
-    shard_states: dict[str, _KnowledgeLeasedShardState]
-    shard_order: tuple[str, ...]
-    current_packet: dict[str, Any] | None = None
-    current_result_relpath: str | None = None
-    current_shard_id_value: str | None = None
-    current_validation_errors: tuple[str, ...] = ()
-    queue_complete: bool = False
-    completed_shard_ids: set[str] = field(default_factory=set)
-    failed_shard_ids: set[str] = field(default_factory=set)
-    packet_history_path: Path | None = None
-
-    def __post_init__(self) -> None:
-        if self.packet_history_path is None:
-            self.packet_history_path = self.worker_root / "packet_history.jsonl"
-        self._advance_to_next_pending_shard()
-
-    @property
-    def total_task_count(self) -> int:
-        return len(self.shard_order)
-
-    @property
-    def validated_task_count(self) -> int:
-        return len(self.completed_shard_ids)
-
-    def is_complete(self) -> bool:
-        return self.queue_complete
-
-    def current_task_id(self) -> str | None:
-        return (
-            str(self.current_packet.get("task_id") or "").strip()
-            if isinstance(self.current_packet, Mapping)
-            else None
-        ) or None
-
-    def status_payload(self) -> dict[str, Any]:
-        return {
-            "queue_total_task_count": self.total_task_count,
-            "queue_validated_task_count": self.validated_task_count,
-            "queue_failed_task_count": len(self.failed_shard_ids),
-            "queue_remaining_task_count": max(
-                self.total_task_count
-                - self.validated_task_count
-                - len(self.failed_shard_ids),
-                0,
-            ),
-            "queue_complete": self.is_complete(),
-            "current_task_id": self.current_task_id(),
-            "current_shard_id": self.current_shard_id_value,
-            "current_packet_kind": (
-                str(self.current_packet.get("packet_kind") or "").strip()
-                if isinstance(self.current_packet, Mapping)
-                else None
-            ),
-            "current_validation_errors": list(self.current_validation_errors),
-        }
-
-    def shard_summary(self, shard_id: str) -> dict[str, Any]:
-        state = self.shard_states[str(shard_id)]
-        return {
-            "packet_count": state.packet_count,
-            "repair_packet_count": state.repair_packet_count,
-            "repair_attempted": state.repair_attempted,
-            "repair_recovered": state.repair_recovered,
-            "current_task_id": state.current_task_id,
-            "current_packet_kind": state.current_packet_kind,
-            "current_result_relpath": state.current_result_relpath,
-            "current_packet_state": state.current_packet_state,
-            "current_result_observed": state.current_result_observed,
-            "promotion_attempted": state.promotion_attempted,
-            "promotion_succeeded": state.promotion_succeeded,
-            "last_runtime_action": state.last_runtime_action,
-            "terminal_status": state.terminal_status,
-            "terminal_reason_code": state.terminal_reason_code,
-            "terminal_reason_detail": state.terminal_reason_detail,
-            "last_validation_errors": list(state.last_validation_errors),
-            "last_validation_metadata": dict(state.last_validation_metadata),
-        }
-
-    def observe_current_output(self) -> dict[str, Any]:
-        previous_task_id = self.current_task_id()
-        previous_complete = self.queue_complete
-        previous_completed_count = len(self.completed_shard_ids) + len(self.failed_shard_ids)
-
-        current_output_present = False
-        if self.current_result_relpath:
-            current_result_path = self.worker_root / self.current_result_relpath
-            current_output_present = current_result_path.exists() and current_result_path.is_file()
-            if current_output_present:
-                shard_id = str(
-                    (self.current_packet or {}).get("shard_id")
-                    or self.current_shard_id_value
-                    or ""
-                ).strip()
-                if shard_id and shard_id in self.shard_states:
-                    self.shard_states[shard_id].current_result_observed = True
-                self._consume_current_result(current_result_path)
-        current_task_id = self.current_task_id()
-        return {
-            "current_task_id": current_task_id,
-            "current_output_present": current_output_present,
-            "advanced": (
-                previous_task_id != current_task_id
-                or previous_complete != self.queue_complete
-                or previous_completed_count
-                != (len(self.completed_shard_ids) + len(self.failed_shard_ids))
-            ),
-            "valid": self.queue_complete or current_output_present,
-            "validation_errors": self.current_validation_errors,
-            "queue_complete": self.queue_complete,
-        }
-
-    def _consume_current_result(self, result_path: Path) -> None:
-        packet = dict(self.current_packet or {})
-        shard_id = str(packet.get("shard_id") or self.current_shard_id_value or "").strip()
-        if not shard_id:
-            return
-        state = self.shard_states[shard_id]
-        try:
-            loaded_payload = json.loads(result_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            self._handle_invalid_packet(
-                state=state,
-                packet=packet,
-                validation_errors=("response_json_invalid",),
-                validation_metadata={"parse_error": str(exc)},
-            )
-            return
-        if not isinstance(loaded_payload, Mapping):
-            self._handle_invalid_packet(
-                state=state,
-                packet=packet,
-                validation_errors=("response_not_json_object",),
-                validation_metadata={},
-            )
-            return
-
-        packet_kind = str(packet.get("packet_kind") or "").strip()
-        if packet_kind == "pass1":
-            normalized_payload, validation_errors, validation_metadata = (
-                validate_pass1_packet_result(
-                    packet_payload=packet,
-                    result_payload=dict(loaded_payload),
-                )
-            )
-        else:
-            normalized_payload, validation_errors, validation_metadata = (
-                validate_pass2_packet_result(
-                    packet_payload=packet,
-                    result_payload=dict(loaded_payload),
-                )
-            )
-        if validation_errors:
-            self._handle_invalid_packet(
-                state=state,
-                packet=packet,
-                validation_errors=validation_errors,
-                validation_metadata=validation_metadata,
-            )
-            return
-        result_path.unlink(missing_ok=True)
-        if packet_kind == "pass1":
-            state.pass1_result = normalized_payload
-            self._install_pass1(state)
-            return
-        state.pass2_result = normalized_payload
-        self._install_pass2(state)
-
-    def _install_pass1(self, state: _KnowledgeLeasedShardState) -> None:
-        assert state.pass1_result is not None
-        if state.repair_attempted:
-            state.repair_recovered = True
-        knowledge_rows = [
-            dict(row)
-            for row in (state.pass1_result.get("rows") or [])
-            if isinstance(row, Mapping)
-            and str(row.get("category") or "").strip() == "knowledge"
-        ]
-        if not knowledge_rows:
-            final_payload = assemble_final_output(
-                shard_id=state.shard.shard_id,
-                pass1_result=state.pass1_result,
-                pass2_result={"rows": []},
-            )
-            self._install_final_payload(state=state, final_payload=final_payload)
-            return
-        next_packet = build_pass2_packet(
-            shard_id=state.shard.shard_id,
-            task_id=f"{state.shard.shard_id}.pass2",
-            input_payload=state.input_payload,
-            pass1_rows=knowledge_rows,
-        )
-        self._write_current_packet(state=state, packet=next_packet)
-
-    def _install_pass2(self, state: _KnowledgeLeasedShardState) -> None:
-        assert state.pass1_result is not None
-        assert state.pass2_result is not None
-        final_payload = assemble_final_output(
-            shard_id=state.shard.shard_id,
-            pass1_result=state.pass1_result,
-            pass2_result=state.pass2_result,
-        )
-        self._install_final_payload(state=state, final_payload=final_payload)
-
-    def _install_final_payload(
-        self,
-        *,
-        state: _KnowledgeLeasedShardState,
-        final_payload: Mapping[str, Any],
-    ) -> None:
-        valid, validation_errors, validation_metadata = validate_knowledge_shard_output(
-            state.shard,
-            dict(final_payload),
-        )
-        state.promotion_attempted = True
-        if not valid:
-            self._mark_failed(
-                state=state,
-                reason_code=(
-                    "repair_packet_exhausted"
-                    if state.repair_attempted
-                    else "packet_result_validation_blocked"
-                ),
-                reason_detail=_render_validation_reason_detail(
-                    prefix=(
-                        "repair packet was exhausted without a promotable final output"
-                        if state.repair_attempted
-                        else "packet result existed but structural validation blocked promotion"
-                    ),
-                    validation_errors=validation_errors,
-                    validation_metadata=validation_metadata,
-                ),
-                validation_errors=validation_errors,
-                validation_metadata=validation_metadata,
-            )
-            return
-        _write_json(
-            dict(final_payload),
-            self.worker_root / "out" / f"{state.shard.shard_id}.json",
-        )
-        state.current_packet_state = "validated"
-        state.current_result_observed = True
-        state.promotion_succeeded = True
-        state.last_runtime_action = "shard_validated"
-        state.terminal_status = "validated"
-        state.terminal_reason_code = "validated"
-        state.terminal_reason_detail = None
-        self.completed_shard_ids.add(state.shard.shard_id)
-        self.current_validation_errors = ()
-        self._append_packet_history(
-            {
-                "event": "shard_validated",
-                "shard_id": state.shard.shard_id,
-                "packet_count": state.packet_count,
-                "repair_packet_count": state.repair_packet_count,
-            }
-        )
-        self._advance_to_next_pending_shard()
-
-    def _handle_invalid_packet(
-        self,
-        *,
-        state: _KnowledgeLeasedShardState,
-        packet: Mapping[str, Any],
-        validation_errors: Sequence[str],
-        validation_metadata: Mapping[str, Any],
-    ) -> None:
-        state.last_validation_errors = tuple(validation_errors)
-        state.last_validation_metadata = dict(validation_metadata or {})
-        state.current_packet_state = "validation_blocked"
-        state.current_result_observed = True
-        state.last_runtime_action = "validation_blocked"
-        self.current_validation_errors = tuple(validation_errors)
-        packet_kind = str(packet.get("packet_kind") or "").strip()
-        repair_payload = _coerce_dict(packet.get("repair"))
-        repair_attempt = bool(repair_payload)
-        if repair_attempt:
-            self._mark_failed(
-                state=state,
-                reason_code="repair_packet_exhausted",
-                reason_detail=_render_validation_reason_detail(
-                    prefix="repair packet was exhausted without a promotable final output",
-                    validation_errors=validation_errors,
-                    validation_metadata=validation_metadata,
-                ),
-                validation_errors=validation_errors,
-                validation_metadata=validation_metadata,
-            )
-            return
-
-        state.repair_attempted = True
-        if packet_kind == "pass1":
-            repair_packet = build_pass1_repair_packet(
-                packet_payload=packet,
-                validation_errors=validation_errors,
-                validation_metadata=validation_metadata,
-                accepted_rows=[
-                    dict(row)
-                    for row in ((state.pass1_result or {}).get("rows") or [])
-                    if isinstance(row, Mapping)
-                ],
-            )
-        else:
-            repair_packet = build_pass2_repair_packet(
-                packet_payload=packet,
-                validation_errors=validation_errors,
-                validation_metadata=validation_metadata,
-                accepted_rows=[
-                    dict(row)
-                    for row in ((state.pass2_result or {}).get("rows") or [])
-                    if isinstance(row, Mapping)
-                ],
-            )
-        repair_packet["task_id"] = (
-            f"{state.shard.shard_id}.{packet_kind}.repair{state.repair_packet_count + 1:02d}"
-        )
-        self._write_current_packet(state=state, packet=repair_packet, repair_packet=True)
-
-    def _mark_failed(
-        self,
-        *,
-        state: _KnowledgeLeasedShardState,
-        reason_code: str,
-        reason_detail: str | None,
-        validation_errors: Sequence[str],
-        validation_metadata: Mapping[str, Any],
-    ) -> None:
-        state.current_packet_state = "failed"
-        state.last_runtime_action = "shard_failed"
-        state.terminal_status = "failed"
-        state.terminal_reason_code = str(reason_code).strip() or "validation_failed"
-        state.terminal_reason_detail = str(reason_detail or "").strip() or None
-        state.last_validation_errors = tuple(validation_errors)
-        state.last_validation_metadata = dict(validation_metadata or {})
-        self.failed_shard_ids.add(state.shard.shard_id)
-        self._append_packet_history(
-            {
-                "event": "shard_failed",
-                "shard_id": state.shard.shard_id,
-                "reason_code": state.terminal_reason_code,
-                "reason_detail": state.terminal_reason_detail,
-                "validation_errors": list(validation_errors),
-                "validation_metadata": dict(validation_metadata or {}),
-            }
-        )
-        self._advance_to_next_pending_shard()
-
-    def _advance_to_next_pending_shard(self) -> None:
-        next_shard_id = next(
-            (
-                shard_id
-                for shard_id in self.shard_order
-                if shard_id not in self.completed_shard_ids
-                and shard_id not in self.failed_shard_ids
-            ),
-            None,
-        )
-        if next_shard_id is None:
-            self.queue_complete = True
-            self.current_packet = None
-            self.current_result_relpath = None
-            self.current_shard_id_value = None
-            self._write_queue_complete_status()
-            return
-        state = self.shard_states[next_shard_id]
-        next_packet = build_pass1_packet(
-            shard_id=state.shard.shard_id,
-            task_id=f"{state.shard.shard_id}.pass1",
-            input_payload=state.input_payload,
-        )
-        self._write_current_packet(state=state, packet=next_packet)
-
-    def _write_current_packet(
-        self,
-        *,
-        state: _KnowledgeLeasedShardState,
-        packet: Mapping[str, Any],
-        repair_packet: bool = False,
-    ) -> None:
-        self.queue_complete = False
-        self.current_packet = dict(packet)
-        self.current_shard_id_value = state.shard.shard_id
-        self.current_validation_errors = ()
-        state.packet_count += 1
-        if repair_packet:
-            state.repair_packet_count += 1
-        task_id = str(packet.get("task_id") or "").strip()
-        self.current_result_relpath = str(Path("scratch") / f"{task_id}.json")
-        state.current_task_id = task_id
-        state.current_packet_kind = str(packet.get("packet_kind") or "").strip() or None
-        state.current_result_relpath = self.current_result_relpath
-        state.current_packet_state = "leased"
-        state.current_result_observed = False
-        state.promotion_attempted = False
-        state.promotion_succeeded = False
-        state.last_runtime_action = "repair_packet_leased" if repair_packet else "lease_started"
-        _write_json(self.current_packet, self.worker_root / "current_packet.json")
-        (self.worker_root / "current_result_path.txt").write_text(
-            self.current_result_relpath + "\n",
-            encoding="utf-8",
-        )
-        (self.worker_root / "current_hint.md").write_text(
-            render_knowledge_packet_hint(
-                packet_payload=self.current_packet,
-                shard_hint_text=state.hint_text,
-                result_path=self.current_result_relpath,
-            ),
-            encoding="utf-8",
-        )
-        _write_json(
-            {
-                "schema_version": "knowledge_packet_lease_status.v1",
-                "worker_state": "leased_current_packet",
-                "last_runtime_action": state.last_runtime_action,
-                "current_task_id": task_id,
-                "current_shard_id": state.shard.shard_id,
-                "packet_kind": packet.get("packet_kind"),
-                "current_packet_state": state.current_packet_state,
-                "current_result_relpath": self.current_result_relpath,
-                "current_result_observed": state.current_result_observed,
-                "promotion_attempted": state.promotion_attempted,
-                "promotion_succeeded": state.promotion_succeeded,
-                "current_validation_errors": list(state.last_validation_errors),
-                "current_validation_metadata": dict(state.last_validation_metadata),
-                "packet_count_total": state.packet_count,
-                "repair_packet_count": state.repair_packet_count,
-                "completed_shard_count": len(self.completed_shard_ids),
-                "failed_shard_count": len(self.failed_shard_ids),
-                "queue_total_shard_count": len(self.shard_order),
-                "shard_statuses": {
-                    shard_id: self.shard_summary(shard_id)
-                    for shard_id in self.shard_order
-                },
-            },
-            self.worker_root / "packet_lease_status.json",
-        )
-        self._append_packet_history(
-            {
-                "event": "lease_started",
-                "task_id": task_id,
-                "shard_id": state.shard.shard_id,
-                "packet_kind": packet.get("packet_kind"),
-                "repair_packet": repair_packet,
-                "result_path": self.current_result_relpath,
-            }
-        )
-
-    def _write_queue_complete_status(self) -> None:
-        for relative_path in (
-            "current_packet.json",
-            "current_hint.md",
-            "current_result_path.txt",
-        ):
-            (self.worker_root / relative_path).unlink(missing_ok=True)
-        for state in self.shard_states.values():
-            if state.terminal_status == "pending":
-                state.current_packet_state = "queue_completed_without_terminal_output"
-                state.last_runtime_action = "queue_completed"
-            state.current_task_id = None
-            state.current_packet_kind = None
-            state.current_result_relpath = None
-        _write_json(
-            {
-                "schema_version": "knowledge_packet_lease_status.v1",
-                "worker_state": "queue_completed",
-                "completed_shard_count": len(self.completed_shard_ids),
-                "failed_shard_count": len(self.failed_shard_ids),
-                "queue_total_shard_count": len(self.shard_order),
-                "last_runtime_action": "queue_completed",
-                "shard_statuses": {
-                    shard_id: self.shard_summary(shard_id)
-                    for shard_id in self.shard_order
-                },
-            },
-            self.worker_root / "packet_lease_status.json",
-        )
-
-    def _append_packet_history(self, payload: Mapping[str, Any]) -> None:
-        history_path = self.packet_history_path or (self.worker_root / "packet_history.jsonl")
-        history_path.parent.mkdir(parents=True, exist_ok=True)
-        with history_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(dict(payload), sort_keys=True))
-            handle.write("\n")
-
-
 def _evaluate_knowledge_output_file(
     *,
     shard: ShardManifestEntryV1,
@@ -728,24 +199,11 @@ def _classify_missing_packet_result(
 ) -> tuple[str, str | None, dict[str, Any]]:
     live_status = _load_json_dict_safely(worker_root / "live_status.json")
     workspace_manifest = _load_json_dict_safely(worker_root / "workspace_manifest.json")
-    lease_status = _load_json_dict_safely(worker_root / "packet_lease_status.json")
     same_session_state = _load_json_dict_safely(_knowledge_same_session_state_path(worker_root))
-    shard_statuses = lease_status.get("shard_statuses")
-    lease_shard_summary = (
-        dict(shard_statuses.get(shard.shard_id))
-        if isinstance(shard_statuses, Mapping)
-        and isinstance(shard_statuses.get(shard.shard_id), Mapping)
-        else {}
-    )
-    summary = {
-        **lease_shard_summary,
-        **dict(shard_summary or {}),
-    }
+    summary = dict(shard_summary or {})
     metadata = {
         "live_status": live_status,
         "workspace_manifest": workspace_manifest,
-        "packet_lease_status": lease_status,
-        "lease_shard_summary": lease_shard_summary,
         "same_session_handoff_state": same_session_state,
     }
     supervision_reason_code = str(run_result.supervision_reason_code or "").strip()
@@ -757,7 +215,7 @@ def _classify_missing_packet_result(
         return supervision_reason_code, supervision_reason_detail, metadata
 
     current_task_id = str(summary.get("current_task_id") or "").strip()
-    current_packet_kind = str(summary.get("current_packet_kind") or "").strip()
+    current_stage_key = str(same_session_state.get("current_stage_key") or "").strip()
     current_packet_state = str(summary.get("current_packet_state") or "").strip()
     current_result_relpath = str(summary.get("current_result_relpath") or "").strip()
     current_result_observed = bool(summary.get("current_result_observed"))
@@ -771,7 +229,7 @@ def _classify_missing_packet_result(
     validation_metadata = _coerce_dict(summary.get("last_validation_metadata"))
     terminal_reason_code = str(summary.get("terminal_reason_code") or "").strip()
     terminal_reason_detail = str(summary.get("terminal_reason_detail") or "").strip() or None
-    worker_state = str(lease_status.get("worker_state") or "").strip()
+    worker_state = str(live_status.get("state") or "").strip()
 
     if terminal_reason_code == "repair_packet_exhausted":
         return terminal_reason_code, terminal_reason_detail, metadata
@@ -783,7 +241,7 @@ def _classify_missing_packet_result(
             "repair_packet_exhausted",
             terminal_reason_detail
             or _render_validation_reason_detail(
-                prefix="repair packet was exhausted without a promotable final output",
+                prefix="repair task-file rewrite was exhausted without a promotable final output",
                 validation_errors=validation_errors,
                 validation_metadata=validation_metadata,
             ),
@@ -796,30 +254,23 @@ def _classify_missing_packet_result(
             "packet_result_validation_blocked",
             terminal_reason_detail
             or _render_validation_reason_detail(
-                prefix="packet result existed but structural validation blocked promotion",
+                prefix="task-file result existed but structural validation blocked promotion",
                 validation_errors=validation_errors,
                 validation_metadata=validation_metadata,
             ),
             metadata,
         )
-    if current_packet_state == "leased" or (
-        worker_state == "leased_current_packet" and current_task_id
+    if current_packet_state in {"leased", "running"} or (
+        worker_state in {"running", "running_with_warnings"} and current_task_id
     ):
         detail = (
-            "worker exited while the current packet was still leased"
+            "worker exited before the current knowledge assignment completed"
             f" (task_id={current_task_id or '[unknown]'}, "
-            f"packet_kind={current_packet_kind or '[unknown]'}, "
-            f"result_path={current_result_relpath or '[unknown]'})"
+            f"stage_key={current_stage_key or '[unknown]'}, "
+            f"output_path={current_result_relpath or '[unknown]'})"
         )
         return "worker_exited_with_packet_still_leased", detail, metadata
-    if worker_state == "queue_completed":
-        return (
-            "queue_completed_without_promoted_output",
-            "queue controller recorded completion without a promotable shard output for this packet",
-            metadata,
-        )
     if same_session_state and not bool(same_session_state.get("completed")):
-        current_stage_key = str(same_session_state.get("current_stage_key") or "").strip() or "[unknown]"
         return (
             "same_session_handoff_incomplete",
             (
@@ -831,7 +282,7 @@ def _classify_missing_packet_result(
         )
     return (
         "process_exited_without_final_packet_state",
-        "worker exited without a promotable shard output and without enough lease-state evidence for a stronger classification",
+        "worker exited without a promotable shard output and without enough task-file state evidence for a stronger classification",
         metadata,
     )
 
@@ -898,8 +349,8 @@ def _apply_knowledge_same_session_row_metadata(
     row["grouping_transition_count"] = int(
         state_payload.get("grouping_transition_count") or 0
     )
-    row["classification_session_count"] = 1 if classification_validation_count > 0 else 0
-    row["grouping_session_count"] = 1 if grouping_validation_count > 0 else 0
+    row["classification_step_count"] = 1 if classification_validation_count > 0 else 0
+    row["grouping_step_count"] = 1 if grouping_validation_count > 0 else 0
     row["workspace_packet_count"] = (
         classification_validation_count + grouping_validation_count
     )
@@ -908,240 +359,6 @@ def _apply_knowledge_same_session_row_metadata(
     row["classification_owned_row_count"] = int(len(initial_task_file.get("units") or []))
     row["grouping_owned_row_count"] = int(state_payload.get("grouping_unit_count") or 0)
     row["final_output_shard_count"] = int(state_payload.get("final_output_shard_count") or 0)
-
-
-def _run_knowledge_task_file_step(
-    *,
-    runner: CodexExecRunner,
-    worker_root: Path,
-    pipeline_id: str,
-    task_file_payload: Mapping[str, Any],
-    prompt_text: str,
-    env: Mapping[str, str],
-    model: str | None,
-    reasoning_effort: str | None,
-    out_dir: Path,
-    step_name: str,
-    expected_workspace_output_paths: Sequence[Path],
-    progress_state: _KnowledgePhaseProgressState | None,
-    worker_id: str,
-) -> tuple[
-    dict[str, dict[str, Any]] | None,
-    tuple[str, ...],
-    dict[str, Any],
-    list[dict[str, Any]],
-    list[CodexExecRunResult],
-]:
-    write_task_file(path=worker_root / TASK_FILE_NAME, payload=task_file_payload)
-    _write_task_file_snapshot(
-        worker_root=worker_root,
-        step_name=step_name,
-        suffix="initial",
-        payload=task_file_payload,
-    )
-    prompt_path = worker_root / f"prompt_{step_name}.txt"
-    prompt_path.write_text(prompt_text, encoding="utf-8")
-    run_results: list[CodexExecRunResult] = []
-    runner_payloads: list[dict[str, Any]] = []
-    repair_followup_call_count = 0
-
-    def _run_once(*, task_label: str) -> CodexExecRunResult:
-        return runner.run_workspace_worker(
-            prompt_text=prompt_text,
-            working_dir=worker_root,
-            env=env,
-            model=model,
-            reasoning_effort=reasoning_effort,
-            workspace_task_label=task_label,
-            supervision_callback=_build_strict_json_watchdog_callback(
-                live_status_path=worker_root / "live_status.json",
-                allow_workspace_commands=True,
-                execution_workspace_root=worker_root,
-                expected_workspace_output_paths=expected_workspace_output_paths,
-                workspace_output_observer=(
-                    None
-                    if progress_state is None
-                    else lambda present_count, expected_count, _worker_id=worker_id: (
-                        progress_state.observe_workspace_outputs(
-                            worker_id=_worker_id,
-                            present_count=present_count,
-                            expected_count=expected_count,
-                        )
-                    )
-                ),
-            ),
-        )
-
-    initial_run_result = _run_once(
-        task_label=f"knowledge {step_name} worker session"
-    )
-    run_results.append(initial_run_result)
-    _finalize_live_status(
-        worker_root / "live_status.json",
-        run_result=initial_run_result,
-        watchdog_policy="workspace_worker_v1",
-    )
-    edited_task_file = load_task_file(worker_root / TASK_FILE_NAME)
-    answers_by_unit_id, validation_errors, validation_metadata = (
-        _validate_knowledge_task_file_step(
-            original_task_file=task_file_payload,
-            edited_task_file=edited_task_file,
-        )
-    )
-    merged_answers_by_unit_id = dict(
-        validation_metadata.get("validated_answers_by_unit_id") or {}
-    )
-    _write_task_file_snapshot(
-        worker_root=worker_root,
-        step_name=step_name,
-        suffix="edited",
-        payload=edited_task_file,
-    )
-
-    no_task_file_edits_observed = (
-        int(validation_metadata.get("changed_unit_count") or 0) <= 0
-        and not merged_answers_by_unit_id
-    )
-
-    if (
-        not no_task_file_edits_observed
-        and validation_errors
-        and validation_metadata.get("failed_unit_ids")
-    ):
-        repair_followup_call_count = 1
-        repair_task_file = build_repair_task_file(
-            original_task_file=task_file_payload,
-            failed_unit_ids=validation_metadata.get("failed_unit_ids") or (),
-            previous_answers_by_unit_id={
-                str(unit.get("unit_id") or "").strip(): (
-                    dict(unit.get("answer") or {})
-                    if isinstance(unit, Mapping)
-                    else {}
-                )
-                for unit in (edited_task_file.get("units") or [])
-                if isinstance(unit, Mapping) and str(unit.get("unit_id") or "").strip()
-            },
-            validation_feedback_by_unit_id=_task_file_answer_feedback(
-                validation_errors=validation_errors,
-                validation_metadata=validation_metadata,
-            ),
-        )
-        write_task_file(path=worker_root / TASK_FILE_NAME, payload=repair_task_file)
-        _write_task_file_snapshot(
-            worker_root=worker_root,
-            step_name=step_name,
-            suffix="repair_initial",
-            payload=repair_task_file,
-        )
-        repair_prompt = _build_knowledge_workspace_worker_prompt(
-            stage_key=str(repair_task_file.get("stage_key") or ""),
-            shards=(),
-        )
-        prompt_path = worker_root / f"prompt_{step_name}.repair.txt"
-        prompt_path.write_text(repair_prompt, encoding="utf-8")
-        repair_run_result = runner.run_workspace_worker(
-            prompt_text=repair_prompt,
-            working_dir=worker_root,
-            env=env,
-            model=model,
-            reasoning_effort=reasoning_effort,
-            workspace_task_label=f"knowledge {step_name} repair session",
-            supervision_callback=_build_strict_json_watchdog_callback(
-                live_status_path=worker_root / "live_status.json",
-                allow_workspace_commands=True,
-                execution_workspace_root=worker_root,
-                expected_workspace_output_paths=expected_workspace_output_paths,
-            ),
-        )
-        run_results.append(repair_run_result)
-        _finalize_live_status(
-            worker_root / "live_status.json",
-            run_result=repair_run_result,
-            watchdog_policy="workspace_worker_v1",
-        )
-        repaired_task_file = load_task_file(worker_root / TASK_FILE_NAME)
-        repair_answers, repair_errors, repair_metadata = _validate_knowledge_task_file_step(
-            original_task_file=repair_task_file,
-            edited_task_file=repaired_task_file,
-        )
-        _write_task_file_snapshot(
-            worker_root=worker_root,
-            step_name=step_name,
-            suffix="repair_edited",
-            payload=repaired_task_file,
-        )
-        merged_answers_by_unit_id.update(
-            dict(repair_metadata.get("validated_answers_by_unit_id") or {})
-        )
-        if repair_answers is not None:
-            merged_answers_by_unit_id.update(repair_answers)
-        if repair_errors:
-            validation_errors = repair_errors
-            validation_metadata = {
-                **dict(validation_metadata or {}),
-                **dict(repair_metadata or {}),
-                "repair_attempted": True,
-            }
-            answers_by_unit_id = None
-        else:
-            validation_errors = ()
-            validation_metadata = {
-                **dict(validation_metadata or {}),
-                "repair_attempted": True,
-                "validated_answers_by_unit_id": merged_answers_by_unit_id,
-            }
-            answers_by_unit_id = merged_answers_by_unit_id
-    elif answers_by_unit_id is not None:
-        merged_answers_by_unit_id.update(answers_by_unit_id)
-        answers_by_unit_id = merged_answers_by_unit_id
-
-    for run_index, run_result in enumerate(run_results):
-        prompt_ref = (
-            worker_root / f"prompt_{step_name}.txt"
-            if run_index == 0
-            else worker_root / f"prompt_{step_name}.repair.txt"
-        )
-        runner_payload = _build_knowledge_workspace_task_runner_payload(
-            pipeline_id=pipeline_id,
-            worker_id=worker_id,
-            shard_id=f"{worker_id}.{step_name}.{run_index + 1:02d}",
-            runtime_task_id=f"{worker_id}.{step_name}.{run_index + 1:02d}",
-            run_result=run_result,
-            model=model,
-            reasoning_effort=reasoning_effort,
-            request_input_file=worker_root / TASK_FILE_NAME,
-            worker_prompt_path=prompt_ref,
-            worker_root=worker_root,
-            task_count=1,
-            task_index=0,
-        )
-        telemetry = runner_payload.get("telemetry")
-        if isinstance(telemetry, Mapping):
-            rows = telemetry.get("rows")
-            if isinstance(rows, list):
-                for row in rows:
-                    if not isinstance(row, dict):
-                        continue
-                    row["knowledge_semantic_step"] = step_name
-                    row["knowledge_step_stage_key"] = str(task_file_payload.get("stage_key") or "")
-                    row["is_repair_attempt"] = run_index > 0
-                    row["workspace_packet_count"] = 1
-                    row["workspace_repair_packet_count"] = 1 if run_index > 0 else 0
-                    row["owned_row_count"] = int(len(task_file_payload.get("units") or []))
-        _attach_worker_guardrail_summary(
-            worker_runner_payload=runner_payload,
-            task_file_guardrail=build_task_file_guardrail(
-                payload=task_file_payload,
-                assignment_id=worker_id,
-                worker_id=worker_id,
-            ),
-            planned_happy_path_worker_cap=1,
-            repair_followup_call_count=repair_followup_call_count,
-        )
-        runner_payloads.append(runner_payload)
-    if no_task_file_edits_observed:
-        return None, (), {"no_task_file_edits_observed": True}, runner_payloads, run_results
-    return answers_by_unit_id, validation_errors, validation_metadata, runner_payloads, run_results
 
 
 def _run_phase_knowledge_worker_assignment_v1(
@@ -1597,7 +814,7 @@ def _run_phase_knowledge_worker_assignment_v1(
                 explicit_terminal_reason_detail = (
                     str(repair_run_result.supervision_reason_detail or "").strip()
                     or _render_validation_reason_detail(
-                        prefix="repair packet was exhausted without a promotable final output",
+                        prefix="repair task-file rewrite was exhausted without a promotable final output",
                         validation_errors=validation_errors,
                         validation_metadata=validation_metadata,
                     )

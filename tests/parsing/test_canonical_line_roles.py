@@ -5611,7 +5611,9 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     ).read_text(encoding="utf-8")
     assert "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger." in prompt_text
     assert "Open `task.json`, read the whole file once, edit only `/units/*/answer`, save the same file, and stop." in prompt_text
+    assert "`task.json` already contains the full assignment." in prompt_text
     assert "Prefer opening the named file directly. If you still need shell helpers, keep them narrow and grounded on `task.json` only." in prompt_text
+    assert "If you briefly reread part of the file or make a small local false start" in prompt_text
     assert "Stay inside this workspace" in prompt_text
     assert "The task file already contains the immutable row evidence and the editable answer slots." in prompt_text
     assert "Do not modify immutable evidence fields." in prompt_text
@@ -5763,7 +5765,7 @@ def test_label_atomic_lines_compact_prompt_workspace_mirrors_hint_and_input_arti
     assert debug_payload["rows"][0]["current_line"] == "Ambiguous line 0"
     assert "prev_text" not in debug_payload["rows"][0]
     assert "next_text" not in debug_payload["rows"][0]
-    assert (
+    assert not (
         prompt_root
         / "runtime"
         / "line_role"

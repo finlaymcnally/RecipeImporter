@@ -701,18 +701,21 @@ def _build_knowledge_workspace_worker_prompt(
     lines = [
         "You are processing non-recipe finalize shards inside one bounded local workspace.",
         f"Open `{TASK_FILE_NAME}`, read it once, edit only `/units/*/answer`, save the same file, and then run `python3 -m cookimport.llm.knowledge_same_session_handoff`.",
+        "`task.json` is the whole job at each step. You do not need to discover extra control files or hidden repo state before editing it.",
         "",
         "The current working directory is already the workspace root.",
-        "The assignment is complete only when that helper reports completion.",
+        "The helper is the only repo-side handoff seam. It validates the edited file and either finishes the assignment or rewrites `task.json` for the next step.",
         "",
         "Worker contract:",
         "- Start with `task.json`.",
         "- Edit only the `answer` object inside each unit.",
         "- After each edit pass, run `python3 -m cookimport.llm.knowledge_same_session_handoff` from the workspace root.",
+        "- After the helper returns, trust the current `task.json` as the new whole job. You do not need to inspect other files to figure out what changed.",
         "- If the helper reports `repair_required` or `advance_to_grouping`, reopen the rewritten `task.json` immediately and continue in the same session.",
         "- Stop only after the helper reports `completed_without_grouping` or `completed_with_grouping`.",
         "- Do not invent queue advancement, control files, helper ledgers, or alternate output files.",
         "- `previous_answer` and `validation_feedback`, when present, are repair-only immutable context.",
+        "- If you briefly reread part of `task.json` or make a small local false start, correct it and continue. Harmless local retries are not the point of failure here.",
         "- Other than that one helper command, do not use shell helpers on the happy path. If a tiny local helper is truly unavoidable, keep it narrowly grounded on `task.json` only.",
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "",
@@ -1696,9 +1699,9 @@ def _detect_knowledge_workspace_stage_violation(
             policy="knowledge_assigned_shards_inventory_dump",
             reason_code="watchdog_phase_contract_bypass_inventory_dump",
             reason=(
-                "knowledge packet workers should not dump or script broadly against "
-                "`assigned_shards.json`; use the repo-written current-packet files first and "
-                "treat `assigned_shards.json` as fallback ownership/progress context only"
+                "knowledge task-file workers should not dump or script broadly against "
+                "`assigned_shards.json`; use `task.json` first and treat "
+                "`assigned_shards.json` as fallback ownership context only"
             ),
             enforce=False,
         )
@@ -1709,7 +1712,7 @@ def _detect_knowledge_workspace_stage_violation(
                 marker in normalized_command
                 for marker in (
                     "out/",
-                    "current_packet.json",
+                    "task.json",
                     "assigned_shards.json",
                 )
             )
@@ -1718,9 +1721,9 @@ def _detect_knowledge_workspace_stage_violation(
             policy="knowledge_packet_shell_scheduler_bypass",
             reason_code="watchdog_packet_contract_bypass_shell_scheduler",
             reason=(
-                "knowledge packet workers should avoid inventing queue/output schedulers "
-                "or broad validation loops over queue/output files; keep any local "
-                "automation bounded to the current leased packet"
+                "knowledge task-file workers should avoid inventing queue/output schedulers "
+                "or broad validation loops over assignment/output files; keep any local "
+                "automation bounded to the current task file and shard outputs"
             ),
             enforce=False,
         )
@@ -1728,28 +1731,24 @@ def _detect_knowledge_workspace_stage_violation(
     rewrites_runtime_control = any(
         marker in normalized_command
         for marker in (
-            "> current_packet.json",
-            ">> current_packet.json",
-            "> current_result_path.txt",
-            ">> current_result_path.txt",
-            "> packet_lease_status.json",
-            ">> packet_lease_status.json",
-            "path('current_packet.json').write_text(",
-            'path("current_packet.json").write_text(',
-            "path('current_result_path.txt').write_text(",
-            'path("current_result_path.txt").write_text(',
-            "path('packet_lease_status.json').write_text(",
-            'path("packet_lease_status.json").write_text(',
+            "> live_status.json",
+            ">> live_status.json",
+            "> knowledge_same_session_state.json",
+            ">> knowledge_same_session_state.json",
+            "path('live_status.json').write_text(",
+            'path("live_status.json").write_text(',
+            "path('knowledge_same_session_state.json').write_text(",
+            'path("knowledge_same_session_state.json").write_text(',
         )
     )
     if rewrites_runtime_control:
         return _KnowledgeWorkspaceStageCommandViolation(
-            policy="knowledge_packet_runtime_control_rewrite",
+            policy="knowledge_task_file_runtime_control_rewrite",
             reason_code="watchdog_packet_contract_bypass_runtime_control_rewrite",
             reason=(
-                "knowledge packet workers must not rewrite repo-owned queue-control "
-                "files such as `current_packet.json`, `current_result_path.txt`, or "
-                "`packet_lease_status.json`; the repo owns packet advancement"
+                "knowledge task-file workers must not rewrite repo-owned runtime state "
+                "such as `live_status.json` or same-session state files; the repo owns "
+                "task progression"
             ),
         )
 

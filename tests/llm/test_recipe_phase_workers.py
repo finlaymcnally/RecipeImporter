@@ -362,6 +362,8 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
     worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
     assert "Open `task.json`, read the whole file once" in worker_prompt
     assert "edit only `/units/*/answer`" in worker_prompt
+    assert "`task.json` already contains the full job for this worker." in worker_prompt
+    assert "If you briefly reread part of the file or make a small local false start" in worker_prompt
     assert "Do not invent helper ledgers, queue files, or alternate output files." in worker_prompt
     assert "The repo will validate the edited task file and expand accepted answers into final artifacts." in worker_prompt
     assert "assigned_tasks.json" not in worker_prompt
@@ -500,7 +502,7 @@ def test_recipe_phase_runtime_short_circuits_fragmentary_scaffolds_before_worker
     assert fragmentary_proposal["payload"]["r"][0]["rid"] == "urn:recipe:test:fragmentary"
     assert fragmentary_proposal["payload"]["r"][0]["st"] == "fragmentary"
     assert fragmentary_proposal["validation_metadata"]["task_aggregation"]["accepted_task_count"] == 1
-    assert fragmentary_proposal["validation_metadata"]["task_packet_status_by_task_id"][
+    assert fragmentary_proposal["validation_metadata"]["task_status_by_task_id"][
         "recipe-shard-0001-r0001-r0001"
     ]["llm_dispatch_reason"] == "deterministic_terminal_scaffold"
     assert promotion_report["handled_locally_skip_llm"]["count"] == 1
@@ -511,7 +513,7 @@ def test_recipe_phase_runtime_short_circuits_fragmentary_scaffolds_before_worker
     assert promotion_report["handled_locally_skip_llm"]["recipes"] == [
         {
             "recipe_id": "urn:recipe:test:fragmentary",
-            "packet_status": "handled_locally_skip_llm",
+            "task_status": "handled_locally_skip_llm",
             "llm_dispatch": "handled_locally_skip_llm",
             "llm_dispatch_reason": "deterministic_terminal_scaffold",
             "repair_status": "fragmentary",
@@ -819,7 +821,7 @@ def test_recipe_workspace_worker_with_valid_files_and_prose_final_message_stays_
 
     assert rows
     assert rows[0]["prompt_input_mode"] == "workspace_worker"
-    assert rows[0]["repair_packet_count"] == 0
+    assert rows[0]["repair_task_count"] == 0
     assert rows[0]["final_agent_message_state"] == "informational"
     assert "informational only" in str(rows[0]["final_agent_message_reason"])
     assert telemetry["summary"]["structured_followup_call_count"] == 0
@@ -867,7 +869,7 @@ def test_recipe_workspace_worker_with_valid_files_and_no_final_message_stays_val
 
     assert rows
     assert rows[0]["prompt_input_mode"] == "workspace_worker"
-    assert rows[0]["repair_packet_count"] == 0
+    assert rows[0]["repair_task_count"] == 0
     assert rows[0]["final_agent_message_state"] == "absent"
     assert rows[0]["final_agent_message_reason"] is None
     assert telemetry["summary"]["structured_followup_call_count"] == 0

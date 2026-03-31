@@ -180,3 +180,64 @@ def test_same_session_handoff_rewrites_invalid_classification_into_repair_mode(
     assert grouping_result["status"] == "completed_with_grouping"
     assert grouping_result["same_session_transition_count"] == 3
     assert grouping_result["same_session_repair_rewrite_count"] == 1
+
+
+def test_same_session_handoff_treats_task_file_contract_tampering_as_repairable_failure(
+    tmp_path: Path,
+) -> None:
+    workspace_root, state_path = _initialize_workspace(tmp_path)
+
+    task_file = load_task_file(workspace_root / "task.json")
+    edited = deepcopy(task_file)
+    edited["stage_key"] = "tampered"
+    edited["units"][0]["answer"] = _valid_classification_answer()
+    write_task_file(path=workspace_root / "task.json", payload=edited)
+
+    result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    repair_task = load_task_file(workspace_root / "task.json")
+
+    assert result["status"] == "repair_required"
+    assert result["same_session_repair_rewrite_count"] == 1
+    assert "immutable_field_changed" in result["validation_errors"]
+    assert repair_task["mode"] == "repair"
+    assert repair_task["stage_key"] == "nonrecipe_classify"
+    assert repair_task["units"][0]["previous_answer"] == _valid_classification_answer()
+
+
+def test_same_session_grouping_handoff_treats_task_file_contract_tampering_as_repairable_failure(
+    tmp_path: Path,
+) -> None:
+    workspace_root, state_path = _initialize_workspace(tmp_path)
+
+    task_file = load_task_file(workspace_root / "task.json")
+    edited = deepcopy(task_file)
+    edited["units"][0]["answer"] = _valid_classification_answer()
+    write_task_file(path=workspace_root / "task.json", payload=edited)
+    classification_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    assert classification_result["status"] == "advance_to_grouping"
+
+    grouping_task = load_task_file(workspace_root / "task.json")
+    grouping_task["stage_key"] = "tampered"
+    grouping_task["units"][0]["answer"] = {
+        "group_key": "heat-control",
+        "topic_label": "Heat control",
+    }
+    write_task_file(path=workspace_root / "task.json", payload=grouping_task)
+
+    grouping_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    repair_task = load_task_file(workspace_root / "task.json")
+
+    assert grouping_result["status"] == "repair_required"
+    assert grouping_result["same_session_repair_rewrite_count"] == 1
+    assert "immutable_field_changed" in grouping_result["validation_errors"]
+    assert repair_task["mode"] == "repair"
+    assert repair_task["stage_key"] == "knowledge_group"

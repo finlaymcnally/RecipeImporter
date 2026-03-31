@@ -245,8 +245,8 @@ def _build_knowledge_packet_economics(
     same_session_transition_count_total = 0
     same_session_repair_rewrite_count_total = 0
     grouping_transition_count_total = 0
-    classification_session_count_total = 0
-    grouping_session_count_total = 0
+    classification_step_count_total = 0
+    grouping_step_count_total = 0
     classification_owned_row_count_total = 0
     grouping_owned_row_count_total = 0
     if same_session_rows:
@@ -276,12 +276,12 @@ def _build_knowledge_packet_economics(
             int(row.get("grouping_transition_count") or 0)
             for row in same_session_rows
         )
-        classification_session_count_total = sum(
-            int(row.get("classification_session_count") or 0)
+        classification_step_count_total = sum(
+            int(row.get("classification_step_count") or 0)
             for row in same_session_rows
         )
-        grouping_session_count_total = sum(
-            int(row.get("grouping_session_count") or 0)
+        grouping_step_count_total = sum(
+            int(row.get("grouping_step_count") or 0)
             for row in same_session_rows
         )
         classification_owned_row_count_total = sum(
@@ -326,8 +326,8 @@ def _build_knowledge_packet_economics(
             if classification_rows
             else sum(int(row.get("owned_row_count") or 0) for row in normalized_rows)
         )
-        classification_session_count_total = len(classification_rows)
-        grouping_session_count_total = len(grouping_rows)
+        classification_step_count_total = len(classification_rows)
+        grouping_step_count_total = len(grouping_rows)
     if step_rows:
         packet_count_total = len(step_rows)
     shard_count = len(normalized_rows)
@@ -347,8 +347,8 @@ def _build_knowledge_packet_economics(
         "primary_packet_count_total": primary_packet_count_total,
         "repair_packet_count_total": repair_packet_count_total,
         "owned_row_count_total": owned_row_count_total,
-        "classification_session_count_total": classification_session_count_total,
-        "grouping_session_count_total": grouping_session_count_total,
+        "classification_step_count_total": classification_step_count_total,
+        "grouping_step_count_total": grouping_step_count_total,
         "classification_validation_count_total": classification_validation_count_total,
         "grouping_validation_count_total": grouping_validation_count_total,
         "same_session_transition_count_total": same_session_transition_count_total,

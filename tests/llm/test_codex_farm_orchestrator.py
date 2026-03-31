@@ -4,6 +4,7 @@ import datetime as dt
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Mapping
 
 import pytest
 
@@ -34,6 +35,47 @@ from cookimport.llm.codex_exec_runner import (
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 from cookimport.staging.draft_v1 import authoritative_recipe_semantics_to_draft_v1
 from cookimport.staging.job_planning import JobSpec
+
+
+def _write_workspace_task_file_result(
+    runner: FakeCodexExecRunner,
+    *,
+    working_dir: Path,
+    execution_working_dir: Path,
+    payload: Mapping[str, object] | None = None,
+) -> bool:
+    task_file_path = execution_working_dir / "task.json"
+    if not task_file_path.exists():
+        return False
+    task_file_payload = exec_runner_module.load_task_file(task_file_path)
+    edited_task_file = (
+        dict(payload)
+        if isinstance(payload, Mapping)
+        else runner._build_workspace_task_file_result(task_file_payload=task_file_payload)
+    )
+    exec_runner_module.write_task_file(path=task_file_path, payload=edited_task_file)
+    exec_runner_module._sync_direct_exec_workspace_paths(  # noqa: SLF001
+        source_working_dir=working_dir,
+        execution_working_dir=execution_working_dir,
+        relative_paths=("task.json",),
+    )
+    return True
+
+
+def _blank_recipe_task_file_answers(
+    *,
+    task_file_payload: Mapping[str, object],
+) -> dict[str, object]:
+    edited = dict(task_file_payload)
+    edited_units: list[dict[str, object]] = []
+    for unit in task_file_payload.get("units") or []:
+        if not isinstance(unit, dict):
+            continue
+        unit_payload = dict(unit)
+        unit_payload["answer"] = {}
+        edited_units.append(unit_payload)
+    edited["units"] = edited_units
+    return edited
 
 
 def _build_conversion_result(source_path: Path) -> ConversionResult:
@@ -215,25 +257,30 @@ class _ValidRecipeWorkspaceRunner(FakeCodexExecRunner):
             }
         )
 
-        out_dir = execution_working_dir / "out"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        for task_row in exec_runner_module._read_workspace_manifest_rows(  # noqa: SLF001
-            execution_working_dir=execution_working_dir
+        if not _write_workspace_task_file_result(
+            self,
+            working_dir=working_dir,
+            execution_working_dir=execution_working_dir,
         ):
-            if not isinstance(task_row, dict):
-                continue
-            task_id = str(task_row.get("task_id") or task_row.get("shard_id") or "").strip()
-            if not task_id:
-                continue
-            input_path = execution_working_dir / "in" / f"{task_id}.json"
-            if not input_path.exists():
-                continue
-            input_payload = json.loads(input_path.read_text(encoding="utf-8"))
-            output_payload = self.output_builder(input_payload)
-            (out_dir / f"{task_id}.json").write_text(
-                json.dumps(output_payload, indent=2, sort_keys=True),
-                encoding="utf-8",
-            )
+            out_dir = execution_working_dir / "out"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            for task_row in exec_runner_module._read_workspace_manifest_rows(  # noqa: SLF001
+                execution_working_dir=execution_working_dir
+            ):
+                if not isinstance(task_row, dict):
+                    continue
+                task_id = str(task_row.get("task_id") or task_row.get("shard_id") or "").strip()
+                if not task_id:
+                    continue
+                input_path = execution_working_dir / "in" / f"{task_id}.json"
+                if not input_path.exists():
+                    continue
+                input_payload = json.loads(input_path.read_text(encoding="utf-8"))
+                output_payload = self.output_builder(input_payload)
+                (out_dir / f"{task_id}.json").write_text(
+                    json.dumps(output_payload, indent=2, sort_keys=True),
+                    encoding="utf-8",
+                )
 
         exec_runner_module._sync_direct_exec_workspace_paths(  # noqa: SLF001
             source_working_dir=working_dir,
@@ -329,17 +376,14 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
 
     assert len(runner.calls) == 1
     assert runner.calls[0]["mode"] == "workspace_worker"
-    worker_input = json.loads(
-        (
-            apply_result.llm_raw_dir
-            / "recipe_phase_runtime"
-            / "workers"
-            / "worker-001"
-            / "in"
-            / "recipe-shard-0000-r0000-r0000.json"
-        ).read_text(encoding="utf-8")
+    task_file = exec_runner_module.load_task_file(
+        apply_result.llm_raw_dir
+        / "recipe_phase_runtime"
+        / "workers"
+        / "worker-001"
+        / "task.json"
     )
-    assert worker_input["r"][0]["rid"] == "urn:recipe:test:toast"
+    assert task_file["units"][0]["owned_id"] == "urn:recipe:test:toast"
     authoritative_payload = apply_result.authoritative_recipe_payloads_by_recipe_id[
         "urn:recipe:test:toast"
     ]
@@ -381,18 +425,19 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
         ]
         == "promotable"
     )
-    correction_input = worker_input
+    correction_input = task_file["units"][0]["evidence"]
     assert "draft_hint" not in correction_input
-    assert correction_input["r"][0]["h"] == {
-        "n": "Toast",
-        "i": ["1 slice bread", "1 tablespoon butter"],
-        "s": [
+    assert correction_input["hint"] == {
+        "title": "Toast",
+        "ingredients": ["1 slice bread", "1 tablespoon butter"],
+        "steps": [
             "Toast the bread until golden.",
             "Spread with butter and serve hot.",
         ],
-        "g": ["seed_tag_should_not_survive"],
+        "candidate_tags": [],
+        "quality_flags": [],
     }
-    assert correction_input["tg"]["v"] == "recipe_tagging_guide.v3"
+    assert correction_input["recipe_id"] == "urn:recipe:test:toast"
     assert not (apply_result.llm_raw_dir / "recipe_correction").exists()
     assert apply_result.updated_conversion_result.recipes[0].tags == [
         "breakfast",
@@ -546,7 +591,7 @@ def test_recipe_workspace_watchdog_allows_bounded_python_heredoc_scratch_edit(
     assert live_status["last_command_boundary_violation_detected"] is False
 
 
-def test_recipe_workspace_watchdog_marks_forbidden_workspace_command_retryable(
+def test_recipe_workspace_watchdog_marks_forbidden_boundary_command_nonretryable(
     tmp_path: Path,
 ) -> None:
     callback = recipe_module._build_recipe_watchdog_callback(  # noqa: SLF001
@@ -570,8 +615,8 @@ def test_recipe_workspace_watchdog_marks_forbidden_workspace_command_retryable(
     )
 
     assert decision is not None
-    assert decision.reason_code == "watchdog_command_execution_forbidden"
-    assert decision.retryable is True
+    assert decision.reason_code == "boundary_command_execution_forbidden"
+    assert decision.retryable is False
 
 
 def test_recipe_workspace_watchdog_allows_execution_root_startup_command(
@@ -594,8 +639,7 @@ def test_recipe_workspace_watchdog_allows_execution_root_startup_command(
             command_execution_count=1,
             reasoning_item_count=0,
             last_command=(
-                f'/bin/bash -lc "cd {execution_root} && cat worker_manifest.json '
-                'current_packet.json OUTPUT_CONTRACT.md >/dev/null"'
+                f'/bin/bash -lc "cd {execution_root} && cat task.json >/dev/null"'
             ),
             last_command_repeat_count=1,
             has_final_agent_message=False,
@@ -936,7 +980,10 @@ def test_orchestrator_rejects_complex_empty_mapping_without_reason_and_skips_pro
         ).read_text(encoding="utf-8")
     )
 
-    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
+    assert [call["mode"] for call in runner.calls] == [
+        "workspace_worker",
+        "workspace_worker",
+    ]
     assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
     assert proposal["payload"] is None
     assert proposal["repair_attempted"] is True
@@ -1021,7 +1068,10 @@ def test_orchestrator_rejects_multi_ingredient_single_step_empty_mapping_without
         ).read_text(encoding="utf-8")
     )
 
-    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
+    assert [call["mode"] for call in runner.calls] == [
+        "workspace_worker",
+        "workspace_worker",
+    ]
     assert proposal["payload"] is None
     assert proposal["repair_attempted"] is True
     assert manifest["counts"]["recipe_correction_error"] == 1
@@ -1041,93 +1091,7 @@ def test_orchestrator_repairs_near_miss_invalid_recipe_shard_once(
         llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
     )
 
-    def _output_builder(payload: dict[str, object] | None) -> dict[str, object]:
-        assert payload is not None
-        if payload.get("repair_mode") == "recipe":
-            authoritative_input = payload["authoritative_input"]
-            recipe_row = authoritative_input["r"][0]
-            return {
-                "v": "1",
-                "sid": authoritative_input["sid"],
-                "r": [
-                    {
-                        "v": "1",
-                        "rid": recipe_row["rid"],
-                        "st": "repaired",
-                        "sr": None,
-                        "cr": {
-                            "t": recipe_row["h"]["n"],
-                            "i": recipe_row["h"]["i"],
-                            "s": recipe_row["h"]["s"],
-                            "d": None,
-                            "y": None,
-                        },
-                        "m": [],
-                        "mr": "repair_pass",
-                        "g": [],
-                        "w": [],
-                    }
-                ],
-            }
-        return {
-            "v": "1",
-            "sid": payload.get("sid"),
-            "r": [],
-        }
-
-    runner = FakeCodexExecRunner(output_builder=_output_builder)
-
-    apply_result = run_codex_farm_recipe_pipeline(
-        conversion_result=result,
-        run_settings=settings,
-        run_root=tmp_path / "run",
-        workbook_slug="book",
-        runner=runner,
-    )
-
-    assert len(runner.calls) == 1
-    assert runner.calls[0]["mode"] == "workspace_worker"
-
-    proposal = json.loads(
-        (
-            apply_result.llm_raw_dir
-            / "recipe_phase_runtime"
-            / "proposals"
-            / "recipe-shard-0000-r0000-r0000.json"
-        ).read_text(encoding="utf-8")
-    )
-    repair_status = json.loads(
-        (
-            apply_result.llm_raw_dir
-            / "recipe_phase_runtime"
-            / "workers"
-            / "worker-001"
-            / "shards"
-            / "recipe-shard-0000-r0000-r0000"
-            / "repair_status.json"
-        ).read_text(encoding="utf-8")
-    )
-
-    assert proposal["repair_attempted"] is True
-    assert proposal["repair_status"] == "failed"
-    assert proposal["validation_errors"] == ["missing_recipe_ids"]
-    assert repair_status["repair_status"] == "failed"
-    assert repair_status["validation_errors"] == ["missing_recipe_ids"]
-    assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
-
-
-def test_orchestrator_recovers_recipe_validation_failure_via_packet_repair(
-    tmp_path: Path,
-) -> None:
-    source = tmp_path / "book.txt"
-    source.write_text("source", encoding="utf-8")
-    result = _build_conversion_result(source)
-    settings = _build_run_settings(
-        tmp_path / "pack",
-        llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
-    )
-
-    class _PacketRepairRecoveryRunner(FakeCodexExecRunner):
+    class _NearMissRepairRunner(FakeCodexExecRunner):
         def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
             working_dir = Path(kwargs["working_dir"])
             process_env = exec_runner_module._merge_env(kwargs["env"])
@@ -1152,6 +1116,152 @@ def test_orchestrator_recovers_recipe_validation_failure_via_packet_repair(
                     "execution_working_dir": str(execution_working_dir),
                 }
             )
+            task_file_payload = exec_runner_module.load_task_file(
+                execution_working_dir / "task.json"
+            )
+            if len(self.calls) == 1:
+                _write_workspace_task_file_result(
+                    self,
+                    working_dir=working_dir,
+                    execution_working_dir=execution_working_dir,
+                    payload=_blank_recipe_task_file_answers(
+                        task_file_payload=task_file_payload,
+                    ),
+                )
+            else:
+                _write_workspace_task_file_result(
+                    self,
+                    working_dir=working_dir,
+                    execution_working_dir=execution_working_dir,
+                )
+
+            response_text = "Workspace task file updated."
+            usage = {
+                "input_tokens": max(1, len(execution_prompt_text) // 4),
+                "cached_input_tokens": 0,
+                "output_tokens": max(1, len(response_text) // 4),
+                "reasoning_tokens": 0,
+            }
+            events = (
+                {"type": "thread.started"},
+                {
+                    "type": "item.completed",
+                    "item": {"type": "agent_message", "text": response_text},
+                },
+                {"type": "turn.completed", "usage": usage},
+            )
+            return CodexExecRunResult(
+                command=["codex", "exec"],
+                subprocess_exit_code=0,
+                output_schema_path=None,
+                prompt_text=execution_prompt_text,
+                response_text=response_text,
+                turn_failed_message=None,
+                events=events,
+                usage=usage,
+                stdout_text="\n".join(json.dumps(event) for event in events) + "\n",
+                source_working_dir=str(working_dir),
+                execution_working_dir=str(execution_working_dir),
+                execution_agents_path=str(prepared.agents_path),
+                duration_ms=1,
+                started_at_utc="2026-01-01T00:00:00Z",
+                finished_at_utc="2026-01-01T00:00:00Z",
+                workspace_mode="workspace_worker",
+                supervision_state="completed",
+            )
+
+    runner = _NearMissRepairRunner(output_builder=_build_valid_recipe_task_output)
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    assert [call["mode"] for call in runner.calls] == [
+        "workspace_worker",
+        "workspace_worker",
+    ]
+
+    proposal = json.loads(
+        (
+            apply_result.llm_raw_dir
+            / "recipe_phase_runtime"
+            / "proposals"
+            / "recipe-shard-0000-r0000-r0000.json"
+        ).read_text(encoding="utf-8")
+    )
+    repair_status = json.loads(
+        (
+            apply_result.llm_raw_dir
+            / "recipe_phase_runtime"
+            / "workers"
+            / "worker-001"
+            / "shards"
+            / "recipe-shard-0000-r0000-r0000"
+            / "repair_status.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert proposal["repair_attempted"] is True
+    assert proposal["repair_status"] == "repaired"
+    assert proposal["validation_errors"] == []
+    assert repair_status["repair_status"] == "repaired"
+    assert repair_status["validation_errors"] == []
+    authoritative_payload = apply_result.authoritative_recipe_payloads_by_recipe_id[
+        "urn:recipe:test:toast"
+    ]
+    assert authoritative_payload.title == "Toast"
+    assert authoritative_payload.ingredients == [
+        "1 slice bread",
+        "1 tablespoon butter",
+    ]
+    assert authoritative_payload.instructions == [
+        "Toast the bread until golden.",
+        "Spread with butter and serve hot.",
+    ]
+    assert authoritative_payload.ingredient_step_mapping_reason == "unclear_alignment"
+
+
+def test_orchestrator_recovers_recipe_validation_failure_via_task_file_repair(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    result = _build_conversion_result(source)
+    settings = _build_run_settings(
+        tmp_path / "pack",
+        llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
+    )
+
+    class _TaskFileRepairRecoveryRunner(FakeCodexExecRunner):
+        def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+            working_dir = Path(kwargs["working_dir"])
+            process_env = exec_runner_module._merge_env(kwargs["env"])
+            prepared = exec_runner_module.prepare_direct_exec_workspace(
+                source_working_dir=working_dir,
+                env=process_env,
+                task_label=kwargs.get("workspace_task_label"),
+                mode="workspace_worker",
+            )
+            execution_working_dir = prepared.execution_working_dir
+            execution_prompt_text = exec_runner_module.rewrite_direct_exec_prompt_paths(
+                prompt_text=kwargs["prompt_text"],
+                source_working_dir=working_dir,
+                execution_working_dir=execution_working_dir,
+            )
+            self.calls.append(
+                {
+                    "mode": "workspace_worker",
+                    "prompt_text": execution_prompt_text,
+                    "input_payload": None,
+                    "working_dir": str(working_dir),
+                    "execution_working_dir": str(execution_working_dir),
+                }
+            )
+            call_index = len(self.calls)
 
             def _sync_outputs() -> None:
                 exec_runner_module._sync_direct_exec_workspace_paths(  # noqa: SLF001
@@ -1167,27 +1277,18 @@ def test_orchestrator_recovers_recipe_validation_failure_via_packet_repair(
                     relative_paths=exec_runner_module._DIRECT_EXEC_RUNTIME_CONTROL_PATHS,  # noqa: SLF001
                 )
 
-            out_dir = execution_working_dir / "out"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            task_row = exec_runner_module._read_workspace_manifest_rows(  # noqa: SLF001
-                execution_working_dir=execution_working_dir
-            )[0]
-            task_id = str(task_row.get("task_id") or task_row.get("shard_id") or "").strip()
-            assert task_id
-            input_payload = json.loads(
-                (execution_working_dir / "in" / f"{task_id}.json").read_text(encoding="utf-8")
-            )
-
-            invalid_payload = {
-                "v": "1",
-                "sid": input_payload["sid"],
-                "r": [],
-            }
-            (out_dir / f"{task_id}.json").write_text(
-                json.dumps(invalid_payload, indent=2, sort_keys=True),
-                encoding="utf-8",
-            )
-            _sync_outputs()
+            if call_index == 1:
+                task_file_payload = exec_runner_module.load_task_file(
+                    execution_working_dir / "task.json"
+                )
+                _write_workspace_task_file_result(
+                    self,
+                    working_dir=working_dir,
+                    execution_working_dir=execution_working_dir,
+                    payload=_blank_recipe_task_file_answers(
+                        task_file_payload=task_file_payload,
+                    ),
+                )
             supervision_callback = kwargs.get("supervision_callback")
             if supervision_callback is not None:
                 decision = supervision_callback(
@@ -1208,11 +1309,12 @@ def test_orchestrator_recovers_recipe_validation_failure_via_packet_repair(
                 assert decision is None
                 _sync_controls()
 
-            (out_dir / f"{task_id}.json").write_text(
-                json.dumps(_build_valid_recipe_task_output(input_payload), indent=2, sort_keys=True),
-                encoding="utf-8",
-            )
-            _sync_outputs()
+            if call_index > 1:
+                _write_workspace_task_file_result(
+                    self,
+                    working_dir=working_dir,
+                    execution_working_dir=execution_working_dir,
+                )
             if supervision_callback is not None:
                 supervision_callback(
                     CodexExecLiveSnapshot(
@@ -1266,7 +1368,7 @@ def test_orchestrator_recovers_recipe_validation_failure_via_packet_repair(
                 supervision_state="completed",
             )
 
-    runner = _PacketRepairRecoveryRunner(
+    runner = _TaskFileRepairRecoveryRunner(
         output_builder=lambda payload: _build_valid_recipe_task_output(dict(payload or {}))
     )
 
@@ -1278,7 +1380,10 @@ def test_orchestrator_recovers_recipe_validation_failure_via_packet_repair(
         runner=runner,
     )
 
-    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
+    assert [call["mode"] for call in runner.calls] == [
+        "workspace_worker",
+        "workspace_worker",
+    ]
     shard_root = (
         apply_result.llm_raw_dir
         / "recipe_phase_runtime"
@@ -1307,13 +1412,13 @@ def test_orchestrator_recovers_recipe_validation_failure_via_packet_repair(
     assert repair_status["repair_status"] == "repaired"
     assert proposal["repair_attempted"] is True
     assert proposal["repair_status"] == "repaired"
-    assert proposal["validation_metadata"]["task_packet_status_by_task_id"][
+    assert proposal["validation_metadata"]["task_status_by_task_id"][
         "recipe-shard-0000-r0000-r0000"
-    ]["task_packet_status"] == "validated_after_repair"
-    assert promotion_report["packet_counts"]["validated_after_repair"] == 1
+    ]["task_status"] == "validated_after_repair"
+    assert promotion_report["task_counts"]["validated_after_repair"] == 1
 
 
-def test_orchestrator_marks_packet_failed_after_repair_budget_exhausted(
+def test_orchestrator_marks_task_failed_after_repair_budget_exhausted(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "book.txt"
@@ -1355,6 +1460,7 @@ def test_orchestrator_marks_packet_failed_after_repair_budget_exhausted(
                     "execution_working_dir": str(execution_working_dir),
                 }
             )
+            call_index = len(self.calls)
 
             def _sync_outputs() -> None:
                 exec_runner_module._sync_direct_exec_workspace_paths(  # noqa: SLF001
@@ -1370,29 +1476,22 @@ def test_orchestrator_marks_packet_failed_after_repair_budget_exhausted(
                     relative_paths=exec_runner_module._DIRECT_EXEC_RUNTIME_CONTROL_PATHS,  # noqa: SLF001
                 )
 
-            out_dir = execution_working_dir / "out"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            task_row = exec_runner_module._read_workspace_manifest_rows(  # noqa: SLF001
-                execution_working_dir=execution_working_dir
-            )[0]
-            task_id = str(task_row.get("task_id") or task_row.get("shard_id") or "").strip()
-            assert task_id
-            input_payload = json.loads(
-                (execution_working_dir / "in" / f"{task_id}.json").read_text(encoding="utf-8")
+            task_file_payload = exec_runner_module.load_task_file(
+                execution_working_dir / "task.json"
             )
             supervision_callback = kwargs.get("supervision_callback")
             termination_decision = None
-            invalid_rows = [[], [{"v": "1", "rid": "urn:recipe:test:toast"}]]
-            for index, invalid_rows_payload in enumerate(invalid_rows, start=1):
-                (out_dir / f"{task_id}.json").write_text(
-                    json.dumps(
-                        {"v": "1", "sid": input_payload["sid"], "r": invalid_rows_payload},
-                        indent=2,
-                        sort_keys=True,
-                    ),
-                    encoding="utf-8",
+            invalid_task_file = _blank_recipe_task_file_answers(
+                task_file_payload=task_file_payload,
+            )
+            invalid_attempt_count = 2 if call_index > 1 else 1
+            for index in range(1, invalid_attempt_count + 1):
+                _write_workspace_task_file_result(
+                    self,
+                    working_dir=working_dir,
+                    execution_working_dir=execution_working_dir,
+                    payload=invalid_task_file,
                 )
-                _sync_outputs()
                 if supervision_callback is not None:
                     termination_decision = supervision_callback(
                         CodexExecLiveSnapshot(
@@ -1463,7 +1562,10 @@ def test_orchestrator_marks_packet_failed_after_repair_budget_exhausted(
         runner=runner,
     )
 
-    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
+    assert [call["mode"] for call in runner.calls] == [
+        "workspace_worker",
+        "workspace_worker",
+    ]
     shard_root = (
         apply_result.llm_raw_dir
         / "recipe_phase_runtime"
@@ -1491,10 +1593,10 @@ def test_orchestrator_marks_packet_failed_after_repair_budget_exhausted(
 
     assert repair_status["repair_status"] == "failed"
     assert proposal["repair_attempted"] is True
-    assert proposal["validation_metadata"]["task_packet_status_by_task_id"][
+    assert proposal["validation_metadata"]["task_status_by_task_id"][
         "recipe-shard-0000-r0000-r0000"
-    ]["task_packet_status"] == "failed_after_repair"
-    assert promotion_report["packet_counts"]["failed_after_repair"] == 1
+    ]["task_status"] == "failed_after_repair"
+    assert promotion_report["task_counts"]["failed_after_repair"] == 1
 
 
 @pytest.mark.parametrize(
@@ -1512,7 +1614,7 @@ def test_orchestrator_marks_packet_failed_after_repair_budget_exhausted(
         ),
     ],
 )
-def test_orchestrator_repairs_after_packet_continuation_is_lost(
+def test_orchestrator_repairs_after_task_file_continuation_is_lost(
     tmp_path: Path,
     supervision_state: str,
     continuation_state: str,
@@ -1557,6 +1659,7 @@ def test_orchestrator_repairs_after_packet_continuation_is_lost(
                     "execution_working_dir": str(execution_working_dir),
                 }
             )
+            call_index = len(self.calls)
 
             def _sync_outputs() -> None:
                 exec_runner_module._sync_direct_exec_workspace_paths(  # noqa: SLF001
@@ -1572,21 +1675,18 @@ def test_orchestrator_repairs_after_packet_continuation_is_lost(
                     relative_paths=exec_runner_module._DIRECT_EXEC_RUNTIME_CONTROL_PATHS,  # noqa: SLF001
                 )
 
-            out_dir = execution_working_dir / "out"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            task_row = exec_runner_module._read_workspace_manifest_rows(  # noqa: SLF001
-                execution_working_dir=execution_working_dir
-            )[0]
-            task_id = str(task_row.get("task_id") or task_row.get("shard_id") or "").strip()
-            assert task_id
-            input_payload = json.loads(
-                (execution_working_dir / "in" / f"{task_id}.json").read_text(encoding="utf-8")
-            )
-            (out_dir / f"{task_id}.json").write_text(
-                json.dumps({"v": "1", "sid": input_payload["sid"], "r": []}, indent=2, sort_keys=True),
-                encoding="utf-8",
-            )
-            _sync_outputs()
+            if call_index == 1:
+                task_file_payload = exec_runner_module.load_task_file(
+                    execution_working_dir / "task.json"
+                )
+                _write_workspace_task_file_result(
+                    self,
+                    working_dir=working_dir,
+                    execution_working_dir=execution_working_dir,
+                    payload=_blank_recipe_task_file_answers(
+                        task_file_payload=task_file_payload,
+                    ),
+                )
             supervision_callback = kwargs.get("supervision_callback")
             if supervision_callback is not None:
                 decision = supervision_callback(
@@ -1655,7 +1755,10 @@ def test_orchestrator_repairs_after_packet_continuation_is_lost(
         runner=runner,
     )
 
-    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
+    assert [call["mode"] for call in runner.calls] == [
+        "workspace_worker",
+        "workspace_worker",
+    ]
     shard_root = (
         apply_result.llm_raw_dir
         / "recipe_phase_runtime"
@@ -1677,9 +1780,13 @@ def test_orchestrator_repairs_after_packet_continuation_is_lost(
     assert repair_status["repair_status"] == "failed"
     assert proposal["repair_attempted"] is True
     assert proposal["state"] == supervision_state
-    assert proposal["validation_metadata"]["task_packet_status_by_task_id"][
+    assert [call["mode"] for call in runner.calls] == [
+        "workspace_worker",
+        "workspace_worker",
+    ]
+    assert proposal["validation_metadata"]["task_status_by_task_id"][
         "recipe-shard-0000-r0000-r0000"
-    ]["task_packet_status"] == "missing_output"
+    ]["task_status"] == "failed_after_repair"
 
 
 def test_preflight_recipe_shard_rejects_missing_model_facing_recipes() -> None:
@@ -2004,11 +2111,12 @@ def test_orchestrator_persists_recovered_watchdog_shard_status_artifacts(
     proposal_payload = fixture["proposal_payload"]
     retry_status = fixture["retry_status"]
 
-    assert status_payload["status"] == "invalid"
-    assert status_payload["state"] == "watchdog_killed"
-    assert status_payload["reason_code"] == "watchdog_command_execution_forbidden"
+    assert status_payload["status"] == "validated"
+    assert status_payload["state"] == "completed"
+    assert status_payload["reason_code"] == "workspace_outputs_recovered"
     assert status_payload["raw_supervision_state"] == "watchdog_killed"
-    assert status_payload["final_supervision_state"] == "watchdog_killed"
+    assert status_payload["final_supervision_state"] == "completed"
+    assert status_payload["finalization_path"] == "validated_after_watchdog"
     assert status_payload["repair_status"] == "not_attempted"
     assert proposal_payload["repair_status"] == "not_attempted"
     assert "watchdog_retry_status" not in status_payload
@@ -2178,8 +2286,9 @@ def test_orchestrator_omits_legacy_watchdog_retry_fields_from_status_artifacts(
     status_payload = fixture["status_payload"]
     retry_status = fixture["retry_status"]
 
-    assert status_payload["status"] == "invalid"
+    assert status_payload["status"] == "validated"
     assert status_payload["repair_status"] == "not_attempted"
+    assert status_payload["finalization_path"] == "validated_after_watchdog"
     assert "watchdog_retry_status" not in status_payload
     assert "watchdog_retry_mode" not in status_payload
     assert retry_status is None

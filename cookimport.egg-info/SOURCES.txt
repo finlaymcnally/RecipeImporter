@@ -169,7 +169,6 @@ cookimport/llm/codex_farm_orchestrator.py
 cookimport/llm/codex_farm_runner.py
 cookimport/llm/editable_task_file.py
 cookimport/llm/fake_codex_farm_runner.py
-cookimport/llm/knowledge_phase_workspace_tools.py
 cookimport/llm/knowledge_prompt_builder.py
 cookimport/llm/knowledge_runtime_replay.py
 cookimport/llm/knowledge_runtime_state.py
