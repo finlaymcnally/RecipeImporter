@@ -166,6 +166,7 @@ def test_same_session_handoff_rewrites_invalid_classification_into_repair_mode(
     assert repair_result["classification_validation_count"] == 1
     assert repair_task["helper_commands"]["status"].endswith("--status")
     assert repair_task["answer_schema"]["example_answers"][0]["category"] == "knowledge"
+    assert repair_task["ontology"]["catalog_version"]
 
     repair_task["units"][0]["answer"] = _valid_classification_answer()
     write_task_file(path=workspace_root / "task.json", payload=repair_task)

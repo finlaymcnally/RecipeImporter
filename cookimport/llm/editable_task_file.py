@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -335,7 +336,7 @@ def build_repair_task_file(
                 "validation_feedback": dict(validation_feedback),
             }
         )
-    return build_task_file(
+    repair_task_file = build_task_file(
         stage_key=str(original_task_file.get("stage_key") or ""),
         assignment_id=str(original_task_file.get("assignment_id") or ""),
         worker_id=str(original_task_file.get("worker_id") or ""),
@@ -358,6 +359,12 @@ def build_repair_task_file(
             else None
         ),
     )
+    for key, value in original_task_file.items():
+        normalized_key = str(key)
+        if normalized_key == "units" or normalized_key in repair_task_file:
+            continue
+        repair_task_file[normalized_key] = deepcopy(value)
+    return repair_task_file
 
 
 def _parse_answer_payload(raw: str) -> dict[str, Any]:

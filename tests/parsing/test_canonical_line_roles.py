@@ -3445,8 +3445,8 @@ def test_label_atomic_lines_invalid_task_file_answer_fails_closed_without_parse_
     )
     assert proposal_payload["validation_errors"] == ["invalid_label:0:NOT_A_LABEL"]
     assert proposal_payload["payload"] is None
-    assert proposal_payload["repair_attempted"] is False
-    assert proposal_payload["repair_status"] == "not_attempted"
+    assert proposal_payload["repair_attempted"] is True
+    assert proposal_payload["repair_status"] == "failed"
     assert proposal_payload["validation_metadata"]["row_resolution"]["unresolved_atomic_indices"] == [0]
     shard_status_rows = [
         json.loads(line)
@@ -3459,7 +3459,7 @@ def test_label_atomic_lines_invalid_task_file_answer_fails_closed_without_parse_
         ).read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    assert shard_status_rows[0]["state"] == "invalid_output"
+    assert shard_status_rows[0]["state"] == "repair_failed"
 
 
 def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
@@ -5287,7 +5287,7 @@ def test_label_atomic_lines_near_miss_invalid_task_file_edit_fails_closed_withou
     )
     assert telemetry_payload["summary"]["attempt_count"] == 1
     assert telemetry_payload["summary"]["repaired_shard_count"] == 0
-    assert telemetry_payload["summary"]["invalid_output_shard_count"] == 1
+    assert telemetry_payload["phases"][0]["runtime_artifacts"]["invalid_shard_count"] == 1
 
     proposal_payload = json.loads(
         (
@@ -5299,8 +5299,8 @@ def test_label_atomic_lines_near_miss_invalid_task_file_edit_fails_closed_withou
             / "line-role-canonical-0001-a000000-a000000.json"
         ).read_text(encoding="utf-8")
     )
-    assert proposal_payload["repair_attempted"] is False
-    assert proposal_payload["repair_status"] == "not_attempted"
+    assert proposal_payload["repair_attempted"] is True
+    assert proposal_payload["repair_status"] == "failed"
     assert proposal_payload["validation_errors"] == ["invalid_label:0:"]
     assert list((tmp_path / "line-role-pipeline" / "runtime").rglob("repair_status.json"))
 
@@ -5391,7 +5391,7 @@ def test_label_atomic_lines_fails_closed_when_task_file_missing_even_if_worker_l
         ).read_text(encoding="utf-8")
     )
     assert proposal_payload["repair_attempted"] is False
-    assert proposal_payload["repair_status"] == "not_attempted"
+    assert proposal_payload["repair_status"] == "not_needed"
     assert proposal_payload["validation_errors"] == ["missing_output_file"]
     assert proposal_payload["validation_metadata"]["raw_output_missing"] is True
 
@@ -5523,7 +5523,7 @@ def test_label_atomic_lines_ignores_stale_repair_request_when_task_file_missing(
         ).read_text(encoding="utf-8")
     )
     assert proposal_payload["repair_attempted"] is False
-    assert proposal_payload["repair_status"] == "not_attempted"
+    assert proposal_payload["repair_status"] == "not_needed"
     assert proposal_payload["validation_errors"] == ["missing_output_file"]
     assert proposal_payload["validation_metadata"]["raw_output_missing"] is True
     telemetry_payload = json.loads(
@@ -5549,7 +5549,7 @@ def test_label_atomic_lines_ignores_stale_repair_request_when_task_file_missing(
             encoding="utf-8"
         )
     )
-    assert repair_status_payload["status"] == "not_attempted"
+    assert repair_status_payload["status"] == "not_needed"
     assert repair_status_payload["repair_request_path"] is not None
 
 
@@ -5624,7 +5624,7 @@ def test_label_atomic_lines_ignores_stale_repair_state_file_when_task_file_missi
         ).read_text(encoding="utf-8")
     )
     assert proposal_payload["repair_attempted"] is False
-    assert proposal_payload["repair_status"] == "not_attempted"
+    assert proposal_payload["repair_status"] == "not_needed"
     assert proposal_payload["payload"] is None
     assert proposal_payload["validation_errors"] == ["missing_output_file"]
     assert proposal_payload["validation_metadata"]["raw_output_missing"] is True
@@ -5645,7 +5645,7 @@ def test_label_atomic_lines_ignores_stale_repair_state_file_when_task_file_missi
             encoding="utf-8"
         )
     )
-    assert repair_status_payload["status"] == "not_attempted"
+    assert repair_status_payload["status"] == "not_needed"
     assert repair_status_payload["repair_state_path"] is not None
 
 
@@ -5856,8 +5856,8 @@ def test_label_atomic_lines_invalid_task_file_ledgers_fail_closed_without_struct
             / "line-role-canonical-0001-a000000-a000003.json"
         ).read_text(encoding="utf-8")
     )
-    assert proposal_payload["repair_attempted"] is False
-    assert proposal_payload["repair_status"] == "not_attempted"
+    assert proposal_payload["repair_attempted"] is True
+    assert proposal_payload["repair_status"] == "failed"
     assert proposal_payload["validation_errors"] == [
         "invalid_label:0:",
         "invalid_label:1:",

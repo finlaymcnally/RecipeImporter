@@ -105,10 +105,10 @@ def _knowledge_task_file_useful_progress(
     original_task_file: Mapping[str, Any],
     same_session_state_payload: Mapping[str, Any],
 ) -> bool:
-    if int(same_session_state_payload.get("same_session_transition_count") or 0) > 0:
-        return True
     if not task_file_path.exists():
         return False
+    if int(same_session_state_payload.get("same_session_transition_count") or 0) > 0:
+        return True
     try:
         edited_task_file = load_task_file(task_file_path)
     except (OSError, json.JSONDecodeError, ValueError):
@@ -142,6 +142,8 @@ def _should_attempt_knowledge_fresh_session_retry(
         return False, "fresh_session_retry_budget_spent"
     if bool(same_session_state_payload.get("completed")):
         return False, "same_session_already_completed"
+    if str(same_session_state_payload.get("final_status") or "").strip() == "repair_exhausted":
+        return False, "same_session_repair_exhausted"
     if _knowledge_hard_boundary_failure(run_result):
         return False, "hard_boundary_failure"
     if not run_result.completed_successfully():

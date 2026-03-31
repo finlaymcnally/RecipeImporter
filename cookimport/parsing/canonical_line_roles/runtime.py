@@ -64,10 +64,10 @@ def _line_role_task_file_useful_progress(
     original_task_file: Mapping[str, Any],
     same_session_state_payload: Mapping[str, Any],
 ) -> bool:
-    if int(same_session_state_payload.get("same_session_transition_count") or 0) > 0:
-        return True
     if not task_file_path.exists():
         return False
+    if int(same_session_state_payload.get("same_session_transition_count") or 0) > 0:
+        return True
     try:
         edited_task_file = load_task_file(task_file_path)
     except (OSError, json.JSONDecodeError, ValueError):
@@ -102,6 +102,8 @@ def _should_attempt_line_role_fresh_session_retry(
         return False, "fresh_session_retry_budget_spent"
     if bool(same_session_state_payload.get("completed")):
         return False, "same_session_already_completed"
+    if str(same_session_state_payload.get("final_status") or "").strip() == "repair_exhausted":
+        return False, "same_session_repair_exhausted"
     if _line_role_hard_boundary_failure(run_result):
         return False, "hard_boundary_failure"
     if not run_result.completed_successfully():
@@ -1860,9 +1862,18 @@ def _run_line_role_workspace_worker_assignment_v1(
         repair_request_path = worker_root / "repair" / f"{shard_id}.json"
         repair_state_path = worker_root / "repair" / f"{shard_id}.status.json"
         output_path = out_dir / f"{shard_id}.json"
-        response_source_path = (
-            output_path if output_path.exists() else resumed_output_path_by_shard_id.get(shard_id)
+        current_task_file_missing = (
+            session_run_result is not None
+            and shard_id in runnable_shard_ids
+            and not (worker_root / TASK_FILE_NAME).exists()
         )
+        response_source_path = None
+        if not current_task_file_missing:
+            response_source_path = (
+                output_path
+                if output_path.exists()
+                else resumed_output_path_by_shard_id.get(shard_id)
+            )
         response_text: str | None = None
         if session_run_result is not None and shard_id in runnable_shard_ids:
             matching_rows = [
@@ -1914,6 +1925,7 @@ def _run_line_role_workspace_worker_assignment_v1(
         final_validation_metadata = dict(validation_metadata or {})
         if (
             proposal_status == "missing_output"
+            and not current_task_file_missing
             and same_session_shard_status.get("validation_errors")
         ):
             proposal_status = "invalid"
@@ -2162,6 +2174,7 @@ def _run_line_role_workspace_worker_assignment_v1(
             "raw_output_status": raw_output_status,
             "raw_output_invalid": raw_output_status != "validated",
             "raw_output_missing": raw_output_status == "missing_output",
+            "task_file_missing_after_worker_session": current_task_file_missing,
             "row_resolution": dict(row_resolution_metadata),
             **(
                 {"fresh_session_recovery": dict(fresh_session_recovery_metadata)}

@@ -113,6 +113,7 @@ def test_validate_edited_task_file_can_recover_answers_while_ignoring_immutable_
 
 def test_build_repair_task_file_keeps_only_failed_units_with_feedback() -> None:
     original = _base_task_file()
+    original["ontology"] = {"catalog_version": "test-catalog"}
 
     repair = build_repair_task_file(
         original_task_file=original,
@@ -143,6 +144,7 @@ def test_build_repair_task_file_keeps_only_failed_units_with_feedback() -> None:
     assert repair["answer_schema"] == {
         "example_answers": [{"label": "RECIPE_NOTES"}]
     }
+    assert repair["ontology"] == {"catalog_version": "test-catalog"}
 
 
 def test_summarize_task_file_reports_answer_progress() -> None:
