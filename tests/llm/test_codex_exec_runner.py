@@ -7,8 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
+import cookimport.llm.codex_exec_runner as exec_runner_module
 from cookimport.llm.codex_exec_runner import (
     _build_codex_exec_command,
+    _build_workspace_worker_fs_cage_command,
     assess_final_agent_message,
     classify_workspace_worker_command,
     CodexExecRunResult,
@@ -724,3 +726,84 @@ def test_build_codex_exec_command_can_request_workspace_write(tmp_path: Path) ->
     )
 
     assert command[command.index("--sandbox") + 1] == "workspace-write"
+
+
+def test_build_workspace_worker_fs_cage_command_hides_home_and_sibling_workspaces(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    codex_home = tmp_path / ".codex-recipe"
+    virtual_env = Path.home() / ".venvs" / "recipeimport"
+    direct_exec_root = codex_home / "recipeimport-direct-exec-workspaces"
+    working_dir = direct_exec_root / "worker-001"
+    working_dir.mkdir(parents=True, exist_ok=True)
+    sibling_dir = direct_exec_root / "worker-002"
+    sibling_dir.mkdir(parents=True, exist_ok=True)
+    linux_toolchain_root = Path.home() / ".nvm" / "versions" / "node" / "v20.19.6"
+    inner_command = [
+        "codex",
+        "exec",
+        "--json",
+        "--sandbox",
+        "workspace-write",
+        "--cd",
+        str(working_dir),
+        "-",
+    ]
+    monkeypatch.setattr(
+        exec_runner_module.shutil,
+        "which",
+        lambda name, path=None: (
+            "/usr/bin/unshare"
+            if name == "unshare"
+            else str(linux_toolchain_root / "bin" / "codex")
+            if name == "codex"
+            else None
+        ),
+    )
+    exec_runner_module._workspace_worker_fs_cage_unshare_path.cache_clear()  # noqa: SLF001
+
+    wrapped = _build_workspace_worker_fs_cage_command(
+        command=inner_command,
+        working_dir=working_dir,
+        env={
+            "CODEX_HOME": str(codex_home),
+            "VIRTUAL_ENV": str(virtual_env),
+            "PATH": f"{virtual_env / 'bin'}:/usr/bin",
+        },
+    )
+
+    assert wrapped[:4] == ["/usr/bin/unshare", "-Urm", "bash", "-lc"]
+    shell_script = wrapped[4]
+    assert f"mount -t tmpfs tmpfs {Path.home()}" in shell_script
+    assert f"mount -t tmpfs tmpfs {direct_exec_root}" in shell_script
+    assert f"mount --bind {working_dir}" in shell_script
+    assert f"mount --bind {linux_toolchain_root}" in shell_script
+    assert f"mount --bind {virtual_env}" in shell_script
+    assert f"export HOME={working_dir}" in shell_script
+    assert f"export CODEX_HOME={codex_home}" in shell_script
+    assert wrapped[5] == "__recipeimport_workspace_fs_cage__"
+    assert wrapped[6] == str(linux_toolchain_root / "bin" / "codex")
+    assert wrapped[7:] == inner_command[1:]
+
+
+def test_build_workspace_worker_fs_cage_command_requires_workspace_under_direct_exec_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    codex_home = tmp_path / ".codex-recipe"
+    working_dir = tmp_path / "elsewhere" / "worker-001"
+    working_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(
+        exec_runner_module.shutil,
+        "which",
+        lambda name, path=None: "/usr/bin/unshare" if name == "unshare" else None,
+    )
+    exec_runner_module._workspace_worker_fs_cage_unshare_path.cache_clear()  # noqa: SLF001
+
+    with pytest.raises(Exception, match="expected the execution cwd to live under"):
+        _build_workspace_worker_fs_cage_command(
+            command=["codex", "exec", "--cd", str(working_dir), "-"],
+            working_dir=working_dir,
+            env={"CODEX_HOME": str(codex_home)},
+        )

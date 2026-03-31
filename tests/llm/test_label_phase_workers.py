@@ -157,7 +157,7 @@ def test_line_role_phase_workers_write_runtime_artifacts_and_reuse_workers(
     assert "rule_tags" in debug_input["rows"][0]
 
 
-def test_line_role_phase_workers_reject_invalid_task_file_answer_and_fail_closed(
+def test_line_role_phase_workers_reject_invalid_task_file_answer_after_one_repair_and_fail_closed(
     tmp_path: Path,
 ) -> None:
     def _invalid_task_file_builder(payload):
@@ -233,10 +233,13 @@ def test_line_role_phase_workers_reject_invalid_task_file_answer_and_fail_closed
     )
 
     assert [row["reason"] for row in failures] == ["proposal_validation_failed"]
+    assert [row["reason_code"] for row in failures] == ["same_session_repair_failed"]
     assert failures[0]["validation_errors"] == ["invalid_label:0:NOT_A_LABEL"]
     assert parse_errors["parse_error_count"] == 1
     assert proposal["validation_errors"] == ["invalid_label:0:NOT_A_LABEL"]
     assert proposal["payload"] is None
+    assert proposal["repair_attempted"] is True
+    assert proposal["repair_status"] == "failed"
     assert proposal["validation_metadata"]["row_resolution"]["unresolved_atomic_indices"] == [0]
     shard_status_rows = [
         json.loads(line)
@@ -250,7 +253,7 @@ def test_line_role_phase_workers_reject_invalid_task_file_answer_and_fail_closed
         if line.strip()
     ]
     assert not task_status_rows
-    assert [row["state"] for row in shard_status_rows] == ["invalid_output"]
+    assert [row["state"] for row in shard_status_rows] == ["repair_failed"]
 
 
 def test_line_role_phase_workers_emit_runtime_telemetry_summary(

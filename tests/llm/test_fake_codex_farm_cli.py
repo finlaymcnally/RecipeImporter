@@ -33,6 +33,10 @@ def _patch_direct_exec_home(
         "cookimport.llm.codex_exec_runner._resolve_recipeimport_codex_home",
         lambda explicit_env=None: str(tmp_path / ".codex-recipe"),
     )
+    monkeypatch.setattr(
+        "cookimport.llm.codex_exec_runner._build_workspace_worker_fs_cage_command",
+        lambda *, command, working_dir, env: list(command),
+    )
 
 
 def _script_path() -> Path:
@@ -288,7 +292,9 @@ def test_fake_codex_farm_process_handles_text_prompt_inputs(tmp_path: Path) -> N
 
 def test_recipe_orchestrator_can_run_through_fake_codex_farm_subprocess(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _patch_direct_exec_home(monkeypatch, tmp_path)
     source = tmp_path / "toast.txt"
     source.write_text("toast", encoding="utf-8")
     settings = RunSettings.model_validate(
@@ -362,7 +368,9 @@ def test_recipe_workspace_worker_can_run_through_fake_codex_farm_subprocess(
 
 def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _patch_direct_exec_home(monkeypatch, tmp_path)
     source = tmp_path / "book.txt"
     source.write_text("book", encoding="utf-8")
     settings = RunSettings.model_validate(

@@ -69,6 +69,37 @@ def test_validate_edited_task_file_rejects_immutable_field_change() -> None:
     ]
 
 
+def test_validate_edited_task_file_can_recover_answers_while_ignoring_immutable_drift() -> None:
+    original = _base_task_file()
+    edited = _base_task_file()
+    edited["units"][0]["evidence"]["text"] = "mutated"  # type: ignore[index]
+    edited["units"][0]["answer"] = {  # type: ignore[index]
+        "label": "RECIPE_NOTES",
+        "exclusion_reason": None,
+    }
+
+    answers_by_unit_id, errors, metadata = validate_edited_task_file(
+        original_task_file=original,
+        edited_task_file=edited,
+        allow_immutable_field_changes=True,
+    )
+
+    assert errors == ()
+    assert metadata["immutable_field_drift_ignored"] is True
+    assert metadata["error_details"] == []
+    assert metadata["ignored_error_details"] == [
+        {
+            "path": "/units/0/evidence",
+            "code": "immutable_field_changed",
+            "message": "/units/0/evidence must not change",
+        }
+    ]
+    assert answers_by_unit_id == {
+        "line::0": {"label": "RECIPE_NOTES", "exclusion_reason": None},
+        "line::1": {"label": "NONRECIPE_CANDIDATE", "exclusion_reason": None},
+    }
+
+
 def test_build_repair_task_file_keeps_only_failed_units_with_feedback() -> None:
     original = _base_task_file()
 

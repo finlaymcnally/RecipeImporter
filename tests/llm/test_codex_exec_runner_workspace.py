@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import threading
+from dataclasses import asdict
 
 import cookimport.llm.codex_exec_runner as exec_runner_module
+import cookimport.parsing.canonical_line_roles.runtime as line_role_runtime_module
 from cookimport.llm.editable_task_file import build_task_file
+from cookimport.llm.editable_task_file import load_task_file, write_task_file
+from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1, WorkerAssignmentV1
+from cookimport.parsing.canonical_line_roles.same_session_handoff import (
+    LINE_ROLE_SAME_SESSION_STATE_ENV,
+    initialize_line_role_same_session_state,
+)
 import tests.llm.test_codex_exec_runner as _base
 
 # Reuse shared imports/helpers from the base direct-exec runner test module.
@@ -535,6 +543,77 @@ def test_fake_workspace_worker_reads_local_inputs_and_syncs_outputs(
     assert synced_output == {"rows": [{"atomic_index": 1, "label": "OTHER"}]}
 
 
+def test_fake_workspace_worker_loops_line_role_same_session_repair_until_completed(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
+    (source_root / "out").mkdir(parents=True, exist_ok=True)
+    shard = ShardManifestEntryV1(
+        shard_id="line-role-shard-0000",
+        owned_ids=("7",),
+        input_payload={"rows": [[7, "Variation"]]},
+        metadata={},
+    )
+    task_file, unit_to_shard_id = line_role_runtime_module._build_line_role_task_file(
+        assignment=WorkerAssignmentV1(
+            worker_id="worker-001",
+            shard_ids=(shard.shard_id,),
+            workspace_root=str(source_root),
+        ),
+        shards=[shard],
+        debug_payload_by_shard_id={shard.shard_id: {"rows": [{"atomic_index": 7, "block_id": "b7"}]}},
+        deterministic_baseline_by_shard_id={},
+    )
+    write_task_file(path=source_root / "task.json", payload=task_file)
+    state_path = source_root / "_repo_control" / "line_role_same_session_state.json"
+    initialize_line_role_same_session_state(
+        state_path=state_path,
+        assignment_id="worker-001",
+        worker_id="worker-001",
+        task_file=task_file,
+        unit_to_shard_id=unit_to_shard_id,
+        shards=[asdict(shard)],
+        output_dir=source_root / "out",
+    )
+
+    def _output_builder(payload: dict[str, object]) -> dict[str, object]:
+        if payload.get("stage_key") == "line_role":
+            edited = json.loads(json.dumps(payload))
+            for unit in edited.get("units") or []:
+                if not isinstance(unit, dict):
+                    continue
+                unit["answer"] = {
+                    "label": "NONRECIPE_EXCLUDE",
+                    "exclusion_reason": (
+                        "navigation" if payload.get("mode") == "repair" else "nonrecipe"
+                    ),
+                }
+            return edited
+        return {}
+
+    runner = FakeCodexExecRunner(output_builder=_output_builder)
+    runner.run_workspace_worker(
+        prompt_text="Edit task.json and run the line-role helper.",
+        working_dir=source_root,
+        env={
+            "CODEX_HOME": str(tmp_path / ".codex-recipe"),
+            LINE_ROLE_SAME_SESSION_STATE_ENV: str(state_path),
+        },
+        workspace_task_label="canonical line-role worker session",
+    )
+
+    output_payload = json.loads(
+        (source_root / "out" / "line-role-shard-0000.json").read_text(encoding="utf-8")
+    )
+    state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+
+    assert output_payload["rows"] == [
+        {"atomic_index": 7, "label": "NONRECIPE_EXCLUDE", "exclusion_reason": "navigation"}
+    ]
+    assert state_payload["completed"] is True
+    assert state_payload["same_session_repair_rewrite_count"] == 1
+
+
 def test_subprocess_workspace_worker_parses_token_usage_from_text_stream(
     monkeypatch,
     tmp_path: Path,
@@ -873,11 +952,143 @@ def test_workspace_worker_uses_configured_codex_home_even_under_output_run_root(
     cwd = Path(str(captured["cwd"]))
     env = dict(captured["env"] or {})
     expected_prefix = codex_home / "recipeimport-direct-exec-workspaces"
+    helper_import_root = Path(str(env["PYTHONPATH"]).split(":")[0])
 
     assert str(cwd).startswith(str(expected_prefix))
     assert str(cwd).startswith(str(source_root.parent.parent.parent)) is False
     assert env["CODEX_HOME"] == str(codex_home)
     assert env["CODEX_FARM_CODEX_HOME_RECIPE"] == str(codex_home)
+    assert helper_import_root.exists()
+    assert (helper_import_root / "cookimport" / "llm" / "codex_exec_runner.py").exists()
+    assert result.execution_working_dir == str(cwd)
+    assert result.source_working_dir == str(source_root)
+
+
+def test_single_file_workspace_worker_rewrites_same_session_state_into_execution_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    codex_home = tmp_path / "configured-codex-home"
+    monkeypatch.setenv("COOKIMPORT_CODEX_FARM_CODEX_HOME", str(codex_home))
+    monkeypatch.setenv("CODEX_FARM_CODEX_HOME_RECIPE", str(codex_home))
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    source_root = tmp_path / "data" / "output" / "worker-root" / "worker-001"
+    source_root.mkdir(parents=True, exist_ok=True)
+    task_file = build_task_file(
+        stage_key="line_role",
+        assignment_id="worker-001",
+        worker_id="worker-001",
+        units=[
+            {
+                "unit_id": "line::0",
+                "owned_id": "0",
+                "evidence": {"atomic_index": 0, "text": "Variation"},
+                "answer": {},
+            }
+        ],
+    )
+    write_task_file(path=source_root / "task.json", payload=task_file)
+    state_path = source_root / "_repo_control" / "line_role_same_session_state.json"
+    initialize_line_role_same_session_state(
+        state_path=state_path,
+        assignment_id="worker-001",
+        worker_id="worker-001",
+        task_file=task_file,
+        unit_to_shard_id={"line::0": "line-role-shard-0000"},
+        shards=[{"shard_id": "line-role-shard-0000", "owned_ids": ["0"]}],
+        output_dir=source_root / "out",
+    )
+
+    captured: dict[str, object] = {}
+
+    class _FakeStdin:
+        def write(self, text: str) -> int:
+            captured["input"] = text
+            return len(text)
+
+        def close(self) -> None:
+            return None
+
+    class _Stream:
+        def __init__(self, lines: list[str]) -> None:
+            self._lines = list(lines)
+
+        def readline(self) -> str:
+            if self._lines:
+                return self._lines.pop(0)
+            return ""
+
+        def close(self) -> None:
+            return None
+
+    class _FakeProcess:
+        def __init__(self, command, _fake_stdin_cls=_FakeStdin, **kwargs):  # noqa: ANN001
+            captured["command"] = list(command)
+            captured["cwd"] = kwargs.get("cwd")
+            captured["env"] = dict(kwargs.get("env") or {})
+            self.stdin = _fake_stdin_cls()
+            self.stdout = _Stream(
+                [
+                    json.dumps({"type": "thread.started"}) + "\n",
+                    json.dumps(
+                        {
+                            "type": "item.completed",
+                            "item": {
+                                "type": "agent_message",
+                                "text": "Completed local workspace task.",
+                            },
+                        }
+                    )
+                    + "\n",
+                    json.dumps(
+                        {
+                            "type": "turn.completed",
+                            "usage": {
+                                "input_tokens": 100,
+                                "cached_input_tokens": 10,
+                                "output_tokens": 20,
+                                "reasoning_tokens": 0,
+                            },
+                        }
+                    )
+                    + "\n",
+                ]
+            )
+            self.stderr = _Stream([])
+            self.returncode = 0
+
+        def poll(self) -> int:
+            return self.returncode
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_exec_runner.subprocess.Popen",
+        _FakeProcess,
+    )
+
+    runner = SubprocessCodexExecRunner(cmd="codex exec")
+    result = runner.run_workspace_worker(
+        prompt_text="Edit task.json and run the same-session helper.",
+        working_dir=source_root,
+        env={LINE_ROLE_SAME_SESSION_STATE_ENV: str(state_path)},
+        workspace_task_label="canonical line-role worker session",
+    )
+
+    cwd = Path(str(captured["cwd"]))
+    env = dict(captured["env"] or {})
+    mirrored_state_path = Path(str(env[LINE_ROLE_SAME_SESSION_STATE_ENV]))
+    mirrored_state_payload = json.loads(mirrored_state_path.read_text(encoding="utf-8"))
+    synced_source_state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+
+    assert mirrored_state_path == cwd / "_repo_control" / "line_role_same_session_state.json"
+    assert mirrored_state_payload["output_dir"] == str(cwd / "out")
+    assert synced_source_state_payload["output_dir"] == str(source_root / "out")
     assert result.execution_working_dir == str(cwd)
     assert result.source_working_dir == str(source_root)
 

@@ -138,8 +138,8 @@ def build_knowledge_jobs(
         )
         if packet_count_before_partition > requested_shard_count:
             planning_warnings.append(
-                "knowledge_prompt_target_count hard-capped shard planning at "
-                f"{requested_shard_count} even though packet budgets would have split "
+                "knowledge_prompt_target_count is using the requested final shard count "
+                f"of {requested_shard_count}; packet-budget planning would have split "
                 f"the queue into {packet_count_before_partition} shards."
             )
         row_partitions = _repartition_rows_to_target_count(

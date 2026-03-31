@@ -365,7 +365,9 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
     assert "`task.json` already contains the full job for this worker." in worker_prompt
     assert "If you briefly reread part of the file or make a small local false start" in worker_prompt
     assert "Do not invent helper ledgers, queue files, or alternate output files." in worker_prompt
-    assert "The repo will validate the edited task file and expand accepted answers into final artifacts." in worker_prompt
+    assert "run `python3 -m cookimport.llm.recipe_same_session_handoff`" in worker_prompt
+    assert "The helper is the only repo-side handoff seam." in worker_prompt
+    assert "The repo will expand accepted answers into final artifacts after the helper validates them." in worker_prompt
     assert "assigned_tasks.json" not in worker_prompt
     assert "CURRENT_TASK.md" not in worker_prompt
     assert "CURRENT_TASK_FEEDBACK.md" not in worker_prompt
@@ -449,6 +451,87 @@ def test_recipe_phase_runtime_writes_packet_outputs_and_session_telemetry(
         == 1
     )
     assert proposal["validation_metadata"]["task_aggregation"]["task_count"] == 2
+
+
+def test_recipe_phase_runtime_repairs_invalid_task_file_answers_in_same_session(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    codex_home = tmp_path / "codex-home"
+    monkeypatch.setenv("COOKIMPORT_CODEX_FARM_CODEX_HOME", str(codex_home))
+    monkeypatch.setenv("CODEX_FARM_CODEX_HOME_RECIPE", str(codex_home))
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    settings = RunSettings.model_validate(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(tmp_path / "pack"),
+            "recipe_prompt_target_count": 1,
+            "recipe_worker_count": 1,
+        }
+    )
+    for name in ("pipelines", "prompts", "schemas"):
+        (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
+
+    def _repairing_output_builder(payload: dict[str, object]) -> dict[str, object]:
+        if payload.get("stage_key") == "recipe_refine":
+            edited = json.loads(json.dumps(payload))
+            for unit in edited.get("units") or []:
+                if not isinstance(unit, dict):
+                    continue
+                if payload.get("mode") == "repair":
+                    unit["answer"] = {
+                        "status": "repaired",
+                        "status_reason": None,
+                        "canonical_recipe": {
+                            "title": unit["evidence"]["hint"]["title"],
+                            "ingredients": list(unit["evidence"]["hint"]["ingredients"]),
+                            "steps": list(unit["evidence"]["hint"]["steps"]),
+                            "description": None,
+                            "recipe_yield": None,
+                        },
+                        "ingredient_step_mapping": [],
+                        "ingredient_step_mapping_reason": "not_needed_single_step",
+                        "selected_tags": [],
+                        "warnings": [],
+                    }
+                else:
+                    unit["answer"] = {
+                        "status": "repaired",
+                        "canonical_recipe": None,
+                        "ingredient_step_mapping": [],
+                        "ingredient_step_mapping_reason": "not_needed_single_step",
+                        "selected_tags": [],
+                        "warnings": [],
+                    }
+            return edited
+        return _build_recipe_shard_output(payload)
+
+    runner = FakeCodexExecRunner(output_builder=_repairing_output_builder)
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=_build_multi_recipe_conversion_result(source),
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    runtime_dir = apply_result.llm_raw_dir / "recipe_phase_runtime"
+    worker_root = runtime_dir / "workers" / "worker-001"
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+    proposal = json.loads(
+        (runtime_dir / "proposals" / "recipe-shard-0000-r0000-r0002.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert len(runner.calls) == 1
+    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 1
+    assert proposal["repair_attempted"] is True
+    assert proposal["repair_status"] == "repaired"
+    assert proposal["validation_errors"] == []
 
 
 def test_recipe_phase_runtime_short_circuits_fragmentary_scaffolds_before_worker_queue(

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from cookimport.llm.codex_exec_runner import CodexExecLiveSnapshot
 from cookimport.llm.codex_farm_knowledge_orchestrator import _preflight_knowledge_shard
 from cookimport.llm.knowledge_stage import _shared as knowledge_stage_shared
 from cookimport.llm.knowledge_stage.recovery import (
+    _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS,
     _build_knowledge_workspace_worker_prompt,
+    _build_strict_json_watchdog_callback,
     _write_knowledge_worker_hint,
 )
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
@@ -148,3 +151,73 @@ def test_knowledge_stage_shared_no_longer_imports_legacy_workspace_helper_surfac
     shared_source = Path(knowledge_stage_shared.__file__).read_text(encoding="utf-8")
 
     assert "knowledge_workspace_tools" not in shared_source
+
+
+def test_knowledge_workspace_watchdog_completes_after_stable_outputs_without_queue_controller(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "out" / "book.ks0000.nr.json"
+    callback = _build_strict_json_watchdog_callback(
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+        expected_workspace_output_paths=[output_path],
+    )
+
+    first = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.1,
+            last_event_seconds_ago=0.0,
+            event_count=3,
+            command_execution_count=1,
+            reasoning_item_count=0,
+            agent_message_count=0,
+            turn_completed_count=0,
+            last_command="/bin/bash -lc 'cat task.json'",
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text('{"ok": true}\n', encoding="utf-8")
+    second = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.2,
+            last_event_seconds_ago=0.0,
+            event_count=6,
+            command_execution_count=2,
+            reasoning_item_count=0,
+            agent_message_count=0,
+            turn_completed_count=0,
+            last_command="/bin/bash -lc 'python3 -m cookimport.llm.knowledge_same_session_handoff'",
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+    third = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.2 + _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS + 0.1,
+            last_event_seconds_ago=0.0,
+            event_count=9,
+            command_execution_count=2,
+            reasoning_item_count=0,
+            agent_message_count=0,
+            turn_completed_count=0,
+            last_command="/bin/bash -lc 'python3 -m cookimport.llm.knowledge_same_session_handoff'",
+            last_command_repeat_count=1,
+            has_final_agent_message=False,
+            timeout_seconds=30,
+        )
+    )
+
+    assert first is None
+    assert second is None
+    assert third is not None
+    assert third.supervision_state == "completed"
+    assert third.reason_code == "workspace_expected_outputs_completed"
+
+    live_status = (tmp_path / "live_status.json").read_text(encoding="utf-8")
+    assert "workspace_output_complete" in live_status
+    assert "workspace_completion_waiting_for_exit" in live_status

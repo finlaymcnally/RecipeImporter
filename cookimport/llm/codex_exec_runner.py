@@ -8,6 +8,7 @@ import re
 import shutil
 import shlex
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -35,6 +36,10 @@ from .knowledge_same_session_handoff import (
     advance_knowledge_same_session_handoff,
 )
 from .knowledge_tag_catalog import empty_grounding_payload, normalize_knowledge_tag_key
+from .recipe_same_session_handoff import (
+    RECIPE_SAME_SESSION_STATE_ENV,
+    advance_recipe_same_session_handoff,
+)
 
 DIRECT_CODEX_EXEC_RUNTIME_MODE_V1 = "direct_codex_exec_v1"
 _DIRECT_EXEC_ISOLATION_ROOT_NAME = "recipeimport-direct-exec-workspaces"
@@ -64,6 +69,7 @@ _DIRECT_EXEC_WORK_DIR_NAME = "work"
 _DIRECT_EXEC_REPAIR_DIR_NAME = "repair"
 _DIRECT_EXEC_INTERNAL_DIR_NAME = "_repo_control"
 _DIRECT_EXEC_ORIGINAL_TASK_FILE_NAME = "original_task.json"
+_DIRECT_EXEC_HELPER_IMPORTS_ROOT_NAME = "recipeimport-helper-imports"
 _DIRECT_EXEC_COMPLETED_TERMINATION_GRACE_SECONDS = 5.0
 DirectExecWorkspaceMode = Literal["structured_json", "workspace_worker"]
 _WORKSPACE_ALLOWED_PATH_ROOTS = {
@@ -111,6 +117,11 @@ _DIRECT_EXEC_RUNTIME_CONTROL_PATHS = (
     _DIRECT_EXEC_CURRENT_RESULT_PATH_FILE_NAME,
     _DIRECT_EXEC_PACKET_LEASE_STATUS_FILE_NAME,
     _DIRECT_EXEC_OUTPUT_CONTRACT_FILE_NAME,
+)
+_DIRECT_EXEC_WORKSPACE_MIRRORED_PATH_ENV_KEYS = (
+    KNOWLEDGE_SAME_SESSION_STATE_ENV,
+    RECIPE_SAME_SESSION_STATE_ENV,
+    "RECIPEIMPORT_LINE_ROLE_SAME_SESSION_STATE_PATH",
 )
 _WORKSPACE_COMMAND_LOOP_MAX_COMMAND_COUNT = 300
 _WORKSPACE_COMMAND_LOOP_MAX_REPEAT_COUNT = 20
@@ -523,6 +534,7 @@ class SubprocessCodexExecRunner:
             require_final_message=False,
             sync_output_paths=(
                 _DIRECT_EXEC_TASK_FILE_NAME,
+                _DIRECT_EXEC_INTERNAL_DIR_NAME,
                 _DIRECT_EXEC_CURRENT_PHASE_FILE_NAME,
                 _DIRECT_EXEC_CURRENT_PHASE_BRIEF_FILE_NAME,
                 _DIRECT_EXEC_CURRENT_PHASE_FEEDBACK_FILE_NAME,
@@ -566,6 +578,26 @@ class SubprocessCodexExecRunner:
             workspace_root=working_dir,
             mode=workspace_mode,
         )
+        if workspace_mode == "workspace_worker" and single_file_worker_runtime:
+            _sync_direct_exec_runtime_control_paths_to_execution(
+                source_working_dir=working_dir,
+                execution_working_dir=execution_working_dir,
+                relative_paths=(_DIRECT_EXEC_INTERNAL_DIR_NAME,),
+            )
+            process_env = _rewrite_workspace_worker_env_paths(
+                env=process_env,
+                source_working_dir=working_dir,
+                execution_working_dir=execution_working_dir,
+            )
+        if workspace_mode == "workspace_worker":
+            helper_import_root = _prepare_workspace_worker_helper_imports(
+                env=process_env,
+                execution_working_dir=execution_working_dir,
+            )
+            process_env = _prepend_pythonpath(
+                env=process_env,
+                import_root=helper_import_root,
+            )
         execution_prompt_text = rewrite_direct_exec_prompt_paths(
             prompt_text=prompt_text,
             source_working_dir=working_dir,
@@ -579,9 +611,18 @@ class SubprocessCodexExecRunner:
             reasoning_effort=reasoning_effort,
             sandbox_mode=sandbox_mode,
         )
+        subprocess_command = (
+            _build_workspace_worker_fs_cage_command(
+                command=command,
+                working_dir=execution_working_dir,
+                env=process_env,
+            )
+            if workspace_mode == "workspace_worker"
+            else command
+        )
         started_at = datetime.now(timezone.utc)
         completed = _run_codex_exec_subprocess_streaming(
-            command=command,
+            command=subprocess_command,
             prompt_text=execution_prompt_text,
             working_dir=execution_working_dir,
             env=process_env,
@@ -1224,24 +1265,51 @@ class FakeCodexExecRunner:
                 task_file_payload=load_task_file(task_file_path),
             )
             write_task_file(path=task_file_path, payload=edited_task_file_payload)
-            state_path = str(process_env.get(KNOWLEDGE_SAME_SESSION_STATE_ENV) or "").strip()
-            transition_guard = 0
-            while state_path and transition_guard < 8:
-                transition_guard += 1
-                transition_result = advance_knowledge_same_session_handoff(
-                    workspace_root=execution_working_dir,
-                    state_path=Path(state_path),
+            same_session_handlers = [
+                (
+                    str(process_env.get(KNOWLEDGE_SAME_SESSION_STATE_ENV) or "").strip(),
+                    advance_knowledge_same_session_handoff,
+                    {"repair_required", "advance_to_grouping"},
+                ),
+                (
+                    str(process_env.get(RECIPE_SAME_SESSION_STATE_ENV) or "").strip(),
+                    advance_recipe_same_session_handoff,
+                    {"repair_required"},
+                ),
+            ]
+            line_role_state_path = str(
+                process_env.get("RECIPEIMPORT_LINE_ROLE_SAME_SESSION_STATE_PATH") or ""
+            ).strip()
+            if line_role_state_path:
+                from cookimport.parsing.canonical_line_roles.same_session_handoff import (
+                    advance_line_role_same_session_handoff,
                 )
-                transition_status = str(transition_result.get("status") or "").strip()
-                if transition_status == "repair_required":
-                    break
-                if transition_status != "advance_to_grouping":
-                    break
-                next_task_file_payload = load_task_file(task_file_path)
-                edited_task_file_payload = self._build_workspace_task_file_result(
-                    task_file_payload=next_task_file_payload,
+
+                same_session_handlers.append(
+                    (
+                        line_role_state_path,
+                        advance_line_role_same_session_handoff,
+                        {"repair_required"},
+                    )
                 )
-                write_task_file(path=task_file_path, payload=edited_task_file_payload)
+            for state_path, advance_handler, continue_statuses in same_session_handlers:
+                transition_guard = 0
+                while state_path and transition_guard < 8:
+                    transition_guard += 1
+                    transition_result = advance_handler(
+                        workspace_root=execution_working_dir,
+                        state_path=Path(state_path),
+                    )
+                    transition_status = str(transition_result.get("status") or "").strip()
+                    if transition_status not in continue_statuses:
+                        break
+                    next_task_file_payload = load_task_file(task_file_path)
+                    edited_task_file_payload = self._build_workspace_task_file_result(
+                        task_file_payload=next_task_file_payload,
+                    )
+                    write_task_file(path=task_file_path, payload=edited_task_file_payload)
+                if state_path:
+                    break
         elif (execution_working_dir / _DIRECT_EXEC_CURRENT_PACKET_FILE_NAME).exists():
             lease_iterations = 0
             while lease_iterations < 256:
@@ -1610,6 +1678,111 @@ def rewrite_direct_exec_prompt_paths(
     return rendered.replace(source_text, execution_text)
 
 
+def _remap_workspace_path(
+    *,
+    raw_path: str,
+    source_root: Path,
+    execution_root: Path,
+) -> str:
+    candidate = Path(str(raw_path or "").strip()).expanduser()
+    if not candidate.is_absolute():
+        return str(raw_path)
+    try:
+        relative = candidate.resolve(strict=False).relative_to(source_root.resolve(strict=False))
+    except ValueError:
+        return str(raw_path)
+    return str((execution_root / relative).resolve(strict=False))
+
+
+def _rewrite_workspace_path_values(
+    value: Any,
+    *,
+    source_root: Path,
+    execution_root: Path,
+) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            key: _rewrite_workspace_path_values(
+                nested_value,
+                source_root=source_root,
+                execution_root=execution_root,
+            )
+            for key, nested_value in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _rewrite_workspace_path_values(
+                item,
+                source_root=source_root,
+                execution_root=execution_root,
+            )
+            for item in value
+        ]
+    if isinstance(value, tuple):
+        return tuple(
+            _rewrite_workspace_path_values(
+                item,
+                source_root=source_root,
+                execution_root=execution_root,
+            )
+            for item in value
+        )
+    if isinstance(value, str):
+        return _remap_workspace_path(
+            raw_path=value,
+            source_root=source_root,
+            execution_root=execution_root,
+        )
+    return value
+
+
+def _rewrite_workspace_runtime_control_tree_paths(
+    *,
+    tree_root: Path,
+    source_root: Path,
+    execution_root: Path,
+) -> None:
+    if not tree_root.exists() or not tree_root.is_dir():
+        return
+    for path in tree_root.rglob("*"):
+        if not path.is_file() or path.suffix != ".json":
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        rewritten = _rewrite_workspace_path_values(
+            payload,
+            source_root=source_root,
+            execution_root=execution_root,
+        )
+        path.write_text(
+            json.dumps(rewritten, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+
+def _rewrite_workspace_worker_env_paths(
+    *,
+    env: Mapping[str, str],
+    source_working_dir: Path,
+    execution_working_dir: Path,
+) -> dict[str, str]:
+    rewritten = {str(key): str(value) for key, value in env.items()}
+    source_root = Path(source_working_dir).resolve(strict=False)
+    execution_root = Path(execution_working_dir).resolve(strict=False)
+    for key in _DIRECT_EXEC_WORKSPACE_MIRRORED_PATH_ENV_KEYS:
+        raw_value = str(rewritten.get(key) or "").strip()
+        if not raw_value:
+            continue
+        rewritten[key] = _remap_workspace_path(
+            raw_path=raw_value,
+            source_root=source_root,
+            execution_root=execution_root,
+        )
+    return rewritten
+
+
 def _resolve_direct_exec_isolation_root(*, env: Mapping[str, str] | None) -> Path:
     explicit_env = {
         str(key): str(value)
@@ -1622,6 +1795,20 @@ def _resolve_direct_exec_isolation_root(*, env: Mapping[str, str] | None) -> Pat
         else Path.home() / ".codex-recipe"
     )
     return base_root / _DIRECT_EXEC_ISOLATION_ROOT_NAME
+
+
+def _resolve_direct_exec_helper_imports_root(*, env: Mapping[str, str] | None) -> Path:
+    explicit_env = {
+        str(key): str(value)
+        for key, value in (env or {}).items()
+    }
+    resolved_codex_home = _resolve_recipeimport_codex_home(explicit_env=explicit_env)
+    base_root = (
+        Path(resolved_codex_home).expanduser()
+        if resolved_codex_home
+        else Path.home() / ".codex-recipe"
+    )
+    return base_root / _DIRECT_EXEC_HELPER_IMPORTS_ROOT_NAME
 
 
 def _build_unique_execution_workspace_path(
@@ -1647,6 +1834,44 @@ def _sanitize_direct_exec_workspace_component(value: str) -> str:
             cleaned.append("-")
     rendered = "".join(cleaned).strip("-_")
     return rendered or "worker"
+
+
+def _prepare_workspace_worker_helper_imports(
+    *,
+    env: Mapping[str, str],
+    execution_working_dir: Path,
+) -> Path:
+    helper_imports_root = _resolve_direct_exec_helper_imports_root(env=env)
+    helper_imports_root.mkdir(parents=True, exist_ok=True)
+    helper_session_root = helper_imports_root / execution_working_dir.name
+    helper_package_root = helper_session_root / "cookimport"
+    if helper_package_root.exists():
+        return helper_session_root
+    source_package_root = Path(__file__).resolve().parents[1]
+    shutil.copytree(
+        source_package_root,
+        helper_package_root,
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+    )
+    return helper_session_root
+
+
+def _prepend_pythonpath(
+    *,
+    env: Mapping[str, str],
+    import_root: Path,
+) -> dict[str, str]:
+    merged = {str(key): str(value) for key, value in env.items()}
+    existing = str(merged.get("PYTHONPATH") or "").strip()
+    entries = [str(import_root)]
+    if existing:
+        entries.extend(
+            entry
+            for entry in existing.split(":")
+            if str(entry).strip()
+        )
+    merged["PYTHONPATH"] = ":".join(entries)
+    return merged
 
 
 def _populate_direct_exec_workspace(
@@ -1891,6 +2116,12 @@ def _sync_direct_exec_workspace_paths(
         if execution_path.is_dir():
             source_path.mkdir(parents=True, exist_ok=True)
             shutil.copytree(execution_path, source_path, dirs_exist_ok=True)
+            if cleaned == _DIRECT_EXEC_INTERNAL_DIR_NAME:
+                _rewrite_workspace_runtime_control_tree_paths(
+                    tree_root=source_path,
+                    source_root=execution_root,
+                    execution_root=source_root,
+                )
         elif execution_path.is_file():
             source_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(execution_path, source_path)
@@ -1913,6 +2144,12 @@ def _sync_direct_exec_runtime_control_paths_to_execution(
         if source_path.is_dir():
             execution_path.mkdir(parents=True, exist_ok=True)
             shutil.copytree(source_path, execution_path, dirs_exist_ok=True)
+            if cleaned == _DIRECT_EXEC_INTERNAL_DIR_NAME:
+                _rewrite_workspace_runtime_control_tree_paths(
+                    tree_root=execution_path,
+                    source_root=source_root,
+                    execution_root=execution_root,
+                )
             continue
         if source_path.is_file():
             execution_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1977,6 +2214,222 @@ def _build_codex_exec_command(
         command.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
     command.append("-")
     return command
+
+
+@lru_cache(maxsize=1)
+def _workspace_worker_fs_cage_unshare_path() -> str | None:
+    resolved = shutil.which("unshare")
+    if not resolved:
+        return None
+    return str(Path(resolved).expanduser())
+
+
+def _path_is_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _resolve_workspace_worker_command_path(
+    *,
+    token: str,
+    env: Mapping[str, str],
+) -> Path | None:
+    cleaned = str(token or "").strip()
+    if not cleaned:
+        return None
+    candidate = Path(cleaned).expanduser()
+    if candidate.is_absolute():
+        return candidate
+    resolved = shutil.which(cleaned, path=str(env.get("PATH") or ""))
+    if not resolved:
+        return None
+    return Path(resolved).expanduser()
+
+
+def _workspace_worker_preserved_toolchain_root(
+    *,
+    executable_path: Path | None,
+    user_home: Path,
+) -> Path | None:
+    if executable_path is None:
+        return None
+    resolved_executable = executable_path.resolve(strict=False)
+    candidate = executable_path.parent
+    while _path_is_within(candidate, user_home) and candidate != user_home:
+        if _path_is_within(resolved_executable, candidate):
+            return candidate
+        candidate = candidate.parent
+    if _path_is_within(resolved_executable.parent, user_home):
+        return resolved_executable.parent
+    if _path_is_within(executable_path.parent, user_home):
+        return executable_path.parent
+    return None
+
+
+def _workspace_worker_preserved_virtualenv_root(
+    *,
+    env: Mapping[str, str],
+    user_home: Path,
+) -> Path | None:
+    explicit_virtual_env = str(env.get("VIRTUAL_ENV") or "").strip()
+    if explicit_virtual_env:
+        candidate = Path(explicit_virtual_env).expanduser().resolve(strict=False)
+        if _path_is_within(candidate, user_home):
+            return candidate
+    current_python = Path(sys.executable).expanduser().resolve(strict=False)
+    if current_python.parent.name == "bin":
+        candidate = current_python.parent.parent
+        if _path_is_within(candidate, user_home):
+            return candidate
+    return None
+
+
+def _build_workspace_worker_fs_cage_command(
+    *,
+    command: Sequence[str],
+    working_dir: Path,
+    env: Mapping[str, str],
+) -> list[str]:
+    unshare_path = _workspace_worker_fs_cage_unshare_path()
+    if not unshare_path:
+        raise CodexFarmRunnerError(
+            "workspace-worker filesystem isolation requires `unshare`, but it was not found"
+        )
+
+    explicit_env = {str(key): str(value) for key, value in (env or {}).items()}
+    resolved_codex_home = _resolve_recipeimport_codex_home(explicit_env=explicit_env)
+    codex_home = (
+        Path(resolved_codex_home).expanduser().resolve(strict=False)
+        if resolved_codex_home
+        else (Path.home() / ".codex-recipe").resolve(strict=False)
+    )
+    workspace_root = Path(working_dir).expanduser().resolve(strict=False)
+    direct_exec_root = _resolve_direct_exec_isolation_root(env=explicit_env).resolve(strict=False)
+    try:
+        workspace_root.relative_to(direct_exec_root)
+    except ValueError as exc:
+        raise CodexFarmRunnerError(
+            "workspace-worker filesystem isolation expected the execution cwd to live "
+            f"under {direct_exec_root}, got {workspace_root}"
+        ) from exc
+
+    user_home = Path.home().expanduser().resolve(strict=False)
+    resolved_command = [str(token) for token in command]
+    resolved_executable_path = _resolve_workspace_worker_command_path(
+        token=resolved_command[0] if resolved_command else "",
+        env=explicit_env,
+    )
+    if resolved_command and resolved_executable_path is not None:
+        resolved_command[0] = str(resolved_executable_path)
+    preserved_toolchain_root = _workspace_worker_preserved_toolchain_root(
+        executable_path=resolved_executable_path,
+        user_home=user_home,
+    )
+    preserved_virtualenv_root = _workspace_worker_preserved_virtualenv_root(
+        env=explicit_env,
+        user_home=user_home,
+    )
+    quoted_workspace_root = shlex.quote(str(workspace_root))
+    quoted_codex_home = shlex.quote(str(codex_home))
+    quoted_direct_exec_root = shlex.quote(str(direct_exec_root))
+    quoted_user_home = shlex.quote(str(user_home))
+    shell_lines = [
+        "set -eu",
+        "stage_dir=$(mktemp -d /tmp/recipeimport-workspace-fs-cage.XXXXXX)",
+        "cleanup() {",
+        '  umount "$stage_dir/ws" >/dev/null 2>&1 || true',
+        '  umount "$stage_dir/codex" >/dev/null 2>&1 || true',
+    ]
+    if preserved_toolchain_root is not None:
+        shell_lines.append('  umount "$stage_dir/toolchain" >/dev/null 2>&1 || true')
+    if preserved_virtualenv_root is not None:
+        shell_lines.append('  umount "$stage_dir/venv" >/dev/null 2>&1 || true')
+    shell_lines.extend(
+        [
+            '  rm -rf "$stage_dir"',
+            "}",
+            "trap cleanup EXIT",
+            'mkdir -p "$stage_dir/ws" "$stage_dir/codex"',
+            f'mount --bind {quoted_workspace_root} "$stage_dir/ws"',
+            f'mount --bind {quoted_codex_home} "$stage_dir/codex"',
+        ]
+    )
+    if preserved_toolchain_root is not None:
+        quoted_toolchain_root = shlex.quote(str(preserved_toolchain_root))
+        shell_lines.extend(
+            [
+                'mkdir -p "$stage_dir/toolchain"',
+                f'mount --bind {quoted_toolchain_root} "$stage_dir/toolchain"',
+            ]
+        )
+    if preserved_virtualenv_root is not None:
+        quoted_virtualenv_root = shlex.quote(str(preserved_virtualenv_root))
+        shell_lines.extend(
+            [
+                'mkdir -p "$stage_dir/venv"',
+                f'mount --bind {quoted_virtualenv_root} "$stage_dir/venv"',
+            ]
+        )
+    shell_lines.extend(
+        [
+            "mount --make-rprivate /",
+            f"mount -t tmpfs tmpfs {quoted_user_home}",
+            f"mkdir -p {quoted_codex_home}",
+            f'mount --bind "$stage_dir/codex" {quoted_codex_home}',
+        ]
+    )
+    if preserved_toolchain_root is not None:
+        shell_lines.extend(
+            [
+                f"mkdir -p {quoted_toolchain_root}",
+                f'mount --bind "$stage_dir/toolchain" {quoted_toolchain_root}',
+            ]
+        )
+    if preserved_virtualenv_root is not None:
+        shell_lines.extend(
+            [
+                f"mkdir -p {quoted_virtualenv_root}",
+                f'mount --bind "$stage_dir/venv" {quoted_virtualenv_root}',
+            ]
+        )
+    shell_lines.extend(
+        [
+            f"mkdir -p {quoted_direct_exec_root}",
+            f"mount -t tmpfs tmpfs {quoted_direct_exec_root}",
+            f"mkdir -p {quoted_workspace_root}",
+            f'mount --bind "$stage_dir/ws" {quoted_workspace_root}',
+            'umount "$stage_dir/ws"',
+            'umount "$stage_dir/codex"',
+        ]
+    )
+    if preserved_toolchain_root is not None:
+        shell_lines.append('umount "$stage_dir/toolchain"')
+    if preserved_virtualenv_root is not None:
+        shell_lines.append('umount "$stage_dir/venv"')
+    shell_lines.extend(
+        [
+            'rmdir "$stage_dir/ws" "$stage_dir/codex"',
+            'rmdir "$stage_dir/toolchain" 2>/dev/null || true',
+            'rmdir "$stage_dir/venv" 2>/dev/null || true',
+            f"export HOME={quoted_workspace_root}",
+            f"export CODEX_HOME={quoted_codex_home}",
+            '"$@"',
+        ]
+    )
+    shell_script = "\n".join(shell_lines)
+    return [
+        unshare_path,
+        # Keep the host network namespace; `codex exec` needs outbound API access.
+        "-Urm",
+        "bash",
+        "-lc",
+        shell_script,
+        "__recipeimport_workspace_fs_cage__",
+        *resolved_command,
+    ]
 
 
 def _wrap_workspace_supervision_callback(

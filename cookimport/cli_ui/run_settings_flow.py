@@ -515,7 +515,7 @@ def _prompt_codex_prompt_target_count(
     default_value: int,
     back_action: Any,
 ) -> int | None:
-    max_value = 20
+    max_value = 256
     raw_value = prompt_text(
         message,
         default=str(default_value),

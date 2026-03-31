@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import asdict
 
 from cookimport.llm.editable_task_file import (
     TASK_FILE_NAME,
@@ -13,6 +14,10 @@ from cookimport.llm.task_file_guardrails import (
     build_task_file_guardrail,
     build_worker_session_guardrails,
     summarize_task_file_guardrails,
+)
+from .same_session_handoff import (
+    LINE_ROLE_SAME_SESSION_STATE_ENV,
+    initialize_line_role_same_session_state,
 )
 
 runtime = sys.modules["cookimport.parsing.canonical_line_roles"]
@@ -29,6 +34,23 @@ def _runtime_attr(name: str, default: Any) -> Any:
     return getattr(runtime, name, default)
 
 
+_LINE_ROLE_SAME_SESSION_STATE_FILE_NAME = "line_role_same_session_state.json"
+
+
+def _line_role_same_session_state_path(worker_root: Path) -> Path:
+    return worker_root / "_repo_control" / _LINE_ROLE_SAME_SESSION_STATE_FILE_NAME
+
+
+def _load_json_dict_safely(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return dict(payload) if isinstance(payload, Mapping) else {}
+
+
 def _build_line_role_task_file(
     *,
     assignment: WorkerAssignmentV1,
@@ -36,6 +58,7 @@ def _build_line_role_task_file(
     debug_payload_by_shard_id: Mapping[str, Any],
     deterministic_baseline_by_shard_id: Mapping[str, Mapping[int, CanonicalLineRolePrediction]],
 ) -> tuple[dict[str, Any], dict[str, str]]:
+    del deterministic_baseline_by_shard_id
     units: list[dict[str, Any]] = []
     unit_to_shard_id: dict[str, str] = {}
     for shard in shards:
@@ -45,14 +68,12 @@ def _build_line_role_task_file(
             for row in debug_rows
             if isinstance(row, Mapping) and row.get("atomic_index") is not None
         }
-        baseline_by_atomic_index = dict(deterministic_baseline_by_shard_id.get(shard.shard_id) or {})
         for row in _coerce_mapping_dict(shard.input_payload).get("rows") or []:
             if not isinstance(row, (list, tuple)) or len(row) < 2:
                 continue
             atomic_index = int(row[0])
             text = str(row[1] or "")
             debug_row = debug_row_by_atomic_index.get(atomic_index) or {}
-            baseline_prediction = baseline_by_atomic_index.get(atomic_index)
             unit_id = f"line::{atomic_index}"
             unit_to_shard_id[unit_id] = shard.shard_id
             units.append(
@@ -64,9 +85,6 @@ def _build_line_role_task_file(
                         "block_id": str(debug_row.get("block_id") or ""),
                         "text": text,
                         "within_recipe_span": debug_row.get("within_recipe_span"),
-                        "deterministic_hint_label": (
-                            baseline_prediction.label if baseline_prediction is not None else None
-                        ),
                         "reason_hints": [
                             str(value).strip()
                             for value in (debug_row.get("escalation_reasons") or [])
@@ -100,11 +118,12 @@ def _expand_line_role_task_file_outputs(
     answers_by_unit_id, validation_errors, _validation_metadata = validate_edited_task_file(
         original_task_file=original_task_file,
         edited_task_file=edited_task_file,
+        allow_immutable_field_changes=True,
     )
     if validation_errors:
         return {}
     shard_rows: dict[str, list[tuple[int, dict[str, Any]]]] = {}
-    for unit in edited_task_file.get("units") or []:
+    for unit in original_task_file.get("units") or []:
         if not isinstance(unit, Mapping):
             continue
         unit_id = str(unit.get("unit_id") or "").strip()
@@ -1147,6 +1166,7 @@ def _run_line_role_workspace_worker_assignment_v1(
 
     runnable_shards = [shard for shard in valid_shards if shard.shard_id in runnable_shard_ids]
     task_file_guardrail: dict[str, Any] | None = None
+    line_role_same_session_state_payload: dict[str, Any] = {}
     if runnable_shards:
         task_file_payload, unit_to_shard_id = _build_line_role_task_file(
             assignment=assignment,
@@ -1158,6 +1178,16 @@ def _run_line_role_workspace_worker_assignment_v1(
             payload=task_file_payload,
             assignment_id=assignment.worker_id,
             worker_id=assignment.worker_id,
+        )
+        state_path = _line_role_same_session_state_path(worker_root)
+        initialize_line_role_same_session_state(
+            state_path=state_path,
+            assignment_id=assignment.worker_id,
+            worker_id=assignment.worker_id,
+            task_file=task_file_payload,
+            unit_to_shard_id=unit_to_shard_id,
+            shards=[asdict(shard) for shard in runnable_shards],
+            output_dir=out_dir,
         )
         write_task_file(path=worker_root / TASK_FILE_NAME, payload=task_file_payload)
         worker_prompt_text = _build_line_role_workspace_worker_prompt(
@@ -1183,7 +1213,10 @@ def _run_line_role_workspace_worker_assignment_v1(
         session_run_result = runner.run_workspace_worker(
             prompt_text=worker_prompt_text,
             working_dir=worker_root,
-            env=env,
+            env={
+                **dict(env),
+                LINE_ROLE_SAME_SESSION_STATE_ENV: str(state_path),
+            },
             model=model,
             reasoning_effort=reasoning_effort,
             timeout_seconds=timeout_seconds,
@@ -1225,14 +1258,7 @@ def _run_line_role_workspace_worker_assignment_v1(
         )
         _write_optional_runtime_text(worker_root / "stdout.txt", session_run_result.stdout_text)
         _write_optional_runtime_text(worker_root / "stderr.txt", session_run_result.stderr_text)
-        if task_file_payload is not None:
-            expanded_outputs = _expand_line_role_task_file_outputs(
-                original_task_file=task_file_payload,
-                task_file_path=worker_root / TASK_FILE_NAME,
-                unit_to_shard_id=unit_to_shard_id,
-            )
-            for shard_id, payload in expanded_outputs.items():
-                _write_runtime_json(out_dir / f"{shard_id}.json", payload)
+        line_role_same_session_state_payload = _load_json_dict_safely(state_path)
     else:
         _write_runtime_json(
             worker_root / "live_status.json",
@@ -1326,6 +1352,13 @@ def _run_line_role_workspace_worker_assignment_v1(
                     deterministic_baseline_by_atomic_index=baseline_by_atomic_index,
                 )
             )
+        same_session_shard_status = dict(
+            (
+                dict(line_role_same_session_state_payload.get("shard_status_by_shard_id") or {})
+                .get(shard_id)
+                or {}
+            )
+        )
         watchdog_retry_attempted = False
         watchdog_retry_status = "not_attempted"
         repair_attempted = False
@@ -1333,6 +1366,24 @@ def _run_line_role_workspace_worker_assignment_v1(
         raw_output_status = proposal_status
         final_validation_errors = tuple(validation_errors)
         final_validation_metadata = dict(validation_metadata or {})
+        if (
+            proposal_status == "missing_output"
+            and same_session_shard_status.get("validation_errors")
+        ):
+            proposal_status = "invalid"
+            raw_output_status = "invalid"
+            final_validation_errors = tuple(
+                str(error).strip()
+                for error in (same_session_shard_status.get("validation_errors") or [])
+                if str(error).strip()
+            )
+            final_validation_metadata = {
+                **dict(final_validation_metadata or {}),
+                "same_session_handoff_state": dict(same_session_shard_status),
+                "same_session_handoff_incomplete": not bool(
+                    line_role_same_session_state_payload.get("completed")
+                ),
+            }
         task_root = shard_dir / shard_id
         task_root.mkdir(parents=True, exist_ok=True)
         if primary_row is not None:
@@ -1546,7 +1597,13 @@ def _run_line_role_workspace_worker_assignment_v1(
         )
         payload = row_resolution_payload
         proposal_status = "validated" if row_resolution_payload is not None else "invalid"
-        if repair_attempted:
+        if same_session_shard_status:
+            repair_attempted = bool(same_session_shard_status.get("repair_attempted"))
+            repair_status = (
+                str(same_session_shard_status.get("repair_status") or "").strip()
+                or repair_status
+            )
+        elif repair_attempted:
             repair_status = "repaired" if proposal_status == "validated" else "failed"
         if primary_row is not None:
             primary_row["repair_attempted"] = repair_attempted

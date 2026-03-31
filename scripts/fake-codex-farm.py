@@ -27,6 +27,10 @@ from cookimport.llm.knowledge_same_session_handoff import (  # noqa: E402
     KNOWLEDGE_SAME_SESSION_STATE_ENV,
     advance_knowledge_same_session_handoff,
 )
+from cookimport.llm.recipe_same_session_handoff import (  # noqa: E402
+    RECIPE_SAME_SESSION_STATE_ENV,
+    advance_recipe_same_session_handoff,
+)
 
 
 def _read_any_json(path: Path) -> Any | None:
@@ -303,33 +307,64 @@ def _run_workspace_worker_exec(
         return False
     task_file_path = workspace_root / "task.json"
     if task_file_path.is_file():
-        fake_runner = FakeCodexExecRunner(
-            output_builder=lambda payload: build_structural_pipeline_output(
+        def _workspace_output_builder(payload: Any) -> dict[str, Any]:
+            if isinstance(payload, dict) and isinstance(payload.get("units"), list):
+                return {}
+            return build_structural_pipeline_output(
                 pipeline_id,
                 payload,
             )
+
+        fake_runner = FakeCodexExecRunner(
+            output_builder=_workspace_output_builder
         )
         edited_task_file = fake_runner._build_workspace_task_file_result(
             task_file_payload=load_task_file(task_file_path),
         )
         write_task_file(path=task_file_path, payload=edited_task_file)
-        state_path = str(os.environ.get(KNOWLEDGE_SAME_SESSION_STATE_ENV) or "").strip()
-        transition_guard = 0
-        while state_path and transition_guard < 8:
-            transition_guard += 1
-            transition_result = advance_knowledge_same_session_handoff(
-                workspace_root=workspace_root,
-                state_path=Path(state_path),
+        same_session_handlers = [
+            (
+                str(os.environ.get(KNOWLEDGE_SAME_SESSION_STATE_ENV) or "").strip(),
+                advance_knowledge_same_session_handoff,
+                {"advance_to_grouping", "repair_required"},
+            ),
+            (
+                str(os.environ.get(RECIPE_SAME_SESSION_STATE_ENV) or "").strip(),
+                advance_recipe_same_session_handoff,
+                {"repair_required"},
+            ),
+        ]
+        line_role_state_path = str(
+            os.environ.get("RECIPEIMPORT_LINE_ROLE_SAME_SESSION_STATE_PATH") or ""
+        ).strip()
+        if line_role_state_path:
+            from cookimport.parsing.canonical_line_roles.same_session_handoff import (  # noqa: E402
+                advance_line_role_same_session_handoff,
             )
-            if transition_result.get("status") not in {
-                "advance_to_grouping",
-                "repair_required",
-            }:
+
+            same_session_handlers.append(
+                (
+                    line_role_state_path,
+                    advance_line_role_same_session_handoff,
+                    {"repair_required"},
+                )
+            )
+        for state_path, advance_handler, continue_statuses in same_session_handlers:
+            transition_guard = 0
+            while state_path and transition_guard < 8:
+                transition_guard += 1
+                transition_result = advance_handler(
+                    workspace_root=workspace_root,
+                    state_path=Path(state_path),
+                )
+                if transition_result.get("status") not in continue_statuses:
+                    break
+                next_task_file = fake_runner._build_workspace_task_file_result(
+                    task_file_payload=load_task_file(task_file_path),
+                )
+                write_task_file(path=task_file_path, payload=next_task_file)
+            if state_path:
                 break
-            next_task_file = fake_runner._build_workspace_task_file_result(
-                task_file_payload=load_task_file(task_file_path),
-            )
-            write_task_file(path=task_file_path, payload=next_task_file)
         processed_count = len(edited_task_file.get("units") or [])
     else:
         processed_count = 0

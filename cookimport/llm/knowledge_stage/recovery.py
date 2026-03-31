@@ -1402,11 +1402,17 @@ def _build_strict_json_watchdog_callback(
             completion_wait_turn_completed_count = None
         completion_waiting_for_exit = False
         completion_post_signal_observed = False
-        if (
+        completion_queue_completed = bool(
             allow_workspace_commands
             and task_queue_controller is not None
             and task_queue_controller.is_complete()
-        ):
+        )
+        completion_outputs_completed = bool(
+            allow_workspace_commands
+            and task_queue_controller is None
+            and workspace_output_status["complete"]
+        )
+        if completion_queue_completed or completion_outputs_completed:
             completion_waiting_for_exit = True
             if completion_wait_started_elapsed_seconds is None:
                 completion_wait_started_elapsed_seconds = snapshot.elapsed_seconds
@@ -1416,23 +1422,38 @@ def _build_strict_json_watchdog_callback(
                 snapshot.agent_message_count > int(completion_wait_agent_message_count or 0)
                 or snapshot.turn_completed_count > int(completion_wait_turn_completed_count or 0)
             )
+            completion_wait_elapsed_seconds = (
+                snapshot.elapsed_seconds
+                - float(completion_wait_started_elapsed_seconds or 0.0)
+            )
             completion_quiescence_reached = (
-                snapshot.last_event_seconds_ago is not None
-                and snapshot.last_event_seconds_ago
+                completion_wait_elapsed_seconds
                 >= _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
                 and (
-                    snapshot.elapsed_seconds
-                    - float(completion_wait_started_elapsed_seconds or 0.0)
+                    snapshot.last_event_seconds_ago is None
+                    or snapshot.last_event_seconds_ago
+                    >= _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
+                    or completion_outputs_completed
                 )
-                >= _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS
             )
             if completion_post_signal_observed or completion_quiescence_reached:
                 decision = CodexExecSupervisionDecision.terminate(
-                    reason_code="workspace_validated_task_queue_completed",
+                    reason_code=(
+                        "workspace_validated_task_queue_completed"
+                        if completion_queue_completed
+                        else "workspace_expected_outputs_completed"
+                    ),
                     reason_detail=(
                         "knowledge workspace worker produced repo-validated outputs for "
                         "every assigned current task and the session either emitted "
                         "a post-install completion signal or went quiet while waiting to exit"
+                        if completion_queue_completed
+                        else (
+                            "knowledge workspace worker produced every expected shard "
+                            "output and the session either emitted a post-output "
+                            "completion signal or remained in completion-wait long "
+                            "enough to treat the assignment as done"
+                        )
                     ),
                     retryable=False,
                     supervision_state="completed",

@@ -22,6 +22,7 @@ from cookimport.llm.editable_task_file import load_task_file
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 from cookimport.parsing import canonical_line_roles as canonical_line_roles_module
 from cookimport.parsing.canonical_line_roles import _preflight_line_role_shard, label_atomic_lines
+from cookimport.parsing.canonical_line_roles.runtime import _expand_line_role_task_file_outputs
 from cookimport.parsing.recipe_block_atomizer import (
     AtomicLineCandidate,
     atomize_blocks,
@@ -156,6 +157,86 @@ def _load_preserved_line_role_packet_rows(
     )
     payload = json.loads(path.read_text(encoding="utf-8"))
     return list(payload.get("rows") or [])
+
+
+def test_expand_line_role_task_file_outputs_recovers_answers_despite_immutable_drift(
+    tmp_path: Path,
+) -> None:
+    original_task_file = {
+        "schema_version": "editable_task_file.v1",
+        "stage_key": "line_role",
+        "assignment_id": "worker-003",
+        "worker_id": "worker-003",
+        "mode": "initial",
+        "editable_json_pointers": ["/units/0/answer", "/units/1/answer"],
+        "units": [
+            {
+                "unit_id": "line::589",
+                "owned_id": "589",
+                "evidence": {
+                    "atomic_index": 589,
+                    "block_id": "b877",
+                    "text": "Original line 589",
+                },
+                "answer": {},
+            },
+            {
+                "unit_id": "line::590",
+                "owned_id": "590",
+                "evidence": {
+                    "atomic_index": 590,
+                    "block_id": "b878",
+                    "text": "Original line 590",
+                },
+                "answer": {},
+            },
+        ],
+    }
+    edited_task_file = {
+        **original_task_file,
+        "units": [
+            {
+                "unit_id": "line::589",
+                "owned_id": "589",
+                "evidence": {
+                    "atomic_index": 123456,
+                    "block_id": "b589",
+                    "text": "Corrupted replacement text",
+                },
+                "answer": {"label": "INSTRUCTION_LINE"},
+            },
+            {
+                "unit_id": "line::590",
+                "owned_id": "590",
+                "evidence": {
+                    "atomic_index": 999999,
+                    "block_id": "b590",
+                    "text": "More corrupted text",
+                },
+                "answer": {"label": "NONRECIPE_CANDIDATE"},
+            },
+        ],
+    }
+    task_file_path = tmp_path / "task.json"
+    task_file_path.write_text(json.dumps(edited_task_file, indent=2) + "\n", encoding="utf-8")
+
+    outputs = _expand_line_role_task_file_outputs(
+        original_task_file=original_task_file,
+        task_file_path=task_file_path,
+        unit_to_shard_id={
+            "line::589": "line-role-canonical-0003-a000589-a000590",
+            "line::590": "line-role-canonical-0003-a000589-a000590",
+        },
+    )
+
+    assert outputs == {
+        "line-role-canonical-0003-a000589-a000590": {
+            "rows": [
+                {"atomic_index": 589, "label": "INSTRUCTION_LINE"},
+                {"atomic_index": 590, "label": "NONRECIPE_CANDIDATE"},
+            ]
+        }
+    }
 
 
 class _NoFinalWorkspaceMessageRunner(FakeCodexExecRunner):
@@ -5689,6 +5770,7 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
     )
     assert task_file_payload["stage_key"] == "line_role"
     assert task_file_payload["editable_json_pointers"] == ["/units/0/answer"]
+    assert "deterministic_hint_label" not in task_file_payload["units"][0]["evidence"]
     assigned_shards_payload = json.loads(
         (
             prompt_root
@@ -5837,6 +5919,10 @@ def test_label_atomic_lines_writes_one_shard_owned_ledger_without_line_role_task
         "/units/2/answer",
         "/units/3/answer",
     ]
+    assert all(
+        "deterministic_hint_label" not in unit["evidence"]
+        for unit in task_file_payload["units"]
+    )
     assigned_shards = json.loads(
         (worker_root / "assigned_shards.json").read_text(encoding="utf-8")
     )

@@ -117,6 +117,33 @@ def _write_final_outputs(*, output_dir: Path, final_outputs: Mapping[str, Mappin
         _write_json(output_dir / f"{shard_id}.json", payload)
 
 
+def _repair_exhausted_result(
+    *,
+    state: Mapping[str, Any],
+    transition: KnowledgeTaskFileTransition,
+) -> dict[str, Any]:
+    return {
+        "status": "repair_exhausted",
+        "current_stage_key": transition.current_stage_key,
+        "next_stage_key": transition.next_stage_key,
+        "same_session_transition_count": int(state.get("same_session_transition_count") or 0),
+        "classification_validation_count": int(
+            state.get("classification_validation_count") or 0
+        ),
+        "grouping_validation_count": int(state.get("grouping_validation_count") or 0),
+        "same_session_repair_rewrite_count": int(
+            state.get("same_session_repair_rewrite_count") or 0
+        ),
+        "grouping_transition_count": int(state.get("grouping_transition_count") or 0),
+        "completed": False,
+        "final_status": state.get("final_status"),
+        "final_output_shard_count": int(state.get("final_output_shard_count") or 0),
+        "validation_errors": list(transition.validation_errors),
+        "validation_metadata": dict(transition.validation_metadata),
+        "transition_metadata": dict(transition.transition_metadata),
+    }
+
+
 def advance_knowledge_same_session_handoff(
     *,
     workspace_root: Path,
@@ -160,6 +187,17 @@ def advance_knowledge_same_session_handoff(
         )
     if transition.current_stage_key == "knowledge_group" and transition.validated_answers_by_unit_id:
         state["grouping_answers_by_unit_id"] = dict(transition.validated_answers_by_unit_id)
+
+    current_mode = str(current_original_task_file.get("mode") or "initial").strip() or "initial"
+    if transition.status == "repair_required" and current_mode == "repair":
+        state["same_session_repair_rewrite_count"] = max(
+            0,
+            int(state.get("same_session_repair_rewrite_count") or 0) - 1,
+        )
+        state["completed"] = False
+        state["final_status"] = "repair_exhausted"
+        _write_json(state_path, state)
+        return _repair_exhausted_result(state=state, transition=transition)
 
     if transition.next_task_file is not None:
         write_task_file(path=task_file_path, payload=transition.next_task_file)

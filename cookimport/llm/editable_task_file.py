@@ -50,9 +50,11 @@ def validate_edited_task_file(
     original_task_file: Mapping[str, Any],
     edited_task_file: Mapping[str, Any],
     expected_schema_version: str | None = None,
+    allow_immutable_field_changes: bool = False,
 ) -> tuple[dict[str, dict[str, Any]] | None, tuple[str, ...], dict[str, Any]]:
     errors: list[str] = []
     error_details: list[dict[str, str]] = []
+    ignored_error_details: list[dict[str, str]] = []
     original = dict(original_task_file)
     edited = dict(edited_task_file)
     schema_version = (
@@ -82,27 +84,31 @@ def validate_edited_task_file(
     for key in sorted(immutable_top_level_keys):
         if original.get(key) != edited.get(key):
             path = f"/{key}"
-            errors.append("immutable_field_changed")
-            error_details.append(
-                {
-                    "path": path,
-                    "code": "immutable_field_changed",
-                    "message": f"{path} must not change",
-                }
-            )
+            detail = {
+                "path": path,
+                "code": "immutable_field_changed",
+                "message": f"{path} must not change",
+            }
+            if allow_immutable_field_changes:
+                ignored_error_details.append(detail)
+            else:
+                errors.append("immutable_field_changed")
+                error_details.append(detail)
     extra_top_level_keys = sorted(
         str(key) for key in edited.keys() if str(key) not in original and str(key) != "units"
     )
     for key in extra_top_level_keys:
         path = f"/{key}"
-        errors.append("immutable_field_changed")
-        error_details.append(
-            {
-                "path": path,
-                "code": "immutable_field_changed",
-                "message": f"{path} must not be added",
-            }
-        )
+        detail = {
+            "path": path,
+            "code": "immutable_field_changed",
+            "message": f"{path} must not be added",
+        }
+        if allow_immutable_field_changes:
+            ignored_error_details.append(detail)
+        else:
+            errors.append("immutable_field_changed")
+            error_details.append(detail)
 
     original_units = original.get("units")
     edited_units = edited.get("units")
@@ -143,27 +149,31 @@ def validate_edited_task_file(
                 continue
             if edited_unit_dict.get(key) != original_value:
                 path = f"{unit_path}/{key}"
-                errors.append("immutable_field_changed")
-                error_details.append(
-                    {
-                        "path": path,
-                        "code": "immutable_field_changed",
-                        "message": f"{path} must not change",
-                    }
-                )
+                detail = {
+                    "path": path,
+                    "code": "immutable_field_changed",
+                    "message": f"{path} must not change",
+                }
+                if allow_immutable_field_changes:
+                    ignored_error_details.append(detail)
+                else:
+                    errors.append("immutable_field_changed")
+                    error_details.append(detail)
         extra_keys = sorted(
             str(key) for key in edited_unit_dict.keys() if key not in original_unit_dict
         )
         for key in extra_keys:
             path = f"{unit_path}/{key}"
-            errors.append("immutable_field_changed")
-            error_details.append(
-                {
-                    "path": path,
-                    "code": "immutable_field_changed",
-                    "message": f"{path} must not be added",
-                }
-            )
+            detail = {
+                "path": path,
+                "code": "immutable_field_changed",
+                "message": f"{path} must not be added",
+            }
+            if allow_immutable_field_changes:
+                ignored_error_details.append(detail)
+            else:
+                errors.append("immutable_field_changed")
+                error_details.append(detail)
         unit_id = str(original_unit_dict.get("unit_id") or "").strip() or f"unit-{index:03d}"
         answer_payload = edited_unit_dict.get("answer")
         answers_by_unit_id[unit_id] = (
@@ -172,6 +182,8 @@ def validate_edited_task_file(
 
     metadata = {
         "error_details": error_details,
+        "ignored_error_details": ignored_error_details,
+        "immutable_field_drift_ignored": bool(ignored_error_details),
         "unit_count": len(original_units),
         "changed_unit_count": sum(
             1

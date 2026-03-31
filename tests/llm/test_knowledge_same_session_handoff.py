@@ -241,3 +241,39 @@ def test_same_session_grouping_handoff_treats_task_file_contract_tampering_as_re
     assert "immutable_field_changed" in grouping_result["validation_errors"]
     assert repair_task["mode"] == "repair"
     assert repair_task["stage_key"] == "knowledge_group"
+
+
+def test_same_session_grouping_handoff_stops_after_one_failed_repair_pass(
+    tmp_path: Path,
+) -> None:
+    workspace_root, state_path = _initialize_workspace(tmp_path)
+
+    task_file = load_task_file(workspace_root / "task.json")
+    edited = deepcopy(task_file)
+    edited["units"][0]["answer"] = _valid_classification_answer()
+    write_task_file(path=workspace_root / "task.json", payload=edited)
+    classification_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    assert classification_result["status"] == "advance_to_grouping"
+
+    grouping_task = load_task_file(workspace_root / "task.json")
+    write_task_file(path=workspace_root / "task.json", payload=grouping_task)
+
+    repair_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    assert repair_result["status"] == "repair_required"
+
+    second_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+
+    assert second_result["status"] == "repair_exhausted"
+    assert second_result["same_session_repair_rewrite_count"] == 1
+    assert state_payload["final_status"] == "repair_exhausted"
+    assert state_payload["same_session_repair_rewrite_count"] == 1

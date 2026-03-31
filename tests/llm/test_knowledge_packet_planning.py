@@ -176,6 +176,10 @@ def test_build_knowledge_jobs_treats_prompt_target_count_as_hard_cap(
     assert [entry.metadata["owned_block_indices"] for entry in report.shard_entries] == [
         [0, 1, 2, 3]
     ]
+    assert report.planning_warnings == [
+        "knowledge_prompt_target_count is using the requested final shard count "
+        "of 1; packet-budget planning would have split the queue into 4 shards."
+    ]
 
 
 def test_build_knowledge_jobs_keeps_review_order_inside_each_shard(tmp_path: Path) -> None:

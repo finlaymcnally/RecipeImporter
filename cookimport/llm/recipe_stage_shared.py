@@ -84,6 +84,10 @@ from .task_file_guardrails import (
     build_worker_session_guardrails,
     summarize_task_file_guardrails,
 )
+from .recipe_same_session_handoff import (
+    RECIPE_SAME_SESSION_STATE_ENV,
+    initialize_recipe_same_session_state,
+)
 from .worker_hint_sidecars import preview_text, write_worker_hint_markdown
 
 logger = logging.getLogger(__name__)
@@ -165,6 +169,7 @@ _ELIGIBILITY_CHAPTER_PAGE_NEGATIVE_HINT_TOKENS = (
 )
 _RECIPE_GUARDRAIL_REPORT_SCHEMA_VERSION = "recipe_codex_guardrail_report.v1"
 _STRICT_JSON_WATCHDOG_POLICY = "strict_json_no_tools_v1"
+_RECIPE_SAME_SESSION_STATE_FILE_NAME = "recipe_same_session_state.json"
 
 
 def _effort_override_value(value: object | None) -> str | None:
@@ -1699,6 +1704,10 @@ def _relative_path(base: Path, path: Path) -> str:
         return str(path)
 
 
+def _recipe_same_session_state_path(worker_root: Path) -> Path:
+    return worker_root / "_repo_control" / _RECIPE_SAME_SESSION_STATE_FILE_NAME
+
+
 def _coerce_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
@@ -2198,12 +2207,13 @@ def _build_recipe_task_file_worker_prompt(*, task_count: int, repair_mode: bool)
     lines = [
         "You are a recipe correction worker in a bounded local workspace.",
         "",
-        f"Open `{TASK_FILE_NAME}`, read the whole file once, edit only `/units/*/answer`, save the same file, and stop.",
+        f"Open `{TASK_FILE_NAME}`, read the whole file once, edit only `/units/*/answer`, save the same file, and then run `python3 -m cookimport.llm.recipe_same_session_handoff`.",
         "`task.json` already contains the full job for this worker. You do not need extra manifests, queue state, or hidden context before editing it.",
-        "If you briefly reread part of the file or make a small local false start, correct it and continue; deterministic validation happens after you save.",
+        "The helper is the only repo-side handoff seam. It validates the edited file and either completes the assignment or rewrites `task.json` into repair mode for the same session.",
+        "If you briefly reread part of the file or make a small local false start, correct it and continue.",
         "Do not rewrite immutable metadata or evidence fields.",
         "Do not invent helper ledgers, queue files, or alternate output files.",
-        "The repo will validate the edited task file and expand accepted answers into final artifacts.",
+        "The repo will expand accepted answers into final artifacts after the helper validates them.",
     ]
     if repair_mode:
         lines.extend(
@@ -2224,6 +2234,14 @@ def _build_recipe_task_file_worker_prompt(*, task_count: int, repair_mode: bool)
         )
     lines.extend(
         [
+            "",
+            "Worker contract:",
+            "- Start with `task.json`.",
+            "- Edit only the `answer` object inside each unit.",
+            "- After each edit pass, run `python3 -m cookimport.llm.recipe_same_session_handoff` from the workspace root.",
+            "- If the helper reports `repair_required`, reopen the rewritten `task.json` immediately, fix only the named issues, and run the helper again.",
+            "- Stop only after the helper reports `completed`.",
+            "- Other than that one helper command, avoid shell on the happy path.",
             "",
             "Recipe answer rules:",
             "- `status` must be one of `repaired`, `fragmentary`, or `not_a_recipe`.",
@@ -2601,6 +2619,7 @@ def _run_recipe_workspace_worker_assignment_v1(
     )
     task_file_guardrail: dict[str, Any] | None = None
     repair_worker_session_count = 0
+    same_session_state_payload: dict[str, Any] = {}
     if runnable_tasks:
         task_file_path = worker_root / TASK_FILE_NAME
         original_task_file = _build_recipe_task_file(
@@ -2611,6 +2630,24 @@ def _run_recipe_workspace_worker_assignment_v1(
             payload=original_task_file,
             assignment_id=assignment.worker_id,
             worker_id=assignment.worker_id,
+        )
+        state_path = _recipe_same_session_state_path(worker_root)
+        initialize_recipe_same_session_state(
+            state_path=state_path,
+            assignment_id=assignment.worker_id,
+            worker_id=assignment.worker_id,
+            task_file=original_task_file,
+            task_records=[
+                {
+                    "unit_id": _build_recipe_task_file_unit(task_plan=task_plan)["unit_id"],
+                    "task_id": task_plan.task_id,
+                    "parent_shard_id": task_plan.parent_shard_id,
+                    "result_path": _recipe_task_result_path(task_plan),
+                    "manifest_entry": asdict(task_plan.manifest_entry),
+                }
+                for task_plan in runnable_tasks
+            ],
+            output_dir=worker_root / "out",
         )
         write_task_file(path=task_file_path, payload=original_task_file)
         worker_prompt_text = _build_recipe_task_file_worker_prompt(
@@ -2640,7 +2677,10 @@ def _run_recipe_workspace_worker_assignment_v1(
         run_result = runner.run_workspace_worker(
             prompt_text=worker_prompt_text,
             working_dir=worker_root,
-            env=env,
+            env={
+                **dict(env),
+                RECIPE_SAME_SESSION_STATE_ENV: str(state_path),
+            },
             model=model,
             reasoning_effort=reasoning_effort,
             workspace_task_label="recipe correction worker session",
@@ -2691,138 +2731,57 @@ def _run_recipe_workspace_worker_assignment_v1(
             for row_payload in telemetry_rows:
                 if isinstance(row_payload, Mapping):
                     stage_rows.append(dict(row_payload))
-        (
-            first_pass_payloads,
-            first_pass_errors,
-            previous_answers_by_unit_id,
-            feedback_by_unit_id,
-        ) = _evaluate_recipe_task_file_answers(
-            original_task_file=original_task_file,
-            edited_task_file_path=task_file_path,
-            runnable_tasks=runnable_tasks,
+        same_session_state_payload = _load_json_dict_safely(state_path)
+        task_payloads_by_task_id.update(
+            {
+                str(task_id): dict(payload)
+                for task_id, payload in dict(
+                    same_session_state_payload.get("task_payloads_by_task_id") or {}
+                ).items()
+                if isinstance(payload, Mapping)
+            }
         )
-        task_payloads_by_task_id.update(first_pass_payloads)
-        failed_unit_ids = [
-            unit_id
-            for unit_id, task_plan in {
-                f"recipe::{str((_coerce_dict(((_coerce_dict(task.manifest_entry.input_payload).get('r') or [{}])[0])).get('rid') or '').strip() or task.task_id)}": task
-                for task in runnable_tasks
-            }.items()
-            if task_plan.task_id in first_pass_errors
-        ]
-        if failed_unit_ids:
-            repair_task_file = build_repair_task_file(
-                original_task_file=original_task_file,
-                failed_unit_ids=failed_unit_ids,
-                previous_answers_by_unit_id=previous_answers_by_unit_id,
-                validation_feedback_by_unit_id=feedback_by_unit_id,
-            )
-            write_task_file(path=task_file_path, payload=repair_task_file)
-            repair_prompt_text = _build_recipe_task_file_worker_prompt(
-                task_count=len(failed_unit_ids),
-                repair_mode=True,
-            )
-            (worker_root / "repair_prompt.txt").write_text(
-                repair_prompt_text,
-                encoding="utf-8",
-            )
-            repair_run_result = runner.run_workspace_worker(
-                prompt_text=repair_prompt_text,
-                working_dir=worker_root,
-                env=env,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                workspace_task_label="recipe correction repair task-file session",
-            )
-            repair_worker_session_count += 1
+        task_validation_errors_by_task_id.update(
+            {
+                str(task_id): tuple(str(error).strip() for error in (errors or []) if str(error).strip())
+                for task_id, errors in dict(
+                    same_session_state_payload.get("task_validation_errors_by_task_id") or {}
+                ).items()
+            }
+        )
+        for task_id, status_payload in dict(
+            same_session_state_payload.get("task_status_by_task_id") or {}
+        ).items():
+            if isinstance(status_payload, Mapping):
+                task_status_by_task_id.setdefault(str(task_id), {}).update(dict(status_payload))
+        for task in runnable_tasks:
+            task_root = worker_root / "shards" / task.task_id
+            task_root.mkdir(parents=True, exist_ok=True)
+            task_status_payload = dict(task_status_by_task_id.get(task.task_id) or {})
             _write_json(
-                {"text": repair_run_result.response_text},
-                worker_root / "repair_last_message.json",
+                {
+                    "task_id": task.task_id,
+                    "repair_status": task_status_payload.get("repair_status"),
+                    "validation_errors": list(task_status_payload.get("validation_errors") or []),
+                },
+                task_root / "repair_status.json",
             )
-            _write_json(
-                dict(repair_run_result.usage or {}),
-                worker_root / "repair_usage.json",
-            )
+        if not task_payloads_by_task_id and not same_session_state_payload.get("completed"):
             (
-                repair_payloads,
-                repair_errors,
-                _repair_previous_answers,
-                _repair_feedback_by_unit_id,
+                first_pass_payloads,
+                first_pass_errors,
+                _previous_answers_by_unit_id,
+                _feedback_by_unit_id,
             ) = _evaluate_recipe_task_file_answers(
-                original_task_file=repair_task_file,
+                original_task_file=original_task_file,
                 edited_task_file_path=task_file_path,
-                runnable_tasks=[
-                    task for task in runnable_tasks if task.task_id in first_pass_errors
-                ],
+                runnable_tasks=runnable_tasks,
             )
-            task_payloads_by_task_id.update(repair_payloads)
+            task_payloads_by_task_id.update(first_pass_payloads)
             for task in runnable_tasks:
-                task_root = worker_root / "shards" / task.task_id
-                task_root.mkdir(parents=True, exist_ok=True)
-                output_path = worker_root / _recipe_task_result_path(task)
-                if task.task_id in repair_payloads:
-                    _write_recipe_task_payload(
-                        output_path=output_path,
-                        payload=repair_payloads[task.task_id],
-                    )
-                    task_validation_errors_by_task_id[task.task_id] = ()
-                    task_status_by_task_id.setdefault(task.task_id, {}).update(
-                        {
-                            "task_status": "validated_after_repair",
-                            "repair_attempted": True,
-                            "repair_status": "repaired",
-                            "validation_errors": [],
-                        }
-                    )
-                    _write_json(
-                        {
-                            "task_id": task.task_id,
-                            "repair_status": "repaired",
-                            "validation_errors": [],
-                        },
-                        task_root / "repair_status.json",
-                    )
-                elif task.task_id in first_pass_errors:
-                    failed_validation_errors = list(repair_errors.get(task.task_id) or first_pass_errors.get(task.task_id) or ())
-                    task_validation_errors_by_task_id[task.task_id] = tuple(
-                        failed_validation_errors
-                    )
-                    task_status_by_task_id.setdefault(task.task_id, {}).update(
-                        {
-                            "task_status": "failed_after_repair",
-                            "repair_attempted": True,
-                            "repair_status": "failed",
-                            "validation_errors": failed_validation_errors,
-                        }
-                    )
-                    _write_json(
-                        {
-                            "task_id": task.task_id,
-                            "repair_status": "failed",
-                            "validation_errors": failed_validation_errors,
-                        },
-                        task_root / "repair_status.json",
-                    )
-                elif task.task_id in first_pass_payloads:
-                    _write_recipe_task_payload(
-                        output_path=output_path,
-                        payload=first_pass_payloads[task.task_id],
-                    )
-                    task_validation_errors_by_task_id[task.task_id] = ()
-                    task_status_by_task_id.setdefault(task.task_id, {}).update(
-                        {
-                            "task_status": "validated",
-                            "repair_attempted": False,
-                            "repair_status": "not_needed",
-                            "validation_errors": [],
-                        }
-                    )
-        else:
-            for task in runnable_tasks:
-                output_path = worker_root / _recipe_task_result_path(task)
                 if task.task_id in first_pass_payloads:
                     _write_recipe_task_payload(
-                        output_path=output_path,
+                        output_path=worker_root / _recipe_task_result_path(task),
                         payload=first_pass_payloads[task.task_id],
                     )
                     task_validation_errors_by_task_id[task.task_id] = ()
@@ -4122,6 +4081,16 @@ def _write_json(payload: Any, path: Path) -> None:
         json.dumps(payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+
+
+def _load_json_dict_safely(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return dict(payload) if isinstance(payload, Mapping) else {}
 
 
 _STRUCTURAL_STATUS_PRECEDENCE = {"ok": 0, "degraded": 1, "failed": 2}
