@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 
 from cookimport.llm.editable_task_file import build_repair_task_file
 from cookimport.llm.knowledge_stage.task_file_contracts import (
@@ -232,3 +233,75 @@ def test_task_file_answer_feedback_is_filtered_to_each_failed_unit() -> None:
             ],
         },
     }
+
+
+def test_filtered_repair_feedback_stays_materially_smaller_than_repeated_shared_feedback() -> None:
+    unit_count = 24
+    task_file, _ = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[
+            ShardManifestEntryV1(
+                shard_id="book.ks0000.nr",
+                owned_ids=("book.ks0000.nr",),
+                input_payload={
+                    "v": "1",
+                    "bid": "book.ks0000.nr",
+                    "b": [
+                        {
+                            "i": block_index,
+                            "id": f"book.ks0000.nr:{block_index}",
+                            "t": f"Knowledge block {block_index}",
+                        }
+                        for block_index in range(unit_count)
+                    ],
+                },
+                metadata={
+                    "owned_block_indices": list(range(unit_count)),
+                    "owned_block_count": unit_count,
+                },
+            )
+        ],
+    )
+    validation_errors = ("knowledge_missing_grounding",)
+    error_details = [
+        {
+            "path": f"/units/knowledge::{block_index}/answer/grounding",
+            "code": "knowledge_missing_grounding",
+            "message": "x" * 2000,
+        }
+        for block_index in range(unit_count)
+    ]
+    failed_unit_ids = [f"knowledge::{block_index}" for block_index in range(unit_count)]
+
+    filtered_feedback = build_task_file_answer_feedback(
+        validation_errors=validation_errors,
+        validation_metadata={
+            "failed_unit_ids": failed_unit_ids,
+            "error_details": error_details,
+        },
+    )
+    filtered_repair_task = build_repair_task_file(
+        original_task_file=task_file,
+        failed_unit_ids=failed_unit_ids,
+        previous_answers_by_unit_id={},
+        validation_feedback_by_unit_id=filtered_feedback,
+    )
+
+    naive_feedback = {
+        unit_id: {
+            "validation_errors": list(validation_errors),
+            "error_details": [dict(detail) for detail in error_details],
+        }
+        for unit_id in failed_unit_ids
+    }
+    naive_repair_task = build_repair_task_file(
+        original_task_file=task_file,
+        failed_unit_ids=failed_unit_ids,
+        previous_answers_by_unit_id={},
+        validation_feedback_by_unit_id=naive_feedback,
+    )
+
+    filtered_size = len(json.dumps(filtered_repair_task, sort_keys=True))
+    naive_size = len(json.dumps(naive_repair_task, sort_keys=True))
+
+    assert filtered_size < naive_size // 4

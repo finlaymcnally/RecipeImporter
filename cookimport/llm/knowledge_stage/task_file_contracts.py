@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import hashlib
+import json
 from typing import Any, Mapping, Sequence
 
 from ..codex_farm_knowledge_models import (
@@ -24,6 +25,8 @@ KNOWLEDGE_CLASSIFY_STAGE_KEY = "nonrecipe_classify"
 KNOWLEDGE_GROUP_STAGE_KEY = "knowledge_group"
 KNOWLEDGE_CLASSIFY_SCHEMA_VERSION = "knowledge_block_classify.v1"
 KNOWLEDGE_GROUP_SCHEMA_VERSION = "knowledge_group_only.v1"
+KNOWLEDGE_GROUP_TASK_MAX_UNITS = 40
+KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS = 12000
 
 
 @dataclass(frozen=True)
@@ -272,6 +275,202 @@ def _knowledge_grouping_answer_schema() -> dict[str, Any]:
             }
         ],
     }
+
+
+def _grouping_batch_metadata(
+    *,
+    batch_units: Sequence[Mapping[str, Any]],
+    batch_index: int,
+    batch_count: int,
+    total_grouping_unit_count: int,
+) -> dict[str, Any]:
+    shard_ids: list[str] = []
+    seen_shard_ids: set[str] = set()
+    evidence_chars = 0
+    for unit in batch_units:
+        if not isinstance(unit, Mapping):
+            continue
+        shard_id = str(unit.get("grouping_shard_id") or "").strip()
+        if shard_id and shard_id not in seen_shard_ids:
+            seen_shard_ids.add(shard_id)
+            shard_ids.append(shard_id)
+        evidence_chars += len(
+            json.dumps(_coerce_dict(unit.get("evidence")), sort_keys=True, ensure_ascii=True)
+        )
+    return {
+        "current_batch_index": max(1, int(batch_index)),
+        "total_batches": max(1, int(batch_count)),
+        "unit_count": len(batch_units),
+        "total_grouping_unit_count": max(0, int(total_grouping_unit_count)),
+        "remaining_batches_after_this": max(0, int(batch_count) - int(batch_index)),
+        "estimated_evidence_chars": evidence_chars,
+        "max_units_per_batch": KNOWLEDGE_GROUP_TASK_MAX_UNITS,
+        "max_evidence_chars_per_batch": KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS,
+        "shard_ids": shard_ids,
+    }
+
+
+def _grouping_unit_budget(unit: Mapping[str, Any]) -> int:
+    return len(
+        json.dumps(_coerce_dict(unit.get("evidence")), sort_keys=True, ensure_ascii=True)
+    )
+
+
+def _collect_knowledge_grouping_units(
+    *,
+    classification_task_file: Mapping[str, Any],
+    classification_answers_by_unit_id: Mapping[str, Mapping[str, Any]],
+    unit_to_shard_id: Mapping[str, str],
+    allowed_unit_ids: Sequence[str] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    units: list[dict[str, Any]] = []
+    grouping_unit_to_shard_id: dict[str, str] = {}
+    allowed_unit_id_set = (
+        {
+            str(unit_id).strip()
+            for unit_id in (allowed_unit_ids or [])
+            if str(unit_id).strip()
+        }
+        if allowed_unit_ids is not None
+        else None
+    )
+    for unit in classification_task_file.get("units") or []:
+        if not isinstance(unit, Mapping):
+            continue
+        unit_dict = dict(unit)
+        unit_id = str(unit_dict.get("unit_id") or "").strip()
+        if allowed_unit_id_set is not None and unit_id not in allowed_unit_id_set:
+            continue
+        answer = _coerce_dict(classification_answers_by_unit_id.get(unit_id))
+        if str(answer.get("category") or "").strip() != "knowledge":
+            continue
+        evidence = _coerce_dict(unit_dict.get("evidence"))
+        block_index = int(evidence.get("block_index") or 0)
+        owned_id = str(unit_dict.get("owned_id") or evidence.get("block_id") or unit_id).strip()
+        shard_id = str(unit_to_shard_id.get(unit_id) or "").strip()
+        if not shard_id:
+            continue
+        grouping_unit_to_shard_id[unit_id] = shard_id
+        units.append(
+            {
+                "unit_id": unit_id,
+                "owned_id": owned_id,
+                "grouping_shard_id": shard_id,
+                "evidence": {
+                    "block_index": block_index,
+                    "block_id": str(evidence.get("block_id") or owned_id),
+                    "text": str(evidence.get("text") or ""),
+                    "context_before": evidence.get("context_before"),
+                    "context_after": evidence.get("context_after"),
+                },
+                "answer": {},
+            }
+        )
+    return units, grouping_unit_to_shard_id
+
+
+def _partition_knowledge_grouping_units(
+    units: Sequence[Mapping[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    batches: list[list[dict[str, Any]]] = []
+    current_batch: list[dict[str, Any]] = []
+    current_budget = 0
+    for unit in units:
+        if not isinstance(unit, Mapping):
+            continue
+        unit_dict = dict(unit)
+        unit_budget = _grouping_unit_budget(unit_dict)
+        should_rotate = bool(current_batch) and (
+            len(current_batch) >= KNOWLEDGE_GROUP_TASK_MAX_UNITS
+            or current_budget + unit_budget > KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS
+        )
+        if should_rotate:
+            batches.append(current_batch)
+            current_batch = []
+            current_budget = 0
+        current_batch.append(unit_dict)
+        current_budget += unit_budget
+    if current_batch:
+        batches.append(current_batch)
+    return batches
+
+
+def _build_knowledge_grouping_task_file_from_units(
+    *,
+    assignment_id: str,
+    worker_id: str,
+    units: Sequence[Mapping[str, Any]],
+    batch_index: int,
+    batch_count: int,
+    total_grouping_unit_count: int,
+) -> dict[str, Any]:
+    task_units = [
+        {
+            key: value
+            for key, value in dict(unit).items()
+            if key != "grouping_shard_id"
+        }
+        for unit in units
+        if isinstance(unit, Mapping)
+    ]
+    task_file = build_task_file(
+        stage_key=KNOWLEDGE_GROUP_STAGE_KEY,
+        assignment_id=assignment_id,
+        worker_id=worker_id,
+        units=task_units,
+        schema_version=KNOWLEDGE_GROUP_SCHEMA_VERSION,
+        helper_commands=_knowledge_helper_commands(stage_key=KNOWLEDGE_GROUP_STAGE_KEY),
+        next_action=(
+            "Group the kept knowledge rows by filling /units/*/answer, then run "
+            "python3 -m cookimport.llm.knowledge_same_session_handoff."
+        ),
+        answer_schema=_knowledge_grouping_answer_schema(),
+    )
+    if task_units:
+        task_file["grouping_batch"] = _grouping_batch_metadata(
+            batch_units=units,
+            batch_index=batch_index,
+            batch_count=batch_count,
+            total_grouping_unit_count=total_grouping_unit_count,
+        )
+    return task_file
+
+
+def build_knowledge_grouping_task_files(
+    *,
+    assignment_id: str,
+    worker_id: str,
+    classification_task_file: Mapping[str, Any],
+    classification_answers_by_unit_id: Mapping[str, Mapping[str, Any]],
+    unit_to_shard_id: Mapping[str, str],
+) -> tuple[list[dict[str, Any]], dict[str, str], list[list[str]]]:
+    units, grouping_unit_to_shard_id = _collect_knowledge_grouping_units(
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id=classification_answers_by_unit_id,
+        unit_to_shard_id=unit_to_shard_id,
+    )
+    batches = _partition_knowledge_grouping_units(units)
+    total_grouping_unit_count = len(units)
+    task_files = [
+        _build_knowledge_grouping_task_file_from_units(
+            assignment_id=assignment_id,
+            worker_id=worker_id,
+            units=batch_units,
+            batch_index=index + 1,
+            batch_count=len(batches),
+            total_grouping_unit_count=total_grouping_unit_count,
+        )
+        for index, batch_units in enumerate(batches)
+    ]
+    batch_unit_ids = [
+        [
+            str(unit.get("unit_id") or "").strip()
+            for unit in batch_units
+            if str(unit.get("unit_id") or "").strip()
+        ]
+        for batch_units in batches
+    ]
+    return task_files, grouping_unit_to_shard_id, batch_unit_ids
 
 
 def build_knowledge_classification_task_file(
@@ -631,50 +830,23 @@ def build_knowledge_grouping_task_file(
     classification_answers_by_unit_id: Mapping[str, Mapping[str, Any]],
     unit_to_shard_id: Mapping[str, str],
 ) -> tuple[dict[str, Any], dict[str, str]]:
-    units: list[dict[str, Any]] = []
-    grouping_unit_to_shard_id: dict[str, str] = {}
-    for unit in classification_task_file.get("units") or []:
-        if not isinstance(unit, Mapping):
-            continue
-        unit_dict = dict(unit)
-        unit_id = str(unit_dict.get("unit_id") or "").strip()
-        answer = _coerce_dict(classification_answers_by_unit_id.get(unit_id))
-        if str(answer.get("category") or "").strip() != "knowledge":
-            continue
-        evidence = _coerce_dict(unit_dict.get("evidence"))
-        block_index = int(evidence.get("block_index") or 0)
-        owned_id = str(unit_dict.get("owned_id") or evidence.get("block_id") or unit_id).strip()
-        shard_id = str(unit_to_shard_id.get(unit_id) or "").strip()
-        if not shard_id:
-            continue
-        grouping_unit_to_shard_id[unit_id] = shard_id
-        units.append(
-            {
-                "unit_id": unit_id,
-                "owned_id": owned_id,
-                "evidence": {
-                    "block_index": block_index,
-                    "block_id": str(evidence.get("block_id") or owned_id),
-                    "text": str(evidence.get("text") or ""),
-                    "context_before": evidence.get("context_before"),
-                    "context_after": evidence.get("context_after"),
-                },
-                "answer": {},
-            }
-        )
+    task_files, grouping_unit_to_shard_id, _batch_unit_ids = build_knowledge_grouping_task_files(
+        assignment_id=assignment_id,
+        worker_id=worker_id,
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id=classification_answers_by_unit_id,
+        unit_to_shard_id=unit_to_shard_id,
+    )
+    if task_files:
+        return task_files[0], grouping_unit_to_shard_id
     return (
-        build_task_file(
-            stage_key=KNOWLEDGE_GROUP_STAGE_KEY,
+        _build_knowledge_grouping_task_file_from_units(
             assignment_id=assignment_id,
             worker_id=worker_id,
-            units=units,
-            schema_version=KNOWLEDGE_GROUP_SCHEMA_VERSION,
-            helper_commands=_knowledge_helper_commands(stage_key=KNOWLEDGE_GROUP_STAGE_KEY),
-            next_action=(
-                "Group the kept knowledge rows by filling /units/*/answer, then run "
-                "python3 -m cookimport.llm.knowledge_same_session_handoff."
-            ),
-            answer_schema=_knowledge_grouping_answer_schema(),
+            units=(),
+            batch_index=1,
+            batch_count=1,
+            total_grouping_unit_count=0,
         ),
         grouping_unit_to_shard_id,
     )
@@ -823,6 +995,8 @@ def transition_knowledge_classification_task_file(
     original_task_file: Mapping[str, Any],
     edited_task_file: Mapping[str, Any],
     unit_to_shard_id: Mapping[str, str],
+    classification_task_file: Mapping[str, Any] | None = None,
+    existing_classification_answers_by_unit_id: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> KnowledgeTaskFileTransition:
     answers_by_unit_id, validation_errors, validation_metadata = (
         validate_knowledge_classification_task_file(
@@ -835,12 +1009,25 @@ def transition_knowledge_classification_task_file(
     )
     if answers_by_unit_id is not None:
         validated_answers_by_unit_id.update(dict(answers_by_unit_id))
+    combined_answers_by_unit_id = {
+        str(unit_id): dict(answer)
+        for unit_id, answer in dict(
+            existing_classification_answers_by_unit_id or {}
+        ).items()
+        if str(unit_id).strip() and isinstance(answer, Mapping)
+    }
+    combined_answers_by_unit_id.update(validated_answers_by_unit_id)
+    classification_source_task_file = (
+        dict(classification_task_file)
+        if isinstance(classification_task_file, Mapping)
+        else dict(original_task_file)
+    )
     no_edits_detected = (
         not validation_errors
         and not validation_metadata.get("error_details")
         and
         int(validation_metadata.get("changed_unit_count") or 0) <= 0
-        and not validated_answers_by_unit_id
+        and not combined_answers_by_unit_id
     )
     if no_edits_detected:
         return KnowledgeTaskFileTransition(
@@ -885,7 +1072,7 @@ def transition_knowledge_classification_task_file(
             current_stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY,
             next_stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY,
             next_task_file=repair_task_file,
-            validated_answers_by_unit_id=validated_answers_by_unit_id,
+            validated_answers_by_unit_id=combined_answers_by_unit_id,
             validation_errors=tuple(validation_errors),
             validation_metadata=dict(validation_metadata),
             transition_metadata={
@@ -895,35 +1082,47 @@ def transition_knowledge_classification_task_file(
                 else "unit_validation_failure",
             },
         )
-    grouping_task_file, _ = build_knowledge_grouping_task_file(
-        assignment_id=str(original_task_file.get("assignment_id") or ""),
-        worker_id=str(original_task_file.get("worker_id") or ""),
-        classification_task_file=original_task_file,
-        classification_answers_by_unit_id=validated_answers_by_unit_id,
-        unit_to_shard_id=unit_to_shard_id,
+    grouping_task_files, _grouping_unit_to_shard_id, grouping_batch_unit_ids = (
+        build_knowledge_grouping_task_files(
+            assignment_id=str(original_task_file.get("assignment_id") or ""),
+            worker_id=str(original_task_file.get("worker_id") or ""),
+            classification_task_file=classification_source_task_file,
+            classification_answers_by_unit_id=combined_answers_by_unit_id,
+            unit_to_shard_id=unit_to_shard_id,
+        )
     )
-    if grouping_task_file.get("units"):
+    if grouping_task_files:
+        first_grouping_task_file = grouping_task_files[0]
+        total_grouping_unit_count = sum(
+            len(batch_unit_ids) for batch_unit_ids in grouping_batch_unit_ids
+        )
         return KnowledgeTaskFileTransition(
             status="advance_to_grouping",
             current_stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY,
             next_stage_key=KNOWLEDGE_GROUP_STAGE_KEY,
-            next_task_file=grouping_task_file,
-            validated_answers_by_unit_id=validated_answers_by_unit_id,
+            next_task_file=first_grouping_task_file,
+            validated_answers_by_unit_id=combined_answers_by_unit_id,
             validation_metadata=dict(validation_metadata),
             transition_metadata={
-                "grouping_unit_count": len(grouping_task_file.get("units") or []),
+                "grouping_unit_count": total_grouping_unit_count,
+                "grouping_batch_count": len(grouping_task_files),
+                "current_grouping_batch_index": 1,
+                "current_grouping_batch_unit_count": len(
+                    first_grouping_task_file.get("units") or []
+                ),
+                "pending_grouping_unit_batches": grouping_batch_unit_ids[1:],
             },
         )
     return KnowledgeTaskFileTransition(
         status="completed_without_grouping",
         current_stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY,
         final_outputs=combine_knowledge_task_file_outputs(
-            classification_task_file=original_task_file,
-            classification_answers_by_unit_id=validated_answers_by_unit_id,
+            classification_task_file=classification_source_task_file,
+            classification_answers_by_unit_id=combined_answers_by_unit_id,
             grouping_answers_by_unit_id=None,
             unit_to_shard_id=unit_to_shard_id,
         ),
-        validated_answers_by_unit_id=validated_answers_by_unit_id,
+        validated_answers_by_unit_id=combined_answers_by_unit_id,
         validation_metadata=dict(validation_metadata),
     )
 
@@ -934,7 +1133,9 @@ def transition_knowledge_grouping_task_file(
     edited_task_file: Mapping[str, Any],
     classification_task_file: Mapping[str, Any],
     classification_answers_by_unit_id: Mapping[str, Mapping[str, Any]],
+    grouping_answers_by_unit_id: Mapping[str, Mapping[str, Any]] | None,
     unit_to_shard_id: Mapping[str, str],
+    pending_grouping_unit_batches: Sequence[Sequence[str]] | None = None,
 ) -> KnowledgeTaskFileTransition:
     answers_by_unit_id, validation_errors, validation_metadata = (
         validate_knowledge_grouping_task_file(
@@ -947,12 +1148,18 @@ def transition_knowledge_grouping_task_file(
     )
     if answers_by_unit_id is not None:
         validated_answers_by_unit_id.update(dict(answers_by_unit_id))
+    combined_grouping_answers_by_unit_id = {
+        str(unit_id): dict(answer)
+        for unit_id, answer in dict(grouping_answers_by_unit_id or {}).items()
+        if str(unit_id).strip() and isinstance(answer, Mapping)
+    }
+    combined_grouping_answers_by_unit_id.update(validated_answers_by_unit_id)
     no_edits_detected = (
         not validation_errors
         and not validation_metadata.get("error_details")
         and
         int(validation_metadata.get("changed_unit_count") or 0) <= 0
-        and not validated_answers_by_unit_id
+        and not combined_grouping_answers_by_unit_id
     )
     if no_edits_detected:
         return KnowledgeTaskFileTransition(
@@ -997,7 +1204,7 @@ def transition_knowledge_grouping_task_file(
             current_stage_key=KNOWLEDGE_GROUP_STAGE_KEY,
             next_stage_key=KNOWLEDGE_GROUP_STAGE_KEY,
             next_task_file=repair_task_file,
-            validated_answers_by_unit_id=validated_answers_by_unit_id,
+            validated_answers_by_unit_id=combined_grouping_answers_by_unit_id,
             validation_errors=tuple(validation_errors),
             validation_metadata=dict(validation_metadata),
             transition_metadata={
@@ -1007,15 +1214,76 @@ def transition_knowledge_grouping_task_file(
                 else "unit_validation_failure",
             },
         )
+    remaining_batch_unit_ids = [
+        [
+            str(unit_id).strip()
+            for unit_id in batch_unit_ids
+            if str(unit_id).strip()
+        ]
+        for batch_unit_ids in (pending_grouping_unit_batches or [])
+        if batch_unit_ids
+    ]
+    if remaining_batch_unit_ids:
+        next_batch_unit_ids = remaining_batch_unit_ids[0]
+        later_batch_unit_ids = remaining_batch_unit_ids[1:]
+        batch_metadata = _coerce_dict(original_task_file.get("grouping_batch"))
+        total_batch_count = max(
+            int(batch_metadata.get("total_batches") or 0),
+            1 + len(remaining_batch_unit_ids),
+        )
+        current_batch_index = max(int(batch_metadata.get("current_batch_index") or 0), 1)
+        total_grouping_unit_count = max(
+            int(batch_metadata.get("total_grouping_unit_count") or 0),
+            len(combined_grouping_answers_by_unit_id) + sum(len(batch) for batch in later_batch_unit_ids),
+        )
+        next_batch_units, _next_mapping = _collect_knowledge_grouping_units(
+            classification_task_file=classification_task_file,
+            classification_answers_by_unit_id=classification_answers_by_unit_id,
+            unit_to_shard_id=unit_to_shard_id,
+            allowed_unit_ids=next_batch_unit_ids,
+        )
+        next_task_file = _build_knowledge_grouping_task_file_from_units(
+            assignment_id=str(original_task_file.get("assignment_id") or ""),
+            worker_id=str(original_task_file.get("worker_id") or ""),
+            units=next_batch_units,
+            batch_index=current_batch_index + 1,
+            batch_count=total_batch_count,
+            total_grouping_unit_count=total_grouping_unit_count,
+        )
+        return KnowledgeTaskFileTransition(
+            status="advance_to_grouping",
+            current_stage_key=KNOWLEDGE_GROUP_STAGE_KEY,
+            next_stage_key=KNOWLEDGE_GROUP_STAGE_KEY,
+            next_task_file=next_task_file,
+            validated_answers_by_unit_id=combined_grouping_answers_by_unit_id,
+            validation_metadata=dict(validation_metadata),
+            transition_metadata={
+                "grouping_unit_count": total_grouping_unit_count,
+                "grouping_batch_count": total_batch_count,
+                "current_grouping_batch_index": current_batch_index + 1,
+                "current_grouping_batch_unit_count": len(next_task_file.get("units") or []),
+                "pending_grouping_unit_batches": later_batch_unit_ids,
+            },
+        )
     return KnowledgeTaskFileTransition(
         status="completed_with_grouping",
         current_stage_key=KNOWLEDGE_GROUP_STAGE_KEY,
         final_outputs=combine_knowledge_task_file_outputs(
             classification_task_file=classification_task_file,
             classification_answers_by_unit_id=classification_answers_by_unit_id,
-            grouping_answers_by_unit_id=validated_answers_by_unit_id,
+            grouping_answers_by_unit_id=combined_grouping_answers_by_unit_id,
             unit_to_shard_id=unit_to_shard_id,
         ),
-        validated_answers_by_unit_id=validated_answers_by_unit_id,
+        validated_answers_by_unit_id=combined_grouping_answers_by_unit_id,
         validation_metadata=dict(validation_metadata),
+        transition_metadata={
+            "grouping_batch_count": max(
+                int(_coerce_dict(original_task_file.get("grouping_batch")).get("total_batches") or 0),
+                1,
+            ),
+            "current_grouping_batch_index": max(
+                int(_coerce_dict(original_task_file.get("grouping_batch")).get("current_batch_index") or 0),
+                1,
+            ),
+        },
     )

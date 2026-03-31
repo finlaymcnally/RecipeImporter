@@ -410,7 +410,7 @@ def _apply_knowledge_same_session_row_metadata(
         state_payload.get("grouping_transition_count") or 0
     )
     row["classification_step_count"] = 1 if classification_validation_count > 0 else 0
-    row["grouping_step_count"] = 1 if grouping_validation_count > 0 else 0
+    row["grouping_step_count"] = grouping_validation_count
     row["workspace_packet_count"] = (
         classification_validation_count + grouping_validation_count
     )

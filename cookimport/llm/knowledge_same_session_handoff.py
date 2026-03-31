@@ -57,6 +57,9 @@ def initialize_knowledge_same_session_state(
         "same_session_repair_rewrite_count": 0,
         "grouping_transition_count": 0,
         "grouping_unit_count": 0,
+        "grouping_batch_count": 0,
+        "completed_grouping_batch_count": 0,
+        "pending_grouping_unit_batches": [],
         "final_output_shard_count": 0,
         "completed": False,
         "final_status": None,
@@ -162,6 +165,11 @@ def describe_knowledge_same_session_status(
     )
     current_stage_key = str(state.get("current_stage_key") or task_file.get("stage_key") or "nonrecipe_classify").strip()
     mode = str(task_file.get("mode") or "initial").strip() or "initial"
+    grouping_batch = (
+        dict(task_file.get("grouping_batch") or {})
+        if isinstance(task_file.get("grouping_batch"), Mapping)
+        else {}
+    )
     if bool(state.get("completed")):
         next_action = "outputs are already complete; stop"
     elif mode == "repair":
@@ -183,6 +191,11 @@ def describe_knowledge_same_session_status(
         "fresh_session_retry_count": int(state.get("fresh_session_retry_count") or 0),
         "fresh_session_retry_limit": int(state.get("fresh_session_retry_limit") or 0),
         "fresh_session_retry_status": str(state.get("fresh_session_retry_status") or "not_attempted"),
+        "grouping_batch": grouping_batch,
+        "grouping_batch_count": int(state.get("grouping_batch_count") or 0),
+        "completed_grouping_batch_count": int(
+            state.get("completed_grouping_batch_count") or 0
+        ),
     }
 
 
@@ -276,6 +289,10 @@ def advance_knowledge_same_session_handoff(
             original_task_file=current_original_task_file,
             edited_task_file=edited_task_file,
             unit_to_shard_id=unit_to_shard_id,
+            classification_task_file=dict(state.get("classification_task_file") or {}),
+            existing_classification_answers_by_unit_id=dict(
+                state.get("classification_answers_by_unit_id") or {}
+            ),
         )
     elif current_stage_key == "knowledge_group":
         transition = transition_knowledge_grouping_task_file(
@@ -285,7 +302,11 @@ def advance_knowledge_same_session_handoff(
             classification_answers_by_unit_id=dict(
                 state.get("classification_answers_by_unit_id") or {}
             ),
+            grouping_answers_by_unit_id=dict(state.get("grouping_answers_by_unit_id") or {}),
             unit_to_shard_id=unit_to_shard_id,
+            pending_grouping_unit_batches=list(
+                state.get("pending_grouping_unit_batches") or []
+            ),
         )
     else:
         raise ValueError(f"unsupported current stage key {current_stage_key!r}")
@@ -298,7 +319,13 @@ def advance_knowledge_same_session_handoff(
             transition.validated_answers_by_unit_id
         )
     if transition.current_stage_key == "knowledge_group" and transition.validated_answers_by_unit_id:
-        state["grouping_answers_by_unit_id"] = dict(transition.validated_answers_by_unit_id)
+        existing_grouping_answers = {
+            str(unit_id): dict(answer)
+            for unit_id, answer in dict(state.get("grouping_answers_by_unit_id") or {}).items()
+            if str(unit_id).strip()
+        }
+        existing_grouping_answers.update(dict(transition.validated_answers_by_unit_id))
+        state["grouping_answers_by_unit_id"] = existing_grouping_answers
 
     current_mode = str(current_original_task_file.get("mode") or "initial").strip() or "initial"
     if transition.status == "repair_required" and current_mode == "repair":
@@ -318,15 +345,40 @@ def advance_knowledge_same_session_handoff(
             transition.next_stage_key or transition.current_stage_key
         )
     if transition.status == "advance_to_grouping":
-        state["grouping_unit_count"] = int(
-            transition.transition_metadata.get("grouping_unit_count") or 0
-        )
+        if transition.current_stage_key == "nonrecipe_classify":
+            state["grouping_unit_count"] = int(
+                transition.transition_metadata.get("grouping_unit_count") or 0
+            )
+            state["grouping_batch_count"] = int(
+                transition.transition_metadata.get("grouping_batch_count") or 0
+            )
+            state["completed_grouping_batch_count"] = 0
+        elif transition.current_stage_key == "knowledge_group":
+            state["completed_grouping_batch_count"] = int(
+                state.get("completed_grouping_batch_count") or 0
+            ) + 1
+        state["pending_grouping_unit_batches"] = [
+            [
+                str(unit_id).strip()
+                for unit_id in batch_unit_ids
+                if str(unit_id).strip()
+            ]
+            for batch_unit_ids in (
+                transition.transition_metadata.get("pending_grouping_unit_batches") or []
+            )
+            if batch_unit_ids
+        ]
     if transition.final_outputs is not None:
         output_dir = Path(str(state.get("output_dir") or "")).expanduser()
         _write_final_outputs(output_dir=output_dir, final_outputs=transition.final_outputs)
         state["completed"] = True
         state["final_status"] = transition.status
         state["final_output_shard_count"] = len(transition.final_outputs)
+        if transition.current_stage_key == "knowledge_group":
+            state["completed_grouping_batch_count"] = int(
+                state.get("grouping_batch_count") or state.get("completed_grouping_batch_count") or 0
+            ) or 1
+        state["pending_grouping_unit_batches"] = []
 
     _write_json(state_path, state)
     return {

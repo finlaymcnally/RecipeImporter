@@ -16,6 +16,7 @@ from cookimport.llm.knowledge_same_session_handoff import (
     main as knowledge_same_session_main,
 )
 from cookimport.llm.knowledge_stage.task_file_contracts import (
+    KNOWLEDGE_GROUP_TASK_MAX_UNITS,
     build_knowledge_classification_task_file,
 )
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1, WorkerAssignmentV1
@@ -29,7 +30,11 @@ def _assignment(tmp_path: Path) -> WorkerAssignmentV1:
     )
 
 
-def _shard() -> ShardManifestEntryV1:
+def _shard(
+    *,
+    block_index: int = 8,
+    text: str = "Use low heat and whisk steadily.",
+) -> ShardManifestEntryV1:
     return ShardManifestEntryV1(
         shard_id="book.ks0000.nr",
         owned_ids=("book.ks0000.nr",),
@@ -38,13 +43,13 @@ def _shard() -> ShardManifestEntryV1:
             "bid": "book.ks0000.nr",
             "b": [
                 {
-                    "i": 8,
-                    "id": "book.ks0000.nr:8",
-                    "t": "Use low heat and whisk steadily.",
+                    "i": block_index,
+                    "id": f"book.ks0000.nr:{block_index}",
+                    "t": text,
                 }
             ],
         },
-        metadata={"owned_block_indices": [8], "owned_block_count": 1},
+        metadata={"owned_block_indices": [block_index], "owned_block_count": 1},
     )
 
 
@@ -71,6 +76,32 @@ def _initialize_workspace(tmp_path: Path) -> tuple[Path, Path]:
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(tmp_path),
         shards=[_shard()],
+    )
+    workspace_root = tmp_path / "worker-001"
+    output_dir = workspace_root / "out"
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    write_task_file(path=workspace_root / "task.json", payload=classification_task_file)
+    state_path = workspace_root / "_repo_control" / "knowledge_same_session_state.json"
+    initialize_knowledge_same_session_state(
+        state_path=state_path,
+        assignment_id="worker-001",
+        worker_id="worker-001",
+        classification_task_file=classification_task_file,
+        unit_to_shard_id=unit_to_shard_id,
+        output_dir=output_dir,
+    )
+    return workspace_root, state_path
+
+
+def _initialize_workspace_with_shards(
+    tmp_path: Path,
+    *,
+    shards: list[ShardManifestEntryV1],
+) -> tuple[Path, Path]:
+    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+        assignment=_assignment(tmp_path),
+        shards=shards,
     )
     workspace_root = tmp_path / "worker-001"
     output_dir = workspace_root / "out"
@@ -189,6 +220,171 @@ def test_same_session_handoff_rewrites_invalid_classification_into_repair_mode(
     assert grouping_result["status"] == "completed_with_grouping"
     assert grouping_result["same_session_transition_count"] == 3
     assert grouping_result["same_session_repair_rewrite_count"] == 1
+
+
+def test_same_session_handoff_keeps_prior_valid_classification_answers_after_repair(
+    tmp_path: Path,
+) -> None:
+    workspace_root, state_path = _initialize_workspace_with_shards(
+        tmp_path,
+        shards=[
+            ShardManifestEntryV1(
+                shard_id="book.ks0000.nr",
+                owned_ids=("book.ks0000.nr",),
+                input_payload={
+                    "v": "1",
+                    "bid": "book.ks0000.nr",
+                    "b": [
+                        {
+                            "i": 8,
+                            "id": "book.ks0000.nr:8",
+                            "t": "Use low heat and whisk steadily.",
+                        },
+                        {
+                            "i": 9,
+                            "id": "book.ks0000.nr:9",
+                            "t": "Acid balances richness in dressings.",
+                        },
+                    ],
+                },
+                metadata={"owned_block_indices": [8, 9], "owned_block_count": 2},
+            )
+        ],
+    )
+
+    task_file = load_task_file(workspace_root / "task.json")
+    valid_answer = _valid_classification_answer()
+    task_file["units"][0]["answer"] = valid_answer
+    task_file["units"][1]["answer"] = {
+        "category": "knowledge",
+        "reviewer_category": "other",
+        "retrieval_concept": "Balance richness with acid",
+        "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
+    }
+    write_task_file(path=workspace_root / "task.json", payload=task_file)
+
+    repair_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    repair_task = load_task_file(workspace_root / "task.json")
+
+    assert repair_result["status"] == "repair_required"
+    assert len(repair_task["units"]) == 1
+
+    repair_task["units"][0]["answer"] = valid_answer
+    write_task_file(path=workspace_root / "task.json", payload=repair_task)
+
+    grouping_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    grouping_task = load_task_file(workspace_root / "task.json")
+
+    assert grouping_result["status"] == "advance_to_grouping"
+    assert sorted(unit["unit_id"] for unit in grouping_task["units"]) == [
+        "knowledge::8",
+        "knowledge::9",
+    ]
+
+
+def test_same_session_handoff_advances_through_multiple_grouping_batches(
+    tmp_path: Path,
+) -> None:
+    block_count = KNOWLEDGE_GROUP_TASK_MAX_UNITS + 1
+    workspace_root, state_path = _initialize_workspace_with_shards(
+        tmp_path,
+        shards=[
+            ShardManifestEntryV1(
+                shard_id="book.ks0000.nr",
+                owned_ids=("book.ks0000.nr",),
+                input_payload={
+                    "v": "1",
+                    "bid": "book.ks0000.nr",
+                    "b": [
+                        {
+                            "i": block_index,
+                            "id": f"book.ks0000.nr:{block_index}",
+                            "t": f"Knowledge block {block_index}",
+                        }
+                        for block_index in range(block_count)
+                    ],
+                },
+                metadata={
+                    "owned_block_indices": list(range(block_count)),
+                    "owned_block_count": block_count,
+                },
+            )
+        ],
+    )
+
+    classification_task = load_task_file(workspace_root / "task.json")
+    for unit in classification_task["units"]:
+        unit["answer"] = _valid_classification_answer()
+    write_task_file(path=workspace_root / "task.json", payload=classification_task)
+
+    first_grouping_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    first_grouping_task = load_task_file(workspace_root / "task.json")
+
+    assert first_grouping_result["status"] == "advance_to_grouping"
+    assert first_grouping_result["grouping_transition_count"] == 1
+    assert first_grouping_task["grouping_batch"]["current_batch_index"] == 1
+    assert first_grouping_task["grouping_batch"]["total_batches"] == 2
+    assert len(first_grouping_task["units"]) == KNOWLEDGE_GROUP_TASK_MAX_UNITS
+
+    for unit in first_grouping_task["units"]:
+        unit["answer"] = {
+            "group_key": "heat-control",
+            "topic_label": "Heat control",
+        }
+    write_task_file(path=workspace_root / "task.json", payload=first_grouping_task)
+
+    second_grouping_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    second_grouping_task = load_task_file(workspace_root / "task.json")
+    status_after_first_group = describe_knowledge_same_session_status(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+
+    assert second_grouping_result["status"] == "advance_to_grouping"
+    assert second_grouping_result["grouping_transition_count"] == 2
+    assert second_grouping_task["grouping_batch"]["current_batch_index"] == 2
+    assert second_grouping_task["grouping_batch"]["total_batches"] == 2
+    assert len(second_grouping_task["units"]) == 1
+    assert status_after_first_group["completed_grouping_batch_count"] == 1
+    assert status_after_first_group["grouping_batch"]["current_batch_index"] == 2
+
+    second_grouping_task["units"][0]["answer"] = {
+        "group_key": "heat-control",
+        "topic_label": "Heat control",
+    }
+    write_task_file(path=workspace_root / "task.json", payload=second_grouping_task)
+
+    final_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    output_payload = json.loads(
+        (workspace_root / "out" / "book.ks0000.nr.json").read_text(encoding="utf-8")
+    )
+
+    assert final_result["status"] == "completed_with_grouping"
+    assert final_result["grouping_validation_count"] == 2
+    assert final_result["grouping_transition_count"] == 2
+    assert len(output_payload["block_decisions"]) == block_count
+    assert output_payload["idea_groups"] == [
+        {
+            "group_id": "g01",
+            "topic_label": "Heat control",
+            "block_indices": list(range(block_count)),
+        }
+    ]
 
 
 def test_same_session_handoff_treats_task_file_contract_tampering_as_repairable_failure(

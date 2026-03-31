@@ -5,8 +5,10 @@ from copy import deepcopy
 from cookimport.llm.knowledge_stage.task_file_contracts import (
     KNOWLEDGE_GROUP_SCHEMA_VERSION,
     KNOWLEDGE_GROUP_STAGE_KEY,
+    KNOWLEDGE_GROUP_TASK_MAX_UNITS,
     build_knowledge_classification_task_file,
     build_knowledge_grouping_task_file,
+    build_knowledge_grouping_task_files,
     validate_knowledge_grouping_task_file,
 )
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1, WorkerAssignmentV1
@@ -113,3 +115,74 @@ def test_grouping_validator_requires_non_empty_group_fields() -> None:
     assert errors == ("knowledge_block_missing_group",)
     assert metadata["failed_unit_ids"] == ["knowledge::8"]
     assert metadata["knowledge_blocks_missing_group"] == [8]
+
+
+def test_grouping_task_files_split_large_grouping_scope_into_bounded_batches() -> None:
+    block_count = KNOWLEDGE_GROUP_TASK_MAX_UNITS + 1
+    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[
+            ShardManifestEntryV1(
+                shard_id="book.ks0000.nr",
+                owned_ids=("book.ks0000.nr",),
+                input_payload={
+                    "v": "1",
+                    "bid": "book.ks0000.nr",
+                    "b": [
+                        {
+                            "i": block_index,
+                            "id": f"book.ks0000.nr:{block_index}",
+                            "t": f"Knowledge block {block_index}",
+                        }
+                        for block_index in range(block_count)
+                    ],
+                },
+                metadata={
+                    "owned_block_indices": list(range(block_count)),
+                    "owned_block_count": block_count,
+                },
+            )
+        ],
+    )
+    classification_answers_by_unit_id = {
+        f"knowledge::{block_index}": {
+            "category": "knowledge",
+            "reviewer_category": "knowledge",
+        }
+        for block_index in range(block_count)
+    }
+
+    task_files, grouping_unit_to_shard_id, batch_unit_ids = build_knowledge_grouping_task_files(
+        assignment_id="worker-001",
+        worker_id="worker-001",
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id=classification_answers_by_unit_id,
+        unit_to_shard_id=unit_to_shard_id,
+    )
+
+    assert len(task_files) == 2
+    assert len(batch_unit_ids) == 2
+    assert len(task_files[0]["units"]) == KNOWLEDGE_GROUP_TASK_MAX_UNITS
+    assert len(task_files[1]["units"]) == 1
+    assert task_files[0]["grouping_batch"] == {
+        "current_batch_index": 1,
+        "total_batches": 2,
+        "unit_count": KNOWLEDGE_GROUP_TASK_MAX_UNITS,
+        "total_grouping_unit_count": block_count,
+        "remaining_batches_after_this": 1,
+        "estimated_evidence_chars": task_files[0]["grouping_batch"]["estimated_evidence_chars"],
+        "max_units_per_batch": KNOWLEDGE_GROUP_TASK_MAX_UNITS,
+        "max_evidence_chars_per_batch": task_files[0]["grouping_batch"][
+            "max_evidence_chars_per_batch"
+        ],
+        "shard_ids": ["book.ks0000.nr"],
+    }
+    assert task_files[1]["grouping_batch"]["current_batch_index"] == 2
+    assert task_files[1]["grouping_batch"]["total_batches"] == 2
+    assert task_files[1]["grouping_batch"]["remaining_batches_after_this"] == 0
+    flattened_unit_ids = [unit_id for batch in batch_unit_ids for unit_id in batch]
+    assert len(flattened_unit_ids) == block_count
+    assert set(flattened_unit_ids) == {
+        f"knowledge::{block_index}" for block_index in range(block_count)
+    }
+    assert grouping_unit_to_shard_id[f"knowledge::{block_count - 1}"] == "book.ks0000.nr"

@@ -199,6 +199,32 @@ def test_summarize_task_file_samples_large_unanswered_unit_lists() -> None:
     assert summary["unanswered_unit_ids_truncated"] is True
 
 
+def test_summarize_task_file_surfaces_grouping_batch_context() -> None:
+    task_file = _base_task_file()
+    task_file["grouping_batch"] = {
+        "current_batch_index": 2,
+        "total_batches": 3,
+        "unit_count": 2,
+        "total_grouping_unit_count": 5,
+        "remaining_batches_after_this": 1,
+        "estimated_evidence_chars": 321,
+        "shard_ids": ["book.ks0000.nr", "book.ks0001.nr"],
+    }
+
+    summary = summarize_task_file(payload=task_file, task_file_path="task.json")
+
+    assert summary["grouping_batch"] == {
+        "current_batch_index": 2,
+        "total_batches": 3,
+        "unit_count": 2,
+        "total_grouping_unit_count": 5,
+        "remaining_batches_after_this": 1,
+        "estimated_evidence_chars": 321,
+        "shard_ids": ["book.ks0000.nr", "book.ks0001.nr"],
+        "shard_ids_truncated": False,
+    }
+
+
 def test_inspect_task_file_units_returns_specific_requested_units() -> None:
     task_file = _base_task_file()
 

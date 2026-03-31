@@ -64,6 +64,32 @@ def _summarize_review_contract(payload: Mapping[str, Any]) -> dict[str, Any] | N
     return summary
 
 
+def _summarize_grouping_batch(payload: Mapping[str, Any]) -> dict[str, Any] | None:
+    grouping_batch = payload.get("grouping_batch")
+    if not isinstance(grouping_batch, Mapping):
+        return None
+    shard_ids = _normalized_string_list(grouping_batch.get("shard_ids"))
+    summary = {
+        "current_batch_index": int(grouping_batch.get("current_batch_index") or 0),
+        "total_batches": int(grouping_batch.get("total_batches") or 0),
+        "unit_count": int(grouping_batch.get("unit_count") or 0),
+        "total_grouping_unit_count": int(
+            grouping_batch.get("total_grouping_unit_count") or 0
+        ),
+        "remaining_batches_after_this": int(
+            grouping_batch.get("remaining_batches_after_this") or 0
+        ),
+        "estimated_evidence_chars": int(
+            grouping_batch.get("estimated_evidence_chars") or 0
+        ),
+        "shard_ids": shard_ids[:5],
+        "shard_ids_truncated": len(shard_ids) > 5,
+    }
+    if not any(value for key, value in summary.items() if key != "shard_ids_truncated"):
+        return None
+    return summary
+
+
 def write_task_file(*, path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_task_file_text(payload), encoding="utf-8")
@@ -153,6 +179,7 @@ def summarize_task_file(
         else {},
         "next_action": str(payload.get("next_action") or "").strip() or None,
         "review_contract": _summarize_review_contract(payload),
+        "grouping_batch": _summarize_grouping_batch(payload),
     }
 
 
