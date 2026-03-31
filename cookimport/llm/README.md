@@ -9,7 +9,7 @@ Start points:
 - `prompt_preview.py`, `prompt_artifacts.py`, and `prompt_budget.py` own prompt/cost inspection surfaces.
 
 Active worker surfaces:
-- Recipe, canonical line-role, and knowledge all use the same happy path now: the worker-visible sterile workspace contains one repo-written `task.json`, the worker should start with `python3 -m cookimport.llm.editable_task_file --summary` plus narrow `--show-unit` or `--show-unanswered` reads instead of dumping the whole file, the worker edits only `/units/*/answer`, and repo code expands accepted answers into the stage artifacts.
+- Recipe, canonical line-role, and knowledge all use the same happy path now: the worker-visible sterile workspace contains one repo-written `task.json`, the worker should start with `python3 -m cookimport.llm.editable_task_file --summary` plus narrow `--show-unit` or `--show-unanswered` reads instead of dumping the whole file, that summary now samples large unit-id lists instead of echoing every unanswered unit, the worker edits only `/units/*/answer`, and repo code expands accepted answers into the stage artifacts.
 - Knowledge now uses that happy path twice when needed: first a block-local classification file with immutable ontology context, then a grouping-only file built only from accepted knowledge rows.
 - The source worker roots still keep repo-owned `worker_manifest.json`, `prompt.txt`, `in/*.json`, `out/*.json`, `debug/`, and repair/status files for validation and debugging, but those are no longer the model-visible startup surface.
 

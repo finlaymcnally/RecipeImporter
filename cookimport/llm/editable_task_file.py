@@ -11,6 +11,7 @@ from .task_file_guardrails import render_task_file_text
 TASK_FILE_NAME = "task.json"
 TASK_FILE_SCHEMA_VERSION = "editable_task_file.v1"
 SUMMARY_POINTER_SAMPLE_LIMIT = 10
+SUMMARY_UNIT_ID_SAMPLE_LIMIT = 10
 
 
 def _normalized_units(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -93,6 +94,7 @@ def summarize_task_file(
         for pointer in (payload.get("editable_json_pointers") or [])
         if str(pointer).strip()
     ]
+    sampled_unanswered_unit_ids = unanswered_unit_ids[:SUMMARY_UNIT_ID_SAMPLE_LIMIT]
     return {
         "task_file": str(task_file_path or TASK_FILE_NAME),
         "schema_version": str(payload.get("schema_version") or ""),
@@ -102,7 +104,11 @@ def summarize_task_file(
         "mode": str(payload.get("mode") or ""),
         "answered_units": len(answered_unit_ids),
         "total_units": len(units),
-        "unanswered_unit_ids": unanswered_unit_ids,
+        "unanswered_unit_count": len(unanswered_unit_ids),
+        "unanswered_unit_ids": sampled_unanswered_unit_ids,
+        "unanswered_unit_ids_truncated": (
+            len(unanswered_unit_ids) > SUMMARY_UNIT_ID_SAMPLE_LIMIT
+        ),
         "editable_pointer_count": len(editable_pointers),
         "editable_json_pointers_sample": editable_pointers[:SUMMARY_POINTER_SAMPLE_LIMIT],
         "editable_json_pointers_truncated": (

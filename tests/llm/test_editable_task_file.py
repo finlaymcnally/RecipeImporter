@@ -9,6 +9,7 @@ from cookimport.llm.editable_task_file import build_repair_task_file
 from cookimport.llm.editable_task_file import build_task_file
 from cookimport.llm.editable_task_file import inspect_task_file_units
 from cookimport.llm.editable_task_file import load_task_file
+from cookimport.llm.editable_task_file import SUMMARY_UNIT_ID_SAMPLE_LIMIT
 from cookimport.llm.editable_task_file import summarize_task_file
 from cookimport.llm.editable_task_file import write_task_file
 from cookimport.llm.editable_task_file import validate_edited_task_file
@@ -160,13 +161,42 @@ def test_summarize_task_file_reports_answer_progress() -> None:
     assert summary["stage_key"] == "line_role"
     assert summary["answered_units"] == 2
     assert summary["total_units"] == 2
+    assert summary["unanswered_unit_count"] == 0
     assert summary["unanswered_unit_ids"] == []
+    assert summary["unanswered_unit_ids_truncated"] is False
     assert summary["editable_pointer_count"] == 2
     assert summary["editable_json_pointers_sample"] == [
         "/units/0/answer",
         "/units/1/answer",
     ]
     assert summary["editable_json_pointers_truncated"] is False
+
+
+def test_summarize_task_file_samples_large_unanswered_unit_lists() -> None:
+    task_file = build_task_file(
+        stage_key="line_role",
+        assignment_id="worker-001",
+        worker_id="worker-001",
+        units=[
+            {
+                "unit_id": f"line::{index}",
+                "owned_id": str(index),
+                "evidence": {"atomic_index": index, "text": f"Line {index}"},
+                "answer": {},
+            }
+            for index in range(SUMMARY_UNIT_ID_SAMPLE_LIMIT + 3)
+        ],
+    )
+
+    summary = summarize_task_file(payload=task_file, task_file_path="task.json")
+
+    assert summary["answered_units"] == 0
+    assert summary["total_units"] == SUMMARY_UNIT_ID_SAMPLE_LIMIT + 3
+    assert summary["unanswered_unit_count"] == SUMMARY_UNIT_ID_SAMPLE_LIMIT + 3
+    assert summary["unanswered_unit_ids"] == [
+        f"line::{index}" for index in range(SUMMARY_UNIT_ID_SAMPLE_LIMIT)
+    ]
+    assert summary["unanswered_unit_ids_truncated"] is True
 
 
 def test_inspect_task_file_units_returns_specific_requested_units() -> None:
