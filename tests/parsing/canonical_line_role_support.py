@@ -484,6 +484,131 @@ class _FinalMessageMissingOutputRunner(FakeCodexExecRunner):
         return super().run_workspace_worker(**kwargs)
 
 
+class _ProgressSummaryAnswersFileRunner(FakeCodexExecRunner):
+    def __init__(self) -> None:
+        super().__init__(
+            output_builder=lambda payload: {
+                "rows": [
+                    {"atomic_index": int(row[0]), "label": "NONRECIPE_CANDIDATE"}
+                    for row in (dict(payload or {}).get("rows") or [])
+                    if isinstance(row, (list, tuple)) and row
+                ]
+            }
+        )
+        self.workspace_run_calls = 0
+
+    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+        self.workspace_run_calls += 1
+        working_dir = Path(kwargs.get("working_dir"))
+        if self.workspace_run_calls == 1:
+            task_file = load_task_file(working_dir / "task.json")
+            answers_by_unit_id: dict[str, dict[str, str]] = {}
+            for index, unit in enumerate(task_file["units"]):
+                unit_id = str(unit.get("unit_id") or "").strip()
+                if not unit_id:
+                    continue
+                if index < 2:
+                    answers_by_unit_id[unit_id] = {"label": "NONRECIPE_CANDIDATE"}
+            (working_dir / "answers.json").write_text(
+                json.dumps({"answers_by_unit_id": answers_by_unit_id}, indent=2, sort_keys=True)
+                + "\n",
+                encoding="utf-8",
+            )
+            callback = kwargs.get("supervision_callback")
+            assert callback is not None
+            decision = callback(
+                CodexExecLiveSnapshot(
+                    elapsed_seconds=0.3,
+                    last_event_seconds_ago=0.0,
+                    event_count=6,
+                    command_execution_count=2,
+                    reasoning_item_count=1,
+                    last_command="/bin/bash -lc 'task-show-unanswered --limit 5'",
+                    last_command_repeat_count=1,
+                    has_final_agent_message=True,
+                    agent_message_count=1,
+                    timeout_seconds=kwargs.get("timeout_seconds"),
+                    final_agent_message_text=(
+                        "- I reviewed the first chunk and recorded labels in `answers.json`.\n"
+                        "- The rest of the shard still needs labeling, and I haven't run "
+                        "`task-apply answers.json` or `task-handoff` yet.\n\n"
+                        "1. Keep moving through the ledger.\n"
+                        "2. After batching more edits, run `task-apply answers.json`, then `task-handoff`."
+                    ),
+                )
+            )
+            assert decision is not None
+            assert decision.reason_code == "workspace_final_message_incomplete_progress"
+            return CodexExecRunResult(
+                command=["codex", "exec"],
+                subprocess_exit_code=0,
+                output_schema_path=None,
+                prompt_text=str(kwargs.get("prompt_text") or ""),
+                response_text=(
+                    "- I reviewed the first chunk and recorded labels in `answers.json`.\n"
+                    "- The rest of the shard still needs labeling, and I haven't run "
+                    "`task-apply answers.json` or `task-handoff` yet."
+                ),
+                turn_failed_message=None,
+                usage={
+                    "input_tokens": 1,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 1,
+                    "reasoning_tokens": 0,
+                },
+                source_working_dir=str(working_dir),
+                execution_working_dir=str(working_dir),
+                execution_agents_path=None,
+                duration_ms=1,
+                started_at_utc="2026-01-01T00:00:00Z",
+                finished_at_utc="2026-01-01T00:00:00Z",
+                workspace_mode="workspace_worker",
+                supervision_state=decision.supervision_state,
+                supervision_reason_code=decision.reason_code,
+                supervision_reason_detail=decision.reason_detail,
+                supervision_retryable=decision.retryable,
+            )
+
+        task_file = load_task_file(working_dir / "task.json")
+        edited = deepcopy(task_file)
+        for unit in edited["units"]:
+            unit["answer"] = {"label": "NONRECIPE_CANDIDATE"}
+        write_task_file(path=working_dir / "task.json", payload=edited)
+        state_path = Path(
+            str(kwargs.get("env", {}).get("RECIPEIMPORT_LINE_ROLE_SAME_SESSION_STATE_PATH"))
+        )
+        helper_result = advance_line_role_same_session_handoff(
+            workspace_root=working_dir,
+            state_path=state_path,
+        )
+        assert helper_result["status"] == "completed"
+        return CodexExecRunResult(
+            command=["codex", "exec"],
+            subprocess_exit_code=0,
+            output_schema_path=None,
+            prompt_text=str(kwargs.get("prompt_text") or ""),
+            response_text='{"status":"completed"}',
+            turn_failed_message=None,
+            usage={
+                "input_tokens": 1,
+                "cached_input_tokens": 0,
+                "output_tokens": 1,
+                "reasoning_tokens": 0,
+            },
+            source_working_dir=str(working_dir),
+            execution_working_dir=str(working_dir),
+            execution_agents_path=None,
+            duration_ms=1,
+            started_at_utc="2026-01-01T00:00:00Z",
+            finished_at_utc="2026-01-01T00:00:00Z",
+            workspace_mode="workspace_worker",
+            supervision_state="completed",
+            supervision_reason_code=None,
+            supervision_reason_detail=None,
+            supervision_retryable=False,
+        )
+
+
 class _KilledAfterHelperCompletionRunner(FakeCodexExecRunner):
     def __init__(self) -> None:
         super().__init__(

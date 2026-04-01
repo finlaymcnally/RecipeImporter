@@ -449,6 +449,46 @@ def test_line_role_workspace_watchdog_starts_final_message_missing_output_grace_
     assert live_status["reason_code"] is None
 
 
+def test_line_role_workspace_watchdog_kills_incomplete_progress_summary_immediately(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "out" / "line-role-canonical-0001-a000000-a000000.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
+        live_status_path=tmp_path / "live_status.json",
+        watchdog_policy="workspace_worker_v1",
+        allow_workspace_commands=True,
+        expected_workspace_output_paths=[output_path],
+    )
+
+    decision = callback(
+        CodexExecLiveSnapshot(
+            elapsed_seconds=0.3,
+            last_event_seconds_ago=0.0,
+            event_count=4,
+            command_execution_count=2,
+            reasoning_item_count=1,
+            last_command="/bin/bash -lc 'task-show-unanswered --limit 5'",
+            last_command_repeat_count=1,
+            has_final_agent_message=True,
+            agent_message_count=1,
+            timeout_seconds=30,
+            final_agent_message_text=(
+                "- I reviewed the first chunk and recorded labels in `answers.json`.\n"
+                "- The rest of the shard still needs labeling, and I haven't run "
+                "`task-apply answers.json` or `task-handoff` yet."
+            ),
+        )
+    )
+
+    assert decision is not None
+    assert decision.reason_code == "workspace_final_message_incomplete_progress"
+    assert decision.supervision_state == "watchdog_killed"
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["reason_code"] == "workspace_final_message_incomplete_progress"
+    assert live_status["final_message_missing_output_grace_active"] is False
+
+
 def test_line_role_workspace_watchdog_allows_output_to_land_during_final_message_grace_window(
     tmp_path: Path,
 ) -> None:

@@ -468,13 +468,20 @@ def _build_line_role_workspace_worker_prompt(
         if fresh_session_resume
         else "- Start with `task-summary`. If you need specific unit payloads, use `task-show-unit <unit_id>` or `task-show-unanswered --limit 5`. Then edit only `/units/*/answer`, save the same file, and run `task-handoff`.\n"
     )
+    resume_answers_instruction = (
+        "- If `answers.json` already exists with saved labels, apply it first with `task-apply answers.json`, then continue in `task.json` and run `task-handoff`.\n"
+        if fresh_session_resume
+        else ""
+    )
     shared_contract = build_line_role_shared_contract_block()
     return (
         "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger.\n\n"
         "Worker contract:\n"
         "- The current working directory is already the workspace root.\n"
         f"{start_instruction}"
+        f"{resume_answers_instruction}"
         "- `task.json` already contains the full assignment. You do not need extra control state, helper ledgers, or hidden context before editing it.\n"
+        "- This is an execution task, not a planning or status-report task.\n"
         "- Do not invent phase ledgers, install loops, queue-control files, or alternate output files.\n"
         "- Prefer `task-summary` before opening raw file contents.\n"
         "- If the task file is large, inspect only the units you need with `task-show-unit <unit_id>` or `task-show-unanswered --limit 5`.\n"
@@ -482,10 +489,13 @@ def _build_line_role_workspace_worker_prompt(
         "- If you need orientation first, run `task-status`.\n"
         "- If the workspace feels inconsistent, run `task-doctor` before inventing shell scripts.\n"
         "- If you want a repo-owned batch write path, run `task-template answers.json`, fill only the answer payloads, then run `task-apply answers.json`.\n"
+        "- `answers.json` is scratch only. If you use it, apply it back into `task.json` before you stop; scratch-only labels do not count as completion.\n"
         "- Do not dump `task.json` with `cat` or `sed`, do not use `ls` or `find` just to orient yourself, and do not write ad hoc inline Python, Node, or heredoc rewrites against `task.json`.\n"
         "- Prefer opening the named file directly. If you still need shell helpers, keep them narrow and grounded on `task.json` or local temp files only.\n"
         "- After each edit pass, run `task-handoff` from the workspace root.\n"
         "- If the helper reports `repair_required`, reopen the rewritten `task.json` immediately, fix only the named issues, and run the helper again.\n"
+        "- Do not stop to summarize partial progress, list next steps, mention time limits, or say that you have not run `task-apply` / `task-handoff` yet.\n"
+        "- Do not emit todo lists, progress recaps, or “keep going from here” messages. Continue the assignment instead.\n"
         "- Stop only after the helper reports `completed`.\n"
         "- If you briefly reread part of the file or make a small local false start, correct it and continue.\n"
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"

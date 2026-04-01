@@ -221,6 +221,82 @@ def test_line_role_runtime_recovers_after_final_message_missing_output(
     assert not list(worker_root.rglob("watchdog_retry_status.json"))
 
 
+def test_line_role_runtime_recovers_after_incomplete_progress_summary_with_answers_file(
+    tmp_path: Path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:progress-summary:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"Ambiguous line {index}",
+            within_recipe_span=None,
+            rule_tags=[],
+        )
+        for index in range(2)
+    ]
+    runner = _ProgressSummaryAnswersFileRunner()
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-route-v2", line_role_prompt_target_count=1),
+        artifact_root=tmp_path,
+        codex_batch_size=2,
+        codex_runner=runner,
+        live_llm_allowed=True,
+    )
+
+    worker_root = (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+    )
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+    recovery_assessment = json.loads(
+        (worker_root / "final_message_recovery_assessment.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    shard_status = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "workers"
+            / "worker-001"
+            / "shards"
+            / "line-role-canonical-0001-a000000-a000001"
+            / "status.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert len(predictions) == 2
+    assert runner.workspace_run_calls == 2
+    assert worker_status["fresh_session_retry_count"] == 1
+    assert worker_status["fresh_session_retry_status"] == "completed"
+    assert worker_status["fresh_session_recovery_attempted"] is True
+    assert worker_status["fresh_session_recovery_status"] == "recovered"
+    assert (
+        recovery_assessment["prior_session_reason_code"]
+        == "workspace_final_message_incomplete_progress"
+    )
+    assert recovery_assessment["assessment"]["recoverable_by_fresh_session"] is True
+    assert recovery_assessment["assessment"]["diagnosis_code"] == (
+        "answers_file_present_not_applied"
+    )
+    assert (
+        recovery_assessment["answers_file_progress"]["has_useful_progress"] is True
+    )
+    assert recovery_assessment["fresh_session_recovery_status"] == "recovered"
+    assert shard_status["watchdog_retry_status"] == "not_attempted"
+    assert shard_status["fresh_session_recovery_status"] == "recovered"
+
+
 def test_line_role_runtime_treats_authoritative_same_session_completion_as_clean_success(
     tmp_path: Path,
 ) -> None:

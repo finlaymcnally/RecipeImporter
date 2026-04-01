@@ -296,6 +296,7 @@ class CodexExecLiveSnapshot:
     timeout_seconds: int | None = None
     final_agent_message_state: FinalAgentMessageState = "absent"
     final_agent_message_reason: str | None = None
+    final_agent_message_text: str | None = None
     source_working_dir: str | None = None
     execution_working_dir: str | None = None
     live_activity_summary: str | None = None
@@ -3054,6 +3055,7 @@ def _build_codex_exec_live_snapshot(
         timeout_seconds=timeout_seconds,
         final_agent_message_state=final_agent_message.state,
         final_agent_message_reason=final_agent_message.reason,
+        final_agent_message_text=final_agent_message.text,
         live_activity_summary=_summarize_live_activity(
             events=events,
             workspace_mode=workspace_mode,

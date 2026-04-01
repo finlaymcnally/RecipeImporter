@@ -44,10 +44,15 @@ def _runtime_attr(name: str, default: Any) -> Any:
 
 
 _LINE_ROLE_SAME_SESSION_STATE_FILE_NAME = "line_role_same_session_state.json"
+_LINE_ROLE_ANSWERS_FILE_NAME = "answers.json"
 
 
 def _line_role_same_session_state_path(worker_root: Path) -> Path:
     return worker_root / "_repo_control" / _LINE_ROLE_SAME_SESSION_STATE_FILE_NAME
+
+
+def _line_role_answers_file_path(worker_root: Path) -> Path:
+    return worker_root / _LINE_ROLE_ANSWERS_FILE_NAME
 
 
 def _load_json_dict_safely(path: Path) -> dict[str, Any]:
@@ -58,6 +63,78 @@ def _load_json_dict_safely(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         return {}
     return dict(payload) if isinstance(payload, Mapping) else {}
+
+
+def _answer_payload_has_meaningful_content(payload: Any) -> bool:
+    if not isinstance(payload, Mapping):
+        return False
+    for value in payload.values():
+        if value is None:
+            continue
+        if isinstance(value, str):
+            if value.strip():
+                return True
+            continue
+        if isinstance(value, Mapping):
+            if value:
+                return True
+            continue
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            if value:
+                return True
+            continue
+        return True
+    return False
+
+
+def _summarize_line_role_answers_file_progress(answers_path: Path) -> dict[str, Any]:
+    payload = {
+        "answers_path": str(answers_path),
+        "answers_exists": answers_path.exists(),
+        "has_useful_progress": False,
+        "answered_unit_count": 0,
+        "error": None,
+    }
+    if not answers_path.exists():
+        return payload
+    try:
+        raw_payload = json.loads(answers_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        payload["error"] = str(exc)
+        return payload
+    answer_mapping: dict[str, dict[str, Any]] = {}
+    if isinstance(raw_payload, Mapping):
+        nested_mapping = raw_payload.get("answers_by_unit_id")
+        if isinstance(nested_mapping, Mapping):
+            answer_mapping = {
+                str(unit_id).strip(): dict(answer_payload)
+                for unit_id, answer_payload in nested_mapping.items()
+                if str(unit_id).strip() and isinstance(answer_payload, Mapping)
+            }
+        else:
+            answer_mapping = {
+                str(unit_id).strip(): dict(answer_payload)
+                for unit_id, answer_payload in raw_payload.items()
+                if str(unit_id).strip() and isinstance(answer_payload, Mapping)
+            }
+    elif isinstance(raw_payload, list):
+        answer_mapping = {
+            str(row.get("unit_id") or "").strip(): dict(row.get("answer") or {})
+            for row in raw_payload
+            if isinstance(row, Mapping)
+            and str(row.get("unit_id") or "").strip()
+            and isinstance(row.get("answer"), Mapping)
+        }
+    else:
+        payload["error"] = "answer mapping file was not a supported JSON shape"
+        return payload
+    answered_unit_count = sum(
+        1 for answer_payload in answer_mapping.values()
+        if _answer_payload_has_meaningful_content(answer_payload)
+    )
+    payload["answered_unit_count"] = answered_unit_count
+    payload["has_useful_progress"] = answered_unit_count > 0
+    return payload
 
 
 def _summarize_line_role_same_session_completion(
@@ -184,21 +261,39 @@ def _line_role_task_file_useful_progress(
     task_file_path: Path,
     original_task_file: Mapping[str, Any],
     same_session_state_payload: Mapping[str, Any],
+    answers_path: Path | None = None,
 ) -> bool:
     if not task_file_path.exists():
-        return False
+        return bool(
+            answers_path is not None
+            and _summarize_line_role_answers_file_progress(answers_path).get(
+                "has_useful_progress"
+            )
+        )
     if int(same_session_state_payload.get("same_session_transition_count") or 0) > 0:
         return True
     try:
         edited_task_file = load_task_file(task_file_path)
     except (OSError, json.JSONDecodeError, ValueError):
-        return False
+        return bool(
+            answers_path is not None
+            and _summarize_line_role_answers_file_progress(answers_path).get(
+                "has_useful_progress"
+            )
+        )
     _answers_by_unit_id, _errors, metadata = validate_edited_task_file(
         original_task_file=original_task_file,
         edited_task_file=edited_task_file,
         allow_immutable_field_changes=True,
     )
-    return bool(int(metadata.get("changed_unit_count") or 0) > 0)
+    if int(metadata.get("changed_unit_count") or 0) > 0:
+        return True
+    return bool(
+        answers_path is not None
+        and _summarize_line_role_answers_file_progress(answers_path).get(
+            "has_useful_progress"
+        )
+    )
 
 
 def _line_role_hard_boundary_failure(run_result: CodexExecRunResult) -> bool:
@@ -216,6 +311,7 @@ def _should_attempt_line_role_fresh_session_retry(
     task_file_path: Path,
     original_task_file: Mapping[str, Any],
     same_session_state_payload: Mapping[str, Any],
+    answers_path: Path | None = None,
 ) -> tuple[bool, str]:
     retry_limit = int(same_session_state_payload.get("fresh_session_retry_limit") or 0)
     retry_count = int(same_session_state_payload.get("fresh_session_retry_count") or 0)
@@ -233,6 +329,7 @@ def _should_attempt_line_role_fresh_session_retry(
         task_file_path=task_file_path,
         original_task_file=original_task_file,
         same_session_state_payload=same_session_state_payload,
+        answers_path=answers_path,
     ):
         return False, "no_preserved_progress"
     return True, "preserved_progress_without_completion"
@@ -296,6 +393,11 @@ def _line_role_recovery_guidance_for_diagnosis(
             True,
             "repair answers are present but the same-session helper has not installed out/<shard_id>.json yet",
         )
+    if code == "answers_file_present_not_applied":
+        return (
+            True,
+            "repo-owned answers.json already contains saved labels; apply it to task.json, continue any remaining rows, then run task-handoff",
+        )
     if code == "awaiting_answers":
         return False, "task.json still has blank answer objects"
     if code == "repair_answers_missing":
@@ -325,6 +427,8 @@ def _assess_line_role_workspace_recovery(
     outputs_present = bool(output_status.get("complete"))
     state_payload, state_error = _load_json_dict_with_error(state_path)
     task_file_path = worker_root / TASK_FILE_NAME
+    answers_path = _line_role_answers_file_path(worker_root)
+    answers_progress = _summarize_line_role_answers_file_progress(answers_path)
     task_file_error: str | None = None
     if task_file_path.exists():
         try:
@@ -364,6 +468,12 @@ def _assess_line_role_workspace_recovery(
     recoverable_by_diagnosis, resume_summary = _line_role_recovery_guidance_for_diagnosis(
         diagnosis_code
     )
+    if not recoverable_by_diagnosis and bool(answers_progress.get("has_useful_progress")):
+        diagnosis_code = "answers_file_present_not_applied"
+        recommended_command = "task-apply answers.json"
+        recoverable_by_diagnosis, resume_summary = _line_role_recovery_guidance_for_diagnosis(
+            diagnosis_code
+        )
     blocked_reason: str | None = None
     if state_error is not None:
         blocked_reason = "same_session_state_unavailable"
@@ -405,6 +515,7 @@ def _assess_line_role_workspace_recovery(
         "task_file_path": str(task_file_path),
         "task_file_available": task_file_error is None,
         "task_file_error": task_file_error,
+        "answers_file_progress": dict(answers_progress),
         "workspace_output_status": dict(output_status),
         "status_payload": dict(status_payload),
         "status_error": status_error,
@@ -420,7 +531,10 @@ def _should_attempt_line_role_final_message_recovery(
     run_result: CodexExecRunResult,
     assessment: _LineRoleRecoveryAssessment,
 ) -> tuple[bool, str]:
-    if str(run_result.supervision_reason_code or "").strip() != "workspace_final_message_missing_output":
+    if str(run_result.supervision_reason_code or "").strip() not in {
+        "workspace_final_message_missing_output",
+        "workspace_final_message_incomplete_progress",
+    }:
         return False, "not_final_message_missing_output"
     if not assessment.recoverable_by_fresh_session:
         return False, str(assessment.blocked_reason or "not_recoverable")
@@ -442,6 +556,7 @@ def _build_line_role_final_message_recovery_prompt(
         "Do this exactly:\n"
         "- First run `python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff --status`.\n"
         "- If the next step is still unclear, run `python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff --doctor`.\n"
+        "- If `answers.json` already contains saved labels, run `task-apply answers.json` before continuing.\n"
         f"- Follow the repo-owned recommended command: `{recommended_command}`.\n"
         "- Prefer repo-owned helper commands over shell scripting.\n"
         "- Stop as soon as the helper reports `completed`.\n\n"
@@ -537,6 +652,37 @@ def _build_line_role_task_file(
             },
         ),
         unit_to_shard_id,
+    )
+
+
+def _line_role_incomplete_progress_summary_detail(
+    message_text: str | None,
+) -> str | None:
+    cleaned = " ".join(str(message_text or "").strip().lower().split())
+    if not cleaned:
+        return None
+    future_work_markers = (
+        "haven't run `task-handoff`",
+        "haven’t run `task-handoff`",
+        "have not run `task-handoff`",
+        "haven't run `task-apply`",
+        "haven’t run `task-apply`",
+        "have not run `task-apply`",
+        "still needs labeling",
+        "still need labeling",
+        "rest of the shard still needs",
+        "keep moving through the ledger",
+        "after batching",
+        "next steps",
+        "time constraints",
+        "partial progress",
+        "current pause",
+    )
+    if not any(marker in cleaned for marker in future_work_markers):
+        return None
+    return (
+        "workspace worker ended with a partial-progress summary instead of finishing the task-file workflow. "
+        "Progress summaries, deferred `task-apply`, and deferred `task-handoff` are off-contract for line-role workers."
     )
 
 
@@ -1748,7 +1894,10 @@ def _run_line_role_workspace_worker_assignment_v1(
         retry_workspace_task_label = "canonical line-role fresh-session recovery"
         if (
             str(session_run_result.supervision_reason_code or "").strip()
-            == "workspace_final_message_missing_output"
+            in {
+                "workspace_final_message_missing_output",
+                "workspace_final_message_incomplete_progress",
+            }
         ):
             assessment, assessment_payload = _assess_line_role_workspace_recovery(
                 worker_root=worker_root,
@@ -1833,6 +1982,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 task_file_path=worker_root / TASK_FILE_NAME,
                 original_task_file=task_file_payload,
                 same_session_state_payload=line_role_same_session_state_payload,
+                answers_path=_line_role_answers_file_path(worker_root),
             )
         if should_retry:
             fresh_session_retry_count = 1
@@ -1848,7 +1998,10 @@ def _run_line_role_workspace_worker_assignment_v1(
                     "reason_code": retry_reason,
                     "reason_detail": (
                         "workspace final message was observed without required shard outputs"
-                        if retry_reason == "workspace_final_message_missing_output"
+                        if retry_reason in {
+                            "workspace_final_message_missing_output",
+                            "workspace_final_message_incomplete_progress",
+                        }
                         else "clean first session preserved useful workspace state without completion"
                     ),
                 }
@@ -3781,33 +3934,47 @@ def _build_strict_json_watchdog_callback(
             and not authoritative_same_session_success
             and not workspace_output_status["complete"]
         ):
-            if final_message_missing_output_started_elapsed_seconds is None:
-                final_message_missing_output_started_elapsed_seconds = snapshot.elapsed_seconds
-                final_message_missing_output_deadline_elapsed_seconds = (
-                    snapshot.elapsed_seconds + missing_output_grace_seconds
-                )
-            final_message_missing_output_grace_active = True
-            final_message_missing_output_deadline_reached = (
-                final_message_missing_output_deadline_elapsed_seconds is not None
-                and snapshot.elapsed_seconds
-                >= final_message_missing_output_deadline_elapsed_seconds
+            incomplete_progress_detail = _line_role_incomplete_progress_summary_detail(
+                snapshot.final_agent_message_text
             )
-            if final_message_missing_output_deadline_reached:
-                final_message_missing_output_deadline_passes += 1
-                if final_message_missing_output_deadline_passes >= 2:
-                    missing_files = ", ".join(workspace_output_status["missing_files"]) or "[unknown]"
-                    decision = CodexExecSupervisionDecision.terminate(
-                        reason_code="workspace_final_message_missing_output",
-                        reason_detail=(
-                            "workspace worker emitted a final agent message but the required output files "
-                            f"were still missing after {missing_output_grace_seconds:.1f} "
-                            f"seconds: {missing_files}"
-                        ),
-                        retryable=True,
-                        supervision_state="watchdog_killed",
-                    )
+            if incomplete_progress_detail:
+                decision = CodexExecSupervisionDecision.terminate(
+                    reason_code="workspace_final_message_incomplete_progress",
+                    reason_detail=incomplete_progress_detail,
+                    retryable=True,
+                    supervision_state="watchdog_killed",
+                )
+            if decision is not None:
+                final_message_missing_output_grace_active = False
+                final_message_missing_output_deadline_reached = False
             else:
-                final_message_missing_output_deadline_passes = 0
+                if final_message_missing_output_started_elapsed_seconds is None:
+                    final_message_missing_output_started_elapsed_seconds = snapshot.elapsed_seconds
+                    final_message_missing_output_deadline_elapsed_seconds = (
+                        snapshot.elapsed_seconds + missing_output_grace_seconds
+                    )
+                final_message_missing_output_grace_active = True
+                final_message_missing_output_deadline_reached = (
+                    final_message_missing_output_deadline_elapsed_seconds is not None
+                    and snapshot.elapsed_seconds
+                    >= final_message_missing_output_deadline_elapsed_seconds
+                )
+                if final_message_missing_output_deadline_reached:
+                    final_message_missing_output_deadline_passes += 1
+                    if final_message_missing_output_deadline_passes >= 2:
+                        missing_files = ", ".join(workspace_output_status["missing_files"]) or "[unknown]"
+                        decision = CodexExecSupervisionDecision.terminate(
+                            reason_code="workspace_final_message_missing_output",
+                            reason_detail=(
+                                "workspace worker emitted a final agent message but the required output files "
+                                f"were still missing after {missing_output_grace_seconds:.1f} "
+                                f"seconds: {missing_files}"
+                            ),
+                            retryable=True,
+                            supervision_state="watchdog_killed",
+                        )
+                else:
+                    final_message_missing_output_deadline_passes = 0
         else:
             final_message_missing_output_started_elapsed_seconds = None
             final_message_missing_output_deadline_elapsed_seconds = None
