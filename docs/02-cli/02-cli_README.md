@@ -428,6 +428,7 @@ Interactive benchmark now has a mode submenu before execution:
    - for codex-enabled paired runs, writes comparison artifacts only when both variant runs succeed:
      - `single-book-benchmark/<source_slug>/codex_vs_vanilla_comparison.json` (always)
      - comparison JSON metadata now includes `per_label_breakdown` aggregated across the latest paired evals (`label`, strict `precision`, strict `recall`, `gold_total`, `pred_total`)
+     - `single-book-benchmark/<source_slug>/single_book_summary.md` now shows per-label tables per variant; it does not embed the paired aggregate per-label table from comparison metadata
      - also writes `single-book-benchmark/<source_slug>/starter_pack_v1/` by running the benchmark cutdown starter-pack builder in-place against the paired variant run dirs
      - paired starter-pack generation also writes `single-book-benchmark/<source_slug>/benchmark_summary.md` (flattened comparison + starter-pack summary)
      - also writes a dedicated 3-file upload folder: `single-book-benchmark/<source_slug>/upload_bundle_v1/`:

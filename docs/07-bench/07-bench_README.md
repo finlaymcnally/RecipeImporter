@@ -136,6 +136,7 @@ Current interactive contracts:
 - paired success can emit:
   - `codex_vs_vanilla_comparison.json`
   - `single_book_summary.md`
+  - `single_book_summary.md` now renders per-label tables per variant; paired aggregate per-label stats stay in comparison metadata instead of being shown as if they were variant-local
   - `upload_bundle_v1/`
 - single-book `upload_bundle_v1` is now a curated first-pass packet by default, capped to about 30 MB via the existing high-level bundle mode instead of embedding the full lossless payload dump; deeper evidence is expected to move through `cf-debug` follow-up packets when needed
 - vanilla-only single-book `upload_bundle_v1` runs still leave pair-only sections empty, but they now preserve single-run recipe-span counts from `line-role-pipeline/telemetry_summary.json` / benchmark `manifest.json` and avoid misleading “no spans discovered” triage notes
@@ -170,8 +171,9 @@ Active use cases:
 - audit knowledge-stage evidence
 - build additive `followup_dataN/` packets
 - when requested regression ids are missing and no negative-delta recipes remain, the base bundle casebook now falls back to high-signal recipes (outside-span density / changed-line / error pressure) instead of mislabeling zero-delta rows as top negative deltas
-- `analysis.explicit_escalation_changed_lines_packet` now joins changed canonical lines against line-role predictions by `line_index` first and falls back to `atomic_index` when canonical runs emit atomic-only prediction rows
+- `analysis.explicit_escalation_changed_lines_packet` now joins changed canonical lines through `line-role-pipeline/joined_line_table.jsonl` when that artifact is present, then resolves the real route row by `line_role_prediction_atomic_index`. Conservative fallback paths are only for older runs that do not have the joined-line artifact.
 - explicit-escalation and follow-up bundle analysis now distinguish route broadness, post-route label change, and `NONRECIPE_EXCLUDE` leakage into final knowledge. Bundle blame can now attribute those leaked rows to `nonrecipe_authority` instead of collapsing them into generic line-role churn.
+- canonical benchmark follow-up joins are now conservative too: `upload_bundle_v1` explicit-escalation rows and `cf-debug` line-role/prompt audits should use `line-role-pipeline/joined_line_table.jsonl` as the authority for canonical-line to route-row linkage. Raw `line_index == atomic_index` fallback is not a safe contract once canonical projection and route rows diverge.
 
 Knowledge extraction is now a first-class follow-up seam:
 

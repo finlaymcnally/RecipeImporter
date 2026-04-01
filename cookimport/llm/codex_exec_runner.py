@@ -232,6 +232,17 @@ class CodexExecRunner(Protocol):
 
 
 @dataclass(frozen=True)
+class CodexExecRecentCommandCompletion:
+    command: str
+    exit_code: int | None = None
+    status: str | None = None
+    python_module: str | None = None
+    parsed_output: dict[str, Any] | None = None
+    reported_completed: bool = False
+    reported_final_status: str | None = None
+
+
+@dataclass(frozen=True)
 class CodexExecLiveSnapshot:
     elapsed_seconds: float
     last_event_seconds_ago: float | None
@@ -249,6 +260,8 @@ class CodexExecLiveSnapshot:
     source_working_dir: str | None = None
     execution_working_dir: str | None = None
     live_activity_summary: str | None = None
+    last_completed_command: CodexExecRecentCommandCompletion | None = None
+    last_completed_stage_helper_command: CodexExecRecentCommandCompletion | None = None
 
 
 @dataclass(frozen=True)
@@ -2791,6 +2804,8 @@ def _build_codex_exec_live_snapshot(
             events=events,
             workspace_mode=workspace_mode,
         ),
+        last_completed_command=live_summary["last_completed_command"],
+        last_completed_stage_helper_command=live_summary["last_completed_stage_helper_command"],
     )
 
 
@@ -3327,6 +3342,8 @@ def _summarize_live_codex_events(
     turn_completed_count = 0
     last_command: str | None = None
     last_command_repeat_count = 0
+    last_completed_command: CodexExecRecentCommandCompletion | None = None
+    last_completed_stage_helper_command: CodexExecRecentCommandCompletion | None = None
     for payload in events:
         payload_type = str(payload.get("type") or "").strip()
         if payload_type == "turn.completed":
@@ -3353,6 +3370,14 @@ def _summarize_live_codex_events(
                 else:
                     last_command = command_text
                     last_command_repeat_count = 1
+            if payload_type == "item.completed":
+                last_completed_command = _summarize_completed_command_item(item)
+                if (
+                    last_completed_command is not None
+                    and str(last_completed_command.python_module or "").strip()
+                    in _SINGLE_FILE_WORKSPACE_STAGE_HELPER_MODULES
+                ):
+                    last_completed_stage_helper_command = last_completed_command
             continue
         if payload_type == "item.completed" and item_type == "reasoning":
             reasoning_item_count += 1
@@ -3365,7 +3390,78 @@ def _summarize_live_codex_events(
         "turn_completed_count": turn_completed_count,
         "last_command": last_command,
         "last_command_repeat_count": last_command_repeat_count,
+        "last_completed_command": last_completed_command,
+        "last_completed_stage_helper_command": last_completed_stage_helper_command,
     }
+
+
+def _summarize_completed_command_item(
+    item: Mapping[str, Any],
+) -> CodexExecRecentCommandCompletion | None:
+    command_text = str(item.get("command") or "").strip()
+    if not command_text:
+        return None
+    parsed_output = _parse_command_aggregated_output(item.get("aggregated_output"))
+    reported_final_status = None
+    reported_completed = False
+    if isinstance(parsed_output, Mapping):
+        reported_final_status = (
+            str(parsed_output.get("final_status") or parsed_output.get("status") or "").strip()
+            or None
+        )
+        reported_completed = bool(parsed_output.get("completed")) or (
+            reported_final_status == "completed"
+        )
+    return CodexExecRecentCommandCompletion(
+        command=command_text,
+        exit_code=_coerce_nonnegative_int(item.get("exit_code")),
+        status=str(item.get("status") or "").strip() or None,
+        python_module=_extract_python_module_from_command(command_text),
+        parsed_output=(dict(parsed_output) if isinstance(parsed_output, Mapping) else None),
+        reported_completed=reported_completed,
+        reported_final_status=reported_final_status,
+    )
+
+
+def _parse_command_aggregated_output(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, Mapping):
+        return dict(value)
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    parsed = _parse_possible_json_mapping(cleaned)
+    if parsed is not None:
+        return parsed
+    for line in reversed(cleaned.splitlines()):
+        parsed = _parse_possible_json_mapping(line.strip())
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _parse_possible_json_mapping(value: str) -> dict[str, Any] | None:
+    if not value:
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    return dict(parsed) if isinstance(parsed, Mapping) else None
+
+
+def _extract_python_module_from_command(command_text: str | None) -> str | None:
+    tokens = _command_tokens_for_watchdog(command_text)
+    if len(tokens) < 3:
+        return None
+    executable = Path(str(tokens[0] or "")).name.lower()
+    if executable not in {"python", "python3"}:
+        return None
+    if str(tokens[1] or "").strip() != "-m":
+        return None
+    module = str(tokens[2] or "").strip()
+    return module or None
 
 
 def _live_activity_excerpt(

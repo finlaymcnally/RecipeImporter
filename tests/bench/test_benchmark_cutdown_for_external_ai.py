@@ -777,6 +777,7 @@ def _make_run_record(
     full_prompt_rows: list[dict[str, object]] | None = None,
     line_role_pipeline: str = "off",
     line_role_prediction_rows: list[dict[str, object]] | None = None,
+    joined_line_rows: list[dict[str, object]] | None = None,
     projected_span_rows: list[dict[str, object]] | None = None,
     source_path: str = "/tmp/book.epub",
     source_hash: str = "source-hash",
@@ -794,6 +795,11 @@ def _make_run_record(
         _write_jsonl(
             run_dir / "line-role-pipeline" / "line_role_predictions.jsonl",
             line_role_prediction_rows,
+        )
+    if joined_line_rows is not None:
+        _write_jsonl(
+            run_dir / "line-role-pipeline" / "joined_line_table.jsonl",
+            joined_line_rows,
         )
     if projected_span_rows is not None:
         _write_jsonl(
@@ -2977,6 +2983,111 @@ def test_build_upload_bundle_flags_exclusion_leak_as_nonrecipe_authority(
     }
     assert int(bucket_rows["nonrecipe_authority"]["new_error_count"] or 0) == 1
     assert int(bucket_rows["line_role"]["new_error_count"] or 0) == 0
+
+
+def test_explicit_escalation_packet_uses_joined_line_table_not_raw_index_alias(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-book-benchmark"
+    codex_run_id = "2026-03-31_19.51.54"
+    baseline_run_id = "2026-03-31_19.00.00"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
+        wrong_label_rows=[],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+        line_role_prediction_rows=[
+            {
+                "atomic_index": 208,
+                "label": "NONRECIPE_EXCLUDE",
+                "decided_by": "codex",
+                "escalation_reasons": ["nonrecipe_excluded"],
+                "text": "Excluded memoir row",
+                "within_recipe_span": False,
+            },
+            {
+                "atomic_index": 213,
+                "label": "NONRECIPE_CANDIDATE",
+                "decided_by": "codex",
+                "escalation_reasons": [],
+                "text": "Real changed line at canonical 208",
+                "within_recipe_span": False,
+            },
+        ],
+        joined_line_rows=[
+            {
+                "line_index": 203,
+                "line_role_prediction_atomic_index": 208,
+                "line_role_match_kind": "exact_text_occurrence",
+            },
+            {
+                "line_index": 208,
+                "line_role_prediction_atomic_index": 213,
+                "line_role_match_kind": "exact_text_occurrence",
+            },
+        ],
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[],
+        full_prompt_rows=None,
+    )
+
+    escalation_packet, escalation_rows = (
+        module._upload_bundle_build_explicit_escalation_changed_lines_packet(
+            source_root=session_root,
+            run_dir_by_id={
+                codex_run_id: session_root / codex_run_id,
+                baseline_run_id: session_root / baseline_run_id,
+            },
+            changed_line_rows=[
+                {
+                    "source_key": "source-hash",
+                    "codex_run_id": codex_run_id,
+                    "baseline_run_id": baseline_run_id,
+                    "recipe_id": "",
+                    "line_index": 203,
+                    "gold_label": "OTHER",
+                    "vanilla_pred": "OTHER",
+                    "codex_pred": "OTHER",
+                    "current_line": "Excluded memoir row",
+                    "previous_line": "Previous 203",
+                    "next_line": "Next 203",
+                },
+                {
+                    "source_key": "source-hash",
+                    "codex_run_id": codex_run_id,
+                    "baseline_run_id": baseline_run_id,
+                    "recipe_id": "",
+                    "line_index": 208,
+                    "gold_label": "OTHER",
+                    "vanilla_pred": "OTHER",
+                    "codex_pred": "KNOWLEDGE",
+                    "current_line": "Real changed line at canonical 208",
+                    "previous_line": "Previous 208",
+                    "next_line": "Next 208",
+                },
+            ],
+        )
+    )
+
+    assert escalation_packet["available"] is True
+    assert escalation_packet["row_count"] == 1
+    assert len(escalation_rows) == 1
+    sample_row = escalation_packet["sample_rows"][0]
+    assert sample_row["line_index"] == 203
+    assert sample_row["atomic_index"] == 208
+    assert sample_row["label"] == "NONRECIPE_EXCLUDE"
+    assert sample_row["issue_kind"] is None
+    assert sample_row["attribution_bucket_hint"] == "line_role"
 
 
 def _build_existing_upload_bundle_fixture(tmp_path: Path) -> dict[str, object]:

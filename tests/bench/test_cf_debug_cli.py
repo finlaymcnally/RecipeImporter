@@ -202,6 +202,167 @@ def test_line_role_authority_gap_classifier_distinguishes_failure_classes() -> N
     )
 
 
+def test_line_role_audit_uses_joined_atomic_index_for_prompt_and_route_metadata(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "benchmark-root"
+    run_dir = source_root / "codexfarm"
+    line_role_dir = run_dir / "line-role-pipeline"
+    prompts_dir = line_role_dir / "prompts"
+    prompts_dir.mkdir(parents=True, exist_ok=True)
+
+    (line_role_dir / "line_role_predictions.jsonl").write_text(
+        "".join(
+            [
+                json.dumps(
+                    {
+                        "atomic_index": 208,
+                        "label": "NONRECIPE_EXCLUDE",
+                        "decided_by": "codex",
+                        "escalation_reasons": ["nonrecipe_excluded"],
+                        "exclusion_reason": "front_matter",
+                        "text": "Excluded memoir row",
+                        "within_recipe_span": False,
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                json.dumps(
+                    {
+                        "atomic_index": 213,
+                        "label": "NONRECIPE_CANDIDATE",
+                        "decided_by": "codex",
+                        "escalation_reasons": [],
+                        "text": "Real changed line at canonical 208",
+                        "within_recipe_span": False,
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (line_role_dir / "joined_line_table.jsonl").write_text(
+        "".join(
+            [
+                json.dumps(
+                    {
+                        "line_index": 203,
+                        "line_role_prediction_atomic_index": 208,
+                        "line_role_match_kind": "exact_text_occurrence",
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+                json.dumps(
+                    {
+                        "line_index": 208,
+                        "line_role_prediction_atomic_index": 213,
+                        "line_role_match_kind": "exact_text_occurrence",
+                    },
+                    sort_keys=True,
+                )
+                + "\n",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (prompts_dir / "parsed_001.json").write_text(
+        json.dumps([{"atomic_index": 208, "label": "NONRECIPE_EXCLUDE"}], sort_keys=True),
+        encoding="utf-8",
+    )
+    (prompts_dir / "prompt_001.txt").write_text(
+        'owned row {"atomic_index": 208}\n',
+        encoding="utf-8",
+    )
+    (prompts_dir / "response_001.txt").write_text(
+        'answer row {"atomic_index": 208}\n',
+        encoding="utf-8",
+    )
+
+    run_context = followup_bundle.RunContext(
+        repo_root=tmp_path,
+        source_root=source_root,
+        output_subdir="codexfarm",
+        source_key="book",
+        run_id="codexfarm",
+        source_file="book.epub",
+    )
+
+    class _FakeAuditContext:
+        def codex_run_for_source(self, source_key: str):
+            return run_context if source_key == "book" else None
+
+        def changed_lines_for_recipe(self, source_key: str, recipe_id: str):
+            return []
+
+        def changed_lines_for_range(self, source_key: str, start: int, end: int):
+            rows = [
+                {
+                    "source_key": "book",
+                    "recipe_id": "",
+                    "line_index": 203,
+                    "gold_label": "OTHER",
+                    "vanilla_pred": "OTHER",
+                    "codex_pred": "OTHER",
+                    "current_line": "Excluded memoir row",
+                },
+                {
+                    "source_key": "book",
+                    "recipe_id": "",
+                    "line_index": 208,
+                    "gold_label": "OTHER",
+                    "vanilla_pred": "OTHER",
+                    "codex_pred": "KNOWLEDGE",
+                    "current_line": "Real changed line at canonical 208",
+                },
+            ]
+            return [
+                row
+                for row in rows
+                if start <= int(row.get("line_index") or -1) <= end
+                and str(row.get("source_key") or "") == source_key
+            ]
+
+    selectors = [
+        {
+            "selector_id": "selector-1",
+            "case_id": "case-1",
+            "kind": "line_range",
+            "source_key": "book",
+            "start": 203,
+            "end": 208,
+        }
+    ]
+
+    audit_rows = followup_bundle._build_line_role_audit_rows(
+        context=_FakeAuditContext(),
+        selectors=selectors,
+    )
+    audit_by_line = {int(row["line_index"]): row for row in audit_rows}
+    assert audit_by_line[203]["line_role_prediction_atomic_index"] == 208
+    assert audit_by_line[203]["final_label_after_postprocess"] == "NONRECIPE_EXCLUDE"
+    assert audit_by_line[203]["prompt_file"] is not None
+    assert audit_by_line[208]["line_role_prediction_atomic_index"] == 213
+    assert audit_by_line[208]["final_label_after_postprocess"] == "NONRECIPE_CANDIDATE"
+    assert audit_by_line[208]["prompt_file"] is None
+    assert audit_by_line[208]["authority_gap_kind"] == (
+        "route_broadness_other_promoted_to_knowledge"
+    )
+
+    prompt_rows = followup_bundle._build_prompt_link_audit_rows(
+        context=_FakeAuditContext(),
+        selectors=selectors,
+    )
+    prompt_by_line = {int(row["line_index"]): row for row in prompt_rows}
+    assert prompt_by_line[203]["prompt_atomic_index"] == 208
+    assert prompt_by_line[203]["status"] == "ok"
+    assert prompt_by_line[208]["prompt_atomic_index"] == 213
+    assert prompt_by_line[208]["status"] == "broken"
+    assert "prompt_file_missing" in prompt_by_line[208]["issues"]
+
+
 def test_request_template_writes_web_ai_followup_manifest(tmp_path: Path) -> None:
     sample_bundle = _make_sample_bundle(tmp_path)
     out_path = tmp_path / "followup_request.json"

@@ -15,6 +15,7 @@ from cookimport.llm.codex_exec_runner import (
     classify_workspace_worker_command,
     CodexExecRunResult,
     CodexExecLiveSnapshot,
+    CodexExecRecentCommandCompletion,
     CodexExecSupervisionDecision,
     detect_workspace_worker_boundary_violation,
     FakeCodexExecRunner,
@@ -170,6 +171,72 @@ def test_build_codex_exec_live_snapshot_skips_workspace_json_message_snippets() 
     assert snapshot.live_activity_summary == (
         "Ran `python3 -m cookimport.llm.editable_task_file --status`"
     )
+
+
+def test_build_codex_exec_live_snapshot_surfaces_completed_handoff_command_result() -> None:
+    snapshot = exec_runner_module._build_codex_exec_live_snapshot(  # noqa: SLF001
+        events=[
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_27",
+                    "type": "command_execution",
+                    "command": (
+                        "/bin/bash -lc "
+                        "'python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff'"
+                    ),
+                    "exit_code": 0,
+                    "status": "completed",
+                    "aggregated_output": (
+                        "[nltk_data] noisy prelude\n"
+                        '{"completed": true, "final_status": "completed", "status": "completed"}\n'
+                    ),
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_29",
+                    "type": "command_execution",
+                    "command": "/bin/bash -lc 'python3 -m cookimport.llm.editable_task_file --summary'",
+                    "exit_code": 0,
+                    "status": "completed",
+                    "aggregated_output": '{"answered_units": 1}\n',
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_30",
+                    "type": "agent_message",
+                    "text": "Completed for shard `line-role-canonical-0001-a000000-a000000`.",
+                },
+            },
+        ],
+        started_at=time.perf_counter() - 1.0,
+        last_event_at=time.perf_counter() - 0.1,
+        timeout_seconds=30,
+        workspace_mode="workspace_worker",
+    )
+
+    assert isinstance(snapshot.last_completed_command, CodexExecRecentCommandCompletion)
+    assert snapshot.last_completed_command.python_module == "cookimport.llm.editable_task_file"
+    assert snapshot.last_completed_command.exit_code == 0
+    assert snapshot.last_completed_command.status == "completed"
+    assert isinstance(
+        snapshot.last_completed_stage_helper_command, CodexExecRecentCommandCompletion
+    )
+    assert (
+        snapshot.last_completed_stage_helper_command.python_module
+        == "cookimport.parsing.canonical_line_roles.same_session_handoff"
+    )
+    assert snapshot.last_completed_stage_helper_command.reported_completed is True
+    assert snapshot.last_completed_stage_helper_command.reported_final_status == "completed"
+    assert snapshot.last_completed_stage_helper_command.parsed_output == {
+        "completed": True,
+        "final_status": "completed",
+        "status": "completed",
+    }
 
 
 def test_summarize_direct_telemetry_rows_counts_structured_followups() -> None:

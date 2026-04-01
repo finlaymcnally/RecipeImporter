@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from cookimport.bench.line_role_artifact_lookup import LineRoleArtifactLookup
 from cookimport.bench import oracle_upload as oracle_upload_contract
 from cookimport.bench.eval_stage_blocks import (
     compute_block_metrics,
@@ -11858,6 +11859,39 @@ def _upload_bundle_collect_line_role_prediction_rows(
     return rows, sorted(set(relative_paths))
 
 
+def _upload_bundle_collect_line_role_artifact_lookups(
+    *,
+    source_root: Path,
+    run_dir_by_id: dict[str, Path],
+    run_dirs: list[Path] | None = None,
+) -> tuple[dict[tuple[str, str], LineRoleArtifactLookup], dict[str, LineRoleArtifactLookup]]:
+    lookups_by_source_run: dict[tuple[str, str], LineRoleArtifactLookup] = {}
+    lookups_by_run_id: dict[str, LineRoleArtifactLookup] = {}
+    for run_dir in _upload_bundle_iter_unique_run_dirs(
+        run_dirs=run_dirs,
+        run_dir_by_id=run_dir_by_id,
+    ):
+        path = run_dir / "line-role-pipeline" / "line_role_predictions.jsonl"
+        if not path.is_file():
+            continue
+        run_manifest = _upload_bundle_load_json_object(run_dir / "run_manifest.json")
+        run_id = str(run_manifest.get("run_id") or run_dir.name).strip() or run_dir.name
+        source_payload = (
+            run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
+        )
+        source_path = source_payload.get("path") if isinstance(source_payload, dict) else None
+        source_hash = source_payload.get("source_hash") if isinstance(source_payload, dict) else None
+        source_file = _source_file_name(source_path if isinstance(source_path, str) else None)
+        source_key = _source_key(
+            source_hash if isinstance(source_hash, str) else None,
+            source_file,
+        )
+        lookup = LineRoleArtifactLookup.from_run_dir(run_dir)
+        lookups_by_source_run[(source_key, run_id)] = lookup
+        lookups_by_run_id[run_id] = lookup
+    return lookups_by_source_run, lookups_by_run_id
+
+
 def _upload_bundle_build_explicit_escalation_changed_lines_packet(
     *,
     source_root: Path,
@@ -11866,6 +11900,11 @@ def _upload_bundle_build_explicit_escalation_changed_lines_packet(
     run_dirs: list[Path] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     prediction_rows, prediction_files = _upload_bundle_collect_line_role_prediction_rows(
+        source_root=source_root,
+        run_dir_by_id=run_dir_by_id,
+        run_dirs=run_dirs,
+    )
+    lookups_by_source_run, lookups_by_run_id = _upload_bundle_collect_line_role_artifact_lookups(
         source_root=source_root,
         run_dir_by_id=run_dir_by_id,
         run_dirs=run_dirs,
@@ -11886,46 +11925,6 @@ def _upload_bundle_build_explicit_escalation_changed_lines_packet(
             [],
         )
 
-    predictions_by_source_run_line: dict[
-        tuple[str, str, int], list[dict[str, Any]]
-    ] = defaultdict(list)
-    predictions_by_run_line: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
-    predictions_by_source_run_atomic: dict[
-        tuple[str, str, int], list[dict[str, Any]]
-    ] = defaultdict(list)
-    predictions_by_run_atomic: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
-    for row in prediction_rows:
-        source_key = str(row.get("source_key") or "").strip()
-        run_id = str(row.get("run_id") or "")
-        line_index = _coerce_int(row.get("line_index"))
-        atomic_index = _coerce_int(row.get("atomic_index"))
-        if not run_id:
-            continue
-        if line_index is not None:
-            predictions_by_source_run_line[(source_key, run_id, int(line_index))].append(row)
-            predictions_by_run_line[(run_id, int(line_index))].append(row)
-        if atomic_index is not None:
-            predictions_by_source_run_atomic[(source_key, run_id, int(atomic_index))].append(row)
-            predictions_by_run_atomic[(run_id, int(atomic_index))].append(row)
-
-    def _pick_prediction_row(
-        *,
-        candidates: list[dict[str, Any]],
-        recipe_id: str,
-    ) -> dict[str, Any] | None:
-        if not candidates:
-            return None
-        recipe_text = str(recipe_id or "").strip()
-        if recipe_text:
-            for candidate in candidates:
-                candidate_recipe = str(candidate.get("recipe_id") or "").strip()
-                if _upload_bundle_recipe_ids_equivalent(candidate_recipe, recipe_text):
-                    return candidate
-        for candidate in candidates:
-            if not str(candidate.get("recipe_id") or "").strip():
-                return candidate
-        return candidates[0]
-
     packet_rows: list[dict[str, Any]] = []
     issue_kind_counts: Counter[str] = Counter()
     attribution_bucket_counts: Counter[str] = Counter()
@@ -11937,24 +11936,14 @@ def _upload_bundle_build_explicit_escalation_changed_lines_packet(
         line_index = _coerce_int(changed_row.get("line_index"))
         if not codex_run_id or line_index is None:
             continue
-        candidates = predictions_by_source_run_line.get(
-            (source_key, codex_run_id, int(line_index)),
-            [],
-        )
-        if not candidates:
-            candidates = predictions_by_run_line.get((codex_run_id, int(line_index)), [])
-        if not candidates:
-            candidates = predictions_by_source_run_atomic.get(
-                (source_key, codex_run_id, int(line_index)),
-                [],
-            )
-        if not candidates:
-            candidates = predictions_by_run_atomic.get((codex_run_id, int(line_index)), [])
-        if not candidates:
+        lookup = lookups_by_source_run.get((source_key, codex_run_id))
+        if lookup is None:
+            lookup = lookups_by_run_id.get(codex_run_id)
+        if lookup is None:
             continue
-        selected = _pick_prediction_row(
-            candidates=candidates,
-            recipe_id=str(changed_row.get("recipe_id") or ""),
+        selected = lookup.resolve_prediction_row(
+            line_index=int(line_index),
+            line_text=changed_row.get("current_line"),
         )
         if not isinstance(selected, dict):
             continue

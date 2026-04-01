@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
+from cookimport.llm.codex_exec_runner import _summarize_live_codex_events
 from cookimport.llm.editable_task_file import (
     TASK_FILE_NAME,
     build_task_file,
@@ -79,6 +80,104 @@ def _summarize_line_role_same_session_completion(
     }
 
 
+def _line_role_same_session_helper_completion_from_snapshot(
+    snapshot: CodexExecLiveSnapshot,
+) -> dict[str, Any]:
+    command = _line_role_completed_same_session_helper_command(
+        last_completed_stage_helper_command=snapshot.last_completed_stage_helper_command,
+        last_completed_command=snapshot.last_completed_command,
+    )
+    if command is None:
+        return {
+            "helper_completed_in_event_stream": False,
+            "helper_completion_command": None,
+            "helper_completion_exit_code": None,
+            "helper_completion_status": None,
+            "helper_completion_final_status": None,
+            "helper_completion_parsed_output": None,
+        }
+    return {
+        "helper_completed_in_event_stream": True,
+        "helper_completion_command": command.command,
+        "helper_completion_exit_code": command.exit_code,
+        "helper_completion_status": command.status,
+        "helper_completion_final_status": command.reported_final_status,
+        "helper_completion_parsed_output": dict(command.parsed_output or {}),
+    }
+
+
+def _line_role_same_session_helper_command_completed(
+    command: CodexExecRecentCommandCompletion | None,
+) -> bool:
+    return bool(
+        command is not None
+        and str(command.python_module or "").strip()
+        == "cookimport.parsing.canonical_line_roles.same_session_handoff"
+        and command.exit_code == 0
+        and (
+            command.reported_completed
+            or str(command.reported_final_status or "").strip() == "completed"
+        )
+    )
+
+
+def _line_role_completed_same_session_helper_command(
+    *,
+    last_completed_stage_helper_command: CodexExecRecentCommandCompletion | None,
+    last_completed_command: CodexExecRecentCommandCompletion | None,
+) -> CodexExecRecentCommandCompletion | None:
+    if _line_role_same_session_helper_command_completed(
+        last_completed_stage_helper_command
+    ):
+        return last_completed_stage_helper_command
+    if _line_role_same_session_helper_command_completed(last_completed_command):
+        return last_completed_command
+    return None
+
+
+def _line_role_same_session_helper_completed_in_events(
+    run_result: CodexExecRunResult,
+) -> bool:
+    live_summary = _summarize_live_codex_events(run_result.events)
+    return (
+        _line_role_completed_same_session_helper_command(
+            last_completed_stage_helper_command=live_summary.get(
+                "last_completed_stage_helper_command"
+            ),
+            last_completed_command=live_summary.get("last_completed_command"),
+        )
+        is not None
+    )
+
+
+def _normalize_line_role_run_result_after_final_sync(
+    *,
+    run_result: CodexExecRunResult,
+    state_path: Path,
+    expected_workspace_output_paths: Sequence[Path],
+) -> CodexExecRunResult:
+    if str(run_result.supervision_reason_code or "").strip() != "workspace_final_message_missing_output":
+        return run_result
+    if not _line_role_same_session_helper_completed_in_events(run_result):
+        return run_result
+    same_session_completion = _summarize_line_role_same_session_completion(state_path)
+    workspace_output_status = _summarize_workspace_output_paths(expected_workspace_output_paths)
+    if not (
+        bool(same_session_completion.get("same_session_completed"))
+        and str(same_session_completion.get("same_session_final_status") or "").strip()
+        == "completed"
+        and bool(workspace_output_status.get("complete"))
+    ):
+        return run_result
+    return replace(
+        run_result,
+        supervision_state="completed",
+        supervision_reason_code=None,
+        supervision_reason_detail=None,
+        supervision_retryable=False,
+    )
+
+
 def _line_role_task_file_useful_progress(
     *,
     task_file_path: Path,
@@ -150,6 +249,29 @@ class _LineRoleRecoveryAssessment:
     fresh_session_retry_count: int
     resume_summary: str | None
     blocked_reason: str | None = None
+
+
+def _line_role_assessment_proves_authoritative_completion(
+    assessment: _LineRoleRecoveryAssessment,
+) -> bool:
+    return bool(
+        assessment.same_session_completed
+        and assessment.outputs_present
+        and str(assessment.diagnosis_code or "").strip() == "completed"
+    )
+
+
+def _override_line_role_missing_output_with_authoritative_completion(
+    *,
+    run_result: CodexExecRunResult,
+) -> CodexExecRunResult:
+    return replace(
+        run_result,
+        supervision_state="completed",
+        supervision_reason_code=None,
+        supervision_reason_detail=None,
+        supervision_retryable=False,
+    )
 
 
 def _line_role_recovery_guidance_for_diagnosis(
@@ -1604,6 +1726,14 @@ def _run_line_role_workspace_worker_assignment_v1(
                 ),
             ),
         )
+        expected_workspace_output_paths = [
+            out_dir / f"{shard.shard_id}.json" for shard in runnable_shards
+        ]
+        session_run_result = _normalize_line_role_run_result_after_final_sync(
+            run_result=session_run_result,
+            state_path=state_path,
+            expected_workspace_output_paths=expected_workspace_output_paths,
+        )
         _finalize_live_status(
             worker_live_status_path,
             run_result=session_run_result,
@@ -1631,9 +1761,6 @@ def _run_line_role_workspace_worker_assignment_v1(
         _write_optional_runtime_text(worker_root / "stdout.txt", session_run_result.stdout_text)
         _write_optional_runtime_text(worker_root / "stderr.txt", session_run_result.stderr_text)
         line_role_same_session_state_payload = _load_json_dict_safely(state_path)
-        expected_workspace_output_paths = [
-            out_dir / f"{shard.shard_id}.json" for shard in runnable_shards
-        ]
         worker_session_runs: list[tuple[CodexExecRunResult, Path, bool, str | None]] = [
             (session_run_result, worker_prompt_path, False, None)
         ]
@@ -1655,16 +1782,45 @@ def _run_line_role_workspace_worker_assignment_v1(
                 run_result=session_run_result,
                 expected_workspace_output_paths=expected_workspace_output_paths,
             )
-            should_retry, retry_reason = _should_attempt_line_role_final_message_recovery(
-                run_result=session_run_result,
-                assessment=assessment,
+            authoritative_completion_proved = (
+                _line_role_assessment_proves_authoritative_completion(assessment)
             )
+            if authoritative_completion_proved:
+                session_run_result = (
+                    _override_line_role_missing_output_with_authoritative_completion(
+                        run_result=session_run_result
+                    )
+                )
+                _finalize_live_status(
+                    worker_live_status_path,
+                    run_result=session_run_result,
+                    watchdog_policy="workspace_worker_v1",
+                )
+                for live_status_path in shard_live_status_paths:
+                    _finalize_live_status(
+                        live_status_path,
+                        run_result=session_run_result,
+                        watchdog_policy="workspace_worker_v1",
+                    )
+                should_retry = False
+                retry_reason = "authoritative_completion_already_visible"
+            else:
+                should_retry, retry_reason = _should_attempt_line_role_final_message_recovery(
+                    run_result=session_run_result,
+                    assessment=assessment,
+                )
             fresh_session_recovery_metadata = {
                 "fresh_session_recovery_attempted": False,
-                "fresh_session_recovery_status": "attempted" if should_retry else "skipped",
+                "fresh_session_recovery_status": (
+                    "authoritative_completion"
+                    if authoritative_completion_proved
+                    else ("attempted" if should_retry else "skipped")
+                ),
                 "fresh_session_recovery_count": 0,
                 "fresh_session_recovery_skipped_reason": (
-                    None if should_retry else retry_reason
+                    None
+                    if should_retry or authoritative_completion_proved
+                    else retry_reason
                 ),
                 "shared_retry_budget_spent": (
                     int(assessment.fresh_session_retry_count)
@@ -1682,6 +1838,9 @@ def _run_line_role_workspace_worker_assignment_v1(
                 final_message_recovery_assessment_path,
                 {
                     **assessment_payload,
+                    "authoritative_completion_override_applied": (
+                        authoritative_completion_proved
+                    ),
                     **fresh_session_recovery_metadata,
                 },
             )
@@ -1757,6 +1916,11 @@ def _run_line_role_workspace_worker_assignment_v1(
                         settings.get("workspace_completion_quiescence_seconds") or 15.0
                     ),
                 ),
+            )
+            session_run_result = _normalize_line_role_run_result_after_final_sync(
+                run_result=session_run_result,
+                state_path=state_path,
+                expected_workspace_output_paths=expected_workspace_output_paths,
             )
             _finalize_live_status(
                 worker_live_status_path,
@@ -3417,6 +3581,7 @@ def _build_strict_json_watchdog_callback(
     completion_wait_turn_completed_count: int | None = None
     final_message_missing_output_started_elapsed_seconds: float | None = None
     final_message_missing_output_deadline_elapsed_seconds: float | None = None
+    final_message_missing_output_deadline_passes = 0
     persistent_warning_codes: list[str] = []
     persistent_warning_details: list[str] = []
     last_single_file_command_count = 0
@@ -3435,6 +3600,7 @@ def _build_strict_json_watchdog_callback(
         nonlocal completion_wait_turn_completed_count
         nonlocal final_message_missing_output_started_elapsed_seconds
         nonlocal final_message_missing_output_deadline_elapsed_seconds
+        nonlocal final_message_missing_output_deadline_passes
         nonlocal last_single_file_command_count
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
@@ -3465,6 +3631,10 @@ def _build_strict_json_watchdog_callback(
         )
         same_session_completion = _summarize_line_role_same_session_completion(
             same_session_state_path
+        )
+        helper_completion = _line_role_same_session_helper_completion_from_snapshot(snapshot)
+        helper_completed_in_event_stream = bool(
+            helper_completion.get("helper_completed_in_event_stream")
         )
         authoritative_same_session_success = bool(
             allow_workspace_commands
@@ -3633,6 +3803,7 @@ def _build_strict_json_watchdog_callback(
             and allow_workspace_commands
             and int(workspace_output_status["expected_count"] or 0) > 0
             and snapshot.has_final_agent_message
+            and not helper_completed_in_event_stream
             and not authoritative_same_session_success
             and not workspace_output_status["complete"]
         ):
@@ -3648,20 +3819,25 @@ def _build_strict_json_watchdog_callback(
                 >= final_message_missing_output_deadline_elapsed_seconds
             )
             if final_message_missing_output_deadline_reached:
-                missing_files = ", ".join(workspace_output_status["missing_files"]) or "[unknown]"
-                decision = CodexExecSupervisionDecision.terminate(
-                    reason_code="workspace_final_message_missing_output",
-                    reason_detail=(
-                        "workspace worker emitted a final agent message but the required output files "
-                        f"were still missing after {missing_output_grace_seconds:.1f} "
-                        f"seconds: {missing_files}"
-                    ),
-                    retryable=True,
-                    supervision_state="watchdog_killed",
-                )
+                final_message_missing_output_deadline_passes += 1
+                if final_message_missing_output_deadline_passes >= 2:
+                    missing_files = ", ".join(workspace_output_status["missing_files"]) or "[unknown]"
+                    decision = CodexExecSupervisionDecision.terminate(
+                        reason_code="workspace_final_message_missing_output",
+                        reason_detail=(
+                            "workspace worker emitted a final agent message but the required output files "
+                            f"were still missing after {missing_output_grace_seconds:.1f} "
+                            f"seconds: {missing_files}"
+                        ),
+                        retryable=True,
+                        supervision_state="watchdog_killed",
+                    )
+            else:
+                final_message_missing_output_deadline_passes = 0
         else:
             final_message_missing_output_started_elapsed_seconds = None
             final_message_missing_output_deadline_elapsed_seconds = None
+            final_message_missing_output_deadline_passes = 0
         status_payload = {
             "state": (
                 str(decision.supervision_state or "boundary_interrupted").strip()
@@ -3713,7 +3889,11 @@ def _build_strict_json_watchdog_callback(
             "workspace_output_missing_files": workspace_output_status["missing_files"],
             "workspace_output_stable_passes": workspace_output_stable_passes,
             **same_session_completion,
+            **helper_completion,
             "workspace_authoritative_completion_ready": authoritative_completion_ready,
+            "workspace_waiting_for_helper_visibility": bool(
+                helper_completed_in_event_stream and not authoritative_completion_ready
+            ),
             "final_message_missing_output_grace_active": (
                 final_message_missing_output_grace_active
             ),
@@ -3734,6 +3914,11 @@ def _build_strict_json_watchdog_callback(
             ),
             "final_message_missing_output_deadline_reached": (
                 final_message_missing_output_deadline_reached
+            ),
+            "final_message_missing_output_deadline_passes": (
+                final_message_missing_output_deadline_passes
+                if final_message_missing_output_grace_active
+                else 0
             ),
             "workspace_completion_waiting_for_exit": completion_waiting_for_exit,
             "workspace_completion_quiescence_seconds": (

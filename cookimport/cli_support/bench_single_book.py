@@ -74,6 +74,11 @@ def _write_single_book_summary_markdown(
             if eval_output_dir is not None
             else None
         )
+        eval_report_payload = (
+            _load_json_dict(eval_report_json)
+            if eval_report_json is not None and status == "ok"
+            else None
+        )
         relative_eval_report_json = (
             eval_report_json.relative_to(session_root)
             if eval_report_json is not None
@@ -102,6 +107,20 @@ def _write_single_book_summary_markdown(
             error_text = str(row.get("error") or "").strip()
             if error_text:
                 lines.append(f"- Error: `{error_text}`")
+        variant_per_label_breakdown = _build_single_book_variant_per_label_breakdown(
+            run_timestamp=run_timestamp,
+            eval_report=eval_report_payload,
+        )
+        if isinstance(variant_per_label_breakdown, dict):
+            lines.extend(
+                _single_book_per_label_breakdown_markdown_lines(
+                    per_label_breakdown_payload=variant_per_label_breakdown,
+                    heading_level=4,
+                    intro_text=(
+                        "Variant-local values from this variant's eval report."
+                    ),
+                )
+            )
         lines.append("")
 
     if comparison_json_path is not None and comparison_json_path.exists():
@@ -119,6 +138,10 @@ def _write_single_book_summary_markdown(
                 _format_single_book_comparison_markdown(comparison_payload)
                 .strip()
                 .splitlines()
+            )
+            comparison_md_lines = _strip_markdown_section(
+                comparison_md_lines,
+                heading_prefix="## Per-Label Breakdown",
             )
             if comparison_md_lines and comparison_md_lines[0].startswith("# "):
                 comparison_md_lines = comparison_md_lines[1:]
@@ -745,6 +768,155 @@ def _build_single_book_per_label_breakdown(
         "eval_count": eval_count,
         "rows": rows,
     }
+
+
+def _build_single_book_variant_per_label_breakdown(
+    *,
+    run_timestamp: str,
+    eval_report: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(eval_report, dict):
+        return None
+    per_label_payload = eval_report.get("per_label")
+    if not isinstance(per_label_payload, dict) or not per_label_payload:
+        return None
+
+    rows: list[dict[str, Any]] = []
+    for label_name in sorted(per_label_payload):
+        label_metrics_payload = per_label_payload.get(label_name)
+        if not isinstance(label_metrics_payload, dict):
+            continue
+        label = str(label_name or "").strip()
+        if not label:
+            continue
+        rows.append(
+            {
+                "label": label,
+                "precision": _report_optional_metric(label_metrics_payload.get("precision")),
+                "recall": _report_optional_metric(label_metrics_payload.get("recall")),
+                "gold_total": label_metrics_payload.get("gold_total"),
+                "pred_total": label_metrics_payload.get("pred_total"),
+            }
+        )
+    if not rows:
+        return None
+    return {
+        "schema_version": SINGLE_BOOK_PER_LABEL_BREAKDOWN_SCHEMA_VERSION,
+        "run_timestamp": run_timestamp,
+        "eval_count": 1,
+        "rows": rows,
+    }
+
+
+def _single_book_per_label_breakdown_markdown_lines(
+    *,
+    per_label_breakdown_payload: dict[str, Any],
+    heading_level: int = 2,
+    intro_text: str,
+) -> list[str]:
+    rows_payload = per_label_breakdown_payload.get("rows")
+    if not isinstance(rows_payload, list):
+        return []
+    per_label_rows: list[tuple[str, str, str, str, str]] = []
+    for row_payload in rows_payload:
+        if not isinstance(row_payload, dict):
+            continue
+        label = str(row_payload.get("label") or "").strip()
+        if not label:
+            continue
+        precision = _report_optional_metric(row_payload.get("precision"))
+        recall = _report_optional_metric(row_payload.get("recall"))
+        gold_total = _report_optional_metric(row_payload.get("gold_total"))
+        pred_total = _report_optional_metric(row_payload.get("pred_total"))
+
+        def _format_count(value: float | None) -> str:
+            if value is None:
+                return "null"
+            rounded = round(value)
+            if abs(value - rounded) <= 1e-9:
+                return str(int(rounded))
+            return f"{value:.4f}"
+
+        per_label_rows.append(
+            (
+                label,
+                f"{precision:.4f}" if precision is not None else "null",
+                f"{recall:.4f}" if recall is not None else "null",
+                _format_count(gold_total),
+                _format_count(pred_total),
+            )
+        )
+    if not per_label_rows:
+        return []
+
+    eval_count = _coerce_non_negative_int(per_label_breakdown_payload.get("eval_count"))
+    run_label = str(per_label_breakdown_payload.get("run_timestamp") or "").strip() or "unknown"
+    eval_count_text = (
+        f"{eval_count} eval{'s' if eval_count != 1 else ''}"
+        if eval_count is not None
+        else "unknown evals"
+    )
+    label_col_width = max(len("Label"), *(len(row[0]) for row in per_label_rows))
+    precision_col_width = max(len("Precision"), *(len(row[1]) for row in per_label_rows))
+    recall_col_width = max(len("Recall"), *(len(row[2]) for row in per_label_rows))
+    gold_col_width = max(len("Gold"), *(len(row[3]) for row in per_label_rows))
+    pred_col_width = max(len("Pred"), *(len(row[4]) for row in per_label_rows))
+    heading_marks = "#" * max(2, int(heading_level))
+    lines = [
+        "",
+        f"{heading_marks} Per-Label Breakdown ({run_label}, {eval_count_text})",
+        "",
+        intro_text,
+        (
+            f"| {'Label':<{label_col_width}}"
+            f" | {'Precision':>{precision_col_width}}"
+            f" | {'Recall':>{recall_col_width}}"
+            f" | {'Gold':>{gold_col_width}}"
+            f" | {'Pred':>{pred_col_width}} |"
+        ),
+        (
+            f"| {'-' * max(label_col_width, 3)}"
+            f" | {'-' * (max(precision_col_width, 3) - 1) + ':'}"
+            f" | {'-' * (max(recall_col_width, 3) - 1) + ':'}"
+            f" | {'-' * (max(gold_col_width, 3) - 1) + ':'}"
+            f" | {'-' * (max(pred_col_width, 3) - 1) + ':'} |"
+        ),
+    ]
+    for (
+        label_text,
+        precision_text,
+        recall_text,
+        gold_text,
+        pred_text,
+    ) in per_label_rows:
+        lines.append(
+            f"| {label_text:<{label_col_width}}"
+            f" | {precision_text:>{precision_col_width}}"
+            f" | {recall_text:>{recall_col_width}}"
+            f" | {gold_text:>{gold_col_width}}"
+            f" | {pred_text:>{pred_col_width}} |"
+        )
+    return lines
+
+
+def _strip_markdown_section(
+    lines: list[str],
+    *,
+    heading_prefix: str,
+) -> list[str]:
+    stripped_lines: list[str] = []
+    skipping = False
+    for line in lines:
+        if line.startswith(heading_prefix):
+            skipping = True
+            continue
+        if skipping and line.startswith("## "):
+            skipping = False
+        if not skipping:
+            stripped_lines.append(line)
+    while stripped_lines and not stripped_lines[-1].strip():
+        stripped_lines.pop()
+    return stripped_lines
 
 
 def _single_book_display_metric_value(
@@ -2044,100 +2216,16 @@ def _format_single_book_comparison_markdown(
                 f"gold_adaptation_confidence={confidence_summary}"
             )
     if isinstance(per_label_breakdown_payload, dict):
-        rows_payload = per_label_breakdown_payload.get("rows")
-        if isinstance(rows_payload, list):
-            per_label_rows: list[tuple[str, str, str, str, str]] = []
-            for row_payload in rows_payload:
-                if not isinstance(row_payload, dict):
-                    continue
-                label = str(row_payload.get("label") or "").strip()
-                if not label:
-                    continue
-                precision = _report_optional_metric(row_payload.get("precision"))
-                recall = _report_optional_metric(row_payload.get("recall"))
-                gold_total = _report_optional_metric(row_payload.get("gold_total"))
-                pred_total = _report_optional_metric(row_payload.get("pred_total"))
-
-                def _format_count(value: float | None) -> str:
-                    if value is None:
-                        return "null"
-                    rounded = round(value)
-                    if abs(value - rounded) <= 1e-9:
-                        return str(int(rounded))
-                    return f"{value:.4f}"
-
-                per_label_rows.append(
-                    (
-                        label,
-                        f"{precision:.4f}" if precision is not None else "null",
-                        f"{recall:.4f}" if recall is not None else "null",
-                        _format_count(gold_total),
-                        _format_count(pred_total),
-                    )
-                )
-            if per_label_rows:
-                eval_count = _coerce_non_negative_int(
-                    per_label_breakdown_payload.get("eval_count")
-                )
-                run_label = (
-                    str(per_label_breakdown_payload.get("run_timestamp") or "").strip()
-                    or run_timestamp
-                )
-                eval_count_text = (
-                    f"{eval_count} eval{'s' if eval_count != 1 else ''}"
-                    if eval_count is not None
-                    else "unknown evals"
-                )
-                label_col_width = max(
-                    len("Label"),
-                    *(len(row[0]) for row in per_label_rows),
-                )
-                precision_col_width = max(
-                    len("Precision"),
-                    *(len(row[1]) for row in per_label_rows),
-                )
-                recall_col_width = max(
-                    len("Recall"),
-                    *(len(row[2]) for row in per_label_rows),
-                )
-                gold_col_width = max(len("Gold"), *(len(row[3]) for row in per_label_rows))
-                pred_col_width = max(len("Pred"), *(len(row[4]) for row in per_label_rows))
-                lines.extend(
-                    [
-                        "",
-                        f"## Per-Label Breakdown ({run_label}, {eval_count_text})",
-                        "",
-                        "Per label: precision answers false alarms, recall answers misses. Values aggregate all benchmark records with the latest run timestamp.",
-                        (
-                            f"| {'Label':<{label_col_width}}"
-                            f" | {'Precision':>{precision_col_width}}"
-                            f" | {'Recall':>{recall_col_width}}"
-                            f" | {'Gold':>{gold_col_width}}"
-                            f" | {'Pred':>{pred_col_width}} |"
-                        ),
-                        (
-                            f"| {'-' * max(label_col_width, 3)}"
-                            f" | {'-' * (max(precision_col_width, 3) - 1) + ':'}"
-                            f" | {'-' * (max(recall_col_width, 3) - 1) + ':'}"
-                            f" | {'-' * (max(gold_col_width, 3) - 1) + ':'}"
-                            f" | {'-' * (max(pred_col_width, 3) - 1) + ':'} |"
-                        ),
-                    ]
-                )
-                for (
-                    label_text,
-                    precision_text,
-                    recall_text,
-                    gold_text,
-                    pred_text,
-                ) in per_label_rows:
-                    lines.append(
-                        f"| {label_text:<{label_col_width}}"
-                        f" | {precision_text:>{precision_col_width}}"
-                        f" | {recall_text:>{recall_col_width}}"
-                        f" | {gold_text:>{gold_col_width}}"
-                        f" | {pred_text:>{pred_col_width}} |"
-                    )
+        lines.extend(
+            _single_book_per_label_breakdown_markdown_lines(
+                per_label_breakdown_payload=per_label_breakdown_payload,
+                heading_level=2,
+                intro_text=(
+                    "Per label: precision answers false alarms, recall answers misses. "
+                    "Values aggregate all benchmark records with the latest run timestamp."
+                ),
+            )
+        )
 
     if isinstance(split_cache_payload, dict):
         shared_key = str(split_cache_payload.get("shared_key") or "").strip()

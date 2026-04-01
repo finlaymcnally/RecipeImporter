@@ -14,6 +14,7 @@ from cookimport.bench.oracle_upload import (
     ORACLE_REVIEW_PROFILE_QUALITY,
     oracle_benchmark_review_packet_file,
 )
+from cookimport.bench.line_role_artifact_lookup import LineRoleArtifactLookup
 from cookimport.bench.structure_label_report import build_structure_label_report
 from cookimport.llm.codex_farm_ids import sanitize_for_filename
 
@@ -336,7 +337,7 @@ class RunContext:
         self.source_file = source_file
         self.run_dir = (source_root / output_subdir).resolve()
         self._run_manifest: dict[str, Any] | None = None
-        self._line_role_predictions_by_index: dict[int, dict[str, Any]] | None = None
+        self._line_role_artifact_lookup: LineRoleArtifactLookup | None = None
         self._extracted_lines_by_index: dict[int, dict[str, Any]] | None = None
         self._prompt_links_by_atomic_index: dict[int, PromptArtifactLink] | None = None
         self._raw_llm_dir: Path | None | object = ...
@@ -354,17 +355,12 @@ class RunContext:
         return self._run_manifest
 
     @property
-    def line_role_predictions_by_index(self) -> dict[int, dict[str, Any]]:
-        if self._line_role_predictions_by_index is None:
-            rows: dict[int, dict[str, Any]] = {}
-            path = self.run_dir / "line-role-pipeline" / "line_role_predictions.jsonl"
-            for row in _read_jsonl(path):
-                atomic_index = _coerce_int(row.get("atomic_index"))
-                if atomic_index is None:
-                    continue
-                rows[atomic_index] = row
-            self._line_role_predictions_by_index = rows
-        return self._line_role_predictions_by_index
+    def line_role_artifact_lookup(self) -> LineRoleArtifactLookup:
+        if self._line_role_artifact_lookup is None:
+            self._line_role_artifact_lookup = LineRoleArtifactLookup.from_run_dir(
+                self.run_dir
+            )
+        return self._line_role_artifact_lookup
 
     @property
     def extracted_lines_by_index(self) -> dict[int, dict[str, Any]]:
@@ -426,6 +422,36 @@ class RunContext:
                         )
             self._prompt_links_by_atomic_index = rows
         return self._prompt_links_by_atomic_index
+
+    def line_role_prediction_for_line(
+        self,
+        *,
+        line_index: int,
+        line_text: str | None = None,
+    ) -> tuple[dict[str, Any], int | None]:
+        row = self.line_role_artifact_lookup.resolve_prediction_row(
+            line_index=line_index,
+            line_text=line_text,
+        )
+        atomic_index = self.line_role_artifact_lookup.resolve_atomic_index(
+            line_index=line_index,
+            line_text=line_text,
+        )
+        return (row or {}), atomic_index
+
+    def prompt_link_for_line(
+        self,
+        *,
+        line_index: int,
+        line_text: str | None = None,
+    ) -> tuple[PromptArtifactLink | None, int | None]:
+        atomic_index = self.line_role_artifact_lookup.resolve_atomic_index(
+            line_index=line_index,
+            line_text=line_text,
+        )
+        if atomic_index is None:
+            return None, None
+        return self.prompt_links_by_atomic_index.get(atomic_index), atomic_index
 
     @property
     def raw_llm_dir(self) -> Path | None:
@@ -1765,8 +1791,15 @@ def _build_line_role_audit_rows(
         selected_lines = _line_role_rows_for_selector(context, selector)
         for changed_row in selected_lines:
             line_index = int(changed_row.get("line_index") or 0)
-            line_role_row = codex_run.line_role_predictions_by_index.get(line_index, {})
-            prompt_link = codex_run.prompt_links_by_atomic_index.get(line_index)
+            current_line = str(changed_row.get("current_line") or "")
+            line_role_row, prediction_atomic_index = codex_run.line_role_prediction_for_line(
+                line_index=line_index,
+                line_text=current_line,
+            )
+            prompt_link, prompt_atomic_index = codex_run.prompt_link_for_line(
+                line_index=line_index,
+                line_text=current_line,
+            )
             final_label = str(line_role_row.get("label") or "").strip() or None
             parsed_label = prompt_link.parsed_label if prompt_link is not None else None
             raw_model_label = parsed_label
@@ -1803,7 +1836,9 @@ def _build_line_role_audit_rows(
                     "book": codex_run.source_file,
                     "recipe_id": changed_row.get("recipe_id"),
                     "line_index": line_index,
-                    "raw_text": changed_row.get("current_line"),
+                    "line_role_prediction_atomic_index": prediction_atomic_index,
+                    "prompt_atomic_index": prompt_atomic_index,
+                    "raw_text": current_line,
                     "gold_label": gold_label,
                     "baseline_pred": baseline_pred,
                     "codex_pred": codex_pred,
@@ -1851,6 +1886,7 @@ def _build_prompt_link_audit_rows(
         response_file = Path(row["response_file"]) if row.get("response_file") else None
         parsed_file = Path(row["parsed_file"]) if row.get("parsed_file") else None
         line_index = int(row.get("line_index") or 0)
+        atomic_index = _coerce_int(row.get("prompt_atomic_index"))
         decided_by = str(row.get("decided_by") or "").strip().lower()
         prompt_mentions_line = False
         response_mentions_line = False
@@ -1864,6 +1900,7 @@ def _build_prompt_link_audit_rows(
                     "source_key": row.get("source_key"),
                     "recipe_id": row.get("recipe_id"),
                     "line_index": line_index,
+                    "prompt_atomic_index": atomic_index,
                     "prompt_file": row.get("prompt_file"),
                     "response_file": row.get("response_file"),
                     "parsed_file": row.get("parsed_file"),
@@ -1877,14 +1914,26 @@ def _build_prompt_link_audit_rows(
             continue
         if prompt_file and prompt_file.is_file():
             prompt_text = prompt_file.read_text(encoding="utf-8")
-            prompt_mentions_line = f"\"atomic_index\": {line_index}" in prompt_text or f"\"atomic_index\":{line_index}" in prompt_text
+            prompt_mentions_line = (
+                atomic_index is not None
+                and (
+                    f"\"atomic_index\": {atomic_index}" in prompt_text
+                    or f"\"atomic_index\":{atomic_index}" in prompt_text
+                )
+            )
             if not prompt_mentions_line:
                 issues.append("prompt_missing_atomic_index")
         else:
             issues.append("prompt_file_missing")
         if response_file and response_file.is_file():
             response_text = response_file.read_text(encoding="utf-8")
-            response_mentions_line = f"\"atomic_index\": {line_index}" in response_text or f"\"atomic_index\":{line_index}" in response_text
+            response_mentions_line = (
+                atomic_index is not None
+                and (
+                    f"\"atomic_index\": {atomic_index}" in response_text
+                    or f"\"atomic_index\":{atomic_index}" in response_text
+                )
+            )
             if not response_mentions_line:
                 issues.append("response_missing_atomic_index")
         else:
@@ -1893,7 +1942,8 @@ def _build_prompt_link_audit_rows(
             payload = _read_json(parsed_file)
             if isinstance(payload, list):
                 parsed_mentions_line = any(
-                    _coerce_int(item.get("atomic_index")) == line_index
+                    atomic_index is not None
+                    and _coerce_int(item.get("atomic_index")) == atomic_index
                     for item in payload
                     if isinstance(item, dict)
                 )
@@ -1909,6 +1959,7 @@ def _build_prompt_link_audit_rows(
                 "source_key": row.get("source_key"),
                 "recipe_id": row.get("recipe_id"),
                 "line_index": line_index,
+                "prompt_atomic_index": atomic_index,
                 "prompt_file": row.get("prompt_file"),
                 "response_file": row.get("response_file"),
                 "parsed_file": row.get("parsed_file"),

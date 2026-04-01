@@ -98,6 +98,109 @@ def test_single_book_comparison_markdown_includes_per_label_breakdown() -> None:
     assert "| INGREDIENT_LINE |    0.7453 | 0.1373 |  874 |  161 |" in markdown
     assert "| RECIPE_TITLE    |    0.8111 | 0.5984 |  122 |   90 |" in markdown
 
+
+def test_single_book_summary_markdown_uses_variant_local_per_label_tables(
+    tmp_path: Path,
+) -> None:
+    session_root = tmp_path / "session"
+    vanilla_dir = session_root / "vanilla"
+    codex_dir = session_root / "codexfarm"
+    vanilla_dir.mkdir(parents=True, exist_ok=True)
+    codex_dir.mkdir(parents=True, exist_ok=True)
+
+    (vanilla_dir / "eval_report.json").write_text(
+        json.dumps(
+            {
+                "overall_line_accuracy": 0.5,
+                "macro_f1_excluding_other": 0.4,
+                "per_label": {
+                    "RECIPE_TITLE": {
+                        "precision": 0.8,
+                        "recall": 0.5,
+                        "gold_total": 10,
+                        "pred_total": 8,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (codex_dir / "eval_report.json").write_text(
+        json.dumps(
+            {
+                "overall_line_accuracy": 0.7,
+                "macro_f1_excluding_other": 0.3,
+                "per_label": {
+                    "RECIPE_TITLE": {
+                        "precision": 0.0,
+                        "recall": 0.0,
+                        "gold_total": 10,
+                        "pred_total": 0,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    comparison_json_path = session_root / "codex_vs_vanilla_comparison.json"
+    comparison_json_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "codex_vs_vanilla_comparison.v2",
+                "run_timestamp": "2026-03-31_19.51.54",
+                "source_file": "book.epub",
+                "variants": {
+                    "codexfarm": {"eval_output_dir": str(codex_dir)},
+                    "vanilla": {"eval_output_dir": str(vanilla_dir)},
+                },
+                "metrics": {},
+                "deltas": {"codex_minus_vanilla": {}},
+                "metadata": {
+                    "per_label_breakdown": {
+                        "schema_version": "single_book_per_label_breakdown.v1",
+                        "run_timestamp": "2026-03-31_19.51.54",
+                        "eval_count": 2,
+                        "rows": [
+                            {
+                                "label": "RECIPE_TITLE",
+                                "precision": 0.4444,
+                                "recall": 0.2500,
+                                "gold_total": 20,
+                                "pred_total": 8,
+                            }
+                        ],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary_path = cli._write_single_book_summary_markdown(
+        run_timestamp="2026-03-31_19.51.54",
+        session_root=session_root,
+        variant_results={
+            "vanilla": {
+                "status": "ok",
+                "eval_output_dir": vanilla_dir,
+            },
+            "codexfarm": {
+                "status": "ok",
+                "eval_output_dir": codex_dir,
+            },
+        },
+        comparison_json_path=comparison_json_path,
+    )
+
+    markdown = summary_path.read_text(encoding="utf-8")
+    assert "#### Per-Label Breakdown (2026-03-31_19.51.54, 1 eval)" in markdown
+    assert "Variant-local values from this variant's eval report." in markdown
+    assert "| RECIPE_TITLE |    0.8000 | 0.5000 |   10 |    8 |" in markdown
+    assert "| RECIPE_TITLE |    0.0000 | 0.0000 |   10 |    0 |" in markdown
+    assert "## Per-Label Breakdown (2026-03-31_19.51.54, 2 evals)" not in markdown
+
+
 def test_single_book_comparison_artifacts_include_per_label_breakdown(
     tmp_path: Path,
 ) -> None:

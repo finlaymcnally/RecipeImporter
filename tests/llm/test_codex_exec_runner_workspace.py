@@ -1333,6 +1333,149 @@ def test_workspace_worker_supervision_syncs_live_outputs_before_callback(
     assert result.completed_successfully() is True
 
 
+def test_workspace_worker_supervision_syncs_repo_control_and_outputs_before_callback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        exec_runner_module,
+        "resolve_completed_termination_grace_seconds",
+        lambda _settings=None: 0.05,
+    )
+    source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
+    (source_root / "_repo_control").mkdir(parents=True, exist_ok=True)
+    (source_root / "out").mkdir(parents=True, exist_ok=True)
+    (source_root / "task.json").write_text(
+        json.dumps({"stage_key": "line_role", "units": []}),
+        encoding="utf-8",
+    )
+    synced = {"started": False}
+
+    class _FakeStdin:
+        def write(self, text: str) -> int:
+            return len(text)
+
+        def close(self) -> None:
+            return None
+
+    class _BlockingStream:
+        def __init__(self, owner: "_FakeProcess", lines: list[str]) -> None:
+            self._owner = owner
+            self._lines = list(lines)
+
+        def readline(self) -> str:
+            if self._lines:
+                return self._lines.pop(0)
+            while self._owner.returncode is None:
+                time.sleep(0.01)
+            return ""
+
+        def close(self) -> None:
+            return None
+
+    class _FakeProcess:
+        def __init__(self, cwd: Path, _fake_stdin_cls=_FakeStdin) -> None:
+            self.stdin = _fake_stdin_cls()
+            self.returncode: int | None = None
+            self.stdout = _BlockingStream(
+                self,
+                [json.dumps({"type": "thread.started"}) + "\n"],
+            )
+            self.stderr = _BlockingStream(self, [])
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    def _fake_popen(command, **kwargs):  # noqa: ANN001
+        cwd = Path(str(kwargs["cwd"]))
+        process = _FakeProcess(cwd)
+        if not synced["started"]:
+            synced["started"] = True
+
+            def _writer() -> None:
+                time.sleep(0.15)
+                repo_control_dir = cwd / "_repo_control"
+                repo_control_dir.mkdir(parents=True, exist_ok=True)
+                (repo_control_dir / "line_role_same_session_state.json").write_text(
+                    json.dumps(
+                        {
+                            "completed": True,
+                            "final_status": "completed",
+                            "completed_shard_count": 1,
+                            "validation_count": 1,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                out_dir = cwd / "out"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "line-role-canonical-0001-a000000-a000000.json").write_text(
+                    json.dumps({"rows": [{"atomic_index": 0, "label": "RECIPE_NOTES"}]}),
+                    encoding="utf-8",
+                )
+
+            import threading
+
+            threading.Thread(target=_writer, daemon=True).start()
+        return process
+
+    monkeypatch.setattr(
+        "cookimport.llm.codex_exec_runner.subprocess.Popen",
+        _fake_popen,
+    )
+
+    runner = SubprocessCodexExecRunner(cmd="codex exec")
+    result = runner.run_workspace_worker(
+        prompt_text="Write task outputs locally and stop once done.",
+        working_dir=source_root,
+        env={
+            "CODEX_HOME": str(tmp_path / ".codex-recipe"),
+            "RECIPEIMPORT_LINE_ROLE_SAME_SESSION_STATE_PATH": str(
+                source_root / "_repo_control" / "line_role_same_session_state.json"
+            ),
+        },
+        workspace_task_label="canonical line-role worker session",
+        supervision_callback=lambda _snapshot: (
+            CodexExecSupervisionDecision.terminate(
+                reason_code="workspace_authoritative_completion_ready",
+                reason_detail="repo control state and shard output were both visible",
+                retryable=False,
+                supervision_state="completed",
+            )
+            if (
+                (source_root / "_repo_control" / "line_role_same_session_state.json").exists()
+                and json.loads(
+                    (
+                        source_root
+                        / "_repo_control"
+                        / "line_role_same_session_state.json"
+                    ).read_text(encoding="utf-8")
+                ).get("completed")
+                is True
+                and (
+                    source_root / "out" / "line-role-canonical-0001-a000000-a000000.json"
+                ).exists()
+            )
+            else None
+        ),
+    )
+
+    assert result.supervision_state == "completed"
+    assert result.supervision_reason_code == "workspace_authoritative_completion_ready"
+    assert (
+        source_root / "_repo_control" / "line_role_same_session_state.json"
+    ).exists()
+    assert (
+        source_root / "out" / "line-role-canonical-0001-a000000-a000000.json"
+    ).exists()
+
+
 @pytest.mark.parametrize(
     ("supervision_state", "reason_code"),
     [
