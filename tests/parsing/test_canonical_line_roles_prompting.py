@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import tests.parsing.canonical_line_role_support as _support
 
 # Reuse shared imports/helpers from the local support module.
@@ -199,6 +201,22 @@ def test_canonical_line_role_prompt_compact_format_defines_row_schema_once() -> 
         "0|SERVES 4",
         "1|2 tablespoons olive oil",
     ]
+
+
+def test_line_role_workspace_worker_prompt_includes_title_yield_reset_contract() -> None:
+    from cookimport.parsing.canonical_line_roles.planning import (
+        _build_line_role_workspace_worker_prompt,
+    )
+
+    prompt = _build_line_role_workspace_worker_prompt(
+        shards=[SimpleNamespace(shard_id="line-role-canonical-0001-a000000-a000002")]
+    )
+
+    assert "- `RECIPE_TITLE`:" in prompt
+    assert "- `YIELD_LINE`:" in prompt
+    assert "Variant context is local, not sticky." in prompt
+    assert "Bright Cabbage Slaw" in prompt
+    assert "Serves 4 generously" in prompt
 
 
 def test_canonical_line_role_prompt_does_not_repeat_neighbor_text_for_escalated_rows() -> None:

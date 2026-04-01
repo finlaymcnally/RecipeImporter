@@ -96,10 +96,13 @@ Active intentional split seams:
   - `tests/parsing/test_step_ingredient_linking_semantic.py`
 - Canonical line-role coverage is split into:
   - `tests/parsing/test_canonical_line_role_env.py` for fast env/helper guardrails
-  - `tests/parsing/test_canonical_line_roles.py` for baseline labeling behavior and regression fixtures
+  - `tests/parsing/test_canonical_line_roles_recipe_span.py` for short in-span rule regressions
+  - `tests/parsing/test_canonical_line_roles.py` for non-Codex baseline labeling behavior and regression fixtures
+  - `tests/parsing/test_canonical_line_roles_codex.py` for Codex override/acceptance regressions
   - `tests/parsing/test_canonical_line_roles_prompting.py` for prompt/cache/telemetry/progress seams
   - `tests/parsing/test_canonical_line_roles_workspace.py` for workspace-watchdog and command-policy behavior
-  - `tests/parsing/test_canonical_line_roles_runtime.py` for retry/recovery/fail-closed runtime behavior
+  - `tests/parsing/test_canonical_line_roles_runtime.py` for fail-closed/artifact/runtime contract behavior
+  - `tests/parsing/test_canonical_line_roles_runtime_recovery.py` for retry/recovery behavior
 - Benchmark cutdown coverage for the external-AI bundle tool is split into:
   - `tests/bench/test_benchmark_cutdown_for_external_ai.py` for the base smoke/main path
   - `tests/bench/test_benchmark_cutdown_for_external_ai_starter_pack.py` for starter-pack selection/output seams
@@ -125,6 +128,9 @@ Active intentional split seams:
 - Split LLM stage packages should keep one direct unresolved-name/binding guard close to the package when the main smoke path would only hit the seam after a long offline run or a live Codex stage.
 - CLI path-resolution tests should prefer synthesizing the minimal artifact contract they need under `tmp_path` instead of depending on repo-local sample benchmark roots.
 - Bench Oracle / follow-up / `cf-debug` tests should prefer tiny synthetic `upload_bundle_v1` fixtures under `tmp_path`; copying large checked-in benchmark roots is reserved for an explicit slow realism slice only.
+- Benchmark Oracle upload coverage is split into:
+  - `tests/bench/test_benchmark_oracle_upload.py` for prompt/model/command/browser assembly seams
+  - `tests/bench/test_benchmark_oracle_upload_background.py` for background upload/session/audit seams
 - When one test starts mixing giant fixture setup, one command/helper invocation, and several unrelated output families, split it into file-local builders plus narrower tests before adding more assertions. Prefer domain-local support modules and helper functions over a new repo-wide fixture framework.
 
 Support assets and test-runtime files:

@@ -61,10 +61,13 @@ pytest tests/analytics/test_stats_dashboard_slow.py
 
 # Canonical line-role split
 pytest tests/parsing/test_canonical_line_role_env.py
+pytest tests/parsing/test_canonical_line_roles_recipe_span.py
 pytest tests/parsing/test_canonical_line_roles.py
+pytest tests/parsing/test_canonical_line_roles_codex.py
 pytest tests/parsing/test_canonical_line_roles_prompting.py
 pytest tests/parsing/test_canonical_line_roles_workspace.py
 pytest tests/parsing/test_canonical_line_roles_runtime.py
+pytest tests/parsing/test_canonical_line_roles_runtime_recovery.py
 
 # Benchmark cutdown split
 pytest tests/bench/test_benchmark_cutdown_for_external_ai.py
@@ -72,6 +75,10 @@ pytest tests/bench/test_benchmark_cutdown_for_external_ai_starter_pack.py
 pytest tests/bench/test_benchmark_cutdown_for_external_ai_upload_bundle.py
 pytest tests/bench/test_benchmark_cutdown_for_external_ai_upload_bundle_runtime.py
 pytest tests/bench/test_benchmark_cutdown_for_external_ai_high_level.py
+
+# Benchmark Oracle upload split
+pytest tests/bench/test_benchmark_oracle_upload.py
+pytest tests/bench/test_benchmark_oracle_upload_background.py
 
 # QualitySuite split
 pytest tests/bench/test_quality_suite_runner.py
