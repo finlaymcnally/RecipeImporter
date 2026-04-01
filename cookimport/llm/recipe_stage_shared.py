@@ -53,7 +53,6 @@ from .codex_exec_runner import (
     format_watchdog_command_reason_detail,
     format_watchdog_command_loop_reason_detail,
     is_single_file_workspace_command_drift_policy,
-    is_single_file_workspace_command_egregious,
     should_terminate_workspace_command_loop,
     summarize_direct_telemetry_rows,
 )
@@ -1160,7 +1159,6 @@ def _build_recipe_watchdog_callback(
     persistent_warning_codes: list[str] = []
     persistent_warning_details: list[str] = []
     last_single_file_command_count = 0
-    single_file_shell_drift_count = 0
 
     def _record_warning(code: str, detail: str) -> None:
         if code not in persistent_warning_codes:
@@ -1170,7 +1168,6 @@ def _build_recipe_watchdog_callback(
 
     def _callback(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
         nonlocal last_single_file_command_count
-        nonlocal single_file_shell_drift_count
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
         allowed_absolute_roots = [
@@ -1221,22 +1218,6 @@ def _build_recipe_watchdog_callback(
                         "single-file worker drifted off the helper-first task-file contract"
                     )
                     _record_warning("single_file_shell_drift", drift_detail)
-                    if is_single_file_workspace_command_egregious(
-                        last_command_verdict.policy
-                    ):
-                        decision = CodexExecSupervisionDecision.terminate(
-                            reason_code="single_file_shell_drift_egregious",
-                            reason_detail=drift_detail,
-                            retryable=False,
-                        )
-                    else:
-                        single_file_shell_drift_count += 1
-                        if single_file_shell_drift_count >= 2:
-                            decision = CodexExecSupervisionDecision.terminate(
-                                reason_code="single_file_shell_drift_repeated",
-                                reason_detail=drift_detail,
-                                retryable=False,
-                            )
                 if decision is None and should_terminate_workspace_command_loop(snapshot=snapshot):
                     _record_warning(
                         "command_loop_without_output",

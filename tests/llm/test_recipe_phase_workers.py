@@ -1286,7 +1286,7 @@ def test_recipe_workspace_watchdog_allows_shell_work_until_command_loop(
     assert live_status["warning_codes"] == ["single_file_shell_drift"]
 
 
-def test_recipe_workspace_watchdog_warns_then_kills_single_file_shell_drift(
+def test_recipe_workspace_watchdog_keeps_running_after_repeated_single_file_shell_drift(
     tmp_path: Path,
 ) -> None:
     callback = recipe_module._build_recipe_watchdog_callback(  # noqa: SLF001
@@ -1324,8 +1324,7 @@ def test_recipe_workspace_watchdog_warns_then_kills_single_file_shell_drift(
     )
 
     assert first is None
-    assert second is not None
-    assert second.reason_code == "single_file_shell_drift_repeated"
+    assert second is None
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
     assert live_status["warning_codes"] == ["single_file_shell_drift"]
     assert live_status["last_command_policy"] == "single_file_orientation_command"

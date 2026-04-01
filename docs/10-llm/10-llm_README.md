@@ -13,7 +13,7 @@ LLM usage in this repo is optional. The direct-exec transport is now mixed by at
 
 The worker-visible self-help surface is now explicit. `task.json` carries repo-authored `helper_commands`, `next_action`, and `answer_schema` metadata, `python3 -m cookimport.llm.editable_task_file --summary` can summarize the current file while sampling large unanswered-unit lists, `--show-unit <unit_id>` and `--show-unanswered --limit 5` provide narrow read paths for large task files, and `--set-answer ...` or `--apply-answers-file ...` can apply explicit answers without ad hoc JSON surgery. Recipe, knowledge, and canonical line-role same-session helpers also expose read-only `--status` and `--doctor` modes from the workspace root, auto-discover their hidden same-session state under `./_repo_control/`, and preserve the same guidance plus stage-specific top-level metadata if they rewrite `task.json` into repair mode.
 
-Single-file `task.json` workers now also have a stricter shell-drift contract. Repo-owned helper commands remain the paved road, a first off-path shell command records `single_file_shell_drift` warning metadata, and repeated drift or ad hoc inline rewrites against `task.json` can terminate the session explicitly instead of being treated as normal local shell behavior.
+Single-file `task.json` workers now also have a stricter shell-drift contract. Repo-owned helper commands remain the paved road, and off-path shell commands record `single_file_shell_drift` warning metadata so operators can see the worker leaving the helper-first path. Those warnings do not kill the session by themselves; auto-termination is reserved for actual workspace boundary violations and other hard watchdog failures.
 
 ## Terminology
 

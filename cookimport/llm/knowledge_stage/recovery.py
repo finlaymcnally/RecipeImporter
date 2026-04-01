@@ -1352,7 +1352,6 @@ def _build_strict_json_watchdog_callback(
     persistent_warning_codes: list[str] = []
     persistent_warning_details: list[str] = []
     last_single_file_command_count = 0
-    single_file_shell_drift_count = 0
 
     def _record_warning(code: str, detail: str) -> None:
         if code not in persistent_warning_codes:
@@ -1370,7 +1369,6 @@ def _build_strict_json_watchdog_callback(
         nonlocal completion_wait_agent_message_count
         nonlocal completion_wait_turn_completed_count
         nonlocal last_single_file_command_count
-        nonlocal single_file_shell_drift_count
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
         last_command_stage_violation: _KnowledgeWorkspaceStageCommandViolation | None = None
@@ -1546,28 +1544,6 @@ def _build_strict_json_watchdog_callback(
                         "single-file worker drifted off the helper-first task-file contract"
                     )
                     _record_warning("single_file_shell_drift", drift_detail)
-                    if (
-                        is_single_file_workspace_command_egregious(
-                            last_command_verdict.policy
-                        )
-                        and not completion_waiting_for_exit
-                    ):
-                        decision = CodexExecSupervisionDecision.terminate(
-                            reason_code="single_file_shell_drift_egregious",
-                            reason_detail=drift_detail,
-                            retryable=False,
-                        )
-                    else:
-                        single_file_shell_drift_count += 1
-                        if (
-                            single_file_shell_drift_count >= 2
-                            and not completion_waiting_for_exit
-                        ):
-                            decision = CodexExecSupervisionDecision.terminate(
-                                reason_code="single_file_shell_drift_repeated",
-                                reason_detail=drift_detail,
-                                retryable=False,
-                            )
                 if decision is None and last_command_boundary_violation is None:
                     command_execution_tolerated = True
                 elif decision is None:

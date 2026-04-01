@@ -338,7 +338,7 @@ def test_knowledge_workspace_watchdog_completes_after_stable_outputs_without_que
     assert "workspace_completion_waiting_for_exit" in live_status
 
 
-def test_knowledge_workspace_watchdog_kills_egregious_single_file_shell_transform(
+def test_knowledge_workspace_watchdog_warns_on_egregious_single_file_shell_transform(
     tmp_path: Path,
 ) -> None:
     callback = _build_strict_json_watchdog_callback(
@@ -363,7 +363,6 @@ def test_knowledge_workspace_watchdog_kills_egregious_single_file_shell_transfor
         )
     )
 
-    assert decision is not None
-    assert decision.reason_code == "single_file_shell_drift_egregious"
+    assert decision is None
     live_status = (tmp_path / "live_status.json").read_text(encoding="utf-8")
     assert "single_file_shell_drift" in live_status

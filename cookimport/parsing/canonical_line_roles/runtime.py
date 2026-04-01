@@ -3420,7 +3420,6 @@ def _build_strict_json_watchdog_callback(
     persistent_warning_codes: list[str] = []
     persistent_warning_details: list[str] = []
     last_single_file_command_count = 0
-    single_file_shell_drift_count = 0
 
     def _record_warning(code: str, detail: str) -> None:
         if code not in persistent_warning_codes:
@@ -3437,7 +3436,6 @@ def _build_strict_json_watchdog_callback(
         nonlocal final_message_missing_output_started_elapsed_seconds
         nonlocal final_message_missing_output_deadline_elapsed_seconds
         nonlocal last_single_file_command_count
-        nonlocal single_file_shell_drift_count
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
         last_command_verdict = _classify_line_role_workspace_command(
@@ -3563,28 +3561,6 @@ def _build_strict_json_watchdog_callback(
                         "single-file worker drifted off the helper-first task-file contract"
                     )
                     _record_warning("single_file_shell_drift", drift_detail)
-                    if (
-                        is_single_file_workspace_command_egregious(
-                            last_command_verdict.policy
-                        )
-                        and not workspace_output_status["complete"]
-                    ):
-                        decision = CodexExecSupervisionDecision.terminate(
-                            reason_code="single_file_shell_drift_egregious",
-                            reason_detail=drift_detail,
-                            retryable=False,
-                        )
-                    else:
-                        single_file_shell_drift_count += 1
-                        if (
-                            single_file_shell_drift_count >= 2
-                            and not workspace_output_status["complete"]
-                        ):
-                            decision = CodexExecSupervisionDecision.terminate(
-                                reason_code="single_file_shell_drift_repeated",
-                                reason_detail=drift_detail,
-                                retryable=False,
-                            )
                 if (
                     decision is None
                     and should_terminate_workspace_command_loop(

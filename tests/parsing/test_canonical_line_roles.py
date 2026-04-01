@@ -4615,7 +4615,7 @@ def test_label_atomic_lines_allows_line_role_workspace_orientation_commands(
     assert live_status["warning_codes"] == ["single_file_shell_drift"]
 
 
-def test_line_role_workspace_watchdog_kills_repeated_single_file_shell_drift(
+def test_line_role_workspace_watchdog_keeps_running_after_repeated_single_file_shell_drift(
     tmp_path: Path,
 ) -> None:
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
@@ -4652,8 +4652,10 @@ def test_line_role_workspace_watchdog_kills_repeated_single_file_shell_drift(
     )
 
     assert first is None
-    assert second is not None
-    assert second.reason_code == "single_file_shell_drift_repeated"
+    assert second is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["warning_codes"] == ["single_file_shell_drift"]
+    assert live_status["last_command_policy"] == "single_file_orientation_command"
 
 
 def test_line_role_workspace_watchdog_observes_output_stabilization_without_forcing_exit(
@@ -5085,11 +5087,9 @@ def test_label_atomic_lines_allows_line_role_jq_fallback_operator_output_command
         )
     )
 
-    assert decision is not None
-    assert decision.action == "terminate"
-    assert decision.reason_code == "single_file_shell_drift_egregious"
+    assert decision is None
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
-    assert live_status["state"] == "watchdog_killed"
+    assert live_status["state"] == "running_with_warnings"
     assert live_status["last_command_policy"] == "single_file_task_ad_hoc_transform"
     assert live_status["last_command_policy_allowed"] is True
     assert live_status["last_command_boundary_violation_detected"] is False
@@ -5154,11 +5154,9 @@ def test_label_atomic_lines_allows_line_role_node_transform(
         )
     )
 
-    assert decision is not None
-    assert decision.action == "terminate"
-    assert decision.reason_code == "single_file_shell_drift_egregious"
+    assert decision is None
     live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
-    assert live_status["state"] == "watchdog_killed"
+    assert live_status["state"] == "running_with_warnings"
     assert live_status["last_command_policy"] == "single_file_task_ad_hoc_transform"
     assert live_status["last_command_policy_allowed"] is True
     assert live_status["last_command_boundary_violation_detected"] is False
