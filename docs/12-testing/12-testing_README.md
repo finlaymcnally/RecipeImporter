@@ -62,7 +62,7 @@ Active intentional split seams:
   - `tests/analytics/test_stats_dashboard_slow.py`
 - Label Studio benchmark coverage is intentionally spread across focused files instead of one helper mega-file:
   - smoke path: `tests/labelstudio/test_labelstudio_benchmark_smoke.py`
-  - interactive/import/export/artifact flows: `..._interactive.py`, `..._import_eval.py`, `..._export_selection.py`, `..._artifacts.py`, `..._progress.py`
+  - interactive/import/export/artifact flows: `..._interactive.py`, `..._import_eval.py`, `..._export_selection.py`, `..._artifacts.py`, `..._progress.py`, `..._progress_dashboard.py`
   - eval payload seams: `..._eval_payload_compare.py`, `..._eval_payload_execution.py`, `..._eval_payload_pipelined.py`, `..._eval_payload_artifacts.py`
   - scheduler seams: `..._scheduler_targets.py`, `..._scheduler_planning.py`, `..._scheduler_global_queue.py`, `..._scheduler_prediction_reuse.py`, `..._scheduler_run_reports.py`
   - single-book and single-profile seams: `..._single_book_run.py`, `..._single_book_artifacts.py`, `..._single_profile.py`
@@ -73,6 +73,8 @@ Active intentional split seams:
   - `tests/labelstudio/test_labelstudio_prelabel_codex_cli.py`
 - Codex orchestrator coverage is split into:
   - `tests/llm/test_codex_farm_orchestrator.py`
+  - `tests/llm/test_codex_farm_orchestrator_repair.py`
+  - `tests/llm/test_codex_farm_orchestrator_watchdog.py`
   - `tests/llm/test_codex_farm_orchestrator_runner_transport.py`
   - `tests/llm/test_codex_farm_orchestrator_stage_integration.py`
 - Knowledge-stage coverage is intentionally split by seam:
@@ -102,13 +104,22 @@ Active intentional split seams:
   - `tests/bench/test_benchmark_cutdown_for_external_ai.py` for the base smoke/main path
   - `tests/bench/test_benchmark_cutdown_for_external_ai_starter_pack.py` for starter-pack selection/output seams
   - `tests/bench/test_benchmark_cutdown_for_external_ai_upload_bundle.py` for upload-bundle synthesis/details
+  - `tests/bench/test_benchmark_cutdown_for_external_ai_upload_bundle_runtime.py` for upload-bundle runtime telemetry and knowledge-layout seams
   - `tests/bench/test_benchmark_cutdown_for_external_ai_high_level.py` for high-level bundle aggregation limits
+- QualitySuite runner coverage is split into:
+  - `tests/bench/test_quality_suite_runner.py` for base runtime/result contracts
+  - `tests/bench/test_quality_suite_runner_resume.py` for resume/reject-fast seams
+  - `tests/bench/test_quality_suite_runner_parallelism.py` for worker, WSL, scheduler, and schema/runtime knob coverage
+  - `tests/bench/test_quality_suite_runner_race.py` for race-prune and exhaustive-fallback behavior
 - Label Studio ingest parallel coverage is split into:
   - `tests/labelstudio/test_labelstudio_ingest_parallel.py` for import planning/upload flow seams
   - `tests/labelstudio/test_labelstudio_ingest_parallel_prediction_run.py` for prediction-run/prelabel/line-role authority seams
 - Label Studio benchmark artifact coverage is split into:
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_artifacts.py` for prompt-log/artifact status seams
   - `tests/labelstudio/test_labelstudio_benchmark_helpers_prompt_budget.py` for prompt-budget/runtime summary seams
+- Label Studio benchmark progress coverage is split into:
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py` for ETA/timeseries/basic progress helpers
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_progress_dashboard.py` for live dashboard and worker-rendering behavior
 - tests that assert exact line-role shard ids, proposal filenames, or worker assignments must opt out of the default `line_role_prompt_target_count=5`; `codex_batch_size=1` alone no longer means one line per shard
 - Small live Codex env/import helpers should keep one direct non-slow regression test even when broader slow integration coverage already exists.
 - Split LLM stage packages should keep one direct unresolved-name/binding guard close to the package when the main smoke path would only hit the seam after a long offline run or a live Codex stage.

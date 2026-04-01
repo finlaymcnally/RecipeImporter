@@ -1185,3 +1185,85 @@ def _build_high_level_multi_book_upload_bundle_fixture(tmp_path: Path) -> dict[s
         "analysis": _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)["analysis"],
         "index_payload": _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME),
     }
+
+
+def _build_existing_upload_bundle_fixture(tmp_path: Path) -> dict[str, object]:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-book-benchmark"
+    codex_run_id = "2026-03-03_10.18.00"
+    baseline_run_id = "2026-03-03_10.17.00"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=codex_run_id,
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+        line_role_prediction_rows=[
+            {
+                "atomic_index": 0,
+                "label": "RECIPE_TITLE",
+                "decided_by": "rule",
+                "escalation_reasons": [],
+                "text": "Dish Title",
+            }
+        ],
+    )
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=baseline_run_id,
+        llm_recipe_pipeline="off",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "YIELD_LINE"}],
+        full_prompt_rows=None,
+    )
+    _write_json(
+        session_root / "codex_vs_vanilla_comparison.json",
+        {"schema_version": "codex_vs_vanilla_comparison.v2"},
+    )
+    codex_run_dir = session_root / codex_run_id
+    _write_prediction_run(codex_run_dir, with_extracted_archive=True)
+    _set_pred_run_artifact(codex_run_dir, "prediction-run")
+    seeded_cutdown_dir = tmp_path / "seed_cutdown" / codex_run_id
+    module._build_run_cutdown(
+        run_dir=codex_run_dir,
+        output_run_dir=seeded_cutdown_dir,
+        sample_limit=80,
+        excerpt_limit=200,
+        top_confusions_limit=8,
+        top_labels_limit=6,
+        prompt_pairs_per_category=3,
+        prompt_excerpt_limit=400,
+    )
+    shutil.copy2(
+        seeded_cutdown_dir / "need_to_know_summary.json",
+        codex_run_dir / "need_to_know_summary.json",
+    )
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    metadata = module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    artifact_paths = {
+        str(row.get("path") or "")
+        for row in index_payload["artifact_index"]
+        if isinstance(row, dict)
+    }
+
+    return {
+        "artifact_paths": artifact_paths,
+        "baseline_run_id": baseline_run_id,
+        "bundle_dir": bundle_dir,
+        "codex_run_id": codex_run_id,
+        "index_payload": index_payload,
+        "metadata": metadata,
+        "module": module,
+        "session_root": session_root,
+    }

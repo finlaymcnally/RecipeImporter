@@ -70,7 +70,14 @@ pytest tests/parsing/test_canonical_line_roles_runtime.py
 pytest tests/bench/test_benchmark_cutdown_for_external_ai.py
 pytest tests/bench/test_benchmark_cutdown_for_external_ai_starter_pack.py
 pytest tests/bench/test_benchmark_cutdown_for_external_ai_upload_bundle.py
+pytest tests/bench/test_benchmark_cutdown_for_external_ai_upload_bundle_runtime.py
 pytest tests/bench/test_benchmark_cutdown_for_external_ai_high_level.py
+
+# QualitySuite split
+pytest tests/bench/test_quality_suite_runner.py
+pytest tests/bench/test_quality_suite_runner_resume.py
+pytest tests/bench/test_quality_suite_runner_parallelism.py
+pytest tests/bench/test_quality_suite_runner_race.py
 
 # Label Studio benchmark-helper split
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_import_eval.py
@@ -86,6 +93,7 @@ pytest tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload_executi
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload_pipelined.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_eval_payload_artifacts.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_progress.py
+pytest tests/labelstudio/test_labelstudio_benchmark_helpers_progress_dashboard.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_targets.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_planning.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_scheduler_global_queue.py
@@ -104,6 +112,8 @@ pytest tests/labelstudio/test_labelstudio_ingest_parallel_prediction_run.py
 
 # Codex orchestrator split
 pytest tests/llm/test_codex_farm_orchestrator.py
+pytest tests/llm/test_codex_farm_orchestrator_repair.py
+pytest tests/llm/test_codex_farm_orchestrator_watchdog.py
 pytest tests/llm/test_codex_farm_orchestrator_runner_transport.py
 pytest tests/llm/test_codex_farm_orchestrator_stage_integration.py
 
