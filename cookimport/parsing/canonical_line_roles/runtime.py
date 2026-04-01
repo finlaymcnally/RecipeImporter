@@ -2814,6 +2814,9 @@ def _run_line_role_direct_workers_v1(
                         worker_id=assignment.worker_id,
                         completed_shard_ids=completed_shard_ids,
                     ),
+                    worker_health.live_activity_summary_by_worker_id.get(
+                        assignment.worker_id
+                    ),
                     worker_health.attention_suffix_by_worker_id.get(assignment.worker_id),
                 )
             ]
@@ -3720,6 +3723,7 @@ def _build_strict_json_watchdog_callback(
             "reasoning_item_count": snapshot.reasoning_item_count,
             "last_command": snapshot.last_command,
             "last_command_repeat_count": snapshot.last_command_repeat_count,
+            "live_activity_summary": snapshot.live_activity_summary,
             "has_final_agent_message": snapshot.has_final_agent_message,
             "timeout_seconds": snapshot.timeout_seconds,
             "watchdog_policy": watchdog_policy,

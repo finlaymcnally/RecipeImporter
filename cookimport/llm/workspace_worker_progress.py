@@ -25,6 +25,7 @@ class WorkspaceWorkerHealthSnapshot:
     last_event_seconds_ago: float | None
     elapsed_seconds: float | None
     has_final_agent_message: bool
+    live_activity_summary: str | None
     workspace_output_complete: bool | None
     workspace_output_missing_files: tuple[str, ...]
     attention_suffix: str | None
@@ -38,6 +39,7 @@ class WorkspaceWorkerHealthSnapshot:
 class WorkspaceWorkerHealthSummary:
     snapshots_by_worker_id: dict[str, WorkspaceWorkerHealthSnapshot]
     attention_suffix_by_worker_id: dict[str, str]
+    live_activity_summary_by_worker_id: dict[str, str]
     warning_worker_count: int
     stalled_worker_count: int
     attention_lines: tuple[str, ...]
@@ -88,8 +90,6 @@ def _classify_attention(
     state = str(payload.get("state") or "").strip().lower()
     warning_codes = set(_clean_warning_codes(payload.get("warning_codes")))
     reason_code = str(payload.get("reason_code") or "").strip().lower()
-    has_final_agent_message = bool(payload.get("has_final_agent_message"))
-    workspace_output_complete = payload.get("workspace_output_complete")
     last_event_seconds_ago = _safe_float(payload.get("last_event_seconds_ago"))
     final_message_missing_output_deadline_reached = bool(
         payload.get("final_message_missing_output_deadline_reached")
@@ -98,11 +98,6 @@ def _classify_attention(
     if (
         reason_code == "workspace_final_message_missing_output"
         or final_message_missing_output_deadline_reached
-        or (
-            has_final_agent_message
-            and workspace_output_complete is False
-            and state not in {"", "pending", "running", "running_with_warnings"}
-        )
     ):
         return (
             "final message, no output",
@@ -155,6 +150,7 @@ def summarize_workspace_worker_health(
     now = datetime.now(timezone.utc)
     snapshots_by_worker_id: dict[str, WorkspaceWorkerHealthSnapshot] = {}
     attention_suffix_by_worker_id: dict[str, str] = {}
+    live_activity_summary_by_worker_id: dict[str, str] = {}
     warning_worker_count = 0
     stalled_worker_count = 0
     last_activity_candidates: list[datetime] = []
@@ -168,6 +164,7 @@ def summarize_workspace_worker_health(
         warning_count = int(live_status.get("warning_count") or len(warning_codes) or 0)
         last_event_seconds_ago = _safe_float(live_status.get("last_event_seconds_ago"))
         elapsed_seconds = _safe_float(live_status.get("elapsed_seconds"))
+        live_activity_summary = str(live_status.get("live_activity_summary") or "").strip() or None
         last_activity_at: str | None = None
         if last_event_seconds_ago is not None:
             last_activity_at = _isoformat_utc_seconds(
@@ -183,6 +180,8 @@ def summarize_workspace_worker_health(
         )
         if attention_suffix:
             attention_suffix_by_worker_id[worker_id] = attention_suffix
+        if live_activity_summary:
+            live_activity_summary_by_worker_id[worker_id] = live_activity_summary
         if attention_summary:
             attention_rows.append((attention_rank, worker_id, attention_summary))
         if warning_count > 0:
@@ -198,6 +197,7 @@ def summarize_workspace_worker_health(
             last_event_seconds_ago=last_event_seconds_ago,
             elapsed_seconds=elapsed_seconds,
             has_final_agent_message=bool(live_status.get("has_final_agent_message")),
+            live_activity_summary=live_activity_summary,
             workspace_output_complete=(
                 bool(live_status.get("workspace_output_complete"))
                 if live_status.get("workspace_output_complete") is not None
@@ -228,6 +228,7 @@ def summarize_workspace_worker_health(
     return WorkspaceWorkerHealthSummary(
         snapshots_by_worker_id=snapshots_by_worker_id,
         attention_suffix_by_worker_id=attention_suffix_by_worker_id,
+        live_activity_summary_by_worker_id=live_activity_summary_by_worker_id,
         warning_worker_count=warning_worker_count,
         stalled_worker_count=stalled_worker_count,
         attention_lines=attention_lines,
@@ -235,11 +236,18 @@ def summarize_workspace_worker_health(
     )
 
 
-def decorate_active_worker_label(label: str | None, suffix: str | None) -> str | None:
+def decorate_active_worker_label(
+    label: str | None,
+    activity_summary: str | None,
+    suffix: str | None,
+) -> str | None:
     cleaned_label = str(label or "").strip()
+    cleaned_activity_summary = str(activity_summary or "").strip()
     cleaned_suffix = str(suffix or "").strip()
     if not cleaned_label:
         return None
+    if cleaned_activity_summary:
+        cleaned_label = f"{cleaned_label} | {cleaned_activity_summary}"
     if not cleaned_suffix:
         return cleaned_label
     return f"{cleaned_label} [{cleaned_suffix}]"

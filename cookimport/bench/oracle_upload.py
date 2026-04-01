@@ -24,7 +24,6 @@ ORACLE_BROWSER_REMOTE_DEBUG_HOST = "127.0.0.1"
 ORACLE_BROWSER_MODEL_STRATEGY = "select"
 ORACLE_HOME_DIR = str(Path.home() / ".local" / "share" / "oracle")
 ORACLE_BROWSER_PROFILE_DIR = str(Path(ORACLE_HOME_DIR) / "browser-profile")
-ORACLE_BENCHMARK_BROWSER_PROFILE_SUFFIX_PREFIX = "benchmark-"
 ORACLE_MODEL_LANE_INSTANT = "instant"
 ORACLE_MODEL_LANE_PRO = "pro"
 ORACLE_MODEL_LANE_THINKING = "thinking"
@@ -1205,34 +1204,9 @@ def _resolve_oracle_browser_profile_dir(*, env: dict[str, str] | None = None) ->
     return Path(ORACLE_BROWSER_PROFILE_DIR).expanduser()
 
 
-def _sanitize_oracle_browser_profile_suffix(value: str | None) -> str:
-    cleaned = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
-    return cleaned or "default"
-
-
-def _resolve_oracle_benchmark_browser_profile_dir(
-    *,
-    model: str | None,
-    env: dict[str, str] | None = None,
-) -> Path:
-    source_env = env if env is not None else os.environ
-    explicit_profile = str(source_env.get("ORACLE_BROWSER_PROFILE_DIR") or "").strip()
-    if explicit_profile:
-        return Path(explicit_profile).expanduser()
-    base_profile_dir = Path(ORACLE_BROWSER_PROFILE_DIR).expanduser()
-    suffix = _sanitize_oracle_browser_profile_suffix(model)
-    return base_profile_dir.parent / f"{base_profile_dir.name}-{ORACLE_BENCHMARK_BROWSER_PROFILE_SUFFIX_PREFIX}{suffix}"
-
-
-def _oracle_browser_env(*, benchmark_model: str | None = None) -> dict[str, str]:
+def _oracle_browser_env() -> dict[str, str]:
     env = dict(os.environ)
-    if benchmark_model is None:
-        browser_profile_dir = _resolve_oracle_browser_profile_dir(env=env)
-    else:
-        browser_profile_dir = _resolve_oracle_benchmark_browser_profile_dir(
-            model=benchmark_model,
-            env=env,
-        )
+    browser_profile_dir = _resolve_oracle_browser_profile_dir(env=env)
     oracle_home_dir = browser_profile_dir.parent
     env.setdefault("ORACLE_HOME_DIR", str(oracle_home_dir))
     env.setdefault("ORACLE_BROWSER_PROFILE_DIR", str(browser_profile_dir))
@@ -1708,11 +1682,7 @@ def start_oracle_benchmark_upload_background(
     else:
         raise ValueError(f"Unsupported Oracle upload mode: {mode}")
 
-    env = (
-        _oracle_browser_env(benchmark_model=launch_model or resolved_model)
-        if normalized_mode == "browser"
-        else None
-    )
+    env = _oracle_browser_env() if normalized_mode == "browser" else None
     browser_profile_dir = (
         Path(str(env.get("ORACLE_BROWSER_PROFILE_DIR") or "")).expanduser()
         if env is not None and str(env.get("ORACLE_BROWSER_PROFILE_DIR") or "").strip()
@@ -1868,7 +1838,7 @@ def run_oracle_benchmark_upload(
             prompt=prepared.prompt,
             file_paths=prepared.file_paths,
         )
-        env = _oracle_browser_env(benchmark_model=launch_model or resolved_model)
+        env = _oracle_browser_env()
         browser_profile_dir = (
             Path(str(env.get("ORACLE_BROWSER_PROFILE_DIR") or "")).expanduser()
             if str(env.get("ORACLE_BROWSER_PROFILE_DIR") or "").strip()

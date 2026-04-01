@@ -124,6 +124,9 @@ def test_knowledge_orchestrator_surfaces_worker_attention_in_progress(
                         last_command_repeat_count=21,
                         has_final_agent_message=False,
                         timeout_seconds=None,
+                        live_activity_summary=(
+                            "Reasoning summary: comparing heading context before final classification"
+                        ),
                     )
                 )
                 time.sleep(1.2)
@@ -174,6 +177,14 @@ def test_knowledge_orchestrator_surfaces_worker_attention_in_progress(
         )
         for payload in payloads
     )
+    assert any(
+        any(
+            "Reasoning summary: comparing heading context before final classification"
+            in str(task)
+            for task in (payload.get("active_tasks") or [])
+        )
+        for payload in payloads
+    )
     assert any(payload.get("last_activity_at") for payload in payloads)
 
 
@@ -186,6 +197,66 @@ def test_workspace_worker_progress_does_not_treat_inflight_final_message_as_miss
         json.dumps(
             {
                 "state": "running",
+                "has_final_agent_message": True,
+                "workspace_output_complete": False,
+                "final_message_missing_output_deadline_reached": False,
+                "last_event_seconds_ago": 2.0,
+                "warning_codes": [],
+                "warning_count": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = summarize_workspace_worker_health(
+        worker_roots_by_id={"worker-001": worker_root}
+    )
+
+    assert summary.attention_suffix_by_worker_id == {}
+    assert summary.attention_lines == ()
+
+
+def test_workspace_worker_progress_surfaces_live_activity_summary(
+    tmp_path: Path,
+) -> None:
+    worker_root = tmp_path / "worker-001"
+    worker_root.mkdir(parents=True, exist_ok=True)
+    (worker_root / "live_status.json").write_text(
+        json.dumps(
+            {
+                "state": "running",
+                "has_final_agent_message": False,
+                "live_activity_summary": (
+                    "Running `python3 -m cookimport.llm.editable_task_file --summary`"
+                ),
+                "last_event_seconds_ago": 2.0,
+                "warning_codes": [],
+                "warning_count": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = summarize_workspace_worker_health(
+        worker_roots_by_id={"worker-001": worker_root}
+    )
+
+    assert summary.live_activity_summary_by_worker_id == {
+        "worker-001": "Running `python3 -m cookimport.llm.editable_task_file --summary`"
+    }
+
+
+@pytest.mark.parametrize("state", ["completed", "completed_with_warnings"])
+def test_workspace_worker_progress_requires_explicit_missing_output_failure_evidence(
+    tmp_path: Path,
+    state: str,
+) -> None:
+    worker_root = tmp_path / "worker-001"
+    worker_root.mkdir(parents=True, exist_ok=True)
+    (worker_root / "live_status.json").write_text(
+        json.dumps(
+            {
+                "state": state,
                 "has_final_agent_message": True,
                 "workspace_output_complete": False,
                 "final_message_missing_output_deadline_reached": False,

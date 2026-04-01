@@ -343,6 +343,7 @@ class _KnowledgePhaseProgressState:
             for label in [
                 decorate_active_worker_label(
                     self.worker_states[worker_id].render_worker_label(),
+                    worker_health.live_activity_summary_by_worker_id.get(worker_id),
                     worker_health.attention_suffix_by_worker_id.get(worker_id),
                 )
             ]

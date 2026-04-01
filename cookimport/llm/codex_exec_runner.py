@@ -248,6 +248,7 @@ class CodexExecLiveSnapshot:
     final_agent_message_reason: str | None = None
     source_working_dir: str | None = None
     execution_working_dir: str | None = None
+    live_activity_summary: str | None = None
 
 
 @dataclass(frozen=True)
@@ -2786,6 +2787,10 @@ def _build_codex_exec_live_snapshot(
         timeout_seconds=timeout_seconds,
         final_agent_message_state=final_agent_message.state,
         final_agent_message_reason=final_agent_message.reason,
+        live_activity_summary=_summarize_live_activity(
+            events=events,
+            workspace_mode=workspace_mode,
+        ),
     )
 
 
@@ -3361,6 +3366,144 @@ def _summarize_live_codex_events(
         "last_command": last_command,
         "last_command_repeat_count": last_command_repeat_count,
     }
+
+
+def _live_activity_excerpt(
+    value: Any,
+    *,
+    max_words: int = 10,
+    max_chars: int = 96,
+) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = " ".join(value.strip().split())
+    if not cleaned:
+        return None
+    words = cleaned.split(" ")
+    if len(words) > max_words:
+        cleaned = " ".join(words[:max_words]).rstrip(".,;:") + "..."
+    if len(cleaned) > max_chars:
+        cleaned = cleaned[: max_chars - 3].rstrip() + "..."
+    return cleaned or None
+
+
+def _summarize_live_item_activity(
+    *,
+    payload_type: str,
+    item: Mapping[str, Any],
+    workspace_mode: DirectExecWorkspaceMode,
+) -> str | None:
+    item_type = str(item.get("type") or "").strip()
+    if not item_type:
+        return None
+    if item_type == "command_execution":
+        command_excerpt = _live_activity_excerpt(item.get("command"))
+        if command_excerpt is None:
+            return "Running command" if payload_type == "item.started" else "Ran command"
+        if payload_type == "item.started":
+            return f"Running `{command_excerpt}`"
+        return f"Ran `{command_excerpt}`"
+    if item_type == "agent_message":
+        text_excerpt = _live_activity_excerpt(item.get("text"))
+        if text_excerpt is None:
+            return "Agent message" if payload_type == "item.completed" else None
+        if workspace_mode == "workspace_worker" and text_excerpt.startswith("{"):
+            return None
+        return f"Message: {text_excerpt}"
+    if item_type == "reasoning":
+        reasoning_excerpt = (
+            _live_activity_excerpt(item.get("summary_text"))
+            or _live_activity_excerpt(item.get("summary"))
+            or _live_activity_excerpt(item.get("text"))
+            or _live_activity_excerpt(item.get("delta"))
+            or _live_activity_excerpt(item.get("content"))
+        )
+        if reasoning_excerpt is not None:
+            return f"Reasoning: {reasoning_excerpt}"
+        return "Reasoning"
+    if item_type == "file_change":
+        changes = item.get("changes")
+        if isinstance(changes, list) and changes:
+            first_change = changes[0] if isinstance(changes[0], Mapping) else None
+            path_excerpt = (
+                _live_activity_excerpt(first_change.get("path")) if first_change else None
+            )
+            if path_excerpt is not None:
+                return f"Updated {path_excerpt}"
+        return "Updated files"
+    descriptor = (
+        _live_activity_excerpt(item.get("text"))
+        or _live_activity_excerpt(item.get("summary"))
+        or _live_activity_excerpt(item.get("delta"))
+        or _live_activity_excerpt(item.get("content"))
+        or _live_activity_excerpt(item.get("query"))
+        or _live_activity_excerpt(item.get("path"))
+        or _live_activity_excerpt(item.get("url"))
+        or _live_activity_excerpt(item.get("title"))
+    )
+    verb = "Working on" if payload_type == "item.started" else "Completed"
+    if descriptor is not None:
+        return f"{verb} `{item_type}`: {descriptor}"
+    return f"{verb} `{item_type}`"
+
+
+def _summarize_live_activity(
+    *,
+    events: Sequence[Mapping[str, Any]],
+    workspace_mode: DirectExecWorkspaceMode,
+) -> str | None:
+    lifecycle_fallback: str | None = None
+    for payload in reversed(list(events)):
+        payload_type = str(payload.get("type") or "").strip()
+        if not payload_type:
+            continue
+        if "reasoning_summary" in payload_type or payload_type.startswith("response.reasoning"):
+            excerpt = (
+                _live_activity_excerpt(payload.get("summary_text"))
+                or _live_activity_excerpt(payload.get("summary"))
+                or _live_activity_excerpt(payload.get("text"))
+                or _live_activity_excerpt(payload.get("delta"))
+                or _live_activity_excerpt(payload.get("content"))
+            )
+            if excerpt is not None:
+                return f"Reasoning summary: {excerpt}"
+            continue
+        if payload_type in {"thread.started", "thread.completed", "turn.completed", "turn.failed"}:
+            if lifecycle_fallback is None:
+                if payload_type == "thread.started":
+                    lifecycle_fallback = "Session started"
+                elif payload_type == "thread.completed":
+                    lifecycle_fallback = "Session completed"
+                elif payload_type == "turn.completed":
+                    lifecycle_fallback = "Turn completed"
+                elif payload_type == "turn.failed":
+                    error_payload = payload.get("error")
+                    error_excerpt = None
+                    if isinstance(error_payload, Mapping):
+                        error_excerpt = _live_activity_excerpt(
+                            error_payload.get("message") or error_payload.get("detail")
+                        )
+                    else:
+                        error_excerpt = _live_activity_excerpt(error_payload)
+                    lifecycle_fallback = (
+                        f"Turn failed: {error_excerpt}"
+                        if error_excerpt is not None
+                        else "Turn failed"
+                    )
+            continue
+        if payload_type not in {"item.started", "item.completed"}:
+            continue
+        item = payload.get("item")
+        if not isinstance(item, Mapping):
+            continue
+        summary = _summarize_live_item_activity(
+            payload_type=payload_type,
+            item=item,
+            workspace_mode=workspace_mode,
+        )
+        if summary is not None:
+            return summary
+    return lifecycle_fallback
 
 
 def _pathological_flags_for_row(

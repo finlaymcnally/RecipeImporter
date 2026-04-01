@@ -486,21 +486,6 @@ def test_resolve_oracle_browser_profile_dir_uses_current_profile_only(
     assert resolved == current_profile
 
 
-def test_resolve_oracle_benchmark_browser_profile_dir_uses_dedicated_profile_by_model(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    current_profile = tmp_path / "current" / "browser-profile"
-    monkeypatch.setattr(oracle_upload, "ORACLE_BROWSER_PROFILE_DIR", str(current_profile))
-
-    resolved = oracle_upload._resolve_oracle_benchmark_browser_profile_dir(
-        model="gpt-5-pro",
-        env={},
-    )
-
-    assert resolved == tmp_path / "current" / "browser-profile-benchmark-gpt-5-pro"
-
-
 def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -> None:
     bundle_dir = _make_bundle(
         tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
@@ -577,10 +562,7 @@ def test_run_oracle_benchmark_upload_assembles_browser_command(tmp_path: Path) -
     assert kwargs["text"] is True
     env = kwargs["env"]
     assert isinstance(env, dict)
-    resolved_profile = oracle_upload._resolve_oracle_benchmark_browser_profile_dir(
-        model=INSTANT_MODEL,
-        env={},
-    )
+    resolved_profile = oracle_upload._resolve_oracle_browser_profile_dir(env={})
     assert env["ORACLE_HOME_DIR"] == str(resolved_profile.parent)
     assert env["ORACLE_BROWSER_PROFILE_DIR"] == str(resolved_profile)
     assert env["ORACLE_BROWSER_REMOTE_DEBUG_HOST"] == oracle_upload.ORACLE_BROWSER_REMOTE_DEBUG_HOST
@@ -924,10 +906,7 @@ def test_run_oracle_benchmark_upload_browser_shards_oversized_payload(
     assert kwargs["text"] is True
     env = kwargs["env"]
     assert isinstance(env, dict)
-    resolved_profile = oracle_upload._resolve_oracle_benchmark_browser_profile_dir(
-        model=INSTANT_MODEL,
-        env={},
-    )
+    resolved_profile = oracle_upload._resolve_oracle_browser_profile_dir(env={})
     assert env["ORACLE_HOME_DIR"] == str(resolved_profile.parent)
     assert env["ORACLE_BROWSER_PROFILE_DIR"] == str(resolved_profile)
     assert env["ORACLE_BROWSER_REMOTE_DEBUG_HOST"] == oracle_upload.ORACLE_BROWSER_REMOTE_DEBUG_HOST
@@ -1331,10 +1310,7 @@ def test_start_oracle_benchmark_upload_background_persists_sharded_inputs(
     assert launch.log_path.is_file()
     assert launch.metadata_path.is_file()
     assert "Prepared Oracle quality review packet" in launch.note
-    assert launch.browser_profile_dir == oracle_upload._resolve_oracle_benchmark_browser_profile_dir(
-        model=INSTANT_MODEL,
-        env={},
-    )
+    assert launch.browser_profile_dir == oracle_upload._resolve_oracle_browser_profile_dir(env={})
     log_text = launch.log_path.read_text(encoding="utf-8")
     assert "Prepared Oracle quality review packet" in log_text
     assert "Oracle browser profile:" in log_text
@@ -1379,10 +1355,7 @@ def test_start_oracle_benchmark_upload_background_persists_sharded_inputs(
     assert kwargs["start_new_session"] is True
     env = kwargs["env"]
     assert isinstance(env, dict)
-    resolved_profile = oracle_upload._resolve_oracle_benchmark_browser_profile_dir(
-        model=INSTANT_MODEL,
-        env={},
-    )
+    resolved_profile = oracle_upload._resolve_oracle_browser_profile_dir(env={})
     assert env["ORACLE_HOME_DIR"] == str(resolved_profile.parent)
     assert env["ORACLE_BROWSER_PROFILE_DIR"] == str(resolved_profile)
     assert env["ORACLE_BROWSER_REMOTE_DEBUG_HOST"] == oracle_upload.ORACLE_BROWSER_REMOTE_DEBUG_HOST

@@ -111,6 +111,67 @@ def test_codex_exec_runner_extracts_command_and_reasoning_pathology() -> None:
     assert "invalid_output_detected" in summary["pathological_flags"]
 
 
+def test_build_codex_exec_live_snapshot_reports_recent_visible_activity() -> None:
+    snapshot = exec_runner_module._build_codex_exec_live_snapshot(  # noqa: SLF001
+        events=[
+            {"type": "thread.started"},
+            {
+                "type": "item.started",
+                "item": {
+                    "id": "cmd-1",
+                    "type": "command_execution",
+                    "command": "python3 -m cookimport.llm.editable_task_file --summary --show-unit row-001",
+                },
+            },
+            {
+                "type": "response.reasoning_summary_text.delta",
+                "delta": "Comparing heading context against the owned shard before committing the answer.",
+            },
+            {"type": "turn.completed"},
+        ],
+        started_at=time.perf_counter() - 1.0,
+        last_event_at=time.perf_counter() - 0.1,
+        timeout_seconds=30,
+        workspace_mode="workspace_worker",
+    )
+
+    assert snapshot.live_activity_summary is not None
+    assert snapshot.live_activity_summary.startswith("Reasoning summary: Comparing heading context")
+    assert snapshot.live_activity_summary.endswith("...")
+
+
+def test_build_codex_exec_live_snapshot_skips_workspace_json_message_snippets() -> None:
+    snapshot = exec_runner_module._build_codex_exec_live_snapshot(  # noqa: SLF001
+        events=[
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "cmd-1",
+                    "type": "command_execution",
+                    "command": "python3 -m cookimport.llm.editable_task_file --status",
+                    "exit_code": 0,
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "msg-1",
+                    "type": "agent_message",
+                    "text": '{"rows":[{"atomic_index":1,"label":"OTHER"}]}',
+                },
+            },
+        ],
+        started_at=time.perf_counter() - 1.0,
+        last_event_at=time.perf_counter() - 0.1,
+        timeout_seconds=30,
+        workspace_mode="workspace_worker",
+    )
+
+    assert snapshot.live_activity_summary == (
+        "Ran `python3 -m cookimport.llm.editable_task_file --status`"
+    )
+
+
 def test_summarize_direct_telemetry_rows_counts_structured_followups() -> None:
     summary = summarize_direct_telemetry_rows(
         [

@@ -1729,6 +1729,7 @@ def _build_strict_json_watchdog_callback(
             "reasoning_item_count": snapshot.reasoning_item_count,
             "last_command": snapshot.last_command,
             "last_command_repeat_count": snapshot.last_command_repeat_count,
+            "live_activity_summary": snapshot.live_activity_summary,
             "has_final_agent_message": snapshot.has_final_agent_message,
             "final_agent_message_state": final_agent_message_state,
             "final_agent_message_reason": snapshot.final_agent_message_reason,

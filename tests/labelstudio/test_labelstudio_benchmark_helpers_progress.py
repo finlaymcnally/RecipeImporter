@@ -1059,6 +1059,65 @@ def test_run_with_progress_status_keeps_structured_stage_worker_details_visible(
     assert "queued tasks: 2" in capture.messages[-1]
 
 
+def test_run_with_progress_status_renders_structured_worker_activity_snippets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeStatus:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = messages
+
+        def __enter__(self) -> "_FakeStatus":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def update(self, message: str) -> None:
+            self._messages.append(message)
+
+    class _CaptureStatus:
+        def __init__(self) -> None:
+            self.messages: list[str] = []
+
+        def __call__(self, message: str, spinner: str = "dots", **_kwargs: object) -> _FakeStatus:
+            self.messages.append(message)
+            return _FakeStatus(self.messages)
+
+    capture = _CaptureStatus()
+    monkeypatch.setattr(cli.console, "status", capture)
+
+    def _run(update_progress):
+        update_progress(
+            format_stage_progress(
+                "Running canonical line-role pipeline... shard 1/3 | running 1",
+                stage_label="canonical line-role pipeline",
+                task_current=1,
+                task_total=3,
+                running_workers=1,
+                worker_total=2,
+                active_tasks=[
+                    "line-role-canonical-0001-a000000-a000294 (0/1 shards) | Running `python3 -m cookimport.llm.editable_task_file --summary`"
+                ],
+                detail_lines=["configured workers: 2", "queued shards: 2"],
+            )
+        )
+        return {"ok": True}
+
+    result = cli._run_with_progress_status(
+        initial_status="Running benchmark...",
+        progress_prefix="Benchmark import (saltfatacidheatCUTDOWN.epub)",
+        run=_run,
+        force_live_status=True,
+    )
+
+    assert result == {"ok": True}
+    assert any(
+        "worker 01: line-role-canonical-0001-a000000-a000294 (0/1 shards) | Running"
+        in message
+        for message in capture.messages
+    )
+
+
 def test_run_with_progress_status_renders_all_ten_knowledge_workers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
