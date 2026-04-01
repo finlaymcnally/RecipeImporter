@@ -587,6 +587,15 @@ def test_line_role_runtime_overrides_missing_output_kill_when_assessment_proves_
             encoding="utf-8"
         )
     )
+    runtime_telemetry = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "telemetry.json"
+        ).read_text(encoding="utf-8")
+    )
     shard_status = next(
         json.loads(path.read_text(encoding="utf-8"))
         for path in worker_root.rglob("status.json")
@@ -607,6 +616,18 @@ def test_line_role_runtime_overrides_missing_output_kill_when_assessment_proves_
     assert shard_status["finalization_path"] == "session_completed"
     assert shard_status["raw_supervision_reason_code"] is None
     assert shard_status["reason_code"] in {None, ""}
+    worker_rows = [
+        row
+        for row in runtime_telemetry["rows"]
+        if row.get("prompt_input_mode") == "workspace_worker"
+    ]
+    assert len(worker_rows) == 1
+    assert worker_rows[0]["supervision_state"] == "completed"
+    assert worker_rows[0]["supervision_reason_code"] in {None, ""}
+    assert worker_rows[0]["raw_supervision_state"] == "completed"
+    assert worker_rows[0]["raw_supervision_reason_code"] is None
+    assert worker_status["telemetry"]["rows"][0]["supervision_state"] == "completed"
+    assert worker_status["telemetry"]["rows"][0]["supervision_reason_code"] in {None, ""}
     assert telemetry_payload["summary"]["watchdog_recovered_shard_count"] == 0
     assert telemetry_payload["summary"]["watchdog_killed_shard_count"] == 0
 

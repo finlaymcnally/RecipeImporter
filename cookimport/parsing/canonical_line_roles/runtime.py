@@ -2058,6 +2058,11 @@ def _run_line_role_workspace_worker_assignment_v1(
                 "fresh_worker_replacement_reason_code": None,
             }
         ]
+
+        def _sync_latest_worker_session_run_result() -> None:
+            if worker_session_runs:
+                worker_session_runs[-1]["run_result"] = session_run_result
+
         should_replace_worker, replacement_reason = (
             _should_attempt_line_role_fresh_worker_replacement(
                 exc=initial_runner_exception,
@@ -2172,6 +2177,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                         run_result=session_run_result
                     )
                 )
+                _sync_latest_worker_session_run_result()
                 _finalize_live_status(
                     worker_live_status_path,
                     run_result=session_run_result,
