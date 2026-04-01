@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import threading
 import time
 from copy import deepcopy
 from pathlib import Path
@@ -22,6 +23,7 @@ from cookimport.llm.codex_exec_runner import (
     CodexExecRunResult,
     FakeCodexExecRunner,
 )
+from cookimport.llm.codex_farm_runner import CodexFarmRunnerError
 from cookimport.llm.editable_task_file import load_task_file, write_task_file
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 from cookimport.parsing import canonical_line_roles as canonical_line_roles_module
@@ -361,6 +363,72 @@ class _FreshSessionLineRoleRunner(FakeCodexExecRunner):
                 ),
             )
         return super().run_workspace_worker(**kwargs)
+
+
+class _TimeoutThenRecoveredLineRoleRunner(FakeCodexExecRunner):
+    def __init__(self, *, fail_worker_ids: set[str] | None = None) -> None:
+        super().__init__(
+            output_builder=lambda payload: {
+                "rows": [
+                    {"atomic_index": int(row[0]), "label": "NONRECIPE_CANDIDATE"}
+                    for row in (dict(payload or {}).get("rows") or [])
+                    if isinstance(row, (list, tuple)) and row
+                ]
+            }
+        )
+        self.workspace_run_calls = 0
+        self.calls_by_worker_id: dict[str, int] = {}
+        self.fail_worker_ids = set(fail_worker_ids or {"worker-001"})
+        self._lock = threading.Lock()
+
+    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+        working_dir = Path(kwargs.get("working_dir"))
+        worker_id = working_dir.name
+        with self._lock:
+            self.workspace_run_calls += 1
+            call_count = self.calls_by_worker_id.get(worker_id, 0) + 1
+            self.calls_by_worker_id[worker_id] = call_count
+        if worker_id in self.fail_worker_ids and call_count == 1:
+            raise CodexFarmRunnerError("codex exec timed out after 600 seconds.")
+
+        task_file = load_task_file(working_dir / "task.json")
+        edited = deepcopy(task_file)
+        for unit in edited["units"]:
+            unit["answer"] = {"label": "NONRECIPE_CANDIDATE"}
+        write_task_file(path=working_dir / "task.json", payload=edited)
+        state_path = Path(
+            str(kwargs.get("env", {}).get("RECIPEIMPORT_LINE_ROLE_SAME_SESSION_STATE_PATH"))
+        )
+        helper_result = advance_line_role_same_session_handoff(
+            workspace_root=working_dir,
+            state_path=state_path,
+        )
+        assert helper_result["status"] == "completed"
+        return CodexExecRunResult(
+            command=["codex", "exec"],
+            subprocess_exit_code=0,
+            output_schema_path=None,
+            prompt_text=str(kwargs.get("prompt_text") or ""),
+            response_text='{"status":"completed"}',
+            turn_failed_message=None,
+            usage={
+                "input_tokens": 1,
+                "cached_input_tokens": 0,
+                "output_tokens": 1,
+                "reasoning_tokens": 0,
+            },
+            source_working_dir=str(working_dir),
+            execution_working_dir=str(working_dir),
+            execution_agents_path=None,
+            duration_ms=1,
+            started_at_utc="2026-01-01T00:00:00Z",
+            finished_at_utc="2026-01-01T00:00:00Z",
+            workspace_mode="workspace_worker",
+            supervision_state="completed",
+            supervision_reason_code=None,
+            supervision_reason_detail=None,
+            supervision_retryable=False,
+        )
 
 
 class _FinalMessageMissingOutputRunner(FakeCodexExecRunner):

@@ -698,7 +698,7 @@ def _write_knowledge_runtime_summary_artifacts(
         ]
     )
     worker_session_guardrails = build_worker_session_guardrails(
-        planned_happy_path_worker_cap=len(assignments),
+        planned_happy_path_worker_cap=len(assignments) * 3,
         actual_happy_path_worker_sessions=int(
             telemetry_summary.get("workspace_worker_session_count") or 0
         ),
@@ -723,7 +723,11 @@ def _write_knowledge_runtime_summary_artifacts(
         "shard_count": len(shards),
         "proposal_count": sum(report.proposal_count for report in worker_reports),
         "failure_count": len(failures),
-        "fresh_agent_count": len(assignments),
+        "fresh_agent_count": len(assignments)
+        + sum(
+            int(dict(report.metadata or {}).get("fresh_worker_replacement_count") or 0)
+            for report in worker_reports
+        ),
         "rows": [dict(row) for row in stage_rows],
         "summary": telemetry_summary,
     }
@@ -747,6 +751,13 @@ def _write_knowledge_runtime_summary_artifacts(
             **dict(runtime_metadata or {}),
             "task_file_guardrails": task_file_guardrails,
             "worker_session_guardrails": worker_session_guardrails,
+            "fresh_worker_replacement_count": sum(
+                int(
+                    dict(report.metadata or {}).get("fresh_worker_replacement_count")
+                    or 0
+                )
+                for report in worker_reports
+            ),
         },
     )
     _write_json(asdict(manifest), run_root / artifacts["phase_manifest"])

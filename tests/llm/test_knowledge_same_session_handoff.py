@@ -195,7 +195,7 @@ def test_same_session_handoff_rewrites_invalid_classification_into_repair_mode(
     assert repair_task["stage_key"] == "nonrecipe_classify"
     assert repair_result["same_session_repair_rewrite_count"] == 1
     assert repair_result["classification_validation_count"] == 1
-    assert repair_task["helper_commands"]["status"].endswith("--status")
+    assert repair_task["helper_commands"]["status"] == "task-status"
     assert repair_task["answer_schema"]["example_answers"][0]["category"] == "knowledge"
     assert repair_task["ontology"]["catalog_version"]
 

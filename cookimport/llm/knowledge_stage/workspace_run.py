@@ -129,6 +129,56 @@ def _knowledge_hard_boundary_failure(run_result: CodexExecRunResult) -> bool:
     return reason_code.startswith("watchdog_") or "boundary" in reason_code
 
 
+def _knowledge_retryable_runner_exception_reason(
+    exc: CodexFarmRunnerError,
+) -> str | None:
+    message = " ".join(str(exc or "").strip().lower().split())
+    if not message:
+        return None
+    if "timed out" in message:
+        return "codex_exec_timeout"
+    if "killed" in message or "terminated" in message or "interrupt" in message:
+        return "codex_exec_killed"
+    return None
+
+
+def _knowledge_catastrophic_run_result_reason(
+    run_result: CodexExecRunResult,
+) -> str | None:
+    if not _knowledge_hard_boundary_failure(run_result):
+        return None
+    reason_code = str(run_result.supervision_reason_code or "").strip()
+    if reason_code:
+        return reason_code
+    if str(run_result.supervision_state or "").strip() == "watchdog_killed":
+        return "watchdog_killed"
+    return "catastrophic_worker_failure"
+
+
+def _should_attempt_knowledge_fresh_worker_replacement(
+    *,
+    run_result: CodexExecRunResult | None = None,
+    exc: CodexFarmRunnerError | None = None,
+    replacement_attempt_count: int,
+    same_session_state_payload: Mapping[str, Any],
+) -> tuple[bool, str]:
+    if int(replacement_attempt_count) >= 1:
+        return False, "fresh_worker_replacement_budget_spent"
+    if bool(same_session_state_payload.get("completed")):
+        return False, "same_session_already_completed"
+    if exc is not None:
+        retry_reason = _knowledge_retryable_runner_exception_reason(exc)
+        if retry_reason is None:
+            return False, "runner_exception_not_retryable"
+        return True, retry_reason
+    if run_result is not None:
+        retry_reason = _knowledge_catastrophic_run_result_reason(run_result)
+        if retry_reason is None:
+            return False, "worker_session_not_catastrophic"
+        return True, retry_reason
+    return False, "fresh_worker_replacement_not_applicable"
+
+
 def _should_attempt_knowledge_fresh_session_retry(
     *,
     run_result: CodexExecRunResult,
@@ -421,6 +471,104 @@ def _apply_knowledge_same_session_row_metadata(
     row["final_output_shard_count"] = int(state_payload.get("final_output_shard_count") or 0)
 
 
+def _build_knowledge_runner_exception_result(
+    *,
+    exc: CodexFarmRunnerError,
+    prompt_text: str,
+    working_dir: Path,
+    retryable_reason: str | None,
+) -> CodexExecRunResult:
+    return CodexExecRunResult(
+        command=["codex", "exec"],
+        subprocess_exit_code=1,
+        output_schema_path=None,
+        prompt_text=prompt_text,
+        response_text=None,
+        turn_failed_message=str(exc),
+        events=(),
+        usage={
+            "input_tokens": 0,
+            "cached_input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+        },
+        stderr_text=str(exc),
+        stdout_text=None,
+        source_working_dir=str(working_dir),
+        execution_working_dir=str(working_dir),
+        execution_agents_path=None,
+        duration_ms=0,
+        started_at_utc=_format_utc_now(),
+        finished_at_utc=_format_utc_now(),
+        workspace_mode="workspace_worker",
+        supervision_state="worker_exception",
+        supervision_reason_code=retryable_reason or "codex_exec_runner_exception",
+        supervision_reason_detail=str(exc),
+        supervision_retryable=retryable_reason is not None,
+    )
+
+
+def _reset_knowledge_workspace_for_fresh_worker_replacement(
+    *,
+    worker_root: Path,
+    assignment: WorkerAssignmentV1,
+    assigned_shards: Sequence[ShardManifestEntryV1],
+    task_file_payload: Mapping[str, Any],
+    unit_to_shard_id: Mapping[str, str],
+    out_dir: Path,
+) -> dict[str, Any]:
+    for artifact_name in (
+        "events.jsonl",
+        "last_message.json",
+        "usage.json",
+        "workspace_manifest.json",
+        "stdout.txt",
+        "stderr.txt",
+        "prompt_grouping.txt",
+        "prompt_resume.txt",
+        "prompt_fresh_worker_replacement.txt",
+    ):
+        artifact_path = worker_root / artifact_name
+        if artifact_path.exists():
+            artifact_path.unlink()
+    for shard in assigned_shards:
+        output_path = out_dir / f"{shard.shard_id}.json"
+        if output_path.exists():
+            output_path.unlink()
+    state_path = _knowledge_same_session_state_path(worker_root)
+    replacement_state = initialize_knowledge_same_session_state(
+        state_path=state_path,
+        assignment_id=assignment.worker_id,
+        worker_id=assignment.worker_id,
+        classification_task_file=task_file_payload,
+        unit_to_shard_id=unit_to_shard_id,
+        output_dir=out_dir,
+    )
+    write_task_file(path=worker_root / TASK_FILE_NAME, payload=task_file_payload)
+    _write_task_file_snapshot(
+        worker_root=worker_root,
+        step_name="classification",
+        suffix="initial",
+        payload=task_file_payload,
+    )
+    return replacement_state
+
+
+def _build_knowledge_fresh_worker_replacement_prompt(
+    *,
+    shards: Sequence[ShardManifestEntryV1],
+) -> str:
+    return (
+        "The previous knowledge worker session was stopped before completion. "
+        "Start over from the fresh `task.json` that the repo has restored in this workspace. "
+        "Do not rely on prior partial outputs or shell state.\n\n"
+        + _build_knowledge_workspace_worker_prompt(
+            stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY,
+            shards=shards,
+        )
+    )
+
+
 def _run_phase_knowledge_worker_assignment_v1(
     *,
     run_root: Path,
@@ -599,9 +747,13 @@ def _run_phase_knowledge_worker_assignment_v1(
     grouping_validation_errors: tuple[str, ...] = ()
     grouping_validation_metadata: dict[str, Any] = {}
     semantic_run_results: list[CodexExecRunResult] = []
+    worker_session_runs: list[dict[str, Any]] = []
     fresh_session_retry_count = 0
     fresh_session_retry_status = "not_attempted"
     same_session_state_payload: dict[str, Any] = {}
+    fresh_worker_replacement_count = 0
+    fresh_worker_replacement_status = "not_attempted"
+    fresh_worker_replacement_metadata: dict[str, Any] = {}
     if task_file_payload is not None:
         state_path = _knowledge_same_session_state_path(worker_root)
         initialize_knowledge_same_session_state(
@@ -625,65 +777,151 @@ def _run_phase_knowledge_worker_assignment_v1(
         )
         prompt_path = worker_root / "prompt_classification.txt"
         prompt_path.write_text(classification_prompt_text, encoding="utf-8")
-        run_result = runner.run_workspace_worker(
-            prompt_text=classification_prompt_text,
-            working_dir=worker_root,
-            env={
-                **dict(env),
-                KNOWLEDGE_SAME_SESSION_STATE_ENV: str(state_path),
-            },
-            model=model,
-            reasoning_effort=reasoning_effort,
-            completed_termination_grace_seconds=float(
-                settings.get("completed_termination_grace_seconds") or 15.0
-            ),
-            workspace_task_label="knowledge same-session worker session",
-            supervision_callback=_build_strict_json_watchdog_callback(
-                live_status_path=worker_root / "live_status.json",
-                allow_workspace_commands=True,
-                execution_workspace_root=worker_root,
-                expected_workspace_output_paths=[
-                    out_dir / f"{shard.shard_id}.json" for shard in assigned_shards
-                ],
-                workspace_output_observer=(
-                    None
-                    if progress_state is None
-                    else lambda present_count, expected_count, _worker_id=assignment.worker_id: (
-                        progress_state.observe_workspace_outputs(
-                            worker_id=_worker_id,
-                            present_count=present_count,
-                            expected_count=expected_count,
-                        )
+        watchdog_callback = _build_strict_json_watchdog_callback(
+            live_status_path=worker_root / "live_status.json",
+            allow_workspace_commands=True,
+            execution_workspace_root=worker_root,
+            expected_workspace_output_paths=[
+                out_dir / f"{shard.shard_id}.json" for shard in assigned_shards
+            ],
+            workspace_output_observer=(
+                None
+                if progress_state is None
+                else lambda present_count, expected_count, _worker_id=assignment.worker_id: (
+                    progress_state.observe_workspace_outputs(
+                        worker_id=_worker_id,
+                        present_count=present_count,
+                        expected_count=expected_count,
                     )
-                ),
-                workspace_completion_quiescence_seconds=float(
-                    settings.get("workspace_completion_quiescence_seconds") or 15.0
-                ),
+                )
+            ),
+            workspace_completion_quiescence_seconds=float(
+                settings.get("workspace_completion_quiescence_seconds") or 15.0
             ),
         )
-        semantic_run_results.append(run_result)
-        _finalize_live_status(
-            worker_root / "live_status.json",
-            run_result=run_result,
-            watchdog_policy="workspace_worker_v1",
+
+        def _run_workspace_attempt(
+            *,
+            prompt_text: str,
+            workspace_task_label: str,
+        ) -> tuple[CodexExecRunResult, CodexFarmRunnerError | None, dict[str, Any]]:
+            attempt_exception: CodexFarmRunnerError | None = None
+            try:
+                current_run_result = runner.run_workspace_worker(
+                    prompt_text=prompt_text,
+                    working_dir=worker_root,
+                    env={
+                        **dict(env),
+                        KNOWLEDGE_SAME_SESSION_STATE_ENV: str(state_path),
+                    },
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    completed_termination_grace_seconds=float(
+                        settings.get("completed_termination_grace_seconds") or 15.0
+                    ),
+                    workspace_task_label=workspace_task_label,
+                    supervision_callback=watchdog_callback,
+                )
+            except CodexFarmRunnerError as exc:
+                attempt_exception = exc
+                current_run_result = _build_knowledge_runner_exception_result(
+                    exc=exc,
+                    prompt_text=prompt_text,
+                    working_dir=worker_root,
+                    retryable_reason=_knowledge_retryable_runner_exception_reason(exc),
+                )
+            semantic_run_results.append(current_run_result)
+            _finalize_live_status(
+                worker_root / "live_status.json",
+                run_result=current_run_result,
+                watchdog_policy="workspace_worker_v1",
+            )
+            (worker_root / "events.jsonl").write_text(
+                _render_events_jsonl(current_run_result.events),
+                encoding="utf-8",
+            )
+            _write_json(
+                {"text": current_run_result.response_text},
+                worker_root / "last_message.json",
+            )
+            _write_json(dict(current_run_result.usage or {}), worker_root / "usage.json")
+            _write_json(
+                current_run_result.workspace_manifest(),
+                worker_root / "workspace_manifest.json",
+            )
+            _write_optional_text(worker_root / "stdout.txt", current_run_result.stdout_text)
+            _write_optional_text(worker_root / "stderr.txt", current_run_result.stderr_text)
+            return current_run_result, attempt_exception, _load_json_dict_safely(state_path)
+
+        run_result, initial_runner_exception, same_session_state_payload = _run_workspace_attempt(
+            prompt_text=classification_prompt_text,
+            workspace_task_label="knowledge same-session worker session",
         )
-        same_session_state_payload = _load_json_dict_safely(state_path)
-        final_run_result = semantic_run_results[-1]
-        (worker_root / "events.jsonl").write_text(
-            _render_events_jsonl(final_run_result.events),
-            encoding="utf-8",
-        )
-        _write_json({"text": final_run_result.response_text}, worker_root / "last_message.json")
-        _write_json(dict(final_run_result.usage or {}), worker_root / "usage.json")
-        _write_json(
-            final_run_result.workspace_manifest(),
-            worker_root / "workspace_manifest.json",
-        )
-        _write_optional_text(worker_root / "stdout.txt", final_run_result.stdout_text)
-        _write_optional_text(worker_root / "stderr.txt", final_run_result.stderr_text)
-        worker_session_runs: list[tuple[CodexExecRunResult, Path, bool]] = [
-            (run_result, prompt_path, False)
+        worker_session_runs: list[dict[str, Any]] = [
+            {
+                "run_result": run_result,
+                "prompt_path": prompt_path,
+                "fresh_session_resume": False,
+                "fresh_worker_replacement": False,
+                "fresh_worker_replacement_reason_code": None,
+            }
         ]
+        should_replace_worker, replacement_reason = _should_attempt_knowledge_fresh_worker_replacement(
+            run_result=None if initial_runner_exception is not None else run_result,
+            exc=initial_runner_exception,
+            replacement_attempt_count=fresh_worker_replacement_count,
+            same_session_state_payload=same_session_state_payload,
+        )
+        fresh_worker_replacement_metadata = {
+            "fresh_worker_replacement_attempted": bool(should_replace_worker),
+            "fresh_worker_replacement_status": (
+                "attempted" if should_replace_worker else "skipped"
+            ),
+            "fresh_worker_replacement_count": 0,
+            "fresh_worker_replacement_reason_code": (
+                replacement_reason if should_replace_worker else None
+            ),
+            "fresh_worker_replacement_error_summary": (
+                str(initial_runner_exception)
+                if initial_runner_exception is not None
+                else str(run_result.supervision_reason_detail or "").strip() or None
+            ),
+            "fresh_worker_replacement_skipped_reason": (
+                None if should_replace_worker else replacement_reason
+            ),
+        }
+        if should_replace_worker:
+            fresh_worker_replacement_count = 1
+            fresh_worker_replacement_status = "attempted"
+            same_session_state_payload = _reset_knowledge_workspace_for_fresh_worker_replacement(
+                worker_root=worker_root,
+                assignment=assignment,
+                assigned_shards=assigned_shards,
+                task_file_payload=task_file_payload,
+                unit_to_shard_id=unit_to_shard_id,
+                out_dir=out_dir,
+            )
+            replacement_prompt_path = worker_root / "prompt_fresh_worker_replacement.txt"
+            replacement_prompt_text = _build_knowledge_fresh_worker_replacement_prompt(
+                shards=assigned_shards,
+            )
+            replacement_prompt_path.write_text(
+                replacement_prompt_text,
+                encoding="utf-8",
+            )
+            run_result, _replacement_exception, same_session_state_payload = _run_workspace_attempt(
+                prompt_text=replacement_prompt_text,
+                workspace_task_label="knowledge fresh-worker replacement session",
+            )
+            worker_session_runs.append(
+                {
+                    "run_result": run_result,
+                    "prompt_path": replacement_prompt_path,
+                    "fresh_session_resume": False,
+                    "fresh_worker_replacement": True,
+                    "fresh_worker_replacement_reason_code": replacement_reason,
+                }
+            )
         should_retry, retry_reason = _should_attempt_knowledge_fresh_session_retry(
             run_result=run_result,
             task_file_path=worker_root / TASK_FILE_NAME,
@@ -705,7 +943,9 @@ def _run_phase_knowledge_worker_assignment_v1(
                     "reason_detail": "clean first session preserved useful workspace state without completion",
                 }
             )
-            same_session_state_payload["fresh_session_retry_history"] = fresh_session_retry_history
+            same_session_state_payload["fresh_session_retry_history"] = (
+                fresh_session_retry_history
+            )
             _write_json(same_session_state_payload, state_path)
             current_task_file = load_task_file(worker_root / TASK_FILE_NAME)
             resume_prompt_path = worker_root / "prompt_resume.txt"
@@ -719,47 +959,9 @@ def _run_phase_knowledge_worker_assignment_v1(
                 fresh_session_resume=True,
             )
             resume_prompt_path.write_text(resume_prompt_text, encoding="utf-8")
-            run_result = runner.run_workspace_worker(
+            run_result, _resume_exception, same_session_state_payload = _run_workspace_attempt(
                 prompt_text=resume_prompt_text,
-                working_dir=worker_root,
-                env={
-                    **dict(env),
-                    KNOWLEDGE_SAME_SESSION_STATE_ENV: str(state_path),
-                },
-                model=model,
-                reasoning_effort=reasoning_effort,
-                completed_termination_grace_seconds=float(
-                    settings.get("completed_termination_grace_seconds") or 15.0
-                ),
                 workspace_task_label="knowledge fresh-session worker recovery",
-                supervision_callback=_build_strict_json_watchdog_callback(
-                    live_status_path=worker_root / "live_status.json",
-                    allow_workspace_commands=True,
-                    execution_workspace_root=worker_root,
-                    expected_workspace_output_paths=[
-                        out_dir / f"{shard.shard_id}.json" for shard in assigned_shards
-                    ],
-                    workspace_output_observer=(
-                        None
-                        if progress_state is None
-                        else lambda present_count, expected_count, _worker_id=assignment.worker_id: (
-                            progress_state.observe_workspace_outputs(
-                                worker_id=_worker_id,
-                                present_count=present_count,
-                                expected_count=expected_count,
-                            )
-                        )
-                    ),
-                    workspace_completion_quiescence_seconds=float(
-                        settings.get("workspace_completion_quiescence_seconds") or 15.0
-                    ),
-                ),
-            )
-            semantic_run_results.append(run_result)
-            _finalize_live_status(
-                worker_root / "live_status.json",
-                run_result=run_result,
-                watchdog_policy="workspace_worker_v1",
             )
             same_session_state_payload = _load_json_dict_safely(state_path)
             fresh_session_retry_status = (
@@ -774,8 +976,12 @@ def _run_phase_knowledge_worker_assignment_v1(
                     **dict(row),
                     **(
                         {
-                            "result_completed": bool(same_session_state_payload.get("completed")),
-                            "result_final_status": same_session_state_payload.get("final_status"),
+                            "result_completed": bool(
+                                same_session_state_payload.get("completed")
+                            ),
+                            "result_final_status": same_session_state_payload.get(
+                                "final_status"
+                            ),
                         }
                         if index == len(fresh_session_retry_history) - 1
                         else {}
@@ -785,21 +991,25 @@ def _run_phase_knowledge_worker_assignment_v1(
                 if isinstance(row, Mapping)
             ]
             _write_json(same_session_state_payload, state_path)
-            worker_session_runs.append((run_result, resume_prompt_path, True))
-            final_run_result = semantic_run_results[-1]
-            (worker_root / "events.jsonl").write_text(
-                _render_events_jsonl(final_run_result.events),
-                encoding="utf-8",
+            worker_session_runs.append(
+                {
+                    "run_result": run_result,
+                    "prompt_path": resume_prompt_path,
+                    "fresh_session_resume": True,
+                    "fresh_worker_replacement": False,
+                    "fresh_worker_replacement_reason_code": None,
+                }
             )
-            _write_json({"text": final_run_result.response_text}, worker_root / "last_message.json")
-            _write_json(dict(final_run_result.usage or {}), worker_root / "usage.json")
-            _write_json(
-                final_run_result.workspace_manifest(),
-                worker_root / "workspace_manifest.json",
+        for session_index, session_row in enumerate(worker_session_runs, start=1):
+            session_run_result = session_row["run_result"]
+            session_prompt_path = session_row["prompt_path"]
+            fresh_session_resume = bool(session_row.get("fresh_session_resume"))
+            fresh_worker_replacement = bool(
+                session_row.get("fresh_worker_replacement")
             )
-            _write_optional_text(worker_root / "stdout.txt", final_run_result.stdout_text)
-            _write_optional_text(worker_root / "stderr.txt", final_run_result.stderr_text)
-        for session_index, (session_run_result, session_prompt_path, fresh_session_resume) in enumerate(worker_session_runs, start=1):
+            fresh_worker_replacement_reason_code = session_row.get(
+                "fresh_worker_replacement_reason_code"
+            )
             worker_runner_payload = _build_knowledge_workspace_task_runner_payload(
                 pipeline_id=pipeline_id,
                 worker_id=assignment.worker_id,
@@ -822,6 +1032,12 @@ def _run_phase_knowledge_worker_assignment_v1(
                         if not isinstance(row, dict):
                             continue
                         row["fresh_session_resume"] = fresh_session_resume
+                        row["fresh_worker_replacement"] = (
+                            fresh_worker_replacement
+                        )
+                        row["fresh_worker_replacement_reason_code"] = (
+                            fresh_worker_replacement_reason_code
+                        )
                         _apply_knowledge_same_session_row_metadata(
                             row=row,
                             initial_task_file=task_file_payload,
@@ -832,10 +1048,16 @@ def _run_phase_knowledge_worker_assignment_v1(
                         [dict(row) for row in rows if isinstance(row, Mapping)]
                     )
             worker_runner_payload["fresh_session_resume"] = fresh_session_resume
+            worker_runner_payload["fresh_worker_replacement"] = (
+                fresh_worker_replacement
+            )
+            worker_runner_payload["fresh_worker_replacement_reason_code"] = (
+                fresh_worker_replacement_reason_code
+            )
             _attach_worker_guardrail_summary(
                 worker_runner_payload=worker_runner_payload,
                 task_file_guardrail=task_file_guardrail,
-                planned_happy_path_worker_cap=2,
+                planned_happy_path_worker_cap=3,
             )
             worker_runner_results.append(worker_runner_payload)
         classify_answers_by_unit_id = (
@@ -845,13 +1067,35 @@ def _run_phase_knowledge_worker_assignment_v1(
         grouping_answers_by_unit_id = dict(
             same_session_state_payload.get("grouping_answers_by_unit_id") or {}
         )
+        if fresh_worker_replacement_count > 0:
+            recovered_output_count = sum(
+                1
+                for shard in assigned_shards
+                if (out_dir / f"{shard.shard_id}.json").exists()
+            )
+            fresh_worker_replacement_status = (
+                "recovered"
+                if recovered_output_count > 0 or bool(same_session_state_payload.get("completed"))
+                else "exhausted"
+            )
+            fresh_worker_replacement_metadata = {
+                **fresh_worker_replacement_metadata,
+                "fresh_worker_replacement_attempted": True,
+                "fresh_worker_replacement_status": fresh_worker_replacement_status,
+                "fresh_worker_replacement_count": fresh_worker_replacement_count,
+                "fresh_worker_replacement_skipped_reason": None,
+            }
 
     task_total = len(assigned_shards)
     run_result = semantic_run_results[-1]
-    worker_prompt_path = (
-        worker_root / "prompt_grouping.txt"
-        if (worker_root / "prompt_grouping.txt").exists()
-        else worker_root / "prompt_classification.txt"
+    worker_prompt_path = Path(
+        worker_session_runs[-1]["prompt_path"]
+        if task_file_payload is not None and worker_session_runs
+        else (
+            worker_root / "prompt_grouping.txt"
+            if (worker_root / "prompt_grouping.txt").exists()
+            else worker_root / "prompt_classification.txt"
+        )
     )
     task_file_errors_by_shard: dict[str, tuple[tuple[str, ...], dict[str, Any]]] = {}
     for unit_id in classification_validation_metadata.get("failed_unit_ids") or []:
@@ -1028,6 +1272,10 @@ def _run_phase_knowledge_worker_assignment_v1(
             **dict(shard_summary),
             **dict(explicit_terminal_reason_metadata or {}),
         }
+        if fresh_worker_replacement_metadata:
+            validation_metadata["fresh_worker_replacement"] = dict(
+                fresh_worker_replacement_metadata
+            )
         if proposal_status == "validated":
             validation_metadata["promotion_succeeded"] = True
             validation_metadata["terminal_status"] = "validated"
@@ -1139,10 +1387,18 @@ def _run_phase_knowledge_worker_assignment_v1(
     )
     worker_runner_payload["fresh_session_retry_count"] = fresh_session_retry_count
     worker_runner_payload["fresh_session_retry_status"] = fresh_session_retry_status
+    worker_runner_payload["fresh_worker_replacement_count"] = (
+        fresh_worker_replacement_count
+    )
+    worker_runner_payload["fresh_worker_replacement_status"] = (
+        fresh_worker_replacement_status
+    )
+    if fresh_worker_replacement_metadata:
+        worker_runner_payload.update(dict(fresh_worker_replacement_metadata))
     _attach_worker_guardrail_summary(
         worker_runner_payload=worker_runner_payload,
         task_file_guardrail=task_file_guardrail,
-        planned_happy_path_worker_cap=2,
+        planned_happy_path_worker_cap=3,
         repair_followup_call_count=int(
             worker_runner_payload.get("telemetry", {})
             .get("summary", {})
@@ -1178,6 +1434,9 @@ def _run_phase_knowledge_worker_assignment_v1(
                 "task_file_guardrail": dict(task_file_guardrail or {}),
                 "fresh_session_retry_count": fresh_session_retry_count,
                 "fresh_session_retry_status": fresh_session_retry_status,
+                "fresh_worker_replacement_count": fresh_worker_replacement_count,
+                "fresh_worker_replacement_status": fresh_worker_replacement_status,
+                **dict(fresh_worker_replacement_metadata),
             },
         ),
         proposals=tuple(worker_proposals),

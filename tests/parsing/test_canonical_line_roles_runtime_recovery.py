@@ -107,7 +107,7 @@ def test_line_role_runtime_retries_one_fresh_session_after_preserved_progress(
     )
 
 
-def test_line_role_runtime_does_not_retry_after_hard_boundary_failure(
+def test_line_role_runtime_replaces_hard_boundary_failure_with_fresh_worker(
     tmp_path: Path,
 ) -> None:
     candidates = [
@@ -122,16 +122,14 @@ def test_line_role_runtime_does_not_retry_after_hard_boundary_failure(
         )
     ]
     runner = _FreshSessionLineRoleRunner(hard_boundary=True)
-
-    with pytest.raises(canonical_line_roles_module.LineRoleRepairFailureError):
-        label_atomic_lines(
-            candidates,
-            _settings("codex-line-role-route-v2", line_role_prompt_target_count=1),
-            artifact_root=tmp_path,
-            codex_batch_size=1,
-            codex_runner=runner,
-            live_llm_allowed=True,
-        )
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-route-v2", line_role_prompt_target_count=1),
+        artifact_root=tmp_path,
+        codex_batch_size=1,
+        codex_runner=runner,
+        live_llm_allowed=True,
+    )
 
     worker_root = (
         tmp_path
@@ -143,8 +141,141 @@ def test_line_role_runtime_does_not_retry_after_hard_boundary_failure(
     )
     worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
 
-    assert runner.workspace_run_calls == 1
+    assert len(predictions) == 1
+    assert runner.workspace_run_calls == 2
     assert worker_status["fresh_session_retry_count"] == 0
+    assert worker_status["fresh_worker_replacement_count"] == 1
+    assert worker_status["fresh_worker_replacement_status"] == "recovered"
+
+
+def test_line_role_runtime_replaces_timed_out_worker_with_fresh_worker(
+    tmp_path: Path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:timeout:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"Ambiguous line {index}",
+            within_recipe_span=None,
+            rule_tags=[],
+        )
+        for index in range(2)
+    ]
+    runner = _TimeoutThenRecoveredLineRoleRunner()
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-route-v2", line_role_prompt_target_count=1),
+        artifact_root=tmp_path,
+        codex_batch_size=2,
+        codex_runner=runner,
+        live_llm_allowed=True,
+    )
+
+    worker_root = (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+    )
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+    shard_status = json.loads(
+        (
+            worker_root
+            / "shards"
+            / "line-role-canonical-0001-a000000-a000001"
+            / "status.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert len(predictions) == 2
+    assert runner.workspace_run_calls == 2
+    assert worker_status["fresh_worker_replacement_count"] == 1
+    assert worker_status["fresh_worker_replacement_status"] == "recovered"
+    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 2
+    assert (
+        shard_status["validation_metadata"]["fresh_worker_replacement"][
+            "fresh_worker_replacement_status"
+        ]
+        == "recovered"
+    )
+
+
+def test_line_role_runtime_keeps_successful_sibling_shards_after_timeout(
+    tmp_path: Path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:sibling:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"Ambiguous line {index}",
+            within_recipe_span=None,
+            rule_tags=[],
+        )
+        for index in range(4)
+    ]
+    runner = _TimeoutThenRecoveredLineRoleRunner(fail_worker_ids={"worker-001"})
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-route-v2",
+            line_role_prompt_target_count=2,
+            line_role_worker_count=2,
+        ),
+        artifact_root=tmp_path,
+        codex_batch_size=2,
+        codex_runner=runner,
+        live_llm_allowed=True,
+    )
+
+    telemetry_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "telemetry.json"
+        ).read_text(
+            encoding="utf-8"
+        )
+    )
+    worker_status = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "workers"
+            / "worker-001"
+            / "status.json"
+        ).read_text(encoding="utf-8")
+    )
+    sibling_status = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "workers"
+            / "worker-002"
+            / "status.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert len(predictions) == 4
+    assert runner.calls_by_worker_id["worker-001"] == 2
+    assert runner.calls_by_worker_id["worker-002"] == 1
+    assert worker_status["fresh_worker_replacement_status"] == "recovered"
+    assert sibling_status["fresh_worker_replacement_count"] == 0
+    assert telemetry_payload["summary"]["workspace_worker_session_count"] == 3
+    assert telemetry_payload["fresh_agent_count"] == 3
 
 
 def test_line_role_runtime_recovers_after_final_message_missing_output(

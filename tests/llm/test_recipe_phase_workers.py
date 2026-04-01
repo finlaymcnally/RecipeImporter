@@ -518,7 +518,7 @@ def test_recipe_phase_runtime_writes_packet_outputs_and_session_telemetry(
         worker_status["telemetry"]["summary"]["worker_session_guardrails"][
             "planned_happy_path_worker_cap"
         ]
-        == 2
+        == 3
     )
     assert (
         worker_status["telemetry"]["summary"]["task_file_guardrails"]["assignment_count"]
@@ -553,36 +553,24 @@ def test_recipe_phase_runtime_retries_one_fresh_session_after_preserved_progress
     assert proposal["state"] == "completed"
 
 
-def test_recipe_phase_runtime_does_not_retry_after_hard_boundary_failure(
+def test_recipe_phase_runtime_replaces_hard_boundary_failure_with_fresh_worker(
     tmp_path: Path,
 ) -> None:
     runner = _FreshSessionRecoveryRunner(hard_boundary=True)
-    source = tmp_path / "book.txt"
-    source.write_text("source", encoding="utf-8")
-    settings = RunSettings.model_validate(
-        {
-            "llm_recipe_pipeline": "codex-recipe-shard-v1",
-            "codex_farm_cmd": "codex-farm",
-            "codex_farm_root": str(tmp_path / "pack"),
-            "recipe_prompt_target_count": 2,
-            "recipe_worker_count": 1,
-        }
-    )
-    for name in ("pipelines", "prompts", "schemas"):
-        (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
+    fixture = _run_multi_recipe_phase_fixture(tmp_path, runner=runner)
+    worker_status = fixture["worker_status"]
+    phase_manifest = fixture["phase_manifest"]
 
-    apply_result = run_codex_farm_recipe_pipeline(
-        conversion_result=_build_multi_recipe_conversion_result(source),
-        run_settings=settings,
-        run_root=tmp_path / "run",
-        workbook_slug="book",
-        runner=runner,
+    assert runner.workspace_run_calls == 2
+    assert worker_status["fresh_worker_replacement_count"] == 1
+    assert worker_status["fresh_worker_replacement_status"] == "recovered"
+    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 2
+    assert (
+        phase_manifest["runtime_metadata"]["worker_session_guardrails"][
+            "actual_happy_path_worker_sessions"
+        ]
+        == 2
     )
-    worker_root = apply_result.llm_raw_dir / "recipe_phase_runtime" / "workers" / "worker-001"
-    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
-
-    assert runner.workspace_run_calls == 1
-    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 1
 
 
 def test_recipe_phase_runtime_repairs_invalid_task_file_answers_in_same_session(

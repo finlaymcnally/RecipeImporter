@@ -135,7 +135,7 @@ def test_recipe_same_session_handoff_rewrites_invalid_answer_into_repair_and_com
     assert repair_result["status"] == "repair_required"
     assert repair_task["mode"] == "repair"
     assert repair_result["same_session_repair_rewrite_count"] == 1
-    assert repair_task["helper_commands"]["status"].endswith("--status")
+    assert repair_task["helper_commands"]["status"] == "task-status"
     assert repair_task["answer_schema"]["example_answers"][0]["status"] == "repaired"
 
     repair_task["units"][0]["answer"] = _valid_answer()

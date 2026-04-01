@@ -198,7 +198,7 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert telemetry["summary"]["packet_economics"]["same_session_transition_count_total"] == 2
     assert telemetry["summary"]["packet_economics"]["grouping_transition_count_total"] == 1
     assert telemetry["rows"][0]["knowledge_same_session"] is True
-    assert telemetry["summary"]["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 1
+    assert telemetry["summary"]["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 3
     assert telemetry["summary"]["task_file_guardrails"]["assignment_count"] == 1
     assert (
         phase_manifest["runtime_metadata"]["worker_session_guardrails"][
@@ -231,17 +231,28 @@ def test_knowledge_orchestrator_retries_one_fresh_session_after_preserved_progre
     )
 
 
-def test_knowledge_orchestrator_does_not_retry_after_hard_boundary_failure(
+def test_knowledge_orchestrator_replaces_hard_boundary_failure_with_fresh_worker(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     runner = _FreshSessionKnowledgeRunner(hard_boundary=True)
     fixture = _run_runtime_phase(monkeypatch, tmp_path, runner=runner)
     worker_root = Path(fixture["worker_root"])
+    phase_dir = Path(fixture["phase_dir"])
     worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+    phase_manifest = json.loads((phase_dir / "phase_manifest.json").read_text(encoding="utf-8"))
 
-    assert runner.workspace_run_calls == 1
+    assert runner.workspace_run_calls == 2
+    assert worker_status["fresh_worker_replacement_count"] == 1
+    assert worker_status["fresh_worker_replacement_status"] == "recovered"
     assert worker_status["fresh_session_retry_count"] == 0
+    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 2
+    assert (
+        phase_manifest["runtime_metadata"]["worker_session_guardrails"][
+            "actual_happy_path_worker_sessions"
+        ]
+        == 2
+    )
 
 
 class _NoOutputLeaseRunner(FakeCodexExecRunner):
