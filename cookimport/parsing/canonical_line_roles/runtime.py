@@ -11,6 +11,7 @@ from cookimport.llm.editable_task_file import (
     validate_edited_task_file,
     write_task_file,
 )
+from cookimport.llm.single_file_worker_commands import build_single_file_worker_surface
 from cookimport.llm.task_file_guardrails import (
     build_task_file_guardrail,
     build_worker_session_guardrails,
@@ -495,36 +496,11 @@ def _build_line_role_task_file(
             assignment_id=assignment.worker_id,
             worker_id=assignment.worker_id,
             units=units,
-            helper_commands={
-                "summary": "python3 -m cookimport.llm.editable_task_file --summary",
-                "show_unit": (
-                    "python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>"
-                ),
-                "show_unanswered": (
-                    "python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5"
-                ),
-                "apply_answer_json": (
-                    "python3 -m cookimport.llm.editable_task_file --set-answer "
-                    "<unit_id> '<answer_json>'"
-                ),
-                "apply_answers_file": (
-                    "python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json"
-                ),
-                "status": (
-                    "python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff "
-                    "--status"
-                ),
-                "doctor": (
-                    "python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff "
-                    "--doctor"
-                ),
-                "handoff": (
-                    "python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff"
-                ),
-            },
+            helper_commands=build_single_file_worker_surface(stage_key="line_role").helper_commands,
+            workflow=build_single_file_worker_surface(stage_key="line_role").workflow,
             next_action=(
-                "Set every /units/*/answer object, then run "
-                "python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff."
+                "Review the shard with task-summary/task-show-unit, optionally use "
+                "task-template plus task-apply, then run task-handoff."
             ),
             answer_schema={
                 "editable_pointer_pattern": "/units/*/answer",

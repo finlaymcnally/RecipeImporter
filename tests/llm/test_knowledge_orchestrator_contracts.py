@@ -4,7 +4,11 @@ from pathlib import Path
 
 from cookimport.llm.codex_exec_runner import CodexExecLiveSnapshot
 from cookimport.llm.codex_farm_knowledge_orchestrator import _preflight_knowledge_shard
-from cookimport.llm.editable_task_file import build_repair_task_file, summarize_task_file
+from cookimport.llm.editable_task_file import (
+    build_repair_task_file,
+    summarize_task_file,
+    write_task_file,
+)
 from cookimport.llm.knowledge_stage import _shared as knowledge_stage_shared
 from cookimport.llm.knowledge_stage.recovery import (
     _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS,
@@ -64,22 +68,12 @@ def test_worker_prompt_describes_task_file_contract() -> None:
     )
 
     assert "task.json" in prompt
-    assert (
-        "Start with `python3 -m cookimport.llm.editable_task_file --summary`." in prompt
-    )
-    assert (
-        "`python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>` or "
-        "`python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`." in prompt
-    )
+    assert "Start with `task-summary`." in prompt
     assert "`task.json` is the whole job at each step." in prompt
     assert "- Start with `task.json`." in prompt
-    assert "- If the task file is large, inspect only the units you need with `--show-unit <unit_id>` or `--show-unanswered --limit 5`." in prompt
+    assert "- Prefer `task-summary` before opening raw file contents." in prompt
     assert "- Edit only the `answer` object inside each unit." in prompt
-    assert "--apply-answers-file answers.json`." in prompt
-    assert (
-        "- After each edit pass, run `python3 -m cookimport.llm.knowledge_same_session_handoff` "
-        "from the workspace root." in prompt
-    )
+    assert "- After each edit pass, run `task-handoff` from the workspace root." in prompt
     assert (
         "- After the helper returns, trust the current `task.json` as the new whole job." in prompt
     )
@@ -95,6 +89,10 @@ def test_worker_prompt_describes_task_file_contract() -> None:
     assert "Do not dump `task.json` with `cat` or `sed`" in prompt
     assert "Do not invent queue advancement, control files, helper ledgers, or alternate output files." in prompt
     assert "This is the classification step." in prompt
+    assert "`task-show-current`" in prompt
+    assert "`task-show-neighbors`" in prompt
+    assert "`task-answer-current '<answer_json>'`" in prompt
+    assert "`task-next`" in prompt
     assert "Answer each unit with `category`, `reviewer_category`, `retrieval_concept`, and `grounding`." in prompt
     assert "You are doing close semantic review, not building a heuristic classifier" in prompt
     assert "Treat `candidate_tag_keys`, heading shape, and packet position as weak hints only" in prompt
@@ -341,10 +339,32 @@ def test_knowledge_workspace_watchdog_completes_after_stable_outputs_without_que
 def test_knowledge_workspace_watchdog_warns_on_egregious_single_file_shell_transform(
     tmp_path: Path,
 ) -> None:
+    task_file, _unit_to_shard = build_knowledge_classification_task_file(
+        assignment=WorkerAssignmentV1(
+            worker_id="worker-001",
+            shard_ids=("book.ks0000.nr",),
+            workspace_root=str(tmp_path),
+        ),
+        shards=[
+            ShardManifestEntryV1(
+                shard_id="book.ks0000.nr",
+                owned_ids=("book.ks0000.nr",),
+                input_payload={
+                    "v": "1",
+                    "bid": "book.ks0000.nr",
+                    "b": [{"i": 4, "t": "Whisk constantly."}],
+                },
+                input_text=None,
+                metadata={},
+            )
+        ],
+    )
+    write_task_file(path=tmp_path / "task.json", payload=task_file)
     callback = _build_strict_json_watchdog_callback(
         live_status_path=tmp_path / "live_status.json",
         watchdog_policy="workspace_worker_v1",
         allow_workspace_commands=True,
+        execution_workspace_root=tmp_path,
     )
 
     decision = callback(
@@ -363,6 +383,5 @@ def test_knowledge_workspace_watchdog_warns_on_egregious_single_file_shell_trans
         )
     )
 
-    assert decision is None
-    live_status = (tmp_path / "live_status.json").read_text(encoding="utf-8")
-    assert "single_file_shell_drift" in live_status
+    assert decision is not None
+    assert decision.reason_code == "watchdog_packet_contract_bypass_bulk_classification"

@@ -111,6 +111,7 @@ def build_task_file(
     mode: str = "initial",
     schema_version: str = TASK_FILE_SCHEMA_VERSION,
     helper_commands: Mapping[str, Any] | None = None,
+    workflow: Sequence[str] | None = None,
     next_action: str | None = None,
     answer_schema: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -128,6 +129,10 @@ def build_task_file(
     }
     if isinstance(helper_commands, Mapping):
         payload["helper_commands"] = dict(helper_commands)
+    if workflow is not None:
+        payload["workflow"] = [
+            str(step).strip() for step in workflow if str(step).strip()
+        ]
     if next_action is not None:
         payload["next_action"] = str(next_action)
     if isinstance(answer_schema, Mapping):
@@ -155,6 +160,14 @@ def summarize_task_file(
         if str(pointer).strip()
     ]
     sampled_unanswered_unit_ids = unanswered_unit_ids[:SUMMARY_UNIT_ID_SAMPLE_LIMIT]
+    workflow = [
+        str(step).strip()
+        for step in (payload.get("workflow") or [])
+        if str(step).strip()
+    ]
+    answer_schema = payload.get("answer_schema")
+    answer_schema_summary = _summarize_answer_schema(answer_schema)
+    current_unit_summary = _summarize_current_unit(payload)
     return {
         "task_file": str(task_file_path or TASK_FILE_NAME),
         "schema_version": str(payload.get("schema_version") or ""),
@@ -177,9 +190,12 @@ def summarize_task_file(
         "helper_commands": dict(payload.get("helper_commands") or {})
         if isinstance(payload.get("helper_commands"), Mapping)
         else {},
+        "workflow": workflow,
         "next_action": str(payload.get("next_action") or "").strip() or None,
+        "answer_schema_summary": answer_schema_summary,
         "review_contract": _summarize_review_contract(payload),
         "grouping_batch": _summarize_grouping_batch(payload),
+        **current_unit_summary,
     }
 
 
@@ -505,6 +521,7 @@ def build_repair_task_file(
             if isinstance(original_task_file.get("helper_commands"), Mapping)
             else None
         ),
+        workflow=list(original_task_file.get("workflow") or []),
         next_action=(
             str(original_task_file.get("next_action") or "")
             if str(original_task_file.get("next_action") or "").strip()
@@ -522,6 +539,52 @@ def build_repair_task_file(
             continue
         repair_task_file[normalized_key] = deepcopy(value)
     return repair_task_file
+
+
+def _summarize_answer_schema(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, Mapping):
+        return None
+    required_keys = _normalized_string_list(value.get("required_keys"))
+    optional_keys = _normalized_string_list(value.get("optional_keys"))
+    allowed_values = value.get("allowed_values")
+    example_answers = value.get("example_answers")
+    summary = {
+        "required_keys": required_keys,
+        "optional_keys": optional_keys,
+        "allowed_value_keys": (
+            sorted(str(key) for key in allowed_values.keys())
+            if isinstance(allowed_values, Mapping)
+            else []
+        ),
+        "example_answer_count": (
+            len([row for row in example_answers if isinstance(row, Mapping)])
+            if isinstance(example_answers, list)
+            else 0
+        ),
+    }
+    if not any(summary.values()):
+        return None
+    return summary
+
+
+def _summarize_current_unit(payload: Mapping[str, Any]) -> dict[str, Any]:
+    helper_commands = payload.get("helper_commands")
+    if not isinstance(helper_commands, Mapping) or "show_current" not in helper_commands:
+        return {}
+    units = _normalized_units(payload)
+    for index, unit in enumerate(units):
+        if _unit_has_answer(unit):
+            continue
+        return {
+            "current_unit_id": _unit_id_for_index(unit, index),
+            "current_unit_position": index + 1,
+            "current_unit_remaining_count": len(units) - index,
+        }
+    return {
+        "current_unit_id": None,
+        "current_unit_position": None,
+        "current_unit_remaining_count": 0,
+    }
 
 
 def _parse_answer_payload(raw: str) -> dict[str, Any]:

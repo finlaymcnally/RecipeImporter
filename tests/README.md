@@ -52,14 +52,32 @@ pytest tests/ingestion/test_pdf_importer.py
 pytest tests/ingestion/test_pdf_importer_ocr_slow.py
 
 # Dashboard split
+pytest tests/analytics/test_stats_dashboard_schema.py
+pytest tests/analytics/test_stats_dashboard_collectors.py
 pytest tests/analytics/test_stats_dashboard.py
+pytest tests/analytics/test_stats_dashboard_benchmark_semantics.py
+pytest tests/analytics/test_stats_dashboard_csv.py
 pytest tests/analytics/test_stats_dashboard_slow.py
+
+# Canonical line-role split
+pytest tests/parsing/test_canonical_line_role_env.py
+pytest tests/parsing/test_canonical_line_roles.py
+pytest tests/parsing/test_canonical_line_roles_prompting.py
+pytest tests/parsing/test_canonical_line_roles_workspace.py
+pytest tests/parsing/test_canonical_line_roles_runtime.py
+
+# Benchmark cutdown split
+pytest tests/bench/test_benchmark_cutdown_for_external_ai.py
+pytest tests/bench/test_benchmark_cutdown_for_external_ai_starter_pack.py
+pytest tests/bench/test_benchmark_cutdown_for_external_ai_upload_bundle.py
+pytest tests/bench/test_benchmark_cutdown_for_external_ai_high_level.py
 
 # Label Studio benchmark-helper split
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_import_eval.py
 pytest tests/labelstudio/test_labelstudio_benchmark_smoke.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_interactive.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_artifacts.py
+pytest tests/labelstudio/test_labelstudio_benchmark_helpers_prompt_budget.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_single_book_run.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_single_book_artifacts.py
 pytest tests/labelstudio/test_labelstudio_benchmark_helpers_export_selection.py
@@ -79,6 +97,10 @@ pytest tests/labelstudio/test_labelstudio_benchmark_helpers_single_profile.py
 # Label Studio prelabel split
 pytest tests/labelstudio/test_labelstudio_prelabel.py
 pytest tests/labelstudio/test_labelstudio_prelabel_codex_cli.py
+
+# Label Studio ingest split
+pytest tests/labelstudio/test_labelstudio_ingest_parallel.py
+pytest tests/labelstudio/test_labelstudio_ingest_parallel_prediction_run.py
 
 # Codex orchestrator split
 pytest tests/llm/test_codex_farm_orchestrator.py

@@ -45,6 +45,20 @@ from .recipe_same_session_handoff import (
     RECIPE_SAME_SESSION_STATE_ENV,
     advance_recipe_same_session_handoff,
 )
+from .single_file_worker_commands import (
+    TASK_ANSWER_CURRENT_COMMAND,
+    TASK_APPLY_COMMAND,
+    TASK_DOCTOR_COMMAND,
+    TASK_HANDOFF_COMMAND,
+    TASK_NEXT_COMMAND,
+    TASK_SHOW_CURRENT_COMMAND,
+    TASK_SHOW_NEIGHBORS_COMMAND,
+    TASK_SHOW_UNANSWERED_COMMAND,
+    TASK_SHOW_UNIT_COMMAND,
+    TASK_STATUS_COMMAND,
+    TASK_SUMMARY_COMMAND,
+    TASK_TEMPLATE_COMMAND,
+)
 
 DIRECT_CODEX_EXEC_RUNTIME_MODE_V1 = "direct_codex_exec_v1"
 _DIRECT_EXEC_ISOLATION_ROOT_NAME = "recipeimport-direct-exec-workspaces"
@@ -135,6 +149,31 @@ _SINGLE_FILE_WORKSPACE_STAGE_HELPER_MODULES = {
     "cookimport.llm.knowledge_same_session_handoff",
     "cookimport.parsing.canonical_line_roles.same_session_handoff",
 }
+_SINGLE_FILE_WORKSPACE_WRAPPER_HELPER_COMMANDS = {
+    TASK_SUMMARY_COMMAND,
+    TASK_SHOW_UNIT_COMMAND,
+    TASK_SHOW_UNANSWERED_COMMAND,
+    TASK_TEMPLATE_COMMAND,
+    TASK_APPLY_COMMAND,
+    TASK_SHOW_CURRENT_COMMAND,
+    TASK_SHOW_NEIGHBORS_COMMAND,
+    TASK_ANSWER_CURRENT_COMMAND,
+    TASK_NEXT_COMMAND,
+    TASK_STATUS_COMMAND,
+    TASK_DOCTOR_COMMAND,
+}
+_SINGLE_FILE_WORKSPACE_WRAPPER_STAGE_COMMANDS = {
+    TASK_STATUS_COMMAND,
+    TASK_DOCTOR_COMMAND,
+    TASK_HANDOFF_COMMAND,
+}
+_SINGLE_FILE_WORKSPACE_SHIM_EXECUTABLES = (
+    "cat",
+    "ls",
+    "python3",
+    "python",
+)
+_SINGLE_FILE_WORKSPACE_ORIGINAL_PATH_ENV = "RECIPEIMPORT_SINGLE_FILE_ORIGINAL_PATH"
 _SINGLE_FILE_WORKSPACE_INLINE_PROGRAM_EXECUTABLES = {
     "jq",
     "node",
@@ -641,9 +680,14 @@ class SubprocessCodexExecRunner:
                 env=process_env,
                 execution_working_dir=execution_working_dir,
             )
+            process_env = _prepare_single_file_workspace_shim_env(env=process_env)
             process_env = _prepend_pythonpath(
                 env=process_env,
                 import_root=helper_import_root,
+            )
+            process_env = _prepend_path(
+                env=process_env,
+                path_entries=(helper_import_root / "bin",),
             )
         execution_prompt_text = rewrite_direct_exec_prompt_paths(
             prompt_text=prompt_text,
@@ -1898,6 +1942,7 @@ def _prepare_workspace_worker_helper_imports(
     helper_session_root = helper_imports_root / execution_working_dir.name
     helper_package_root = helper_session_root / "cookimport"
     if helper_package_root.exists():
+        _write_workspace_worker_helper_bin_scripts(helper_session_root)
         return helper_session_root
     source_package_root = Path(__file__).resolve().parents[1]
     shutil.copytree(
@@ -1905,7 +1950,46 @@ def _prepare_workspace_worker_helper_imports(
         helper_package_root,
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
     )
+    _write_workspace_worker_helper_bin_scripts(helper_session_root)
     return helper_session_root
+
+
+def _write_workspace_worker_helper_bin_scripts(helper_session_root: Path) -> None:
+    bin_root = helper_session_root / "bin"
+    bin_root.mkdir(parents=True, exist_ok=True)
+    python_executable = shlex.quote(sys.executable)
+    task_commands = (
+        TASK_SUMMARY_COMMAND,
+        TASK_SHOW_UNIT_COMMAND,
+        TASK_SHOW_UNANSWERED_COMMAND,
+        TASK_TEMPLATE_COMMAND,
+        TASK_APPLY_COMMAND,
+        TASK_SHOW_CURRENT_COMMAND,
+        TASK_SHOW_NEIGHBORS_COMMAND,
+        TASK_ANSWER_CURRENT_COMMAND,
+        TASK_NEXT_COMMAND,
+        TASK_STATUS_COMMAND,
+        TASK_DOCTOR_COMMAND,
+        TASK_HANDOFF_COMMAND,
+    )
+    for command_name in task_commands:
+        script_path = bin_root / command_name
+        script_path.write_text(
+            "#!/bin/sh\n"
+            f"exec {python_executable} -m cookimport.llm.single_file_worker_commands "
+            f"{shlex.quote(command_name)} \"$@\"\n",
+            encoding="utf-8",
+        )
+        script_path.chmod(0o755)
+    for executable_name in _SINGLE_FILE_WORKSPACE_SHIM_EXECUTABLES:
+        script_path = bin_root / executable_name
+        script_path.write_text(
+            "#!/bin/sh\n"
+            f"exec {python_executable} -m cookimport.llm.single_file_worker_commands "
+            f"--shim {shlex.quote(executable_name)} \"$@\"\n",
+            encoding="utf-8",
+        )
+        script_path.chmod(0o755)
 
 
 def _prepend_pythonpath(
@@ -1926,6 +2010,36 @@ def _prepend_pythonpath(
     return merged
 
 
+def _prepend_path(
+    *,
+    env: Mapping[str, str],
+    path_entries: Sequence[str | Path],
+) -> dict[str, str]:
+    merged = {str(key): str(value) for key, value in env.items()}
+    existing = str(merged.get("PATH") or "")
+    entries = [str(entry) for entry in path_entries if str(entry).strip()]
+    if existing:
+        entries.append(existing)
+    merged["PATH"] = ":".join(entries)
+    return merged
+
+
+def _prepare_single_file_workspace_shim_env(
+    *,
+    env: Mapping[str, str],
+) -> dict[str, str]:
+    merged = {str(key): str(value) for key, value in env.items()}
+    original_path = str(merged.get("PATH") or "")
+    merged[_SINGLE_FILE_WORKSPACE_ORIGINAL_PATH_ENV] = original_path
+    for executable_name in _SINGLE_FILE_WORKSPACE_SHIM_EXECUTABLES:
+        resolved = shutil.which(executable_name, path=original_path)
+        if not resolved:
+            continue
+        env_key = f"RECIPEIMPORT_REAL_EXEC_{executable_name.upper().replace('-', '_')}"
+        merged[env_key] = resolved
+    return merged
+
+
 def _populate_direct_exec_workspace(
     *,
     source_working_dir: Path,
@@ -1937,6 +2051,11 @@ def _populate_direct_exec_workspace(
     _copy_if_present(
         source_working_dir / _DIRECT_EXEC_TASK_FILE_NAME,
         execution_working_dir / _DIRECT_EXEC_TASK_FILE_NAME,
+    )
+    single_file_task_file_payload = (
+        _single_file_workspace_task_file_payload(workspace_root=source_working_dir)
+        if single_file_worker_runtime
+        else None
     )
     single_file_handoff_command = (
         _single_file_workspace_handoff_command(workspace_root=source_working_dir)
@@ -1951,6 +2070,7 @@ def _populate_direct_exec_workspace(
                 mode=mode,
                 single_file_worker_runtime=single_file_worker_runtime,
                 single_file_handoff_command=single_file_handoff_command,
+                single_file_task_file_payload=single_file_task_file_payload,
             ),
             encoding="utf-8",
         )
@@ -2044,6 +2164,7 @@ def _populate_direct_exec_workspace(
             mode=mode,
             single_file_worker_runtime=single_file_worker_runtime,
             single_file_handoff_command=single_file_handoff_command,
+            single_file_task_file_payload=single_file_task_file_payload,
         ),
         encoding="utf-8",
     )
@@ -2092,12 +2213,8 @@ def _read_workspace_manifest_rows(*, execution_working_dir: Path) -> list[Any]:
 
 
 def _single_file_workspace_handoff_command(*, workspace_root: Path) -> str | None:
-    task_file_path = workspace_root / _DIRECT_EXEC_TASK_FILE_NAME
-    if not task_file_path.exists():
-        return None
-    try:
-        task_file_payload = load_task_file(task_file_path)
-    except Exception:  # noqa: BLE001
+    task_file_payload = _single_file_workspace_task_file_payload(workspace_root=workspace_root)
+    if task_file_payload is None:
         return None
     helper_commands = task_file_payload.get("helper_commands")
     if not isinstance(helper_commands, Mapping):
@@ -2106,21 +2223,157 @@ def _single_file_workspace_handoff_command(*, workspace_root: Path) -> str | Non
     return handoff_command or None
 
 
+def _single_file_workspace_task_file_payload(
+    *,
+    workspace_root: Path,
+) -> dict[str, Any] | None:
+    task_file_path = workspace_root / _DIRECT_EXEC_TASK_FILE_NAME
+    if not task_file_path.exists():
+        return None
+    try:
+        return load_task_file(task_file_path)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _single_file_helper_command(
+    task_file_payload: Mapping[str, Any] | None,
+    key: str,
+    default: str | None = None,
+) -> str | None:
+    if not isinstance(task_file_payload, Mapping):
+        return default
+    helper_commands = task_file_payload.get("helper_commands")
+    if not isinstance(helper_commands, Mapping):
+        return default
+    cleaned = str(helper_commands.get(key) or "").strip()
+    return cleaned or default
+
+
+def _single_file_workspace_local_examples(
+    task_file_payload: Mapping[str, Any] | None,
+    *,
+    single_file_handoff_command: str | None,
+) -> list[str]:
+    summary_command = _single_file_helper_command(
+        task_file_payload, "summary", TASK_SUMMARY_COMMAND
+    )
+    examples = [summary_command] if summary_command else []
+    show_current_command = _single_file_helper_command(task_file_payload, "show_current")
+    show_neighbors_command = _single_file_helper_command(task_file_payload, "show_neighbors")
+    answer_current_command = _single_file_helper_command(task_file_payload, "answer_current")
+    if show_current_command:
+        examples.extend(
+            [
+                show_current_command,
+                show_neighbors_command or TASK_SHOW_NEIGHBORS_COMMAND,
+                answer_current_command or f"{TASK_ANSWER_CURRENT_COMMAND} '<answer_json>'",
+                _single_file_helper_command(task_file_payload, "next", TASK_NEXT_COMMAND)
+                or TASK_NEXT_COMMAND,
+            ]
+        )
+    else:
+        show_unit_command = _single_file_helper_command(
+            task_file_payload, "show_unit", f"{TASK_SHOW_UNIT_COMMAND} <unit_id>"
+        )
+        show_unanswered_command = _single_file_helper_command(
+            task_file_payload,
+            "show_unanswered",
+            f"{TASK_SHOW_UNANSWERED_COMMAND} --limit 5",
+        )
+        template_command = _single_file_helper_command(
+            task_file_payload,
+            "template_answers_file",
+            f"{TASK_TEMPLATE_COMMAND} answers.json",
+        )
+        apply_command = _single_file_helper_command(
+            task_file_payload,
+            "apply_answers_file",
+            f"{TASK_APPLY_COMMAND} answers.json",
+        )
+        examples.extend(
+            [
+                show_unit_command,
+                show_unanswered_command,
+                template_command,
+                apply_command,
+            ]
+        )
+    examples.append(single_file_handoff_command or TASK_HANDOFF_COMMAND)
+    examples.append("cp task.json /tmp/task-backup.json")
+    return [example for example in examples if example]
+
+
 def _build_direct_exec_agents_text(
     *,
     task_label: str | None,
     mode: DirectExecWorkspaceMode,
     single_file_worker_runtime: bool = False,
     single_file_handoff_command: str | None = None,
+    single_file_task_file_payload: Mapping[str, Any] | None = None,
 ) -> str:
     rendered_task_label = str(task_label or "structured shard task").strip()
     if mode == "workspace_worker":
         if single_file_worker_runtime:
+            summary_command = _single_file_helper_command(
+                single_file_task_file_payload,
+                "summary",
+                TASK_SUMMARY_COMMAND,
+            )
+            show_current_command = _single_file_helper_command(
+                single_file_task_file_payload, "show_current"
+            )
+            show_neighbors_command = _single_file_helper_command(
+                single_file_task_file_payload,
+                "show_neighbors",
+                TASK_SHOW_NEIGHBORS_COMMAND,
+            )
+            answer_current_command = _single_file_helper_command(
+                single_file_task_file_payload,
+                "answer_current",
+                f"{TASK_ANSWER_CURRENT_COMMAND} '<answer_json>'",
+            )
+            next_command = _single_file_helper_command(
+                single_file_task_file_payload, "next", TASK_NEXT_COMMAND
+            )
+            show_unit_command = _single_file_helper_command(
+                single_file_task_file_payload,
+                "show_unit",
+                f"{TASK_SHOW_UNIT_COMMAND} <unit_id>",
+            )
+            show_unanswered_command = _single_file_helper_command(
+                single_file_task_file_payload,
+                "show_unanswered",
+                f"{TASK_SHOW_UNANSWERED_COMMAND} --limit 5",
+            )
+            template_command = _single_file_helper_command(
+                single_file_task_file_payload,
+                "template_answers_file",
+                f"{TASK_TEMPLATE_COMMAND} answers.json",
+            )
+            apply_command = _single_file_helper_command(
+                single_file_task_file_payload,
+                "apply_answers_file",
+                f"{TASK_APPLY_COMMAND} answers.json",
+            )
             handoff_instruction = (
                 "run the repo-owned same-session helper command from "
                 f"`task.json` (`{single_file_handoff_command}`), then stop.\n"
                 if single_file_handoff_command
                 else "run the repo-owned same-session helper command named in `task.json`, then stop.\n"
+            )
+            helper_startup_instruction = (
+                f"If you need the current queue position, use `{show_current_command}` "
+                f"or `{show_neighbors_command}`.\n"
+                f"Record one decision at a time with `{answer_current_command}`, then "
+                f"confirm the next actionable unit with `{next_command}`.\n"
+                if show_current_command
+                else (
+                    f"If you need specific unit payloads, use `{show_unit_command}` or "
+                    f"`{show_unanswered_command}`.\n"
+                    f"If you want to apply several answers at once, use `{template_command}` "
+                    f"and `{apply_command}` instead of scripting a rewrite.\n"
+                )
             )
             return (
                 "# RecipeImport Direct Codex Worker\n\n"
@@ -2130,9 +2383,8 @@ def _build_direct_exec_agents_text(
                 "Use only the files inside this directory.\n"
                 "The current working directory is already the workspace root.\n"
                 "This workspace exposes one repo-written file: `task.json`.\n"
-                "Start with `python3 -m cookimport.llm.editable_task_file --summary`.\n"
-                "If you need specific unit payloads, use `python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>` or `python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`.\n"
-                "If you want to apply several answers at once, use `python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json` instead of scripting a rewrite.\n"
+                f"Start with `{summary_command}`.\n"
+                f"{helper_startup_instruction}"
                 "Then edit only `/units/*/answer`, save the same file, and "
                 f"{handoff_instruction}"
                 "`task.json` is the whole job. You do not need to discover extra control state, hidden files, or repo context before editing it.\n"
@@ -3689,14 +3941,19 @@ def _write_direct_exec_worker_manifest(
 ) -> None:
     rendered_task_label = str(task_label or "structured shard task").strip()
     has_task_file = (workspace_root / _DIRECT_EXEC_TASK_FILE_NAME).exists()
+    single_file_worker_runtime = _uses_single_file_worker_runtime(
+        workspace_root=workspace_root,
+        mode=mode,
+    )
     single_file_handoff_command = (
         _single_file_workspace_handoff_command(workspace_root=workspace_root)
         if has_task_file
         else None
     )
-    single_file_worker_runtime = _uses_single_file_worker_runtime(
-        workspace_root=workspace_root,
-        mode=mode,
+    single_file_task_file_payload = (
+        _single_file_workspace_task_file_payload(workspace_root=workspace_root)
+        if single_file_worker_runtime
+        else None
     )
     has_assigned_tasks = (
         workspace_root / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
@@ -3868,17 +4125,10 @@ def _write_direct_exec_worker_manifest(
             "and ad hoc inline rewrites are warning-or-kill drift."
         ),
         "workspace_local_shell_examples": (
-            [
-                "python3 -m cookimport.llm.editable_task_file --summary",
-                "python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>",
-                "python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5",
-                "python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json",
-                (
-                    single_file_handoff_command
-                    or "<repo helper from task.json helper_commands.handoff>"
-                ),
-                "cp task.json /tmp/task-backup.json",
-            ]
+            _single_file_workspace_local_examples(
+                single_file_task_file_payload,
+                single_file_handoff_command=single_file_handoff_command,
+            )
             if single_file_worker_runtime
             else (
             [
@@ -4095,6 +4345,27 @@ def _classify_single_file_workspace_command(
         str(token or "").strip() for token in tokens if str(token or "").strip()
     ]
     module_name = _workspace_watchdog_module(token_list)
+    executable = _workspace_watchdog_executable(token_list)
+    if executable in _SINGLE_FILE_WORKSPACE_WRAPPER_STAGE_COMMANDS:
+        return WorkspaceCommandClassification(
+            command_text=cleaned_command,
+            allowed=True,
+            policy="single_file_repo_handoff_command",
+            reason=(
+                "repo-owned same-session wrapper command stayed on the single-file "
+                "worker paved road"
+            ),
+        )
+    if executable in _SINGLE_FILE_WORKSPACE_WRAPPER_HELPER_COMMANDS:
+        return WorkspaceCommandClassification(
+            command_text=cleaned_command,
+            allowed=True,
+            policy="single_file_repo_helper_command",
+            reason=(
+                "repo-owned task wrapper command stayed on the single-file worker "
+                "paved road"
+            ),
+        )
     if module_name in _SINGLE_FILE_WORKSPACE_HELPER_MODULES:
         if module_name in _SINGLE_FILE_WORKSPACE_STAGE_HELPER_MODULES:
             return WorkspaceCommandClassification(
@@ -4126,7 +4397,6 @@ def _classify_single_file_workspace_command(
             ),
         )
     shell_body = _extract_workspace_shell_body(cleaned_command)
-    executable = _workspace_watchdog_executable(token_list)
     if _looks_like_single_file_task_transform(
         command_text=cleaned_command,
         shell_body=shell_body,

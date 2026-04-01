@@ -160,12 +160,16 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
         "/units/1/answer",
     ]
     assert classify_snapshot["ontology"]["catalog_version"] == "cookbook-tag-catalog-2026-03-30"
-    assert classify_snapshot["helper_commands"]["status"].endswith("--status")
-    assert classify_snapshot["helper_commands"]["show_unit"].endswith("--show-unit <unit_id>")
+    assert classify_snapshot["helper_commands"]["status"] == "task-status"
+    assert classify_snapshot["helper_commands"]["show_current"] == "task-show-current"
+    assert (
+        classify_snapshot["helper_commands"]["answer_current"]
+        == "task-answer-current '<answer_json>'"
+    )
     assert classify_snapshot["answer_schema"]["example_answers"][0]["category"] == "knowledge"
     assert task_file["stage_key"] == "knowledge_group"
-    assert task_file["helper_commands"]["doctor"].endswith("--doctor")
-    assert task_file["helper_commands"]["show_unanswered"].endswith("--show-unanswered --limit 5")
+    assert task_file["helper_commands"]["doctor"] == "task-doctor"
+    assert task_file["helper_commands"]["show_unanswered"] == "task-show-unanswered --limit 5"
     assert task_file["answer_schema"]["example_answers"][0]["group_key"] == "heat-control"
     assert first_output["packet_id"] == "book.ks0000.nr"
     assert first_output["block_decisions"][0]["block_index"] == 0

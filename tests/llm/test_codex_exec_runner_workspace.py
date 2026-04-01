@@ -186,11 +186,12 @@ def test_prepare_direct_exec_workspace_worker_mode_uses_fixed_assignment_manifes
         "The happy path is direct in-place editing of `task.json`"
     )
     assert worker_manifest["workspace_local_shell_examples"] == [
-        "python3 -m cookimport.llm.editable_task_file --summary",
-        "python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>",
-        "python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5",
-        "python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json",
-        "<repo helper from task.json helper_commands.handoff>",
+        "task-summary",
+        "task-show-unit <unit_id>",
+        "task-show-unanswered --limit 5",
+        "task-template answers.json",
+        "task-apply answers.json",
+        "task-handoff",
         "cp task.json /tmp/task-backup.json",
     ]
     assert worker_manifest["workspace_commands_forbidden"] == [
@@ -201,9 +202,9 @@ def test_prepare_direct_exec_workspace_worker_mode_uses_fixed_assignment_manifes
     assert worker_manifest["task_file"] == "task.json"
     assert "This workspace exposes one repo-written file: `task.json`." in agents_text
     assert "`task.json` is the whole job." in agents_text
-    assert "Start with `python3 -m cookimport.llm.editable_task_file --summary`." in agents_text
-    assert "--show-unit <unit_id>` or `python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`." in agents_text
-    assert "--apply-answers-file answers.json` instead of scripting a rewrite." in agents_text
+    assert "Start with `task-summary`." in agents_text
+    assert "`task-show-unit <unit_id>` or `task-show-unanswered --limit 5`." in agents_text
+    assert "`task-template answers.json` and `task-apply answers.json`" in agents_text
     assert "run the repo-owned same-session helper command named in `task.json`, then stop." in agents_text
     assert "You do not need to discover extra control state" in agents_text
     assert "If you briefly reread part of `task.json` or make a small local false start" in agents_text
@@ -377,11 +378,11 @@ def test_prepare_direct_exec_workspace_worker_mode_knows_assignment_first_knowle
         "The happy path is direct in-place editing of `task.json`"
     )
     assert (
-        "python3 -m cookimport.llm.editable_task_file --summary"
+        "task-summary"
         in worker_manifest["workspace_local_shell_examples"]
     )
     assert (
-        "python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5"
+        "task-show-unanswered --limit 5"
         in worker_manifest["workspace_local_shell_examples"]
     )
     assert worker_manifest["workspace_commands_forbidden"] == [

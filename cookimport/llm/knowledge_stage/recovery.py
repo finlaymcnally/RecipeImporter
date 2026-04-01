@@ -8,7 +8,7 @@ from .planning import (
     _KnowledgeWorkspaceStageCommandViolation,
     _knowledge_packet_payloads,
 )
-from ..editable_task_file import TASK_FILE_NAME
+from ..editable_task_file import TASK_FILE_NAME, load_task_file
 from ..knowledge_runtime_state import knowledge_reason_is_explicit_no_final_output
 
 globals().update(
@@ -705,13 +705,10 @@ def _build_knowledge_workspace_worker_prompt(
             "Resume from the existing `task.json` and current workspace state."
             if fresh_session_resume
             else (
-                "Start with `python3 -m cookimport.llm.editable_task_file --summary`."
-                " If you need specific unit payloads, use "
-                "`python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>` "
-                "or `python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`."
-                f" Then edit only `/units/*/answer` in `{TASK_FILE_NAME}`, "
-                "save the same file, and run "
-                "`python3 -m cookimport.llm.knowledge_same_session_handoff`."
+                "Start with `task-summary`."
+                " Then follow the repo-owned helper workflow shown there, edit only "
+                f"`/units/*/answer` in `{TASK_FILE_NAME}`, save the same file, and run "
+                "`task-handoff`."
             )
         ),
         "`task.json` is the whole job at each step. You do not need to discover extra control files or hidden repo state before editing it.",
@@ -721,14 +718,11 @@ def _build_knowledge_workspace_worker_prompt(
         "",
         "Worker contract:",
         "- Start with `task.json`.",
-        "- Prefer `python3 -m cookimport.llm.editable_task_file --summary` before opening raw file contents.",
-        "- If the task file is large, inspect only the units you need with `--show-unit <unit_id>` or `--show-unanswered --limit 5`.",
-        "- If you need orientation first, run `python3 -m cookimport.llm.knowledge_same_session_handoff --status`.",
-        "- If the workspace feels inconsistent, run `python3 -m cookimport.llm.knowledge_same_session_handoff --doctor` before inventing shell scripts.",
+        "- Prefer `task-summary` before opening raw file contents.",
+        "- If you need orientation first, run `task-status`.",
+        "- If the workspace feels inconsistent, run `task-doctor` before inventing shell scripts.",
         "- Edit only the `answer` object inside each unit.",
-        "- If you already know a final answer object and want a repo-owned write path, use `python3 -m cookimport.llm.editable_task_file --set-answer <unit_id> '<answer_json>'`.",
-        "- If you want to apply several finished answers at once, write them to `answers.json` and run `python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json`.",
-        "- After each edit pass, run `python3 -m cookimport.llm.knowledge_same_session_handoff` from the workspace root.",
+        "- After each edit pass, run `task-handoff` from the workspace root.",
         "- After the helper returns, trust the current `task.json` as the new whole job. You do not need to inspect other files to figure out what changed.",
         "- If the helper reports `repair_required` or `advance_to_grouping`, reopen the rewritten `task.json` immediately and continue in the same session.",
         "- Stop only after the helper reports `completed_without_grouping` or `completed_with_grouping`.",
@@ -751,6 +745,8 @@ def _build_knowledge_workspace_worker_prompt(
         lines.extend(
             [
                 "- This is the classification step. Decide each block on its own merits before any grouping happens.",
+                "- Use `task-show-current` for the current owned block, `task-show-neighbors` only when nearby context is genuinely needed, and `task-answer-current '<answer_json>'` to record one decision at a time.",
+                "- Use `task-next` to confirm the next actionable block after each decision. Do not synthesize `answers.json`, `task-apply`, `jq`, or looped bulk-review flows for this step.",
                 "- Answer each unit with `category`, `reviewer_category`, `retrieval_concept`, and `grounding`.",
                 f"- Final categories must be exactly one of `{'`, `'.join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)}`.",
                 "- If `category` is `knowledge`, `reviewer_category` must also be `knowledge`.",
@@ -769,6 +765,8 @@ def _build_knowledge_workspace_worker_prompt(
         lines.extend(
             [
                 "- This is the grouping-only step. Every unit already passed classification as `knowledge`.",
+                "- Inspect specific rows with `task-show-unit <unit_id>` or `task-show-unanswered --limit 5`.",
+                "- If batch authoring helps, run `task-template answers.json`, fill only the answer payloads, then run `task-apply answers.json` before `task-handoff`.",
                 "- Answer each unit with `group_key` and `topic_label` only.",
                 "- `group_key` and `topic_label` must both be non-empty strings.",
                 "- Use concise group labels; the repo canonicalizes final group ids during deterministic expansion.",
@@ -1372,6 +1370,7 @@ def _build_strict_json_watchdog_callback(
         decision: CodexExecSupervisionDecision | None = None
         command_execution_tolerated = False
         last_command_stage_violation: _KnowledgeWorkspaceStageCommandViolation | None = None
+        current_workspace_stage_key = _workspace_task_stage_key(execution_workspace_root)
         allowed_absolute_roots = (
             [execution_workspace_root]
             if execution_workspace_root is not None
@@ -1505,7 +1504,8 @@ def _build_strict_json_watchdog_callback(
         if snapshot.command_execution_count > 0:
             if decision is None and allow_workspace_commands:
                 last_command_stage_violation = _detect_knowledge_workspace_stage_violation(
-                    snapshot.last_command
+                    snapshot.last_command,
+                    current_stage_key=current_workspace_stage_key,
                 )
                 if (
                     forbid_inline_python_heredocs
@@ -1524,9 +1524,12 @@ def _build_strict_json_watchdog_callback(
                     and last_command_stage_violation is not None
                     and last_command_stage_violation.enforce
                 ):
-                    _record_warning(
-                        str(last_command_stage_violation.reason_code or "stage_violation"),
-                        last_command_stage_violation.reason,
+                    decision = CodexExecSupervisionDecision.terminate(
+                        reason_code=str(
+                            last_command_stage_violation.reason_code or "stage_violation"
+                        ),
+                        reason_detail=last_command_stage_violation.reason,
+                        retryable=False,
                     )
                 new_command_observed = (
                     int(snapshot.command_execution_count or 0) > last_single_file_command_count
@@ -1770,11 +1773,64 @@ def _build_strict_json_watchdog_callback(
 
 def _detect_knowledge_workspace_stage_violation(
     command_text: str | None,
+    *,
+    current_stage_key: str | None = None,
 ) -> _KnowledgeWorkspaceStageCommandViolation | None:
     cleaned_command = str(command_text or "").strip()
     if not cleaned_command:
         return None
     normalized_command = re.sub(r"\s+", " ", cleaned_command.lower())
+    cleaned_stage_key = str(current_stage_key or "").strip()
+
+    if cleaned_stage_key == "nonrecipe_classify":
+        if any(
+            marker in normalized_command
+            for marker in (
+                "task-apply",
+                "--apply-answers-file",
+                "task-template",
+                "--show-unanswered",
+                "task-show-unanswered",
+                "answers.json",
+            )
+        ):
+            return _KnowledgeWorkspaceStageCommandViolation(
+                policy="knowledge_classification_batch_synthesis",
+                reason_code="watchdog_packet_contract_bypass_batch_classification",
+                reason=(
+                    "knowledge classification is queue-style review. Use "
+                    "`task-show-current`, `task-answer-current`, and `task-next` "
+                    "instead of batch answer files or broad unanswered-unit dumps"
+                ),
+            )
+        if (
+            ("jq" in normalized_command or "python3 -c" in normalized_command or "python -c" in normalized_command)
+            and "task.json" in normalized_command
+        ):
+            return _KnowledgeWorkspaceStageCommandViolation(
+                policy="knowledge_classification_bulk_synthesis",
+                reason_code="watchdog_packet_contract_bypass_bulk_classification",
+                reason=(
+                    "knowledge classification must stay block-by-block. Do not script "
+                    "task.json synthesis; use `task-show-current` and "
+                    "`task-answer-current`"
+                ),
+            )
+        if (
+            ("for " in normalized_command or "while " in normalized_command or "$(seq" in normalized_command)
+            and any(
+                marker in normalized_command
+                for marker in ("task.json", "answers.json", "task-show-current")
+            )
+        ):
+            return _KnowledgeWorkspaceStageCommandViolation(
+                policy="knowledge_classification_looped_bulk_review",
+                reason_code="watchdog_packet_contract_bypass_bulk_classification",
+                reason=(
+                    "knowledge classification should not invent looped queue walkers. "
+                    "Review one current block at a time with the repo-owned queue helpers"
+                ),
+            )
 
     if "assigned_shards.json" in normalized_command:
         return _KnowledgeWorkspaceStageCommandViolation(
@@ -1878,6 +1934,20 @@ def _finalize_live_status(
             "warning_count": int(existing_payload.get("warning_count") or 0),
         },
     )
+
+
+def _workspace_task_stage_key(workspace_root: Path | None) -> str | None:
+    if workspace_root is None:
+        return None
+    task_file_path = Path(workspace_root) / TASK_FILE_NAME
+    if not task_file_path.exists():
+        return None
+    try:
+        payload = load_task_file(task_file_path)
+    except Exception:  # noqa: BLE001
+        return None
+    cleaned = str(payload.get("stage_key") or "").strip()
+    return cleaned or None
 
 
 def _load_live_status(path: Path) -> dict[str, Any]:

@@ -427,16 +427,17 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
     worker_manifest = fixture["worker_manifest"]
 
     worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
-    assert "Start with `python3 -m cookimport.llm.editable_task_file --summary`." in worker_prompt
-    assert "python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>` or `python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`." in worker_prompt
+    assert "Start with `task-summary`." in worker_prompt
+    assert "`task-show-unit <unit_id>` or `task-show-unanswered --limit 5`." in worker_prompt
     assert "edit only `/units/*/answer`" in worker_prompt
     assert "`task.json` already contains the full job for this worker." in worker_prompt
-    assert "Prefer `python3 -m cookimport.llm.editable_task_file --summary` before opening raw file contents." in worker_prompt
+    assert "Prefer `task-summary` before opening raw file contents." in worker_prompt
     assert "If you briefly reread part of the file or make a small local false start" in worker_prompt
     assert "Do not invent helper ledgers, queue files, or alternate output files." in worker_prompt
-    assert "--apply-answers-file answers.json`." in worker_prompt
+    assert "`task-template answers.json`" in worker_prompt
+    assert "`task-apply answers.json`." in worker_prompt
     assert "Do not dump `task.json` with `cat` or `sed`" in worker_prompt
-    assert "run `python3 -m cookimport.llm.recipe_same_session_handoff`" in worker_prompt
+    assert "run `task-handoff`" in worker_prompt
     assert "The helper is the only repo-side handoff seam." in worker_prompt
     assert "The repo will expand accepted answers into final artifacts after the helper validates them." in worker_prompt
     assert "assigned_tasks.json" not in worker_prompt
@@ -479,10 +480,13 @@ def test_recipe_phase_runtime_uses_fixed_assignment_task_manifest(
         "urn:recipe:test:tea",
         "urn:recipe:test:cereal",
     ]
-    assert task_file["helper_commands"]["status"].endswith("--status")
-    assert task_file["helper_commands"]["doctor"].endswith("--doctor")
-    assert task_file["helper_commands"]["show_unit"].endswith("--show-unit <unit_id>")
-    assert task_file["helper_commands"]["show_unanswered"].endswith("--show-unanswered --limit 5")
+    assert task_file["helper_commands"]["status"] == "task-status"
+    assert task_file["helper_commands"]["doctor"] == "task-doctor"
+    assert task_file["helper_commands"]["summary"] == "task-summary"
+    assert task_file["helper_commands"]["show_unit"] == "task-show-unit <unit_id>"
+    assert task_file["helper_commands"]["show_unanswered"] == "task-show-unanswered --limit 5"
+    assert task_file["helper_commands"]["template_answers_file"] == "task-template answers.json"
+    assert task_file["helper_commands"]["apply_answers_file"] == "task-apply answers.json"
     assert task_file["answer_schema"]["example_answers"][0]["status"] == "repaired"
     assert not (worker_root / "CURRENT_TASK.md").exists()
     assert not (worker_root / "CURRENT_TASK_FEEDBACK.md").exists()
@@ -920,7 +924,7 @@ def test_recipe_phase_runtime_surfaces_worker_attention_in_progress(
         for payload in payloads
     )
     assert any(
-        any("[shell drift]" in str(task) for task in (payload.get("active_tasks") or []))
+        any("[command loop]" in str(task) for task in (payload.get("active_tasks") or []))
         for payload in payloads
     )
     assert any(payload.get("last_activity_at") for payload in payloads)

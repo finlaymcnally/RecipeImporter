@@ -20,6 +20,7 @@ from ..knowledge_tag_catalog import (
     normalize_knowledge_tag_key,
 )
 from ..phase_worker_runtime import ShardManifestEntryV1, WorkerAssignmentV1
+from ..single_file_worker_commands import build_single_file_worker_surface
 
 KNOWLEDGE_CLASSIFY_STAGE_KEY = "nonrecipe_classify"
 KNOWLEDGE_GROUP_STAGE_KEY = "knowledge_group"
@@ -172,26 +173,7 @@ def build_task_file_answer_feedback(
 
 
 def _knowledge_helper_commands(*, stage_key: str) -> dict[str, str]:
-    return {
-        "summary": "python3 -m cookimport.llm.editable_task_file --summary",
-        "show_unit": (
-            "python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>"
-        ),
-        "show_unanswered": (
-            "python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5"
-        ),
-        "apply_answer_json": (
-            "python3 -m cookimport.llm.editable_task_file --set-answer "
-            "<unit_id> '<answer_json>'"
-        ),
-        "apply_answers_file": (
-            "python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json"
-        ),
-        "status": "python3 -m cookimport.llm.knowledge_same_session_handoff --status",
-        "doctor": "python3 -m cookimport.llm.knowledge_same_session_handoff --doctor",
-        "handoff": "python3 -m cookimport.llm.knowledge_same_session_handoff",
-        "stage_key": str(stage_key),
-    }
+    return build_single_file_worker_surface(stage_key=stage_key).helper_commands
 
 
 def _knowledge_classification_answer_schema() -> dict[str, Any]:
@@ -427,9 +409,12 @@ def _build_knowledge_grouping_task_file_from_units(
         units=task_units,
         schema_version=KNOWLEDGE_GROUP_SCHEMA_VERSION,
         helper_commands=_knowledge_helper_commands(stage_key=KNOWLEDGE_GROUP_STAGE_KEY),
+        workflow=build_single_file_worker_surface(
+            stage_key=KNOWLEDGE_GROUP_STAGE_KEY
+        ).workflow,
         next_action=(
-            "Group the kept knowledge rows by filling /units/*/answer, then run "
-            "python3 -m cookimport.llm.knowledge_same_session_handoff."
+            "Review the current grouping batch with task-summary/task-show-unit, "
+            "optionally use task-template plus task-apply, then run task-handoff."
         ),
         answer_schema=_knowledge_grouping_answer_schema(),
     )
@@ -552,9 +537,12 @@ def build_knowledge_classification_task_file(
         units=units,
         schema_version=KNOWLEDGE_CLASSIFY_SCHEMA_VERSION,
         helper_commands=_knowledge_helper_commands(stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY),
+        workflow=build_single_file_worker_surface(
+            stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY
+        ).workflow,
         next_action=(
-            "Classify each block by filling /units/*/answer, then run "
-            "python3 -m cookimport.llm.knowledge_same_session_handoff."
+            "Use task-show-current plus task-answer-current for one block at a time, "
+            "advance with task-next, then run task-handoff when the queue is complete."
         ),
         answer_schema=_knowledge_classification_answer_schema(),
     )

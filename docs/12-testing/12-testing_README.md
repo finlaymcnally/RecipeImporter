@@ -54,7 +54,11 @@ Active intentional split seams:
   - `tests/ingestion/test_pdf_importer.py`
   - `tests/ingestion/test_pdf_importer_ocr_slow.py`
 - Stats dashboard coverage is split into:
-  - `tests/analytics/test_stats_dashboard.py`
+  - `tests/analytics/test_stats_dashboard_schema.py`
+  - `tests/analytics/test_stats_dashboard_collectors.py`
+  - `tests/analytics/test_stats_dashboard.py` for renderer/browser-harness coverage
+  - `tests/analytics/test_stats_dashboard_benchmark_semantics.py`
+  - `tests/analytics/test_stats_dashboard_csv.py`
   - `tests/analytics/test_stats_dashboard_slow.py`
 - Label Studio benchmark coverage is intentionally spread across focused files instead of one helper mega-file:
   - smoke path: `tests/labelstudio/test_labelstudio_benchmark_smoke.py`
@@ -63,6 +67,7 @@ Active intentional split seams:
   - scheduler seams: `..._scheduler_targets.py`, `..._scheduler_planning.py`, `..._scheduler_global_queue.py`, `..._scheduler_prediction_reuse.py`, `..._scheduler_run_reports.py`
   - single-book and single-profile seams: `..._single_book_run.py`, `..._single_book_artifacts.py`, `..._single_profile.py`
 - Shared Label Studio benchmark helper support belongs in `tests/labelstudio/benchmark_helper_support.py`; do not rebuild a large support pseudo-test module.
+- Large split suites should put reusable builders in local `*_support.py` modules (`tests/analytics/stats_dashboard_support.py`, `tests/bench/benchmark_cutdown_support.py`, `tests/labelstudio/labelstudio_ingest_parallel_support.py`, `tests/parsing/canonical_line_role_support.py`) instead of copying helpers across collected files.
 - Label Studio prelabel coverage is split into:
   - `tests/labelstudio/test_labelstudio_prelabel.py`
   - `tests/labelstudio/test_labelstudio_prelabel_codex_cli.py`
@@ -89,7 +94,21 @@ Active intentional split seams:
   - `tests/parsing/test_step_ingredient_linking_semantic.py`
 - Canonical line-role coverage is split into:
   - `tests/parsing/test_canonical_line_role_env.py` for fast env/helper guardrails
-  - `tests/parsing/test_canonical_line_roles.py` for the heavy behavior suite
+  - `tests/parsing/test_canonical_line_roles.py` for baseline labeling behavior and regression fixtures
+  - `tests/parsing/test_canonical_line_roles_prompting.py` for prompt/cache/telemetry/progress seams
+  - `tests/parsing/test_canonical_line_roles_workspace.py` for workspace-watchdog and command-policy behavior
+  - `tests/parsing/test_canonical_line_roles_runtime.py` for retry/recovery/fail-closed runtime behavior
+- Benchmark cutdown coverage for the external-AI bundle tool is split into:
+  - `tests/bench/test_benchmark_cutdown_for_external_ai.py` for the base smoke/main path
+  - `tests/bench/test_benchmark_cutdown_for_external_ai_starter_pack.py` for starter-pack selection/output seams
+  - `tests/bench/test_benchmark_cutdown_for_external_ai_upload_bundle.py` for upload-bundle synthesis/details
+  - `tests/bench/test_benchmark_cutdown_for_external_ai_high_level.py` for high-level bundle aggregation limits
+- Label Studio ingest parallel coverage is split into:
+  - `tests/labelstudio/test_labelstudio_ingest_parallel.py` for import planning/upload flow seams
+  - `tests/labelstudio/test_labelstudio_ingest_parallel_prediction_run.py` for prediction-run/prelabel/line-role authority seams
+- Label Studio benchmark artifact coverage is split into:
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_artifacts.py` for prompt-log/artifact status seams
+  - `tests/labelstudio/test_labelstudio_benchmark_helpers_prompt_budget.py` for prompt-budget/runtime summary seams
 - tests that assert exact line-role shard ids, proposal filenames, or worker assignments must opt out of the default `line_role_prompt_target_count=5`; `codex_batch_size=1` alone no longer means one line per shard
 - Small live Codex env/import helpers should keep one direct non-slow regression test even when broader slow integration coverage already exists.
 - Split LLM stage packages should keep one direct unresolved-name/binding guard close to the package when the main smoke path would only hit the seam after a long offline run or a live Codex stage.

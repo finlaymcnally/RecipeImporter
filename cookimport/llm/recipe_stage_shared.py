@@ -89,6 +89,7 @@ from .recipe_same_session_handoff import (
     RECIPE_SAME_SESSION_STATE_ENV,
     initialize_recipe_same_session_state,
 )
+from .single_file_worker_commands import build_single_file_worker_surface
 from .workspace_worker_progress import (
     decorate_active_worker_label,
     summarize_workspace_worker_health,
@@ -281,25 +282,7 @@ def _build_recipe_task_file_unit(
 
 
 def _recipe_task_file_helper_commands() -> dict[str, str]:
-    return {
-        "summary": "python3 -m cookimport.llm.editable_task_file --summary",
-        "show_unit": (
-            "python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>"
-        ),
-        "show_unanswered": (
-            "python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5"
-        ),
-        "apply_answer_json": (
-            "python3 -m cookimport.llm.editable_task_file --set-answer "
-            "<unit_id> '<answer_json>'"
-        ),
-        "apply_answers_file": (
-            "python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json"
-        ),
-        "status": "python3 -m cookimport.llm.recipe_same_session_handoff --status",
-        "doctor": "python3 -m cookimport.llm.recipe_same_session_handoff --doctor",
-        "handoff": "python3 -m cookimport.llm.recipe_same_session_handoff",
-    }
+    return build_single_file_worker_surface(stage_key="recipe_refine").helper_commands
 
 
 def _recipe_task_file_answer_schema() -> dict[str, Any]:
@@ -350,9 +333,10 @@ def _build_recipe_task_file(
             for task_plan in runnable_tasks
         ],
         helper_commands=_recipe_task_file_helper_commands(),
+        workflow=build_single_file_worker_surface(stage_key="recipe_refine").workflow,
         next_action=(
-            "Fill every /units/*/answer object, then run "
-            "python3 -m cookimport.llm.recipe_same_session_handoff."
+            "Review the task with task-summary/task-show-unit, edit answer objects in "
+            "task.json, optionally use task-template plus task-apply, then run task-handoff."
         ),
         answer_schema=_recipe_task_file_answer_schema(),
     )
@@ -2366,12 +2350,11 @@ def _build_recipe_task_file_worker_prompt(
             "Resume from the existing `task.json` and current workspace state."
             if fresh_session_resume
             else (
-                "Start with `python3 -m cookimport.llm.editable_task_file --summary`."
+                "Start with `task-summary`."
                 " If you need the payload for specific units, use "
-                "`python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>` "
-                "or `python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`."
+                "`task-show-unit <unit_id>` or `task-show-unanswered --limit 5`."
                 f" Then edit only `/units/*/answer` in `{TASK_FILE_NAME}`, save the "
-                "same file, and run `python3 -m cookimport.llm.recipe_same_session_handoff`."
+                "same file, and run `task-handoff`."
             )
         ),
         "`task.json` already contains the full job for this worker. You do not need extra manifests, queue state, or hidden context before editing it.",
@@ -2400,17 +2383,16 @@ def _build_recipe_task_file_worker_prompt(
         )
     lines.extend(
         [
-            "",
+        "",
         "Worker contract:",
         "- Start with `task.json`.",
-        "- Prefer `python3 -m cookimport.llm.editable_task_file --summary` before opening raw file contents.",
-        "- If the file is large, inspect only the units you need with `--show-unit <unit_id>` or `--show-unanswered --limit 5`.",
-        "- If you need orientation first, run `python3 -m cookimport.llm.recipe_same_session_handoff --status`.",
-        "- If the workspace feels inconsistent, run `python3 -m cookimport.llm.recipe_same_session_handoff --doctor` before inventing shell scripts.",
+        "- Prefer `task-summary` before opening raw file contents.",
+        "- If the file is large, inspect only the units you need with `task-show-unit <unit_id>` or `task-show-unanswered --limit 5`.",
+        "- If you need orientation first, run `task-status`.",
+        "- If the workspace feels inconsistent, run `task-doctor` before inventing shell scripts.",
         "- Edit only the `answer` object inside each unit.",
-        "- If you already know the final answer JSON and want a repo-owned write path, use `python3 -m cookimport.llm.editable_task_file --set-answer <unit_id> '<answer_json>'`.",
-        "- If you want to apply several finished answers at once, write them to `answers.json` and run `python3 -m cookimport.llm.editable_task_file --apply-answers-file answers.json`.",
-        "- After each edit pass, run `python3 -m cookimport.llm.recipe_same_session_handoff` from the workspace root.",
+        "- If you want a repo-owned batch write path, run `task-template answers.json`, fill only the answer payloads, then run `task-apply answers.json`.",
+        "- After each edit pass, run `task-handoff` from the workspace root.",
         "- If the helper reports `repair_required`, reopen the rewritten `task.json` immediately, fix only the named issues, and run the helper again.",
         "- Stop only after the helper reports `completed`.",
         "- Do not dump `task.json` with `cat` or `sed`, do not use `ls` or `find` just to orient yourself, and do not write ad hoc inline Python, Node, or heredoc rewrites against `task.json`.",
