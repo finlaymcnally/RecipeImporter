@@ -76,7 +76,7 @@ Unstructured adapter note:
 - `unstructured_adapter.py` now performs deterministic multiline splitting for recipe-like `Title`/`NarrativeText`/`UncategorizedText`/`Text` blocks (in addition to `ListItem` newline splits), preserving provenance with `unstructured_stable_key` suffixes (`.s0`, `.s1`, ...) and `unstructured_split_reason`.
 
 Canonical line-role prompt seam note:
-- prompt-volume trims for canonical line-role belong in the shared row-serialization path used by `build_canonical_line_role_prompt(...)`, not in preview-only callers, so live benchmark runs and `cf-debug preview-prompts` stay aligned.
+- line-role prompt semantics now come from one shared contract file, `llm_pipelines/prompts/line-role.shared-contract.v1.md`; the file prompt and workspace-worker prompt are only transport wrappers around that same contract.
 - `codex-line-role-route-v2` now plans one live file-backed `line_role` phase in `canonical_line_roles/`, writes shard/runtime artifacts under `line-role-pipeline/runtime/line_role/`, and still preserves prompt artifact files under `line-role-pipeline/prompts/line_role/` for reviewer/export surfaces.
 - line-role direct-exec command resolution is intentionally strict: only real `codex` executables (for example `codex`, `codex exec`, `codex2 e`) or the repo test shim `fake-codex-farm.py` are treated as direct-exec runners. A plain `codex-farm` command is not a valid `codex exec` binary and should fall back to the default direct-exec command instead of being reused verbatim.
 - `cookimport/parsing/canonical_line_roles/contracts.py` owns the prediction model plus normalization helpers, `prompt_inputs.py` owns reusable row serialization, `artifacts.py` owns runtime/prompt artifact helpers, `planning.py` owns contiguous shard planning, `policy.py` owns local heuristics, `validation.py` owns shard-ledger checks/promotion gates, `runtime.py` owns live worker orchestration, and `__init__.py` is the package seam.
@@ -84,7 +84,7 @@ Canonical line-role prompt seam note:
 - each line-role run now writes one immutable `canonical_line_table.jsonl` before any worker promotion happens. Shard manifests, shard status rows, and final labels all refer back to those stable line ids (`atomic_index` string ids).
 - each line-role shard now writes three durable artifacts: the authoritative worker input at `line-role-pipeline/runtime/line_role/workers/*/in/*.json`, the richer local debug copy at `.../debug/*.json`, and one shard-status ledger row in `line-role-pipeline/runtime/line_role/shard_status.jsonl`.
 - line-role workers now also get `line-role-pipeline/runtime/line_role/workers/*/hints/*.md`. Those hint sidecars are worker-facing orientation only: shard profile, short static reminders, and a reminder that the worker should label from raw text plus nearby context. The validator still treats `in/*.json` as authoritative.
-- line-role direct-exec workers are now `task.json`-first on the happy path. The visible worker session edits only `/units/*/answer` in `task.json`; the worker-visible evidence is raw row text plus stable provenance, not repo-authored deterministic label hints or deterministic reason hints. Repo-owned `assigned_shards.json`, `in/<shard_id>.json`, `debug/<shard_id>.json`, `hints/<shard_id>.md`, and `out/<shard_id>.json` remain supporting context and artifacts outside that contract.
+- line-role direct-exec workers are now `task.json`-first on the happy path. The visible worker session edits only `/units/*/answer` in `task.json`; the worker-visible evidence is just the ordered line identity (`atomic_index`) plus raw row text, not repo-authored deterministic label hints, deterministic reason hints, block provenance, or pre-grouping `within_recipe_span` fields that are unknown at this stage. Repo-owned `assigned_shards.json`, `in/<shard_id>.json`, `debug/<shard_id>.json`, `hints/<shard_id>.md`, and `out/<shard_id>.json` remain supporting context and artifacts outside that contract.
 - line-role workers now also run a repo-owned same-session helper after each edit pass. That helper validates the saved `task.json`, rewrites the same file into repair mode once when the edit is structurally wrong, and leaves the stage failed closed if the repair-mode pass is still invalid.
 - line-role task-file promotion now treats the original repo-authored task snapshot as the authority for immutable evidence. If the worker saves valid answer labels but also rewrites immutable evidence fields in `task.json`, runtime ignores that evidence drift, extracts only the answer edits, and keeps the original atomic indices/text authoritative.
 - accepted Codex shard rows are now first-authority on the live route path. Repo code still validates ownership, completeness, allowed labels, and `exclusion_reason` shape, but it does not compare accepted worker labels to deterministic baseline labels during runtime acceptance.
@@ -540,7 +540,8 @@ Gates include:
 
 - `cookimport/llm/canonical_line_role_prompt.py`
 - `cookimport/llm/codex_exec_runner.py` (shared direct-exec workspace runner used by the active line-role Codex path)
-- `llm_pipelines/prompts/canonical-line-role-v1.prompt.md`
+- `llm_pipelines/prompts/line-role.canonical.v1.prompt.md`
+- `llm_pipelines/prompts/line-role.shared-contract.v1.md`
 
 ### Tests to read
 

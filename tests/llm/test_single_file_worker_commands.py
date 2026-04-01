@@ -80,12 +80,14 @@ def test_task_summary_reports_queue_workflow_and_current_unit(
         "task-next/task-handoff",
     ]
     assert summary["current_unit_id"] == "knowledge::4"
-    assert summary["answer_schema_summary"]["required_keys"] == [
+    assert summary["required_answer_keys"] == [
         "category",
         "reviewer_category",
         "retrieval_concept",
         "grounding",
     ]
+    assert "helper_commands" not in summary
+    assert "answer_schema_summary" not in summary
 
 
 def test_queue_helpers_answer_current_unit_and_advance(
@@ -103,8 +105,17 @@ def test_queue_helpers_answer_current_unit_and_advance(
         == 0
     )
     result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "answer_applied"
     assert result["answered_unit_id"] == "knowledge::4"
     assert result["next_current_unit_id"] == "knowledge::5"
+    assert result["remaining_units"] == 1
+    assert "summary" not in result
+
+    assert single_file_command_main(["task-next"]) == 0
+    next_result = json.loads(capsys.readouterr().out)
+    assert next_result["status"] == "next_unit_ready"
+    assert next_result["current_unit_id"] == "knowledge::5"
+    assert "units" not in next_result
 
     assert single_file_command_main(["task-show-current"]) == 0
     current = json.loads(capsys.readouterr().out)
@@ -141,7 +152,9 @@ def test_task_template_and_apply_work_for_batch_stage(
 
     assert single_file_command_main(["task-template", "answers.json"]) == 0
     template_result = json.loads(capsys.readouterr().out)
-    assert template_result["unit_ids"] == ["line::0"]
+    assert template_result["status"] == "template_written"
+    assert template_result["unit_count"] == 1
+    assert "unit_ids" not in template_result
     template_payload = json.loads((tmp_path / "answers.json").read_text(encoding="utf-8"))
     assert template_payload["answers_by_unit_id"]["line::0"] == {"label": None}
 
@@ -151,7 +164,10 @@ def test_task_template_and_apply_work_for_batch_stage(
     )
     assert single_file_command_main(["task-apply", "answers.json"]) == 0
     apply_result = json.loads(capsys.readouterr().out)
-    assert apply_result["applied_unit_ids"] == ["line::0"]
+    assert apply_result["status"] == "answers_applied"
+    assert apply_result["applied_count"] == 1
+    assert apply_result["remaining_units"] == 0
+    assert "applied_unit_ids" not in apply_result
     updated = load_task_file(tmp_path / "task.json")
     assert updated["units"][0]["answer"] == {"label": "RECIPE_NOTES"}
 

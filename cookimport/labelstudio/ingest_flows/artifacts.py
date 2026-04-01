@@ -229,8 +229,8 @@ def _build_scored_line_role_projection_spans(
         for index in nonrecipe_stage_result.candidate_status.unresolved_candidate_block_indices
     }
     unresolved_line_indices: set[int] = set()
-    unresolved_block_indices: set[int] = set()
-    unresolved_route_by_block_index: dict[int, str] = {}
+    unresolved_stage_block_indices: set[int] = set()
+    unresolved_route_by_stage_block_index: dict[int, str] = {}
     scored_spans: list[FreeformSpanPrediction] = []
     for span in spans:
         if span.within_recipe_span or span.label not in {"KNOWLEDGE", "OTHER"}:
@@ -249,19 +249,19 @@ def _build_scored_line_role_projection_spans(
             continue
         if block_index in unresolved_candidate_block_index_set:
             unresolved_line_indices.add(line_index)
-            unresolved_block_indices.add(block_index)
+            unresolved_stage_block_indices.add(line_index)
             raw_route = nonrecipe_stage_result.candidate_status.unresolved_candidate_route_by_index.get(
                 block_index
             )
             if raw_route is not None:
-                unresolved_route_by_block_index[block_index] = str(raw_route)
+                unresolved_route_by_stage_block_index[line_index] = str(raw_route)
         scored_spans.append(span)
     return scored_spans, {
         "unresolved_candidate_line_count": len(unresolved_line_indices),
-        "unresolved_candidate_block_indices": sorted(unresolved_block_indices),
+        "unresolved_candidate_block_indices": sorted(unresolved_stage_block_indices),
         "unresolved_candidate_route_by_index": {
             int(block_index): route
-            for block_index, route in sorted(unresolved_route_by_block_index.items())
+            for block_index, route in sorted(unresolved_route_by_stage_block_index.items())
         },
     }
 

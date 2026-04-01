@@ -28,11 +28,10 @@ from cookimport.labelstudio.label_config_freeform import (
     normalize_freeform_label,
 )
 from cookimport.llm.canonical_line_role_prompt import (
-    LineRolePromptFormat,
     _render_label_code_legend,
     build_canonical_line_role_file_prompt,
-    build_canonical_line_role_prompt,
     build_line_role_label_code_by_label,
+    build_line_role_shared_contract_block,
 )
 from cookimport.llm.codex_exec_runner import (
     CodexExecLiveSnapshot,

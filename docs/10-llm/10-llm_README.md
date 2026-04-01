@@ -234,7 +234,8 @@ Knowledge runtime note:
 - the old `knowledge_phase_workspace_tools.py` lease/packet helper surface has been removed. The normal paved road is: open `task.json`, edit only the answer fields, save, run the repo-owned same-session helper, and stop when it reports completion.
 - knowledge progress now treats shards as the live truth: stage counters use shard totals, worker labels show active shard progress, and follow-up recovery stays scoped to the affected shard
 - knowledge source worker roots still carry `worker_manifest.json` plus repo-owned debug/status files, but the mirrored worker-visible cwd is just `task.json` plus `AGENTS.md`
-- line-role happy-path `task.json` now keeps the worker-visible evidence raw-text-first as well: immutable row evidence still includes stable provenance and context, but it no longer exposes copyable deterministic label hints or deterministic reason-hint lists in the worker-visible file.
+- line-role happy-path `task.json` now keeps the worker-visible evidence raw-text-first as well: immutable row evidence is down to `atomic_index` plus line text, and it no longer exposes copyable deterministic label hints, deterministic reason-hint lists, block provenance, or pre-grouping `within_recipe_span` values in the worker-visible file.
+- line-role workers should resolve adjacency-sensitive title/variant/yield calls by reading nearby rows directly from the ordered `task.json` ledger; the worker surface stays compact instead of adding a separate neighbor helper or duplicating adjacent text into every unit.
 - knowledge worker hints now stay intentionally compact: `hints/<shard_id>.md` is a worker-calibration sidebar, not a second prompt, and it keeps only shard profile, weak-context reminders, decision policy, example-file pointers, and attention rows before the worker reopens the authoritative `in/<shard_id>.json`
 - `codex_farm_knowledge_ingest.py` still validates exact owned block coverage plus exact kept-block-to-idea-group coverage, but the worker-facing contract reaches that final packet shape through two validated task-file steps rather than one combined semantic answer
 - the knowledge semantic boundary is now retrieval-first and ontology-grounded: `knowledge` means a portable concept worth storing and later retrieving on its own, not just something cooking-adjacent that happens to be true. The classification file stays block-local and grouping-free, but a kept row must now emit `retrieval_concept` plus `grounding` to an existing tag or a proposed tag under an existing category.
@@ -339,12 +340,12 @@ Prompt/debug artifacts:
 - preview reconstruction is local-only and composed from three seams:
   - recipe prompt inputs from CodexFarm job builders in `codex_farm_orchestrator`
   - knowledge prompt inputs from `codex_farm_knowledge_jobs`, which now plans shard-owned compact payloads for both live non-recipe finalize and preview reconstruction
-  - line-role prompt text from `build_canonical_line_role_prompt`
+  - line-role prompt text from `build_canonical_line_role_file_prompt(...)` plus the shared contract file `llm_pipelines/prompts/line-role.shared-contract.v1.md`
 - knowledge preview now follows the live packet contract exactly: prompt counts come from the same packet planner as the live runtime, so preview honors the configured knowledge shard cap instead of silently expanding above it
 - preview uses the same category-neutral candidate queue as the live knowledge runtime; excluded spans must not silently widen the preview work set
 - the current default knowledge context is `0` blocks on each side, and that default is shared across stage, benchmark, CLI, and prompt-preview paths
 - `build_knowledge_jobs(...)` now sizes ordered candidate packets from the candidate block queue and keeps one task per packet. When `knowledge_prompt_target_count` is set, it is a hard cap on final shard count; packet budgets still inform metadata and warnings, and knowledge worker count still controls concurrency separately from shard planning.
-- line-role preview must batch the full ordered candidate set and pass `deterministic_label` plus `escalation_reasons` into `build_canonical_line_role_prompt(...)`; preview-only unresolved shortlists are a stale contract and will understate line-role prompt volume.
+- line-role preview must batch the full ordered candidate set into the same file-backed shard payload used by the live runtime; preview-only unresolved shortlists are a stale contract and will understate line-role prompt volume.
 - line-role prompt reconstruction no longer injects grouped recipe spans or importer provenance. The pre-grouping contract is now span-free: prompt text explicitly says no prior recipe-span authority is provided, and candidate rows default to `within_recipe_span=None` until grouped labels are projected later.
 - the active line-role wrapper teaches `HOWTO_SECTION` as a book-optional, recipe-internal subsection label only (`FOR THE SAUCE`, `TO FINISH`, `FOR SERVING`), and the static prompt text explicitly fences chapter/topic/cookbook-lesson headings back to `KNOWLEDGE` or `OTHER`
 - the active line-role wrapper also teaches `INSTRUCTION_LINE` as recipe-local procedure only and explicitly fences cookbook advice / explanatory prose with action verbs back to `KNOWLEDGE` or `OTHER` unless shard-local component structure makes the instruction ownership real
@@ -395,7 +396,7 @@ Compact/default contract:
 
 - Default recipe correction pack id is `recipe.correction.compact.v1`
 - Knowledge pack is `recipe.knowledge.packet.v1`
-- Canonical line-role prompt format is `compact_v1`.
+- Canonical line-role has one shared prompt contract plus thin worker/file wrappers.
 - Shared line-role Codex batching now assumes the larger compact-shape default (`240`) rather than the older small-batch preview shape.
 
 Structured output contract:
@@ -450,6 +451,7 @@ Structured output contract:
 - line-role prompt guidance now explicitly treats variant runs as local context, not sticky state: a fresh title-like line followed by a strict yield line or ingredients should reset to `RECIPE_TITLE`, and strict yield headers in that pattern should stay `YIELD_LINE` rather than drifting into `RECIPE_NOTES`.
 - the checked-in line-role prompt examples now pin that reset with a failure-shaped sequence: `Bright Cabbage Slaw` -> `Serves 4 generously` -> `1/2 medium red onion, sliced thinly` must break out of the nearby `Variations` prose instead of extending `RECIPE_VARIANT`.
 - `AtomicLineCandidate` is no longer a neighbor-carrying cache object. Neighbor context for line-role prompt text now comes from explicit ordered-candidate lookup helpers, so adjacency-sensitive prompt changes belong in the prompt builder / lookup seam rather than by re-expanding parser records.
+- line-role now has one semantic prompt source at `llm_pipelines/prompts/line-role.shared-contract.v1.md`; the inline prompt, file-backed prompt, and workspace-worker prompt are transport wrappers around that shared contract and should not restate label semantics independently.
 - Knowledge direct prompts must describe the real task-file contract. The live knowledge worker opens `task.json`, edits owned answer fields in place, and lets deterministic code expand the final shard outputs; it is no longer a leased-packet inline JSON surface.
 - Live knowledge payloads are intentionally compact and skeptical. They use short aliases, omit semantic hinting, and expose only owned packet blocks plus mechanically true context and guardrails.
 - The live recipe shard contract is similarly compact: minified shard JSON, compact helper hints, compact tag-guide payload, and a first-class candidate-quality/triage seam rather than a schema-shaped metadata dump.

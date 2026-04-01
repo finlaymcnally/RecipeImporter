@@ -93,165 +93,70 @@ def test_label_atomic_lines_invalid_task_file_answer_fails_closed_without_parse_
     assert shard_status_rows[0]["state"] == "repair_failed"
 
 
-def test_canonical_line_role_prompt_includes_required_contract_text() -> None:
-    candidate = AtomicLineCandidate(
-        recipe_id="r1",
-        block_id="block:1",
-        block_index=1,
-        atomic_index=0,
-        text="SERVES 4",
-        within_recipe_span=True,
-        rule_tags=["yield_prefix"],
-    )
-    by_atomic_index = build_atomic_index_lookup(
-        [
-            candidate,
-            AtomicLineCandidate(
-                recipe_id="r1",
-                block_id="block:2",
-                block_index=2,
-                atomic_index=1,
-                text="2 tablespoons olive oil",
-                within_recipe_span=True,
-                rule_tags=["ingredient_like"],
-            ),
-        ]
-    )
-    prompt = build_canonical_line_role_prompt(
-        [candidate],
-        allowed_labels=["NONRECIPE_CANDIDATE", "YIELD_LINE", "INGREDIENT_LINE"],
-        escalation_reasons_by_atomic_index={0: ["deterministic_unresolved"]},
-        by_atomic_index=by_atomic_index,
-    )
-    assert "RECIPE_TITLE > RECIPE_VARIANT > YIELD_LINE > HOWTO_SECTION >" in prompt
-    assert "Allowed labels (global):" in prompt
-    assert "Do not run shell commands, Python, or any other tools." in prompt
-    assert "`INSTRUCTION_LINE` means a recipe-local procedural step" in prompt
-    assert "`HOWTO_SECTION` is recipe-internal only." in prompt
-    assert "`HOWTO_SECTION` is book-optional." in prompt
+def test_line_role_shared_contract_block_includes_required_contract_text() -> None:
+    contract = build_line_role_shared_contract_block()
+
+    assert "`INSTRUCTION_LINE` means a recipe-local procedural step" in contract
+    assert "`HOWTO_SECTION` is recipe-internal only." in contract
+    assert "`HOWTO_SECTION` is book-optional." in contract
     assert (
         "Variant context is local, not sticky. End a nearby `Variations` run"
-        in prompt
+        in contract
     )
     assert (
         "Do not let nearby `Variations` prose swallow a fresh recipe start such as `Bright Cabbage Slaw`"
-        in prompt
+        in contract
     )
     assert (
         "If a short title-like line is immediately followed by a strict yield line or ingredient rows"
-        in prompt
+        in contract
     )
-    assert "reset to a new recipe: prefer `RECIPE_TITLE`" in prompt
+    assert "reset to a new recipe: prefer `RECIPE_TITLE`" in contract
     assert (
         "A strict yield header such as `SERVES 4`, `Makes about 1/2 cup`, or `Yield: 6 servings` stays `YIELD_LINE`"
-        in prompt
+        in contract
     )
-    assert "Line: `Bright Cabbage Slaw`\n    Label: `RECIPE_TITLE`" in prompt
-    assert "Line: `Serves 4 generously`\n    Label: `YIELD_LINE`" in prompt
-    assert (
-        "Line: `1/2 medium red onion, sliced thinly`\n    Label: `INGREDIENT_LINE`"
-        in prompt
-    )
-    assert "Cooking Acids" in prompt
-    assert "Use limes in guacamole" in prompt
-    assert "Each target row is `atomic_index|current_line`." in prompt
-    assert "Grounding windows:" in prompt
-    assert "ctx:0|prev=_|line=SERVES 4|next=2 tablespoons olive oil" in prompt
-    assert "0|SERVES 4" in prompt
-
-
-def test_canonical_line_role_prompt_compact_format_defines_row_schema_once() -> None:
-    candidates = [
-        AtomicLineCandidate(
-            recipe_id="r1",
-            block_id="block:1",
-            block_index=1,
-            atomic_index=0,
-            text="SERVES 4",
-            within_recipe_span=True,
-            rule_tags=["yield_prefix"],
-        ),
-        AtomicLineCandidate(
-            recipe_id="r1",
-            block_id="block:2",
-            block_index=2,
-            atomic_index=1,
-            text="2 tablespoons olive oil",
-            within_recipe_span=True,
-            rule_tags=["ingredient_like"],
-        ),
-    ]
-
-    prompt = build_canonical_line_role_prompt(
-        candidates,
-        prompt_format="compact_v1",
-        allowed_labels=["YIELD_LINE", "NONRECIPE_CANDIDATE", "INGREDIENT_LINE"],
-    )
-    assert "atomic_index|current_line" in prompt
-    assert prompt.count("atomic_index|current_line") >= 1
-    assert "ordered contiguous slice of the book" in prompt
-    assert "0|SERVES 4" in prompt
-    assert "1|2 tablespoons olive oil" in prompt
-
-    compact_rows = serialize_line_role_targets(
-        candidates,
-        allowed_labels=["YIELD_LINE", "NONRECIPE_CANDIDATE", "INGREDIENT_LINE"],
-    )
-    assert compact_rows.splitlines() == [
-        "0|SERVES 4",
-        "1|2 tablespoons olive oil",
-    ]
+    assert "Line: `Bright Cabbage Slaw`" in contract
+    assert "Label: `RECIPE_TITLE`" in contract
+    assert "Line: `Serves 4 generously`" in contract
+    assert "Label: `YIELD_LINE`" in contract
+    assert "Line: `1/2 medium red onion, sliced thinly`" in contract
+    assert "Label: `INGREDIENT_LINE`" in contract
+    assert "Cooking Acids" in contract
+    assert "Use limes in guacamole" in contract
 
 
 def test_line_role_workspace_worker_prompt_includes_title_yield_reset_contract() -> None:
     from cookimport.parsing.canonical_line_roles.planning import (
         _build_line_role_workspace_worker_prompt,
     )
+    from cookimport.llm.canonical_line_role_prompt import (
+        build_line_role_shared_contract_block,
+    )
 
     prompt = _build_line_role_workspace_worker_prompt(
         shards=[SimpleNamespace(shard_id="line-role-canonical-0001-a000000-a000002")]
     )
+    shared_contract = build_line_role_shared_contract_block()
 
-    assert "- `RECIPE_TITLE`:" in prompt
-    assert "- `YIELD_LINE`:" in prompt
-    assert "Variant context is local, not sticky." in prompt
-    assert "Bright Cabbage Slaw" in prompt
-    assert "Serves 4 generously" in prompt
+    assert "Shared labeling contract:" in prompt
+    assert shared_contract in prompt
+    assert "Title, variant, yield, and section calls are sequence-sensitive." in prompt
+    assert "read the nearby rows directly in the ordered `task.json` ledger" in prompt
 
 
-def test_canonical_line_role_prompt_does_not_repeat_neighbor_text_for_escalated_rows() -> None:
-    candidates = [
-        AtomicLineCandidate(
-            recipe_id=None,
-            block_id="block:1",
-            block_index=1,
-            atomic_index=0,
-            text="Praise for SALT FAT ACID HEAT",
-            within_recipe_span=False,
-            rule_tags=["outside_recipe"],
-        ),
-        AtomicLineCandidate(
-            recipe_id="r1",
-            block_id="block:2",
-            block_index=2,
-            atomic_index=1,
-            text="SERVES 4",
-            within_recipe_span=True,
-            rule_tags=["yield_prefix"],
-        ),
-    ]
-
-    compact_rows = serialize_line_role_targets(
-        candidates,
-        allowed_labels=["YIELD_LINE", "NONRECIPE_CANDIDATE", "INGREDIENT_LINE"],
-        escalation_reasons_by_atomic_index={
-            0: ["outside_span_structured_label"],
-            1: ["deterministic_unresolved"],
+def test_shared_line_role_contract_block_appears_in_file_prompt() -> None:
+    shared_contract = build_line_role_shared_contract_block()
+    file_prompt = build_canonical_line_role_file_prompt(
+        input_path=Path("/tmp/line_role_input_0001.json"),
+        input_payload={
+            "v": 2,
+            "shard_id": "line-role-canonical-0001-a000123-a000456",
+            "rows": [[123, "1 cup flour"]],
         },
-    ).splitlines()
+    )
 
-    assert compact_rows[0] == "0|Praise for SALT FAT ACID HEAT"
-    assert compact_rows[1] == "1|SERVES 4"
+    assert shared_contract in file_prompt
 
 
 def test_canonical_candidate_fingerprint_changes_when_neighbor_text_changes() -> None:
@@ -512,59 +417,47 @@ def test_canonical_line_role_file_prompt_ignores_removed_shard_context_fields() 
     assert "Repo-written contrast examples:" not in prompt
 
 
-def test_canonical_line_role_inline_prompt_fallback_stays_routing_only(
+def test_line_role_shared_contract_fallback_stays_routing_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         canonical_line_role_prompt_module,
-        "_INLINE_TEMPLATE_PATH",
-        Path("/tmp/does-not-exist-line-role.prompt.md"),
+        "_SHARED_CONTRACT_TEMPLATE_PATH",
+        Path("/tmp/does-not-exist-line-role-shared-contract.md"),
     )
-    targets = [
-        AtomicLineCandidate(
-            recipe_id=None,
-            block_id="block:lesson:1",
-            block_index=1,
-            atomic_index=0,
-            text="Balancing Fat",
-            within_recipe_span=False,
-            rule_tags=[],
-        )
-    ]
+    contract = build_line_role_shared_contract_block()
 
-    prompt = build_canonical_line_role_prompt(targets)
-
-    assert "If a line discusses what cooks generally should do" in prompt
+    assert "If a line discusses what cooks generally should do" in contract
     assert (
         "Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` stay `NONRECIPE_CANDIDATE` only when surrounding rows clearly carry reusable explanatory prose."
-        in prompt
+        in contract
     )
-    assert "Line: `Gentle Cooking Methods`\n    Label: `NONRECIPE_CANDIDATE`" in prompt
+    assert "Line: `Gentle Cooking Methods`\n    Label: `NONRECIPE_CANDIDATE`" in contract
     assert (
         "Line: `Foods that are too dry can be corrected with a bit more fat.`\n    Label: `NONRECIPE_CANDIDATE`"
-        in prompt
+        in contract
     )
     assert (
         "Variant context is local, not sticky. End a nearby `Variations` run"
-        in prompt
+        in contract
     )
     assert (
         "Do not let nearby `Variations` prose swallow a fresh recipe start such as `Bright Cabbage Slaw`"
-        in prompt
+        in contract
     )
-    assert "Line: `Bright Cabbage Slaw`\n    Label: `RECIPE_TITLE`" in prompt
-    assert "Line: `Serves 4 generously`\n    Label: `YIELD_LINE`" in prompt
+    assert "Line: `Bright Cabbage Slaw`\n    Label: `RECIPE_TITLE`" in contract
+    assert "Line: `Serves 4 generously`\n    Label: `YIELD_LINE`" in contract
     assert (
         "Line: `1/2 medium red onion, sliced thinly`\n    Label: `INGREDIENT_LINE`"
-        in prompt
+        in contract
     )
     assert (
         "Line: `Then I fell in love with Johnny, who introduced me to San Francisco.`\n    Label: `NONRECIPE_EXCLUDE`"
-        in prompt
+        in contract
     )
     assert (
         "Line: `What is Heat?`\n    Label: `NONRECIPE_EXCLUDE`"
-        in prompt
+        in contract
     )
 
 
@@ -892,15 +785,6 @@ def test_label_atomic_lines_leave_missing_line_role_usage_unavailable(tmp_path) 
     batch_payload = telemetry_payload["phases"][0]["batches"][0]
     assert batch_payload["attempts_with_usage"] == 0
     assert batch_payload["attempts"][0]["usage"] is None
-
-
-def test_line_role_prompt_format_defaults_to_compact_when_env_unset(
-    monkeypatch,
-) -> None:
-    monkeypatch.delenv("COOKIMPORT_LINE_ROLE_PROMPT_FORMAT", raising=False)
-
-    assert canonical_line_roles_module._resolve_line_role_prompt_format() == "compact_v1"
-
 
 def test_label_atomic_lines_fails_closed_when_only_part_of_shard_validates(
     tmp_path: Path,

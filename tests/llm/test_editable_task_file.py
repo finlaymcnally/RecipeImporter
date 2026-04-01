@@ -5,6 +5,7 @@ from pathlib import Path
 
 from cookimport.llm.editable_task_file import _load_answer_mapping_file
 from cookimport.llm.editable_task_file import apply_answers_to_task_file
+from cookimport.llm.editable_task_file import build_worker_task_brief
 from cookimport.llm.editable_task_file import build_repair_task_file
 from cookimport.llm.editable_task_file import build_task_file
 from cookimport.llm.editable_task_file import inspect_task_file_units
@@ -13,6 +14,7 @@ from cookimport.llm.editable_task_file import SUMMARY_UNIT_ID_SAMPLE_LIMIT
 from cookimport.llm.editable_task_file import summarize_task_file
 from cookimport.llm.editable_task_file import write_task_file
 from cookimport.llm.editable_task_file import validate_edited_task_file
+from cookimport.llm.task_file_guardrails import render_task_file_text
 
 
 def _base_task_file() -> dict[str, object]:
@@ -149,6 +151,15 @@ def test_build_repair_task_file_keeps_only_failed_units_with_feedback() -> None:
     assert repair["ontology"] == {"catalog_version": "test-catalog"}
 
 
+def test_render_task_file_text_is_compact_json() -> None:
+    rendered = render_task_file_text(_base_task_file())
+
+    assert rendered.endswith("\n")
+    assert rendered.count("\n") == 1
+    assert '  "' not in rendered
+    assert json.loads(rendered)["stage_key"] == "line_role"
+
+
 def test_summarize_task_file_reports_answer_progress() -> None:
     task_file = _base_task_file()
     task_file["units"][0]["answer"] = {  # type: ignore[index]
@@ -170,6 +181,20 @@ def test_summarize_task_file_reports_answer_progress() -> None:
         "/units/1/answer",
     ]
     assert summary["editable_json_pointers_truncated"] is False
+
+
+def test_build_worker_task_brief_keeps_progress_but_drops_pointer_noise() -> None:
+    brief = build_worker_task_brief(payload=_base_task_file(), task_file_path="task.json")
+
+    assert brief == {
+        "task_file": "task.json",
+        "stage_key": "line_role",
+        "mode": "initial",
+        "answered_units": 2,
+        "total_units": 2,
+        "remaining_units": 0,
+        "next_action": "fill answers then run helper",
+    }
 
 
 def test_summarize_task_file_samples_large_unanswered_unit_lists() -> None:

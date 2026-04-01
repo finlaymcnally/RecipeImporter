@@ -79,7 +79,6 @@ def _build_line_role_canonical_plans(
         total_candidates=len(ordered_candidates),
     )
     by_atomic_index = build_atomic_index_lookup(ordered_candidates)
-    prompt_format = _resolve_line_role_prompt_format()
     plans: list[_LineRoleShardPlan] = []
     for prompt_index, shard_candidates in enumerate(
         partition_contiguous_items(
@@ -127,7 +126,6 @@ def _build_line_role_canonical_plans(
                 "first_atomic_index": first_atomic_index,
                 "last_atomic_index": last_atomic_index,
                 "owned_row_count": len(shard_candidates),
-                "prompt_format": prompt_format,
             },
         )
         plans.append(
@@ -333,10 +331,6 @@ def _find_line_role_existing_output_path(
             return path
     return None
 
-def _resolve_line_role_prompt_format() -> LineRolePromptFormat:
-    return "compact_v1"
-
-
 def _looks_like_codex_exec_command(command_text: str) -> bool:
     tokens = str(command_text or "").strip().split()
     if not tokens:
@@ -474,6 +468,7 @@ def _build_line_role_workspace_worker_prompt(
         if fresh_session_resume
         else "- Start with `task-summary`. If you need specific unit payloads, use `task-show-unit <unit_id>` or `task-show-unanswered --limit 5`. Then edit only `/units/*/answer`, save the same file, and run `task-handoff`.\n"
     )
+    shared_contract = build_line_role_shared_contract_block()
     return (
         "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger.\n\n"
         "Worker contract:\n"
@@ -483,6 +478,7 @@ def _build_line_role_workspace_worker_prompt(
         "- Do not invent phase ledgers, install loops, queue-control files, or alternate output files.\n"
         "- Prefer `task-summary` before opening raw file contents.\n"
         "- If the task file is large, inspect only the units you need with `task-show-unit <unit_id>` or `task-show-unanswered --limit 5`.\n"
+        "- Title, variant, yield, and section calls are sequence-sensitive. For ambiguous lines, read the nearby rows directly in the ordered `task.json` ledger before labeling.\n"
         "- If you need orientation first, run `task-status`.\n"
         "- If the workspace feels inconsistent, run `task-doctor` before inventing shell scripts.\n"
         "- If you want a repo-owned batch write path, run `task-template answers.json`, fill only the answer payloads, then run `task-apply answers.json`.\n"
@@ -495,28 +491,12 @@ def _build_line_role_workspace_worker_prompt(
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
         "- The task file already contains the immutable row evidence and the editable answer slots.\n"
         "- Do not modify immutable evidence fields.\n\n"
-        "Rules:\n"
+        "Task-file answer rules:\n"
         "- Set `answer.label` for every unit.\n"
         "- Use `answer.exclusion_reason` only when `answer.label=NONRECIPE_EXCLUDE`.\n"
-        "- `RECIPE_TITLE`: fresh recipe names that start a new recipe, especially when the next rows turn into yield, ingredients, or method.\n"
-        "- `INGREDIENT_LINE`: quantity/unit ingredients and bare ingredient items in ingredient lists.\n"
-        "- `INSTRUCTION_LINE`: recipe-local imperative action sentences, even when they include time.\n"
-        "- `YIELD_LINE`: stand-alone yield or serving lines such as `SERVES 4` or `Makes about 1/2 cup`.\n"
-        "- `TIME_LINE`: stand-alone timing or temperature lines, not full instruction sentences.\n"
-        "- `HOWTO_SECTION`: recipe-internal subsection headings such as `FOR THE SAUCE`, `TO FINISH`, or `FOR SERVING`.\n"
-        "- `HOWTO_SECTION` is book-optional: some books legitimately use zero of them, so emit it only with immediate recipe-local support.\n"
-        "- `RECIPE_VARIANT`: alternate recipe names or variant headers inside a recipe. Variant context is local, not sticky.\n"
-        "- `RECIPE_NOTES`: recipe-local prose that belongs with the current recipe but is not ingredient or instruction structure.\n"
-        "- `NONRECIPE_CANDIDATE`: outside-recipe teaching prose that carries reusable cooking knowledge and should go to knowledge later.\n"
-        "- `NONRECIPE_EXCLUDE`: navigation, front matter, endorsement/book-framing prose, or isolated topic headings that should never go to knowledge.\n"
-        "- If a short title-like line is followed immediately by a strict yield line or ingredient rows, reset to a new recipe: prefer `RECIPE_TITLE`, not `RECIPE_VARIANT`.\n"
-        "- Do not let nearby `Variations` prose swallow a fresh recipe start such as `Bright Cabbage Slaw` -> `Serves 4 generously` -> ingredient rows.\n"
-        "- A strict yield header between a fresh recipe title and recipe structure stays `YIELD_LINE`, not `RECIPE_NOTES`.\n"
-        "- Do not use `INSTRUCTION_LINE` for generic culinary advice or cookbook teaching prose.\n"
-        "- Generic cooking advice that spans many dishes belongs in `NONRECIPE_CANDIDATE` here, not `INSTRUCTION_LINE`.\n"
-        "- Do not use `HOWTO_SECTION` for chapter, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, or `Starches`.\n"
-        "- A heading by itself is weak evidence. Isolated topic headings such as `Balancing Fat` or `WHAT IS ACID?` usually stay `NONRECIPE_EXCLUDE` unless nearby rows clearly provide reusable explanatory lesson prose.\n"
-        "- First-person narrative, memoir framing, endorsements, and intro/foreword setup usually stay `NONRECIPE_EXCLUDE`, not recipe structure.\n\n"
+        "\n"
+        "Shared labeling contract:\n"
+        f"{shared_contract}\n\n"
         "Do not return row labels in your final message. The authoritative result is the edited `task.json` file.\n\n"
         "Assigned shard ids represented in this task file:\n"
         f"{assignments}\n"

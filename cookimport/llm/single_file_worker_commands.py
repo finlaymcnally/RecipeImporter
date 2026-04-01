@@ -13,9 +13,9 @@ from .editable_task_file import (
     TASK_FILE_NAME,
     _load_answer_mapping_file,
     apply_answers_to_task_file,
+    build_worker_task_brief,
     inspect_task_file_units,
     load_task_file,
-    summarize_task_file,
     write_task_file,
 )
 
@@ -181,22 +181,73 @@ def _current_unit_id(payload: Mapping[str, Any]) -> str | None:
 
 
 def _show_unit_payload(*, payload: Mapping[str, Any], unit_ids: Sequence[str]) -> dict[str, Any]:
-    return inspect_task_file_units(
-        payload=payload,
-        task_file_path=TASK_FILE_NAME,
-        unit_ids=unit_ids,
+    return _compact_inspection_payload(
+        inspect_task_file_units(
+            payload=payload,
+            task_file_path=TASK_FILE_NAME,
+            unit_ids=unit_ids,
+        )
     )
+
+
+def _compact_inspection_payload(result: Mapping[str, Any]) -> dict[str, Any]:
+    compact = {
+        "task_file": str(result.get("task_file") or TASK_FILE_NAME),
+        "stage_key": str(result.get("stage_key") or ""),
+        "mode": str(result.get("mode") or ""),
+        "returned_unit_ids": [
+            str(unit_id).strip()
+            for unit_id in (result.get("returned_unit_ids") or [])
+            if str(unit_id).strip()
+        ],
+        "missing_unit_ids": [
+            str(unit_id).strip()
+            for unit_id in (result.get("missing_unit_ids") or [])
+            if str(unit_id).strip()
+        ],
+        "units": [
+            dict(unit)
+            for unit in (result.get("units") or [])
+            if isinstance(unit, Mapping)
+        ],
+        "returned_unit_count": int(result.get("returned_unit_count") or 0),
+    }
+    matching_unit_count = int(result.get("matching_unit_count") or 0)
+    if matching_unit_count != compact["returned_unit_count"]:
+        compact["matching_unit_count"] = matching_unit_count
+    answered_filter = result.get("answered_filter")
+    if answered_filter is not None:
+        compact["answered_filter"] = bool(answered_filter)
+    return compact
+
+
+def _worker_task_brief(payload: Mapping[str, Any]) -> dict[str, Any]:
+    return build_worker_task_brief(payload=payload, task_file_path=TASK_FILE_NAME)
+
+
+def _all_units_answered_payload(payload: Mapping[str, Any], *, status: str) -> dict[str, Any]:
+    return {
+        **_worker_task_brief(payload),
+        "status": status,
+        "current_unit_id": None,
+    }
+
+
+def _next_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    current_unit_id = _current_unit_id(payload)
+    if current_unit_id is None:
+        return _all_units_answered_payload(payload, status="all_units_answered")
+    return {
+        **_worker_task_brief(payload),
+        "status": "next_unit_ready",
+        "current_unit_id": current_unit_id,
+    }
 
 
 def _show_current_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     current_unit_id = _current_unit_id(payload)
     if current_unit_id is None:
-        return {
-            "task_file": TASK_FILE_NAME,
-            "stage_key": str(payload.get("stage_key") or ""),
-            "status": "all_units_answered",
-            "summary": summarize_task_file(payload=payload, task_file_path=TASK_FILE_NAME),
-        }
+        return _all_units_answered_payload(payload, status="all_units_answered")
     result = _show_unit_payload(payload=payload, unit_ids=[current_unit_id])
     result["current_unit_id"] = current_unit_id
     return result
@@ -206,12 +257,7 @@ def _show_neighbors_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     units = _normalized_units(payload)
     current_index = _first_unanswered_index(payload)
     if current_index is None:
-        return {
-            "task_file": TASK_FILE_NAME,
-            "stage_key": str(payload.get("stage_key") or ""),
-            "status": "all_units_answered",
-            "summary": summarize_task_file(payload=payload, task_file_path=TASK_FILE_NAME),
-        }
+        return _all_units_answered_payload(payload, status="all_units_answered")
     neighbor_indices = [
         index
         for index in range(max(0, current_index - 1), min(len(units), current_index + 2))
@@ -270,9 +316,9 @@ def write_answer_template(*, path: Path, payload: Mapping[str, Any]) -> dict[str
         encoding="utf-8",
     )
     return {
+        "status": "template_written",
         "template_path": str(path),
         "unit_count": len(template_payload["answers_by_unit_id"]),
-        "unit_ids": sorted(template_payload["answers_by_unit_id"]),
     }
 
 
@@ -320,17 +366,31 @@ def _apply_current_answer(raw_answer_json: str) -> dict[str, Any]:
         answers_by_unit_id={current_unit_id: dict(answer_payload)},
     )
     updated_task_file = _load_current_task_file()
-    result["answered_unit_id"] = current_unit_id
-    result["next_current_unit_id"] = _current_unit_id(updated_task_file)
-    return result
+    next_current_unit_id = _current_unit_id(updated_task_file)
+    worker_brief = _worker_task_brief(updated_task_file)
+    return {
+        "status": "answer_applied",
+        "task_file": str(result.get("task_file") or TASK_FILE_NAME),
+        "answered_unit_id": current_unit_id,
+        "applied_count": int(result.get("applied_count") or 0),
+        "changed": bool(result.get("changed")),
+        "skipped_count": int(result.get("skipped_count") or 0),
+        "next_current_unit_id": next_current_unit_id,
+        "all_units_answered": next_current_unit_id is None,
+        "answered_units": int(worker_brief.get("answered_units") or 0),
+        "total_units": int(worker_brief.get("total_units") or 0),
+        "remaining_units": int(worker_brief.get("remaining_units") or 0),
+    }
 
 
 def _show_unanswered_payload(payload: Mapping[str, Any], *, limit: int | None) -> dict[str, Any]:
-    return inspect_task_file_units(
-        payload=payload,
-        task_file_path=TASK_FILE_NAME,
-        answered=False,
-        limit=limit,
+    return _compact_inspection_payload(
+        inspect_task_file_units(
+            payload=payload,
+            task_file_path=TASK_FILE_NAME,
+            answered=False,
+            limit=limit,
+        )
     )
 
 
@@ -465,7 +525,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     surface = _surface_for_payload(task_file)
 
     if command_name == TASK_SUMMARY_COMMAND:
-        return _print_json(summarize_task_file(payload=task_file, task_file_path=TASK_FILE_NAME))
+        return _print_json(_worker_task_brief(task_file))
     if command_name == TASK_SHOW_UNIT_COMMAND:
         if len(args) != 1:
             return _usage_error("usage: task-show-unit <unit_id>")
@@ -501,11 +561,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"use {TASK_ANSWER_CURRENT_COMMAND} instead."
             )
         answers_by_unit_id = _load_answer_mapping_file(Path(args[0]))
+        apply_result = apply_answers_to_task_file(
+            path=_task_file_path(),
+            answers_by_unit_id=answers_by_unit_id,
+        )
+        updated_task_file = _load_current_task_file()
+        worker_brief = _worker_task_brief(updated_task_file)
         return _print_json(
-            apply_answers_to_task_file(
-                path=_task_file_path(),
-                answers_by_unit_id=answers_by_unit_id,
-            )
+            {
+                "status": "answers_applied",
+                "task_file": str(apply_result.get("task_file") or TASK_FILE_NAME),
+                "applied_count": int(apply_result.get("applied_count") or 0),
+                "skipped_count": int(apply_result.get("skipped_count") or 0),
+                "changed": bool(apply_result.get("changed")),
+                "answered_units": int(worker_brief.get("answered_units") or 0),
+                "total_units": int(worker_brief.get("total_units") or 0),
+                "remaining_units": int(worker_brief.get("remaining_units") or 0),
+            }
         )
     if command_name == TASK_SHOW_CURRENT_COMMAND:
         return _print_json(_show_current_payload(task_file))
@@ -516,7 +588,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _usage_error("usage: task-answer-current '<answer_json>'")
         return _print_json(_apply_current_answer(args[0]))
     if command_name == TASK_NEXT_COMMAND:
-        return _print_json(_show_current_payload(_load_current_task_file()))
+        return _print_json(_next_payload(_load_current_task_file()))
     if command_name == TASK_STATUS_COMMAND:
         return _run_handoff_command(stage_key, "--status")
     if command_name == TASK_DOCTOR_COMMAND:

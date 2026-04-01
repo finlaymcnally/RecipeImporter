@@ -21,6 +21,7 @@ Current ownership split:
 
 Runtime notes:
 - Workspace-worker sessions run from a sterile mirrored workspace under `~/.codex-recipe/...` with a repo-written `AGENTS.md` plus one visible `task.json`; the repo artifact root stays authoritative for manifests, debug files, and promoted outputs.
+- Worker-visible `task.json` is serialized compactly on purpose, and the shared helper commands now return small progress/ack payloads rather than replaying full task summaries after every step.
 - Repo-owned guardrails now travel with that runtime: per-worker `status.json`, stage `telemetry.json`, phase manifests, stage summaries, and prompt-budget summaries all record planned happy-path worker-session caps separately from repair/follow-up work plus deterministic `task.json` size metadata.
 - Watchdog policy is transport-specific. Structured retry/repair calls still fail closed on shell drift, while main workspace-worker attempts are warning-first and only auto-terminate for real boundary violations.
 - `workspace_worker_progress.py` is the shared operator-summary helper: it reads repo-owned `live_status.json`, derives compact attention labels plus `last_activity_at`, and lets recipe/knowledge/line-role progress callbacks surface stuck or suspicious workers without giving deterministic code semantic authority over model answers. Its missing-output label is conservative on purpose: transient in-flight `has_final_agent_message` snapshots should not be treated as terminal by themselves.

@@ -199,6 +199,62 @@ def summarize_task_file(
     }
 
 
+def build_worker_task_brief(
+    *,
+    payload: Mapping[str, Any],
+    task_file_path: str | None = None,
+) -> dict[str, Any]:
+    units = _normalized_units(payload)
+    answered_units = 0
+    for unit in units:
+        if _unit_has_answer(unit):
+            answered_units += 1
+    total_units = len(units)
+    remaining_units = max(total_units - answered_units, 0)
+    workflow = [
+        str(step).strip()
+        for step in (payload.get("workflow") or [])
+        if str(step).strip()
+    ]
+    answer_schema_summary = _summarize_answer_schema(payload.get("answer_schema"))
+    current_unit_summary = _summarize_current_unit(payload)
+    grouping_batch = _summarize_grouping_batch(payload)
+    brief: dict[str, Any] = {
+        "task_file": str(task_file_path or TASK_FILE_NAME),
+        "stage_key": str(payload.get("stage_key") or ""),
+        "mode": str(payload.get("mode") or ""),
+        "answered_units": answered_units,
+        "total_units": total_units,
+        "remaining_units": remaining_units,
+    }
+    if workflow:
+        brief["workflow"] = workflow
+    next_action = str(payload.get("next_action") or "").strip()
+    if next_action:
+        brief["next_action"] = next_action
+    if isinstance(answer_schema_summary, Mapping):
+        required_keys = _normalized_string_list(answer_schema_summary.get("required_keys"))
+        optional_keys = _normalized_string_list(answer_schema_summary.get("optional_keys"))
+        if required_keys:
+            brief["required_answer_keys"] = required_keys
+        if optional_keys:
+            brief["optional_answer_keys"] = optional_keys
+    if current_unit_summary:
+        brief.update(current_unit_summary)
+    if isinstance(grouping_batch, Mapping):
+        compact_grouping_batch = {
+            "current_batch_index": int(grouping_batch.get("current_batch_index") or 0),
+            "total_batches": int(grouping_batch.get("total_batches") or 0),
+            "unit_count": int(grouping_batch.get("unit_count") or 0),
+            "remaining_batches_after_this": int(
+                grouping_batch.get("remaining_batches_after_this") or 0
+            ),
+        }
+        if any(compact_grouping_batch.values()):
+            brief["grouping_batch"] = compact_grouping_batch
+    return brief
+
+
 def inspect_task_file_units(
     *,
     payload: Mapping[str, Any],
@@ -312,7 +368,6 @@ def apply_answers_to_task_file(
         "applied_count": len(applied_unit_ids),
         "skipped_count": len(skipped_unit_ids),
         "changed": changed,
-        "summary": summarize_task_file(payload=task_file, task_file_path=str(path)),
     }
 
 

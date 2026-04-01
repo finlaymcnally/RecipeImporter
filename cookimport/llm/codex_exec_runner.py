@@ -2371,8 +2371,10 @@ def _build_direct_exec_agents_text(
                 else (
                     f"If you need specific unit payloads, use `{show_unit_command}` or "
                     f"`{show_unanswered_command}`.\n"
+                    + (
                     f"If you want to apply several answers at once, use `{template_command}` "
                     f"and `{apply_command}` instead of scripting a rewrite.\n"
+                    )
                 )
             )
             return (

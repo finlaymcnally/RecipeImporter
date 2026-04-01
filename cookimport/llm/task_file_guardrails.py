@@ -12,7 +12,7 @@ TASK_FILE_SIZE_WARNING_THRESHOLD_ESTIMATED_TOKENS = 4096
 
 
 def render_task_file_text(payload: Mapping[str, Any]) -> str:
-    return json.dumps(dict(payload), indent=2, sort_keys=True) + "\n"
+    return json.dumps(dict(payload), sort_keys=True, separators=(",", ":")) + "\n"
 
 
 @lru_cache(maxsize=1)
@@ -119,4 +119,3 @@ def build_worker_session_guardrails(
         "cap_exceeded": cap_exceeded,
         "status": "exceeded" if cap_exceeded else "within_cap",
     }
-

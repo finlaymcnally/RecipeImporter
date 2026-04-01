@@ -14,8 +14,7 @@ from cookimport.config.run_settings import RunSettings
 from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.llm.canonical_line_role_prompt import (
     build_canonical_line_role_file_prompt,
-    build_canonical_line_role_prompt,
-    serialize_line_role_targets,
+    build_line_role_shared_contract_block,
 )
 from cookimport.llm.codex_exec_runner import (
     CodexExecLiveSnapshot,
@@ -974,10 +973,7 @@ def _run_line_role_cohort_outlier_warning_fixture(
     }
 
 
-def _run_compact_prompt_format_fixture(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> dict[str, object]:
+def _run_single_prompt_surface_fixture(tmp_path: Path) -> dict[str, object]:
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:0",
@@ -989,8 +985,6 @@ def _run_compact_prompt_format_fixture(
             rule_tags=[],
         )
     ]
-
-    monkeypatch.setenv("COOKIMPORT_LINE_ROLE_PROMPT_FORMAT", "compact_v1")
 
     predictions = label_atomic_lines(
         candidates,

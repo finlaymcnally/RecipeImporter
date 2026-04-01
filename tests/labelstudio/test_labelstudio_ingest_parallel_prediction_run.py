@@ -1037,7 +1037,7 @@ def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_r
         ),
         AuthoritativeLabeledLine(
             source_block_id="block:2",
-            source_block_index=2,
+            source_block_index=200,
             atomic_index=2,
             text="Balancing Fat",
             deterministic_label="OTHER",
@@ -1062,12 +1062,12 @@ def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_r
     ]
 
     nonrecipe_stage_result = make_stage_result(
-        seed=make_seed_result({2: "candidate"}),
-        routing=make_routing_result(candidate_block_indices=[2]),
+        seed=make_seed_result({200: "candidate"}),
+        routing=make_routing_result(candidate_block_indices=[200]),
         authority=make_authority_result({}),
         candidate_status=make_finalize_status_result(
             reviewed_block_indices=[],
-            unreviewed_block_category_by_index={2: "candidate"},
+            unreviewed_block_category_by_index={200: "candidate"},
         ),
         refinement_report={
             "authority_mode": "deterministic_route_only",
@@ -1097,6 +1097,8 @@ def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_r
         artifacts["stage_block_predictions_path"].read_text(encoding="utf-8")
     )
     assert stage_payload["block_labels"]["2"] == "OTHER"
+    assert stage_payload["unresolved_candidate_block_indices"] == [2]
+    assert stage_payload["unresolved_candidate_route_by_index"] == {"2": "candidate"}
     assert (
         "Unresolved candidate outside-recipe rows were marked unresolved and excluded from semantic scoring."
         in stage_payload["notes"]

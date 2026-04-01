@@ -1003,10 +1003,7 @@ def test_label_atomic_lines_codex_shards_keep_deterministic_output_order(
     assert all("\tline_role_prompt_" in line for line in dedup_lines)
 
 
-def _run_compact_prompt_format_fixture(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> dict[str, object]:
+def _run_single_prompt_surface_fixture(tmp_path: Path) -> dict[str, object]:
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:0",
@@ -1018,8 +1015,6 @@ def _run_compact_prompt_format_fixture(
             rule_tags=[],
         )
     ]
-
-    monkeypatch.setenv("COOKIMPORT_LINE_ROLE_PROMPT_FORMAT", "compact_v1")
 
     predictions = label_atomic_lines(
         candidates,
@@ -1035,11 +1030,8 @@ def _run_compact_prompt_format_fixture(
     }
 
 
-def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
-    monkeypatch,
-    tmp_path,
-) -> None:
-    fixture = _run_compact_prompt_format_fixture(monkeypatch, tmp_path)
+def test_label_atomic_lines_uses_single_line_role_prompt_surface(tmp_path) -> None:
+    fixture = _run_single_prompt_surface_fixture(tmp_path)
     predictions = fixture["predictions"]
     prompt_root = fixture["prompt_root"]
     assert isinstance(prompt_root, Path)
@@ -1052,11 +1044,14 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
         / "line_role_prompt_0001.txt"
     ).read_text(encoding="utf-8")
     assert "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger." in prompt_text
-    assert "Start with `python3 -m cookimport.llm.editable_task_file --summary`." in prompt_text
-    assert "python3 -m cookimport.llm.editable_task_file --show-unit <unit_id>` or `python3 -m cookimport.llm.editable_task_file --show-unanswered --limit 5`." in prompt_text
+    assert "Start with `task-summary`." in prompt_text
+    assert "`task-show-unit <unit_id>` or `task-show-unanswered --limit 5`." in prompt_text
     assert "`task.json` already contains the full assignment." in prompt_text
-    assert "Prefer `python3 -m cookimport.llm.editable_task_file --summary` before opening raw file contents." in prompt_text
-    assert "--apply-answers-file answers.json`." in prompt_text
+    assert "Prefer `task-summary` before opening raw file contents." in prompt_text
+    assert "Title, variant, yield, and section calls are sequence-sensitive." in prompt_text
+    assert "read the nearby rows directly in the ordered `task.json` ledger" in prompt_text
+    assert "`task-template answers.json`" in prompt_text
+    assert "`task-apply answers.json`." in prompt_text
     assert "Do not dump `task.json` with `cat` or `sed`" in prompt_text
     assert "Prefer opening the named file directly. If you still need shell helpers, keep them narrow and grounded on `task.json` or local temp files only." in prompt_text
     assert "If you briefly reread part of the file or make a small local false start" in prompt_text
@@ -1080,11 +1075,10 @@ def test_label_atomic_lines_uses_compact_prompt_format_when_env_enabled(
     assert "assigned_shards.json" not in worker_prompt_text
 
 
-def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_contract(
-    monkeypatch,
+def test_label_atomic_lines_workspace_manifest_matches_current_contract(
     tmp_path,
 ) -> None:
-    fixture = _run_compact_prompt_format_fixture(monkeypatch, tmp_path)
+    fixture = _run_single_prompt_surface_fixture(tmp_path)
     prompt_root = fixture["prompt_root"]
     assert isinstance(prompt_root, Path)
 
@@ -1137,9 +1131,7 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
     assert task_file_payload["editable_json_pointers"] == ["/units/0/answer"]
     assert task_file_payload["units"][0]["evidence"] == {
         "atomic_index": 0,
-        "block_id": "block:compact:0",
         "text": "Ambiguous line 0",
-        "within_recipe_span": None,
     }
     assigned_shards_payload = json.loads(
         (
@@ -1159,11 +1151,10 @@ def test_label_atomic_lines_compact_prompt_workspace_manifest_matches_current_co
     assert assigned_shards_payload[0]["metadata"]["atomic_index_end"] == 0
 
 
-def test_label_atomic_lines_compact_prompt_workspace_mirrors_hint_and_input_artifacts(
-    monkeypatch,
+def test_label_atomic_lines_workspace_mirrors_hint_and_input_artifacts(
     tmp_path,
 ) -> None:
-    fixture = _run_compact_prompt_format_fixture(monkeypatch, tmp_path)
+    fixture = _run_single_prompt_surface_fixture(tmp_path)
     prompt_root = fixture["prompt_root"]
     assert isinstance(prompt_root, Path)
 
@@ -1244,7 +1235,6 @@ def test_label_atomic_lines_compact_prompt_workspace_mirrors_hint_and_input_arti
 
 
 def test_label_atomic_lines_writes_one_shard_owned_ledger_without_line_role_tasks(
-    monkeypatch,
     tmp_path,
 ) -> None:
     candidates = [
@@ -1289,17 +1279,21 @@ def test_label_atomic_lines_writes_one_shard_owned_ledger_without_line_role_task
         "/units/2/answer",
         "/units/3/answer",
     ]
-    assert task_file_payload["helper_commands"]["status"].endswith("--status")
-    assert task_file_payload["helper_commands"]["show_unit"].endswith("--show-unit <unit_id>")
-    assert task_file_payload["helper_commands"]["show_unanswered"].endswith("--show-unanswered --limit 5")
-    assert task_file_payload["helper_commands"]["apply_answers_file"].endswith("--apply-answers-file answers.json")
+    assert task_file_payload["helper_commands"]["status"] == "task-status"
+    assert task_file_payload["helper_commands"]["show_unit"] == "task-show-unit <unit_id>"
+    assert (
+        task_file_payload["helper_commands"]["show_unanswered"]
+        == "task-show-unanswered --limit 5"
+    )
+    assert (
+        task_file_payload["helper_commands"]["apply_answers_file"]
+        == "task-apply answers.json"
+    )
     assert task_file_payload["answer_schema"]["example_answers"][0]["label"] == "RECIPE_NOTES"
     assert all(
         set(unit["evidence"]) == {
             "atomic_index",
-            "block_id",
             "text",
-            "within_recipe_span",
         }
         for unit in task_file_payload["units"]
     )
