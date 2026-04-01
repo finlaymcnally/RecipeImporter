@@ -28,8 +28,9 @@ Negative rules (must-not-do):
 - A full sentence or paragraph beginning with `To make ...` or `To serve ...` is usually variant or procedural prose, not `HOWTO_SECTION`, unless the entire line is a short heading-shaped header.
 - A `Variations` heading and its immediately following alternate-version lines usually stay `RECIPE_VARIANT` until the variant run ends.
 - Short `Variation` / `Variations` follow-up lines such as `To add a little heat ...` or `To evoke the flavors ...` usually stay `RECIPE_VARIANT`.
-- Variant context is local, not sticky. Do not let a nearby `Variations` run swallow a fresh recipe start.
-- If a short title-like line is immediately followed by a strict yield line or ingredient rows, prefer `RECIPE_TITLE`, not `RECIPE_VARIANT`, even when earlier nearby rows were variants.
+- Variant context is local, not sticky. End a nearby `Variations` run when a fresh title-like line is followed by a strict yield line or ingredient rows.
+- Do not let nearby `Variations` prose swallow a fresh recipe start such as `Bright Cabbage Slaw` -> `Serves 4 generously` -> ingredient rows.
+- If a short title-like line is immediately followed by a strict yield line or ingredient rows, reset to a new recipe: prefer `RECIPE_TITLE`, not `RECIPE_VARIANT`, even when earlier nearby rows were variants.
 - A strict yield header such as `SERVES 4`, `Makes about 1/2 cup`, or `Yield: 6 servings` stays `YIELD_LINE` when it appears between a recipe title and ingredient or method structure; do not downgrade it to `RECIPE_NOTES`.
 - Local row evidence wins over shaky prior span assumptions. A title-like line followed by yield or ingredients can still be `RECIPE_TITLE` even if upstream recipe-span state is missing or noisy.
 - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually `NONRECIPE_CANDIDATE`.
@@ -137,13 +138,17 @@ Few-shot examples:
     Line: `To add a little heat, add 1 teaspoon minced jalapeño.`
     Label: `RECIPE_VARIANT`
 
-23) Context: fresh recipe start after nearby variants, followed by yield and ingredients
-    Line: `Lemon Vinaigrette`
+23) Context: nearby rows are `Variations`, variant prose, then a fresh recipe start followed by yield and ingredients
+    Line: `Bright Cabbage Slaw`
     Label: `RECIPE_TITLE`
 
-24) Context: strict yield header between a recipe title and ingredients
-    Line: `Makes about 1/2 cup`
+24) Context: strict yield header immediately after that fresh recipe title
+    Line: `Serves 4 generously`
     Label: `YIELD_LINE`
+
+25) Context: ingredient row immediately after the reset title and yield
+    Line: `1/2 medium red onion, sliced thinly`
+    Label: `INGREDIENT_LINE`
 
 RETURN FORMAT (STRICT JSON ONLY)
 Return exactly a JSON array with one object per target line:
