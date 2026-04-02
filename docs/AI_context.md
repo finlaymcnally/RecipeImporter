@@ -1,13 +1,13 @@
 ---
-summary: "AI onboarding for the current post-refactor cookimport architecture."
+summary: "Web AI onboarding for the current cookimport architecture."
 read_when:
-  - When an AI agent or new developer needs the current mental model for the repo
-  - When you need a high-level map before diving into the numbered subsystem docs
+  - Coding agents, DO NOT READ
+  - This is for providing to web-based AI's without codebase context.
 ---
 
 # AI Context: `cookimport` (code-verified on 2026-03-25)
 
-This is the fast orientation doc for the current repo.
+This is the fast orientation doc for the current repo. This doc is SPECIFICALLY for web-based AI chatbots that cannot see this code repo.
 
 Use this file to understand the product shape, the current authority boundaries, and which deeper docs own each subsystem. For detailed contracts, read the numbered docs in `docs/01-architecture` through `docs/12-testing`.
 
