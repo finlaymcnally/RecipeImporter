@@ -44,16 +44,10 @@ def _runtime_attr(name: str, default: Any) -> Any:
 
 
 _LINE_ROLE_SAME_SESSION_STATE_FILE_NAME = "line_role_same_session_state.json"
-_LINE_ROLE_ANSWERS_FILE_NAME = "answers.json"
 
 
 def _line_role_same_session_state_path(worker_root: Path) -> Path:
     return worker_root / "_repo_control" / _LINE_ROLE_SAME_SESSION_STATE_FILE_NAME
-
-
-def _line_role_answers_file_path(worker_root: Path) -> Path:
-    return worker_root / _LINE_ROLE_ANSWERS_FILE_NAME
-
 
 def _load_json_dict_safely(path: Path) -> dict[str, Any]:
     if not path.exists():
@@ -63,78 +57,6 @@ def _load_json_dict_safely(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         return {}
     return dict(payload) if isinstance(payload, Mapping) else {}
-
-
-def _answer_payload_has_meaningful_content(payload: Any) -> bool:
-    if not isinstance(payload, Mapping):
-        return False
-    for value in payload.values():
-        if value is None:
-            continue
-        if isinstance(value, str):
-            if value.strip():
-                return True
-            continue
-        if isinstance(value, Mapping):
-            if value:
-                return True
-            continue
-        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-            if value:
-                return True
-            continue
-        return True
-    return False
-
-
-def _summarize_line_role_answers_file_progress(answers_path: Path) -> dict[str, Any]:
-    payload = {
-        "answers_path": str(answers_path),
-        "answers_exists": answers_path.exists(),
-        "has_useful_progress": False,
-        "answered_unit_count": 0,
-        "error": None,
-    }
-    if not answers_path.exists():
-        return payload
-    try:
-        raw_payload = json.loads(answers_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        payload["error"] = str(exc)
-        return payload
-    answer_mapping: dict[str, dict[str, Any]] = {}
-    if isinstance(raw_payload, Mapping):
-        nested_mapping = raw_payload.get("answers_by_unit_id")
-        if isinstance(nested_mapping, Mapping):
-            answer_mapping = {
-                str(unit_id).strip(): dict(answer_payload)
-                for unit_id, answer_payload in nested_mapping.items()
-                if str(unit_id).strip() and isinstance(answer_payload, Mapping)
-            }
-        else:
-            answer_mapping = {
-                str(unit_id).strip(): dict(answer_payload)
-                for unit_id, answer_payload in raw_payload.items()
-                if str(unit_id).strip() and isinstance(answer_payload, Mapping)
-            }
-    elif isinstance(raw_payload, list):
-        answer_mapping = {
-            str(row.get("unit_id") or "").strip(): dict(row.get("answer") or {})
-            for row in raw_payload
-            if isinstance(row, Mapping)
-            and str(row.get("unit_id") or "").strip()
-            and isinstance(row.get("answer"), Mapping)
-        }
-    else:
-        payload["error"] = "answer mapping file was not a supported JSON shape"
-        return payload
-    answered_unit_count = sum(
-        1 for answer_payload in answer_mapping.values()
-        if _answer_payload_has_meaningful_content(answer_payload)
-    )
-    payload["answered_unit_count"] = answered_unit_count
-    payload["has_useful_progress"] = answered_unit_count > 0
-    return payload
 
 
 def _summarize_line_role_same_session_completion(
@@ -261,26 +183,15 @@ def _line_role_task_file_useful_progress(
     task_file_path: Path,
     original_task_file: Mapping[str, Any],
     same_session_state_payload: Mapping[str, Any],
-    answers_path: Path | None = None,
 ) -> bool:
     if not task_file_path.exists():
-        return bool(
-            answers_path is not None
-            and _summarize_line_role_answers_file_progress(answers_path).get(
-                "has_useful_progress"
-            )
-        )
+        return False
     if int(same_session_state_payload.get("same_session_transition_count") or 0) > 0:
         return True
     try:
         edited_task_file = load_task_file(task_file_path)
     except (OSError, json.JSONDecodeError, ValueError):
-        return bool(
-            answers_path is not None
-            and _summarize_line_role_answers_file_progress(answers_path).get(
-                "has_useful_progress"
-            )
-        )
+        return False
     _answers_by_unit_id, _errors, metadata = validate_edited_task_file(
         original_task_file=original_task_file,
         edited_task_file=edited_task_file,
@@ -288,12 +199,7 @@ def _line_role_task_file_useful_progress(
     )
     if int(metadata.get("changed_unit_count") or 0) > 0:
         return True
-    return bool(
-        answers_path is not None
-        and _summarize_line_role_answers_file_progress(answers_path).get(
-            "has_useful_progress"
-        )
-    )
+    return False
 
 
 def _line_role_hard_boundary_failure(run_result: CodexExecRunResult) -> bool:
@@ -311,7 +217,6 @@ def _should_attempt_line_role_fresh_session_retry(
     task_file_path: Path,
     original_task_file: Mapping[str, Any],
     same_session_state_payload: Mapping[str, Any],
-    answers_path: Path | None = None,
 ) -> tuple[bool, str]:
     retry_limit = int(same_session_state_payload.get("fresh_session_retry_limit") or 0)
     retry_count = int(same_session_state_payload.get("fresh_session_retry_count") or 0)
@@ -329,7 +234,6 @@ def _should_attempt_line_role_fresh_session_retry(
         task_file_path=task_file_path,
         original_task_file=original_task_file,
         same_session_state_payload=same_session_state_payload,
-        answers_path=answers_path,
     ):
         return False, "no_preserved_progress"
     return True, "preserved_progress_without_completion"
@@ -441,9 +345,6 @@ def _reset_line_role_workspace_for_fresh_worker_replacement(
         artifact_path = worker_root / artifact_name
         if artifact_path.exists():
             artifact_path.unlink()
-    answers_path = _line_role_answers_file_path(worker_root)
-    if answers_path.exists():
-        answers_path.unlink()
     for shard in runnable_shards:
         output_path = out_dir / f"{shard.shard_id}.json"
         if output_path.exists():
@@ -535,11 +436,6 @@ def _line_role_recovery_guidance_for_diagnosis(
             True,
             "repair answers are present but the same-session helper has not installed out/<shard_id>.json yet",
         )
-    if code == "answers_file_present_not_applied":
-        return (
-            True,
-            "repo-owned answers.json already contains saved labels; apply it to task.json, continue any remaining rows, then run task-handoff",
-        )
     if code == "awaiting_answers":
         return False, "task.json still has blank answer objects"
     if code == "repair_answers_missing":
@@ -569,8 +465,6 @@ def _assess_line_role_workspace_recovery(
     outputs_present = bool(output_status.get("complete"))
     state_payload, state_error = _load_json_dict_with_error(state_path)
     task_file_path = worker_root / TASK_FILE_NAME
-    answers_path = _line_role_answers_file_path(worker_root)
-    answers_progress = _summarize_line_role_answers_file_progress(answers_path)
     task_file_error: str | None = None
     if task_file_path.exists():
         try:
@@ -610,12 +504,6 @@ def _assess_line_role_workspace_recovery(
     recoverable_by_diagnosis, resume_summary = _line_role_recovery_guidance_for_diagnosis(
         diagnosis_code
     )
-    if not recoverable_by_diagnosis and bool(answers_progress.get("has_useful_progress")):
-        diagnosis_code = "answers_file_present_not_applied"
-        recommended_command = "task-apply answers.json"
-        recoverable_by_diagnosis, resume_summary = _line_role_recovery_guidance_for_diagnosis(
-            diagnosis_code
-        )
     blocked_reason: str | None = None
     if state_error is not None:
         blocked_reason = "same_session_state_unavailable"
@@ -657,7 +545,6 @@ def _assess_line_role_workspace_recovery(
         "task_file_path": str(task_file_path),
         "task_file_available": task_file_error is None,
         "task_file_error": task_file_error,
-        "answers_file_progress": dict(answers_progress),
         "workspace_output_status": dict(output_status),
         "status_payload": dict(status_payload),
         "status_error": status_error,
@@ -698,9 +585,9 @@ def _build_line_role_final_message_recovery_prompt(
         "Do this exactly:\n"
         "- First run `python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff --status`.\n"
         "- If the next step is still unclear, run `python3 -m cookimport.parsing.canonical_line_roles.same_session_handoff --doctor`.\n"
-        "- If `answers.json` already contains saved labels, run `task-apply answers.json` before continuing.\n"
+        "- Reopen `task.json`, keep editing only the answer objects in place, and stay inside the same workspace.\n"
         f"- Follow the repo-owned recommended command: `{recommended_command}`.\n"
-        "- Prefer repo-owned helper commands over shell scripting.\n"
+        "- Prefer direct task-file editing over shell scripting.\n"
         "- Stop as soon as the helper reports `completed`.\n\n"
         f"Recovery diagnosis: {assessment.diagnosis_code or '[unknown]'}\n"
         f"Resume summary: {assessment.resume_summary or '[none available]'}\n\n"
@@ -751,12 +638,6 @@ def _build_line_role_task_file(
             assignment_id=assignment.worker_id,
             worker_id=assignment.worker_id,
             units=units,
-            helper_commands=build_single_file_worker_surface(stage_key="line_role").helper_commands,
-            workflow=build_single_file_worker_surface(stage_key="line_role").workflow,
-            next_action=(
-                "Review the shard with task-summary/task-show-unit, optionally use "
-                "task-template plus task-apply, then run task-handoff."
-            ),
             answer_schema={
                 "editable_pointer_pattern": "/units/*/answer",
                 "required_keys": ["label"],
@@ -807,9 +688,6 @@ def _line_role_incomplete_progress_summary_detail(
         "haven't run `task-handoff`",
         "haven’t run `task-handoff`",
         "have not run `task-handoff`",
-        "haven't run `task-apply`",
-        "haven’t run `task-apply`",
-        "have not run `task-apply`",
         "still needs labeling",
         "still need labeling",
         "rest of the shard still needs",
@@ -824,7 +702,7 @@ def _line_role_incomplete_progress_summary_detail(
         return None
     return (
         "workspace worker ended with a partial-progress summary instead of finishing the task-file workflow. "
-        "Progress summaries, deferred `task-apply`, and deferred `task-handoff` are off-contract for line-role workers."
+        "Progress summaries and deferred `task-handoff` are off-contract for line-role workers."
     )
 
 
@@ -2246,7 +2124,6 @@ def _run_line_role_workspace_worker_assignment_v1(
                 task_file_path=worker_root / TASK_FILE_NAME,
                 original_task_file=task_file_payload,
                 same_session_state_payload=line_role_same_session_state_payload,
-                answers_path=_line_role_answers_file_path(worker_root),
             )
         if should_retry:
             fresh_session_retry_count = 1
@@ -4427,6 +4304,7 @@ def _classify_line_role_workspace_command(
     return classify_workspace_worker_command(
         command_text,
         single_file_worker_policy=single_file_worker_policy,
+        single_file_stage_key="line_role",
     )
 
 

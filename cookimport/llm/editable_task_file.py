@@ -122,9 +122,6 @@ def build_task_file(
         "assignment_id": str(assignment_id),
         "worker_id": str(worker_id),
         "mode": str(mode),
-        "editable_json_pointers": [
-            f"/units/{index}/answer" for index in range(len(normalized_units))
-        ],
         "units": normalized_units,
     }
     if isinstance(helper_commands, Mapping):
@@ -154,11 +151,6 @@ def summarize_task_file(
             answered_unit_ids.append(unit_id)
         else:
             unanswered_unit_ids.append(unit_id)
-    editable_pointers = [
-        str(pointer)
-        for pointer in (payload.get("editable_json_pointers") or [])
-        if str(pointer).strip()
-    ]
     sampled_unanswered_unit_ids = unanswered_unit_ids[:SUMMARY_UNIT_ID_SAMPLE_LIMIT]
     workflow = [
         str(step).strip()
@@ -167,6 +159,19 @@ def summarize_task_file(
     ]
     answer_schema = payload.get("answer_schema")
     answer_schema_summary = _summarize_answer_schema(answer_schema)
+    editable_pointer_pattern = (
+        str(answer_schema.get("editable_pointer_pattern") or "").strip()
+        if isinstance(answer_schema, Mapping)
+        else ""
+    )
+    editable_pointers = [
+        str(pointer)
+        for pointer in (payload.get("editable_json_pointers") or [])
+        if str(pointer).strip()
+    ]
+    editable_pointer_count = len(editable_pointers)
+    if editable_pointer_count == 0 and editable_pointer_pattern:
+        editable_pointer_count = len(units)
     current_unit_summary = _summarize_current_unit(payload)
     return {
         "task_file": str(task_file_path or TASK_FILE_NAME),
@@ -182,7 +187,8 @@ def summarize_task_file(
         "unanswered_unit_ids_truncated": (
             len(unanswered_unit_ids) > SUMMARY_UNIT_ID_SAMPLE_LIMIT
         ),
-        "editable_pointer_count": len(editable_pointers),
+        "editable_pointer_count": editable_pointer_count,
+        "editable_pointer_pattern": editable_pointer_pattern or None,
         "editable_json_pointers_sample": editable_pointers[:SUMMARY_POINTER_SAMPLE_LIMIT],
         "editable_json_pointers_truncated": (
             len(editable_pointers) > SUMMARY_POINTER_SAMPLE_LIMIT
@@ -623,8 +629,7 @@ def _summarize_answer_schema(value: Any) -> dict[str, Any] | None:
 
 
 def _summarize_current_unit(payload: Mapping[str, Any]) -> dict[str, Any]:
-    helper_commands = payload.get("helper_commands")
-    if not isinstance(helper_commands, Mapping) or "show_current" not in helper_commands:
+    if str(payload.get("stage_key") or "").strip() != "nonrecipe_classify":
         return {}
     units = _normalized_units(payload)
     for index, unit in enumerate(units):

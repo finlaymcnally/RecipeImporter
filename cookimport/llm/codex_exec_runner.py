@@ -186,6 +186,7 @@ _SINGLE_FILE_WORKSPACE_ALLOWED_POLICIES = {
     "single_file_repo_helper_command",
     "single_file_repo_handoff_command",
     "single_file_temp_helper_command",
+    "single_file_direct_file_read",
 }
 _SINGLE_FILE_WORKSPACE_EGREGIOUS_POLICIES = {
     "single_file_task_ad_hoc_transform",
@@ -2219,9 +2220,9 @@ def _single_file_workspace_handoff_command(*, workspace_root: Path) -> str | Non
         return None
     helper_commands = task_file_payload.get("helper_commands")
     if not isinstance(helper_commands, Mapping):
-        return None
+        return TASK_HANDOFF_COMMAND
     handoff_command = str(helper_commands.get("handoff") or "").strip()
-    return handoff_command or None
+    return handoff_command or TASK_HANDOFF_COMMAND
 
 
 def _single_file_workspace_task_file_payload(
@@ -2256,6 +2257,19 @@ def _single_file_workspace_local_examples(
     *,
     single_file_handoff_command: str | None,
 ) -> list[str]:
+    stage_key = (
+        str(task_file_payload.get("stage_key") or "").strip()
+        if isinstance(task_file_payload, Mapping)
+        else ""
+    )
+    if stage_key in {"line_role", "nonrecipe_classify", "knowledge_group"}:
+        return [
+            "sed -n '1,120p' task.json",
+            single_file_handoff_command or TASK_HANDOFF_COMMAND,
+            TASK_STATUS_COMMAND,
+            TASK_DOCTOR_COMMAND,
+            "cp task.json /tmp/task-backup.json",
+        ]
     summary_command = _single_file_helper_command(
         task_file_payload, "summary", TASK_SUMMARY_COMMAND
     )
@@ -2316,6 +2330,37 @@ def _build_direct_exec_agents_text(
     rendered_task_label = str(task_label or "structured shard task").strip()
     if mode == "workspace_worker":
         if single_file_worker_runtime:
+            stage_key = (
+                str(single_file_task_file_payload.get("stage_key") or "").strip()
+                if isinstance(single_file_task_file_payload, Mapping)
+                else ""
+            )
+            if stage_key in {"line_role", "nonrecipe_classify", "knowledge_group"}:
+                handoff_instruction = (
+                    f"run `{single_file_handoff_command}` from the workspace root, then stop.\n"
+                    if single_file_handoff_command
+                    else "run `task-handoff` from the workspace root, then stop.\n"
+                )
+                return (
+                    "# RecipeImport Direct Codex Worker\n\n"
+                    "This directory is an isolated runtime workspace for one RecipeImport "
+                    f"{rendered_task_label}.\n\n"
+                    "You are not working on the RecipeImport repository itself.\n"
+                    "Use only the files inside this directory.\n"
+                    "The current working directory is already the workspace root.\n"
+                    "This workspace exposes one repo-written task file: `task.json`.\n"
+                    "Open `task.json` directly and read the assignment in place.\n"
+                    "Edit only `/units/*/answer`, save the same file, and "
+                    f"{handoff_instruction}"
+                    "`task.json` is the whole job. You do not need hidden repo context, queue files, helper ledgers, or alternate answer files.\n"
+                    "`task-status` and `task-doctor` are optional troubleshooting helpers, not the default path.\n"
+                    "Ordinary local reads of `task.json` and `AGENTS.md` are allowed.\n"
+                    "Do not invent helper ledgers, alternate output files, queue files, or scripted task-file rewrites.\n"
+                    "Do not inspect parent directories, repository-wide AGENTS files, project docs, or source code.\n"
+                    "Do not run repo-specific commands such as `npm run docs:list` or `git`.\n"
+                    "Hard boundaries still apply: stay inside this workspace, keep paths local or in approved temp roots, and avoid repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
+                    "Do not modify immutable evidence or metadata fields.\n"
+                )
             summary_command = _single_file_helper_command(
                 single_file_task_file_payload,
                 "summary",
@@ -2508,10 +2553,12 @@ def _looks_like_editable_task_file_payload(value: Any) -> bool:
     schema_version = str(value.get("schema_version") or "").strip()
     if schema_version == TASK_FILE_SCHEMA_VERSION:
         return True
+    answer_schema = value.get("answer_schema")
     return (
         schema_version in {"knowledge_block_classify.v1", "knowledge_group_only.v1"}
         and isinstance(value.get("units"), list)
-        and isinstance(value.get("editable_json_pointers"), list)
+        and isinstance(answer_schema, Mapping)
+        and bool(str(answer_schema.get("editable_pointer_pattern") or "").strip())
     )
 
 
@@ -4088,9 +4135,14 @@ def _write_direct_exec_worker_manifest(
                 "Open named workspace files directly; do not dump whole inventories just to orient yourself.",
                 (
                     (
-                        "Treat `task.json` as the editable worker contract when present: start with the repo-owned summary helper, inspect only the units you need, then edit answer fields in place and run the repo-owned same-session helper named in `task.json`."
-                        if single_file_handoff_command is None
-                        else f"Treat `task.json` as the editable worker contract when present: start with the repo-owned summary helper, inspect only the units you need, then edit answer fields in place and run `{single_file_handoff_command}`."
+                        "Treat `task.json` as the editable worker contract when present: open it directly, edit answer fields in place, and then run `task-handoff`; `task-status` and `task-doctor` are troubleshooting helpers."
+                        if str(single_file_task_file_payload.get("stage_key") or "").strip()
+                        in {"line_role", "nonrecipe_classify", "knowledge_group"}
+                        else (
+                            "Treat `task.json` as the editable worker contract when present: start with the repo-owned summary helper, inspect only the units you need, then edit answer fields in place and run the repo-owned same-session helper named in `task.json`."
+                            if single_file_handoff_command is None
+                            else f"Treat `task.json` as the editable worker contract when present: start with the repo-owned summary helper, inspect only the units you need, then edit answer fields in place and run `{single_file_handoff_command}`."
+                        )
                     )
                     if has_task_file
                     else None
@@ -4124,9 +4176,9 @@ def _write_direct_exec_worker_manifest(
         if not single_file_worker_runtime
         else (
             "The happy path is direct in-place editing of `task.json` plus the "
-            "repo-owned editable-task and same-session helpers. Bounded local temp "
-            "helpers are tolerated, but raw task-file dumps, broad orientation shell, "
-            "and ad hoc inline rewrites are warning-or-kill drift."
+            "repo-owned same-session helper. Local reads of `task.json` and "
+            "`AGENTS.md` are allowed; ad hoc task rewrites and boundary escapes are "
+            "still off-contract."
         ),
         "workspace_local_shell_examples": (
             _single_file_workspace_local_examples(
@@ -4241,6 +4293,7 @@ def classify_workspace_worker_command(
     allow_output_paths: bool = True,
     allowed_absolute_roots: Sequence[str | Path] | None = None,
     single_file_worker_policy: bool = False,
+    single_file_stage_key: str | None = None,
 ) -> WorkspaceCommandClassification:
     boundary_violation = detect_workspace_worker_boundary_violation(
         command_text,
@@ -4255,6 +4308,7 @@ def classify_workspace_worker_command(
         single_file_verdict = _classify_single_file_workspace_command(
             command_text=cleaned_command,
             tokens=inner_tokens,
+            stage_key=single_file_stage_key,
         )
         if single_file_verdict is not None:
             return single_file_verdict
@@ -4341,6 +4395,7 @@ def _classify_single_file_workspace_command(
     *,
     command_text: str | None,
     tokens: Sequence[str],
+    stage_key: str | None = None,
 ) -> WorkspaceCommandClassification | None:
     cleaned_command = str(command_text or "").strip() or None
     if cleaned_command is None:
@@ -4424,6 +4479,20 @@ def _classify_single_file_workspace_command(
             reason=(
                 "single-file workers should start from repo-owned task helpers rather "
                 "than broad shell orientation commands"
+            ),
+        )
+    cleaned_stage_key = str(stage_key or "").strip()
+    if (
+        cleaned_stage_key in {"line_role", "nonrecipe_classify", "knowledge_group"}
+        and _references_single_file_visible_contract_file(cleaned_command)
+    ):
+        return WorkspaceCommandClassification(
+            command_text=cleaned_command,
+            allowed=True,
+            policy="single_file_direct_file_read",
+            reason=(
+                "reading local contract files is part of the direct task-file worker "
+                "contract for this stage"
             ),
         )
     if _references_single_file_task_file(cleaned_command):
@@ -4867,6 +4936,16 @@ def _references_single_file_task_file(command_text: str | None) -> bool:
     if not cleaned:
         return False
     return bool(re.search(r"(^|[^a-z0-9_./-])task\.json($|[^a-z0-9_./-])", cleaned))
+
+
+def _references_single_file_visible_contract_file(command_text: str | None) -> bool:
+    cleaned = str(command_text or "").strip().lower()
+    if not cleaned:
+        return False
+    return bool(
+        re.search(r"(^|[^a-z0-9_./-])task\.json($|[^a-z0-9_./-])", cleaned)
+        or re.search(r"(^|[^a-z0-9_./-])agents\.md($|[^a-z0-9_./-])", cleaned)
+    )
 
 
 def _looks_like_single_file_task_transform(

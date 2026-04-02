@@ -47,6 +47,7 @@ cookimport/bench/dmp_sequence_matcher.py
 cookimport/bench/eval_canonical_text.py
 cookimport/bench/eval_stage_blocks.py
 cookimport/bench/followup_bundle.py
+cookimport/bench/line_role_artifact_lookup.py
 cookimport/bench/noise.py
 cookimport/bench/oracle_followup.py
 cookimport/bench/oracle_upload.py
@@ -186,6 +187,7 @@ cookimport/llm/recipe_stage_shared.py
 cookimport/llm/recipe_tagging_guide.py
 cookimport/llm/recipe_workspace_tools.py
 cookimport/llm/shard_prompt_targets.py
+cookimport/llm/single_file_worker_commands.py
 cookimport/llm/task_file_guardrails.py
 cookimport/llm/worker_hint_sidecars.py
 cookimport/llm/workspace_worker_progress.py

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from cookimport.llm.codex_exec_runner import CodexExecLiveSnapshot
@@ -68,10 +69,9 @@ def test_worker_prompt_describes_task_file_contract() -> None:
     )
 
     assert "task.json" in prompt
-    assert "Start with `task-summary`." in prompt
+    assert "Open `task.json` directly" in prompt
     assert "`task.json` is the whole job at each step." in prompt
     assert "- Start with `task.json`." in prompt
-    assert "- Prefer `task-summary` before opening raw file contents." in prompt
     assert "- Edit only the `answer` object inside each unit." in prompt
     assert "- After each edit pass, run `task-handoff` from the workspace root." in prompt
     assert (
@@ -86,13 +86,10 @@ def test_worker_prompt_describes_task_file_contract() -> None:
         "`completed_with_grouping`." in prompt
     )
     assert "Harmless local retries are not the point of failure here." in prompt
-    assert "Do not dump `task.json` with `cat` or `sed`" in prompt
+    assert "Ordinary local reads of `task.json` and `AGENTS.md` are allowed." in prompt
     assert "Do not invent queue advancement, control files, helper ledgers, or alternate output files." in prompt
     assert "This is the classification step." in prompt
-    assert "`task-show-current`" in prompt
-    assert "`task-show-neighbors`" in prompt
-    assert "`task-answer-current '<answer_json>'`" in prompt
-    assert "`task-next`" in prompt
+    assert "Read the full classification file once" in prompt
     assert "Answer each unit with `category`, `reviewer_category`, `retrieval_concept`, and `grounding`." in prompt
     assert "You are doing close semantic review, not building a heuristic classifier" in prompt
     assert "Treat `candidate_tag_keys`, heading shape, and packet position as weak hints only" in prompt
@@ -383,5 +380,8 @@ def test_knowledge_workspace_watchdog_warns_on_egregious_single_file_shell_trans
         )
     )
 
-    assert decision is not None
-    assert decision.reason_code == "watchdog_packet_contract_bypass_bulk_classification"
+    assert decision is None
+    live_status = json.loads((tmp_path / "live_status.json").read_text(encoding="utf-8"))
+    assert live_status["state"] == "running_with_warnings"
+    assert live_status["warning_codes"] == ["single_file_shell_drift"]
+    assert live_status["last_command_policy"] == "single_file_task_ad_hoc_transform"

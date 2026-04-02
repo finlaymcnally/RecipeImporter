@@ -186,12 +186,10 @@ def test_prepare_direct_exec_workspace_worker_mode_uses_fixed_assignment_manifes
         "The happy path is direct in-place editing of `task.json`"
     )
     assert worker_manifest["workspace_local_shell_examples"] == [
-        "task-summary",
-        "task-show-unit <unit_id>",
-        "task-show-unanswered --limit 5",
-        "task-template answers.json",
-        "task-apply answers.json",
+        "sed -n '1,120p' task.json",
         "task-handoff",
+        "task-status",
+        "task-doctor",
         "cp task.json /tmp/task-backup.json",
     ]
     assert worker_manifest["workspace_commands_forbidden"] == [
@@ -200,19 +198,16 @@ def test_prepare_direct_exec_workspace_worker_mode_uses_fixed_assignment_manifes
         "parent-directory traversal",
     ]
     assert worker_manifest["task_file"] == "task.json"
-    assert "This workspace exposes one repo-written file: `task.json`." in agents_text
+    assert "This workspace exposes one repo-written task file: `task.json`." in agents_text
     assert "`task.json` is the whole job." in agents_text
-    assert "Start with `task-summary`." in agents_text
-    assert "`task-show-unit <unit_id>` or `task-show-unanswered --limit 5`." in agents_text
-    assert "`task-template answers.json` and `task-apply answers.json`" in agents_text
-    assert "run the repo-owned same-session helper command named in `task.json`, then stop." in agents_text
-    assert "You do not need to discover extra control state" in agents_text
-    assert "If you briefly reread part of `task.json` or make a small local false start" in agents_text
-    assert "Do not dump the whole task file with `cat` or `sed`" in agents_text
+    assert "Open `task.json` directly and read the assignment in place." in agents_text
+    assert "Edit only `/units/*/answer`, save the same file, and run `task-handoff`" in agents_text
+    assert "`task-status` and `task-doctor` are optional troubleshooting helpers" in agents_text
+    assert "You do not need hidden repo context, queue files, helper ledgers, or alternate answer files." in agents_text
     assert "If `task.json` is absent" not in agents_text
     assert "When `OUTPUT_CONTRACT.md` or `examples/` exists" not in agents_text
     assert "When `tools/` exists" not in agents_text
-    assert "Do not reach for shell on the happy path." in agents_text
+    assert "Do not invent helper ledgers, alternate output files, queue files, or scripted task-file rewrites." in agents_text
     assert "Hard boundaries still apply" in agents_text
     assert (source_root / "_repo_control" / "original_task.json").exists()
     assert (workspace.execution_working_dir / "task.json").exists()
@@ -377,14 +372,9 @@ def test_prepare_direct_exec_workspace_worker_mode_knows_assignment_first_knowle
     assert worker_manifest["workspace_shell_policy"].startswith(
         "The happy path is direct in-place editing of `task.json`"
     )
-    assert (
-        "task-summary"
-        in worker_manifest["workspace_local_shell_examples"]
-    )
-    assert (
-        "task-show-unanswered --limit 5"
-        in worker_manifest["workspace_local_shell_examples"]
-    )
+    assert "task-summary" in worker_manifest["workspace_local_shell_examples"]
+    assert "task-show-unanswered --limit 5" in worker_manifest["workspace_local_shell_examples"]
+    assert "task-apply answers.json" in worker_manifest["workspace_local_shell_examples"]
     assert worker_manifest["workspace_commands_forbidden"] == [
         "repo/network/package-manager commands such as git, curl, wget, ssh, or package managers",
         "non-temp absolute paths outside approved local temp roots",

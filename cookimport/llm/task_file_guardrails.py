@@ -11,8 +11,114 @@ TASK_FILE_SIZE_WARNING_THRESHOLD_BYTES = 16 * 1024
 TASK_FILE_SIZE_WARNING_THRESHOLD_ESTIMATED_TOKENS = 4096
 
 
+_TOP_LEVEL_KEY_ORDER = (
+    "schema_version",
+    "stage_key",
+    "assignment_id",
+    "worker_id",
+    "mode",
+    "answer_schema",
+    "review_contract",
+    "grouping_batch",
+    "grouping_limits",
+    "ontology",
+    "units",
+)
+_ANSWER_SCHEMA_KEY_ORDER = (
+    "editable_pointer_pattern",
+    "required_keys",
+    "optional_keys",
+    "allowed_values",
+    "example_answers",
+)
+_REVIEW_CONTRACT_KEY_ORDER = (
+    "mode",
+    "worker_role",
+    "primary_question",
+    "decision_policy",
+    "anti_patterns",
+)
+_GROUPING_BATCH_KEY_ORDER = (
+    "current_batch_index",
+    "total_batches",
+    "unit_count",
+    "total_grouping_unit_count",
+    "remaining_batches_after_this",
+    "estimated_evidence_chars",
+    "max_units_per_batch",
+    "max_evidence_chars_per_batch",
+    "shard_ids",
+)
+_GROUPING_LIMITS_KEY_ORDER = (
+    "max_units_per_batch",
+    "max_evidence_chars_per_batch",
+)
+_UNIT_KEY_ORDER = (
+    "unit_id",
+    "owned_id",
+    "evidence",
+    "answer",
+    "previous_answer",
+    "validation_feedback",
+)
+
+
+def _ordered_mapping(
+    value: Mapping[str, Any],
+    *,
+    key_order: Sequence[str] | None = None,
+    nested_path: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    ordered: dict[str, Any] = {}
+    preferred_keys = tuple(key_order or ())
+    for key in preferred_keys:
+        if key in value:
+            ordered[key] = _ordered_value(value[key], nested_path=nested_path + (key,))
+    for key in sorted(str(item) for item in value.keys() if str(item) not in preferred_keys):
+        ordered[key] = _ordered_value(value[key], nested_path=nested_path + (key,))
+    return ordered
+
+
+def _ordered_value(value: Any, *, nested_path: tuple[str, ...] = ()) -> Any:
+    if isinstance(value, Mapping):
+        if not nested_path:
+            return _ordered_mapping(value, key_order=_TOP_LEVEL_KEY_ORDER, nested_path=nested_path)
+        current_key = nested_path[-1]
+        if current_key == "answer_schema":
+            return _ordered_mapping(
+                value,
+                key_order=_ANSWER_SCHEMA_KEY_ORDER,
+                nested_path=nested_path,
+            )
+        if current_key == "review_contract":
+            return _ordered_mapping(
+                value,
+                key_order=_REVIEW_CONTRACT_KEY_ORDER,
+                nested_path=nested_path,
+            )
+        if current_key == "grouping_batch":
+            return _ordered_mapping(
+                value,
+                key_order=_GROUPING_BATCH_KEY_ORDER,
+                nested_path=nested_path,
+            )
+        if current_key == "grouping_limits":
+            return _ordered_mapping(
+                value,
+                key_order=_GROUPING_LIMITS_KEY_ORDER,
+                nested_path=nested_path,
+            )
+        if len(nested_path) >= 2 and nested_path[-2] == "units":
+            return _ordered_mapping(value, key_order=_UNIT_KEY_ORDER, nested_path=nested_path)
+        return _ordered_mapping(value, nested_path=nested_path)
+    if isinstance(value, list):
+        return [_ordered_value(item, nested_path=nested_path) for item in value]
+    return value
+
+
 def render_task_file_text(payload: Mapping[str, Any]) -> str:
-    return json.dumps(dict(payload), sort_keys=True, separators=(",", ":")) + "\n"
+    ordered_payload = _ordered_value(dict(payload))
+    return json.dumps(ordered_payload, indent=2, ensure_ascii=False) + "\n"
 
 
 @lru_cache(maxsize=1)

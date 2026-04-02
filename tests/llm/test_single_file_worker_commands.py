@@ -62,7 +62,7 @@ def _valid_classification_answer() -> dict[str, object]:
     }
 
 
-def test_task_summary_reports_queue_workflow_and_current_unit(
+def test_task_summary_reports_direct_batch_progress_for_classification(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -73,12 +73,6 @@ def test_task_summary_reports_queue_workflow_and_current_unit(
     assert single_file_command_main(["task-summary"]) == 0
     summary = json.loads(capsys.readouterr().out)
 
-    assert summary["workflow"] == [
-        "task-summary",
-        "task-show-current",
-        "task-answer-current",
-        "task-next/task-handoff",
-    ]
     assert summary["current_unit_id"] == "knowledge::4"
     assert summary["required_answer_keys"] == [
         "category",
@@ -86,50 +80,35 @@ def test_task_summary_reports_queue_workflow_and_current_unit(
         "retrieval_concept",
         "grounding",
     ]
+    assert "workflow" not in summary
     assert "helper_commands" not in summary
     assert "answer_schema_summary" not in summary
 
 
-def test_queue_helpers_answer_current_unit_and_advance(
+def test_queue_helpers_are_unavailable_for_direct_batch_classification(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     write_task_file(path=tmp_path / "task.json", payload=_classification_task_file(tmp_path))
     monkeypatch.chdir(tmp_path)
 
-    assert (
+    with pytest.raises(SystemExit, match="open task.json directly"):
+        single_file_command_main(["task-show-current"])
+    with pytest.raises(SystemExit, match="open task.json directly"):
+        single_file_command_main(["task-next"])
+    with pytest.raises(SystemExit, match="edit task.json directly"):
         single_file_command_main(
             ["task-answer-current", json.dumps(_valid_classification_answer())]
         )
-        == 0
-    )
-    result = json.loads(capsys.readouterr().out)
-    assert result["status"] == "answer_applied"
-    assert result["answered_unit_id"] == "knowledge::4"
-    assert result["next_current_unit_id"] == "knowledge::5"
-    assert result["remaining_units"] == 1
-    assert "summary" not in result
-
-    assert single_file_command_main(["task-next"]) == 0
-    next_result = json.loads(capsys.readouterr().out)
-    assert next_result["status"] == "next_unit_ready"
-    assert next_result["current_unit_id"] == "knowledge::5"
-    assert "units" not in next_result
-
-    assert single_file_command_main(["task-show-current"]) == 0
-    current = json.loads(capsys.readouterr().out)
-    assert current["current_unit_id"] == "knowledge::5"
-    assert current["returned_unit_ids"] == ["knowledge::5"]
 
 
-def test_task_template_and_apply_work_for_batch_stage(
+def test_task_template_and_apply_still_work_for_recipe_stage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     task_file = build_task_file(
-        stage_key="line_role",
+        stage_key="recipe_refine",
         assignment_id="worker-001",
         worker_id="worker-001",
         units=[
@@ -140,8 +119,8 @@ def test_task_template_and_apply_work_for_batch_stage(
                 "answer": {},
             }
         ],
-        helper_commands=build_single_file_worker_surface(stage_key="line_role").helper_commands,
-        workflow=build_single_file_worker_surface(stage_key="line_role").workflow,
+        helper_commands=build_single_file_worker_surface(stage_key="recipe_refine").helper_commands,
+        workflow=build_single_file_worker_surface(stage_key="recipe_refine").workflow,
         answer_schema={
             "required_keys": ["label"],
             "example_answers": [{"label": "RECIPE_NOTES"}],
@@ -179,7 +158,7 @@ def test_task_apply_is_unavailable_for_classification(
     write_task_file(path=tmp_path / "task.json", payload=_classification_task_file(tmp_path))
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(SystemExit, match="task-answer-current"):
+    with pytest.raises(SystemExit, match="edit task.json directly"):
         single_file_command_main(["task-apply", "answers.json"])
 
 
@@ -192,10 +171,10 @@ def test_single_file_shims_redirect_task_dump_listing_and_inline_rewrite(
     monkeypatch.chdir(tmp_path)
 
     assert single_file_command_main(["--shim", "cat", "task.json"]) == 0
-    assert "task-show-current" in capsys.readouterr().err
+    assert capsys.readouterr().err == ""
 
     assert single_file_command_main(["--shim", "ls"]) == 0
-    assert "task-summary" in capsys.readouterr().err
+    assert capsys.readouterr().err == ""
 
     assert (
         single_file_command_main(
@@ -208,4 +187,4 @@ def test_single_file_shims_redirect_task_dump_listing_and_inline_rewrite(
         )
         == 0
     )
-    assert "task-answer-current" in capsys.readouterr().err
+    assert "Edit task.json directly" in capsys.readouterr().err

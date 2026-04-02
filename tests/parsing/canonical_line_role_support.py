@@ -211,7 +211,7 @@ def test_expand_line_role_task_file_outputs_recovers_answers_despite_immutable_d
         "assignment_id": "worker-003",
         "worker_id": "worker-003",
         "mode": "initial",
-        "editable_json_pointers": ["/units/0/answer", "/units/1/answer"],
+        "answer_schema": {"editable_pointer_pattern": "/units/*/answer"},
         "units": [
             {
                 "unit_id": "line::589",
@@ -570,16 +570,11 @@ class _ProgressSummaryAnswersFileRunner(FakeCodexExecRunner):
         working_dir = Path(kwargs.get("working_dir"))
         if self.workspace_run_calls == 1:
             task_file = load_task_file(working_dir / "task.json")
-            answers_by_unit_id: dict[str, dict[str, str]] = {}
             for index, unit in enumerate(task_file["units"]):
-                unit_id = str(unit.get("unit_id") or "").strip()
-                if not unit_id:
-                    continue
                 if index < 2:
-                    answers_by_unit_id[unit_id] = {"label": "NONRECIPE_CANDIDATE"}
-            (working_dir / "answers.json").write_text(
-                json.dumps({"answers_by_unit_id": answers_by_unit_id}, indent=2, sort_keys=True)
-                + "\n",
+                    unit["answer"] = {"label": "NONRECIPE_CANDIDATE"}
+            (working_dir / "task.json").write_text(
+                json.dumps(task_file, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
             callback = kwargs.get("supervision_callback")
@@ -597,11 +592,11 @@ class _ProgressSummaryAnswersFileRunner(FakeCodexExecRunner):
                     agent_message_count=1,
                     timeout_seconds=kwargs.get("timeout_seconds"),
                     final_agent_message_text=(
-                        "- I reviewed the first chunk and recorded labels in `answers.json`.\n"
+                        "- I reviewed the first chunk and updated `task.json` for those rows.\n"
                         "- The rest of the shard still needs labeling, and I haven't run "
-                        "`task-apply answers.json` or `task-handoff` yet.\n\n"
+                        "`task-handoff` yet.\n\n"
                         "1. Keep moving through the ledger.\n"
-                        "2. After batching more edits, run `task-apply answers.json`, then `task-handoff`."
+                        "2. After batching more edits, run `task-handoff`."
                     ),
                 )
             )
@@ -613,9 +608,9 @@ class _ProgressSummaryAnswersFileRunner(FakeCodexExecRunner):
                 output_schema_path=None,
                 prompt_text=str(kwargs.get("prompt_text") or ""),
                 response_text=(
-                    "- I reviewed the first chunk and recorded labels in `answers.json`.\n"
+                    "- I reviewed the first chunk and updated `task.json` for those rows.\n"
                     "- The rest of the shard still needs labeling, and I haven't run "
-                    "`task-apply answers.json` or `task-handoff` yet."
+                    "`task-handoff` yet."
                 ),
                 turn_failed_message=None,
                 usage={

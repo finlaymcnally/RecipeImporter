@@ -1167,6 +1167,7 @@ def _build_recipe_watchdog_callback(
             snapshot.last_command,
             allowed_absolute_roots=allowed_absolute_roots,
             single_file_worker_policy=allow_workspace_commands,
+            single_file_stage_key="recipe_refine",
         )
         last_command_boundary_violation = detect_workspace_worker_boundary_violation(
             snapshot.last_command,

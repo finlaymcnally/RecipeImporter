@@ -705,10 +705,8 @@ def _build_knowledge_workspace_worker_prompt(
             "Resume from the existing `task.json` and current workspace state."
             if fresh_session_resume
             else (
-                "Start with `task-summary`."
-                " Then follow the repo-owned helper workflow shown there, edit only "
-                f"`/units/*/answer` in `{TASK_FILE_NAME}`, save the same file, and run "
-                "`task-handoff`."
+                f"Open `{TASK_FILE_NAME}` directly, read the full assignment, edit only "
+                "`/units/*/answer`, save the same file, and run `task-handoff`."
             )
         ),
         "`task.json` is the whole job at each step. You do not need to discover extra control files or hidden repo state before editing it.",
@@ -718,7 +716,6 @@ def _build_knowledge_workspace_worker_prompt(
         "",
         "Worker contract:",
         "- Start with `task.json`.",
-        "- Prefer `task-summary` before opening raw file contents.",
         "- If you need orientation first, run `task-status`.",
         "- If the workspace feels inconsistent, run `task-doctor` before inventing shell scripts.",
         "- Edit only the `answer` object inside each unit.",
@@ -729,8 +726,8 @@ def _build_knowledge_workspace_worker_prompt(
         "- Do not invent queue advancement, control files, helper ledgers, or alternate output files.",
         "- `previous_answer` and `validation_feedback`, when present, are repair-only immutable context.",
         "- If you briefly reread part of `task.json` or make a small local false start, correct it and continue. Harmless local retries are not the point of failure here.",
-        "- Do not dump `task.json` with `cat` or `sed`, do not use `ls` or `find` just to orient yourself, and do not write ad hoc inline Python, Node, or heredoc rewrites against `task.json`.",
-        "- Other than repo-owned helper commands and tiny local temp helpers, do not use shell helpers on the happy path.",
+        "- Ordinary local reads of `task.json` and `AGENTS.md` are allowed. Do not turn them into shell schedulers or scripted rewrites.",
+        "- Other than `task-status`, `task-doctor`, and `task-handoff`, do not expect repo-owned workflow helpers on the happy path.",
         "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
         "",
         "Shard semantics:",
@@ -745,8 +742,7 @@ def _build_knowledge_workspace_worker_prompt(
         lines.extend(
             [
                 "- This is the classification step. Decide each block on its own merits before any grouping happens.",
-                "- Use `task-show-current` for the current owned block, `task-show-neighbors` only when nearby context is genuinely needed, and `task-answer-current '<answer_json>'` to record one decision at a time.",
-                "- Use `task-next` to confirm the next actionable block after each decision. Do not synthesize `answers.json`, `task-apply`, `jq`, or looped bulk-review flows for this step.",
+                "- Read the full classification file once, then fill every answer object in place before you run `task-handoff`.",
                 "- Answer each unit with `category`, `reviewer_category`, `retrieval_concept`, and `grounding`.",
                 f"- Final categories must be exactly one of `{'`, `'.join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)}`.",
                 "- If `category` is `knowledge`, `reviewer_category` must also be `knowledge`.",
@@ -765,8 +761,7 @@ def _build_knowledge_workspace_worker_prompt(
         lines.extend(
             [
                 "- This is the grouping-only step. Every unit already passed classification as `knowledge`.",
-                "- Inspect specific rows with `task-show-unit <unit_id>` or `task-show-unanswered --limit 5`.",
-                "- If batch authoring helps, run `task-template answers.json`, fill only the answer payloads, then run `task-apply answers.json` before `task-handoff`.",
+                "- Read the full grouping file, then fill every answer object in place before `task-handoff`.",
                 "- Answer each unit with `group_key` and `topic_label` only.",
                 "- `group_key` and `topic_label` must both be non-empty strings.",
                 "- Use concise group labels; the repo canonicalizes final group ids during deterministic expansion.",
@@ -1380,6 +1375,7 @@ def _build_strict_json_watchdog_callback(
             snapshot.last_command,
             allowed_absolute_roots=allowed_absolute_roots,
             single_file_worker_policy=allow_workspace_commands,
+            single_file_stage_key=current_workspace_stage_key,
         )
         last_command_boundary_violation = detect_workspace_worker_boundary_violation(
             snapshot.last_command,
@@ -1780,57 +1776,6 @@ def _detect_knowledge_workspace_stage_violation(
     if not cleaned_command:
         return None
     normalized_command = re.sub(r"\s+", " ", cleaned_command.lower())
-    cleaned_stage_key = str(current_stage_key or "").strip()
-
-    if cleaned_stage_key == "nonrecipe_classify":
-        if any(
-            marker in normalized_command
-            for marker in (
-                "task-apply",
-                "--apply-answers-file",
-                "task-template",
-                "--show-unanswered",
-                "task-show-unanswered",
-                "answers.json",
-            )
-        ):
-            return _KnowledgeWorkspaceStageCommandViolation(
-                policy="knowledge_classification_batch_synthesis",
-                reason_code="watchdog_packet_contract_bypass_batch_classification",
-                reason=(
-                    "knowledge classification is queue-style review. Use "
-                    "`task-show-current`, `task-answer-current`, and `task-next` "
-                    "instead of batch answer files or broad unanswered-unit dumps"
-                ),
-            )
-        if (
-            ("jq" in normalized_command or "python3 -c" in normalized_command or "python -c" in normalized_command)
-            and "task.json" in normalized_command
-        ):
-            return _KnowledgeWorkspaceStageCommandViolation(
-                policy="knowledge_classification_bulk_synthesis",
-                reason_code="watchdog_packet_contract_bypass_bulk_classification",
-                reason=(
-                    "knowledge classification must stay block-by-block. Do not script "
-                    "task.json synthesis; use `task-show-current` and "
-                    "`task-answer-current`"
-                ),
-            )
-        if (
-            ("for " in normalized_command or "while " in normalized_command or "$(seq" in normalized_command)
-            and any(
-                marker in normalized_command
-                for marker in ("task.json", "answers.json", "task-show-current")
-            )
-        ):
-            return _KnowledgeWorkspaceStageCommandViolation(
-                policy="knowledge_classification_looped_bulk_review",
-                reason_code="watchdog_packet_contract_bypass_bulk_classification",
-                reason=(
-                    "knowledge classification should not invent looped queue walkers. "
-                    "Review one current block at a time with the repo-owned queue helpers"
-                ),
-            )
 
     if "assigned_shards.json" in normalized_command:
         return _KnowledgeWorkspaceStageCommandViolation(

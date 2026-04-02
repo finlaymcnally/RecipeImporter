@@ -53,7 +53,8 @@ def test_classification_task_file_uses_split_schema_and_local_evidence_only() ->
 
     assert task_file["schema_version"] == KNOWLEDGE_CLASSIFY_SCHEMA_VERSION
     assert task_file["stage_key"] == KNOWLEDGE_CLASSIFY_STAGE_KEY
-    assert task_file["editable_json_pointers"] == ["/units/0/answer"]
+    assert "editable_json_pointers" not in task_file
+    assert task_file["answer_schema"]["editable_pointer_pattern"] == "/units/*/answer"
     assert unit_to_shard_id == {"knowledge::14": "book.ks0000.nr"}
     assert task_file["ontology"]["catalog_version"] == "cookbook-tag-catalog-2026-03-30"
     unit = task_file["units"][0]

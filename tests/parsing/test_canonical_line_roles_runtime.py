@@ -1044,16 +1044,12 @@ def test_label_atomic_lines_uses_single_line_role_prompt_surface(tmp_path) -> No
         / "line_role_prompt_0001.txt"
     ).read_text(encoding="utf-8")
     assert "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger." in prompt_text
-    assert "Start with `task-summary`." in prompt_text
-    assert "`task-show-unit <unit_id>` or `task-show-unanswered --limit 5`." in prompt_text
+    assert "Open `task.json` directly" in prompt_text
     assert "`task.json` already contains the full assignment." in prompt_text
-    assert "Prefer `task-summary` before opening raw file contents." in prompt_text
     assert "Title, variant, yield, and section calls are sequence-sensitive." in prompt_text
     assert "read the nearby rows directly in the ordered `task.json` ledger" in prompt_text
-    assert "`task-template answers.json`" in prompt_text
-    assert "`task-apply answers.json`." in prompt_text
-    assert "Do not dump `task.json` with `cat` or `sed`" in prompt_text
-    assert "Prefer opening the named file directly. If you still need shell helpers, keep them narrow and grounded on `task.json` or local temp files only." in prompt_text
+    assert "`task-show-unit <unit_id>` and `task-show-unanswered --limit 5` exist as fallback-only helpers." in prompt_text
+    assert "Ordinary local reads of `task.json` and `AGENTS.md` are allowed." in prompt_text
     assert "If you briefly reread part of the file or make a small local false start" in prompt_text
     assert "Stay inside this workspace" in prompt_text
     assert "The task file already contains the immutable row evidence and the editable answer slots." in prompt_text
@@ -1128,7 +1124,8 @@ def test_label_atomic_lines_workspace_manifest_matches_current_contract(
         / "task.json"
     )
     assert task_file_payload["stage_key"] == "line_role"
-    assert task_file_payload["editable_json_pointers"] == ["/units/0/answer"]
+    assert task_file_payload["answer_schema"]["editable_pointer_pattern"] == "/units/*/answer"
+    assert "helper_commands" not in task_file_payload
     assert task_file_payload["units"][0]["evidence"] == {
         "atomic_index": 0,
         "text": "Ambiguous line 0",
@@ -1273,22 +1270,8 @@ def test_label_atomic_lines_writes_one_shard_owned_ledger_without_line_role_task
     )
     assert not (worker_root / "assigned_tasks.json").exists()
     task_file_payload = load_task_file(worker_root / "task.json")
-    assert task_file_payload["editable_json_pointers"] == [
-        "/units/0/answer",
-        "/units/1/answer",
-        "/units/2/answer",
-        "/units/3/answer",
-    ]
-    assert task_file_payload["helper_commands"]["status"] == "task-status"
-    assert task_file_payload["helper_commands"]["show_unit"] == "task-show-unit <unit_id>"
-    assert (
-        task_file_payload["helper_commands"]["show_unanswered"]
-        == "task-show-unanswered --limit 5"
-    )
-    assert (
-        task_file_payload["helper_commands"]["apply_answers_file"]
-        == "task-apply answers.json"
-    )
+    assert task_file_payload["answer_schema"]["editable_pointer_pattern"] == "/units/*/answer"
+    assert "helper_commands" not in task_file_payload
     assert task_file_payload["answer_schema"]["example_answers"][0]["label"] == "RECIPE_NOTES"
     assert all(
         set(unit["evidence"]) == {

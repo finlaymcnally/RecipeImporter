@@ -31,6 +31,7 @@ TASK_SHOW_CURRENT_COMMAND = "task-show-current"
 TASK_SHOW_NEIGHBORS_COMMAND = "task-show-neighbors"
 TASK_ANSWER_CURRENT_COMMAND = "task-answer-current"
 TASK_NEXT_COMMAND = "task-next"
+AGENTS_FILE_NAME = "AGENTS.md"
 
 RECIPE_STAGE_KEY = "recipe_refine"
 LINE_ROLE_STAGE_KEY = "line_role"
@@ -47,7 +48,11 @@ class SingleFileWorkerSurface:
     task_dump_hint: str
     workspace_listing_hint: str
     inline_rewrite_hint: str
-    batch_apply_allowed: bool
+    show_unit_allowed: bool
+    show_unanswered_allowed: bool
+    template_apply_allowed: bool
+    queue_helpers_allowed: bool
+    direct_task_file_reads_allowed: bool
 
 
 def build_single_file_worker_surface(*, stage_key: str) -> SingleFileWorkerSurface:
@@ -61,32 +66,49 @@ def build_single_file_worker_surface(*, stage_key: str) -> SingleFileWorkerSurfa
     }
     if cleaned_stage_key == KNOWLEDGE_CLASSIFY_STAGE_KEY:
         return SingleFileWorkerSurface(
-            helper_commands={
-                **shared_commands,
-                "show_current": TASK_SHOW_CURRENT_COMMAND,
-                "show_neighbors": TASK_SHOW_NEIGHBORS_COMMAND,
-                "answer_current": f"{TASK_ANSWER_CURRENT_COMMAND} '<answer_json>'",
-                "next": TASK_NEXT_COMMAND,
-            },
+            helper_commands=shared_commands,
             workflow=(
-                TASK_SUMMARY_COMMAND,
-                TASK_SHOW_CURRENT_COMMAND,
-                TASK_ANSWER_CURRENT_COMMAND,
-                f"{TASK_NEXT_COMMAND}/{TASK_HANDOFF_COMMAND}",
+                f"open {TASK_FILE_NAME}",
+                "edit /units/*/answer",
+                TASK_HANDOFF_COMMAND,
             ),
             task_dump_hint=(
-                f"Use {TASK_SUMMARY_COMMAND}, {TASK_SHOW_CURRENT_COMMAND}, or "
-                f"{TASK_SHOW_NEIGHBORS_COMMAND} instead of dumping task.json."
+                f"Open {TASK_FILE_NAME} directly. It is the full assignment."
             ),
             workspace_listing_hint=(
-                f"Use {TASK_SUMMARY_COMMAND} instead of broad workspace listing; "
-                "task.json is the whole job."
+                f"{TASK_FILE_NAME} and {AGENTS_FILE_NAME} are the visible workspace contract."
             ),
             inline_rewrite_hint=(
-                f"Use {TASK_SHOW_CURRENT_COMMAND} or {TASK_ANSWER_CURRENT_COMMAND} "
-                "instead of scripting classification decisions."
+                f"Edit {TASK_FILE_NAME} directly instead of scripting an inline rewrite."
             ),
-            batch_apply_allowed=False,
+            show_unit_allowed=True,
+            show_unanswered_allowed=False,
+            template_apply_allowed=False,
+            queue_helpers_allowed=False,
+            direct_task_file_reads_allowed=True,
+        )
+    if cleaned_stage_key in {LINE_ROLE_STAGE_KEY, KNOWLEDGE_GROUP_STAGE_KEY}:
+        return SingleFileWorkerSurface(
+            helper_commands=shared_commands,
+            workflow=(
+                f"open {TASK_FILE_NAME}",
+                "edit /units/*/answer",
+                TASK_HANDOFF_COMMAND,
+            ),
+            task_dump_hint=(
+                f"Open {TASK_FILE_NAME} directly. It is the full assignment."
+            ),
+            workspace_listing_hint=(
+                f"{TASK_FILE_NAME} and {AGENTS_FILE_NAME} are the visible workspace contract."
+            ),
+            inline_rewrite_hint=(
+                f"Edit {TASK_FILE_NAME} directly instead of scripting an inline rewrite."
+            ),
+            show_unit_allowed=True,
+            show_unanswered_allowed=True,
+            template_apply_allowed=False,
+            queue_helpers_allowed=False,
+            direct_task_file_reads_allowed=True,
         )
     return SingleFileWorkerSurface(
         helper_commands={
@@ -115,7 +137,11 @@ def build_single_file_worker_surface(*, stage_key: str) -> SingleFileWorkerSurfa
             f"Use {TASK_TEMPLATE_COMMAND} plus {TASK_APPLY_COMMAND} instead of "
             "rewriting task.json with inline python for this stage."
         ),
-        batch_apply_allowed=True,
+        show_unit_allowed=True,
+        show_unanswered_allowed=True,
+        template_apply_allowed=True,
+        queue_helpers_allowed=False,
+        direct_task_file_reads_allowed=False,
     )
 
 
@@ -416,12 +442,12 @@ def _real_executable(name: str) -> str | None:
     explicit = str(os.environ.get(env_key) or "").strip()
     if explicit:
         return explicit
+    import shutil
+
     original_path = str(os.environ.get(_ORIGINAL_PATH_ENV) or "").strip()
     if original_path:
-        import shutil
-
         return shutil.which(name, path=original_path)
-    return None
+    return shutil.which(name)
 
 
 def _exec_real_command(name: str, args: Sequence[str]) -> int:
@@ -432,10 +458,15 @@ def _exec_real_command(name: str, args: Sequence[str]) -> int:
     return int(completed.returncode)
 
 
-def _task_path_argument_present(args: Sequence[str]) -> bool:
+def _direct_file_read_argument_present(args: Sequence[str]) -> bool:
     for arg in args:
         cleaned = str(arg or "").strip()
-        if cleaned in {TASK_FILE_NAME, f"./{TASK_FILE_NAME}"}:
+        if cleaned in {
+            TASK_FILE_NAME,
+            f"./{TASK_FILE_NAME}",
+            AGENTS_FILE_NAME,
+            f"./{AGENTS_FILE_NAME}",
+        }:
             return True
     return False
 
@@ -474,7 +505,13 @@ def _print_stage_redirect(kind: str) -> int:
 def _dispatch_shim(command_name: str, args: Sequence[str]) -> int:
     if not _single_file_workspace_active():
         return _exec_real_command(command_name, args)
-    if command_name == "cat" and _task_path_argument_present(args):
+    surface = build_single_file_worker_surface(stage_key=_task_file_stage_key())
+    if surface.direct_task_file_reads_allowed:
+        if command_name == "cat" and _direct_file_read_argument_present(args):
+            return _exec_real_command(command_name, args)
+        if command_name == "ls":
+            return _exec_real_command(command_name, args)
+    if command_name == "cat" and _direct_file_read_argument_present(args):
         return _print_stage_redirect("task-dump")
     if command_name == "ls":
         return _print_stage_redirect("workspace-listing")
@@ -529,6 +566,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if command_name == TASK_SHOW_UNIT_COMMAND:
         if len(args) != 1:
             return _usage_error("usage: task-show-unit <unit_id>")
+        if not surface.show_unit_allowed:
+            raise SystemExit(
+                f"{TASK_SHOW_UNIT_COMMAND} is unavailable for {stage_key}; "
+                f"open {TASK_FILE_NAME} directly instead."
+            )
         return _print_json(_show_unit_payload(payload=task_file, unit_ids=[args[0]]))
     if command_name == TASK_SHOW_UNANSWERED_COMMAND:
         limit = None
@@ -537,28 +579,28 @@ def main(argv: Sequence[str] | None = None) -> int:
                 limit = int(args[1])
             else:
                 return _usage_error("usage: task-show-unanswered [--limit N]")
-        if not surface.batch_apply_allowed:
+        if not surface.show_unanswered_allowed:
             raise SystemExit(
                 f"{TASK_SHOW_UNANSWERED_COMMAND} is unavailable for {stage_key}; "
-                f"use {TASK_SHOW_CURRENT_COMMAND} instead."
+                f"open {TASK_FILE_NAME} directly instead."
             )
         return _print_json(_show_unanswered_payload(task_file, limit=limit))
     if command_name == TASK_TEMPLATE_COMMAND:
         if len(args) != 1:
             return _usage_error("usage: task-template <answers_path>")
-        if not surface.batch_apply_allowed:
+        if not surface.template_apply_allowed:
             raise SystemExit(
                 f"{TASK_TEMPLATE_COMMAND} is unavailable for {stage_key}; "
-                f"use {TASK_SHOW_CURRENT_COMMAND} and {TASK_ANSWER_CURRENT_COMMAND} instead."
+                f"edit {TASK_FILE_NAME} directly instead."
             )
         return _print_json(write_answer_template(path=Path(args[0]), payload=task_file))
     if command_name == TASK_APPLY_COMMAND:
         if len(args) != 1:
             return _usage_error("usage: task-apply <answers_path>")
-        if not surface.batch_apply_allowed:
+        if not surface.template_apply_allowed:
             raise SystemExit(
                 f"{TASK_APPLY_COMMAND} is unavailable for {stage_key}; "
-                f"use {TASK_ANSWER_CURRENT_COMMAND} instead."
+                f"edit {TASK_FILE_NAME} directly instead."
             )
         answers_by_unit_id = _load_answer_mapping_file(Path(args[0]))
         apply_result = apply_answers_to_task_file(
@@ -580,14 +622,34 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
         )
     if command_name == TASK_SHOW_CURRENT_COMMAND:
+        if not surface.queue_helpers_allowed:
+            raise SystemExit(
+                f"{TASK_SHOW_CURRENT_COMMAND} is unavailable for {stage_key}; "
+                f"open {TASK_FILE_NAME} directly instead."
+            )
         return _print_json(_show_current_payload(task_file))
     if command_name == TASK_SHOW_NEIGHBORS_COMMAND:
+        if not surface.queue_helpers_allowed:
+            raise SystemExit(
+                f"{TASK_SHOW_NEIGHBORS_COMMAND} is unavailable for {stage_key}; "
+                f"open {TASK_FILE_NAME} directly instead."
+            )
         return _print_json(_show_neighbors_payload(task_file))
     if command_name == TASK_ANSWER_CURRENT_COMMAND:
+        if not surface.queue_helpers_allowed:
+            raise SystemExit(
+                f"{TASK_ANSWER_CURRENT_COMMAND} is unavailable for {stage_key}; "
+                f"edit {TASK_FILE_NAME} directly instead."
+            )
         if len(args) != 1:
             return _usage_error("usage: task-answer-current '<answer_json>'")
         return _print_json(_apply_current_answer(args[0]))
     if command_name == TASK_NEXT_COMMAND:
+        if not surface.queue_helpers_allowed:
+            raise SystemExit(
+                f"{TASK_NEXT_COMMAND} is unavailable for {stage_key}; "
+                f"open {TASK_FILE_NAME} directly instead."
+            )
         return _print_json(_next_payload(_load_current_task_file()))
     if command_name == TASK_STATUS_COMMAND:
         return _run_handoff_command(stage_key, "--status")

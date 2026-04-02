@@ -474,9 +474,9 @@ def test_line_role_workspace_watchdog_kills_incomplete_progress_summary_immediat
             agent_message_count=1,
             timeout_seconds=30,
             final_agent_message_text=(
-                "- I reviewed the first chunk and recorded labels in `answers.json`.\n"
+                "- I reviewed the first chunk and updated `task.json` for those rows.\n"
                 "- The rest of the shard still needs labeling, and I haven't run "
-                "`task-apply answers.json` or `task-handoff` yet."
+                "`task-handoff` yet."
             ),
         )
     )

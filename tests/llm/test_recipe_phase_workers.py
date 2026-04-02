@@ -470,11 +470,7 @@ def test_recipe_phase_runtime_uses_fixed_assignment_task_manifest(
     task_file = load_task_file(worker_root / "task.json")
     assert task_file["stage_key"] == "recipe_refine"
     assert task_file["mode"] == "initial"
-    assert task_file["editable_json_pointers"] == [
-        "/units/0/answer",
-        "/units/1/answer",
-        "/units/2/answer",
-    ]
+    assert task_file["answer_schema"]["editable_pointer_pattern"] == "/units/*/answer"
     assert [unit["owned_id"] for unit in task_file["units"]] == [
         "urn:recipe:test:toast",
         "urn:recipe:test:tea",

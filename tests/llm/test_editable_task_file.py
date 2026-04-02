@@ -24,7 +24,10 @@ def _base_task_file() -> dict[str, object]:
         worker_id="worker-001",
         helper_commands={"status": "python3 -m stage --status"},
         next_action="fill answers then run helper",
-        answer_schema={"example_answers": [{"label": "RECIPE_NOTES"}]},
+        answer_schema={
+            "editable_pointer_pattern": "/units/*/answer",
+            "example_answers": [{"label": "RECIPE_NOTES"}],
+        },
         units=[
             {
                 "unit_id": "line::0",
@@ -134,7 +137,7 @@ def test_build_repair_task_file_keeps_only_failed_units_with_feedback() -> None:
     )
 
     assert repair["mode"] == "repair"
-    assert repair["editable_json_pointers"] == ["/units/0/answer"]
+    assert "editable_json_pointers" not in repair
     assert [unit["unit_id"] for unit in repair["units"]] == ["line::1"]  # type: ignore[index]
     assert repair["units"][0]["previous_answer"] == {  # type: ignore[index]
         "label": "NONRECIPE_CANDIDATE",
@@ -146,17 +149,18 @@ def test_build_repair_task_file_keeps_only_failed_units_with_feedback() -> None:
     assert repair["helper_commands"] == {"status": "python3 -m stage --status"}
     assert repair["next_action"] == "fill answers then run helper"
     assert repair["answer_schema"] == {
+        "editable_pointer_pattern": "/units/*/answer",
         "example_answers": [{"label": "RECIPE_NOTES"}]
     }
     assert repair["ontology"] == {"catalog_version": "test-catalog"}
 
 
-def test_render_task_file_text_is_compact_json() -> None:
+def test_render_task_file_text_is_multiline_json() -> None:
     rendered = render_task_file_text(_base_task_file())
 
     assert rendered.endswith("\n")
-    assert rendered.count("\n") == 1
-    assert '  "' not in rendered
+    assert rendered.count("\n") > 1
+    assert '  "' in rendered
     assert json.loads(rendered)["stage_key"] == "line_role"
 
 
@@ -176,10 +180,8 @@ def test_summarize_task_file_reports_answer_progress() -> None:
     assert summary["unanswered_unit_ids"] == []
     assert summary["unanswered_unit_ids_truncated"] is False
     assert summary["editable_pointer_count"] == 2
-    assert summary["editable_json_pointers_sample"] == [
-        "/units/0/answer",
-        "/units/1/answer",
-    ]
+    assert summary["editable_pointer_pattern"] == "/units/*/answer"
+    assert summary["editable_json_pointers_sample"] == []
     assert summary["editable_json_pointers_truncated"] is False
 
 
