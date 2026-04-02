@@ -24,7 +24,7 @@ Decision boundary:
 - `other` means memoir, scene-setting, praise blurbs, endorsements, publisher marketing, signup copy, decorative headings, table of contents, chapter menus, recipe indexes, or other non-reusable matter.
 - Ask: would saving this materially improve a cook's future decisions, diagnosis, or technique without needing the surrounding paragraph?
 - Ask: is this specific and non-obvious enough to earn storage in a cookbook knowledge base?
-- Ask: can this block produce a short retrieval concept plus at least one existing ontology tag, or a crisp proposed tag under an existing category if the catalog is missing the concept?
+- Ask: can this block ground to at least one existing ontology tag, or a crisp proposed tag under an existing category if the catalog is missing the concept?
 - Ask: does it explain cause, judgment, troubleshooting, ingredient behavior, sensory cues, durable technique, substitution, storage, or safety?
 - If the text is technically true but low-value, too generic, motivational, or not worth preserving on its own, keep it as `other`.
 - If you cannot name a specific existing tag fit, and you also cannot point to a real catalog gap that deserves a proposed tag, keep the block `other`.
@@ -35,11 +35,10 @@ Decision boundary:
 - Category-only grounding is not enough. If a block cannot ground more specifically than a broad category, keep it `other`.
 
 Grounding rules:
-- Every `knowledge` block must include `rt` as a short retrieval concept phrase.
 - Every `knowledge` block must include `gr.tk` with one or more existing tag keys, or `gr.pt` with one or more proposed tags.
 - Proposed tags are for real catalog gaps only, not as a fallback when no existing tag actually fits. Each proposed tag needs normalized `k`, short `d`, and existing category `ck`.
 - `gr.ck` is optional support metadata only. It does not make a block keepable by itself.
-- `other` blocks must use `rt=null`, `gr.tk=[]`, `gr.ck=[]`, and `gr.pt=[]`.
+- `other` blocks must use `gr.tk=[]`, `gr.ck=[]`, and `gr.pt=[]`.
 
 Grouping rules:
 - After block decisions, create `idea_groups` only from the blocks you marked `knowledge`.
@@ -52,20 +51,9 @@ Grouping rules:
 - Every idea group must include at least one grounded snippet with evidence.
 - When there is a large block-index jump or a clear subject change, prefer separate idea groups unless the text itself clearly ties the blocks together.
 
-Internal reviewer categories for `d[*].rc`:
-- `knowledge`
-- `chapter_taxonomy`
-- `decorative_heading`
-- `front_matter`
-- `toc_navigation`
-- `endorsement_or_marketing`
-- `memoir_or_scene_setting`
-- `reference_back_matter`
-- `other`
-
 Short output keys:
 - top level: `v`, `bid`, `d`, `g`
-- decision: `i`, `c`, `rc`, `rt`, `gr`
+- decision: `i`, `c`, `gr`
 - grounding: `tk`, `ck`, `pt`
 - proposed tag: `k`, `d`, `ck`
 - idea group: `gid`, `l`, `bi`, `s`
@@ -83,9 +71,8 @@ Input keys:
 Packet result:
 - `d` must include every owned block exactly once and in order.
 - `c` must be `knowledge` or `other`.
-- `rc` should explain the coarse reviewer reason. If `c=knowledge`, then `rc` must be `knowledge`.
-- If `c=knowledge`, `rt` must be a non-empty short concept phrase and `gr` must include at least one `tk` or one `pt`.
-- If `c=other`, `rt` must be `null` and `gr` must stay empty.
+- If `c=knowledge`, `gr` must include at least one `tk` or one `pt`.
+- If `c=other`, `gr` must stay empty.
 - `g` may be empty only when every block is `other`.
 - Every `knowledge` block must appear in exactly one `g[*].bi`.
 - Every `g[*].s[*]` needs at least one evidence quote from owned packet blocks.

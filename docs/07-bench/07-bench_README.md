@@ -130,8 +130,8 @@ Interactive benchmark modes are still active and remain offline canonical-text w
 Current interactive contracts:
 
 - `single_book` writes one session root under `data/golden/benchmark-vs-golden/<timestamp>/single-book-benchmark/<source_slug>/`
-- when Codex-backed recipe extraction is selected, paired runs are written under sibling `vanilla/` and `codexfarm/` roots in that session
-- paired benchmark variants now share the same selected `atomic_block_splitter`; benchmark helpers no longer hardcode `off` for `vanilla` and `atomic-v1` for `codexfarm`
+- when Codex-backed recipe extraction is selected, paired runs are written under sibling `vanilla/` and `codex-exec/` roots in that session
+- paired benchmark variants now share the same selected `atomic_block_splitter`; benchmark helpers no longer hardcode `off` for `vanilla` and `atomic-v1` for `codex-exec`
 - benchmark prediction/import runs now resolve the same hidden runtime defaults as stage for EPUB segmentation, knowledge grouping caps, and workspace completion grace; support-only benchmark constants such as split-cache wait/poll, single-profile scheduler policy, and Oracle upload shard/poll budgets now live behind shared resolver helpers instead of scattered literals
 - paired success can emit:
   - `codex_vs_vanilla_comparison.json`

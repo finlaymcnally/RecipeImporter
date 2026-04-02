@@ -16,11 +16,11 @@ def test_single_book_comparison_markdown_table_columns_are_width_aligned() -> No
         "run_timestamp": "2026-03-02_21.25.24",
         "source_file": "book.epub",
         "variants": {
-            "codexfarm": {"eval_output_dir": "codex"},
+            "codex-exec": {"eval_output_dir": "codex"},
             "vanilla": {"eval_output_dir": "vanilla"},
         },
         "metrics": {
-            "codexfarm": {
+            "codex-exec": {
                 "strict_accuracy": 0.438589,
                 "macro_f1_excluding_other": 0.295998,
             },
@@ -47,7 +47,7 @@ def test_single_book_comparison_markdown_table_columns_are_width_aligned() -> No
     for line in table_lines[1:]:
         assert [idx for idx, char in enumerate(line) if char == "|"] == expected_pipes
 
-    assert table_lines[0] == "| Metric                     | CodexFarm |  Vanilla | Codex - Vanilla |"
+    assert table_lines[0] == "| Metric                     | Codex Exec |  Vanilla | Codex - Vanilla |"
     assert table_lines[2] == "| `strict_accuracy`          |  0.438589 | 0.399915 |        0.038674 |"
     assert table_lines[3] == "| `macro_f1_excluding_other` |  0.295998 | 0.290594 |        0.005404 |"
     assert "Duplicate alias metrics in eval JSON" not in markdown
@@ -58,7 +58,7 @@ def test_single_book_comparison_markdown_includes_per_label_breakdown() -> None:
         "run_timestamp": "2026-03-02_21.25.24",
         "source_file": "book.epub",
         "variants": {
-            "codexfarm": {"eval_output_dir": "codex"},
+            "codex-exec": {"eval_output_dir": "codex"},
             "vanilla": {"eval_output_dir": "vanilla"},
         },
         "metrics": {},
@@ -104,7 +104,7 @@ def test_single_book_summary_markdown_uses_variant_local_per_label_tables(
 ) -> None:
     session_root = tmp_path / "session"
     vanilla_dir = session_root / "vanilla"
-    codex_dir = session_root / "codexfarm"
+    codex_dir = session_root / "codex-exec"
     vanilla_dir.mkdir(parents=True, exist_ok=True)
     codex_dir.mkdir(parents=True, exist_ok=True)
 
@@ -151,7 +151,7 @@ def test_single_book_summary_markdown_uses_variant_local_per_label_tables(
                 "run_timestamp": "2026-03-31_19.51.54",
                 "source_file": "book.epub",
                 "variants": {
-                    "codexfarm": {"eval_output_dir": str(codex_dir)},
+                    "codex-exec": {"eval_output_dir": str(codex_dir)},
                     "vanilla": {"eval_output_dir": str(vanilla_dir)},
                 },
                 "metrics": {},
@@ -185,7 +185,7 @@ def test_single_book_summary_markdown_uses_variant_local_per_label_tables(
                 "status": "ok",
                 "eval_output_dir": vanilla_dir,
             },
-            "codexfarm": {
+            "codex-exec": {
                 "status": "ok",
                 "eval_output_dir": codex_dir,
             },
@@ -205,7 +205,7 @@ def test_single_book_comparison_artifacts_include_per_label_breakdown(
     tmp_path: Path,
 ) -> None:
     session_root = tmp_path / "session"
-    codex_eval_output_dir = session_root / "codexfarm"
+    codex_eval_output_dir = session_root / "codex-exec"
     vanilla_eval_output_dir = session_root / "vanilla"
     codex_eval_output_dir.mkdir(parents=True, exist_ok=True)
     vanilla_eval_output_dir.mkdir(parents=True, exist_ok=True)
@@ -280,7 +280,7 @@ def test_single_book_comparison_artifacts_include_variant_diagnostics(
     tmp_path: Path,
 ) -> None:
     session_root = tmp_path / "session"
-    codex_eval_output_dir = session_root / "codexfarm"
+    codex_eval_output_dir = session_root / "codex-exec"
     vanilla_eval_output_dir = session_root / "vanilla"
     codex_eval_output_dir.mkdir(parents=True, exist_ok=True)
     vanilla_eval_output_dir.mkdir(parents=True, exist_ok=True)
@@ -343,7 +343,7 @@ def test_single_book_comparison_artifacts_include_variant_diagnostics(
         "mixed",
         "no_material_change",
     }
-    codex_row = diagnostics["variants"]["codexfarm"]
+    codex_row = diagnostics["variants"]["codex-exec"]
     vanilla_row = diagnostics["variants"]["vanilla"]
     assert codex_row["gold_adaptation"]["coverage_ratio"] == pytest.approx(0.91)
     assert vanilla_row["gold_adaptation"]["coverage_ratio"] == pytest.approx(0.95)
@@ -359,7 +359,7 @@ def test_single_book_comparison_artifacts_include_variant_diagnostics(
 
 def test_single_book_comparison_artifacts_markdown_toggle(tmp_path: Path) -> None:
     session_root = tmp_path / "session"
-    codex_eval_output_dir = session_root / "codexfarm"
+    codex_eval_output_dir = session_root / "codex-exec"
     vanilla_eval_output_dir = session_root / "vanilla"
     codex_eval_output_dir.mkdir(parents=True, exist_ok=True)
     vanilla_eval_output_dir.mkdir(parents=True, exist_ok=True)
@@ -406,7 +406,7 @@ def test_single_book_comparison_artifacts_trigger_starter_pack(
     tmp_path: Path,
 ) -> None:
     session_root = tmp_path / "session"
-    codex_eval_output_dir = session_root / "codexfarm"
+    codex_eval_output_dir = session_root / "codex-exec"
     vanilla_eval_output_dir = session_root / "vanilla"
     codex_eval_output_dir.mkdir(parents=True, exist_ok=True)
     vanilla_eval_output_dir.mkdir(parents=True, exist_ok=True)
@@ -552,7 +552,7 @@ def test_single_book_comparison_includes_codex_runtime_from_llm_manifest_fallbac
     _patch_cli_attr(monkeypatch, "default_codex_reasoning_effort", lambda cmd=None: "high")
 
     session_root = tmp_path / "single-book-benchmark"
-    codex_eval_output_dir = session_root / "codexfarm"
+    codex_eval_output_dir = session_root / "codex-exec"
     vanilla_eval_output_dir = session_root / "vanilla"
     codex_eval_output_dir.mkdir(parents=True, exist_ok=True)
     vanilla_eval_output_dir.mkdir(parents=True, exist_ok=True)

@@ -102,7 +102,7 @@ _JS_COMPARE_CONTROL = """\
       tokenTotals.discountedTokenTotal,
     );
 
-    const codexRecords = latestRunRecords.filter(record => benchmarkVariantForRecord(record) === "codexfarm");
+    const codexRecords = latestRunRecords.filter(record => benchmarkVariantForRecord(record) === "codex-exec");
     const vanillaRecords = latestRunRecords.filter(record => benchmarkVariantForRecord(record) === "vanilla");
     let qualityDeltaVsVanilla = null;
     let qualityDeltaPerMillionExtraTokensVsVanilla = null;
@@ -200,7 +200,7 @@ _JS_COMPARE_CONTROL = """\
 
   function benchmarkVariantFromPathOrPipeline(record) {
     const path = benchmarkArtifactPath(record);
-    if (path.includes("/codexfarm/") || path.endsWith("/codexfarm")) return "codexfarm";
+    if (path.includes("/codex-exec/") || path.endsWith("/codex-exec")) return "codex-exec";
     if (path.includes("/vanilla/") || path.endsWith("/vanilla")) return "vanilla";
     return null;
   }
@@ -228,7 +228,7 @@ _JS_COMPARE_CONTROL = """\
     if (recipeOn && lineRoleOn) return "full_stack";
     if (
       isOfficialPairedBenchmark &&
-      pipelineOrPathVariant === "codexfarm" &&
+      pipelineOrPathVariant === "codex-exec" &&
       recipeOn &&
       !lineRoleOn
     ) {
@@ -245,7 +245,7 @@ _JS_COMPARE_CONTROL = """\
       return "deterministic";
     }
     if (recipePipeline || lineRolePipeline) return "deterministic";
-    if (isOfficialPairedBenchmark && pipelineOrPathVariant === "codexfarm") {
+    if (isOfficialPairedBenchmark && pipelineOrPathVariant === "codex-exec") {
       return "full_stack";
     }
     if (isOfficialPairedBenchmark && pipelineOrPathVariant === "vanilla") {
@@ -268,7 +268,7 @@ _JS_COMPARE_CONTROL = """\
     const explicit = cleanConfigValue(record && record.benchmark_variant);
     if (explicit) {
       const explicitKey = String(explicit).toLowerCase().replace(/[-\\s]+/g, "_");
-      if (["vanilla", "codexfarm", "deterministic", "line_role_only", "recipe_only", "full_stack", "other"].includes(explicitKey)) {
+      if (["vanilla", "codex-exec", "deterministic", "line_role_only", "recipe_only", "full_stack", "other"].includes(explicitKey)) {
         return explicitKey;
       }
     }
@@ -284,8 +284,8 @@ _JS_COMPARE_CONTROL = """\
     if (isOfficialPairedBenchmark && pipelineOrPathVariant === "vanilla" && profile === "deterministic") {
       return "vanilla";
     }
-    if (isOfficialPairedBenchmark && pipelineOrPathVariant === "codexfarm" && profile === "full_stack") {
-      return "codexfarm";
+    if (isOfficialPairedBenchmark && pipelineOrPathVariant === "codex-exec" && profile === "full_stack") {
+      return "codex-exec";
     }
     return profile;
   }
@@ -293,18 +293,18 @@ _JS_COMPARE_CONTROL = """\
   function benchmarkTrendVariantForRecord(record) {
     const rawVariant = benchmarkVariantForRecord(record);
     if (rawVariant === "vanilla") return "vanilla";
-    if (rawVariant === "codexfarm") return "codexfarm";
+    if (rawVariant === "codex-exec") return "codex-exec";
     if (rawVariant === "deterministic") return "vanilla";
     if (
       rawVariant === "line_role_only" ||
       rawVariant === "recipe_only" ||
       rawVariant === "full_stack"
     ) {
-      return "codexfarm";
+      return "codex-exec";
     }
 
     const path = benchmarkArtifactPath(record).toLowerCase();
-    if (/(^|[\\/_-])codex(?:farm)?([\\/_-]|$)/.test(path)) return "codexfarm";
+    if (/(^|[\\/_-])codex(?:farm)?([\\/_-]|$)/.test(path)) return "codex-exec";
     if (
       path.includes("baseline-off") ||
       /(^|[\\/_-])vanilla([\\/_-]|$)/.test(path) ||
@@ -321,8 +321,8 @@ _JS_COMPARE_CONTROL = """\
       lineRolePipeline,
       knowledgePipeline,
     ].some(value => value && String(value).toLowerCase() !== "off");
-    if (hasEnabledPipeline) return "codexfarm";
-    if (rawAiModelForRecord(record) || rawAiEffortForRecord(record)) return "codexfarm";
+    if (hasEnabledPipeline) return "codex-exec";
+    if (rawAiModelForRecord(record) || rawAiEffortForRecord(record)) return "codex-exec";
     return "vanilla";
   }
 
@@ -593,7 +593,7 @@ _JS_COMPARE_CONTROL = """\
     return {
       default: base,
       vanilla: benchmarkTrendShiftHexColor(base, 58),
-      codexfarm: base,
+      codex-exec: base,
       other: benchmarkTrendShiftHexColor(base, 20),
     };
   }
@@ -608,12 +608,12 @@ _JS_COMPARE_CONTROL = """\
       key,
       colors: benchmarkTrendMetricColors(key, index),
     }));
-    const variantPriority = ["vanilla", "codexfarm"];
+    const variantPriority = ["vanilla", "codex-exec"];
     const presentVariants = new Set(
       records.map(record => benchmarkTrendVariantForRecord(record))
     );
     const hasPairedVariants =
-      presentVariants.has("vanilla") || presentVariants.has("codexfarm");
+      presentVariants.has("vanilla") || presentVariants.has("codex-exec");
 
     const baseSeries = [];
     if (!hasPairedVariants) {

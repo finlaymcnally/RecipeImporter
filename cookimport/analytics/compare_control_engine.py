@@ -302,7 +302,7 @@ def _benchmark_artifact_path(record: dict[str, Any]) -> str:
 
 def _benchmark_variant_from_path_or_pipeline(record: dict[str, Any]) -> str | None:
     variant = benchmark_semantics.artifact_variant_for_record(record)
-    return variant if variant in {"vanilla", "codexfarm"} else None
+    return variant if variant in {"vanilla", "codex-exec"} else None
 
 
 def _raw_ai_model_for_record(record: dict[str, Any]) -> str | None:
@@ -457,7 +457,7 @@ def is_official_golden_benchmark_record(record: dict[str, Any]) -> bool:
     if not benchmark_semantics.is_official_golden_benchmark_record(record):
         return False
     variant = benchmark_variant_for_record(record)
-    return variant in {"vanilla", "codexfarm"}
+    return variant in {"vanilla", "codex-exec"}
 
 
 def maybe_number(value: Any) -> float | None:

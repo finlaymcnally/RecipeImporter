@@ -955,11 +955,11 @@ function firstX(name) {
 }
 
 const vanillaSeries = findSeries("strict_accuracy (vanilla)");
-const codexSeries = findSeries("strict_accuracy (codexfarm)");
+const codexSeries = findSeries("strict_accuracy (codex-exec)");
 const tokenVanillaSeries = findSeries("tokens_total (vanilla)");
-const tokenCodexSeries = findSeries("tokens_total (codexfarm)");
+const tokenCodexSeries = findSeries("tokens_total (codex-exec)");
 const vanillaRecord = records.find(record => String((record && record.artifact_dir) || "").includes("/vanilla"));
-const codexRecord = records.find(record => String((record && record.artifact_dir) || "").includes("/codexfarm"));
+const codexRecord = records.find(record => String((record && record.artifact_dir) || "").includes("/codex-exec"));
 const deterministicRecord = records.find(record => (
   String((record && record.artifact_dir) || "").includes("/line_role_only") ||
   String((record && record.benchmark_variant) || "") === "deterministic"
@@ -985,13 +985,13 @@ const codexPointCustom = (
   codexSeries.data[0].custom
 ) || {};
 const deterministicPointCustom = pointCustomForRunTimestamp(
-  deterministicTrendVariant === "codexfarm" ? codexSeries : vanillaSeries,
+  deterministicTrendVariant === "codex-exec" ? codexSeries : vanillaSeries,
   deterministicRecord && deterministicRecord.run_timestamp
 );
 
 const payload = {
   vanilla_x: firstX("strict_accuracy (vanilla)"),
-  codex_x: firstX("strict_accuracy (codexfarm)"),
+  codex_x: firstX("strict_accuracy (codex-exec)"),
   vanilla_series_points: vanillaSeries && Array.isArray(vanillaSeries.data) ? vanillaSeries.data.length : 0,
   codex_series_points: codexSeries && Array.isArray(codexSeries.data) ? codexSeries.data.length : 0,
   token_vanilla_series_points: tokenVanillaSeries && Array.isArray(tokenVanillaSeries.data) ? tokenVanillaSeries.data.length : 0,
@@ -1293,7 +1293,7 @@ const lineRoleOnlyEffortRecord = {
 };
 const legacyCodexfarmRecord = {
   strict_accuracy: 0.54,
-  artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-book-benchmark/my-book/codexfarm",
+  artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-book-benchmark/my-book/codex-exec",
   run_config: {
     llm_recipe_pipeline: "codex-recipe-shard-v1",
     codex_farm_model: "gpt-5.1-codex-mini",
@@ -1306,8 +1306,8 @@ const legacyVanillaRecord = {
 };
 const legacyRunDirCodexfarmRecord = {
   strict_accuracy: 0.54,
-  run_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-book-benchmark/my-book/codexfarm",
-  report_path: "/tmp/output/2026-03-03_13.00.00/single-book-benchmark/my-book/codexfarm/2026-03-03_13.08.47/report.json",
+  run_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-book-benchmark/my-book/codex-exec",
+  report_path: "/tmp/output/2026-03-03_13.00.00/single-book-benchmark/my-book/codex-exec/2026-03-03_13.08.47/report.json",
   run_config: {
     llm_recipe_pipeline: "codex-recipe-shard-v1",
     line_role_pipeline: "off",
@@ -1361,15 +1361,15 @@ const payload = {
   line_role_only_profile_label: String(
     hooks.aiAssistanceProfileLabelForRecord(lineRoleOnlyEffortRecord) || ""
   ),
-  legacy_codexfarm_profile: String(hooks.aiAssistanceProfileForRecord(legacyCodexfarmRecord) || ""),
-  legacy_codexfarm_variant: String(hooks.benchmarkVariantForRecord(legacyCodexfarmRecord) || ""),
-  legacy_codexfarm_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(legacyCodexfarmRecord)),
+  legacy_codex_exec_profile: String(hooks.aiAssistanceProfileForRecord(legacyCodexfarmRecord) || ""),
+  legacy_codex_exec_variant: String(hooks.benchmarkVariantForRecord(legacyCodexfarmRecord) || ""),
+  legacy_codex_exec_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(legacyCodexfarmRecord)),
   legacy_vanilla_profile: String(hooks.aiAssistanceProfileForRecord(legacyVanillaRecord) || ""),
   legacy_vanilla_variant: String(hooks.benchmarkVariantForRecord(legacyVanillaRecord) || ""),
   legacy_vanilla_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(legacyVanillaRecord)),
-  legacy_rundir_codexfarm_profile: String(hooks.aiAssistanceProfileForRecord(legacyRunDirCodexfarmRecord) || ""),
-  legacy_rundir_codexfarm_variant: String(hooks.benchmarkVariantForRecord(legacyRunDirCodexfarmRecord) || ""),
-  legacy_rundir_codexfarm_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(legacyRunDirCodexfarmRecord)),
+  legacy_rundir_codex_exec_profile: String(hooks.aiAssistanceProfileForRecord(legacyRunDirCodexfarmRecord) || ""),
+  legacy_rundir_codex_exec_variant: String(hooks.benchmarkVariantForRecord(legacyRunDirCodexfarmRecord) || ""),
+  legacy_rundir_codex_exec_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(legacyRunDirCodexfarmRecord)),
   legacy_rundir_vanilla_profile: String(hooks.aiAssistanceProfileForRecord(legacyRunDirVanillaRecord) || ""),
   legacy_rundir_vanilla_variant: String(hooks.benchmarkVariantForRecord(legacyRunDirVanillaRecord) || ""),
   legacy_rundir_vanilla_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(legacyRunDirVanillaRecord)),
@@ -1483,12 +1483,12 @@ const explicitVanillaRecord = {
 const noOfficialRecords = [singleProfileRecord, olderSingleProfileRecord];
 const noOfficialHasCodexOrVanilla = noOfficialRecords.some(record => {
   const variant = hooks.benchmarkVariantForRecord(record);
-  return variant === "codexfarm" || variant === "vanilla";
+  return variant === "codex-exec" || variant === "vanilla";
 });
 const withOfficialRecords = [singleProfileRecord, explicitVanillaRecord];
 const withOfficialHasCodexOrVanilla = withOfficialRecords.some(record => {
   const variant = hooks.benchmarkVariantForRecord(record);
-  return variant === "codexfarm" || variant === "vanilla";
+  return variant === "codex-exec" || variant === "vanilla";
 });
 const mappedNoFallback = hooks.mapBenchmarkVariantForPerLabel(singleProfileRecord, false);
 const mappedWithoutOfficial = hooks.mapBenchmarkVariantForPerLabel(
@@ -1497,12 +1497,12 @@ const mappedWithoutOfficial = hooks.mapBenchmarkVariantForPerLabel(
 );
 
 const noOfficialCodexRows = hooks.aggregatePerLabelRows(
-  noOfficialRecords.filter(record => hooks.mapBenchmarkVariantForPerLabel(record, true) === "codexfarm")
+  noOfficialRecords.filter(record => hooks.mapBenchmarkVariantForPerLabel(record, true) === "codex-exec")
 );
 const noOfficialCodexByLabel = hooks.perLabelRowsByLabel(noOfficialCodexRows);
 const noOfficialCodexRow = noOfficialCodexByLabel["INGREDIENT_LINE"] || {};
 const withOfficialCodexRows = hooks.aggregatePerLabelRows(
-  withOfficialRecords.filter(record => hooks.mapBenchmarkVariantForPerLabel(record, false) === "codexfarm")
+  withOfficialRecords.filter(record => hooks.mapBenchmarkVariantForPerLabel(record, false) === "codex-exec")
 );
 const withOfficialCodexByLabel = hooks.perLabelRowsByLabel(withOfficialCodexRows);
 const withOfficialCodexRow = withOfficialCodexByLabel["INGREDIENT_LINE"] || {};
@@ -1513,7 +1513,7 @@ const noOfficialVanillaByLabel = hooks.perLabelRowsByLabel(noOfficialVanillaRows
 const noOfficialVanillaRow = noOfficialVanillaByLabel["INGREDIENT_LINE"] || {};
 const rollingCodex = hooks.rollingPerLabelByVariant(
   noOfficialRecords,
-  "codexfarm",
+  "codex-exec",
   2,
   record => hooks.mapBenchmarkVariantForPerLabel(record, !noOfficialHasCodexOrVanilla),
 );

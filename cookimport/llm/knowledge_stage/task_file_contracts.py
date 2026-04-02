@@ -7,7 +7,6 @@ from typing import Any, Mapping, Sequence
 
 from ..codex_farm_knowledge_models import (
     ALLOWED_KNOWLEDGE_FINAL_CATEGORIES,
-    ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES,
 )
 from ..editable_task_file import (
     build_repair_task_file,
@@ -88,8 +87,6 @@ def _classification_sort_key(owned_id: str, block_index: int) -> tuple[str, int]
 def _blank_classification_answer() -> dict[str, Any]:
     return {
         "category": None,
-        "reviewer_category": None,
-        "retrieval_concept": None,
         "grounding": empty_grounding_payload(),
     }
 
@@ -97,8 +94,6 @@ def _blank_classification_answer() -> dict[str, Any]:
 def _canonical_other_classification_answer() -> dict[str, Any]:
     return {
         "category": "other",
-        "reviewer_category": "other",
-        "retrieval_concept": None,
         "grounding": empty_grounding_payload(),
     }
 
@@ -182,21 +177,11 @@ def build_task_file_answer_feedback(
 def _knowledge_classification_answer_schema() -> dict[str, Any]:
     return {
         "editable_pointer_pattern": "/units/*/answer",
-        "required_keys": [
-            "category",
-            "reviewer_category",
-            "retrieval_concept",
-            "grounding",
-        ],
-        "allowed_values": {
-            "category": list(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES),
-            "reviewer_category": list(ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES),
-        },
+        "required_keys": ["category", "grounding"],
+        "allowed_values": {"category": list(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)},
         "example_answers": [
             {
                 "category": "knowledge",
-                "reviewer_category": "knowledge",
-                "retrieval_concept": "Heat control",
                 "grounding": {
                     "tag_keys": [],
                     "category_keys": [],
@@ -211,8 +196,6 @@ def _knowledge_classification_answer_schema() -> dict[str, Any]:
             },
             {
                 "category": "other",
-                "reviewer_category": "other",
-                "retrieval_concept": None,
                 "grounding": {
                     "tag_keys": [],
                     "category_keys": [],
@@ -575,8 +558,6 @@ def validate_knowledge_classification_task_file(
         unit = units_by_id.get(unit_id) or {}
         block_index = int(_coerce_dict(unit.get("evidence")).get("block_index") or 0)
         category = str(answer.get("category") or "").strip()
-        reviewer_category = str(answer.get("reviewer_category") or "").strip()
-        retrieval_concept = _trimmed_text_or_none(answer.get("retrieval_concept"))
         grounding = _coerce_dict(answer.get("grounding"))
         raw_tag_keys = grounding.get("tag_keys")
         raw_category_keys = grounding.get("category_keys")
@@ -592,36 +573,6 @@ def validate_knowledge_classification_task_file(
                     "path": f"/units/{unit_id}/answer/category",
                     "code": "invalid_category",
                     "message": "category must be 'knowledge' or 'other'",
-                }
-            )
-            unit_failed = True
-        if reviewer_category not in ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES:
-            next_errors.append("invalid_reviewer_category")
-            error_details.append(
-                {
-                    "path": f"/units/{unit_id}/answer/reviewer_category",
-                    "code": "invalid_reviewer_category",
-                    "message": "reviewer_category must be a supported enum value",
-                }
-            )
-            unit_failed = True
-        elif category == "knowledge" and reviewer_category != "knowledge":
-            next_errors.append("knowledge_reviewer_category_mismatch")
-            error_details.append(
-                {
-                    "path": f"/units/{unit_id}/answer/reviewer_category",
-                    "code": "knowledge_reviewer_category_mismatch",
-                    "message": "knowledge rows must use reviewer_category=knowledge",
-                }
-            )
-            unit_failed = True
-        elif category == "other" and reviewer_category == "knowledge":
-            next_errors.append("other_reviewer_category_mismatch")
-            error_details.append(
-                {
-                    "path": f"/units/{unit_id}/answer/reviewer_category",
-                    "code": "other_reviewer_category_mismatch",
-                    "message": "other rows must not use reviewer_category=knowledge",
                 }
             )
             unit_failed = True
@@ -765,16 +716,6 @@ def validate_knowledge_classification_task_file(
                 for detail in unit_grounding_drop_details
             )
         if category == "knowledge":
-            if retrieval_concept is None:
-                next_errors.append("knowledge_missing_retrieval_concept")
-                error_details.append(
-                    {
-                        "path": f"/units/{unit_id}/answer/retrieval_concept",
-                        "code": "knowledge_missing_retrieval_concept",
-                        "message": "knowledge rows must provide a non-empty retrieval_concept",
-                    }
-                )
-                unit_failed = True
             if (
                 not unit_failed
                 and not normalized_grounding["tag_keys"]
@@ -803,16 +744,6 @@ def validate_knowledge_classification_task_file(
                 validated_answers[unit_id] = _canonical_other_classification_answer()
                 continue
         elif category == "other":
-            if retrieval_concept is not None:
-                next_errors.append("other_retrieval_concept_forbidden")
-                error_details.append(
-                    {
-                        "path": f"/units/{unit_id}/answer/retrieval_concept",
-                        "code": "other_retrieval_concept_forbidden",
-                        "message": "other rows must leave retrieval_concept null",
-                    }
-                )
-                unit_failed = True
             if (
                 normalized_grounding["tag_keys"]
                 or normalized_grounding["category_keys"]
@@ -837,8 +768,6 @@ def validate_knowledge_classification_task_file(
             continue
         validated_answers[unit_id] = {
             "category": category,
-            "reviewer_category": reviewer_category,
-            "retrieval_concept": retrieval_concept,
             "grounding": normalized_grounding,
         }
     next_metadata = {
@@ -1027,18 +956,11 @@ def combine_knowledge_task_file_outputs(
         block_decisions: list[dict[str, Any]] = []
         for block_index, answer, unit_id in ordered_rows:
             category = str(answer.get("category") or "other").strip() or "other"
-            reviewer_category = str(
-                answer.get("reviewer_category")
-                or ("knowledge" if category == "knowledge" else "other")
-            ).strip() or ("knowledge" if category == "knowledge" else "other")
-            retrieval_concept = _trimmed_text_or_none(answer.get("retrieval_concept"))
             grounding = _normalize_output_grounding(answer.get("grounding"))
             block_decisions.append(
                 {
                     "block_index": block_index,
                     "category": category,
-                    "reviewer_category": reviewer_category,
-                    "retrieval_concept": retrieval_concept,
                     "grounding": grounding,
                 }
             )

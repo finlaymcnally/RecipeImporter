@@ -83,7 +83,7 @@ class BenchmarkPredictionBundle:
 class BenchmarkPredictionStageResult:
     prediction_bundle: BenchmarkPredictionBundle
     prediction_records: list[PredictionRecord]
-    codexfarm_prompt_response_log_path: Path | None
+    codex_exec_prompt_response_log_path: Path | None
     single_book_split_cache_metadata: dict[str, Any] | None
 
 
@@ -578,7 +578,7 @@ def _run_offline_benchmark_prediction_stage(
             "No evaluation was run by this helper."
         ),
     )
-    codexfarm_prompt_response_log_path = (
+    codex_exec_prompt_response_log_path = (
         llm_prompt_artifacts.build_codex_farm_prompt_response_log(
             pred_run=pred_run,
             eval_output_dir=eval_output_dir,
@@ -588,7 +588,7 @@ def _run_offline_benchmark_prediction_stage(
     return BenchmarkPredictionStageResult(
         prediction_bundle=prediction_bundle,
         prediction_records=prediction_records,
-        codexfarm_prompt_response_log_path=codexfarm_prompt_response_log_path,
+        codex_exec_prompt_response_log_path=codex_exec_prompt_response_log_path,
         single_book_split_cache_metadata=(
             dict(single_book_split_cache_metadata)
             if isinstance(single_book_split_cache_metadata, dict)

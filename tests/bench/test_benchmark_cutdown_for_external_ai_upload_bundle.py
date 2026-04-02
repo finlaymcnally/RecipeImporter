@@ -686,7 +686,7 @@ def test_build_upload_bundle_for_existing_output_derives_diagnostics_without_cut
 ) -> None:
     module = _load_cutdown_module()
     session_root = tmp_path / "single-book-benchmark"
-    codex_run_id = "codexfarm"
+    codex_run_id = "codex-exec"
     baseline_run_id = "vanilla"
 
     _make_run_record(

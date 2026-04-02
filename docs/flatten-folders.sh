@@ -16,7 +16,7 @@
 #   FLATTEN_MAX_BYTES   Max bytes to inline per file (default: 120000).
 #
 # Output examples:
-#   docs/codexfarm_bench_cutdown -> docs/codexfarm_bench_cutdown_md
+#   docs/codex_exec_bench_cutdown -> docs/codex_exec_bench_cutdown_md
 
 set -euo pipefail
 

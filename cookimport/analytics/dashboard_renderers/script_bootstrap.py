@@ -122,13 +122,13 @@ _JS_BOOTSTRAP = """\
     strict_accuracy: {
       default: "#1f5ea8",
       vanilla: "#7daee8",
-      codexfarm: "#1f5ea8",
+      codex-exec: "#1f5ea8",
       other: "#7f96b3",
     },
     macro_f1_excluding_other: {
       default: "#127a52",
       vanilla: "#55b895",
-      codexfarm: "#127a52",
+      codex-exec: "#127a52",
       other: "#6ea08c",
     },
   };
@@ -264,27 +264,27 @@ _JS_BOOTSTRAP = """\
     },
     tokens_input: {
       label: "Tokens In",
-      title: "CodexFarm input tokens summed for this benchmark run.",
+      title: "Codex Exec input tokens summed for this benchmark run.",
       numeric: true,
     },
     tokens_cached_input: {
       label: "Tokens Cached In",
-      title: "CodexFarm cached-input tokens summed for this benchmark run.",
+      title: "Codex Exec cached-input tokens summed for this benchmark run.",
       numeric: true,
     },
     tokens_output: {
       label: "Tokens Out",
-      title: "CodexFarm output tokens summed for this benchmark run.",
+      title: "Codex Exec output tokens summed for this benchmark run.",
       numeric: true,
     },
     tokens_reasoning: {
       label: "Tokens Reasoning",
-      title: "CodexFarm reasoning tokens summed for this benchmark run.",
+      title: "Codex Exec reasoning tokens summed for this benchmark run.",
       numeric: true,
     },
     tokens_total: {
       label: "Tokens Total",
-      title: "CodexFarm total tokens summed for this benchmark run.",
+      title: "Codex Exec total tokens summed for this benchmark run.",
       numeric: true,
     },
     source_label: {

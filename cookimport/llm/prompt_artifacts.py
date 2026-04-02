@@ -560,7 +560,7 @@ def _runtime_stage_dir_name(stage_key: str) -> str:
     return stage_artifact_stem(stage_key)
 
 
-def discover_codexfarm_prompt_run_descriptors(
+def discover_codex_exec_prompt_run_descriptors(
     *,
     pred_run: Path,
 ) -> list[PromptRunDescriptor]:
@@ -720,7 +720,7 @@ def discover_prompt_run_descriptors(
 ) -> list[PromptRunDescriptor]:
     active_discoverers: Sequence[PromptRunDescriptorDiscoverer]
     if discoverers is None:
-        active_discoverers = (discover_codexfarm_prompt_run_descriptors,)
+        active_discoverers = (discover_codex_exec_prompt_run_descriptors,)
     else:
         active_discoverers = discoverers
     descriptors: list[PromptRunDescriptor] = []
@@ -1636,7 +1636,7 @@ def build_codex_farm_prompt_type_samples_markdown(
 
     generated_timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
     lines: list[str] = [
-        "# CodexFarm Prompt Samples (Literal)",
+        "# Codex Exec Prompt Samples (Literal)",
         "",
         f"Generated: {generated_timestamp}",
         "Source:",
@@ -1879,7 +1879,7 @@ def build_codex_farm_activity_trace_summaries(
     )
     generated_timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
     lines: list[str] = [
-        "# CodexFarm Activity Trace Summary",
+        "# Codex Exec Activity Trace Summary",
         "",
         f"Generated: {generated_timestamp}",
         "Source:",
@@ -3279,7 +3279,7 @@ def build_codex_farm_prompt_response_log(
         eval_output_dir=eval_output_dir,
         repo_root=repo_root,
         run_descriptors=run_descriptors,
-        discoverers=(discover_codexfarm_prompt_run_descriptors,),
+        discoverers=(discover_codex_exec_prompt_run_descriptors,),
     )
 
 
@@ -3358,7 +3358,7 @@ __all__ = [
     "build_prompt_response_log",
     "build_codex_farm_prompt_type_samples_markdown",
     "discover_prompt_run_descriptors",
-    "discover_codexfarm_prompt_run_descriptors",
+    "discover_codex_exec_prompt_run_descriptors",
     "render_prompt_artifacts_from_descriptors",
     "summarize_prompt_log",
     "write_prompt_log_summary",

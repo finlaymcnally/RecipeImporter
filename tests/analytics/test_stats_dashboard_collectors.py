@@ -265,7 +265,7 @@ class TestCollectors:
             / "single-book-benchmark"
         )
         vanilla_dir = single_book_root / "vanilla"
-        codex_dir = single_book_root / "codexfarm"
+        codex_dir = single_book_root / "codex-exec"
         vanilla_dir.mkdir(parents=True)
         codex_dir.mkdir(parents=True)
         (vanilla_dir / "eval_report.json").write_text(
@@ -292,7 +292,7 @@ class TestCollectors:
         ]
         assert len(records) == 2
         assert {r.run_timestamp for r in records} == {run_ts}
-        assert {Path(str(r.artifact_dir)).name for r in records} == {"vanilla", "codexfarm"}
+        assert {Path(str(r.artifact_dir)).name for r in records} == {"vanilla", "codex-exec"}
 
     def test_benchmark_collector_normalizes_suffixed_run_dir_timestamps(self, tmp_path):
         run_dir_name = "2026-02-28_02.03.18_manual-top5-thefoodlab-all-matched"
@@ -460,7 +460,7 @@ class TestCollectors:
             / "2026-03-03_01.24.28"
             / "single-book-benchmark"
             / "seaandsmokecutdown"
-            / "codexfarm"
+            / "codex-exec"
         )
         eval_dir.mkdir(parents=True, exist_ok=True)
         (eval_dir / "manifest.json").write_text(
@@ -540,7 +540,7 @@ class TestCollectors:
             / "2026-03-03_01.24.28"
             / "single-book-benchmark"
             / "seaandsmokecutdown"
-            / "codexfarm"
+            / "codex-exec"
         )
         eval_dir.mkdir(parents=True, exist_ok=True)
         (eval_dir / "manifest.json").write_text(
@@ -620,7 +620,7 @@ class TestCollectors:
                     / "2026-03-03_01.24.28"
                     / "single-book-benchmark"
                     / "seaandsmokecutdown"
-                    / "codexfarm"
+                    / "codex-exec"
                 ),
                 "file_name": "SeaAndSmokeCUTDOWN.epub",
                 "run_category": "benchmark_eval",
@@ -909,7 +909,7 @@ class TestCollectors:
             / "2026-03-03_02.10.00_foodlab-line-role-gated-fix7"
             / "single-book-benchmark"
             / "thefoodlabcutdown"
-            / "codexfarm"
+            / "codex-exec"
         )
         keep_dir.mkdir(parents=True, exist_ok=True)
         skip_dir.mkdir(parents=True, exist_ok=True)

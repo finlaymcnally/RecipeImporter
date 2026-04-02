@@ -109,10 +109,6 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
                 {
                     "block_index": int(knowledge_input_block_index(block) or 0),
                     "category": "knowledge",
-                    "reviewer_category": "knowledge",
-                    "retrieval_concept": (
-                        knowledge_input_block_text(block).strip()[:80] or "Fake knowledge concept"
-                    ),
                     "grounding": {
                         "tag_keys": candidate_tag_keys[:1],
                         "category_keys": [],

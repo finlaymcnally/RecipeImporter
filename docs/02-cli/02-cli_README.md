@@ -154,15 +154,15 @@ Persistent `Settings` now covers the saved operator defaults used by interactive
 - output root, split sizing, warm-models, and Label Studio credentials
 
 Important split:
-- the top-tier per-run chooser (`choose_run_settings(...)`) is still the refactor-aware place where each import/benchmark run picks CodexFarm vs vanilla and applies any flow-specific per-run Codex surface overrides
+- the top-tier per-run chooser (`choose_run_settings(...)`) is still the refactor-aware place where each import/benchmark run picks Codex Exec vs vanilla and applies any flow-specific per-run Codex surface overrides
 - the persistent `Settings` screen now provides the saved defaults that feed those interactive flows, but it still does not expose benchmark-lab/internal-only tuning seams such as parser internals, scoring internals, or hidden transition-only pipeline-id fields
 
 Interactive `Import` and benchmark runs (`single_book` + matched-books) ask:
 - `Workflow for this run?`
-  - underlying values are `off` and `codex-recipe-shard-v1`, but the menu still renders only the workflow families `Vanilla / no Codex` and `CodexFarm`,
+  - underlying values are `off` and `codex-recipe-shard-v1`, but the menu still renders only the workflow families `Vanilla / no Codex` and `Codex Exec`,
   - default is inferred from global `llm_recipe_pipeline`,
-  - `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` can still force vanilla vs codex family and bypass the menu.
-- if interactive setup chooses CodexFarm, it then asks:
+  - `COOKIMPORT_TOP_TIER_PROFILE=codex-exec|vanilla` can still force vanilla vs codex family and bypass the menu.
+- if interactive setup chooses Codex Exec, it then asks:
   - one shared Codex submenu implemented as a single list with aligned `[Yes]` / `[No]` columns
   - the concrete Codex-backed ids live on those step rows (for example recipe correction shows `codex-recipe-shard-v1`)
   - up/down moves between rows while keeping the submenu on one screen
@@ -188,17 +188,17 @@ Interactive `Import` and benchmark runs (`single_book` + matched-books) ask:
   - the stage and benchmark adapter/CLI seams now preserve those values into the live run config, so interactive shard choices survive through execution instead of silently falling back to saved defaults
   - `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count` now all mean requested shard count on the live runtime path; worker count remains a separate concurrency override
   - for recipe correction specifically, recipe count may be larger than shard count because several contiguous recipe tasks can share one planned shard
-- interactive all-method benchmark callers reuse that same Codex submenu too, so any interactive benchmark flow that exposes CodexFarm now makes the operator pick concrete Codex processes instead of falling back to a separate generic `Include Codex Farm permutations?` prompt
+- interactive all-method benchmark callers reuse that same Codex submenu too, so any interactive benchmark flow that exposes Codex Exec now makes the operator pick concrete Codex processes instead of falling back to a separate generic `Include Codex Exec permutations?` prompt
 - the owning seam for that shared per-surface chooser is `choose_interactive_codex_surfaces(...)` in `cookimport/cli_ui/run_settings_flow.py`; if a Codex surface toggle should exist in import, benchmark, and all-method flows, add it there instead of inventing a benchmark-only menu variant
 - this difference is intentional:
   - import reuses the submenu with recipe + knowledge only because stage call adapters do not carry `line_role_pipeline` or `atomic_block_splitter`
   - benchmark modes expose block labelling because benchmark call builders do carry those fields
 - when any codex-backed surface is selected, chooser then asks:
-  - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models only; no repo-invented fallback model id)
-  - `Codex Farm reasoning effort override` (`Pipeline default` plus the selected discovered model's supported efforts when metadata is available)
+  - `Codex Exec model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models only; no repo-invented fallback model id)
+  - `Codex Exec reasoning effort override` (`Pipeline default` plus the selected discovered model's supported efforts when metadata is available)
 
 Resolved profile families:
-- `CodexFarm automatic top-tier`:
+- `Codex Exec automatic top-tier`:
   - use saved `quality-suite winner` settings when available (`.history/qualitysuite_winner_run_settings.json` for default repo-local output),
   - interactive loading reuses only real `RunSettings` model fields during harmonization, so persistence metadata such as `bucket1_fixed_behavior_version` should not replay warning dumps in the chooser,
   - stale winner caches are treated as disposable and ignored with one concise warning rather than being migrated forever,
@@ -316,14 +316,14 @@ Developer note:
 `Import` steps:
 
 1. Prompt for `Import All` or one selected file from top-level `data/input`.
-2. Select one automatic top-tier profile family (`CodexFarm` or `Vanilla`) and resolve its deterministic run-settings profile (no full profile chooser and no codex yes/no prompt in this flow).
+2. Select one automatic top-tier profile family (`Codex Exec` or `Vanilla`) and resolve its deterministic run-settings profile (no full profile chooser and no codex yes/no prompt in this flow).
 3. Applies selected EPUB env vars:
    - `C3IMP_EPUB_EXTRACTOR`
    - `C3IMP_EPUB_UNSTRUCTURED_HTML_PARSER_VERSION`
    - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`
    - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`
 4. Calls `stage(...)` using the full selected run settings payload (workers/OCR/extractor + section/ingredient parser controls + LLM/codex-farm knobs).
-   - When Codex Farm recipe/knowledge/tag passes run, stage now also writes prompt-debug artifacts under `<run_folder>/codexfarm/`:
+   - When Codex Farm recipe/knowledge/tag passes run, stage now also writes prompt-debug artifacts under `<run_folder>/codex-exec/`:
    - `prompt_request_response_log.txt`
    - `full_prompt_log.jsonl`
    - `prompt_type_samples_from_full_prompt_log.md`
@@ -347,7 +347,7 @@ Developer note:
 4. Configure optional AI prelabeling:
    - choose prelabel mode (`off`, strict/allow-partial annotations, or advanced predictions mode variants).
    - if enabled, choose labeling style (`actual freeform` span mode vs `block based` mode).
-   - interactive mode uses the resolved CodexFarm command (`COOKIMPORT_CODEX_CMD`, `COOKIMPORT_CODEX_FARM_CMD`, or `codex-farm`), shows the resolved account when available, then prompts for model (`use default`, discovered models, or custom model id) and thinking effort (model-compatible subset of `none|low|medium|high|xhigh`; `minimal` is intentionally hidden for this workflow).
+   - interactive mode uses the resolved Codex Exec command (`COOKIMPORT_CODEX_CMD`, `COOKIMPORT_CODEX_FARM_CMD`, or `codex-farm`), shows the resolved account when available, then prompts for model (`use default`, discovered models, or custom model id) and thinking effort (model-compatible subset of `none|low|medium|high|xhigh`; `minimal` is intentionally hidden for this workflow).
    - freeform prelabel task calls run in parallel by default (`15` workers).
 5. Enter Label Studio URL and API key if needed.
    - If `LABEL_STUDIO_URL` and `LABEL_STUDIO_API_KEY` are set, prompts are skipped.
@@ -405,7 +405,7 @@ Interactive benchmark now has a mode submenu before execution:
 
 1. Shows benchmark mode picker:
    - `Single Book: One local prediction + eval vs freeform gold` (default first choice)
-   - `Salt Fat Acid Heat preset: Fast CodexFarm single-book benchmark`
+   - `Salt Fat Acid Heat preset: Fast Codex Exec single-book benchmark`
    - `Selected Matched Books: Pick which matched books to run`
    - `All Matched Books: Repeat one config for every matched golden set`
    - the Salt Fat Acid Heat preset skips the normal run-settings and gold-export pickers when a freeform export labeled `saltfatacidheatcutdown` is available, and instead runs single-book with block labelling + recipe correction + non-recipe finalize enabled, shard counts `5/5/5`, `codex_farm_model=gpt-5.3-codex-spark`, and `codex_farm_reasoning_effort=low`
@@ -417,8 +417,8 @@ Interactive benchmark now has a mode submenu before execution:
    - uses the resolved `llm_recipe_pipeline` to decide variant planning,
    - when run settings resolve to any non-`off` `llm_recipe_pipeline`, runs paired variants under one timestamp session:
      - `single-book-benchmark/<source_slug>/vanilla` first (`llm_recipe_pipeline=off`),
-     - `single-book-benchmark/<source_slug>/codexfarm` second (preserving the selected recipe pipeline, for example `codex-recipe-shard-v1`),
-     - both paired variants now share the same operator-selected `atomic_block_splitter` value instead of forcing `off` for `vanilla` and `atomic-v1` for `codexfarm`,
+     - `single-book-benchmark/<source_slug>/codex-exec` second (preserving the selected recipe pipeline, for example `codex-recipe-shard-v1`),
+     - both paired variants now share the same operator-selected `atomic_block_splitter` value instead of forcing `off` for `vanilla` and `atomic-v1` for `codex-exec`,
    - when run settings resolve to `llm_recipe_pipeline=off`, runs one variant under `single-book-benchmark/<source_slug>/vanilla`,
    - each variant run calls `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text`,
    - prediction generation now inherits shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`; split-gated jobs default to `4`; explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` overrides both,
@@ -461,7 +461,7 @@ Interactive benchmark now has a mode submenu before execution:
      - when `llm_recipe_pipeline=off`, runs one `vanilla` variant per selected book under `single-profile-benchmark/<index_source_slug>/`,
      - when `llm_recipe_pipeline` is non-`off`, runs paired variants per selected book:
        - `single-profile-benchmark/<index_source_slug>/vanilla` first (`llm_recipe_pipeline=off`, deterministic-only),
-       - `single-profile-benchmark/<index_source_slug>/codexfarm` second (preserving the selected non-`off` recipe pipeline while still forcing `line_role_pipeline=codex-line-role-route-v2`, and now sharing the selected `atomic_block_splitter` value with the paired `vanilla` run),
+       - `single-profile-benchmark/<index_source_slug>/codex-exec` second (preserving the selected non-`off` recipe pipeline while still forcing `line_role_pipeline=codex-line-role-route-v2`, and now sharing the selected `atomic_block_splitter` value with the paired `vanilla` run),
    - for paired codex+vanilla selected/all-matched runs, writes per-book comparison only when both variants succeed:
      - `single-profile-benchmark/<index_source_slug>/codex_vs_vanilla_comparison.json`,
    - runs `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text` for each planned variant run (no all-method variant expansion),
@@ -472,7 +472,7 @@ Interactive benchmark now has a mode submenu before execution:
    - concurrent single-profile runs now use one shared spinner dashboard for the whole batch; inner per-book benchmark runs suppress their own spinners and stream progress into shared per-book queue/task lines,
    - codex-farm subprocess failures that expose `stderr_summary=` are condensed before display in the interactive single-profile summary so precheck/auth/quota failures show the real precheck message instead of raw `out_dir=...` exception details,
    - continues when an individual source fails and prints a failure summary at the end,
-   - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-profile-benchmark/<index_source_slug>/` (paired runs nest under `/vanilla` and `/codexfarm`),
+   - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-profile-benchmark/<index_source_slug>/` (paired runs nest under `/vanilla` and `/codex-exec`),
    - writes a dedicated 3-file upload folder per target eval root:
      - `single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_overview.md`
      - `single-profile-benchmark/<index_source_slug>/upload_bundle_v1/upload_bundle_index.json`
@@ -845,7 +845,7 @@ Options:
 - `--sample INTEGER>=1`: randomly sample chunks.
 - `--prelabel / --no-prelabel` (default disabled): freeform-only first-pass LLM labeling.
 - `--prelabel-provider TEXT` (default `codex-farm`): provider backend for prelabeling.
-- `--codex-cmd TEXT`: override CodexFarm command (defaults to `COOKIMPORT_CODEX_CMD`, `COOKIMPORT_CODEX_FARM_CMD`, or `codex-farm`).
+- `--codex-cmd TEXT`: override Codex Exec command (defaults to `COOKIMPORT_CODEX_CMD`, `COOKIMPORT_CODEX_FARM_CMD`, or `codex-farm`).
 - `--codex-model TEXT`: explicit Codex model for prelabel calls (defaults to `COOKIMPORT_CODEX_FARM_MODEL`, `COOKIMPORT_CODEX_MODEL`, or local defaults).
 - `--codex-thinking-effort`, `--codex-reasoning-effort` (alias flags): Codex reasoning-effort hint (`none|minimal|low|medium|high|xhigh`, normalized to model-supported values).
 - `--prelabel-timeout-seconds INTEGER>=1` (default `600`): timeout per provider call.
@@ -1215,8 +1215,8 @@ CLI-relevant environment variables:
 - `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER`: canonical-text matcher selection (`dmp` only; non-`dmp` values are invalid).
 - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS`: optional profiler threshold for benchmark evaluation stage (`>=0`; enables profile artifact capture when eval runtime meets threshold).
 - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N`: optional `pstats` top-N row count for benchmark evaluation profiling output (default `40`).
-- `COOKIMPORT_CODEX_CMD`: primary command override for prelabel CodexFarm flows when `--codex-cmd` is omitted.
-- `COOKIMPORT_CODEX_FARM_CMD`: fallback command override for prelabel CodexFarm flows.
+- `COOKIMPORT_CODEX_CMD`: primary command override for prelabel Codex Exec flows when `--codex-cmd` is omitted.
+- `COOKIMPORT_CODEX_FARM_CMD`: fallback command override for prelabel Codex Exec flows.
 - `COOKIMPORT_CODEX_MODEL`: default Codex model used by prelabel flows when `--codex-model` is omitted.
 - `LABEL_STUDIO_URL`: default Label Studio URL when `--label-studio-url` is omitted.
 - `LABEL_STUDIO_API_KEY`: default Label Studio API key when `--label-studio-api-key` is omitted.
@@ -1238,16 +1238,16 @@ Precedence notes:
 
 - Shared interactive run-settings UX lives in `cookimport/cli_ui/run_settings_flow.py`:
   - top-tier workflow choice
-  - the single-screen CodexFarm per-surface submenu
+  - the single-screen Codex Exec per-surface submenu
   - shared model / reasoning override prompts
 - Benchmark-only gold/source selection lives in the benchmark helpers, primarily `_resolve_benchmark_gold_and_source(...)` in `cookimport/cli_support/bench_all_method.py`. Changes there affect benchmark picking flows only, not import/upload/export/dashboard menus.
-- The CodexFarm submenu is intentionally one screen with aligned `[Yes]` / `[No]` columns:
+- The Codex Exec submenu is intentionally one screen with aligned `[Yes]` / `[No]` columns:
   - up/down changes rows
   - left/right changes the active row in place
   - Enter can still flip the current row
   - `Continue` commits the whole selection set
-- All interactive benchmark callers that expose CodexFarm should reuse that same shared submenu, including all-method benchmark flows.
-- All-method benchmark Codex variants inherit the full benchmark Codex contract, so a generic `Include Codex Farm permutations?` prompt is misleading. The correct surface is explicit recipe / line-role / knowledge selection.
+- All interactive benchmark callers that expose Codex Exec should reuse that same shared submenu, including all-method benchmark flows.
+- All-method benchmark Codex variants inherit the full benchmark Codex contract, so a generic `Include Codex Exec permutations?` prompt is misleading. The correct surface is explicit recipe / line-role / knowledge selection.
 - Interactive benchmark pickers should reuse one concise book identity across flows. The matched-books picker should not drift back to `source filename + [gold label]` formatting noise.
 - For prompt/cost inspection, use `cf-debug preview-prompts`.
 - For runtime artifact rehearsal without live spend, use `scripts/fake-codex-farm.py`.

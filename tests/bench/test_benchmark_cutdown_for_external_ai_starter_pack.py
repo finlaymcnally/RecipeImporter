@@ -154,7 +154,7 @@ def test_main_starter_pack_call_inventory_includes_line_role_rows_with_runtime_f
     _make_run_record(
         module,
         run_root=session_root,
-        run_id="codexfarm",
+        run_id="codex-exec",
         llm_recipe_pipeline="codex-recipe-shard-v1",
         line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],

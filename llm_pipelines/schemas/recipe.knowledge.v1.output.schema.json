@@ -32,7 +32,7 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["i", "c", "rc"],
+              "required": ["i", "c", "gr"],
               "properties": {
                 "i": {
                   "type": "integer",
@@ -42,19 +42,48 @@
                   "type": "string",
                   "enum": ["knowledge", "other"]
                 },
-                "rc": {
-                  "type": "string",
-                  "enum": [
-                    "knowledge",
-                    "chapter_taxonomy",
-                    "decorative_heading",
-                    "front_matter",
-                    "toc_navigation",
-                    "endorsement_or_marketing",
-                    "memoir_or_scene_setting",
-                    "reference_back_matter",
-                    "other"
-                  ]
+                "gr": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["tk", "ck", "pt"],
+                  "properties": {
+                    "tk": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "ck": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "pt": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["k", "d", "ck"],
+                        "properties": {
+                          "k": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "d": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "ck": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }

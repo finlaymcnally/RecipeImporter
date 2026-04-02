@@ -327,12 +327,15 @@ def _coerce_int(value: object) -> int | None:
         return None
 
 
+def _coerce_dict(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
 def _collect_block_category_updates(
     *,
     outputs: Mapping[str, Any],
     allowed_block_indices: Mapping[int, str],
 ) -> tuple[
-    dict[int, str],
     dict[int, str],
     dict[int, list[str]],
     list[dict[str, Any]],
@@ -342,7 +345,7 @@ def _collect_block_category_updates(
         int(block_index): str(category or "other")
         for block_index, category in allowed_block_indices.items()
     }
-    decisions_by_block: dict[int, list[tuple[str, str, str | None]]] = {}
+    decisions_by_block: dict[int, list[tuple[str, str]]] = {}
     ignored_block_indices: list[int] = []
     for packet_id, output in outputs.items():
         for decision in output.block_decisions:
@@ -354,47 +357,36 @@ def _collect_block_category_updates(
                 (
                     str(packet_id),
                     str(decision.category),
-                    str(decision.reviewer_category or "").strip() or None,
                 )
             )
 
     block_category_updates: dict[int, str] = {}
-    reviewer_categories_by_block: dict[int, str] = {}
     applied_packet_ids_by_block: dict[int, list[str]] = {}
     conflicts: list[dict[str, Any]] = []
     for block_index, decision_rows in sorted(decisions_by_block.items()):
-        categories = {category for _, category, _ in decision_rows}
+        categories = {category for _, category in decision_rows}
         if len(categories) > 1:
             conflicts.append(
                 {
-                            "block_index": int(block_index),
-                            "seed_category": normalized_allowed.get(block_index),
-                            "decisions": [
-                                {
-                                    "packet_id": packet_id,
-                                    "category": category,
-                                    "reviewer_category": reviewer_category,
-                                }
-                        for packet_id, category, reviewer_category in decision_rows
-                            ],
-                            "resolution": "kept_seed_category",
+                    "block_index": int(block_index),
+                    "seed_category": normalized_allowed.get(block_index),
+                    "decisions": [
+                        {
+                            "packet_id": packet_id,
+                            "category": category,
                         }
+                        for packet_id, category in decision_rows
+                    ],
+                    "resolution": "kept_seed_category",
+                }
             )
             continue
         block_category_updates[block_index] = next(iter(categories))
-        reviewer_categories = [
-            reviewer_category
-            for _, _, reviewer_category in decision_rows
-            if reviewer_category is not None
-        ]
-        if reviewer_categories:
-            reviewer_categories_by_block[block_index] = reviewer_categories[0]
         applied_packet_ids_by_block[block_index] = [
-            packet_id for packet_id, _, _ in decision_rows
+            packet_id for packet_id, _ in decision_rows
         ]
     return (
         block_category_updates,
-        reviewer_categories_by_block,
         applied_packet_ids_by_block,
         conflicts,
         ignored_block_indices,
@@ -511,9 +503,6 @@ def _collect_block_grounding_details(
                 counts["retrieval_gate_rejected_block_count"] += 1
                 continue
             counts["kept_knowledge_block_count"] += 1
-            retrieval_concept = str(
-                getattr(decision, "retrieval_concept", "") or ""
-            ).strip() or None
             grounding = _serialize_decision_grounding(decision)
             if grounding["tag_keys"]:
                 counts["knowledge_blocks_grounded_to_existing_tags"] += 1
@@ -521,7 +510,6 @@ def _collect_block_grounding_details(
                 counts["knowledge_blocks_using_proposed_tags"] += 1
             grounding_by_block[block_index] = {
                 "packet_id": str(packet_id),
-                "retrieval_concept": retrieval_concept,
                 "grounding": grounding,
             }
             for proposed_tag in grounding["proposed_tags"]:
@@ -538,15 +526,12 @@ def _collect_block_grounding_details(
                         "occurrence_count": 0,
                         "packet_ids": set(),
                         "block_indices": [],
-                        "retrieval_concepts": set(),
                     },
                 )
                 proposal_rollup = proposal_rollups[proposal_key]
                 proposal_rollup["occurrence_count"] += 1
                 proposal_rollup["packet_ids"].add(str(packet_id))
                 proposal_rollup["block_indices"].append(block_index)
-                if retrieval_concept is not None:
-                    proposal_rollup["retrieval_concepts"].add(retrieval_concept)
     proposal_rows = [
         {
             "key": row["key"],
@@ -555,7 +540,6 @@ def _collect_block_grounding_details(
             "occurrence_count": int(row["occurrence_count"]),
             "packet_ids": sorted(row["packet_ids"]),
             "block_indices": sorted(set(int(value) for value in row["block_indices"])),
-            "retrieval_concepts": sorted(row["retrieval_concepts"]),
         }
         for row in sorted(
             proposal_rollups.values(),

@@ -276,9 +276,9 @@ ORACLE_BENCHMARK_REVIEW_PROFILES: tuple[OracleBenchmarkReviewProfile, ...] = (
         prompt_template_fallback=ORACLE_BENCHMARK_QUALITY_PROMPT_TEMPLATE_FALLBACK,
         lane_brief_file_name="oracle_quality_focus.md",
         payload_paths=(
-            "codexfarm/run_manifest.json",
-            "codexfarm/eval_report.json",
-            "codexfarm/prompts/prompt_type_samples_from_full_prompt_log.md",
+            "codex-exec/run_manifest.json",
+            "codex-exec/eval_report.json",
+            "codex-exec/prompts/prompt_type_samples_from_full_prompt_log.md",
             "vanilla/run_manifest.json",
             "vanilla/eval_report.json",
             "_upload_bundle_derived/root/comparison_summary.json",
@@ -297,9 +297,9 @@ ORACLE_BENCHMARK_REVIEW_PROFILES: tuple[OracleBenchmarkReviewProfile, ...] = (
         prompt_template_fallback=ORACLE_BENCHMARK_TOKEN_PROMPT_TEMPLATE_FALLBACK,
         lane_brief_file_name="oracle_token_focus.md",
         payload_paths=(
-            "codexfarm/run_manifest.json",
-            "codexfarm/prompt_budget_summary.json",
-            "codexfarm/prompts/prompt_type_samples_from_full_prompt_log.md",
+            "codex-exec/run_manifest.json",
+            "codex-exec/prompt_budget_summary.json",
+            "codex-exec/prompts/prompt_type_samples_from_full_prompt_log.md",
             "_upload_bundle_derived/root/comparison_summary.json",
             "_upload_bundle_derived/root/net_error_blame_summary.json",
             "_upload_bundle_derived/root/config_version_metadata.json",
@@ -686,7 +686,7 @@ def _read_comparison_payload(target: OracleBenchmarkBundleTarget) -> dict[str, A
 
 
 def _read_prompt_budget_payload(target: OracleBenchmarkBundleTarget) -> dict[str, Any]:
-    return _load_json_object_path(target.source_root / "codexfarm" / "prompt_budget_summary.json")
+    return _load_json_object_path(target.source_root / "codex-exec" / "prompt_budget_summary.json")
 
 
 def _build_quality_lane_brief(
@@ -703,7 +703,7 @@ def _build_quality_lane_brief(
     analysis_payload = analysis_payload if isinstance(analysis_payload, dict) else {}
     comparison_payload = _read_comparison_payload(target)
     metrics_payload = comparison_payload.get("metrics") if isinstance(comparison_payload, dict) else {}
-    codex_metrics = metrics_payload.get("codexfarm") if isinstance(metrics_payload, dict) else {}
+    codex_metrics = metrics_payload.get("codex-exec") if isinstance(metrics_payload, dict) else {}
     codex_metrics = codex_metrics if isinstance(codex_metrics, dict) else {}
     structure_report = analysis_payload.get("structure_label_report")
     structure_report = structure_report if isinstance(structure_report, dict) else {}

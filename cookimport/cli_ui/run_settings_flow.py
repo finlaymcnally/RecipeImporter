@@ -45,7 +45,7 @@ _WORKER_UTILIZATION_DEFAULT = 1.0
 _TOP_TIER_PROFILE_ENV = "COOKIMPORT_TOP_TIER_PROFILE"
 _INTERACTIVE_RECIPE_PIPELINE_LABELS: dict[str, str] = {
     "off": "Vanilla / no Codex",
-    RECIPE_CODEX_FARM_PIPELINE_SHARD_V1: "CodexFarm",
+    RECIPE_CODEX_FARM_PIPELINE_SHARD_V1: "Codex Exec",
 }
 _CODEX_SURFACE_OPTION_LABELS: dict[str, str] = {
     "recipe": "recipe correction",
@@ -66,7 +66,7 @@ _CODEX_SURFACE_PROMPT_TARGET_FIELDS: dict[str, tuple[str, str]] = {
     "knowledge": ("knowledge_prompt_target_count", "Knowledge"),
 }
 INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST = (
-    "saltfatacidheatcutdown_fast_codexfarm"
+    "saltfatacidheatcutdown_fast_codex_exec"
 )
 
 
@@ -108,7 +108,7 @@ def _rate_limit_workers(selected_settings: RunSettings) -> RunSettings:
 
 def _default_top_tier_settings(global_defaults: RunSettings) -> RunSettings:
     payload = global_defaults.model_dump(mode="json", exclude_none=True)
-    payload = apply_top_tier_profile_contract(payload, "codexfarm")
+    payload = apply_top_tier_profile_contract(payload, "codex-exec")
     return RunSettings.from_dict(
         payload,
         warn_context="top-tier default run settings",
@@ -140,8 +140,8 @@ def _harmonize_top_tier_pipeline_settings(
 
 def _normalize_top_tier_profile(value: Any) -> TopTierProfileKind | None:
     raw = str(value or "").strip().lower()
-    if raw in {"codexfarm", "codex", "codex_farm"}:
-        return "codexfarm"
+    if raw in {"codex-exec", "codex", "codex_farm"}:
+        return "codex-exec"
     if raw in {"vanilla", "deterministic"}:
         return "vanilla"
     return None
@@ -200,10 +200,10 @@ def _choose_interactive_recipe_pipeline(
     )
     if prompt_confirm is not None:
         use_codex_farm = prompt_confirm(
-            "Use Codex Farm recipe pipeline for this run?",
+            "Use Codex Exec recipe pipeline for this run?",
             default=default_codex_enabled,
             instruction=(
-                "Yes: codexfarm top-tier profile (winner settings if available). "
+                "Yes: codex-exec top-tier profile (winner settings if available). "
                 "No: fully vanilla top-tier profile."
             ),
         )
@@ -221,13 +221,13 @@ def _choose_interactive_recipe_pipeline(
     if codex_surface_list:
         menu_help = (
             "Pick the high-level workflow first.\n"
-            f"CodexFarm opens one follow-up menu where you can toggle {codex_surface_list} together.\n"
+            f"Codex Exec opens one follow-up menu where you can toggle {codex_surface_list} together.\n"
             "Vanilla keeps this run on the fully vanilla top-tier profile."
         )
     else:
         menu_help = (
             "Pick the high-level workflow first.\n"
-            "CodexFarm uses the codex top-tier profile.\n"
+            "Codex Exec uses the codex top-tier profile.\n"
             "Vanilla keeps every Codex surface off."
         )
     selection = menu_select(
@@ -726,7 +726,7 @@ def _choose_codex_ai_settings(
         model_choices.append(questionary.Choice(label, value=model_id))
         seen_model_ids.add(model_id)
     model_choice = menu_select(
-        "Codex Farm model override:",
+        "Codex Exec model override:",
         menu_help=(
             "Choose a model override for this run.\n"
             "Pipeline default uses the model configured by the selected codex-farm pipelines."
@@ -746,7 +746,7 @@ def _choose_codex_ai_settings(
         supported_efforts_by_model=supported_efforts_by_model,
     )
     effort_choice = menu_select(
-        "Codex Farm reasoning effort override:",
+        "Codex Exec reasoning effort override:",
         menu_help="Blank uses pipeline default. Affects all codex-farm passes.",
         default=effort_default,
         choices=effort_choices,
@@ -799,7 +799,7 @@ def build_interactive_benchmark_preset_settings(
     )
     selected_settings = _harmonize_top_tier_pipeline_settings(
         selected_settings,
-        profile="codexfarm",
+        profile="codex-exec",
         warn_context="interactive benchmark preset top-tier harmonization",
     )
     return _patch_interactive_settings(
@@ -856,7 +856,7 @@ def choose_run_settings(
     if selected_recipe_pipeline is None:
         return None
     selected_profile: TopTierProfileKind = (
-        "vanilla" if selected_recipe_pipeline == "off" else "codexfarm"
+        "vanilla" if selected_recipe_pipeline == "off" else "codex-exec"
     )
 
     if selected_profile == "vanilla":
@@ -879,7 +879,7 @@ def choose_run_settings(
             warn_context="interactive recipe pipeline selection override",
             llm_recipe_pipeline=selected_recipe_pipeline,
         )
-    if codex_surface_menu_options is not None and selected_profile == "codexfarm":
+    if codex_surface_menu_options is not None and selected_profile == "codex-exec":
         selected_settings = choose_interactive_codex_surfaces(
             selected_settings=selected_settings,
             prompt_codex_surface_menu=prompt_codex_surface_menu,

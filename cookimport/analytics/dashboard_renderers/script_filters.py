@@ -227,7 +227,7 @@ _JS_FILTERS = """\
     const profile = aiAssistanceProfileForRecord(record);
     return (
       (pathVariant === "vanilla" && profile === "deterministic") ||
-      (pathVariant === "codexfarm" && profile === "full_stack")
+      (pathVariant === "codex-exec" && profile === "full_stack")
     );
   }
 
@@ -239,7 +239,7 @@ _JS_FILTERS = """\
     const labels = [];
     if (state.exclude_ai_tests) labels.push("exclude AI test/smoke runs");
     if (state.official_full_golden_only) {
-      labels.push("official single-book vanilla/codexfarm runs only");
+      labels.push("official single-book vanilla/codex-exec runs only");
     }
     return labels;
   }

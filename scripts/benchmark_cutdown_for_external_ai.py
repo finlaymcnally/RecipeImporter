@@ -232,7 +232,7 @@ STARTER_PACK_TRIAGE_HEADER = (
     "outside_span_trace_status_top",
 )
 AGGREGATED_ROOT_SUMMARY_MD = "benchmark_summary.md"
-PROMPT_LOG_FILE_NAME = "codexfarm_prompt_log.dedup.txt"
+PROMPT_LOG_FILE_NAME = "codex_exec_prompt_log.dedup.txt"
 FULL_PROMPT_LOG_FILE_NAME = "full_prompt_log.jsonl"
 PROMPT_TYPE_SAMPLES_FILE_NAME = "prompt_type_samples_from_full_prompt_log.md"
 KNOWLEDGE_PROMPT_FILE_NAME = "prompt_nonrecipe_finalize.txt"
@@ -821,7 +821,7 @@ def _write_prompt_log_samples(
         }
 
     lines: list[str] = [
-        "# CodexFarm prompt input/output examples (sampled)",
+        "# Codex Exec prompt input/output examples (sampled)",
         "",
         (
             "This file keeps a deterministic sample of whole prompt-input/output file "
@@ -928,7 +928,7 @@ def _write_prompt_log_samples_from_full_prompt_log(
         )
 
     lines: list[str] = [
-        "# CodexFarm prompt input/output examples (from full_prompt_log.jsonl)",
+        "# Codex Exec prompt input/output examples (from full_prompt_log.jsonl)",
         "",
         (
             "This convenience file is derived from full_prompt_log.jsonl and keeps "
@@ -2557,8 +2557,8 @@ def _resolve_prompt_log_path(run_dir: Path, run_manifest: dict[str, Any]) -> Pat
     candidate_paths.extend(
         [
             run_dir / PROMPT_LOG_FILE_NAME,
-            run_dir / "codexfarm" / PROMPT_REQUEST_RESPONSE_LOG_NAME,
-            run_dir / "codexfarm" / PROMPT_LOG_FILE_NAME,
+            run_dir / "codex-exec" / PROMPT_REQUEST_RESPONSE_LOG_NAME,
+            run_dir / "codex-exec" / PROMPT_LOG_FILE_NAME,
             run_dir / PROMPT_REQUEST_RESPONSE_LOG_NAME,
         ]
     )
@@ -2591,7 +2591,7 @@ def _resolve_full_prompt_log_path(run_dir: Path, run_manifest: dict[str, Any]) -
         [
             run_dir / "prompts" / FULL_PROMPT_LOG_FILE_NAME,
             run_dir / FULL_PROMPT_LOG_FILE_NAME,
-            run_dir / "codexfarm" / FULL_PROMPT_LOG_FILE_NAME,
+            run_dir / "codex-exec" / FULL_PROMPT_LOG_FILE_NAME,
         ]
     )
 
@@ -2622,7 +2622,7 @@ def _resolve_prompt_type_samples_path(run_dir: Path, run_manifest: dict[str, Any
     candidate_paths.extend(
         [
             run_dir / "prompts" / PROMPT_TYPE_SAMPLES_FILE_NAME,
-            run_dir / "codexfarm" / "prompts" / PROMPT_TYPE_SAMPLES_FILE_NAME,
+            run_dir / "codex-exec" / "prompts" / PROMPT_TYPE_SAMPLES_FILE_NAME,
         ]
     )
 
@@ -2656,11 +2656,11 @@ def _iter_prompt_category_manifest_paths(prompts_dir: Path) -> list[Path]:
 def _resolve_knowledge_prompt_path(run_dir: Path) -> Path | None:
     candidate_paths: list[Path] = [
         run_dir / "prompts" / KNOWLEDGE_PROMPT_FILE_NAME,
-        run_dir / "codexfarm" / "prompts" / KNOWLEDGE_PROMPT_FILE_NAME,
+        run_dir / "codex-exec" / "prompts" / KNOWLEDGE_PROMPT_FILE_NAME,
     ]
     for prompts_dir in (
         run_dir / "prompts",
-        run_dir / "codexfarm" / "prompts",
+        run_dir / "codex-exec" / "prompts",
     ):
         if not prompts_dir.is_dir():
             continue
@@ -6596,16 +6596,16 @@ def _write_readme(
     lines.append(f"Excerpt char limit for sampled text fields: {excerpt_limit}")
     if prompt_pairs_per_category <= 0:
         lines.append(
-            "CodexFarm sampled prompt log: convenience file keeps all calls from "
+            "Codex Exec sampled prompt log: convenience file keeps all calls from "
             "`full_prompt_log.jsonl` when available (legacy text-log copy fallback)."
         )
     else:
         lines.append(
-            "CodexFarm sampled prompt log: convenience-only sampled calls per stage "
+            "Codex Exec sampled prompt log: convenience-only sampled calls per stage "
             f"(max {prompt_pairs_per_category}, sampled from full_prompt_log.jsonl when available)"
         )
     lines.append(
-        "CodexFarm full prompt log: `full_prompt_log.jsonl` copied as complete machine-readable call rows (no sampling/truncation)."
+        "Codex Exec full prompt log: `full_prompt_log.jsonl` copied as complete machine-readable call rows (no sampling/truncation)."
     )
     lines.append("")
     lines.append("Each run folder includes:")

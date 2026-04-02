@@ -1072,17 +1072,9 @@ class FakeCodexExecRunner:
                         decision_row = dict(row)
                         break
             category = str(decision_row.get("category") or "knowledge")
-            reviewer_category = str(
-                decision_row.get("reviewer_category")
-                or ("knowledge" if category == "knowledge" else "other")
-            ).strip() or ("knowledge" if category == "knowledge" else "other")
             if stage_key == "nonrecipe_classify":
-                retrieval_concept = None
                 grounding_payload = empty_grounding_payload()
                 if category == "knowledge":
-                    retrieval_concept = str(
-                        decision_row.get("retrieval_concept") or evidence.get("text") or ""
-                    ).strip() or None
                     grounding_row = (
                         dict(decision_row.get("grounding") or {})
                         if isinstance(decision_row.get("grounding"), Mapping)
@@ -1131,19 +1123,13 @@ class FakeCodexExecRunner:
                             "proposed_tags": [
                                 {
                                     "key": proposed_key,
-                                    "display_name": (
-                                        retrieval_concept[:48].strip()
-                                        if retrieval_concept is not None
-                                        else f"Knowledge {block_index}"
-                                    ),
+                                    "display_name": f"Knowledge {block_index}",
                                     "category_key": "techniques",
                                 }
                             ],
                         }
                 return {
                     "category": category,
-                    "reviewer_category": reviewer_category,
-                    "retrieval_concept": retrieval_concept,
                     "grounding": grounding_payload,
                 }
             group_key = None

@@ -432,7 +432,7 @@ def test_choose_run_settings_uses_saved_qualitysuite_winner(
     assert selected is not None
     expected = run_settings_flow._harmonize_top_tier_pipeline_settings(
         winner_settings,
-        profile="codexfarm",
+        profile="codex-exec",
         warn_context="test expected saved winner settings",
     )
     assert selected.to_run_config_dict() == expected.to_run_config_dict()
@@ -473,7 +473,7 @@ def test_choose_run_settings_falls_back_to_builtin_top_tier_defaults(
     assert selected is not None
     expected = run_settings_flow._harmonize_top_tier_pipeline_settings(
         run_settings_flow._default_top_tier_settings(global_defaults),
-        profile="codexfarm",
+        profile="codex-exec",
         warn_context="test expected codex top-tier settings",
     )
     assert selected.to_run_config_dict() == expected.to_run_config_dict()
@@ -518,7 +518,7 @@ def test_choose_run_settings_harmonizes_saved_qualitysuite_winner_to_latest_top_
     assert selected is not None
     expected = run_settings_flow._harmonize_top_tier_pipeline_settings(
         saved_winner_settings,
-        profile="codexfarm",
+        profile="codex-exec",
         warn_context="test expected harmonized winner settings",
     )
     assert selected.to_run_config_dict() == expected.to_run_config_dict()
@@ -549,9 +549,9 @@ def test_choose_run_settings_does_not_warn_for_fixed_behavior_metadata(
     def _menu_select(message: str, **_kwargs):
         if message == "Workflow for this run:":
             return "codex-recipe-shard-v1"
-        if message == "Codex Farm model override:":
+        if message == "Codex Exec model override:":
             return "__pipeline_default__"
-        if message == "Codex Farm reasoning effort override:":
+        if message == "Codex Exec reasoning effort override:":
             return "__default__"
         pytest.fail(f"unexpected menu prompt: {message}")
 
@@ -730,7 +730,7 @@ def test_choose_run_settings_workflow_menu_uses_family_labels_only(
     )
 
     assert selected is not None
-    assert captured_titles == ["Vanilla / no Codex", "CodexFarm"]
+    assert captured_titles == ["Vanilla / no Codex", "Codex Exec"]
 
 
 def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
@@ -948,10 +948,10 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
     def _menu_select(message, *_args, **_kwargs):
         if message == "Workflow for this run:":
             return "codex-recipe-shard-v1"
-        if message == "Codex Farm model override:":
+        if message == "Codex Exec model override:":
             seen_model_prompt["value"] = True
             return "__pipeline_default__"
-        if message == "Codex Farm reasoning effort override:":
+        if message == "Codex Exec reasoning effort override:":
             return "__default__"
         pytest.fail(f"unexpected menu prompt: {message}")
 
@@ -978,7 +978,7 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
     assert selected.atomic_block_splitter.value == "off"
 
 
-def test_build_interactive_benchmark_preset_settings_resolves_fast_codexfarm_single_book(
+def test_build_interactive_benchmark_preset_settings_resolves_fast_codex_exec_single_book(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -1055,7 +1055,7 @@ def test_prompt_codex_surface_menu_uses_arrow_keys_to_toggle_without_leaving_scr
         def _run_prompt() -> None:
             try:
                 result["value"] = run_settings_flow._prompt_codex_surface_menu(
-                    message="CodexFarm steps for this run:",
+                    message="Codex Exec steps for this run:",
                     step_rows=[
                         ("recipe", "Recipe correction (`codex-recipe-shard-v1`)"),
                         ("knowledge", "Knowledge harvest (`codex-knowledge-candidate-v2`)"),
@@ -1088,7 +1088,7 @@ def test_prompt_codex_surface_menu_allows_left_and_right_to_move_current_choice(
         def _run_prompt() -> None:
             try:
                 result["value"] = run_settings_flow._prompt_codex_surface_menu(
-                    message="CodexFarm options for this run:",
+                    message="Codex Exec options for this run:",
                     step_rows=[
                         ("recipe", "Recipe correction (`codex-recipe-shard-v1`)"),
                         ("knowledge", "Knowledge harvest (`codex-knowledge-candidate-v2`)"),
@@ -1136,12 +1136,12 @@ def test_choose_run_settings_codex_profile_prompts_for_ai_settings_when_enabled(
     model_choice_values: list[str] = []
 
     def _menu_select(message, *args, **kwargs):
-        if message == "Codex Farm model override:":
+        if message == "Codex Exec model override:":
             model_choice_values.extend(
                 [str(choice.value) for choice in kwargs.get("choices", [])]
             )
             return "gpt-5-codex"
-        if message == "Codex Farm reasoning effort override:":
+        if message == "Codex Exec reasoning effort override:":
             effort_prompt_seen["value"] = True
             return "high"
         pytest.fail(f"unexpected menu prompt: {message}")
@@ -1194,9 +1194,9 @@ def test_choose_run_settings_codex_profile_filters_reasoning_efforts_by_model(
     effort_choice_values: list[str] = []
 
     def _menu_select(message, *args, **kwargs):
-        if message == "Codex Farm model override:":
+        if message == "Codex Exec model override:":
             return "gpt-5.1-codex-mini"
-        if message == "Codex Farm reasoning effort override:":
+        if message == "Codex Exec reasoning effort override:":
             effort_choice_values.extend(
                 [str(choice.value) for choice in kwargs.get("choices", [])]
             )
@@ -1240,12 +1240,12 @@ def test_choose_run_settings_codex_profile_does_not_invent_fallback_model(
     model_choice_values: list[str] = []
 
     def _menu_select(message, *args, **kwargs):
-        if message == "Codex Farm model override:":
+        if message == "Codex Exec model override:":
             model_choice_values.extend(
                 [str(choice.value) for choice in kwargs.get("choices", [])]
             )
             return "__pipeline_default__"
-        if message == "Codex Farm reasoning effort override:":
+        if message == "Codex Exec reasoning effort override:":
             return "__default__"
         pytest.fail(f"unexpected menu prompt: {message}")
 
@@ -1305,7 +1305,7 @@ def test_choose_run_settings_codex_ai_settings_prompt_cancel_returns_none(
         output_dir=tmp_path,
         menu_select=lambda message, *_args, **_kwargs: (
             back_action
-            if message == "Codex Farm model override:"
+            if message == "Codex Exec model override:"
             else pytest.fail("effort menu should not run after model prompt cancel")
         ),
         back_action=back_action,

@@ -226,7 +226,7 @@ Current diagnostics cards:
 Key behaviors:
 - Runtime surfaces model, effort, pipeline mode, token use, and token-efficiency metrics when metadata exists.
 - Boundary aggregates all boundary-bearing rows in the selected run group and shows matched-coverage context.
-- Per-label aggregates across the selected run group, keeps latest-run `codexfarm` baseline columns, supports point-value vs delta display, and exposes a `Rolling N` selector plus run-group selector.
+- Per-label aggregates across the selected run group, keeps latest-run `codex-exec` baseline columns, supports point-value vs delta display, and exposes a `Rolling N` selector plus run-group selector.
 
 ### 5.3 Previous Runs
 

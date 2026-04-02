@@ -105,7 +105,7 @@ def test_existing_output_adapter_prefers_root_summaries(tmp_path: Path) -> None:
 def test_existing_output_adapter_falls_back_to_discovered_runs(tmp_path: Path) -> None:
     source_root = tmp_path / "session"
     source_root.mkdir(parents=True, exist_ok=True)
-    discovered = [source_root / "codexfarm", source_root / "vanilla"]
+    discovered = [source_root / "codex-exec", source_root / "vanilla"]
     for run_dir in discovered:
         run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -119,12 +119,12 @@ def test_existing_output_adapter_falls_back_to_discovered_runs(tmp_path: Path) -
         return {}
 
     def _build_run_record(path: Path) -> SimpleNamespace:
-        if path.name == "codexfarm":
+        if path.name == "codex-exec":
             return SimpleNamespace(
                 run_timestamp=None,
-                run_id="codexfarm",
+                run_id="codex-exec",
                 run_dir=path,
-                output_subdir="codexfarm",
+                output_subdir="codex-exec",
                 source_key="book-hash",
                 source_file="book.epub",
                 source_hash="book-hash",
@@ -159,7 +159,7 @@ def test_existing_output_adapter_falls_back_to_discovered_runs(tmp_path: Path) -
                 "pairs": [
                     {
                         "source_key": "book-hash",
-                        "codex_run": {"run_id": "codexfarm"},
+                        "codex_run": {"run_id": "codex-exec"},
                         "baseline_run": {"run_id": "vanilla"},
                     }
                 ]
@@ -168,7 +168,7 @@ def test_existing_output_adapter_falls_back_to_discovered_runs(tmp_path: Path) -
             [{"source_key": "book-hash"}],
             [],
             [{"recipe_id": "recipe:c0"}],
-            [{"run_id": "codexfarm"}],
+            [{"run_id": "codex-exec"}],
             [],
         )
 
@@ -220,8 +220,8 @@ def test_existing_output_adapter_falls_back_to_discovered_runs(tmp_path: Path) -
     ]
     assert model.topology["runtime_runs"] == [
         {
-            "output_subdir": "codexfarm",
-            "run_id": "codexfarm",
+            "output_subdir": "codex-exec",
+            "run_id": "codex-exec",
             "runtime_stages": {},
             "source_key": "book-hash",
         },
@@ -245,8 +245,8 @@ def test_existing_output_adapter_counts_final_recipe_calls_only_when_observed(
             return {
                 "runs": [
                     {
-                        "run_id": "codexfarm",
-                        "output_subdir": "codexfarm",
+                        "run_id": "codex-exec",
+                        "output_subdir": "codex-exec",
                         "source_file": "book.epub",
                         "source_hash": "book-hash",
                         "source_key": "book-hash",

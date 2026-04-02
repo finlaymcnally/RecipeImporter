@@ -73,10 +73,6 @@ def write_knowledge_artifacts(
                 record["grounded_blocks"].append(
                     {
                         "block_index": int(block_index),
-                        "retrieval_concept": str(
-                            getattr(decision, "retrieval_concept", "") or ""
-                        ).strip()
-                        or None,
                         "grounding": {
                             "tag_keys": [
                                 str(value).strip()
@@ -170,10 +166,7 @@ def _render_preview_md(
             )
             if grounding_row is None:
                 continue
-            retrieval_concept = str(grounding_row.get("retrieval_concept") or "").strip()
             grounding = dict(grounding_row.get("grounding") or {})
-            if retrieval_concept:
-                lines.append(f"  retrieval_concept: {retrieval_concept}")
             tag_keys = ", ".join(str(value) for value in (grounding.get("tag_keys") or []))
             if tag_keys:
                 lines.append(f"  tag_keys: {tag_keys}")

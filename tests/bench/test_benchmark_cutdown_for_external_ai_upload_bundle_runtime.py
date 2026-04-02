@@ -16,7 +16,7 @@ def test_build_upload_bundle_uses_single_correction_stage_labels_only(
 ) -> None:
     module = _load_cutdown_module()
     session_root = tmp_path / "single-book-benchmark"
-    codex_run_id = "codexfarm"
+    codex_run_id = "codex-exec"
     baseline_run_id = "vanilla"
 
     _make_run_record(
@@ -255,7 +255,7 @@ def test_build_upload_bundle_merges_prompt_budget_summary_when_call_rows_lack_ru
     _make_run_record(
         module,
         run_root=session_root,
-        run_id="codexfarm",
+        run_id="codex-exec",
         llm_recipe_pipeline="codex-recipe-shard-v1",
         line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
@@ -284,7 +284,7 @@ def test_build_upload_bundle_merges_prompt_budget_summary_when_call_rows_lack_ru
         source_path="/tmp/book.epub",
         source_hash="fixture-hash",
     )
-    codex_run_dir = session_root / "codexfarm"
+    codex_run_dir = session_root / "codex-exec"
     _write_json(
         codex_run_dir / "prompt_budget_summary.json",
         {
@@ -365,7 +365,7 @@ def test_build_upload_bundle_merges_realistic_codex_call_telemetry_with_prompt_b
     _make_run_record(
         module,
         run_root=session_root,
-        run_id="codexfarm",
+        run_id="codex-exec",
         llm_recipe_pipeline="codex-recipe-shard-v1",
         line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
@@ -445,7 +445,7 @@ def test_build_upload_bundle_merges_realistic_codex_call_telemetry_with_prompt_b
         source_path="/tmp/book.epub",
         source_hash="fixture-hash",
     )
-    codex_run_dir = session_root / "codexfarm"
+    codex_run_dir = session_root / "codex-exec"
     _write_prediction_run(codex_run_dir, with_extracted_archive=True)
     _write_json(
         codex_run_dir / "prediction-run" / "manifest.json",
@@ -663,7 +663,7 @@ def test_build_upload_bundle_backfills_missing_stage_telemetry_from_prompt_budge
     _make_run_record(
         module,
         run_root=session_root,
-        run_id="codexfarm",
+        run_id="codex-exec",
         llm_recipe_pipeline="codex-recipe-shard-v1",
         line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
@@ -671,7 +671,7 @@ def test_build_upload_bundle_backfills_missing_stage_telemetry_from_prompt_budge
         source_path="/tmp/book.epub",
         source_hash="fixture-hash",
     )
-    codex_run_dir = session_root / "codexfarm"
+    codex_run_dir = session_root / "codex-exec"
     _write_prediction_run(codex_run_dir, with_extracted_archive=True)
     _write_json(
         codex_run_dir / "prediction-run" / "prompt_budget_summary.json",
@@ -735,7 +735,7 @@ def test_build_upload_bundle_surfaces_knowledge_summary_and_locators(
 ) -> None:
     module = _load_cutdown_module()
     session_root = tmp_path / "single-profile-benchmark" / "book_a"
-    run_id = "codexfarm"
+    run_id = "codex-exec"
 
     _make_run_record(
         module,
@@ -801,7 +801,7 @@ def test_build_upload_bundle_discovers_current_single_book_knowledge_layout(
 ) -> None:
     module = _load_cutdown_module()
     session_root = tmp_path / "single-book-benchmark" / "book_a"
-    codex_run_id = "codexfarm"
+    codex_run_id = "codex-exec"
     baseline_run_id = "vanilla"
 
     _make_run_record(
@@ -893,10 +893,10 @@ def test_build_upload_bundle_discovers_current_single_book_knowledge_layout(
         "prompts/prompt_nonrecipe_finalize.txt"
     )
     assert codex_locator_row["prompt_budget_summary_json"]["path"].endswith(
-        "codexfarm/prompt_budget_summary.json"
+        "codex-exec/prompt_budget_summary.json"
     )
     assert codex_locator_row["knowledge_manifest_json"]["path"].endswith(
-        "_upload_bundle_derived/runs/codexfarm/knowledge_manifest.json"
+        "_upload_bundle_derived/runs/codex-exec/knowledge_manifest.json"
     )
 
     baseline_locator_row = next(
@@ -921,7 +921,7 @@ def test_resolve_knowledge_prompt_path_supports_dynamic_stage_file_names(
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
-    run_dir = tmp_path / "single-profile-benchmark" / "book_a" / "codexfarm"
+    run_dir = tmp_path / "single-profile-benchmark" / "book_a" / "codex-exec"
     prompts_dir = run_dir / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
 
@@ -941,11 +941,11 @@ def test_reconstruct_full_prompt_log_includes_knowledge_rows(
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
-    run_dir = tmp_path / "single-profile-benchmark" / "book_a" / "codexfarm"
+    run_dir = tmp_path / "single-profile-benchmark" / "book_a" / "codex-exec"
     _make_run_record(
         module,
         run_root=tmp_path / "single-profile-benchmark" / "book_a",
-        run_id="codexfarm",
+        run_id="codex-exec",
         llm_recipe_pipeline="codex-recipe-shard-v1",
         line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
@@ -1011,7 +1011,7 @@ def test_build_upload_bundle_high_level_includes_lightweight_knowledge_artifacts
 ) -> None:
     module = _load_cutdown_module()
     session_root = tmp_path / "single-profile-benchmark"
-    run_id = "codexfarm"
+    run_id = "codex-exec"
 
     _make_run_record(
         module,

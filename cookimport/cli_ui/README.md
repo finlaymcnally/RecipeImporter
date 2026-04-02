@@ -1,10 +1,10 @@
 Interactive run-settings UI helpers.
 
 - `run_settings_flow.py` asks `Workflow for this run?` for interactive Import/Benchmark flows.
-- The interactive benchmark preset shortcut `saltfatacidheatcutdown_fast_codexfarm` reuses this module's normal CodexFarm top-tier harmonization, then pins all three Codex benchmark surfaces on, shard counts to `5/5/5`, model override to `gpt-5.3-codex-spark`, and reasoning effort to `low`.
-- The workflow toggle still collapses to `off` vs shard-backed Codex, but the menu renders only the family labels `Vanilla / no Codex` and `CodexFarm`.
-- Any non-`off` choice resolves `CodexFarm automatic top-tier` (winner-preferred when available).
-- Interactive Codex-enabled flows now reuse one consolidated Codex submenu after the workflow choice when CodexFarm is selected:
+- The interactive benchmark preset shortcut `saltfatacidheatcutdown_fast_codex_exec` reuses this module's normal Codex Exec top-tier harmonization, then pins all three Codex benchmark surfaces on, shard counts to `5/5/5`, model override to `gpt-5.3-codex-spark`, and reasoning effort to `low`.
+- The workflow toggle still collapses to `off` vs shard-backed Codex, but the menu renders only the family labels `Vanilla / no Codex` and `Codex Exec`.
+- Any non-`off` choice resolves `Codex Exec automatic top-tier` (winner-preferred when available).
+- Interactive Codex-enabled flows now reuse one consolidated Codex submenu after the workflow choice when Codex Exec is selected:
   - one list shows every available step with aligned `[Yes]` / `[No]` columns beside it
   - the concrete pipeline ids live on those step rows instead of the top workflow choice
   - up/down moves between rows while staying in the same submenu
@@ -21,13 +21,13 @@ Interactive run-settings UI helpers.
   - enabled surfaces now also prompt for shard count using the same contract on every Codex-backed stage: import asks recipe then knowledge, while benchmark flows ask line-role then recipe then knowledge
   - those prompts map directly to `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count`
 - Any non-`off` choice also prompts for codex AI settings for that run:
-  - `Codex Farm model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models only)
-  - `Codex Farm reasoning effort override` (`Pipeline default` plus only the efforts supported by the selected discovered model when that metadata is available)
+  - `Codex Exec model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models only)
+  - `Codex Exec reasoning effort override` (`Pipeline default` plus only the efforts supported by the selected discovered model when that metadata is available)
 - `off` resolves `Vanilla automatic top-tier`.
-- `CodexFarm` profile keeps the winner-preferred resolver path (quality-suite winner settings first, otherwise built-in top-tier baseline), then harmonizes the full top-tier contract:
+- `Codex Exec` profile keeps the winner-preferred resolver path (quality-suite winner settings first, otherwise built-in top-tier baseline), then harmonizes the full top-tier contract:
   - `llm_knowledge_pipeline=codex-knowledge-candidate-v2`, `line_role_pipeline=codex-line-role-route-v2`, `atomic_block_splitter=off`
   - parsing stack pinned to `unstructured + v1 + br_split_v1 + skip_headers=true`
   - deterministic parsing knobs pinned to `section_detector_backend=shared_v1`, `multi_recipe_splitter=rules_v1`, `instruction_step_segmentation_policy=always`, `instruction_step_segmenter=heuristic_v1`, `pdf_ocr_policy=off`
   - recipe routing is fixed to the shard-v1 pipeline; only model/reasoning overrides remain operator-adjustable
 - `Vanilla` profile uses the same top-tier parsing stack with every Codex surface off (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`).
-- `COOKIMPORT_TOP_TIER_PROFILE=codexfarm|vanilla` still overrides the interactive prompt.
+- `COOKIMPORT_TOP_TIER_PROFILE=codex-exec|vanilla` still overrides the interactive prompt.

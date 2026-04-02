@@ -277,7 +277,7 @@ def test_benchmark_contracts_preserve_selected_atomic_block_splitter() -> None:
     baseline = apply_benchmark_baseline_contract(payload)
     codex = apply_benchmark_codex_contract_from_baseline(baseline)
     baseline_variant = apply_benchmark_variant_contract(payload, "vanilla")
-    codex_variant = apply_benchmark_variant_contract(payload, "codexfarm")
+    codex_variant = apply_benchmark_variant_contract(payload, "codex-exec")
 
     assert baseline["atomic_block_splitter"] == "atomic-v1"
     assert codex["atomic_block_splitter"] == "atomic-v1"

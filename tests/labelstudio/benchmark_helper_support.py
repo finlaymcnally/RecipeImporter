@@ -490,7 +490,7 @@ def _fake_offline_prediction_stage(
         prediction_records=list(read_prediction_records(predictions_out_path))
         if predictions_out_path is not None
         else [],
-        codexfarm_prompt_response_log_path=None,
+        codex_exec_prompt_response_log_path=None,
         single_book_split_cache_metadata=None,
     )
 

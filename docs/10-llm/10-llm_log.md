@@ -283,7 +283,7 @@ Problem captured:
 Durable decisions:
 - `prompts/full_prompt_log.jsonl` is the stable downstream prompt artifact.
 - Keep discovery and rendering separate in `cookimport/llm/prompt_artifacts.py`:
-  - `discover_codexfarm_prompt_run_descriptors(...)`
+  - `discover_codex_exec_prompt_run_descriptors(...)`
   - `render_prompt_artifacts_from_descriptors(...)`
   - `build_codex_farm_prompt_response_log(...)`
 - The live Codex-backed surfaces are `recipe`, `line_role`, `knowledge`, and `prelabel`; recipe tags are part of the recipe surface rather than a separate Codex lane.

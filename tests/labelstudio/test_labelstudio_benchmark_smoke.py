@@ -208,7 +208,7 @@ def test_interactive_benchmark_single_book_codex_shaped_smoke(
 
 def _simulated_canonical_eval_report(*, eval_output_dir: Path) -> dict[str, object]:
     variant_slug = eval_output_dir.name
-    codex_enabled = variant_slug == "codexfarm"
+    codex_enabled = variant_slug == "codex-exec"
     if codex_enabled:
         precision = 0.47
         recall = 0.38
@@ -405,7 +405,7 @@ def _run_interactive_single_book_simulated_runtime(
             "processed_report_path": "",
             "stage_block_predictions_path": fixture_paths["stage_predictions_path"],
             "extracted_archive_path": fixture_paths["extracted_archive_path"],
-            "timing": {"prediction_seconds": 0.25 if variant_slug == "codexfarm" else 0.15},
+            "timing": {"prediction_seconds": 0.25 if variant_slug == "codex-exec" else 0.15},
         }
 
     def _fake_ensure_canonical_gold_artifacts(*, export_root: Path):
@@ -533,11 +533,11 @@ def test_interactive_benchmark_single_book_codex_shaped_simulated_runtime(
     comparison_paths = list(benchmark_root.rglob("codex_vs_vanilla_comparison.json"))
     assert len(comparison_paths) == 1
     comparison_payload = json.loads(comparison_paths[0].read_text(encoding="utf-8"))
-    assert Path(comparison_payload["variants"]["codexfarm"]["eval_output_dir"]).name == "codexfarm"
+    assert Path(comparison_payload["variants"]["codex-exec"]["eval_output_dir"]).name == "codex-exec"
     assert Path(comparison_payload["variants"]["vanilla"]["eval_output_dir"]).name == "vanilla"
 
     summary_paths = list(benchmark_root.rglob("single_book_summary.md"))
     assert len(summary_paths) == 1
     summary_text = summary_paths[0].read_text(encoding="utf-8")
     assert "### `vanilla`" in summary_text
-    assert "### `codexfarm`" in summary_text
+    assert "### `codex-exec`" in summary_text

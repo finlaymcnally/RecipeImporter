@@ -72,7 +72,7 @@ Current rule:
 - `choose_run_settings(...)` in `cookimport/cli_ui/run_settings_flow.py` is the source of truth.
 - The chooser now resolves exactly two top-tier profile families:
   - `vanilla`: deterministic top-tier contract.
-  - `codexfarm`: quality-suite winner settings when available, otherwise built-in codex top-tier.
+  - `codex-exec`: quality-suite winner settings when available, otherwise built-in codex top-tier.
 
 ### 2026-03-06_00.30.31 single-profile benchmark terminal noise suppression
 

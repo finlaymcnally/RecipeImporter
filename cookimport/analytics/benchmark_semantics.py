@@ -14,7 +14,7 @@ AI_ASSISTANCE_PROFILE_LABELS: dict[str, str] = {
 
 _VARIANT_KEYS = {
     "vanilla",
-    "codexfarm",
+    "codex-exec",
     "deterministic",
     "line_role_only",
     "recipe_only",
@@ -105,8 +105,8 @@ def explicit_variant_for_record(record: Any) -> str | None:
 
 def artifact_variant_for_record(record: Any) -> str | None:
     path = _benchmark_path(record)
-    if "/codexfarm/" in path or path.endswith("/codexfarm"):
-        return "codexfarm"
+    if "/codex-exec/" in path or path.endswith("/codex-exec"):
+        return "codex-exec"
     if "/vanilla/" in path or path.endswith("/vanilla"):
         return "vanilla"
     return None
@@ -137,7 +137,7 @@ def ai_assistance_profile_for_record(record: Any) -> str:
     official_paired = is_official_paired_benchmark_record(record)
     recipe_on = recipe_pipeline is not None and recipe_pipeline.lower() != "off"
     line_role_on = line_role_pipeline is not None and line_role_pipeline.lower() != "off"
-    if official_paired and artifact_variant == "codexfarm" and recipe_on and not line_role_on:
+    if official_paired and artifact_variant == "codex-exec" and recipe_on and not line_role_on:
         return "full_stack"
     if (
         official_paired
@@ -148,7 +148,7 @@ def ai_assistance_profile_for_record(record: Any) -> str:
         return "deterministic"
     if surface.ai_assistance_profile != "other":
         return surface.ai_assistance_profile
-    if official_paired and artifact_variant == "codexfarm":
+    if official_paired and artifact_variant == "codex-exec":
         return "full_stack"
     if official_paired and artifact_variant == "vanilla":
         return "deterministic"
@@ -203,8 +203,8 @@ def benchmark_variant_for_record(record: Any) -> str:
         return "vanilla"
     if (
         is_official_paired_benchmark_record(record)
-        and artifact_variant == "codexfarm"
+        and artifact_variant == "codex-exec"
         and profile == "full_stack"
     ):
-        return "codexfarm"
+        return "codex-exec"
     return profile

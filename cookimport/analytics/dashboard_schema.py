@@ -17,7 +17,7 @@ Schema version history:
     9 – benchmark golden recipe-header count (`gold_recipe_headers`) for recipe-coverage charts
     10 – removed retired EPUB auto-score field from stage records
     11 – explicit benchmark metric fields (`strict_accuracy`, `macro_f1_excluding_other`)
-    12 – CodexFarm benchmark token usage fields (`tokens_*`)
+    12 – Codex Exec benchmark token usage fields (`tokens_*`)
     13 – benchmark semantics fields (`benchmark_variant`, `ai_assistance_profile`)
     14 – removed retired tip/topic stage metrics from stage records and summary
 """

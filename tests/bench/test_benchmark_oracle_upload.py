@@ -88,7 +88,7 @@ def test_build_token_lane_brief_reads_current_stage_names(
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
     profile = oracle_upload.resolve_oracle_benchmark_review_profile("token")
-    prompt_budget_path = bundle_dir.parent / "codexfarm" / "prompt_budget_summary.json"
+    prompt_budget_path = bundle_dir.parent / "codex-exec" / "prompt_budget_summary.json"
     prompt_budget_path.write_text(
         json.dumps(
             {
@@ -750,9 +750,9 @@ def test_run_oracle_benchmark_upload_browser_stages_token_profile_subset(
         ]
         payload_path = next(path for path in file_args if path.name == "payload.json")
         payload_text = payload_path.read_text(encoding="utf-8")
-        assert 'codexfarm/prompt_budget_summary.json' in payload_text
+        assert 'codex-exec/prompt_budget_summary.json' in payload_text
         assert 'starter_pack_v1/02_call_inventory.jsonl' in payload_text
-        assert 'codexfarm/eval_report.json' not in payload_text
+        assert 'codex-exec/eval_report.json' not in payload_text
         prompt = command[command.index("-p") + 1]
         assert "`token` lane packet" in prompt
         return subprocess.CompletedProcess(

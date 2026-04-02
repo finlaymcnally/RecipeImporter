@@ -1002,7 +1002,7 @@ def test_all_method_dashboard_preserves_long_task_message() -> None:
     )
     tail_token = "single-profile-live-task-tail-token-visible"
     long_task = (
-        "Running variant 2/2 (codexfarm) | book 1/1: DinnerFor2CUTDOWN.epub | "
+        "Running variant 2/2 (codex-exec) | book 1/1: DinnerFor2CUTDOWN.epub | "
         "codex-farm recipe.correction.compact.v1 stage detail "
         + ("x" * 220)
         + tail_token
@@ -1074,13 +1074,13 @@ def test_single_profile_dashboard_renders_book_columns_worker_rows_and_eta(
         source_index=0,
         config_index=1,
         config_total=1,
-        config_slug="codexfarm",
+        config_slug="codex-exec",
     )
     dashboard.start_config(
         source_index=1,
         config_index=1,
         config_total=1,
-        config_slug="codexfarm",
+        config_slug="codex-exec",
     )
     dashboard.ingest_progress(
         source_index=0,

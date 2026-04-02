@@ -470,7 +470,7 @@ class TestRenderer:
         assert 'id="per-label-comparison-point-value"' in html
         assert 'class="per-label-rolling-group"' in html
         assert 'class="per-label-col-head">Run<br>Precision<br>' in html
-        assert 'class="per-label-col-sub">(codexfarm)</span>' in html
+        assert 'class="per-label-col-sub">(codex-exec)</span>' in html
         assert 'class="per-label-col-head">Run<br>Recall<br>' in html
         assert 'class="per-label-rolling-window-value">10</span>' in html
         assert 'Rolling <span class="per-label-comparison-mode-value">Delta</span>:' in html
@@ -700,7 +700,7 @@ class TestRenderer:
         assert 'if (!path.includes("/single-book-benchmark/")) return false;' in js
         assert 'const pathVariant = benchmarkVariantFromPathOrPipeline(record);' in js
         assert '(pathVariant === "vanilla" && profile === "deterministic")' in js
-        assert '(pathVariant === "codexfarm" && profile === "full_stack")' in js
+        assert '(pathVariant === "codex-exec" && profile === "full_stack")' in js
         assert 'const clearBtn = document.getElementById("previous-runs-clear-filters");' in js
         assert 'const clearAllBtn = document.getElementById("previous-runs-clear-all-filters");' in js
         assert "function clearAllPreviousRunsFilters()" in js
@@ -903,7 +903,7 @@ class TestRenderer:
                 "run_timestamp": "2026-03-04T08:11:01",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-04_08.00.00/single-book-benchmark/book_b/2026-03-04_08.11.01/codexfarm"
+                    "2026-03-04_08.00.00/single-book-benchmark/book_b/2026-03-04_08.11.01/codex-exec"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -920,7 +920,7 @@ class TestRenderer:
                 "run_timestamp": "2026-03-04T08:10:01",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-04_08.00.00/single-book-benchmark/book_c/2026-03-04_08.10.01/codexfarm"
+                    "2026-03-04_08.00.00/single-book-benchmark/book_c/2026-03-04_08.10.01/codex-exec"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -937,7 +937,7 @@ class TestRenderer:
                 "run_timestamp": "2026-03-03T20:10:01",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-03_20.00.00/single-book-benchmark/book_d/2026-03-03_20.10.01/codexfarm"
+                    "2026-03-03_20.00.00/single-book-benchmark/book_d/2026-03-03_20.10.01/codex-exec"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -991,21 +991,21 @@ class TestRenderer:
         assert result["vanilla_path_ai_off_effort_label"] == "AI off"
         assert result["line_role_only_effort_label"] == "Line-role only"
         assert result["line_role_only_profile_label"] == "Line-role only"
-        assert result["legacy_codexfarm_profile"] == "full_stack"
-        assert result["legacy_codexfarm_variant"] == "codexfarm"
-        assert result["legacy_codexfarm_official"] is True
+        assert result["legacy_codex_exec_profile"] == "full_stack"
+        assert result["legacy_codex_exec_variant"] == "codex-exec"
+        assert result["legacy_codex_exec_official"] is True
         assert result["legacy_vanilla_profile"] == "deterministic"
         assert result["legacy_vanilla_variant"] == "vanilla"
         assert result["legacy_vanilla_official"] is True
-        assert result["legacy_rundir_codexfarm_profile"] == "full_stack"
-        assert result["legacy_rundir_codexfarm_variant"] == "codexfarm"
-        assert result["legacy_rundir_codexfarm_official"] is True
+        assert result["legacy_rundir_codex_exec_profile"] == "full_stack"
+        assert result["legacy_rundir_codex_exec_variant"] == "codex-exec"
+        assert result["legacy_rundir_codex_exec_official"] is True
         assert result["legacy_rundir_vanilla_profile"] == "deterministic"
         assert result["legacy_rundir_vanilla_variant"] == "vanilla"
         assert result["legacy_rundir_vanilla_official"] is True
         assert result["unknown_effort_label"] == "Unknown"
 
-    def test_per_label_full_stack_single_profile_uses_codexfarm_baseline(self, tmp_path):
+    def test_per_label_full_stack_single_profile_uses_codex_exec_baseline(self, tmp_path):
         dash_dir = tmp_path / "dash"
         render_dashboard(dash_dir, DashboardData())
         js_path = dash_dir / "assets" / "dashboard.js"
@@ -1013,7 +1013,7 @@ class TestRenderer:
 
         assert result["singleProfileVariant"] == "full_stack"
         assert result["singleProfileMappedNoFallback"] == "full_stack"
-        assert result["singleProfileMappedWithoutOfficial"] == "codexfarm"
+        assert result["singleProfileMappedWithoutOfficial"] == "codex-exec"
         assert result["noOfficialHasCodexOrVanilla"] is False
         assert result["withOfficialHasCodexOrVanilla"] is True
         assert result["baseline_no_official_codex_precision"] == pytest.approx(0.2083333333, rel=1e-6)

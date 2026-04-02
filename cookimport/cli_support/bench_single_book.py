@@ -52,12 +52,12 @@ def _write_single_book_summary_markdown(
         "",
     ]
     variant_order: list[str] = []
-    for preferred_slug in ("vanilla", "codexfarm"):
+    for preferred_slug in ("vanilla", "codex-exec"):
         if preferred_slug in variant_results:
             variant_order.append(preferred_slug)
     variant_order.extend(
         sorted(
-            slug for slug in variant_results.keys() if slug not in {"vanilla", "codexfarm"}
+            slug for slug in variant_results.keys() if slug not in {"vanilla", "codex-exec"}
         )
     )
     for variant_slug in variant_order:
@@ -481,7 +481,7 @@ def _interactive_single_book_benchmark(
 
     comparison_written = False
     comparison_json_path: Path | None = None
-    codex_result = variant_results.get("codexfarm")
+    codex_result = variant_results.get("codex-exec")
     vanilla_result = variant_results.get("vanilla")
     if (
         isinstance(codex_result, dict)
@@ -530,7 +530,7 @@ def _interactive_single_book_benchmark(
         typer.secho(
             (
                 "Skipped codex-vs-vanilla comparison artifact: "
-                "both codexfarm and vanilla variant runs must succeed."
+                "both codex-exec and vanilla variant runs must succeed."
             ),
             fg=typer.colors.YELLOW,
         )
@@ -616,10 +616,10 @@ def _interactive_single_book_variants(
                 ),
             ),
             (
-                "codexfarm",
+                "codex-exec",
                 RunSettings.from_dict(
                     codex_payload,
-                    warn_context="interactive benchmark codexfarm variant",
+                    warn_context="interactive benchmark codex-exec variant",
                 ),
             ),
         ]
@@ -1637,7 +1637,7 @@ def _single_book_split_cache_summary(
     variant_rows: dict[str, dict[str, Any]] = {}
     for variant_slug, payload in (
         ("vanilla", vanilla_metadata),
-        ("codexfarm", codex_metadata),
+        ("codex-exec", codex_metadata),
     ):
         if not isinstance(payload, dict):
             continue
@@ -1655,9 +1655,9 @@ def _single_book_split_cache_summary(
     if not variant_rows:
         return None
     shared_key: str | None = None
-    if "vanilla" in variant_rows and "codexfarm" in variant_rows:
+    if "vanilla" in variant_rows and "codex-exec" in variant_rows:
         vanilla_key = str(variant_rows["vanilla"].get("key") or "").strip()
-        codex_key = str(variant_rows["codexfarm"].get("key") or "").strip()
+        codex_key = str(variant_rows["codex-exec"].get("key") or "").strip()
         if vanilla_key and vanilla_key == codex_key:
             shared_key = vanilla_key
     return {
@@ -1830,7 +1830,7 @@ def _build_single_book_variant_diagnostics(
     variant_rows: dict[str, dict[str, Any]] = {}
     for variant_slug, eval_report in (
         ("vanilla", vanilla_eval_report),
-        ("codexfarm", codex_eval_report),
+        ("codex-exec", codex_eval_report),
     ):
         strict_accuracy = _benchmark_report_metric_value(
             eval_report if isinstance(eval_report, dict) else None,
@@ -1862,7 +1862,7 @@ def _build_single_book_variant_diagnostics(
             "gold_adaptation": adaptation_summary,
         }
 
-    codex_row = variant_rows.get("codexfarm") or {}
+    codex_row = variant_rows.get("codex-exec") or {}
     vanilla_row = variant_rows.get("vanilla") or {}
     codex_seg = codex_row.get("segmentation")
     vanilla_seg = vanilla_row.get("segmentation")
@@ -2025,7 +2025,7 @@ def _format_single_book_comparison_markdown(
     variants_payload = payload.get("variants")
     if isinstance(variants_payload, dict):
         codex_dir = str(
-            ((variants_payload.get("codexfarm") or {}).get("eval_output_dir"))
+            ((variants_payload.get("codex-exec") or {}).get("eval_output_dir"))
             or ""
         ).strip()
         vanilla_dir = str(
@@ -2038,7 +2038,7 @@ def _format_single_book_comparison_markdown(
 
     metrics_payload = payload.get("metrics")
     if isinstance(metrics_payload, dict):
-        codex_metrics = metrics_payload.get("codexfarm")
+        codex_metrics = metrics_payload.get("codex-exec")
         vanilla_metrics = metrics_payload.get("vanilla")
     else:
         codex_metrics = None
@@ -2096,14 +2096,14 @@ def _format_single_book_comparison_markdown(
         )
 
     metric_col_width = max(len("Metric"), *(len(row[0]) for row in metric_rows))
-    codex_col_width = max(len("CodexFarm"), *(len(row[1]) for row in metric_rows))
+    codex_col_width = max(len("Codex Exec"), *(len(row[1]) for row in metric_rows))
     vanilla_col_width = max(len("Vanilla"), *(len(row[2]) for row in metric_rows))
     delta_col_width = max(
         len("Codex - Vanilla"),
         *(len(row[3]) for row in metric_rows),
     )
     lines: list[str] = [
-        "# CodexFarm vs Vanilla Comparison",
+        "# Codex Exec vs Vanilla Comparison",
         "",
         f"- Schema version: {SINGLE_BOOK_COMPARISON_SCHEMA_VERSION}",
         f"- Run timestamp: {run_timestamp}",
@@ -2115,7 +2115,7 @@ def _format_single_book_comparison_markdown(
         "",
         (
             f"| {'Metric':<{metric_col_width}}"
-            f" | {'CodexFarm':>{codex_col_width}}"
+            f" | {'Codex Exec':>{codex_col_width}}"
             f" | {'Vanilla':>{vanilla_col_width}}"
             f" | {'Codex - Vanilla':>{delta_col_width}} |"
         ),
@@ -2180,7 +2180,7 @@ def _format_single_book_comparison_markdown(
             if isinstance(variant_diagnostics_payload.get("variants"), dict)
             else {}
         )
-        for variant_slug in ("vanilla", "codexfarm"):
+        for variant_slug in ("vanilla", "codex-exec"):
             row = variant_rows.get(variant_slug)
             if not isinstance(row, dict):
                 continue
@@ -2240,7 +2240,7 @@ def _format_single_book_comparison_markdown(
             ]
         )
         if isinstance(variant_payload, dict):
-            for variant_slug in ("vanilla", "codexfarm"):
+            for variant_slug in ("vanilla", "codex-exec"):
                 row = variant_payload.get(variant_slug)
                 if not isinstance(row, dict):
                     continue
@@ -2282,11 +2282,11 @@ def _write_single_book_comparison_artifacts(
         "run_timestamp": run_timestamp,
         "source_file": source_file,
         "variants": {
-            "codexfarm": {"eval_output_dir": str(codex_eval_output_dir)},
+            "codex-exec": {"eval_output_dir": str(codex_eval_output_dir)},
             "vanilla": {"eval_output_dir": str(vanilla_eval_output_dir)},
         },
         "metrics": {
-            "codexfarm": codex_metrics,
+            "codex-exec": codex_metrics,
             "vanilla": vanilla_metrics,
         },
         "deltas": {

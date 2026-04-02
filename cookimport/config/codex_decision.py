@@ -10,8 +10,8 @@ from cookimport.config.run_settings import (
     RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
 )
 
-TopTierProfileKind = Literal["codexfarm", "vanilla"]
-BenchmarkVariantKind = Literal["vanilla", "codexfarm"]
+TopTierProfileKind = Literal["codex-exec", "vanilla"]
+BenchmarkVariantKind = Literal["vanilla", "codex-exec"]
 CodexExecutionPolicyMode = Literal["execute"]
 
 RECIPE_CODEX_PIPELINE = RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
@@ -424,7 +424,7 @@ def format_codex_execution_policy_summary(policy: CodexExecutionPolicy) -> str:
 
 def codex_backend_for_surface(surface: CodexSurfaceDecision) -> str | None:
     if surface.any_codex_enabled:
-        return "codexfarm"
+        return "codex-exec"
     return None
 
 

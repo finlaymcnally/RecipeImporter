@@ -1069,7 +1069,7 @@ def _build_high_level_multi_book_upload_bundle_fixture(tmp_path: Path) -> dict[s
             enriched.append(row_copy)
         return enriched
 
-    # Book A (duplicate run ids with book B on purpose: vanilla/codexfarm).
+    # Book A (duplicate run ids with book B on purpose: vanilla/codex-exec).
     _make_run_record(
         module,
         run_root=session_root / "book_a",
@@ -1083,7 +1083,7 @@ def _build_high_level_multi_book_upload_bundle_fixture(tmp_path: Path) -> dict[s
     _make_run_record(
         module,
         run_root=session_root / "book_a",
-        run_id="codexfarm",
+        run_id="codex-exec",
         llm_recipe_pipeline="codex-recipe-shard-v1",
         line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
@@ -1114,7 +1114,7 @@ def _build_high_level_multi_book_upload_bundle_fixture(tmp_path: Path) -> dict[s
         practical_f1=0.69,
     )
     _set_eval_report_metrics(
-        session_root / "book_a" / "codexfarm",
+        session_root / "book_a" / "codex-exec",
         overall_line_accuracy=0.62,
         macro_f1_excluding_other=0.61,
         practical_f1=0.60,
@@ -1134,7 +1134,7 @@ def _build_high_level_multi_book_upload_bundle_fixture(tmp_path: Path) -> dict[s
     _make_run_record(
         module,
         run_root=session_root / "book_b",
-        run_id="codexfarm",
+        run_id="codex-exec",
         llm_recipe_pipeline="codex-recipe-shard-v1",
         line_role_pipeline="codex-line-role-route-v2",
         wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
@@ -1165,7 +1165,7 @@ def _build_high_level_multi_book_upload_bundle_fixture(tmp_path: Path) -> dict[s
         practical_f1=0.60,
     )
     _set_eval_report_metrics(
-        session_root / "book_b" / "codexfarm",
+        session_root / "book_b" / "codex-exec",
         overall_line_accuracy=0.71,
         macro_f1_excluding_other=0.70,
         practical_f1=0.72,

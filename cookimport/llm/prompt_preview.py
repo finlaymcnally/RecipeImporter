@@ -1480,7 +1480,7 @@ def _score_predictive_manifest(
         score += 50
     if codex_enabled:
         score -= 25
-    if "/codexfarm/" in path_text:
+    if "/codex-exec/" in path_text:
         score -= 50
     return score
 
@@ -1502,7 +1502,7 @@ def _classify_predictive_source(
     path_text = str(processed_run_dir).lower()
     if "/vanilla/" in path_text:
         return "predictive_safe"
-    if "/codexfarm/" in path_text:
+    if "/codex-exec/" in path_text:
         return "codex_backed"
     if _processed_run_has_codex_artifacts(processed_run_dir):
         return "codex_backed"

@@ -865,7 +865,7 @@ def _interactive_single_profile_all_matched_benchmark(
     )
     if runs_per_target > 1:
         typer.secho(
-            "Codex selected: each book will run vanilla first, then codexfarm.",
+            "Codex selected: each book will run vanilla first, then codex-exec.",
             fg=typer.colors.BRIGHT_BLACK,
         )
     skipped_color = typer.colors.YELLOW if unmatched_targets else typer.colors.BRIGHT_BLACK
@@ -1163,13 +1163,13 @@ def _interactive_single_profile_all_matched_benchmark(
         if (
             runs_per_target > 1
             and "vanilla" in variant_eval_outputs
-            and "codexfarm" in variant_eval_outputs
+            and "codex-exec" in variant_eval_outputs
         ):
             comparison_paths = _write_single_book_comparison_artifacts(
                 run_timestamp=benchmark_eval_output.name,
                 session_root=target_eval_output,
                 source_file=source_file_for_comparison or str(target.source_file),
-                codex_eval_output_dir=variant_eval_outputs["codexfarm"],
+                codex_eval_output_dir=variant_eval_outputs["codex-exec"],
                 vanilla_eval_output_dir=variant_eval_outputs["vanilla"],
                 write_markdown=write_markdown,
                 write_starter_pack=False,
@@ -1199,7 +1199,7 @@ def _interactive_single_profile_all_matched_benchmark(
             (
                 f"Single-profile benchmark {index}/{total_targets}: "
                 f"{target.source_file_name}"
-                f"{' (vanilla + codexfarm)' if runs_per_target > 1 else ''}"
+                f"{' (vanilla + codex-exec)' if runs_per_target > 1 else ''}"
             ),
             fg=typer.colors.CYAN,
         )

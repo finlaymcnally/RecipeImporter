@@ -63,7 +63,6 @@ def _default_nonrecipe_refinement_report(
         "exclusion_reason_counts": count_nonrecipe_reason_values(
             routing.exclusion_reason_by_block
         ),
-        "reviewer_category_counts": {},
         "grounding_counts": {},
         "grounding_by_block": {},
         "changed_blocks": [],
@@ -172,7 +171,6 @@ def refine_nonrecipe_stage_result(
     stage_result: NonRecipeStageResult,
     full_blocks: Sequence[Mapping[str, Any]],
     block_category_updates: Mapping[int, str],
-    reviewer_categories_by_block: Mapping[int, str] | None = None,
     grounding_by_block: Mapping[int, Mapping[str, Any]] | None = None,
     grounding_summary: Mapping[str, Any] | None = None,
     applied_packet_ids_by_block: Mapping[int, Sequence[str]] | None = None,
@@ -188,14 +186,10 @@ def refine_nonrecipe_stage_result(
     )
     changed_blocks: list[dict[str, Any]] = []
     warnings = list(stage_result.routing.warnings)
-    reviewer_counts: dict[str, int] = {}
     reviewed_block_indices: set[int] = set()
 
     for block_index, raw_category in sorted(block_category_updates.items()):
         normalized_category, warning = _normalize_nonrecipe_final_category(str(raw_category))
-        reviewer_category = str(
-            (reviewer_categories_by_block or {}).get(block_index) or ""
-        ).strip() or None
         if block_index not in candidate_index_set:
             if warning is not None:
                 warnings.append(f"block {block_index}: {warning}")
@@ -205,8 +199,6 @@ def refine_nonrecipe_stage_result(
         prior_final_category = final_block_category_by_index.get(block_index)
         final_block_category_by_index[block_index] = normalized_category
         reviewed_block_indices.add(int(block_index))
-        if reviewer_category is not None:
-            reviewer_counts[reviewer_category] = reviewer_counts.get(reviewer_category, 0) + 1
         if prior_final_category is None or normalized_category == prior_final_category:
             continue
         changed_blocks.append(
@@ -214,7 +206,6 @@ def refine_nonrecipe_stage_result(
                 "block_index": int(block_index),
                 "previous_final_category": prior_final_category,
                 "final_category": normalized_category,
-                "reviewer_category": reviewer_category,
                 "grounding": (
                     dict((grounding_by_block or {}).get(block_index) or {})
                     if normalized_category == "knowledge"
@@ -282,7 +273,6 @@ def refine_nonrecipe_stage_result(
             "exclusion_reason_counts": count_nonrecipe_reason_values(
                 stage_result.routing.exclusion_reason_by_block
             ),
-            "reviewer_category_counts": reviewer_counts,
             "grounding_counts": dict(grounding_summary or {}),
             "grounding_by_block": {
                 str(index): dict(value)

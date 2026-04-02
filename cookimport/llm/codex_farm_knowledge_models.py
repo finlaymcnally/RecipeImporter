@@ -6,17 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 _BUNDLE_VERSION_V3: Literal["3"] = "3"
 ALLOWED_KNOWLEDGE_FINAL_CATEGORIES: tuple[str, ...] = ("knowledge", "other")
-ALLOWED_KNOWLEDGE_REVIEWER_CATEGORIES: tuple[str, ...] = (
-    "knowledge",
-    "chapter_taxonomy",
-    "decorative_heading",
-    "front_matter",
-    "toc_navigation",
-    "endorsement_or_marketing",
-    "memoir_or_scene_setting",
-    "reference_back_matter",
-    "other",
-)
 ALLOWED_KNOWLEDGE_REASON_CODES: tuple[str, ...] = (
     "technique_or_mechanism",
     "diagnostic_or_troubleshooting",
@@ -133,18 +122,6 @@ class KnowledgeBlockDecisionV1(BaseModel):
 
     block_index: int = Field(alias="i")
     category: Literal["knowledge", "other"] = Field(alias="c")
-    reviewer_category: Literal[
-        "knowledge",
-        "chapter_taxonomy",
-        "decorative_heading",
-        "front_matter",
-        "toc_navigation",
-        "endorsement_or_marketing",
-        "memoir_or_scene_setting",
-        "reference_back_matter",
-        "other",
-    ] | None = Field(default=None, alias="rc")
-    retrieval_concept: str | None = Field(default=None, alias="rt")
     grounding: KnowledgeGroundingV1 = Field(default_factory=KnowledgeGroundingV1, alias="gr")
 
     @field_validator("block_index", mode="before")
@@ -152,36 +129,14 @@ class KnowledgeBlockDecisionV1(BaseModel):
     def _coerce_block_index(cls, value: object) -> object:
         return int(value)
 
-    @field_validator("retrieval_concept", mode="before")
-    @classmethod
-    def _normalize_retrieval_concept(cls, value: object) -> object:
-        if value is None:
-            return None
-        cleaned = str(value).strip()
-        return cleaned or None
-
     @model_validator(mode="after")
-    def _validate_reviewer_category(self) -> "KnowledgeBlockDecisionV1":
-        if self.reviewer_category is None:
-            self.reviewer_category = "knowledge" if self.category == "knowledge" else "other"
-        if self.category == "knowledge" and self.reviewer_category != "knowledge":
-            raise ValueError(
-                "reviewer_category must be 'knowledge' when final category is 'knowledge'."
-            )
-        if self.category == "other" and self.reviewer_category == "knowledge":
-            raise ValueError(
-                "reviewer_category 'knowledge' is invalid when final category is 'other'."
-            )
+    def _validate_grounding(self) -> "KnowledgeBlockDecisionV1":
         if self.category == "knowledge":
-            if self.retrieval_concept is None:
-                raise ValueError("knowledge rows must include retrieval_concept.")
             if not self.grounding.tag_keys and not self.grounding.proposed_tags:
                 raise ValueError(
                     "knowledge rows must include grounding tag_keys or proposed_tags."
                 )
         else:
-            if self.retrieval_concept is not None:
-                raise ValueError("other rows must not include retrieval_concept.")
             if (
                 self.grounding.tag_keys
                 or self.grounding.category_keys
@@ -363,18 +318,6 @@ class KnowledgeSemanticBlockDecisionV1(BaseModel):
 
     block_index: int
     category: Literal["knowledge", "other"]
-    reviewer_category: Literal[
-        "knowledge",
-        "chapter_taxonomy",
-        "decorative_heading",
-        "front_matter",
-        "toc_navigation",
-        "endorsement_or_marketing",
-        "memoir_or_scene_setting",
-        "reference_back_matter",
-        "other",
-    ] | None = None
-    retrieval_concept: str | None = None
     grounding: KnowledgeSemanticGroundingV1 = Field(default_factory=KnowledgeSemanticGroundingV1)
 
     @field_validator("block_index", mode="before")
@@ -382,36 +325,14 @@ class KnowledgeSemanticBlockDecisionV1(BaseModel):
     def _coerce_block_index(cls, value: object) -> object:
         return int(value)
 
-    @field_validator("retrieval_concept", mode="before")
-    @classmethod
-    def _normalize_retrieval_concept(cls, value: object) -> object:
-        if value is None:
-            return None
-        cleaned = str(value).strip()
-        return cleaned or None
-
     @model_validator(mode="after")
-    def _validate_reviewer_category(self) -> "KnowledgeSemanticBlockDecisionV1":
-        if self.reviewer_category is None:
-            self.reviewer_category = "knowledge" if self.category == "knowledge" else "other"
-        if self.category == "knowledge" and self.reviewer_category != "knowledge":
-            raise ValueError(
-                "reviewer_category must be 'knowledge' when final category is 'knowledge'."
-            )
-        if self.category == "other" and self.reviewer_category == "knowledge":
-            raise ValueError(
-                "reviewer_category 'knowledge' is invalid when final category is 'other'."
-            )
+    def _validate_grounding(self) -> "KnowledgeSemanticBlockDecisionV1":
         if self.category == "knowledge":
-            if self.retrieval_concept is None:
-                raise ValueError("knowledge rows must include retrieval_concept.")
             if not self.grounding.tag_keys and not self.grounding.proposed_tags:
                 raise ValueError(
                     "knowledge rows must include grounding tag_keys or proposed_tags."
                 )
         else:
-            if self.retrieval_concept is not None:
-                raise ValueError("other rows must not include retrieval_concept.")
             if (
                 self.grounding.tag_keys
                 or self.grounding.category_keys
@@ -467,8 +388,6 @@ def serialize_canonical_knowledge_packet(
             {
                 "i": decision.block_index,
                 "c": decision.category,
-                "rc": decision.reviewer_category,
-                "rt": decision.retrieval_concept,
                 "gr": {
                     "tk": list(decision.grounding.tag_keys),
                     "ck": list(decision.grounding.category_keys),

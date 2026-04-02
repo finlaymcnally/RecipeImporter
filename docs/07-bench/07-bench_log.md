@@ -156,7 +156,7 @@ Problem captured:
 Durable decisions:
 
 - `single_book` writes one session root under `single-book-benchmark/<source_slug>/`
-- Codex-enabled paired runs normalize into explicit `vanilla` and `codexfarm` roots
+- Codex-enabled paired runs normalize into explicit `vanilla` and `codex-exec` roots
 - paired success can emit one `codex_vs_vanilla_comparison.json`, one session summary markdown, and one `upload_bundle_v1/`
 - single-profile matched-book flows write under `single-profile-benchmark/`
 - multi-book single-profile runs emit one high-level top-level group `upload_bundle_v1/`
@@ -511,7 +511,7 @@ Anti-loop note:
 ### 2026-03-16_18.56.30, 2026-03-16_19.16.07, and 2026-03-16_19.27.06 prompt export completeness
 
 Problem captured:
-- benchmark `codexfarm/prompts/` initially omitted line-role interactions and had no reviewer-facing trace summary surface
+- benchmark `codex-exec/prompts/` initially omitted line-role interactions and had no reviewer-facing trace summary surface
 
 Durable decisions:
 - benchmark prompt export must contain recipe, line-role, and knowledge interactions in one merged `full_prompt_log.jsonl`
@@ -642,7 +642,7 @@ Durable decisions:
 - on current canonical single-book runs, strong boundary exactness does not imply the remaining misses are mostly structural; large error mass can still live in `KNOWLEDGE` vs `OTHER`
 
 Evidence worth keeping:
-- on the 2026-03-17 `saltfatacidheatcutdown` single-book run, codexfarm had perfect-or-near-perfect boundary counts but wrong-label rows were still dominated by `KNOWLEDGE -> OTHER` and `OTHER -> KNOWLEDGE`
+- on the 2026-03-17 `saltfatacidheatcutdown` single-book run, codex-exec had perfect-or-near-perfect boundary counts but wrong-label rows were still dominated by `KNOWLEDGE -> OTHER` and `OTHER -> KNOWLEDGE`
 
 Anti-loop note:
 - if canonical benchmark accuracy looks "too low for a solved structure problem," inspect wrong-label distribution before chasing scorer or boundary changes
@@ -742,7 +742,7 @@ Problem captured:
 - paired benchmark comparison roots were drifting on representation because some helper paths still forced different `atomic_block_splitter` values, and interactive mode ids/labels were harder to read than the runtime actually needed
 
 Durable decisions:
-- paired `vanilla` / `codexfarm` variants share one `atomic_block_splitter` value sourced from the selected run settings or preserved benchmark baseline payload
+- paired `vanilla` / `codex-exec` variants share one `atomic_block_splitter` value sourced from the selected run settings or preserved benchmark baseline payload
 - default/profile paths now leave `atomic_block_splitter=off` unless the operator explicitly selects `atomic-v1`
 - interactive benchmark mode ids normalize to the current names:
   - `single_book`

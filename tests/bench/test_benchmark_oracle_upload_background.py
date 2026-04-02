@@ -173,7 +173,7 @@ def test_start_oracle_benchmark_upload_background_stages_profile_packet(
     assert len(file_args) == 3
     payload_path = next(path for path in file_args if path.name == "payload.json")
     payload_text = payload_path.read_text(encoding="utf-8")
-    assert "codexfarm/prompt_budget_summary.json" in payload_text
+    assert "codex-exec/prompt_budget_summary.json" in payload_text
     assert "starter_pack_v1/02_call_inventory.jsonl" in payload_text
     prompt = command[command.index("-p") + 1]
     assert "`token` lane packet" in prompt

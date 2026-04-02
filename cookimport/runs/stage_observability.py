@@ -151,6 +151,10 @@ def _load_json_dict(path: Path) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
+def _coerce_dict(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
 def _load_json_value(path: Path) -> Any | None:
     if not path.exists() or not path.is_file():
         return None

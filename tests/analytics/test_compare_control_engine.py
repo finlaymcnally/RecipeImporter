@@ -25,7 +25,7 @@ def _insight_records() -> list[dict[str, object]]:
             "macro_f1_excluding_other": 0.70,
             "source_file": "/tmp/books/book-a.epub",
             "importer_name": "epub",
-            "artifact_dir": "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-book-benchmark/book-a/codexfarm",
+            "artifact_dir": "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-book-benchmark/book-a/codex-exec",
             "processed_report_path": "/tmp/out/run-a/report-a.json",
             "run_config": {
                 "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -44,7 +44,7 @@ def _insight_records() -> list[dict[str, object]]:
             "macro_f1_excluding_other": 0.66,
             "source_file": "/tmp/books/book-b.epub",
             "importer_name": "epub",
-            "artifact_dir": "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-book-benchmark/book-b/codexfarm",
+            "artifact_dir": "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/single-book-benchmark/book-b/codex-exec",
             "processed_report_path": "/tmp/out/run-b/report-b.json",
             "run_config": {
                 "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -100,7 +100,7 @@ def test_previous_runs_field_value_resolves_derived_fields() -> None:
         "source_file": "/tmp/books/my-book.epub",
         "artifact_dir": (
             "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
-            "single-book-benchmark/my-book/codexfarm"
+            "single-book-benchmark/my-book/codex-exec"
         ),
         "tokens_input": 1000,
         "tokens_cached_input": 200,
@@ -135,7 +135,7 @@ def test_ai_model_label_system_error_for_runtime_failure() -> None:
     record = {
         "artifact_dir": (
             "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
-            "single-book-benchmark/my-book/codexfarm"
+            "single-book-benchmark/my-book/codex-exec"
         ),
         "run_config": {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -173,7 +173,7 @@ def test_benchmark_semantics_distinguish_official_and_hybrid_rows() -> None:
     full_stack_official = {
         "artifact_dir": (
             "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
-            "single-book-benchmark/my-book/codexfarm"
+            "single-book-benchmark/my-book/codex-exec"
         ),
         "run_config": {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -208,7 +208,7 @@ def test_benchmark_semantics_distinguish_official_and_hybrid_rows() -> None:
     runtime_error_record = {
         "artifact_dir": (
             "/tmp/golden/benchmark-vs-golden/2026-03-03_23.00.00/"
-            "single-book-benchmark/my-book/codexfarm"
+            "single-book-benchmark/my-book/codex-exec"
         ),
         "run_config": {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -227,7 +227,7 @@ def test_benchmark_semantics_distinguish_official_and_hybrid_rows() -> None:
         == "deterministic"
     )
 
-    assert engine.benchmark_variant_for_record(full_stack_official) == "codexfarm"
+    assert engine.benchmark_variant_for_record(full_stack_official) == "codex-exec"
     assert engine.ai_assistance_profile_for_record(full_stack_official) == "full_stack"
     assert engine.previous_runs_field_value(full_stack_official, "ai_assistance_profile") == (
         "Full-stack AI"
@@ -332,7 +332,7 @@ def test_secondary_metrics_skip_constant_fields() -> None:
 
 
 def test_apply_filters_invalid_regex_returns_structured_error() -> None:
-    records = [{"strict_accuracy": 0.5, "compare_group": "codexfarm"}]
+    records = [{"strict_accuracy": 0.5, "compare_group": "codex-exec"}]
     with pytest.raises(engine.CompareControlError) as exc_info:
         engine.apply_filters(
             records,

@@ -106,7 +106,7 @@ def _run_single_book_codex_enabled_fixture(
     }
 
 
-def test_interactive_single_book_codex_enabled_runs_only_codexfarm(
+def test_interactive_single_book_codex_enabled_runs_only_codex_exec(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -140,7 +140,7 @@ def test_interactive_single_book_codex_enabled_runs_only_codexfarm(
     ]
     assert [call["eval_output_dir"] for call in benchmark_calls] == [
         benchmark_eval_output / "single-book-benchmark" / "vanilla",
-        benchmark_eval_output / "single-book-benchmark" / "codexfarm",
+        benchmark_eval_output / "single-book-benchmark" / "codex-exec",
     ]
     assert [call["processed_output_dir"] for call in benchmark_calls] == [
         processed_output_root
@@ -150,7 +150,7 @@ def test_interactive_single_book_codex_enabled_runs_only_codexfarm(
         processed_output_root
         / benchmark_eval_output.name
         / "single-book-benchmark"
-        / "codexfarm",
+        / "codex-exec",
     ]
 
 
@@ -306,7 +306,7 @@ def test_interactive_single_book_variants_ignore_persistence_only_metadata() -> 
 
     variants = cli._interactive_single_book_variants(selected_settings)
 
-    assert [slug for slug, _settings in variants] == ["vanilla", "codexfarm"]
+    assert [slug for slug, _settings in variants] == ["vanilla", "codex-exec"]
     assert [settings.llm_recipe_pipeline.value for _, settings in variants] == [
         "off",
         "codex-recipe-shard-v1",

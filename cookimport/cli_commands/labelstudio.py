@@ -563,7 +563,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             False,
             "--prelabel/--no-prelabel",
             help=(
-                "For freeform-spans: ask CodexFarm for first-pass labels and "
+                "For freeform-spans: ask Codex Exec for first-pass labels and "
                 "attach completed annotations before upload."
             ),
         ),
@@ -576,7 +576,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             None,
             "--codex-cmd",
             help=(
-                "Command used for CodexFarm prelabel calls. "
+                "Command used for Codex Exec prelabel calls. "
                 "Defaults to COOKIMPORT_CODEX_CMD, COOKIMPORT_CODEX_FARM_CMD, or `codex-farm`."
             ),
         ),
@@ -597,7 +597,7 @@ def register(app: typer.Typer) -> dict[str, object]:
                 help=(
                     "Codex thinking effort for prelabel calls "
                     "(none, minimal, low, medium, high, xhigh). "
-                    "Mapped to CodexFarm reasoning-effort overrides."
+                    "Mapped to Codex Exec reasoning-effort overrides."
                 ),
             ),
         ] = None,
@@ -822,11 +822,11 @@ def register(app: typer.Typer) -> dict[str, object]:
         except Exception as exc:  # noqa: BLE001
             _fail(str(exc))
         processing_time_seconds = max(0.0, time.monotonic() - import_started_at)
-        codexfarm_prompt_response_log_path: Path | None = None
+        codex_exec_prompt_response_log_path: Path | None = None
         run_root_value = result.get("run_root")
         if run_root_value is not None:
             run_root_path = Path(str(run_root_value))
-            codexfarm_prompt_response_log_path = (
+            codex_exec_prompt_response_log_path = (
                 llm_prompt_artifacts.build_codex_farm_prompt_response_log(
                     pred_run=run_root_path,
                     eval_output_dir=run_root_path,
@@ -858,9 +858,9 @@ def register(app: typer.Typer) -> dict[str, object]:
                     result.get("prelabel_inline_annotations_fallback")
                 ),
             )
-        if codexfarm_prompt_response_log_path is not None:
+        if codex_exec_prompt_response_log_path is not None:
             typer.secho(
-                f"CodexFarm prompt artifacts: {codexfarm_prompt_response_log_path.parent}",
+                f"Codex Exec prompt artifacts: {codex_exec_prompt_response_log_path.parent}",
                 fg=typer.colors.CYAN,
             )
         typer.secho(f"Artifacts saved to: {result['run_root']}", fg=typer.colors.CYAN)
@@ -1813,7 +1813,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         codex_farm_recipe_mode: Annotated[str, typer.Option(
             "--codex-farm-recipe-mode",
             help=(
-                "Codex Farm recipe execution style: extract (default) or benchmark."
+                "Codex Exec recipe execution style: extract (default) or benchmark."
             ),
         )] = CODEX_FARM_RECIPE_MODE_EXTRACT,
         codex_farm_cmd: Annotated[str, typer.Option(
@@ -1823,7 +1823,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         codex_farm_model: str | None = typer.Option(
             None,
             "--codex-farm-model",
-            help="Optional Codex Farm model override (blank uses pipeline defaults).",
+            help="Optional Codex Exec model override (blank uses pipeline defaults).",
         ),
         codex_farm_reasoning_effort: Annotated[
             str | None,
@@ -1831,7 +1831,7 @@ def register(app: typer.Typer) -> dict[str, object]:
                 "--codex-farm-thinking-effort",
                 "--codex-farm-reasoning-effort",
                 help=(
-                    "Codex Farm thinking effort override "
+                    "Codex Exec thinking effort override "
                     "(none, minimal, low, medium, high, xhigh). "
                     "Blank uses pipeline defaults."
                 ),
@@ -2308,7 +2308,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         prewarmed_canonical_paths: dict[str, Path] | None = None
         prediction_records_output: list[PredictionRecord] = []
         pipelined_replay_bundle: BenchmarkPredictionBundle | None = None
-        codexfarm_prompt_response_log_path: Path | None = None
+        codex_exec_prompt_response_log_path: Path | None = None
         single_book_split_cache_metadata: dict[str, Any] | None = None
         single_book_split_cache_run_config: dict[str, Any] | None = None
 
@@ -2701,7 +2701,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             pred_context = prediction_bundle.pred_context
             stage_predictions_path = prediction_bundle.stage_predictions_path
             extracted_archive_path = prediction_bundle.extracted_archive_path
-            codexfarm_prompt_response_log_path = (
+            codex_exec_prompt_response_log_path = (
                 llm_prompt_artifacts.build_codex_farm_prompt_response_log(
                     pred_run=pred_run,
                     eval_output_dir=eval_output_dir,
@@ -3491,41 +3491,41 @@ def register(app: typer.Typer) -> dict[str, object]:
                 eval_output_dir,
                 csv_report_path,
             )
-        if codexfarm_prompt_response_log_path is not None:
+        if codex_exec_prompt_response_log_path is not None:
             benchmark_artifacts[
-                "codexfarm_prompt_request_response_txt"
+                "codex_exec_prompt_request_response_txt"
             ] = _path_for_manifest(
                 eval_output_dir,
-                codexfarm_prompt_response_log_path,
+                codex_exec_prompt_response_log_path,
             )
             category_manifest_path = (
-                codexfarm_prompt_response_log_path.parent / "prompt_category_logs_manifest.txt"
+                codex_exec_prompt_response_log_path.parent / "prompt_category_logs_manifest.txt"
             )
             if category_manifest_path.exists() and category_manifest_path.is_file():
                 benchmark_artifacts[
-                    "codexfarm_prompt_category_logs_manifest_txt"
+                    "codex_exec_prompt_category_logs_manifest_txt"
                 ] = _path_for_manifest(
                     eval_output_dir,
                     category_manifest_path,
                 )
             full_prompt_log_path = (
-                codexfarm_prompt_response_log_path.parent / "full_prompt_log.jsonl"
+                codex_exec_prompt_response_log_path.parent / "full_prompt_log.jsonl"
             )
             prompt_type_samples_path = (
-                codexfarm_prompt_response_log_path.parent
+                codex_exec_prompt_response_log_path.parent
                 / llm_prompt_artifacts.PROMPT_TYPE_SAMPLES_MD_NAME
             )
             activity_trace_summary_jsonl_path = (
-                codexfarm_prompt_response_log_path.parent
+                codex_exec_prompt_response_log_path.parent
                 / llm_prompt_artifacts.ACTIVITY_TRACE_SUMMARY_JSONL_NAME
             )
             activity_trace_summary_md_path = (
-                codexfarm_prompt_response_log_path.parent
+                codex_exec_prompt_response_log_path.parent
                 / llm_prompt_artifacts.ACTIVITY_TRACE_SUMMARY_MD_NAME
             )
             if full_prompt_log_path.exists() and full_prompt_log_path.is_file():
                 prompt_log_summary_path = (
-                    codexfarm_prompt_response_log_path.parent
+                    codex_exec_prompt_response_log_path.parent
                     / llm_prompt_artifacts.PROMPT_LOG_SUMMARY_JSON_NAME
                 )
                 summary_path = llm_prompt_artifacts.write_prompt_log_summary(
@@ -3572,12 +3572,12 @@ def register(app: typer.Typer) -> dict[str, object]:
                     eval_output_dir,
                     full_prompt_log_path,
                 )
-                benchmark_artifacts["codexfarm_full_prompt_log_jsonl"] = _path_for_manifest(
+                benchmark_artifacts["codex_exec_full_prompt_log_jsonl"] = _path_for_manifest(
                     eval_output_dir,
                     full_prompt_log_path,
                 )
                 if summary_path is not None and summary_path.exists():
-                    benchmark_artifacts["codexfarm_prompt_log_summary_json"] = (
+                    benchmark_artifacts["codex_exec_prompt_log_summary_json"] = (
                         _path_for_manifest(
                             eval_output_dir,
                             summary_path,
@@ -3594,7 +3594,7 @@ def register(app: typer.Typer) -> dict[str, object]:
                 benchmark_artifacts["full_prompt_log_path"] = None
             if prompt_type_samples_path.exists() and prompt_type_samples_path.is_file():
                 benchmark_artifacts[
-                    "codexfarm_prompt_type_samples_from_full_prompt_log_md"
+                    "codex_exec_prompt_type_samples_from_full_prompt_log_md"
                 ] = _path_for_manifest(
                     eval_output_dir,
                     prompt_type_samples_path,
@@ -3603,7 +3603,7 @@ def register(app: typer.Typer) -> dict[str, object]:
                 activity_trace_summary_jsonl_path.exists()
                 and activity_trace_summary_jsonl_path.is_file()
             ):
-                benchmark_artifacts["codexfarm_activity_trace_summary_jsonl"] = (
+                benchmark_artifacts["codex_exec_activity_trace_summary_jsonl"] = (
                     _path_for_manifest(
                         eval_output_dir,
                         activity_trace_summary_jsonl_path,
@@ -3613,7 +3613,7 @@ def register(app: typer.Typer) -> dict[str, object]:
                 activity_trace_summary_md_path.exists()
                 and activity_trace_summary_md_path.is_file()
             ):
-                benchmark_artifacts["codexfarm_activity_trace_summary_md"] = (
+                benchmark_artifacts["codex_exec_activity_trace_summary_md"] = (
                     _path_for_manifest(
                         eval_output_dir,
                         activity_trace_summary_md_path,

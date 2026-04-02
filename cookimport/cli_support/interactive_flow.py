@@ -58,7 +58,7 @@ def _interactive_benchmark_preset_summary(preset_id: str) -> str:
         == INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST
     ):
         return (
-            "saltfatacidheatcutdown fast CodexFarm "
+            "saltfatacidheatcutdown fast Codex Exec "
             "(block labelling + recipe + knowledge, 5/5/5, "
             "gpt-5.3-codex-spark, low)"
         )
@@ -631,7 +631,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 menu_help=(
                     "All modes are offline (no upload).\n"
                     "Single book runs one local prediction + eval vs freeform gold.\n"
-                    "Salt Fat Acid Heat preset jumps straight to one saved fast CodexFarm single-book run.\n"
+                    "Salt Fat Acid Heat preset jumps straight to one saved fast Codex Exec single-book run.\n"
                     "Selected matched books lets you pick specific books.\n"
                     "All matched books repeats that same config across each matched golden set."
                 ),
@@ -643,7 +643,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     questionary.Choice(
                         (
                             "Salt Fat Acid Heat preset: "
-                            "Fast CodexFarm single-book benchmark"
+                            "Fast Codex Exec single-book benchmark"
                         ),
                         value=INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST,
                     ),

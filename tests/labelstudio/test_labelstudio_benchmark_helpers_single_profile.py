@@ -344,7 +344,7 @@ def test_print_codex_decision_is_suppressed_inside_benchmark_summary_override(
     assert captured == []
 
 
-def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfarm_per_book(
+def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codex_exec_per_book(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -442,7 +442,7 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
     ]
     assert [call["eval_output_dir"] for call in benchmark_calls] == [
         benchmark_eval_output / "single-profile-benchmark" / "01_book_a" / "vanilla",
-        benchmark_eval_output / "single-profile-benchmark" / "01_book_a" / "codexfarm",
+        benchmark_eval_output / "single-profile-benchmark" / "01_book_a" / "codex-exec",
     ]
     assert [call["processed_output_dir"] for call in benchmark_calls] == [
         processed_output_root
@@ -454,7 +454,7 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codexfar
         / benchmark_eval_output.name
         / "single-profile-benchmark"
         / "01_book_a"
-        / "codexfarm",
+        / "codex-exec",
     ]
 
 
@@ -889,11 +889,11 @@ def test_interactive_single_profile_selected_matched_codex_runs_pair_for_selecte
     ]
     assert [call["eval_output_dir"] for call in benchmark_calls] == [
         benchmark_eval_output / "single-profile-benchmark" / "01_book_b" / "vanilla",
-        benchmark_eval_output / "single-profile-benchmark" / "01_book_b" / "codexfarm",
+        benchmark_eval_output / "single-profile-benchmark" / "01_book_b" / "codex-exec",
     ]
 
 
-def test_interactive_single_profile_formats_codexfarm_precheck_failure_for_display(
+def test_interactive_single_profile_formats_codex_exec_precheck_failure_for_display(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -967,7 +967,7 @@ def test_interactive_single_profile_formats_codexfarm_precheck_failure_for_displ
         if "Single-profile benchmark failed for" in message
     ]
     assert len(failure_messages) == 1
-    assert "codexfarm=codex-farm recipe.correction.compact.v1:" in failure_messages[0]
+    assert "codex-exec=codex-farm recipe.correction.compact.v1:" in failure_messages[0]
     assert "codex execution precheck failed before `process`" in failure_messages[0]
     assert "usage limit for GPT-5.3-Codex-Spark" in failure_messages[0]
     assert "out_dir=/tmp/recipe_correction/out" not in failure_messages[0]

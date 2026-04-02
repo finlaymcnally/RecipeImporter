@@ -234,7 +234,7 @@ def _build_existing_run_at(run_dir: Path) -> Path:
 def _build_benchmark_root_with_vanilla_and_codex(tmp_path: Path) -> tuple[Path, Path, Path]:
     benchmark_root = tmp_path / "benchmark-root"
     vanilla_run_dir = _build_existing_run_at(tmp_path / "outputs" / "vanilla" / "2026-03-17_16.07.27")
-    codex_run_dir = _build_existing_run_at(tmp_path / "outputs" / "codexfarm" / "2026-03-17_16.07.50")
+    codex_run_dir = _build_existing_run_at(tmp_path / "outputs" / "codex-exec" / "2026-03-17_16.07.50")
 
     vanilla_report_path = vanilla_run_dir / "fixturebook.excel_import_report.json"
     vanilla_report = json.loads(vanilla_report_path.read_text(encoding="utf-8"))
@@ -268,7 +268,7 @@ def _build_benchmark_root_with_vanilla_and_codex(tmp_path: Path) -> tuple[Path, 
         },
     )
     _write_json(
-        benchmark_root / "single-book-benchmark" / "fixturebook" / "codexfarm" / "run_manifest.json",
+        benchmark_root / "single-book-benchmark" / "fixturebook" / "codex-exec" / "run_manifest.json",
         {
             "artifacts": {"processed_output_run_dir": str(codex_run_dir)},
             "run_config": codex_report["runConfig"],
@@ -1047,7 +1047,7 @@ def test_prompt_preview_predictive_rejects_direct_codex_processed_run(tmp_path: 
 
 
 def test_prompt_preview_predictive_rejects_codex_only_benchmark_manifest(tmp_path: Path) -> None:
-    codex_run_dir = _build_existing_run_at(tmp_path / "outputs" / "codexfarm" / "2026-03-17_16.07.50")
+    codex_run_dir = _build_existing_run_at(tmp_path / "outputs" / "codex-exec" / "2026-03-17_16.07.50")
     _set_run_config(
         codex_run_dir,
         {
@@ -1058,7 +1058,7 @@ def test_prompt_preview_predictive_rejects_codex_only_benchmark_manifest(tmp_pat
     )
     benchmark_root = tmp_path / "benchmark-root"
     _write_json(
-        benchmark_root / "single-book-benchmark" / "fixturebook" / "codexfarm" / "run_manifest.json",
+        benchmark_root / "single-book-benchmark" / "fixturebook" / "codex-exec" / "run_manifest.json",
         {
             "artifacts": {"processed_output_run_dir": str(codex_run_dir)},
             "run_config": {
@@ -1190,7 +1190,7 @@ def test_cf_debug_preview_prompts_ignores_live_input_leftovers_in_budget_warning
 
 
 def test_cf_debug_preview_prompts_predictive_rejects_codex_only_root(tmp_path: Path) -> None:
-    codex_run_dir = _build_existing_run_at(tmp_path / "outputs" / "codexfarm" / "2026-03-17_16.07.50")
+    codex_run_dir = _build_existing_run_at(tmp_path / "outputs" / "codex-exec" / "2026-03-17_16.07.50")
     _set_run_config(
         codex_run_dir,
         {

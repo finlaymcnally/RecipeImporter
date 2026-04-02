@@ -188,7 +188,7 @@ def _load_preserved_line_role_packet_rows(
         Path("/home/mcnal/projects/recipeimport/data/output/2026-03-21_14.53.27")
         / "single-book-benchmark"
         / "saltfatacidheatcutdown"
-        / "codexfarm"
+        / "codex-exec"
         / "2026-03-21_14.54.14"
         / "line-role-pipeline"
         / "runtime"

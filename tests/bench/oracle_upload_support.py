@@ -131,9 +131,9 @@ def _write_browser_safe_row_locator_index(bundle_dir: Path) -> None:
             },
             "per_run_summaries": [
                 {
-                    "run_id": "codexfarm",
+                    "run_id": "codex-exec",
                     "summary": {
-                        "path": "codexfarm/need_to_know_summary.json",
+                        "path": "codex-exec/need_to_know_summary.json",
                         "payload_row": 9,
                     },
                 }
@@ -189,7 +189,7 @@ def _write_profile_bundle_context(bundle_dir: Path) -> None:
         json.dumps(
             {
                 "metrics": {
-                    "codexfarm": {
+                    "codex-exec": {
                         "strict_accuracy": 0.64734,
                         "macro_f1_excluding_other": 0.777327,
                     }
@@ -201,7 +201,7 @@ def _write_profile_bundle_context(bundle_dir: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
-    prompt_budget_path = bundle_dir.parent / "codexfarm" / "prompt_budget_summary.json"
+    prompt_budget_path = bundle_dir.parent / "codex-exec" / "prompt_budget_summary.json"
     prompt_budget_path.parent.mkdir(parents=True, exist_ok=True)
     prompt_budget_path.write_text(
         json.dumps(

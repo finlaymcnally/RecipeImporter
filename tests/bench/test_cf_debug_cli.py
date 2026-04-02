@@ -206,7 +206,7 @@ def test_line_role_audit_uses_joined_atomic_index_for_prompt_and_route_metadata(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "benchmark-root"
-    run_dir = source_root / "codexfarm"
+    run_dir = source_root / "codex-exec"
     line_role_dir = run_dir / "line-role-pipeline"
     prompts_dir = line_role_dir / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
@@ -284,9 +284,9 @@ def test_line_role_audit_uses_joined_atomic_index_for_prompt_and_route_metadata(
     run_context = followup_bundle.RunContext(
         repo_root=tmp_path,
         source_root=source_root,
-        output_subdir="codexfarm",
+        output_subdir="codex-exec",
         source_key="book",
-        run_id="codexfarm",
+        run_id="codex-exec",
         source_file="book.epub",
     )
 

@@ -1581,7 +1581,7 @@ def generate_pred_run_artifacts(
         prelabel_summary = {
             "enabled": True,
             "provider": normalized_prelabel_provider,
-            "codex_backend": "codexfarm",
+            "codex_backend": "codex-exec",
             "codex_farm_pipeline_id": "prelabel.freeform.v1",
             "granularity": normalized_prelabel_granularity,
             "codex_cmd": provider_cmd,

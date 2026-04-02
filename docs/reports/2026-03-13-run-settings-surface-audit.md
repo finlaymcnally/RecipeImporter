@@ -26,7 +26,7 @@ The visible surface is distributed like this:
 
 The effective product surface is already much smaller than the raw `RunSettings` schema suggests.
 
-- Interactive flows are not exposing a true “78-setting product.” The main chooser in `cookimport/cli_ui/run_settings_flow.py` is fundamentally selecting a top-tier profile family: `codexfarm` or `vanilla`.
+- Interactive flows are not exposing a true “78-setting product.” The main chooser in `cookimport/cli_ui/run_settings_flow.py` is fundamentally selecting a top-tier profile family: `codex-exec` or `vanilla`.
 - Those profile families are then normalized by `apply_top_tier_profile_contract(...)` in `cookimport/config/codex_decision.py`.
 - Benchmark runs are also normalized through benchmark contract patches (`apply_benchmark_baseline_contract(...)`, `apply_benchmark_variant_contract(...)`), which means many nominal settings are not really meant to be freely combined by humans.
 - The docs already admit that some “settings” are effectively frozen:
@@ -292,7 +292,7 @@ Practical recommendation:
 
 The run-settings surface is especially misleading because the UI/runtime already behaves like the real product is mostly two profiles:
 
-- `codexfarm`
+- `codex-exec`
 - `vanilla`
 
 That is a strong signal that many of the remaining visible settings are implementation detail leaking past the actual user model.

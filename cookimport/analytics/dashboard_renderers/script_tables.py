@@ -2238,7 +2238,7 @@ _JS_TABLES = """\
 
   function perLabelComparisonHeaderTitle(mode, scope, metric, variant) {
     const metricLabel = metric === "recall" ? "recall" : "precision";
-    const variantLabel = variant === "vanilla" ? "vanilla" : "codexfarm";
+    const variantLabel = variant === "vanilla" ? "vanilla" : "codex-exec";
     if (mode === "point_value") {
       if (scope === "run") {
         return "Latest-run " + variantLabel + " " + metricLabel + " for this label.";
@@ -2246,9 +2246,9 @@ _JS_TABLES = """\
       return "Rolling " + variantLabel + " " + metricLabel + " over N runs for this label.";
     }
     if (scope === "run") {
-      return "Latest-run codexfarm " + metricLabel + " minus latest-run " + variantLabel + " " + metricLabel + " for this label.";
+      return "Latest-run codex-exec " + metricLabel + " minus latest-run " + variantLabel + " " + metricLabel + " for this label.";
     }
-    return "Latest-run codexfarm " + metricLabel + " minus rolling " + variantLabel + " " + metricLabel + " over N runs for this label.";
+    return "Latest-run codex-exec " + metricLabel + " minus rolling " + variantLabel + " " + metricLabel + " over N runs for this label.";
   }
 
   function perLabelComparisonCell(value, baseline) {
@@ -2451,7 +2451,7 @@ _JS_TABLES = """\
   function mapBenchmarkVariantForPerLabel(record, fallbackFullStackAsCodexfarm) {
     const variant = benchmarkVariantForRecord(record);
     if (!fallbackFullStackAsCodexfarm) return variant;
-    return variant === "full_stack" ? "codexfarm" : variant;
+    return variant === "full_stack" ? "codex-exec" : variant;
   }
 
   function rollingPerLabelByVariant(records, variant, windowSize, perLabelVariantMapper) {
@@ -2594,14 +2594,14 @@ _JS_TABLES = """\
     const rollingWindowSize = normalizePerLabelRollingWindowSize(perLabelRollingWindowSize);
     const hasOfficialVariants = latestRunRecords.some(record => {
       const variant = benchmarkVariantForRecord(record);
-      return variant === "codexfarm" || variant === "vanilla";
+      return variant === "codex-exec" || variant === "vanilla";
     });
     const mapVariant = record => mapBenchmarkVariantForPerLabel(
       record,
       !hasOfficialVariants
     );
     const runCodexFarmRows = aggregatePerLabelRows(
-      latestRunRecords.filter(record => mapVariant(record) === "codexfarm")
+      latestRunRecords.filter(record => mapVariant(record) === "codex-exec")
     );
     const runVanillaRows = aggregatePerLabelRows(
       latestRunRecords.filter(record => benchmarkVariantForRecord(record) === "vanilla")
@@ -2611,7 +2611,7 @@ _JS_TABLES = """\
     const runVanillaByLabel = perLabelRowsByLabel(runVanillaRows);
     const rollingCodexFarmByLabel = rollingPerLabelByVariant(
       candidateRecords,
-      "codexfarm",
+      "codex-exec",
       rollingWindowSize,
       mapVariant,
     );

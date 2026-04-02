@@ -43,7 +43,7 @@ def build_minimal_upload_bundle(
     *,
     source_slug: str = DEFAULT_SOURCE_SLUG,
     source_key: str = DEFAULT_SOURCE_KEY,
-    codex_output_subdir: str = "codexfarm",
+    codex_output_subdir: str = "codex-exec",
     baseline_output_subdir: str | None = "vanilla",
     include_knowledge: bool = False,
     knowledge_output_subdir: str = "line_role_only",

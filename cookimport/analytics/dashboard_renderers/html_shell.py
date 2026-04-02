@@ -72,21 +72,21 @@ _HTML = """\
             Point value
           </label>
         </div>
-        <p class="section-note">Per label: precision answers false alarms, recall answers misses. Latest-run codexfarm precision/recall columns show raw baseline scores. Use the Point value checkbox to switch the comparison columns between delta-vs-baseline and raw point values (positive/green means codexfarm baseline is higher than the comparison value; negative/red means codexfarm baseline is lower). Rolling metrics use the selected N codexfarm runs without cross-mixing.</p>
+        <p class="section-note">Per label: precision answers false alarms, recall answers misses. Latest-run codex-exec precision/recall columns show raw baseline scores. Use the Point value checkbox to switch the comparison columns between delta-vs-baseline and raw point values (positive/green means codex-exec baseline is higher than the comparison value; negative/red means codex-exec baseline is lower). Rolling metrics use the selected N codex-exec runs without cross-mixing.</p>
         <table id="per-label-table" class="dashboard-resizable-table"><thead>
           <tr class="per-label-header-primary">
             <th title="The label name being scored (for example RECIPE_TITLE)." rowspan="2">Label</th>
             <th data-metric-tooltip-key="gold_total" title="Gold span count for this label." rowspan="2">Gold</th>
             <th data-metric-tooltip-key="pred_total" title="Predicted span count for this label." rowspan="2">Pred</th>
-            <th data-metric-tooltip-key="precision" title="Latest-run codexfarm precision for this label (strict scoring baseline)." rowspan="2"><span class="per-label-col-head">Run<br>Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-            <th data-metric-tooltip-key="recall" title="Latest-run codexfarm recall for this label (strict scoring baseline)." rowspan="2"><span class="per-label-col-head">Run<br>Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-            <th class="per-label-comparison-header" data-metric-tooltip-key="precision" data-per-label-comparison-scope="run" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm precision minus latest-run vanilla precision for this label." rowspan="2"><span class="per-label-col-head">Run<br><span class="per-label-comparison-mode-value">Delta</span> Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-            <th class="per-label-comparison-header" data-metric-tooltip-key="recall" data-per-label-comparison-scope="run" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="vanilla" title="Latest-run codexfarm recall minus latest-run vanilla recall for this label." rowspan="2"><span class="per-label-col-head">Run<br><span class="per-label-comparison-mode-value">Delta</span> Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
-            <th class="per-label-rolling-group" title="Rolling-window deltas (selected N) for codexfarm columns." colspan="2"><span class="per-label-col-head per-label-rolling-group-head"><span class="per-label-rolling-window-value">10</span>-run Rolling <span class="per-label-comparison-mode-value">Delta</span>:</span></th>
+            <th data-metric-tooltip-key="precision" title="Latest-run codex-exec precision for this label (strict scoring baseline)." rowspan="2"><span class="per-label-col-head">Run<br>Precision<br><span class="per-label-col-sub">(codex-exec)</span></span></th>
+            <th data-metric-tooltip-key="recall" title="Latest-run codex-exec recall for this label (strict scoring baseline)." rowspan="2"><span class="per-label-col-head">Run<br>Recall<br><span class="per-label-col-sub">(codex-exec)</span></span></th>
+            <th class="per-label-comparison-header" data-metric-tooltip-key="precision" data-per-label-comparison-scope="run" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="vanilla" title="Latest-run codex-exec precision minus latest-run vanilla precision for this label." rowspan="2"><span class="per-label-col-head">Run<br><span class="per-label-comparison-mode-value">Delta</span> Precision<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+            <th class="per-label-comparison-header" data-metric-tooltip-key="recall" data-per-label-comparison-scope="run" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="vanilla" title="Latest-run codex-exec recall minus latest-run vanilla recall for this label." rowspan="2"><span class="per-label-col-head">Run<br><span class="per-label-comparison-mode-value">Delta</span> Recall<br><span class="per-label-col-sub">(vanilla)</span></span></th>
+            <th class="per-label-rolling-group" title="Rolling-window deltas (selected N) for codex-exec columns." colspan="2"><span class="per-label-col-head per-label-rolling-group-head"><span class="per-label-rolling-window-value">10</span>-run Rolling <span class="per-label-comparison-mode-value">Delta</span>:</span></th>
           </tr>
           <tr class="per-label-header-rolling">
-            <th class="per-label-comparison-header" data-metric-tooltip-key="precision" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="codexfarm" title="Latest-run codexfarm precision minus rolling codexfarm precision over N runs for this label."><span class="per-label-col-head">Precision<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
-            <th class="per-label-comparison-header" data-metric-tooltip-key="recall" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="codexfarm" title="Latest-run codexfarm recall minus rolling codexfarm recall over N runs for this label."><span class="per-label-col-head">Recall<br><span class="per-label-col-sub">(codexfarm)</span></span></th>
+            <th class="per-label-comparison-header" data-metric-tooltip-key="precision" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="codex-exec" title="Latest-run codex-exec precision minus rolling codex-exec precision over N runs for this label."><span class="per-label-col-head">Precision<br><span class="per-label-col-sub">(codex-exec)</span></span></th>
+            <th class="per-label-comparison-header" data-metric-tooltip-key="recall" data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="codex-exec" title="Latest-run codex-exec recall minus rolling codex-exec recall over N runs for this label."><span class="per-label-col-head">Recall<br><span class="per-label-col-sub">(codex-exec)</span></span></th>
           </tr>
         </thead><tbody></tbody></table>
       </section>
@@ -210,7 +210,7 @@ _HTML = """\
         <div class="quick-filters-list">
           <label for="quick-filter-official-only">
             <input id="quick-filter-official-only" type="checkbox" checked>
-            Official benchmarks only (single-book vanilla/codexfarm)
+            Official benchmarks only (single-book vanilla/codex-exec)
           </label>
           <label for="quick-filter-exclude-ai-tests">
             <input id="quick-filter-exclude-ai-tests" type="checkbox">

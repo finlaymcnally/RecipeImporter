@@ -75,8 +75,8 @@ This is the normal path.
 Interactive path:
 1. Choose `Stage: Convert files from data/input into cookbook outputs`
 2. Pick one file or `Import all`
-3. Choose `Vanilla / no Codex` or `CodexFarm`
-4. If you choose `CodexFarm`, the next screen lets you toggle:
+3. Choose `Vanilla / no Codex` or `Codex Exec`
+4. If you choose `Codex Exec`, the next screen lets you toggle:
    - recipe correction
    - non-recipe finalize
    - prompt counts for enabled Codex steps

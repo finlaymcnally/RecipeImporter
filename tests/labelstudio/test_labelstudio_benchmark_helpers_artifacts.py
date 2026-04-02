@@ -574,7 +574,7 @@ def test_build_codex_farm_prompt_response_log_writes_activity_trace_summary(
     assert correction_trace_row["reasoning_event_count"] == 1
     assert "candidate span tightened" in str(correction_trace_row["entry_excerpt_lines"])
     trace_summary_md = activity_trace_summary_md_path.read_text(encoding="utf-8")
-    assert "# CodexFarm Activity Trace Summary" in trace_summary_md
+    assert "# Codex Exec Activity Trace Summary" in trace_summary_md
     assert "- total_rows: `2`" in trace_summary_md
     assert "## recipe_refine (Recipe Refine)" in trace_summary_md
 
@@ -1039,7 +1039,7 @@ def _build_line_role_only_prompt_log_fixture(tmp_path: Path) -> dict[str, object
         json.dumps(
             {
                 "schema_version": 1,
-                "codex_backend": "codexfarm",
+                "codex_backend": "codex-exec",
                 "codex_farm_pipeline_id": "line-role.canonical.v1",
                 "phases": [
                     {

@@ -307,7 +307,7 @@ def test_build_upload_bundle_reconciles_sharded_recipe_ids_to_per_recipe_counts(
 ) -> None:
     module = _load_cutdown_module()
     session_root = tmp_path / "single-book-benchmark"
-    codex_run_id = "codexfarm"
+    codex_run_id = "codex-exec"
     baseline_run_id = "vanilla"
 
     _make_run_record(
@@ -380,7 +380,7 @@ def test_build_upload_bundle_uses_projected_spans_for_recipe_stage_blame(
 ) -> None:
     module = _load_cutdown_module()
     session_root = tmp_path / "single-book-benchmark"
-    codex_run_id = "codexfarm"
+    codex_run_id = "codex-exec"
     baseline_run_id = "vanilla"
     codex_prompt_rows = [
         {

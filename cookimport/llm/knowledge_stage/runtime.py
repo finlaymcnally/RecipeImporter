@@ -310,7 +310,6 @@ def run_codex_farm_nonrecipe_finalize(
         missing_packet_ids = sorted(set(build_report.packet_ids) - set(outputs))
         (
             block_category_updates,
-            reviewer_categories_by_block,
             applied_packet_ids_by_block,
             conflicts,
             ignored_block_indices,
@@ -339,7 +338,6 @@ def run_codex_farm_nonrecipe_finalize(
             stage_result=nonrecipe_stage_result,
             full_blocks=full_blocks_payload,
             block_category_updates=block_category_updates,
-            reviewer_categories_by_block=reviewer_categories_by_block,
             grounding_by_block=grounding_by_block,
             grounding_summary=grounding_counts,
             applied_packet_ids_by_block=applied_packet_ids_by_block,

@@ -12,15 +12,15 @@ globals().update({
 
 
 class TestBenchmarkSemantics:
-    def test_legacy_rundir_codexfarm_rows_stay_official_codexfarm(self):
+    def test_legacy_rundir_codex_exec_rows_stay_official_codex_exec(self):
         record = {
             "run_dir": (
                 "/tmp/golden/benchmark-vs-golden/2026-03-03_13.07.22/"
-                "single-book-benchmark/seaandsmokecutdown/codexfarm"
+                "single-book-benchmark/seaandsmokecutdown/codex-exec"
             ),
             "report_path": (
                 "/tmp/output/2026-03-03_13.07.22/single-book-benchmark/"
-                "seaandsmokecutdown/codexfarm/2026-03-03_13.07.43/report.json"
+                "seaandsmokecutdown/codex-exec/2026-03-03_13.07.43/report.json"
             ),
             "run_config": {
                 "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -28,7 +28,7 @@ class TestBenchmarkSemantics:
             },
         }
         assert ai_assistance_profile_for_record(record) == "full_stack"
-        assert benchmark_variant_for_record(record) == "codexfarm"
+        assert benchmark_variant_for_record(record) == "codex-exec"
         assert is_official_golden_benchmark_record(record) is True
 
     def test_js_init_skips_removed_control_setup(self, tmp_path):
@@ -131,7 +131,7 @@ class TestBenchmarkSemantics:
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
                     "2026-03-01_10.00.00/single-book-benchmark/seaandsmokecutdown/"
-                    "2026-03-01_10.06.00/codexfarm"
+                    "2026-03-01_10.06.00/codex-exec"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -170,7 +170,7 @@ class TestBenchmarkSemantics:
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
                     "2026-03-01_10.00.00/single-book-benchmark/seaandsmokecutdown/"
-                    "2026-03-01_10.06.00/codexfarm"
+                    "2026-03-01_10.06.00/codex-exec"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -211,7 +211,7 @@ class TestBenchmarkSemantics:
                 "run_timestamp": "2026-03-01T10:06:00",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
-                    "2026-03-01_10.00.00/single-book-benchmark/seaandsmokecutdown/codexfarm"
+                    "2026-03-01_10.00.00/single-book-benchmark/seaandsmokecutdown/codex-exec"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -290,7 +290,7 @@ class TestBenchmarkSemantics:
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
                     "2026-03-01_10.00.00/single-book-benchmark/seaandsmokecutdown/"
-                    "2026-03-01_10.06.00/codexfarm"
+                    "2026-03-01_10.06.00/codex-exec"
                 ),
                 "run_config": {
                     "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -307,7 +307,7 @@ class TestBenchmarkSemantics:
         assert result["vanilla_point_source_title"] == "/data/input/Sea And Smoke.epub"
         assert result["codex_point_source_title"] == "/data/input/Sea And Smoke.epub"
         assert result["vanilla_point_variant"] == "vanilla"
-        assert result["codex_point_variant"] == "codexfarm"
+        assert result["codex_point_variant"] == "codex-exec"
         assert result["vanilla_point_run_timestamp"] == "2026-03-01T10:01:00"
         assert result["codex_point_run_timestamp"] == "2026-03-01T10:06:00"
 
