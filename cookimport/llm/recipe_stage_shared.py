@@ -650,6 +650,10 @@ def _build_recipe_shard_survivability_report(*, recipe_shards: Sequence[_RecipeS
         shard_estimates.append({'shard_id': recipe_shard.shard_id, 'owned_unit_count': len(recipe_shard.states), 'estimated_input_tokens': count_tokens_for_model(prompt_text, model_name=resolved_model_name), 'estimated_output_tokens': count_structural_output_tokens(pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID, input_payload=serialize_recipe_correction_shard_input(recipe_shard.shard_input), model_name=resolved_model_name), 'metadata': {'recipe_ids': [state.recipe_id for state in recipe_shard.states]}})
     return evaluate_stage_survivability(stage_key='recipe_refine', shard_estimates=shard_estimates, requested_shard_count=requested_shard_count or len(recipe_shards), stage_label_override='Recipe Refine')
 
+def _current_recipe_shard_survivability_report_builder():
+    from . import recipe_stage as recipe_stage_package
+    return getattr(recipe_stage_package, '_build_recipe_shard_survivability_report', _build_recipe_shard_survivability_report)
+
 def _build_single_correction_manifest(*, run_settings: RunSettings, llm_raw_dir: Path, correction_audit_dir: Path, manifest_path: Path, states: list[_RecipeState], process_runs: dict[str, dict[str, Any]], output_schema_paths: dict[str, str], timing_seconds: float, recipe_shards: Sequence[_RecipeShardPlan]=(), phase_runtime_dir: Path | None=None, phase_runtime_summary: Mapping[str, Any] | None=None) -> dict[str, Any]:
     recipe_rows: dict[str, dict[str, Any]] = {}
     failures: list[dict[str, Any]] = []
@@ -1288,7 +1292,7 @@ def _run_single_correction_recipe_pipeline(*, conversion_result: ConversionResul
     correction_started = time.perf_counter()
     phase_runtime_summary: dict[str, Any] = {}
     if recipe_shards:
-        survivability_report = _build_recipe_shard_survivability_report(recipe_shards=recipe_shards, phase_input_dir=phase_input_dir, pipeline_assets=pipeline_assets, model_name=codex_model, requested_shard_count=run_settings.recipe_prompt_target_count)
+        survivability_report = _current_recipe_shard_survivability_report_builder()(recipe_shards=recipe_shards, phase_input_dir=phase_input_dir, pipeline_assets=pipeline_assets, model_name=codex_model, requested_shard_count=run_settings.recipe_prompt_target_count)
         _write_json(survivability_report, phase_runtime_dir / 'shard_survivability_report.json')
         if str(survivability_report.get('survivability_verdict') or '') != 'safe':
             raise ShardSurvivabilityPreflightError(survivability_report)

@@ -1,24 +1,15 @@
 from __future__ import annotations
 
-from .. import recipe_stage_shared as _shared_module
-from . import planning as _planning_module
-from . import promotion as _promotion_module
-from . import reporting as _reporting_module
-from . import runtime as _runtime_module
-from . import validation as _validation_module
+"""Recipe-stage owner package.
 
-for _module in (
-    _shared_module,
-    _planning_module,
-    _runtime_module,
-    _validation_module,
-    _promotion_module,
-    _reporting_module,
-):
-    globals().update(
-        {
-            name: value
-            for name, value in vars(_module).items()
-            if not name.startswith("__")
-        }
-    )
+Import specific owner modules from this package directly; avoid eager package-level
+re-export glue so internal owner modules can be imported without recipe-stage
+bootstrap cycles.
+"""
+
+from importlib import import_module
+from typing import Any
+
+
+def __getattr__(name: str) -> Any:
+    return getattr(import_module("cookimport.llm.recipe_stage_shared"), name)

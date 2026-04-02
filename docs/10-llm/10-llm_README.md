@@ -72,21 +72,22 @@ Shared shard-runtime foundation:
 Recipe CodexFarm path:
 
 - `cookimport/llm/codex_farm_orchestrator.py` (thin public facade)
-- `cookimport/llm/recipe_stage/planning.py`, `runtime.py`, `validation.py`, `promotion.py`, `reporting.py`
-- `cookimport/llm/recipe_stage_shared.py` (private backing implementation during the owner split)
+- `cookimport/llm/recipe_stage/planning.py`, `runtime.py`, `validation.py`, `promotion.py`, `reporting.py`, `task_file_contract.py`, `worker_io.py`
+- `cookimport/llm/recipe_stage_shared.py` (shrinking runtime coordinator during the owner split)
 - `cookimport/llm/codex_farm_contracts.py`
 - `cookimport/llm/codex_farm_ids.py`
 - `cookimport/llm/codex_farm_runner.py`
 
 Other active Codex-backed surfaces:
 
-- Optional knowledge extraction: `cookimport/llm/codex_farm_knowledge_orchestrator.py` (thin public facade), `cookimport/llm/knowledge_stage/planning.py`, `runtime.py`, `recovery.py`, `promotion.py`, `reporting.py`, `cookimport/llm/codex_farm_knowledge_jobs.py`, `cookimport/llm/codex_farm_knowledge_contracts.py`, `cookimport/llm/codex_farm_knowledge_models.py`, `cookimport/llm/codex_farm_knowledge_ingest.py`, `cookimport/llm/codex_farm_knowledge_writer.py`, `cookimport/llm/knowledge_prompt_builder.py`
+- Optional knowledge extraction: `cookimport/llm/codex_farm_knowledge_orchestrator.py` (thin public facade), `cookimport/llm/knowledge_stage/planning.py`, `runtime.py`, `workspace_run.py`, `structured_session_contract.py`, `recovery.py`, `promotion.py`, `reporting.py`, `cookimport/llm/codex_farm_knowledge_jobs.py`, `cookimport/llm/codex_farm_knowledge_contracts.py`, `cookimport/llm/codex_farm_knowledge_models.py`, `cookimport/llm/codex_farm_knowledge_ingest.py`, `cookimport/llm/codex_farm_knowledge_writer.py`, `cookimport/llm/knowledge_prompt_builder.py`
 - the knowledge stage now keeps two small runtime ledgers beside the normal manifests: `task_status.jsonl` records per-shard attempt/terminal state, while `stage_status.json` records stage finalization and interruption attribution. `knowledge_stage_summary.json` is the canonical post-run summary view over those ledgers, including an `attention_summary` block for zero-target failure, follow-up trouble, and unreviewed-work counts. Interrupted runs should still leave partial `phase_manifest.json`, `promotion_report.json`, `telemetry.json`, and `failures.json` beside those status files.
 - for assignment-first failures, `task_status.jsonl` is explicit rather than generic: rows can terminate as `validated`, `repair_packet_exhausted`, `process_exited_without_final_packet_state`, or a propagated watchdog reason code depending on what deterministic validation and supervision observed.
 - `knowledge_stage_summary.json` now exposes `no_final_output_shard_count` plus `no_final_output_reason_code_counts` as the coarse knowledge no-result rollups. The authoritative failure vocabulary for knowledge packets is still `terminal_reason_code` plus the packet-state rows, not a generic packet bucket.
 - recipe and canonical line-role stage roots now also write compact post-run summaries beside their runtime artifacts: `recipe_stage_summary.json` under `raw/llm/<workbook>/recipe_phase_runtime/` and `line_role_stage_summary.json` under `line-role-pipeline/runtime/line_role/`. Those compact summaries now also expose `attention_summary` so non-promoted recipe outcomes, line-role fallback rows, Codex hard-policy rejections, and similar "should be zero" counters are obvious without opening raw proposals.
 - canonical line-role runtime telemetry now preserves missing token usage as unavailable instead of coercing it to zero, so `telemetry_summary.json`, `prompt_budget_summary.json`, and benchmark-history token backfill can fail closed on partial usage
 - the shared direct-exec runner now also parses the Codex CLI plain-text `Token usage: ...` footer when a `taskfile` session omits JSON `turn.completed` usage, so normal `workers/*/usage.json` artifacts can populate again without weakening the fail-closed summary readers
+- the shared direct-exec protocol/live-snapshot/watchdog dataclasses now live in `cookimport/llm/codex_exec_types.py`, with `codex_exec_runner.py` re-exporting them so stage code and tests keep the same import surface while the subprocess transport root shrinks
 - when repo supervision decides a `taskfile` session is `completed` or `completed_with_failures`, the shared runner now waits briefly before terminating the subprocess so late `turn.completed` usage can still arrive and populate the normal worker `usage.json` artifacts
 - the line-role and knowledge success watchdogs no longer stop a worker the instant outputs stabilize; they now wait for repo-visible completion proof, or a short quiet period, before asking the runner to terminate the session. For line-role specifically, assistant prose is telemetry only on the happy path; helper state plus durable shard outputs are the authority.
 - line-role and knowledge worker roots now also save raw `stdout.txt` / `stderr.txt` sidecars when the direct-exec subprocess emitted text, which makes missing-usage sessions inspectable from the artifact tree
