@@ -1,8 +1,8 @@
 ---
-summary: "Web AI onboarding for the current cookimport architecture."
+summary: "Onboarding file for web-based AI chatbots that can't see the code"
 read_when:
-  - Coding agents, DO NOT READ
-  - This is for providing to web-based AI's without codebase context.
+  - AI Coding agents, DO NOT READ
+  - This is for providing to web-based AI's who can not see the codebase.
 ---
 
 # AI Context: `cookimport` (code-verified on 2026-03-25)

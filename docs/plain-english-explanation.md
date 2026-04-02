@@ -13,7 +13,7 @@ A note to AI editors: keep this as a plain-language product walkthrough. Artifac
 
 ## Start of a run
 
-Every `cookimport stage` run starts by creating a new timestamped output folder and locking in the big behavior choices for that run.
+Every `cookimport stage` run starts by creating a new timestamped output folder and locking in the important behavior choices for that run.
 
 Those settings decide things like:
 
@@ -21,12 +21,13 @@ Those settings decide things like:
 - whether PDF or EPUB source jobs should be split
 - whether line-role Codex review is on
 - whether recipe Codex is on
-- whether knowledge Codex is on
+- whether non-recipe finalize is on
 - whether explicit Codex model or reasoning overrides are set
+- which Codex execution style is used for the stages that support it
 - how ingredient parsing should behave
 - whether markdown sidecars should be written
 
-If an LLM-backed stage is enabled, explicit model overrides win. Otherwise the run uses discovered config or pipeline defaults. The product no longer invents a hard-coded fallback model id just because the UI could not discover one.
+If an LLM-backed stage is enabled, explicit model overrides win. Otherwise the run uses discovered config or pipeline defaults. The product does not invent a fake hard-coded model id just because the UI could not discover one.
 
 Then the importer registry looks at each input file and picks the importer that best matches that source type.
 
@@ -47,7 +48,7 @@ The important rule is that all of them converge on the same kind of bundle:
 
 Those source-support proposals are hints, not authority. For example, the text importer can still suggest candidate recipe regions, but those are truthful source coordinates for later review, not final recipe decisions.
 
-For stage-backed flows, those importers produce the source bundle that feeds the shared recipe-boundary stage, where recipe ownership is decided.
+For normal stage-backed flows, importers are source normalizers. They do not publish final recipe truth or final non-recipe truth.
 
 ## Split jobs and merge
 
@@ -55,7 +56,7 @@ Large PDFs may be split by page range. Large EPUBs may be split by spine range.
 
 The split covers the early source-conversion work. After that, the run returns to one shared semantic pipeline.
 
-Each job converts its assigned range and returns a partial source model plus raw extraction artifacts. If any job fails, the run stops before the shared semantic session for that source and keeps the temporary job artifacts for debugging.
+Each job converts only its assigned range and returns a partial source model plus raw extraction artifacts. If any job fails, the run stops before the shared semantic session for that source and keeps the temporary job artifacts for debugging.
 
 If all jobs succeed, the program merges them back together in source order. It rebases block indexes, merges support data, rebuilds the whole-book text view, moves raw artifacts into the normal run tree, and only then runs one shared semantic session on the merged whole-book result.
 
@@ -71,7 +72,7 @@ After conversion and any split-job merge, the book goes through one shared five-
 - `nonrecipe-route`
 - `nonrecipe-finalize`
 
-That five-stage runtime is the real center of the product. Importer output enters it as the source bundle the later stages shape into final authority.
+That five-stage runtime is the real center of the product. Importer output enters it as a source bundle, and those five stages decide what the final authority will be.
 
 ## `extract`
 
@@ -99,13 +100,13 @@ It starts with `label_deterministic`, which creates the deterministic line and b
 - is this line an instruction line
 - is this line note-like
 - does this line belong inside a recipe or outside it
-- if it is outside, should it stay alive for later non-recipe finalize
+- if it is outside, should it stay alive for later non-recipe review
 
 That deterministic pass still matters even when LLM stages are on. It gives the run a reproducible baseline and a clear artifact trail.
 
-If line-role Codex review is enabled, `label_refine` reviews those labels in bounded worker sessions. Repo code only accepts structurally valid corrected labels, allows narrow repair when possible, and otherwise fails the shard closed with explicit artifacts. There is no hidden deterministic row fallback on the live worker path.
+If line-role Codex review is enabled, `label_refine` reviews those labels in bounded worker sessions. The exact worker transport can vary, but repo code still owns shard planning, validation, repair, and final acceptance. There is no hidden live-path fallback where repo code silently swaps invalid worker output back to deterministic rows and pretends nothing happened.
 
-After labeling, `recipe_boundary` groups the accepted recipe lines into candidate spans and decides which of those spans count as real recipes.
+After labeling, `recipe-boundary` groups the accepted recipe lines into candidate spans and decides which of those spans count as real recipes.
 
 An accepted recipe span now needs both:
 
@@ -116,7 +117,7 @@ That rule exists because cookbook sources are full of recipe-shaped material suc
 
 So `recipe-boundary` is both a grouping stage and a rejection stage. It accepts real recipe spans and rejects pseudo-recipes before they can turn into final recipes later.
 
-If the stage accepts zero recipes, that zero is the answer. There is no separate importer recipe count to compare against anymore. The debugging surface is the span artifacts themselves: `recipe_spans.json` shows what was accepted, and `span_decisions.json` shows both accepted spans and rejected pseudo-recipes with reasons.
+If the stage accepts zero recipes, that zero is the answer. There is no separate importer recipe count that gets the last word. The debugging surface is the span artifacts themselves: `recipe_spans.json` shows what was accepted, and `span_decisions.json` shows both accepted spans and rejected pseudo-recipes with reasons.
 
 By the end of `recipe-boundary`, the run knows:
 
@@ -124,6 +125,8 @@ By the end of `recipe-boundary`, the run knows:
 - which blocks belong to those recipes
 - which lines stay outside recipes
 - which normalized labels drive the later stages
+
+This is also where the run creates the recipe block-ownership contract that later stages must obey.
 
 ## `recipe-refine`
 
@@ -156,13 +159,13 @@ Recipe Codex outcomes are explicit now. A valid task result can be:
 
 Only `repaired` promotes into final recipe authority. `fragmentary` and `not_a_recipe` remain visible in runtime artifacts as non-promoted outcomes.
 
-After the optional Codex pass, repo code still validates the result, normalizes it, builds intermediate `schema.org Recipe JSON`, and then builds the final `cookbook3` output. Even when recipe Codex is on, deterministic repo code still owns the final write path.
+One important current rule is that `recipe-refine` cannot silently change block ownership just by changing recipe text or provenance. If it wants to give a block back, it must do that explicitly through divestment. Only blocks that were never recipe-owned, or were later explicitly divested, may enter the non-recipe lane.
 
-This stage is also where the run produces its authoritative recipe payloads for later output writing.
+After the optional Codex pass, repo code still validates the result, normalizes it, builds authoritative recipe payloads, builds intermediate `schema.org Recipe JSON`, and then builds the final `cookbook3` output. Even when recipe Codex is on, deterministic repo code still owns the final write path.
 
 ## `nonrecipe-route`
 
-After recipe ownership is settled, everything outside accepted recipe spans moves into `nonrecipe-route`.
+After recipe ownership is settled, everything that is still outside recipe ownership moves into `nonrecipe-route`.
 
 This stage handles routing and bookkeeping for outside-recipe material.
 
@@ -172,7 +175,7 @@ Its job is to:
 - keep worthwhile survivors alive for later review
 - record why each row survived or was excluded
 
-Some rows become final right here. The line-label stage can already mark outside-recipe `OTHER` rows with exclusion reasons such as navigation, front matter, publishing junk, endorsements, copyright/legal text, publisher promos, or page furniture. `nonrecipe-route` does not invent those calls on its own. It honors them and excludes those rows immediately as final `other`.
+Some rows become final right here. The line-label stage can already mark outside-recipe rows with exclusion reasons such as navigation, front matter, publishing junk, endorsements, copyright/legal text, publisher promos, or page furniture. `nonrecipe-route` does not invent those calls on its own. It honors them and excludes those rows immediately as final `other`.
 
 Surviving outside-recipe text then moves into one category-neutral candidate queue for the later knowledge stage, where the harder semantic judgment happens.
 
@@ -188,28 +191,18 @@ This is why the run writes separate routing and final-authority artifacts.
 
 `nonrecipe-finalize` is the final semantic owner of reviewable outside-recipe material.
 
-If non-recipe finalize is off, the run keeps the routing and status artifacts and can still build deterministic late outputs from the surviving outside-recipe block list.
+If non-recipe finalize is off, the run still keeps the routing and status artifacts and can still build deterministic late outputs from the surviving outside-recipe block list.
 
 If non-recipe finalize is on, the public knowledge pipeline is `codex-knowledge-candidate-v2`.
 
-Before the model sees anything, repo code partitions the surviving candidate queue into ordered candidate shards and assigns those shards to workers. Repo code owns shard sizing, ordering, and exact block ownership.
+Before the model sees anything, repo code partitions the surviving candidate queue into ordered candidate shards and assigns those shards to workers. Repo code owns shard sizing, ordering, block ownership, validation, and promotion back into the final stage result.
 
-The worker-visible contract is now a repo-written editable `task.json`, not an open-ended workspace dump.
+The worker-facing transport can vary by run settings. In some runs the worker edits repo-written `task.json` files. In others the worker answers inline JSON prompts. That implementation detail can change, but the authority boundary does not: repo code still decides which blocks are eligible, validates the returned structure, and only promotes accepted answers.
 
-The main review is split into two steps:
+The semantic review is still split into two jobs:
 
-- classification decides, block by block, whether each owned row is final `knowledge` or final `other`
+- classification decides, block by block, whether each candidate row is final `knowledge` or final `other`
 - grouping runs only on rows already kept as `knowledge` and groups related rows under topic labels
-
-In practice, one worker assignment means one worker handling its own bundle of assigned shards inside one happy-path workspace session.
-
-The worker starts with the classification `task.json`, edits the answers, and then runs one repo-owned validate-and-advance helper. That helper either:
-
-- rewrites `task.json` into a smaller repair file for the same classification step
-- rewrites `task.json` into the grouping-only file if any rows stayed `knowledge`
-- finishes the final shard outputs immediately if everything ended up `other`
-
-If grouping is needed, the same worker keeps going in the same session, edits the rewritten grouping file, runs the helper again, and stops only when that helper reports completion. Structural repair stays narrow, but it now happens in the same worker context by default instead of by launching a second happy-path worker session.
 
 So the model decides:
 
@@ -231,9 +224,8 @@ In artifact terms:
 - `09_nonrecipe_authority.json` is the final machine-readable truth
 - `09_nonrecipe_knowledge_groups.json` records the promoted model-authored related-idea groups
 - `09_nonrecipe_finalize_status.json` explains what was reviewed, skipped, changed, or left unresolved
-- `raw/llm/<workbook_slug>/nonrecipe_finalize/task_status.jsonl` and `stage_status.json` are the repo-side runtime ledgers for per-shard state and overall stage finalization
 
-If reviewer-facing knowledge output is written, `knowledge.md` is the readable rendering of those promoted authority decisions and groups. Reviewer-facing snippet ledgers are no longer part of the live contract.
+If reviewer-facing knowledge output is written, `knowledge.md` is the readable rendering of those promoted authority decisions and groups.
 
 ## Late outputs
 
@@ -241,27 +233,30 @@ Once recipe and outside-recipe authority are settled, the program can safely bui
 
 That includes:
 
+- authoritative recipe payloads
 - intermediate `schema.org Recipe JSON`
 - final `cookbook3` drafts
 - sections
 - tables
-- deterministic chunks when knowledge finalize is off
-- reviewer-facing knowledge artifacts when knowledge finalize runs
+- deterministic chunks when non-recipe finalize is off
+- reviewer-facing knowledge artifacts when non-recipe finalize runs
 - raw artifacts
 - reports
 - benchmark-facing `stage_block_predictions.json`
-- run manifest and observability files
+- run manifest, summary, and observability files
 
 Sections come from the finalized recipe side.
 
-Tables follow a late-output outside-recipe block list, not the strict authority cache blindly.
+Tables follow the late-output outside-recipe block list. They are always extracted for stage-backed flows.
 
-Deterministic chunks are the fallback late-output lane when knowledge finalize is off. When knowledge finalize runs, the run writes reviewed knowledge artifacts instead of `chunks/` files.
+Deterministic chunks are the fallback late-output lane when non-recipe finalize is off or falls back. When non-recipe finalize runs and produces reviewed authority, the run writes reviewed knowledge artifacts instead of `chunks/` files.
 
-If non-recipe finalize ran and produced reviewed outside-recipe authority, that late-output list is the authoritative outside-recipe rows.
+If non-recipe finalize produced reviewed outside-recipe authority, that late-output list is the authoritative outside-recipe rows.
 
 If non-recipe finalize is off or falls back, that late-output list is instead the surviving candidate queue from `nonrecipe-route`, so the run can still build useful deterministic tables and chunks without pretending that unreviewed rows are final truth.
 
 `stage_block_predictions.json` matters because it is the run's block-level benchmark evidence after the real authority decisions have already happened.
 
-So the end of the run is: write recipes, write outside-recipe authority, write the downstream artifacts built from those decisions, and write enough observability to explain the run later.
+It also follows the stricter current ownership rule: recipe-owned blocks and final non-recipe `knowledge` are not supposed to overlap. If the runtime ever sees both on the same block, that is treated as a bug or invariant violation, not as a normal merge case where one side quietly wins.
+
+So the end of the run is: write recipe authority, write non-recipe authority, write the downstream artifacts built from those decisions, and write enough observability to explain the run later.

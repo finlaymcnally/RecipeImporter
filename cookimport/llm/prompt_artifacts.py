@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import csv
 import datetime as dt
 import json
@@ -8,7 +7,6 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence, cast
-
 from cookimport.core.slug import slugify_name
 from cookimport.runs import (
     KNOWLEDGE_MANIFEST_FILE_NAME,
@@ -17,7 +15,6 @@ from cookimport.runs import (
     stage_artifact_stem,
 )
 from cookimport.runs.stage_names import canonical_stage_key
-
 PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION = "prompt_run_descriptor.v1"
 PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION = "prompt_stage_descriptor.v1"
 PROMPT_CALL_RECORD_SCHEMA_VERSION = "prompt_call_record.v1"
@@ -29,7 +26,6 @@ PROMPT_TYPE_SAMPLES_MD_NAME = "prompt_type_samples_from_full_prompt_log.md"
 ACTIVITY_TRACES_DIR_NAME = "activity_traces"
 ACTIVITY_TRACE_SUMMARY_JSONL_NAME = "activity_trace_summary.jsonl"
 ACTIVITY_TRACE_SUMMARY_MD_NAME = "activity_trace_summary.md"
-
 _CODEXFARM_STAGE_SPECS: tuple[dict[str, Any], ...] = (
     {
         "stage_key": "recipe_refine",
@@ -48,11 +44,9 @@ _CODEXFARM_STAGE_SPECS: tuple[dict[str, Any], ...] = (
         "manifest_name": KNOWLEDGE_MANIFEST_FILE_NAME,
     },
 )
-
 _CODEXFARM_STAGE_SPEC_BY_KEY: dict[str, dict[str, Any]] = {
     str(spec["stage_key"]): spec for spec in _CODEXFARM_STAGE_SPECS
 }
-
 _PROMPT_STAGE_LABELS_BY_KEY = {
     **{
         str(spec["stage_key"]): str(spec["stage_label"])
@@ -61,7 +55,6 @@ _PROMPT_STAGE_LABELS_BY_KEY = {
     "recipe_correction": stage_label("recipe_refine"),
     "knowledge": stage_label("nonrecipe_finalize"),
 }
-
 _TEXT_ATTACHMENT_SUFFIXES = {
     ".json",
     ".jsonl",
@@ -71,10 +64,80 @@ _TEXT_ATTACHMENT_SUFFIXES = {
     ".yml",
     ".csv",
 }
-
 _ACTIVITY_TRACE_MAX_ENTRIES = 25
 _ACTIVITY_TRACE_SUMMARY_ENTRY_LIMIT = 3
+__all__ = [
+    "ACTIVITY_TRACES_DIR_NAME",
+    "ACTIVITY_TRACE_SUMMARY_JSONL_NAME",
+    "ACTIVITY_TRACE_SUMMARY_MD_NAME",
+    "PROMPT_CALL_RECORD_SCHEMA_VERSION",
+    "PROMPT_ACTIVITY_TRACE_SCHEMA_VERSION",
+    "PROMPT_ACTIVITY_TRACE_SUMMARY_SCHEMA_VERSION",
+    "PROMPT_LOG_SUMMARY_JSON_NAME",
+    "PROMPT_LOG_SUMMARY_SCHEMA_VERSION",
+    "PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION",
+    "PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION",
+    "PROMPT_TYPE_SAMPLES_MD_NAME",
+    "build_codex_farm_activity_trace_summaries",
+    "PromptCallRecord",
+    "PromptRunDescriptorDiscoverer",
+    "PromptRunDescriptor",
+    "PromptStageDescriptor",
+    "build_codex_farm_prompt_response_log",
+    "build_prompt_response_log",
+    "build_codex_farm_prompt_type_samples_markdown",
+    "discover_prompt_run_descriptors",
+    "discover_codex_exec_prompt_run_descriptors",
+    "render_prompt_artifacts_from_descriptors",
+    "summarize_prompt_log",
+    "write_prompt_log_summary",
+]
 
+from .prompt_artifacts_discovery import (
+    PromptCallRecord,
+    PromptStageDescriptor,
+    PromptRunDescriptor,
+    PromptRunDescriptorDiscoverer,
+    _load_json_dict,
+    _load_json_value,
+    _safe_read_text,
+    _resolve_artifact_path,
+    _parse_json_text,
+    _files_in_dir,
+    _clean_text,
+    _coerce_dict,
+    _coerce_int,
+    _coerce_bool,
+    _parse_json_string_list,
+    _timestamp_utc_for_path,
+    _clean_prompt_stage_text,
+    _derive_prompt_stage_key_from_pipeline_id,
+    _fallback_prompt_stage_key,
+    _prompt_stage_label_from_key,
+    _build_prompt_stage_metadata,
+    _prompt_stage_metadata_from_row,
+    _resolve_process_run_payload_for_stage,
+    _resolve_manifest_pipeline_id_for_stage,
+    _resolve_stage_in_out_dirs,
+    _runtime_stage_dir_name,
+    discover_codex_exec_prompt_run_descriptors,
+    discover_prompt_run_descriptors,
+)
+from .prompt_artifacts_activity import (
+    _load_jsonl_events,
+    _load_message_text,
+    _activity_excerpt,
+    _activity_path_excerpt,
+    _extract_visible_reasoning_text,
+    _summarize_activity_entry_lines,
+    _build_activity_trace_from_events,
+    _export_prompt_activity_trace,
+    _resolve_prompt_local_activity_trace_path,
+    _load_exported_activity_trace_payload,
+    _effective_activity_trace_payload,
+    _extract_reasoning_excerpt,
+    build_codex_farm_activity_trace_summaries,
+)
 
 def summarize_prompt_log(*, full_prompt_log_path: Path) -> dict[str, Any] | None:
     if not full_prompt_log_path.exists() or not full_prompt_log_path.is_file():
@@ -165,8 +228,6 @@ def summarize_prompt_log(*, full_prompt_log_path: Path) -> dict[str, Any] | None
         "rows_without_runtime_shard_id": rows_without_runtime_shard_id,
         "by_stage": by_stage,
     }
-
-
 def write_prompt_log_summary(
     *,
     full_prompt_log_path: Path,
@@ -185,553 +246,6 @@ def write_prompt_log_summary(
         encoding="utf-8",
     )
     return target_path
-
-
-@dataclass(frozen=True)
-class PromptCallRecord:
-    schema_version: str
-    row: dict[str, Any]
-
-    def to_row(self) -> dict[str, Any]:
-        payload = dict(self.row)
-        payload.setdefault("schema_version", self.schema_version)
-        return payload
-
-
-@dataclass(frozen=True)
-class PromptStageDescriptor:
-    schema_version: str
-    stage_order: int
-    stage_dir_name: str
-    stage_key: str
-    stage_heading_key: str
-    stage_label: str
-    stage_artifact_stem: str
-    pipeline_id: str | None
-    manifest_name: str
-    manifest_path: Path | None
-    manifest_payload: dict[str, Any]
-    process_run_payload: dict[str, Any] | None
-    input_dir: Path
-    output_dir: Path
-
-
-@dataclass(frozen=True)
-class PromptRunDescriptor:
-    schema_version: str
-    run_dir: Path
-    manifest_payload_by_name: dict[str, dict[str, Any]]
-    manifest_path_by_name: dict[str, Path]
-    stages: tuple[PromptStageDescriptor, ...]
-    codex_farm_pipeline: str | None
-    codex_farm_model: str | None
-    codex_farm_reasoning_effort: str | None
-    notes: tuple[str, ...] = field(default_factory=tuple)
-
-
-class PromptRunDescriptorDiscoverer(Protocol):
-    def __call__(self, *, pred_run: Path) -> Sequence[PromptRunDescriptor]:
-        ...
-
-
-def _load_json_dict(path: Path) -> dict[str, Any] | None:
-    if not path.exists() or not path.is_file():
-        return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return None
-    if not isinstance(payload, dict):
-        return None
-    return payload
-
-
-def _load_json_value(path: Path) -> Any | None:
-    if not path.exists() or not path.is_file():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def _safe_read_text(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        return path.read_text(encoding="utf-8", errors="replace")
-    except Exception as exc:  # noqa: BLE001
-        return f"<<unreadable file: {exc}>>"
-
-
-def _resolve_artifact_path(base_dir: Path, value: Any) -> Path | None:
-    cleaned = _clean_text(value)
-    if cleaned is None:
-        return None
-    path = Path(cleaned).expanduser()
-    if path.is_absolute():
-        return path
-    return (base_dir / path).resolve(strict=False)
-
-
-def _parse_json_text(raw_text: str) -> Any | None:
-    text = str(raw_text or "").strip()
-    if not text:
-        return None
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return None
-
-
-def _files_in_dir(path: Path | None) -> list[Path]:
-    if path is None or not path.exists() or not path.is_dir():
-        return []
-    return sorted((child for child in path.iterdir() if child.is_file()), key=lambda p: p.name)
-
-
-def _clean_text(value: Any) -> str | None:
-    cleaned = str(value or "").strip()
-    return cleaned or None
-
-
-def _coerce_dict(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, dict) else {}
-
-
-def _coerce_int(value: Any) -> int | None:
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _coerce_bool(value: Any) -> bool | None:
-    if isinstance(value, bool):
-        return value
-    cleaned = str(value or "").strip().lower()
-    if not cleaned:
-        return None
-    if cleaned in {"1", "true", "yes", "y", "on"}:
-        return True
-    if cleaned in {"0", "false", "no", "n", "off"}:
-        return False
-    return None
-
-
-def _parse_json_string_list(value: Any) -> list[str]:
-    text = str(value or "").strip()
-    if not text:
-        return []
-    parsed = _parse_json_text(text)
-    if not isinstance(parsed, list):
-        return []
-    rows: list[str] = []
-    for item in parsed:
-        cleaned = _clean_text(item)
-        if cleaned is not None:
-            rows.append(cleaned)
-    return rows
-
-
-def _timestamp_utc_for_path(path: Path | None) -> str | None:
-    if path is None or not path.exists() or not path.is_file():
-        return None
-    try:
-        timestamp = dt.datetime.fromtimestamp(path.stat().st_mtime, tz=dt.timezone.utc)
-    except OSError:
-        return None
-    return timestamp.isoformat(timespec="seconds").replace("+00:00", "Z")
-
-
-def _clean_prompt_stage_text(value: Any) -> str | None:
-    cleaned = str(value or "").strip()
-    return cleaned or None
-
-
-def _derive_prompt_stage_key_from_pipeline_id(pipeline_id: str | None) -> str | None:
-    normalized = _clean_prompt_stage_text(pipeline_id)
-    if normalized is None:
-        return None
-    filtered_tokens: list[str] = []
-    for token in re.split(r"[^a-z0-9]+", normalized.lower()):
-        if not token:
-            continue
-        if token in {"recipe", "compact", "pipeline", "codex", "farm"}:
-            continue
-        if re.fullmatch(r"v\d+", token):
-            continue
-        filtered_tokens.append(token)
-    if not filtered_tokens:
-        return None
-    return slugify_name("_".join(filtered_tokens))
-
-
-def _fallback_prompt_stage_key(*, stage_key: str, path_root: str | None) -> str:
-    root_slug = slugify_name(str(path_root or "").strip()) if path_root else ""
-    if root_slug.startswith(f"{stage_key}_"):
-        trimmed = root_slug[len(stage_key) + 1 :].strip("_")
-        if trimmed:
-            return trimmed
-    return root_slug or stage_key or "stage"
-
-
-def _prompt_stage_label_from_key(stage_key: str) -> str:
-    normalized = slugify_name(stage_key)
-    mapped = _PROMPT_STAGE_LABELS_BY_KEY.get(normalized)
-    if mapped is not None:
-        return mapped
-    return normalized.replace("_", " ").strip().title() or "Prompt Stage"
-
-
-def _build_prompt_stage_metadata(
-    *,
-    stage_key: str,
-    pipeline_id: str | None,
-) -> dict[str, Any]:
-    normalized_stage_key = slugify_name(stage_key)
-    stage_spec = _CODEXFARM_STAGE_SPEC_BY_KEY.get(normalized_stage_key, {})
-    stage_order = int(stage_spec.get("stage_order") or 999)
-    canonical_stage_key = (
-        _clean_prompt_stage_text(stage_spec.get("stage_key"))
-        or normalized_stage_key
-        or _derive_prompt_stage_key_from_pipeline_id(pipeline_id)
-        or _fallback_prompt_stage_key(stage_key=normalized_stage_key, path_root=None)
-    )
-    default_label = _clean_prompt_stage_text(stage_spec.get("stage_label"))
-    default_artifact_stem = _clean_prompt_stage_text(stage_spec.get("stage_artifact_stem"))
-    return {
-        "stage_order": stage_order,
-        "pipeline_id": _clean_prompt_stage_text(pipeline_id)
-        or _clean_prompt_stage_text(stage_spec.get("default_pipeline_id")),
-        "stage_key": canonical_stage_key,
-        "heading_key": canonical_stage_key,
-        "label": (
-            default_label
-            if default_label is not None
-            else _prompt_stage_label_from_key(canonical_stage_key)
-        ),
-        "artifact_stem": slugify_name(
-            default_artifact_stem or canonical_stage_key or f"stage_{stage_order}"
-        ),
-    }
-
-
-def _prompt_stage_metadata_from_row(row: dict[str, Any]) -> dict[str, Any]:
-    stage_key = (
-        _clean_prompt_stage_text(row.get("stage_key"))
-        or _clean_prompt_stage_text(row.get("stage_heading_key"))
-        or _clean_prompt_stage_text(row.get("stage_artifact_stem"))
-        or "stage"
-    )
-    metadata = _build_prompt_stage_metadata(
-        stage_key=stage_key,
-        pipeline_id=_clean_prompt_stage_text(row.get("pipeline_id")),
-    )
-    stage_key = _clean_prompt_stage_text(row.get("stage_key"))
-    if stage_key is not None:
-        metadata["stage_key"] = slugify_name(stage_key)
-    heading_key = _clean_prompt_stage_text(row.get("stage_heading_key"))
-    if heading_key is not None:
-        metadata["heading_key"] = slugify_name(heading_key)
-    label = _clean_prompt_stage_text(row.get("stage_label"))
-    if label is not None:
-        metadata["label"] = label
-    artifact_stem = _clean_prompt_stage_text(row.get("stage_artifact_stem"))
-    if artifact_stem is not None:
-        metadata["artifact_stem"] = slugify_name(artifact_stem)
-    try:
-        stage_order = int(row.get("stage_order"))
-    except (TypeError, ValueError):
-        stage_order = None
-    if stage_order is not None:
-        metadata["stage_order"] = stage_order
-    return metadata
-
-
-def _resolve_process_run_payload_for_stage(
-    *,
-    stage_key: str,
-    manifest_payload: dict[str, Any],
-) -> dict[str, Any] | None:
-    if stage_key == "recipe_refine":
-        process_runs = manifest_payload.get("process_runs")
-        if not isinstance(process_runs, dict):
-            return None
-        pass_payload = process_runs.get("recipe_correction")
-        return pass_payload if isinstance(pass_payload, dict) else None
-    if stage_key == "nonrecipe_finalize":
-        process_run = manifest_payload.get("process_run")
-        if isinstance(process_run, dict):
-            return process_run
-        llm_report = manifest_payload.get("llm_report")
-        if isinstance(llm_report, dict):
-            report_process_run = llm_report.get("process_run")
-            if isinstance(report_process_run, dict):
-                return report_process_run
-        return None
-    return None
-
-
-def _resolve_manifest_pipeline_id_for_stage(
-    *,
-    stage_key: str,
-    manifest_payload: dict[str, Any],
-) -> str | None:
-    stage_spec = _CODEXFARM_STAGE_SPEC_BY_KEY.get(stage_key, {})
-    default_pipeline_id = _clean_prompt_stage_text(stage_spec.get("default_pipeline_id"))
-    if stage_key == "recipe_refine":
-        process_run = _resolve_process_run_payload_for_stage(
-            stage_key=stage_key,
-            manifest_payload=manifest_payload,
-        )
-        if isinstance(process_run, dict):
-            candidate = _clean_text(process_run.get("pipeline_id"))
-            if candidate is not None:
-                return candidate
-        pipelines = manifest_payload.get("pipelines")
-        if isinstance(pipelines, dict):
-            candidate = _clean_text(pipelines.get("recipe_correction"))
-            if candidate is not None:
-                return candidate
-        return default_pipeline_id
-    if stage_key == "nonrecipe_finalize":
-        candidate = _clean_text(manifest_payload.get("pipeline_id"))
-        if candidate is not None:
-            return candidate
-        llm_report = manifest_payload.get("llm_report")
-        if isinstance(llm_report, dict):
-            report_candidate = _clean_text(llm_report.get("pipeline_id"))
-            if report_candidate is not None:
-                return report_candidate
-        return default_pipeline_id
-    return default_pipeline_id
-
-
-def _resolve_stage_in_out_dirs(
-    *,
-    stage_key: str,
-    manifest_payload: dict[str, Any],
-    run_dir: Path,
-    stage_dir_name: str,
-) -> tuple[Path, Path]:
-    paths_payload: dict[str, Any] = {}
-    if not paths_payload:
-        raw_paths = manifest_payload.get("paths")
-        if isinstance(raw_paths, dict):
-            paths_payload = raw_paths
-
-    input_key_map = {
-        "recipe_refine": "recipe_phase_input_dir",
-        "nonrecipe_finalize": "knowledge_in_dir",
-    }
-    output_key_map = {
-        "recipe_refine": "recipe_phase_proposals_dir",
-        "nonrecipe_finalize": "proposals_dir",
-    }
-
-    input_key = input_key_map.get(stage_key)
-    output_key = output_key_map.get(stage_key)
-    pass_in = paths_payload.get(input_key) if input_key is not None else None
-    pass_out = paths_payload.get(output_key) if output_key is not None else None
-
-    in_dir = Path(str(pass_in)) if isinstance(pass_in, str) else None
-    out_dir = Path(str(pass_out)) if isinstance(pass_out, str) else None
-    if in_dir is None or not in_dir.exists():
-        if stage_key == "recipe_refine":
-            in_dir = run_dir / "recipe_phase_runtime" / "inputs"
-        else:
-            in_dir = run_dir / stage_dir_name / "in"
-    if out_dir is None or not out_dir.exists():
-        if stage_key == "recipe_refine":
-            out_dir = run_dir / "recipe_phase_runtime" / "proposals"
-        elif stage_key == "nonrecipe_finalize":
-            out_dir = run_dir / stage_dir_name / "proposals"
-        else:
-            out_dir = run_dir / stage_dir_name / "out"
-    return in_dir, out_dir
-
-
-def _runtime_stage_dir_name(stage_key: str) -> str:
-    if stage_key == "recipe_refine":
-        return "recipe_phase_runtime"
-    return stage_artifact_stem(stage_key)
-
-
-def discover_codex_exec_prompt_run_descriptors(
-    *,
-    pred_run: Path,
-) -> list[PromptRunDescriptor]:
-    discovery_root = pred_run
-    raw_llm_dir = discovery_root / "raw" / "llm"
-    if not raw_llm_dir.exists() or not raw_llm_dir.is_dir():
-        prediction_run_manifest = _load_json_dict(pred_run / "run_manifest.json")
-        prediction_artifacts = (
-            prediction_run_manifest.get("artifacts")
-            if isinstance(prediction_run_manifest, dict)
-            else None
-        )
-        if isinstance(prediction_artifacts, dict):
-            for artifact_key in ("stage_run_dir", "processed_output_run_dir"):
-                candidate_root = _resolve_artifact_path(
-                    pred_run,
-                    prediction_artifacts.get(artifact_key),
-                )
-                if candidate_root is None:
-                    continue
-                candidate_raw_llm_dir = candidate_root / "raw" / "llm"
-                if candidate_raw_llm_dir.exists() and candidate_raw_llm_dir.is_dir():
-                    discovery_root = candidate_root
-                    raw_llm_dir = candidate_raw_llm_dir
-                    break
-            else:
-                recipe_manifest_path = _resolve_artifact_path(
-                    pred_run,
-                    prediction_artifacts.get(RECIPE_MANIFEST_FILE_NAME)
-                    or prediction_artifacts.get("recipe_manifest_json"),
-                )
-                if recipe_manifest_path is not None:
-                    for ancestor in recipe_manifest_path.parents:
-                        candidate_raw_llm_dir = ancestor / "raw" / "llm"
-                        if (
-                            candidate_raw_llm_dir.exists()
-                            and candidate_raw_llm_dir.is_dir()
-                        ):
-                            discovery_root = ancestor
-                            raw_llm_dir = candidate_raw_llm_dir
-                            break
-    if not raw_llm_dir.exists() or not raw_llm_dir.is_dir():
-        return []
-
-    run_dirs: list[Path] = [path for path in raw_llm_dir.iterdir() if path.is_dir()]
-    if not run_dirs:
-        return []
-
-    descriptors: list[PromptRunDescriptor] = []
-    manifest_names = sorted(
-        {
-            str(spec["manifest_name"])
-            for spec in _CODEXFARM_STAGE_SPECS
-        }
-    )
-    for run_dir in sorted(run_dirs, key=lambda value: value.name):
-        manifest_payload_by_name: dict[str, dict[str, Any]] = {}
-        manifest_path_by_name: dict[str, Path] = {}
-        for manifest_name in manifest_names:
-            manifest_path = run_dir / manifest_name
-            payload = _load_json_dict(manifest_path) or {}
-            if not payload:
-                continue
-            manifest_payload_by_name[manifest_name] = payload
-            manifest_path_by_name[manifest_name] = manifest_path
-
-        notes: list[str] = []
-        stages: list[PromptStageDescriptor] = []
-        if not manifest_payload_by_name:
-            notes.append("missing prompt manifests")
-        else:
-            for stage_spec in _CODEXFARM_STAGE_SPECS:
-                stage_key = str(stage_spec["stage_key"])
-                manifest_name = str(stage_spec["manifest_name"])
-                manifest_payload = manifest_payload_by_name.get(manifest_name)
-                if not isinstance(manifest_payload, dict):
-                    continue
-                pipeline_id = _resolve_manifest_pipeline_id_for_stage(
-                    stage_key=stage_key,
-                    manifest_payload=manifest_payload,
-                )
-                stage_metadata = _build_prompt_stage_metadata(
-                    stage_key=stage_key,
-                    pipeline_id=pipeline_id,
-                )
-                resolved_stage_dir_name = _runtime_stage_dir_name(
-                    str(stage_metadata.get("stage_key") or stage_key)
-                )
-                input_dir, output_dir = _resolve_stage_in_out_dirs(
-                    stage_key=stage_key,
-                    manifest_payload=manifest_payload,
-                    run_dir=run_dir,
-                    stage_dir_name=resolved_stage_dir_name,
-                )
-                process_run_payload = _resolve_process_run_payload_for_stage(
-                    stage_key=stage_key,
-                    manifest_payload=manifest_payload,
-                )
-                stages.append(
-                    PromptStageDescriptor(
-                        schema_version=PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION,
-                        stage_order=int(stage_metadata.get("stage_order") or 999),
-                        stage_dir_name=resolved_stage_dir_name,
-                        stage_key=str(stage_metadata.get("stage_key") or stage_key),
-                        stage_heading_key=str(
-                            stage_metadata.get("heading_key")
-                            or stage_metadata.get("stage_key")
-                            or stage_key
-                        ),
-                        stage_label=str(stage_metadata.get("label") or "Prompt Stage"),
-                        stage_artifact_stem=str(
-                            stage_metadata.get("artifact_stem") or stage_key
-                        ),
-                        pipeline_id=pipeline_id,
-                        manifest_name=manifest_name,
-                        manifest_path=manifest_path_by_name.get(manifest_name),
-                        manifest_payload=manifest_payload,
-                        process_run_payload=(
-                            process_run_payload if isinstance(process_run_payload, dict) else None
-                        ),
-                        input_dir=input_dir,
-                        output_dir=output_dir,
-                    )
-                )
-
-        primary_manifest = manifest_payload_by_name.get(RECIPE_MANIFEST_FILE_NAME, {})
-        descriptors.append(
-            PromptRunDescriptor(
-                schema_version=PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION,
-                run_dir=run_dir,
-                manifest_payload_by_name=manifest_payload_by_name,
-                manifest_path_by_name=manifest_path_by_name,
-                stages=tuple(
-                    sorted(
-                        stages,
-                        key=lambda stage: (
-                            stage.stage_order,
-                            stage.stage_key,
-                        ),
-                    )
-                ),
-                codex_farm_pipeline=_clean_text(primary_manifest.get("pipeline")),
-                codex_farm_model=_clean_text(primary_manifest.get("codex_farm_model")),
-                codex_farm_reasoning_effort=_clean_text(
-                    primary_manifest.get("codex_farm_reasoning_effort")
-                ),
-                notes=tuple(notes),
-            )
-        )
-    return descriptors
-
-
-def discover_prompt_run_descriptors(
-    *,
-    pred_run: Path,
-    discoverers: Sequence[PromptRunDescriptorDiscoverer] | None = None,
-) -> list[PromptRunDescriptor]:
-    active_discoverers: Sequence[PromptRunDescriptorDiscoverer]
-    if discoverers is None:
-        active_discoverers = (discover_codex_exec_prompt_run_descriptors,)
-    else:
-        active_discoverers = discoverers
-    descriptors: list[PromptRunDescriptor] = []
-    for discoverer in active_discoverers:
-        discovered = list(discoverer(pred_run=pred_run))
-        if discovered:
-            descriptors.extend(discovered)
-            break
-    return descriptors
-
-
 def _resolve_recipe_id(*, parsed_input: Any, parsed_output: Any, fallback_name: str) -> str | None:
     for payload in (parsed_input, parsed_output):
         if isinstance(payload, dict):
@@ -741,8 +255,6 @@ def _resolve_recipe_id(*, parsed_input: Any, parsed_output: Any, fallback_name: 
     stem = Path(fallback_name).stem
     candidate_from_name = re.sub(r"^r\d+_", "", stem).strip()
     return candidate_from_name or None
-
-
 def _render_prompt_text(
     *,
     template_text: str | None,
@@ -757,8 +269,6 @@ def _render_prompt_text(
     rendered = rendered.replace("{{INPUT_PATH}}", str(input_file))
     rendered = rendered.replace("{{ INPUT_PATH }}", str(input_file))
     return rendered
-
-
 def _collect_inserted_context_blocks(parsed_input: Any) -> list[dict[str, Any]]:
     if not isinstance(parsed_input, dict):
         return []
@@ -790,8 +300,6 @@ def _collect_inserted_context_blocks(parsed_input: Any) -> list[dict[str, Any]]:
                 }
             )
     return rows
-
-
 def _telemetry_row_sort_key(row: dict[str, Any]) -> tuple[int, int, str, str]:
     execution_attempt = _coerce_int(row.get("execution_attempt_index"))
     if execution_attempt is None:
@@ -800,8 +308,6 @@ def _telemetry_row_sort_key(row: dict[str, Any]) -> tuple[int, int, str, str]:
     finished_at = str(row.get("finished_at_utc") or row.get("logged_at_utc") or "")
     task_id = str(row.get("task_id") or "")
     return (execution_attempt, lease_claim_index, finished_at, task_id)
-
-
 def _iter_process_run_payloads(
     manifest_payload: dict[str, Any],
 ) -> list[dict[str, Any]]:
@@ -820,8 +326,6 @@ def _iter_process_run_payloads(
         if isinstance(report_process_run, dict):
             rows.append(report_process_run)
     return rows
-
-
 def _resolve_codex_exec_csv_paths(
     manifest_payload: dict[str, Any],
     *,
@@ -847,8 +351,6 @@ def _resolve_codex_exec_csv_paths(
         if candidate.exists() and candidate.is_file():
             rows.append(candidate)
     return rows
-
-
 def _load_codex_exec_rows_for_manifest(
     manifest_payload: dict[str, Any],
     *,
@@ -888,8 +390,6 @@ def _load_codex_exec_rows_for_manifest(
         except OSError:
             continue
     return rows_by_run_and_input, csv_source_by_run_id
-
-
 def _load_run_assets_for_process_run(
     *,
     process_run_payload: dict[str, Any] | None,
@@ -927,8 +427,6 @@ def _load_run_assets_for_process_run(
         "effective_pipeline_payload": effective_pipeline_payload,
         "pipeline_source_payload": pipeline_source_payload,
     }
-
-
 def _collect_prompt_attachments(
     payload: Any,
     *,
@@ -975,8 +473,6 @@ def _collect_prompt_attachments(
 
     _walk(payload)
     return found
-
-
 def _resolve_saved_artifact_path(*, raw_path: str | None, repo_root: Path) -> Path | None:
     cleaned = _clean_text(raw_path)
     if cleaned is None:
@@ -988,545 +484,6 @@ def _resolve_saved_artifact_path(*, raw_path: str | None, repo_root: Path) -> Pa
     if resolved.exists() and resolved.is_file():
         return resolved
     return None
-
-
-def _load_jsonl_events(*, events_path: Path | None) -> list[dict[str, Any]]:
-    if events_path is None or not events_path.exists() or not events_path.is_file():
-        return []
-    rows: list[dict[str, Any]] = []
-    try:
-        for raw_line in events_path.read_text(encoding="utf-8").splitlines():
-            line = raw_line.strip()
-            if not line:
-                continue
-            parsed = _parse_json_text(line)
-            if isinstance(parsed, dict):
-                rows.append(parsed)
-    except OSError:
-        return []
-    return rows
-
-
-def _load_message_text(*, message_path: Path | None) -> str | None:
-    if message_path is None or not message_path.exists() or not message_path.is_file():
-        return None
-    parsed = _parse_json_text(_safe_read_text(message_path))
-    if isinstance(parsed, dict):
-        text = _clean_text(parsed.get("text"))
-        if text is not None:
-            return text
-    raw_text = _safe_read_text(message_path).strip()
-    return raw_text or None
-
-
-def _activity_excerpt(value: Any, *, max_chars: int = 220) -> str | None:
-    if isinstance(value, str):
-        cleaned = " ".join(value.strip().split())
-        if not cleaned:
-            return None
-        if len(cleaned) > max_chars:
-            return cleaned[: max_chars - 3].rstrip() + "..."
-        return cleaned
-    return None
-
-
-def _activity_path_excerpt(value: Any, *, max_parts: int = 4, max_chars: int = 160) -> str | None:
-    if not isinstance(value, str):
-        return None
-    cleaned = value.strip()
-    if not cleaned:
-        return None
-    path_parts = [part for part in Path(cleaned).parts if part not in {"/", "\\"}]
-    if path_parts and len(path_parts) > max_parts:
-        cleaned = ".../" + "/".join(path_parts[-max_parts:])
-    return _activity_excerpt(cleaned, max_chars=max_chars)
-
-
-def _extract_visible_reasoning_text(payload: Mapping[str, Any]) -> str | None:
-    for key in ("summary_text", "summary", "text", "delta", "content"):
-        excerpt = _activity_excerpt(payload.get(key))
-        if excerpt is not None:
-            return excerpt
-    return None
-
-
-def _summarize_activity_entry_lines(
-    entries: Sequence[Mapping[str, Any]],
-    *,
-    max_entries: int = _ACTIVITY_TRACE_SUMMARY_ENTRY_LIMIT,
-) -> list[str]:
-    lines: list[str] = []
-    for entry in entries[:max_entries]:
-        summary = _clean_text(entry.get("summary")) if isinstance(entry, Mapping) else None
-        if summary is not None:
-            lines.append(summary)
-    return lines
-
-
-def _build_activity_trace_from_events(
-    *,
-    events: Sequence[Mapping[str, Any]],
-    last_message_text: str | None,
-) -> dict[str, Any]:
-    entries: list[dict[str, Any]] = []
-    reasoning_events: list[dict[str, Any]] = []
-    action_event_types: list[str] = []
-    reasoning_event_types: list[str] = []
-    seen_action_event_types: set[str] = set()
-    seen_reasoning_event_types: set[str] = set()
-    command_count = 0
-    agent_message_count = 0
-    reasoning_event_count = 0
-    lifecycle_event_count = 0
-
-    def _append_entry(entry: dict[str, Any]) -> None:
-        if len(entries) < _ACTIVITY_TRACE_MAX_ENTRIES:
-            entries.append(entry)
-
-    def _append_visible_item_entry(item: Mapping[str, Any], *, payload_type: str) -> None:
-        item_type = str(item.get("type") or "").strip()
-        if not item_type:
-            return
-        if item_type not in seen_action_event_types:
-            seen_action_event_types.add(item_type)
-            action_event_types.append(item_type)
-        if item_type == "file_change":
-            changes = item.get("changes")
-            normalized_changes = (
-                [change for change in changes if isinstance(change, Mapping)]
-                if isinstance(changes, list)
-                else []
-            )
-            if not normalized_changes:
-                _append_entry(
-                    {
-                        "kind": "file_change",
-                        "event_type": payload_type,
-                        "summary": "Updated files",
-                    }
-                )
-                return
-            verb_map = {
-                "add": "Created",
-                "create": "Created",
-                "delete": "Deleted",
-                "remove": "Deleted",
-                "rename": "Renamed",
-                "update": "Updated",
-            }
-            if len(normalized_changes) == 1:
-                change = normalized_changes[0]
-                raw_kind = _clean_text(change.get("kind")) or "update"
-                summary_verb = verb_map.get(raw_kind, raw_kind.capitalize())
-                path_excerpt = _activity_path_excerpt(change.get("path"))
-                summary = (
-                    f"{summary_verb} `{path_excerpt}`"
-                    if path_excerpt is not None
-                    else f"{summary_verb} file"
-                )
-                _append_entry(
-                    {
-                        "kind": "file_change",
-                        "event_type": payload_type,
-                        "summary": summary,
-                        "changes": [dict(change)],
-                    }
-                )
-                return
-            rendered_changes: list[str] = []
-            for change in normalized_changes[:3]:
-                raw_kind = _clean_text(change.get("kind")) or "update"
-                summary_verb = verb_map.get(raw_kind, raw_kind.capitalize())
-                path_excerpt = _activity_path_excerpt(change.get("path"))
-                if path_excerpt is not None:
-                    rendered_changes.append(f"{summary_verb.lower()} `{path_excerpt}`")
-                else:
-                    rendered_changes.append(summary_verb.lower())
-            if len(normalized_changes) > 3:
-                rendered_changes.append(f"... ({len(normalized_changes) - 3} more)")
-            _append_entry(
-                {
-                    "kind": "file_change",
-                    "event_type": payload_type,
-                    "summary": "File changes: " + ", ".join(rendered_changes),
-                    "changes": [dict(change) for change in normalized_changes],
-                }
-            )
-            return
-
-        descriptor = (
-            _activity_excerpt(item.get("text"))
-            or _activity_excerpt(item.get("summary"))
-            or _activity_excerpt(item.get("delta"))
-            or _activity_excerpt(item.get("content"))
-            or _activity_excerpt(item.get("query"))
-            or _activity_path_excerpt(item.get("path"))
-            or _activity_excerpt(item.get("url"))
-            or _activity_excerpt(item.get("title"))
-        )
-        summary = (
-            f"Completed `{item_type}`: {descriptor}"
-            if descriptor is not None
-            else f"Completed `{item_type}`"
-        )
-        entry: dict[str, Any] = {
-            "kind": "visible_item",
-            "event_type": payload_type,
-            "item_type": item_type,
-            "summary": summary,
-        }
-        path_excerpt = _activity_path_excerpt(item.get("path"))
-        if path_excerpt is not None:
-            entry["path"] = path_excerpt
-        query_excerpt = _activity_excerpt(item.get("query"))
-        if query_excerpt is not None:
-            entry["query"] = query_excerpt
-        _append_entry(entry)
-
-    for event in events:
-        payload_type = str(event.get("type") or "").strip()
-        if not payload_type:
-            continue
-        if payload_type in {"thread.started", "thread.completed", "turn.completed", "turn.failed"}:
-            lifecycle_event_count += 1
-            if payload_type not in seen_action_event_types:
-                seen_action_event_types.add(payload_type)
-                action_event_types.append(payload_type)
-            if payload_type == "thread.started":
-                _append_entry(
-                    {
-                        "kind": "lifecycle",
-                        "event_type": payload_type,
-                        "summary": "Session started",
-                    }
-                )
-            elif payload_type == "turn.completed":
-                _append_entry(
-                    {
-                        "kind": "lifecycle",
-                        "event_type": payload_type,
-                        "summary": "Turn completed",
-                    }
-                )
-            elif payload_type == "turn.failed":
-                error_payload = event.get("error")
-                error_excerpt = None
-                if isinstance(error_payload, Mapping):
-                    error_excerpt = _activity_excerpt(
-                        error_payload.get("message") or error_payload.get("detail")
-                    )
-                elif isinstance(error_payload, str):
-                    error_excerpt = _activity_excerpt(error_payload)
-                summary = (
-                    f"Turn failed: {error_excerpt}"
-                    if error_excerpt is not None
-                    else "Turn failed"
-                )
-                _append_entry(
-                    {
-                        "kind": "lifecycle",
-                        "event_type": payload_type,
-                        "summary": summary,
-                    }
-                )
-            continue
-        if "reasoning_summary" in payload_type or payload_type.startswith("response.reasoning"):
-            reasoning_event_count += 1
-            if payload_type not in seen_reasoning_event_types:
-                seen_reasoning_event_types.add(payload_type)
-                reasoning_event_types.append(payload_type)
-            reasoning_payload = dict(event)
-            reasoning_events.append(reasoning_payload)
-            excerpt = _extract_visible_reasoning_text(reasoning_payload)
-            if excerpt is not None:
-                _append_entry(
-                    {
-                        "kind": "reasoning_summary",
-                        "event_type": payload_type,
-                        "summary": f"Reasoning summary: {excerpt}",
-                    }
-                )
-            continue
-        if payload_type not in {"item.started", "item.completed"}:
-            continue
-        item = event.get("item")
-        if not isinstance(item, Mapping):
-            continue
-        item_type = str(item.get("type") or "").strip()
-        if not item_type:
-            continue
-        if payload_type == "item.completed" and item_type == "command_execution":
-            command_count += 1
-            if item_type not in seen_action_event_types:
-                seen_action_event_types.add(item_type)
-                action_event_types.append(item_type)
-            command_text = _activity_excerpt(item.get("command"), max_chars=260)
-            exit_code = _coerce_int(item.get("exit_code"))
-            if command_text is None:
-                summary = "Ran command"
-            elif exit_code is not None and exit_code != 0:
-                summary = f"Ran `{command_text}` (exit {exit_code})"
-            else:
-                summary = f"Ran `{command_text}`"
-            _append_entry(
-                {
-                    "kind": "command",
-                    "event_type": payload_type,
-                    "summary": summary,
-                    "command": _clean_text(item.get("command")),
-                    "exit_code": exit_code,
-                }
-            )
-            continue
-        if payload_type == "item.completed" and item_type == "agent_message":
-            agent_message_count += 1
-            if item_type not in seen_action_event_types:
-                seen_action_event_types.add(item_type)
-                action_event_types.append(item_type)
-            excerpt = _activity_excerpt(item.get("text"))
-            summary = (
-                f"Agent message: {excerpt}"
-                if excerpt is not None
-                else "Agent message emitted"
-            )
-            _append_entry(
-                {
-                    "kind": "agent_message",
-                    "event_type": payload_type,
-                    "summary": summary,
-                    "excerpt": excerpt,
-                }
-            )
-            continue
-        if payload_type == "item.completed" and item_type == "reasoning":
-            reasoning_event_count += 1
-            if item_type not in seen_reasoning_event_types:
-                seen_reasoning_event_types.add(item_type)
-                reasoning_event_types.append(item_type)
-            reasoning_payload = dict(item)
-            reasoning_payload.setdefault("type", item_type)
-            reasoning_events.append(reasoning_payload)
-            excerpt = _extract_visible_reasoning_text(reasoning_payload)
-            if excerpt is not None:
-                _append_entry(
-                    {
-                        "kind": "reasoning_summary",
-                        "event_type": payload_type,
-                        "summary": f"Reasoning summary: {excerpt}",
-                    }
-                )
-            continue
-        if payload_type == "item.completed":
-            _append_visible_item_entry(item, payload_type=payload_type)
-
-    if agent_message_count <= 0 and last_message_text is not None:
-        agent_message_count = 1
-        excerpt = _activity_excerpt(last_message_text)
-        _append_entry(
-            {
-                "kind": "agent_message",
-                "event_type": "last_message.json",
-                "summary": (
-                    f"Final agent message: {excerpt}"
-                    if excerpt is not None
-                    else "Final agent message captured"
-                ),
-                "excerpt": excerpt,
-            }
-        )
-
-    return {
-        "event_count": len(events),
-        "command_count": command_count,
-        "agent_message_count": agent_message_count,
-        "reasoning_event_count": reasoning_event_count,
-        "lifecycle_event_count": lifecycle_event_count,
-        "action_event_count": command_count + agent_message_count + lifecycle_event_count,
-        "action_event_types": action_event_types,
-        "reasoning_event_types": reasoning_event_types,
-        "reasoning_events": reasoning_events,
-        "entries": entries,
-        "entries_truncated": len(entries) >= _ACTIVITY_TRACE_MAX_ENTRIES,
-    }
-
-
-def _export_prompt_activity_trace(
-    *,
-    row_payload: dict[str, Any],
-    prompts_dir: Path,
-    repo_root: Path,
-) -> dict[str, Any] | None:
-    request_telemetry = (
-        row_payload.get("request_telemetry")
-        if isinstance(row_payload.get("request_telemetry"), dict)
-        else {}
-    )
-    call_id = _clean_text(row_payload.get("call_id")) or "call"
-    stage_key = _clean_text(row_payload.get("stage_key"))
-    events_path = _resolve_saved_artifact_path(
-        raw_path=_clean_text(request_telemetry.get("events_path")),
-        repo_root=repo_root,
-    )
-    last_message_path = _resolve_saved_artifact_path(
-        raw_path=_clean_text(request_telemetry.get("last_message_path")),
-        repo_root=repo_root,
-    )
-    usage_path = _resolve_saved_artifact_path(
-        raw_path=_clean_text(request_telemetry.get("usage_path")),
-        repo_root=repo_root,
-    )
-    live_status_path = _resolve_saved_artifact_path(
-        raw_path=_clean_text(request_telemetry.get("live_status_path")),
-        repo_root=repo_root,
-    )
-    workspace_manifest_path = _resolve_saved_artifact_path(
-        raw_path=_clean_text(request_telemetry.get("workspace_manifest_path")),
-        repo_root=repo_root,
-    )
-    stdout_path = _resolve_saved_artifact_path(
-        raw_path=_clean_text(request_telemetry.get("stdout_path")),
-        repo_root=repo_root,
-    )
-    stderr_path = _resolve_saved_artifact_path(
-        raw_path=_clean_text(request_telemetry.get("stderr_path")),
-        repo_root=repo_root,
-    )
-    events = _load_jsonl_events(events_path=events_path)
-    last_message_text = _load_message_text(message_path=last_message_path)
-    if events:
-        computed = _build_activity_trace_from_events(
-            events=events,
-            last_message_text=last_message_text,
-        )
-    elif last_message_text is not None:
-        computed = _build_activity_trace_from_events(events=(), last_message_text=last_message_text)
-    else:
-        return None
-
-    activity_traces_dir = prompts_dir / ACTIVITY_TRACES_DIR_NAME
-    activity_traces_dir.mkdir(parents=True, exist_ok=True)
-    exported_path = activity_traces_dir / f"{slugify_name(call_id)}.json"
-    payload = {
-        "schema_version": PROMPT_ACTIVITY_TRACE_SCHEMA_VERSION,
-        "path": str(exported_path),
-        "available": True,
-        "call_id": call_id,
-        "run_id": _clean_text(row_payload.get("run_id")),
-        "recipe_id": _clean_text(row_payload.get("recipe_id")),
-        "stage_key": stage_key,
-        "stage_label": _clean_text(row_payload.get("stage_label")),
-        "model": _clean_text(row_payload.get("model"))
-        or _clean_text(request_telemetry.get("model")),
-        "reasoning_effort": _clean_text(request_telemetry.get("reasoning_effort"))
-        or _clean_text((row_payload.get("decoding_params") or {}).get("reasoning_effort"))
-        if isinstance(row_payload.get("decoding_params"), dict)
-        else _clean_text(request_telemetry.get("reasoning_effort")),
-        "task_id": _clean_text(request_telemetry.get("task_id")),
-        "worker_id": _clean_text(row_payload.get("runtime_worker_id"))
-        or _clean_text(request_telemetry.get("worker_id")),
-        "runtime_shard_id": _clean_text(row_payload.get("runtime_shard_id"))
-        or _clean_text(request_telemetry.get("shard_id")),
-        "source_events_path": str(events_path) if events_path is not None else None,
-        "source_last_message_path": (
-            str(last_message_path) if last_message_path is not None else None
-        ),
-        "source_usage_path": str(usage_path) if usage_path is not None else None,
-        "source_live_status_path": (
-            str(live_status_path) if live_status_path is not None else None
-        ),
-        "source_workspace_manifest_path": (
-            str(workspace_manifest_path) if workspace_manifest_path is not None else None
-        ),
-        "source_stdout_path": str(stdout_path) if stdout_path is not None else None,
-        "source_stderr_path": str(stderr_path) if stderr_path is not None else None,
-        **computed,
-    }
-    exported_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return payload
-
-
-def _resolve_prompt_local_activity_trace_path(*, raw_path: str | None, prompts_dir: Path) -> Path | None:
-    cleaned = _clean_text(raw_path)
-    if cleaned is None:
-        return None
-    candidate = Path(cleaned).expanduser()
-    if not candidate.is_absolute():
-        candidate = (prompts_dir / candidate).resolve(strict=False)
-    return candidate.resolve(strict=False)
-
-
-def _load_exported_activity_trace_payload(
-    *,
-    trace_path: Path | None,
-) -> dict[str, Any] | None:
-    if trace_path is None or not trace_path.exists() or not trace_path.is_file():
-        return None
-    parsed = _parse_json_text(_safe_read_text(trace_path))
-    if not isinstance(parsed, dict):
-        return None
-    return dict(parsed)
-
-
-def _effective_activity_trace_payload(
-    *,
-    row: Mapping[str, Any],
-    prompts_dir: Path,
-) -> dict[str, Any]:
-    row_payload = row.get("activity_trace") if isinstance(row.get("activity_trace"), dict) else {}
-    request_telemetry = (
-        row.get("request_telemetry") if isinstance(row.get("request_telemetry"), dict) else {}
-    )
-    raw_path = _clean_text(row_payload.get("path")) or _clean_text(
-        request_telemetry.get("activity_trace_path")
-    )
-    exported_path = _resolve_prompt_local_activity_trace_path(raw_path=raw_path, prompts_dir=prompts_dir)
-    exported_payload = _load_exported_activity_trace_payload(trace_path=exported_path)
-    if isinstance(exported_payload, dict):
-        return exported_payload
-    return dict(row_payload) if isinstance(row_payload, Mapping) else {}
-
-
-def _extract_reasoning_excerpt(
-    reasoning_events: list[dict[str, Any]],
-    *,
-    max_events: int = 3,
-    max_chars: int = 3000,
-) -> str | None:
-    if not reasoning_events:
-        return None
-    snippets: list[str] = []
-    for event in reasoning_events[:max_events]:
-        if not isinstance(event, dict):
-            continue
-        for key in ("summary_text", "summary", "text", "delta", "content"):
-            value = event.get(key)
-            if isinstance(value, str):
-                cleaned = value.strip()
-                if cleaned:
-                    snippets.append(cleaned)
-                    break
-    if snippets:
-        joined = "\n\n".join(snippets)
-        if len(joined) > max_chars:
-            return joined[: max_chars - 3].rstrip() + "..."
-        return joined
-    try:
-        serialized = json.dumps(
-            reasoning_events[:max_events],
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        )
-    except TypeError:
-        return None
-    if len(serialized) > max_chars:
-        return serialized[: max_chars - 3].rstrip() + "..."
-    return serialized
-
-
 def build_codex_farm_prompt_type_samples_markdown(
     *,
     full_prompt_log_path: Path,
@@ -1741,213 +698,6 @@ def build_codex_farm_prompt_type_samples_markdown(
     except OSError:
         return None
     return output_path
-
-
-def build_codex_farm_activity_trace_summaries(
-    *,
-    full_prompt_log_path: Path,
-    output_jsonl_path: Path,
-    output_md_path: Path,
-    examples_per_stage: int = 3,
-) -> tuple[Path | None, Path | None]:
-    rows = _load_prompt_rows(full_prompt_log_path)
-    if not rows:
-        output_jsonl_path.unlink(missing_ok=True)
-        output_md_path.unlink(missing_ok=True)
-        return None, None
-
-    summary_rows: list[dict[str, Any]] = []
-    stage_summary: dict[str, dict[str, Any]] = {}
-    stage_examples: dict[str, list[dict[str, Any]]] = {}
-
-    for row in rows:
-        stage_metadata = _prompt_stage_metadata_from_row(row)
-        stage_key = str(stage_metadata.get("heading_key") or stage_metadata.get("stage_key") or "stage")
-        stage_label = str(stage_metadata.get("label") or "Prompt Stage")
-        activity_trace_payload = _effective_activity_trace_payload(
-            row=row,
-            prompts_dir=full_prompt_log_path.parent,
-        )
-        activity_trace_path = _clean_text(activity_trace_payload.get("path"))
-        activity_trace_exists = bool(
-            activity_trace_path and Path(activity_trace_path).exists()
-        )
-        trace_available = bool(activity_trace_payload.get("available"))
-        command_count = _coerce_int(activity_trace_payload.get("command_count")) or 0
-        agent_message_count = (
-            _coerce_int(activity_trace_payload.get("agent_message_count")) or 0
-        )
-        reasoning_event_count = (
-            _coerce_int(activity_trace_payload.get("reasoning_event_count")) or 0
-        )
-        event_count = _coerce_int(activity_trace_payload.get("event_count")) or 0
-        entries = activity_trace_payload.get("entries")
-        normalized_entries = (
-            [dict(entry) for entry in entries if isinstance(entry, Mapping)]
-            if isinstance(entries, list)
-            else []
-        )
-        entry_excerpt_lines = _summarize_activity_entry_lines(
-            normalized_entries,
-            max_entries=_ACTIVITY_TRACE_SUMMARY_ENTRY_LIMIT,
-        )
-        summary_row = {
-            "schema_version": PROMPT_ACTIVITY_TRACE_SUMMARY_SCHEMA_VERSION,
-            "run_id": row.get("run_id"),
-            "call_id": row.get("call_id"),
-            "recipe_id": row.get("recipe_id"),
-            "stage_key": stage_key,
-            "stage_label": stage_label,
-            "stage_order": stage_metadata.get("stage_order"),
-            "activity_trace_path": activity_trace_path,
-            "activity_trace_exists": activity_trace_exists,
-            "activity_trace_available": trace_available,
-            "process_run_id": row.get("process_run_id"),
-            "event_count": event_count,
-            "command_count": command_count,
-            "agent_message_count": agent_message_count,
-            "reasoning_event_count": reasoning_event_count,
-            "reasoning_event_types": list(
-                activity_trace_payload.get("reasoning_event_types") or []
-            )
-            if isinstance(activity_trace_payload.get("reasoning_event_types"), list)
-            else [],
-            "action_event_count": _coerce_int(activity_trace_payload.get("action_event_count")),
-            "action_event_types": list(
-                activity_trace_payload.get("action_event_types") or []
-            )
-            if isinstance(activity_trace_payload.get("action_event_types"), list)
-            else [],
-            "source_events_path": _clean_text(activity_trace_payload.get("source_events_path")),
-            "entry_excerpt_lines": entry_excerpt_lines,
-        }
-        summary_rows.append(summary_row)
-
-        stage_state = stage_summary.setdefault(
-            stage_key,
-            {
-                "stage_label": stage_label,
-                "stage_order": int(stage_metadata.get("stage_order") or 999),
-                "rows": 0,
-                "activity_trace_present": 0,
-                "activity_trace_exists": 0,
-                "activity_trace_available": 0,
-                "command_rows": 0,
-                "agent_message_rows": 0,
-                "reasoning_event_rows": 0,
-            },
-        )
-        stage_state["rows"] += 1
-        if activity_trace_path is not None:
-            stage_state["activity_trace_present"] += 1
-        if activity_trace_exists:
-            stage_state["activity_trace_exists"] += 1
-        if trace_available:
-            stage_state["activity_trace_available"] += 1
-        if command_count > 0:
-            stage_state["command_rows"] += 1
-        if agent_message_count > 0:
-            stage_state["agent_message_rows"] += 1
-        if reasoning_event_count and reasoning_event_count > 0:
-            stage_state["reasoning_event_rows"] += 1
-
-        stage_examples.setdefault(stage_key, [])
-        if len(stage_examples[stage_key]) < examples_per_stage:
-            stage_examples[stage_key].append(summary_row)
-
-    output_jsonl_path.write_text(
-        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in summary_rows),
-        encoding="utf-8",
-    )
-
-    total_rows = len(summary_rows)
-    total_activity_trace_present = sum(
-        int(stage["activity_trace_present"]) for stage in stage_summary.values()
-    )
-    total_activity_trace_exists = sum(
-        int(stage["activity_trace_exists"]) for stage in stage_summary.values()
-    )
-    total_activity_trace_available = sum(
-        int(stage["activity_trace_available"]) for stage in stage_summary.values()
-    )
-    total_command_rows = sum(int(stage["command_rows"]) for stage in stage_summary.values())
-    total_agent_message_rows = sum(
-        int(stage["agent_message_rows"]) for stage in stage_summary.values()
-    )
-    total_reasoning_event_rows = sum(
-        int(stage["reasoning_event_rows"]) for stage in stage_summary.values()
-    )
-    generated_timestamp = dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
-    lines: list[str] = [
-        "# Codex Exec Activity Trace Summary",
-        "",
-        f"Generated: {generated_timestamp}",
-        "Source:",
-        f"- {full_prompt_log_path}",
-        "",
-        "Overall:",
-        f"- total_rows: `{total_rows}`",
-        f"- rows_with_activity_trace: `{total_activity_trace_present}`",
-        f"- rows_with_existing_activity_trace_file: `{total_activity_trace_exists}`",
-        f"- rows_with_available_activity_trace_payload: `{total_activity_trace_available}`",
-        f"- rows_with_commands: `{total_command_rows}`",
-        f"- rows_with_agent_messages: `{total_agent_message_rows}`",
-        f"- rows_with_reasoning_events: `{total_reasoning_event_rows}`",
-        "",
-    ]
-    for stage_key, stage_state in sorted(
-        stage_summary.items(),
-        key=lambda item: (
-            int(item[1].get("stage_order") or 999),
-            item[0],
-        ),
-    ):
-        lines.extend(
-            [
-                f"## {stage_key} ({stage_state['stage_label']})",
-                "",
-                f"- rows: `{stage_state['rows']}`",
-                f"- rows_with_activity_trace: `{stage_state['activity_trace_present']}`",
-                f"- rows_with_existing_activity_trace_file: `{stage_state['activity_trace_exists']}`",
-                f"- rows_with_available_activity_trace_payload: `{stage_state['activity_trace_available']}`",
-                f"- rows_with_commands: `{stage_state['command_rows']}`",
-                f"- rows_with_agent_messages: `{stage_state['agent_message_rows']}`",
-                f"- rows_with_reasoning_events: `{stage_state['reasoning_event_rows']}`",
-                "",
-                "### Sample Rows",
-                "",
-            ]
-        )
-        examples = stage_examples.get(stage_key, [])
-        if not examples:
-            lines.append("_No rows captured for this stage._")
-            lines.append("")
-            continue
-        for example in examples:
-            lines.append(f"- call_id: `{example.get('call_id') or '<unknown>'}`")
-            lines.append(f"  recipe_id: `{example.get('recipe_id') or '<unknown>'}`")
-            lines.append(
-                f"  activity_trace_exists: `{example.get('activity_trace_exists')}`"
-            )
-            lines.append(f"  command_count: `{example.get('command_count')}`")
-            lines.append(
-                f"  agent_message_count: `{example.get('agent_message_count')}`"
-            )
-            lines.append(
-                f"  reasoning_event_count: `{example.get('reasoning_event_count')}`"
-            )
-            activity_trace_path = _clean_text(example.get("activity_trace_path"))
-            if activity_trace_path is not None:
-                lines.append(f"  activity_trace_path: `{activity_trace_path}`")
-            excerpt_lines = example.get("entry_excerpt_lines")
-            if isinstance(excerpt_lines, list) and excerpt_lines:
-                lines.append("  sample_entries:")
-                for excerpt_line in excerpt_lines:
-                    lines.append(f"  - {excerpt_line}")
-            lines.append("")
-
-    output_md_path.write_text("\n".join(lines), encoding="utf-8")
-    return output_jsonl_path, output_md_path
 def _parse_prompt_index_from_name(name: str) -> int | None:
     match = re.search(r"(\d+)", str(name or ""))
     if match is None:
@@ -1956,8 +706,6 @@ def _parse_prompt_index_from_name(name: str) -> int | None:
         return int(match.group(1))
     except ValueError:
         return None
-
-
 def _load_prompt_rows(path: Path) -> list[dict[str, Any]]:
     if not path.exists() or not path.is_file():
         return []
@@ -1973,8 +721,6 @@ def _load_prompt_rows(path: Path) -> list[dict[str, Any]]:
         if isinstance(payload, dict):
             rows.append(payload)
     return rows
-
-
 def _load_json_sequence(path: Path) -> list[dict[str, Any]]:
     if not path.exists() or not path.is_file():
         return []
@@ -1985,8 +731,6 @@ def _load_json_sequence(path: Path) -> list[dict[str, Any]]:
     if not isinstance(payload, list):
         return []
     return [row for row in payload if isinstance(row, dict)]
-
-
 def _load_phase_runtime_index(stage_root: Path) -> dict[str, Any]:
     phase_manifest = _load_json_dict(stage_root / "phase_manifest.json") or {}
     if not phase_manifest:
@@ -2056,8 +800,6 @@ def _load_phase_runtime_index(stage_root: Path) -> dict[str, Any]:
         "shard_by_prompt_index": shard_by_prompt_index,
         "telemetry_by_shard_id": telemetry_by_shard_id,
     }
-
-
 def _resolve_runtime_context(
     *,
     runtime_index: Mapping[str, Any] | None,
@@ -2089,16 +831,12 @@ def _resolve_runtime_context(
             else None
         ),
     }
-
-
 def _prompt_row_sort_key(row: dict[str, Any]) -> tuple[int, str, str]:
     return (
         _coerce_int(row.get("stage_order")) or 999,
         str(row.get("stage_key") or ""),
         str(row.get("call_id") or ""),
     )
-
-
 def _upsert_text_section(
     *,
     path: Path,
@@ -2133,8 +871,6 @@ def _upsert_text_section(
         updated += "\n\n"
     updated += section_text
     path.write_text(updated.rstrip() + "\n", encoding="utf-8")
-
-
 def _resolve_stage_run_root_for_prompt_exports(*, pred_run: Path) -> Path | None:
     candidate = pred_run.resolve(strict=False)
     if candidate.is_dir() and (
@@ -2162,16 +898,12 @@ def _resolve_stage_run_root_for_prompt_exports(*, pred_run: Path) -> Path | None
             return resolved
 
     return None
-
-
 def _copy_prompt_artifact_file(*, source: Path, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
         shutil.copy2(source, target)
     except Exception:  # noqa: BLE001
         target.write_text(_safe_read_text(source), encoding="utf-8")
-
-
 def _build_line_role_prompt_rows(
     *,
     pred_run: Path,
@@ -2563,8 +1295,6 @@ def _build_line_role_prompt_rows(
     category_path = prompts_dir / "prompt_line_role.txt"
     category_path.write_text("\n".join(detail_lines).rstrip() + "\n", encoding="utf-8")
     return rows, str(category_path)
-
-
 def _append_line_role_prompt_artifacts(
     *,
     pred_run: Path,
@@ -2673,8 +1403,6 @@ def _append_line_role_prompt_artifacts(
         examples_per_pass=3,
     )
     return prompt_response_log_path
-
-
 def render_prompt_artifacts_from_descriptors(
     *,
     pred_run: Path,
@@ -3265,8 +1993,6 @@ def render_prompt_artifacts_from_descriptors(
         )
 
     return prompt_response_log_path
-
-
 def build_codex_farm_prompt_response_log(
     *,
     pred_run: Path,
@@ -3281,8 +2007,6 @@ def build_codex_farm_prompt_response_log(
         run_descriptors=run_descriptors,
         discoverers=(discover_codex_exec_prompt_run_descriptors,),
     )
-
-
 def build_prompt_response_log(
     *,
     pred_run: Path,
@@ -3335,31 +2059,3 @@ def build_prompt_response_log(
         activity_trace_summary_jsonl_path.unlink(missing_ok=True)
         activity_trace_summary_md_path.unlink(missing_ok=True)
     return prompt_log_path or line_role_prompt_log_path
-
-
-__all__ = [
-    "ACTIVITY_TRACES_DIR_NAME",
-    "ACTIVITY_TRACE_SUMMARY_JSONL_NAME",
-    "ACTIVITY_TRACE_SUMMARY_MD_NAME",
-    "PROMPT_CALL_RECORD_SCHEMA_VERSION",
-    "PROMPT_ACTIVITY_TRACE_SCHEMA_VERSION",
-    "PROMPT_ACTIVITY_TRACE_SUMMARY_SCHEMA_VERSION",
-    "PROMPT_LOG_SUMMARY_JSON_NAME",
-    "PROMPT_LOG_SUMMARY_SCHEMA_VERSION",
-    "PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION",
-    "PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION",
-    "PROMPT_TYPE_SAMPLES_MD_NAME",
-    "build_codex_farm_activity_trace_summaries",
-    "PromptCallRecord",
-    "PromptRunDescriptorDiscoverer",
-    "PromptRunDescriptor",
-    "PromptStageDescriptor",
-    "build_codex_farm_prompt_response_log",
-    "build_prompt_response_log",
-    "build_codex_farm_prompt_type_samples_markdown",
-    "discover_prompt_run_descriptors",
-    "discover_codex_exec_prompt_run_descriptors",
-    "render_prompt_artifacts_from_descriptors",
-    "summarize_prompt_log",
-    "write_prompt_log_summary",
-]
