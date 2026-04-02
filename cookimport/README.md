@@ -8,9 +8,9 @@ CLI entrypoints live in
 helpers live in `cookimport/staging/`.
 CLI entrypoints include `cookimport` plus the short alias `C3imp` for interactive
 runs. `C3imp 30` preserves the interactive flow while limiting output to the first
-30 recipes. Batch aliases `import` and `C3import` still run a full import
-from `data/input` to `data/output`. `cookimport stage --limit 30` also works in
-batch mode.
+30 recipes. For non-interactive batch runs, use `cookimport stage`; for example,
+`cookimport stage --limit 30` processes the first 30 recipes from `data/input`
+to `data/output`.
 
 RecipeCandidate supports optional schema.org Recipe fields like `image`,
 `recipeCategory`, `datePublished`, `creditText`, `isBasedOn`, `comment`, and

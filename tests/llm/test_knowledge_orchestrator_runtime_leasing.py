@@ -222,7 +222,7 @@ def test_knowledge_orchestrator_retries_one_fresh_session_after_preserved_progre
     )
 
 
-def test_knowledge_orchestrator_structured_resume_style_reuses_session(
+def test_knowledge_orchestrator_inline_json_style_reuses_session(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -232,7 +232,7 @@ def test_knowledge_orchestrator_structured_resume_style_reuses_session(
         pack_root=pack_root,
         worker_count=1,
         knowledge_prompt_target_count=2,
-    ).model_copy(update={"codex_exec_style": "structured-resume-v1"})
+    ).model_copy(update={"codex_exec_style": "inline-json-v1"})
     runner = FakeCodexExecRunner(
         output_builder=lambda payload: build_structural_pipeline_output(
             "recipe.knowledge.packet.v1",

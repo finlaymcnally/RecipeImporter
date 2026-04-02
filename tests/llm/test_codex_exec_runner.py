@@ -939,7 +939,7 @@ def test_build_codex_exec_command_builds_resume_last_variant(tmp_path: Path) -> 
     assert command[-1] == "-"
 
 
-def test_fake_codex_exec_runner_records_structured_resume_call(tmp_path: Path) -> None:
+def test_fake_codex_exec_runner_records_inline_json_call(tmp_path: Path) -> None:
     runner = FakeCodexExecRunner(output_builder=lambda _payload: {"rows": []})
     execution_dir = tmp_path / "execution-session"
     execution_dir.mkdir(parents=True, exist_ok=True)

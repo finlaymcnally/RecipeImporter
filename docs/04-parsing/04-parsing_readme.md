@@ -171,7 +171,7 @@ Label-first recipe-span note:
 ### Chunk/highlight path
 
 1. Importers publish canonical `source_blocks` plus optional non-authoritative `source_support`; they do not own outside-recipe truth.
-2. The shared stage session builds authoritative outside-recipe ownership from that source model and writes the final non-recipe route/finalize rows back into `ConversionResult.non_recipe_blocks`.
+2. The shared stage session builds authoritative outside-recipe ownership from that source model and keeps the final non-recipe rows on the stage runtime objects (`NonrecipeFinalizeResult.authoritative_nonrecipe_blocks` and `late_output_nonrecipe_blocks`).
 3. When non-recipe finalize is off, stage and processed-ingest paths may still compute deterministic chunks from final non-recipe rows as optional fallback/debug artifacts.
 4. When non-recipe finalize is on, the live knowledge LLM path does not consume or regenerate those parser chunks. `cookimport/llm/codex_farm_knowledge_jobs.py` plans ordered candidate packets directly from candidate outside-recipe block rows and leaves semantic grouping to the model.
 5. Highlight extraction inside `chunks.py` still reuses the internal advice extractor from `parsing/tips.py`, but those candidates are local deterministic chunk metadata rather than the final knowledge-group authority surface.

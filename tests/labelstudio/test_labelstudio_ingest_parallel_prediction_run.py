@@ -100,7 +100,6 @@ def test_generate_pred_run_artifacts_stops_prelabel_after_rate_limit_429(
         sourceBlocks=[
             {"blockId": "b0", "orderIndex": 0, "text": "hello"},
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -222,7 +221,6 @@ def test_generate_pred_run_artifacts_ignores_progress_callback_errors(
         sourceBlocks=[
             {"blockId": "b0", "orderIndex": 0, "text": "hello"},
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -310,7 +308,6 @@ def test_generate_pred_run_artifacts_can_skip_tasks_jsonl(
         sourceBlocks=[
             {"blockId": "b0", "orderIndex": 0, "text": "hello"},
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -1123,7 +1120,6 @@ def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_def
         sourceBlocks=[
             {"blockId": "b0", "orderIndex": 0, "text": "Example line"},
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -1265,7 +1261,6 @@ def test_generate_pred_run_artifacts_writes_authoritative_line_role_artifacts_af
             {"blockId": "b1", "orderIndex": 1, "text": "1 slice bread"},
             {"blockId": "b2", "orderIndex": 2, "text": "Toast the bread."},
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -1524,7 +1519,6 @@ def test_prepare_extracted_archive_matches_legacy_payload(tmp_path: Path) -> Non
             {"blockId": "b0", "orderIndex": 0, "text": "First block", "location": {"page": 1}},
             {"blockId": "b1", "orderIndex": 1, "text": "Second block", "location": {"page": 1}},
         ],
-        non_recipe_blocks=[],
         raw_artifacts=raw_artifacts,
         report=ConversionReport(),
         workbook=source.stem,
@@ -1570,7 +1564,6 @@ def test_generate_pred_run_artifacts_markdown_toggle_keeps_stage_predictions_ide
         sourceBlocks=[
             {"blockId": "b0", "orderIndex": 0, "text": "Recipe"},
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[
             RawArtifact(
                 importer="epub",
@@ -1674,7 +1667,6 @@ def test_generate_pred_run_artifacts_freeform_focus_and_target_manifest_fields(
             {"blockId": "b7", "orderIndex": 7, "text": "block 7"},
             {"blockId": "b8", "orderIndex": 8, "text": "block 8"},
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -1774,7 +1766,6 @@ def test_generate_pred_run_artifacts_freeform_focus_floor_adjusts_overlap_withou
             {"blockId": "b7", "orderIndex": 7, "text": "block 7"},
             {"blockId": "b8", "orderIndex": 8, "text": "block 8"},
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
         workbook="book",

@@ -134,7 +134,7 @@ Per workbook (slugified file stem):
 - `run_summary.json` at run root (machine-readable per-run digest: books, major settings, codex-farm mode, topline metrics)
 - `run_summary.md` at run root (human-readable quick digest; written only when `stage --write-markdown` is enabled)
 - `run_manifest.json` at run root (source identity + artifact index for this stage run)
-- prediction-run helpers should keep shared manifest knobs aligned with `stage` defaults unless a caller overrides them explicitly. In particular, the pred-run path now inherits the same default `codex_farm_knowledge_context_blocks=2` value so stage/pred manifest parity stays stable.
+- prediction-run helpers should keep shared manifest knobs aligned with `stage` defaults unless a caller overrides them explicitly. In particular, the pred-run path now inherits the same default `codex_farm_knowledge_context_blocks=0` value so stage/pred manifest parity stays stable.
 
 Label-first metadata note:
 
@@ -189,8 +189,8 @@ Stage-block `KNOWLEDGE` label contract:
 - `08_nonrecipe_exclusions.jsonl` is the row-level explanation ledger for the upstream obvious-junk veto. When knowledge input looks too large or a row seems to have disappeared before review, inspect this file before changing scorer math or knowledge prompts.
 - Optional knowledge groups are reviewer-facing context; Codex `block_decisions` are what refine final `KNOWLEDGE` versus `OTHER`, and the promoted group artifact records how the model grouped those kept blocks.
 - Candidate rows that remain unresolved now stay explicit in benchmark/Label Studio metadata as `unresolved_candidate_*`; semantic scoring excludes them instead of flattening them into `OTHER`.
-- `ConversionResult.non_recipe_blocks` mirrors strict final outside-recipe authority only.
-- Table extraction and deterministic knowledge-off chunk generation use a separate late-output block list. When non-recipe finalize runs and produces reviewed authority, that late-output list is the authoritative outside-recipe rows; when non-recipe finalize is off or falls back, it is the surviving outside-recipe candidate queue.
+- `NonrecipeFinalizeResult.authoritative_nonrecipe_blocks` is the strict final outside-recipe authority carried through the stage runtime.
+- Table extraction and deterministic knowledge-off chunk generation use `NonrecipeFinalizeResult.late_output_nonrecipe_blocks`. When non-recipe finalize runs and produces reviewed authority, that late-output list is the authoritative outside-recipe rows; when non-recipe finalize is off or falls back, it is the surviving outside-recipe candidate queue.
 - Final semantic `KNOWLEDGE` evidence still comes only from `09_nonrecipe_authority.json`.
 
 Stage-block label resolution contract:

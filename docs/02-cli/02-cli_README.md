@@ -28,8 +28,6 @@ Current package note:
 
 - `cookimport` -> `cookimport.cli:app`
 - `cf-debug` -> `cookimport.cf_debug_cli:app`
-- `import` -> `cookimport.entrypoint:main`
-- `C3import` -> `cookimport.entrypoint:main`
 - `C3imp` -> `cookimport.c3imp_entrypoint:main`
 
 Remember to do source .venv/bin/activate
@@ -43,12 +41,8 @@ Behavior differences:
   - lower-level commands (`select-cases`, `export-cases`, `audit-line-role`, `audit-prompt-links`, `audit-knowledge`, `export-page-context`, `export-uncertainty`, `pack`, `ablate`) remain available when you want manual control.
   - `preview-prompts`: rebuild zero-token recipe/knowledge/line-role prompt previews from an existing deterministic/`vanilla` processed run or benchmark root so you can estimate likely cost before spending tokens.
   - `actual-costs`: resolve the finished-run postmortem cost artifact (`prompt_budget_summary.json`) from a completed run or benchmark root.
-  - `preview-shard-sweep`: run several local worker/shard preview variants from one existing run root and compare them side by side.
+  - `preview-shard-sweep`: run several local worker/shard preview variants from one existing run root and compare them side by side. A tiny starter experiment file lives at `docs/examples/shard_sweep_examples.json`.
   - knowledge follow-up uses a dedicated run-level path rather than the line-role prompt audit: `select-cases` now accepts `--include-knowledge-source-key` or `--include-knowledge-output-subdir`, and `audit-knowledge` / `pack` / `build-followup` can emit `knowledge_audit.jsonl` plus knowledge artifact references.
-- `import` / `C3import`:
-  - no args: runs `stage(path=data/input)` immediately (non-interactive)
-  - one positive integer arg: treated as `--limit` and runs `stage(path=data/input, limit=N)`
-  - anything else: falls back to normal Typer command parsing (`app()`)
 - `C3imp`:
   - one positive integer arg: sets `C3IMP_LIMIT=N`, clears args, then enters interactive mode
   - otherwise: falls back to normal Typer command parsing (`app()`)
@@ -196,6 +190,8 @@ Interactive `Import` and benchmark runs (`single_book` + matched-books) ask:
 - when any codex-backed surface is selected, chooser then asks:
   - `Codex Exec model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models only; no repo-invented fallback model id)
   - `Codex Exec reasoning effort override` (`Pipeline default` plus the selected discovered model's supported efforts when metadata is available)
+  - `Codex Exec style for this run` when block labelling or non-recipe finalize is enabled:
+    `Taskfile workers` keeps `taskfile-v1`, while `Inline JSON` sets `codex_exec_style=inline-json-v1` for those two surfaces only
 
 Resolved profile families:
 - `Codex Exec automatic top-tier`:
@@ -306,10 +302,9 @@ What each setting affects:
 
 Developer note:
 - Per-run setting definitions live in `cookimport/config/run_settings.py`. Interactive top-tier chooser logic lives in `cookimport/cli_ui/run_settings_flow.py`; keep import and benchmark aligned there.
-- `stage(...)` is called both by Typer CLI dispatch and direct Python callers (interactive helpers/entrypoints/tests); it must coerce any Typer `OptionInfo` default objects back to plain values before normalization/building run settings.
+- `stage(...)` is called both by Typer CLI dispatch and direct Python callers (interactive helpers/tests); it must coerce any Typer `OptionInfo` default objects back to plain values before normalization/building run settings.
 - `stats_dashboard(...)` is also called directly from interactive helpers; it must coerce Typer `OptionInfo` defaults (`--serve/--host/--port` and related flags) before branching into serve mode.
 - Interactive import should pass the full selected run-settings surface into `stage(...)` (including knowledge toggles, pipeline IDs, and related context settings), not a partial subset.
-- `import` / `C3import` entrypoint shims should forward the expanded stage run-settings arguments so persisted settings can affect direct-entrypoint runs.
 
 ### [D] Import Flow
 
@@ -522,7 +517,7 @@ Top-level command groups:
 - `cookimport benchmark-csv-backfill`
 - `cookimport stats-dashboard`
 - `cookimport compare-control <run|agent|discovery-preferences|dashboard-state>`
-- `cookimport bench <oracle-upload|speed-discover|speed-run|speed-compare|gc|pin|unpin|quality-discover|quality-run|quality-lightweight-series|quality-leaderboard|quality-compare|eval-stage>`
+- `cookimport bench <oracle-upload|oracle-followup|speed-discover|speed-run|speed-compare|gc|pin|unpin|quality-discover|quality-run|quality-lightweight-series|quality-leaderboard|quality-compare|eval-stage>`
 
 `cookimport bench oracle-upload <session root or upload_bundle_v1>` reuses an existing benchmark bundle without rerunning the benchmark. It now launches both Oracle review lanes by default and accepts `--profile quality|token|all` for replay control. `--mode dry-run` is the low-cost validation path; when the payload file is too large for Oracle's inline dry-run, the command falls back to a local preview and tells you to use browser mode for the real upload.
 `cookimport bench quality-lightweight-series` still exists only as a disabled shim and exits immediately; use `bench quality-run` and `bench quality-compare` instead.
@@ -571,6 +566,7 @@ Options:
 - `--mapping PATH`: explicit mapping config path.
 - `--overrides PATH`: explicit parsing overrides path.
 - `--limit, -n INTEGER>=1`: limit recipes per file.
+- `--pdf-ocr-policy TEXT` (default `auto`): `off|auto|always` OCR policy for PDFs.
 - `--ocr-device TEXT` (default `auto`): `auto|cpu|cuda|mps`.
 - `--ocr-batch-size INTEGER>=1` (default `1`): pages per OCR model call.
 - `--pdf-pages-per-job INTEGER>=1` (default `50`): page shard size for PDF splitting.
@@ -611,7 +607,7 @@ Options:
 - `--codex-farm-root PATH` (default unset): optional codex-farm pipeline-pack root; defaults to `<repo_root>/llm_pipelines`.
 - `--codex-farm-workspace-root PATH` (default unset): optional workspace root passed to codex-farm (`--workspace-root`).
 - `--codex-farm-context-blocks INTEGER>=0` (default `30`): context blocks before/after candidate for recipe-correction bundles.
-- `--codex-farm-knowledge-context-blocks INTEGER>=0` (default `2`): context blocks before/after each knowledge chunk for knowledge bundles.
+- `--codex-farm-knowledge-context-blocks INTEGER>=0` (default `0`): context blocks before/after each knowledge chunk for knowledge bundles.
 - `--codex-farm-failure-mode TEXT` (default `fail`): `fail|fallback` behavior when codex-farm setup/invocation fails.
 - Internal-only note: stage still accepts hidden codex-farm pipeline-id/debug overrides for experiments and old payload replay, but they are no longer advertised in `--help`.
 - `markitdown` note: EPUB split jobs are disabled for this extractor because conversion is whole-book EPUB -> markdown (no spine-range mode).

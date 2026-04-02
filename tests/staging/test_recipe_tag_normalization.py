@@ -29,7 +29,6 @@ def test_normalize_conversion_result_recipe_tags_dedupes_recipe_and_reports_vari
                 tags=["gluten free", "Gluten-Free"],
             ),
         ],
-        nonRecipeBlocks=[],
         rawArtifacts=[],
         report=ConversionReport(),
         workbook="book",

@@ -9,7 +9,7 @@ read_when:
 
 # LLM Section Reference
 
-LLM usage in this repo is optional. The direct-exec transport is now mixed by both attempt type and configured Codex style. Recipe refine stays on the assignment-first `taskfile` contract. For `line_role` and nonrecipe finalize, `codex_exec_style=taskfile-v1` keeps the current assignment-first `task.json` contract, while `codex_exec_style=structured-resume-v1` switches those stages to inline packet prompts plus `codex exec resume --last` follow-up turns for repair/grouping. Deterministic repo code still owns validation, repair rewrites, grounding gates, and final artifact expansion.
+LLM usage in this repo is optional. The direct-exec transport is now mixed by both attempt type and configured Codex style. Recipe refine stays on the assignment-first `taskfile` contract. For `line_role` and nonrecipe finalize, `codex_exec_style=taskfile-v1` keeps the current assignment-first `task.json` contract, while `codex_exec_style=inline-json-v1` switches those stages to inline JSON prompts plus `codex exec resume --last` follow-up turns for repair/grouping. Deterministic repo code still owns validation, repair rewrites, grounding gates, and final artifact expansion.
 
 The worker-visible self-help surface is now intentionally split. Direct-batch task files (`line_role`, `nonrecipe_classify`, `knowledge_group`) are multiline, semantically ordered, advertise the editable surface through `answer_schema.editable_pointer_pattern`, and omit worker-facing `helper_commands`, `workflow`, `next_action`, and `editable_json_pointers`. For those stages the prompt should treat `task.json` as the whole job; `task-status` and `task-doctor` are optional troubleshooting helpers, and ordinary local reads of `task.json` plus `AGENTS.md` are allowed. Recipe refine still keeps explicit helper metadata in `task.json` because its live contract remains helper-driven.
 
@@ -34,14 +34,13 @@ Settings and command boundary:
 - `cookimport/config/codex_decision.py`
 - `cookimport/cli.py`
 - `cookimport/cli_ui/run_settings_flow.py`
-- interactive `codex-exec` selection now has a second menu after surface toggles when line-role or knowledge are enabled: `Taskfile workers` (`taskfile-v1`) versus `Structured resume` (`structured-resume-v1`). Recipe correction stays on the taskfile contract.
+- interactive `codex-exec` selection now has a second menu after surface toggles when line-role or knowledge are enabled: `Taskfile workers` (`taskfile-v1`) versus `Inline JSON` (`inline-json-v1`). Recipe correction stays on the taskfile contract.
 
 Primary entrypoints:
 
 - `cookimport/staging/import_session.py` for stage/import runs
 - `cookimport/staging/pipeline_runtime.py` for the stage-owned `recipe-refine` and `nonrecipe-finalize` wrappers that call the recipe and knowledge Codex surfaces from the five-stage runtime
 - `cookimport/labelstudio/ingest_flows/prediction_run.py` and `cookimport/labelstudio/ingest_flows/upload.py` for prediction-run and Label Studio benchmark/import flows
-- `cookimport/entrypoint.py` for saved-settings import passthrough
 
 Shared shard-runtime foundation:
 
@@ -334,7 +333,7 @@ Prompt/debug artifacts:
 - retrospective “what did this completed run actually cost?” reporting lives in the finished-run `prompt_budget_summary.json` / `actual_costs_json` artifact, not in prompt preview
 - when `--run` points at a benchmark root, preview follows `run_manifest.json.artifacts.{processed_output_run_dir,stage_run_dir}` until it reaches the processed stage run with the real staged outputs
 - preview manifests now carry `phase_plans` keyed by stage, with worker count, shard count, owned-ID distributions, and first-turn payload distributions; prompt rows also carry `runtime_shard_id`, `runtime_worker_id`, and `runtime_owned_ids`
-- `cf-debug preview-shard-sweep --run ... --experiment-file docs/examples/shard_sweep_examples.json --out ...` runs several local worker/shard planning variants and writes one sweep manifest plus per-experiment preview dirs
+- `cf-debug preview-shard-sweep --run ... --experiment-file docs/02-cli/shard_sweep_examples.json --out ...` runs several local worker/shard planning variants and writes one sweep manifest plus per-experiment preview dirs
 - preview export now always rebuilds recipe and knowledge shard payloads from the predictive-safe processed artifact itself; it does not depend on saved live payload copies under `raw/llm/<workbook_slug>/recipe_phase_runtime/inputs/` or `raw/llm/<workbook_slug>/nonrecipe_finalize/in/`
 - preview export also writes `prompt_preview_budget_summary.json` and `prompt_preview_budget_summary.md`; it is predictive-only, prefers the paired deterministic/`vanilla` processed artifact when a benchmark root has both variants, uses structural prompt/output reconstruction for token estimates, reports stages as unavailable when that structure cannot be reconstructed safely, and hard-refuses Codex-backed or ambiguous processed runs
 - when preview rebuilds knowledge planning from older deterministic artifacts, stale recipe-local labels that survived outside recipe spans are treated as preview-only excluded `other` rows so old vanilla runs still produce a forward-looking estimate instead of crashing

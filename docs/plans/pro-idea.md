@@ -1,7 +1,7 @@
 ---
 summary: "Early design spec for structured packet plus JSON output worker transport."
 read_when:
-  - When tracing pre-ExecPlan rationale for structured resume transport
+  - When tracing pre-ExecPlan rationale for the inline-JSON transport
 ---
 
 This spec preserves the same core intent as your direct-batch plan: read the full assignment once, make all decisions in one pass, keep deterministic validation authoritative, remove bad helper affordances, and repair inside the same oriented run rather than restarting cold. The main difference is only the transport: immutable packet in, tiny structured JSON out.

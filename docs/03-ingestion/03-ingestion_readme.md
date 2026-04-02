@@ -163,7 +163,7 @@ Raw collision rule:
 5. `nonrecipe-finalize`
 - if `llm_knowledge_pipeline=off`, final non-recipe authority stays deterministic and chunks are generated from the late-output non-recipe block set
 - if `llm_knowledge_pipeline` is enabled, Codex non-recipe finalize owns the final knowledge grouping path and chunk writing is skipped
-- `ConversionResult.non_recipe_blocks` keeps only strict final non-recipe authority
+- strict final non-recipe authority lives on `NonrecipeFinalizeResult.authoritative_nonrecipe_blocks`
 
 After those stages, the session writes:
 - source-model artifacts

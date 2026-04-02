@@ -37,6 +37,20 @@ def test_resolve_oracle_benchmark_bundle_rejects_missing_files(tmp_path: Path) -
         oracle_upload.resolve_oracle_benchmark_bundle(session_root)
 
 
+def test_resolve_oracle_benchmark_bundle_rejects_legacy_top_level_bundle_files(
+    tmp_path: Path,
+) -> None:
+    session_root = tmp_path / "single-book-benchmark"
+    bundle_dir = session_root / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    (bundle_dir / "upload_bundle_overview.md").write_text("overview\n", encoding="utf-8")
+    (bundle_dir / "upload_bundle_index.json").write_text("{}", encoding="utf-8")
+    (bundle_dir / "upload_bundle_payload.jsonl").write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="missing"):
+        oracle_upload.resolve_oracle_benchmark_bundle(session_root)
+
+
 def test_build_oracle_benchmark_prompt_describes_synthetic_attachment_transport(
     tmp_path: Path,
 ) -> None:

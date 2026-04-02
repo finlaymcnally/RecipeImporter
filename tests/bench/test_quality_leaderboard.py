@@ -255,7 +255,6 @@ def test_quality_leaderboard_winner_settings_prefers_prediction_run_config(
                     "id": experiment_id,
                     "run_settings": {
                         "epub_extractor": "beautifulsoup",
-                        "instruction_step_segmentation_policy": "off",
                         "workers": 10,
                         "pdf_split_workers": 10,
                         "epub_split_workers": 10,
@@ -313,7 +312,6 @@ def test_quality_leaderboard_winner_settings_prefers_prediction_run_config(
                     "epub_extractor": "unstructured",
                     "epub_unstructured_html_parser_version": "v2",
                     "epub_unstructured_preprocess_mode": "br_split_v1",
-                    "instruction_step_segmentation_policy": "auto",
                     "llm_recipe_pipeline": "off",
                 },
             }
@@ -331,7 +329,6 @@ def test_quality_leaderboard_winner_settings_prefers_prediction_run_config(
     assert winner_settings.get("epub_extractor") == "unstructured"
     assert winner_settings.get("epub_unstructured_html_parser_version") == "v2"
     assert winner_settings.get("epub_unstructured_preprocess_mode") == "br_split_v1"
-    assert winner_settings.get("instruction_step_segmentation_policy") == "auto"
     assert winner_settings.get("workers") == 10
     assert winner_settings.get("pdf_split_workers") == 10
     assert winner_settings.get("epub_split_workers") == 10

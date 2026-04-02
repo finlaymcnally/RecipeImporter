@@ -24,7 +24,6 @@ def _build_lines_only_conversion_result(source_path: Path) -> ConversionResult:
                 provenance={"location": {"start_block": 1, "end_block": 3}},
             )
         ],
-        nonRecipeBlocks=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -48,6 +47,68 @@ def _build_lines_only_conversion_result(source_path: Path) -> ConversionResult:
     )
 
 
+def _build_recipe_output(payload: dict[str, object] | None) -> dict[str, object]:
+    shard_payload = dict(payload or {})
+    if (
+        shard_payload.get("stage_key") == "recipe_refine"
+        and shard_payload.get("recipe_id") is not None
+    ):
+        recipe_id = str(shard_payload["recipe_id"])
+        recipe_hint = dict(shard_payload.get("hint") or {})
+        return {
+            "status": "repaired",
+            "status_reason": None,
+            "canonical_recipe": {
+                "title": recipe_hint.get("title"),
+                "ingredients": list(recipe_hint.get("ingredients") or []),
+                "steps": list(recipe_hint.get("steps") or []),
+                "description": None,
+                "recipe_yield": None,
+            },
+            "ingredient_step_mapping": [],
+            "ingredient_step_mapping_reason": "not_needed_single_step",
+            "divested_block_indices": [],
+            "selected_tags": [
+                {
+                    "category": "meal",
+                    "label": "breakfast",
+                    "confidence": 0.8,
+                }
+            ],
+            "warnings": [],
+        }
+    return {
+        "v": "1",
+        "sid": shard_payload.get("sid"),
+        "r": [
+            {
+                "v": "1",
+                "rid": shard_payload["r"][0]["rid"],
+                "st": "repaired",
+                "sr": None,
+                "cr": {
+                    "t": "Toast",
+                    "i": ["1 slice bread"],
+                    "s": ["Toast the bread."],
+                    "d": None,
+                    "y": None,
+                },
+                "m": [],
+                "mr": "not_needed_single_step",
+                "db": [],
+                "g": [
+                    {
+                        "c": "meal",
+                        "l": "breakfast",
+                        "f": 0.8,
+                    }
+                ],
+                "w": [],
+            }
+        ],
+    }
+
+
 def test_orchestrator_accepts_full_text_lines_when_blocks_missing(tmp_path: Path) -> None:
     source = tmp_path / "book.txt"
     source.write_text("source", encoding="utf-8")
@@ -62,36 +123,7 @@ def test_orchestrator_accepts_full_text_lines_when_blocks_missing(tmp_path: Path
         (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
 
     runner = FakeCodexExecRunner(
-        output_builder=lambda payload: {
-            "v": "1",
-            "sid": payload.get("sid"),
-            "r": [
-                {
-                    "v": "1",
-                    "rid": payload["r"][0]["rid"],
-                    "st": "repaired",
-                    "sr": None,
-                    "cr": {
-                        "t": "Toast",
-                        "i": ["1 slice bread"],
-                        "s": ["Toast the bread."],
-                        "d": None,
-                        "y": None,
-                    },
-                    "m": [],
-                    "mr": "not_needed_single_step",
-                    "db": [],
-                    "g": [
-                        {
-                            "c": "meal",
-                            "l": "breakfast",
-                            "f": 0.8,
-                        }
-                    ],
-                    "w": [],
-                }
-            ],
-        }
+        output_builder=lambda payload: _build_recipe_output(dict(payload or {}))
     )
 
     apply_result = run_codex_farm_recipe_pipeline(

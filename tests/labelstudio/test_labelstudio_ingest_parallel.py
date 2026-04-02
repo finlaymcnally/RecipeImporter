@@ -54,7 +54,6 @@ def test_generate_pred_run_artifacts_plan_mode_writes_codex_plan_without_convers
                         provenance={"location": {"start_block": 0, "end_block": 1}},
                     )
                 ],
-                nonRecipeBlocks=[],
                 rawArtifacts=[
                     RawArtifact(
                         importer="fake",
@@ -200,7 +199,6 @@ def test_merge_parallel_results_combines_and_reorders(tmp_path: Path) -> None:
             {"blockId": "b1", "orderIndex": 1, "text": "b"},
             {"blockId": "b2", "orderIndex": 2, "text": "c"},
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[
             RawArtifact(
                 importer="pdf",
@@ -228,7 +226,6 @@ def test_merge_parallel_results_combines_and_reorders(tmp_path: Path) -> None:
             {"blockId": "b0", "orderIndex": 0, "text": "x"},
             {"blockId": "b1", "orderIndex": 1, "text": "y"},
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[
             RawArtifact(
                 importer="pdf",
@@ -292,7 +289,6 @@ def test_write_processed_outputs_writes_report_total_mismatch_diagnostics(
             {"blockId": "b1", "orderIndex": 1, "text": "1 cup stock"},
             {"blockId": "b2", "orderIndex": 2, "text": "Heat stock."},
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(
             total_recipes=9,
@@ -349,7 +345,6 @@ def test_write_processed_outputs_writes_report_total_mismatch_diagnostics_for_ex
             {"blockId": "b1", "orderIndex": 1, "text": "1 cup stock"},
             {"blockId": "b2", "orderIndex": 2, "text": "Heat stock."},
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(
             total_recipes=0,
@@ -394,7 +389,6 @@ def test_write_processed_outputs_writes_report_total_mismatch_diagnostics_for_im
             {"blockId": "b1", "orderIndex": 1, "text": "1 cup stock"},
             {"blockId": "b2", "orderIndex": 2, "text": "Heat stock."},
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -433,7 +427,6 @@ def test_run_labelstudio_import_emits_post_merge_progress(monkeypatch, tmp_path:
         sourceBlocks=[
             {"blockId": "b0", "orderIndex": 0, "text": "hello"},
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
         workbook="book",

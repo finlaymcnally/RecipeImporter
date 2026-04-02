@@ -10,6 +10,7 @@ from tests.bench.oracle_benchmark_support import build_minimal_upload_bundle
 
 from cookimport.bench.oracle_followup import (
     ORACLE_AUTO_FOLLOWUP_STATUS_NAME,
+    _find_followup_source_launch_dir,
     extract_requested_followup_section,
     parse_requested_followup_text,
     run_oracle_benchmark_followup_background_worker,
@@ -100,7 +101,7 @@ def test_run_oracle_benchmark_followup_dry_run_prepares_packet_and_command(
     )
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
-    launch_dir = bundle_dir / ".oracle_upload_runs" / "2026-03-19_15.20.00"
+    launch_dir = bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_15.20.00"
     launch_dir.mkdir(parents=True, exist_ok=True)
     (launch_dir / "oracle_upload.json").write_text(
         json.dumps(
@@ -174,7 +175,7 @@ def test_run_oracle_benchmark_followup_dry_run_prepares_packet_and_command(
 def test_run_oracle_benchmark_followup_uses_request_file_when_source_run_is_older(tmp_path: Path) -> None:
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
-    launch_dir = bundle_dir / ".oracle_upload_runs" / "2026-03-19_15.30.00"
+    launch_dir = bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_15.30.00"
     launch_dir.mkdir(parents=True, exist_ok=True)
     (launch_dir / "oracle_upload.json").write_text(
         json.dumps(
@@ -254,7 +255,7 @@ def test_run_oracle_benchmark_followup_reuses_source_browser_profile_for_continu
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
     browser_profile_dir = tmp_path / "oracle-home" / "browser-profile"
-    launch_dir = bundle_dir / ".oracle_upload_runs" / "2026-03-19_15.40.00"
+    launch_dir = bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_15.40.00"
     launch_dir.mkdir(parents=True, exist_ok=True)
     (launch_dir / "oracle_upload.json").write_text(
         json.dumps(
@@ -325,12 +326,23 @@ def test_run_oracle_benchmark_followup_reuses_source_browser_profile_for_continu
     assert metadata_payload["browser_profile_dir"] == str(browser_profile_dir)
 
 
+def test_find_followup_source_launch_dir_ignores_legacy_nested_runs_dir(tmp_path: Path) -> None:
+    copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
+    bundle_dir = _copy_sample_bundle_root(copied_root)
+    legacy_launch_dir = bundle_dir / ".oracle_upload_runs" / "2026-03-19_15.20.00"
+    legacy_launch_dir.mkdir(parents=True, exist_ok=True)
+    (legacy_launch_dir / "oracle_upload.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="No Oracle upload runs found"):
+        _find_followup_source_launch_dir(bundle_dir=bundle_dir, from_run="latest")
+
+
 def test_run_oracle_benchmark_followup_maps_explicit_instant_selector_to_browser_visible_label(
     tmp_path: Path,
 ) -> None:
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
-    launch_dir = bundle_dir / ".oracle_upload_runs" / "2026-03-22_20.03.30"
+    launch_dir = bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_20.03.30"
     launch_dir.mkdir(parents=True, exist_ok=True)
     (launch_dir / "oracle_upload.json").write_text(
         json.dumps(
@@ -405,7 +417,7 @@ def test_run_oracle_benchmark_followup_reuses_source_launch_model_when_known(
 ) -> None:
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
-    launch_dir = bundle_dir / ".oracle_upload_runs" / "2026-03-31_13.21.15-quality"
+    launch_dir = bundle_dir.parent / ".oracle_upload_runs" / "2026-03-31_13.21.15-quality"
     launch_dir.mkdir(parents=True, exist_ok=True)
     (launch_dir / "oracle_upload.json").write_text(
         json.dumps(
@@ -469,7 +481,7 @@ def test_run_oracle_benchmark_followup_dry_run_accepts_recipe_stage_filters_from
 ) -> None:
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
-    launch_dir = bundle_dir / ".oracle_upload_runs" / "2026-03-22_16.59.06"
+    launch_dir = bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_16.59.06"
     launch_dir.mkdir(parents=True, exist_ok=True)
     (launch_dir / "oracle_upload.json").write_text(
         json.dumps(
@@ -536,7 +548,7 @@ def _run_completed_turn1_followup_fixture(
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
     source_run = "2026-03-19_17.13.29"
-    launch_dir = bundle_dir / ".oracle_upload_runs" / source_run
+    launch_dir = bundle_dir.parent / ".oracle_upload_runs" / source_run
     launch_dir.mkdir(parents=True, exist_ok=True)
     (launch_dir / "oracle_upload.json").write_text(
         json.dumps(
@@ -590,15 +602,15 @@ def _run_completed_turn1_followup_fixture(
     def fake_run_followup(**kwargs):
         captured.update(kwargs)
         workspace = OracleFollowupWorkspace(
-            launch_dir=bundle_dir / ".oracle_upload_runs" / "2026-03-19_17.35.00",
-            metadata_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_17.35.00" / "oracle_upload.json",
-            status_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_17.35.00" / "oracle_upload_status.json",
-            log_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_17.35.00" / "oracle_upload.log",
-            request_markdown_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_17.35.00" / "oracle_followup_request.md",
-            request_json_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_17.35.00" / "oracle_followup_request.json",
-            handoff_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_17.35.00" / "codex_followup_handoff.md",
-            prompt_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_17.35.00" / "turn2_prompt.md",
-            followup_packet_dir=bundle_dir / ".oracle_upload_runs" / "2026-03-19_17.35.00" / "followup_data1",
+            launch_dir=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_17.35.00",
+            metadata_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_17.35.00" / "oracle_upload.json",
+            status_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_17.35.00" / "oracle_upload_status.json",
+            log_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_17.35.00" / "oracle_upload.log",
+            request_markdown_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_17.35.00" / "oracle_followup_request.md",
+            request_json_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_17.35.00" / "oracle_followup_request.json",
+            handoff_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_17.35.00" / "codex_followup_handoff.md",
+            prompt_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_17.35.00" / "turn2_prompt.md",
+            followup_packet_dir=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_17.35.00" / "followup_data1",
         )
         return (
             OracleUploadResult(
@@ -681,7 +693,7 @@ def test_auto_followup_worker_marks_missing_requested_section_explicitly(tmp_pat
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
     source_run = "2026-03-19_17.13.29"
-    launch_dir = bundle_dir / ".oracle_upload_runs" / source_run
+    launch_dir = bundle_dir.parent / ".oracle_upload_runs" / source_run
     launch_dir.mkdir(parents=True, exist_ok=True)
     (launch_dir / "oracle_upload.json").write_text(
         json.dumps(
@@ -728,7 +740,7 @@ def test_auto_followup_worker_treats_zombie_turn1_pid_as_exited(
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
     source_run = "2026-03-26_21.36.05-quality"
-    launch_dir = bundle_dir / ".oracle_upload_runs" / source_run
+    launch_dir = bundle_dir.parent / ".oracle_upload_runs" / source_run
     launch_dir.mkdir(parents=True, exist_ok=True)
     (launch_dir / "oracle_upload.json").write_text(
         json.dumps(
@@ -787,7 +799,7 @@ def _run_followup_timeout_recovery_fixture(
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
     source_run = "2026-03-19_21.18.04"
-    launch_dir = bundle_dir / ".oracle_upload_runs" / source_run
+    launch_dir = bundle_dir.parent / ".oracle_upload_runs" / source_run
     launch_dir.mkdir(parents=True, exist_ok=True)
     browser_profile_dir = tmp_path / "oracle-home" / "browser-profile"
     sessions_dir = browser_profile_dir.parent / "sessions" / "you-are-reviewing-a-benchmark-392"
@@ -916,15 +928,15 @@ def _run_followup_timeout_recovery_fixture(
     def fake_run_followup(**kwargs):
         captured.update(kwargs)
         workspace = OracleFollowupWorkspace(
-            launch_dir=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00",
-            metadata_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "oracle_upload.json",
-            status_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "oracle_upload_status.json",
-            log_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "oracle_upload.log",
-            request_markdown_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "oracle_followup_request.md",
-            request_json_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "oracle_followup_request.json",
-            handoff_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "codex_followup_handoff.md",
-            prompt_path=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "turn2_prompt.md",
-            followup_packet_dir=bundle_dir / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "followup_data1",
+            launch_dir=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_21.30.00",
+            metadata_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "oracle_upload.json",
+            status_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "oracle_upload_status.json",
+            log_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "oracle_upload.log",
+            request_markdown_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "oracle_followup_request.md",
+            request_json_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "oracle_followup_request.json",
+            handoff_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "codex_followup_handoff.md",
+            prompt_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "turn2_prompt.md",
+            followup_packet_dir=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-19_21.30.00" / "followup_data1",
         )
         return (
             OracleUploadResult(
@@ -999,7 +1011,7 @@ def _run_followup_dead_controller_recovery_fixture(
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
     source_run = "2026-03-22_16.59.06"
-    launch_dir = bundle_dir / ".oracle_upload_runs" / source_run
+    launch_dir = bundle_dir.parent / ".oracle_upload_runs" / source_run
     launch_dir.mkdir(parents=True, exist_ok=True)
     browser_profile_dir = tmp_path / "oracle-home" / "browser-profile"
     sessions_dir = browser_profile_dir.parent / "sessions" / "you-are-reviewing-a-benchmark-323"
@@ -1128,15 +1140,15 @@ def _run_followup_dead_controller_recovery_fixture(
     def fake_run_followup(**kwargs):
         captured.update(kwargs)
         workspace = OracleFollowupWorkspace(
-            launch_dir=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00",
-            metadata_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "oracle_upload.json",
-            status_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "oracle_upload_status.json",
-            log_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "oracle_upload.log",
-            request_markdown_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "oracle_followup_request.md",
-            request_json_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "oracle_followup_request.json",
-            handoff_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "codex_followup_handoff.md",
-            prompt_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "turn2_prompt.md",
-            followup_packet_dir=bundle_dir / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "followup_data1",
+            launch_dir=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_17.10.00",
+            metadata_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "oracle_upload.json",
+            status_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "oracle_upload_status.json",
+            log_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "oracle_upload.log",
+            request_markdown_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "oracle_followup_request.md",
+            request_json_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "oracle_followup_request.json",
+            handoff_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "codex_followup_handoff.md",
+            prompt_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "turn2_prompt.md",
+            followup_packet_dir=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_17.10.00" / "followup_data1",
         )
         return (
             OracleUploadResult(
@@ -1210,7 +1222,7 @@ def _run_followup_stale_running_recovery_fixture(
     copied_root = tmp_path / "single-book-benchmark" / "saltfatacidheatcutdown"
     bundle_dir = _copy_sample_bundle_root(copied_root)
     source_run = "2026-03-22_21.51.13-quality"
-    launch_dir = bundle_dir / ".oracle_upload_runs" / source_run
+    launch_dir = bundle_dir.parent / ".oracle_upload_runs" / source_run
     launch_dir.mkdir(parents=True, exist_ok=True)
     browser_profile_dir = tmp_path / "oracle-home" / "browser-profile"
     sessions_dir = browser_profile_dir.parent / "sessions" / "you-are-the-quality-lane"
@@ -1339,15 +1351,15 @@ def _run_followup_stale_running_recovery_fixture(
     def fake_run_followup(**kwargs):
         captured.update(kwargs)
         workspace = OracleFollowupWorkspace(
-            launch_dir=bundle_dir / ".oracle_upload_runs" / "2026-03-22_22.10.00",
-            metadata_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_22.10.00" / "oracle_upload.json",
-            status_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_22.10.00" / "oracle_upload_status.json",
-            log_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_22.10.00" / "oracle_upload.log",
-            request_markdown_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_22.10.00" / "oracle_followup_request.md",
-            request_json_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_22.10.00" / "oracle_followup_request.json",
-            handoff_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_22.10.00" / "codex_followup_handoff.md",
-            prompt_path=bundle_dir / ".oracle_upload_runs" / "2026-03-22_22.10.00" / "turn2_prompt.md",
-            followup_packet_dir=bundle_dir / ".oracle_upload_runs" / "2026-03-22_22.10.00" / "followup_data1",
+            launch_dir=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_22.10.00",
+            metadata_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_22.10.00" / "oracle_upload.json",
+            status_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_22.10.00" / "oracle_upload_status.json",
+            log_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_22.10.00" / "oracle_upload.log",
+            request_markdown_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_22.10.00" / "oracle_followup_request.md",
+            request_json_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_22.10.00" / "oracle_followup_request.json",
+            handoff_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_22.10.00" / "codex_followup_handoff.md",
+            prompt_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_22.10.00" / "turn2_prompt.md",
+            followup_packet_dir=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-22_22.10.00" / "followup_data1",
         )
         return (
             OracleUploadResult(
@@ -1461,7 +1473,7 @@ def _run_invalid_grounding_followup_fixture(
     )
     bundle_dir = _copy_sample_bundle_root(copied_root)
     source_run = "2026-03-21_16.17.50"
-    launch_dir = bundle_dir / ".oracle_upload_runs" / source_run
+    launch_dir = bundle_dir.parent / ".oracle_upload_runs" / source_run
     launch_dir.mkdir(parents=True, exist_ok=True)
     (launch_dir / "oracle_upload.json").write_text(
         json.dumps(
@@ -1519,15 +1531,15 @@ def _run_invalid_grounding_followup_fixture(
     def fake_run_followup(**kwargs):
         captured.update(kwargs)
         workspace = OracleFollowupWorkspace(
-            launch_dir=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00",
-            metadata_path=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "oracle_upload.json",
-            status_path=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "oracle_upload_status.json",
-            log_path=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "oracle_upload.log",
-            request_markdown_path=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "oracle_followup_request.md",
-            request_json_path=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "oracle_followup_request.json",
-            handoff_path=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "codex_followup_handoff.md",
-            prompt_path=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "turn2_prompt.md",
-            followup_packet_dir=bundle_dir / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "followup_data1",
+            launch_dir=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-21_17.10.00",
+            metadata_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "oracle_upload.json",
+            status_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "oracle_upload_status.json",
+            log_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "oracle_upload.log",
+            request_markdown_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "oracle_followup_request.md",
+            request_json_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "oracle_followup_request.json",
+            handoff_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "codex_followup_handoff.md",
+            prompt_path=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "turn2_prompt.md",
+            followup_packet_dir=bundle_dir.parent / ".oracle_upload_runs" / "2026-03-21_17.10.00" / "followup_data1",
         )
         return (
             OracleUploadResult(

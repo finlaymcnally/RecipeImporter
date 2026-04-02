@@ -22,7 +22,7 @@ Interactive run-settings UI helpers.
   - those prompts map directly to `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count`
   - when block labelling or non-recipe finalize stays enabled, the flow also asks `Codex Exec style for this run`
   - `Taskfile workers` keeps the current `taskfile-v1` contract
-  - `Structured resume` sets `codex_exec_style=structured-resume-v1` for line-role and non-recipe finalize only; recipe correction still stays on the taskfile worker contract
+  - `Inline JSON` sets `codex_exec_style=inline-json-v1` for line-role and non-recipe finalize only; recipe correction still stays on the taskfile worker contract
 - Any non-`off` choice also prompts for codex AI settings for that run:
   - `Codex Exec model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models only)
   - `Codex Exec reasoning effort override` (`Pipeline default` plus only the efforts supported by the selected discovered model when that metadata is available)

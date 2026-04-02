@@ -123,6 +123,18 @@ def _line_role_runner(
     output_builder=None,
 ):
     def _default_builder(payload):
+        if (
+            isinstance(payload, dict)
+            and payload.get("stage_key") == "line_role"
+            and payload.get("atomic_index") is not None
+        ):
+            atomic_index = int(payload["atomic_index"])
+            return {
+                "label": (label_by_atomic_index or {}).get(
+                    atomic_index,
+                    "NONRECIPE_CANDIDATE",
+                )
+            }
         rows = payload.get("rows") if isinstance(payload, dict) else []
         atomic_indices: list[int] = []
         for row in rows:

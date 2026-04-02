@@ -1774,7 +1774,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             hidden=True,
             help=(
                 "Internal: direct Codex worker style for line-role and knowledge surfaces "
-                "(taskfile-v1 or structured-resume-v1)."
+                "(taskfile-v1 or inline-json-v1)."
             ),
         )] = str(serialized_run_setting_default("codex_exec_style")),
         line_role_prompt_target_count: Annotated[int, typer.Option(

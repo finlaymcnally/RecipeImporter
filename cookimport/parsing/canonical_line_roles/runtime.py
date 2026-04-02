@@ -4,7 +4,7 @@ import sys
 from dataclasses import asdict, dataclass, replace
 
 from cookimport.config.run_settings import (
-    CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1,
+    CODEX_EXEC_STYLE_INLINE_JSON_V1,
     normalize_codex_exec_style_value,
 )
 from cookimport.llm.codex_exec_runner import _summarize_live_codex_events
@@ -3140,7 +3140,7 @@ def _run_line_role_direct_worker_assignment_v1(
     )
     if (
         normalize_codex_exec_style_value(settings.get("codex_exec_style"))
-        == CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1
+        == CODEX_EXEC_STYLE_INLINE_JSON_V1
     ):
         return _run_line_role_structured_assignment_v1(
             run_root=run_root,
@@ -3766,7 +3766,7 @@ def _run_line_role_structured_assignment_v1(
             runner_result=worker_runner_payload,
             metadata={
                 "shards_dir": _relative_runtime_path(run_root, shard_dir),
-                "codex_exec_style": CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1,
+                "codex_exec_style": CODEX_EXEC_STYLE_INLINE_JSON_V1,
             },
         ),
         proposals=tuple(worker_proposals),

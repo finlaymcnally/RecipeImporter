@@ -54,7 +54,6 @@ def _build_lines_only_conversion_result(source_path: Path) -> ConversionResult:
                 provenance={"location": {"start_block": 1, "end_block": 3}},
             )
         ],
-        nonRecipeBlocks=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -103,7 +102,6 @@ def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult
                 provenance={"location": {"start_block": 10, "end_block": 13}},
             ),
         ],
-        nonRecipeBlocks=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -140,10 +138,6 @@ def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult
 def _knowledge_conversion_result(source_path: Path) -> ConversionResult:
     return ConversionResult(
         recipes=[],
-        nonRecipeBlocks=[
-            {"index": 0, "text": "Preface"},
-            {"index": 4, "text": "Technique: Whisk constantly."},
-        ],
         rawArtifacts=[
             RawArtifact(
                 importer="text",

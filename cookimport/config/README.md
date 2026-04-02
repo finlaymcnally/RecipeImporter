@@ -9,7 +9,7 @@ Detailed run-settings contracts live in `cookimport/config/CONVENTIONS.md`.
   - Includes deterministic instruction fallback segmentation knobs (`instruction_step_segmentation_policy`, `instruction_step_segmenter`) shared by stage + benchmark prediction paths.
   - Includes Priority 6 parsing knobs (`p6_time_*`, `p6_temperature_*`, `p6_ovenlike_mode`, `p6_yield_mode`, `p6_emit_metadata_debug`) shared by stage + benchmark prediction paths.
 - `codex_decision.py` is the shared Codex policy layer for top-tier profile patches, paired benchmark Codex/vanilla contracts, command-boundary approval checks, and persisted decision metadata.
-- `run_settings_adapters.py` is the single mapping layer from `RunSettings` to concrete `stage(...)` and `labelstudio_benchmark(...)` kwargs used by interactive flows, speed suite, and import entrypoints.
+- `run_settings_adapters.py` is the single mapping layer from `RunSettings` to concrete `stage(...)` and `labelstudio_benchmark(...)` kwargs used by interactive flows and speed suite.
   - It intentionally merges operator, benchmark-lab, internal, and fixed-behavior slices instead of treating the full schema as one flat public contract.
 - `runtime_support.py` is the narrow shared resolver layer for runtime-sensitive defaults that should not drift across entry surfaces.
   - It now owns canonical serialization helpers for hidden run-setting defaults plus dynamic temp/cache roots and benchmark/support env overrides.

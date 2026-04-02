@@ -402,7 +402,7 @@ def _resolve_experiments(
     return resolved
 
 def _validate_patch_keys(*, experiment_id: str, patch: dict[str, Any]) -> None:
-    known_fields = set(RunSettings.model_fields) | _RUN_SETTINGS_PATCH_COMPAT_KEYS
+    known_fields = set(RunSettings.model_fields)
     unknown_keys = sorted(set(patch) - known_fields)
     if unknown_keys:
         joined = ", ".join(unknown_keys)

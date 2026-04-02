@@ -131,7 +131,6 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
                 location={"line_index": 0},
             )
         ],
-        nonRecipeBlocks=[],
         rawArtifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -148,7 +147,6 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
                 location={"line_index": 0},
             )
         ],
-        nonRecipeBlocks=[{"index": 99, "text": "stale non-recipe cache"}],
         rawArtifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -179,6 +177,7 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
             )
         ],
         non_recipe_lines=[],
+        outside_recipe_blocks=[{"index": 0, "text": "Technique note"}],
         updated_conversion_result=authoritative_result,
         archive_blocks=[{"index": 0, "block_id": "b0", "text": "Technique note"}],
         source_hash="hash-123",
@@ -267,7 +266,6 @@ def test_execute_stage_import_session_uses_candidate_nonrecipe_rows_for_late_out
                 location={"line_index": 1},
             ),
         ],
-        nonRecipeBlocks=[{"index": 77, "text": "stale block"}],
         rawArtifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -291,7 +289,6 @@ def test_execute_stage_import_session_uses_candidate_nonrecipe_rows_for_late_out
                 location={"line_index": 1},
             ),
         ],
-        nonRecipeBlocks=[{"index": 88, "text": "old cache"}],
         rawArtifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -310,6 +307,7 @@ def test_execute_stage_import_session_uses_candidate_nonrecipe_rows_for_late_out
             )
         ],
         non_recipe_lines=[],
+        outside_recipe_blocks=[{"index": 1, "text": "Technique note"}],
         updated_conversion_result=authoritative_result,
         archive_blocks=[
             {"index": 0, "block_id": "b0", "text": "Recipe"},
@@ -364,7 +362,6 @@ def test_execute_stage_import_session_uses_candidate_nonrecipe_rows_for_late_out
     assert [row["index"] for row in session.nonrecipe_finalize_result.late_output_nonrecipe_blocks] == [
         1
     ]
-    assert session.conversion_result.non_recipe_blocks == []
 
 
 def test_execute_stage_import_session_demotes_rejected_pseudo_recipe_title_before_nonrecipe_stage(
@@ -413,7 +410,6 @@ def test_execute_stage_import_session_demotes_rejected_pseudo_recipe_title_befor
                 location={"line_index": 4},
             ),
         ],
-        nonRecipeBlocks=[],
         rawArtifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -518,7 +514,6 @@ def test_execute_stage_import_session_writes_source_model_artifacts(
                 payload={"reason": "heading"},
             )
         ],
-        nonRecipeBlocks=[],
         rawArtifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -527,7 +522,6 @@ def test_execute_stage_import_session_writes_source_model_artifacts(
     authoritative_result = ConversionResult(
         sourceBlocks=list(original_result.source_blocks),
         sourceSupport=list(original_result.source_support),
-        nonRecipeBlocks=[{"index": 0, "text": "Technique note"}],
         rawArtifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -539,6 +533,7 @@ def test_execute_stage_import_session_writes_source_model_artifacts(
         recipe_spans=[],
         span_decisions=[],
         non_recipe_lines=[],
+        outside_recipe_blocks=[{"index": 0, "text": "Technique note"}],
         updated_conversion_result=authoritative_result,
         archive_blocks=[{"index": 0, "block_id": "b0", "text": "Technique note"}],
         source_hash="hash-123",

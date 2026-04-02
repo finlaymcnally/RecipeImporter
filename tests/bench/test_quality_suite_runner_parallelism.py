@@ -1068,9 +1068,9 @@ def test_quality_suite_schema_v2_levers_expand_and_pass_runtime_knobs(
             "include_all_on": True,
             "levers": [
                 {
-                    "id": "section_shared",
+                    "id": "extractor_unstructured",
                     "enabled": True,
-                    "run_settings_patch": {"section_detector_backend": "shared_v1"},
+                    "run_settings_patch": {"epub_extractor": "unstructured"},
                 },
                 {
                     "id": "runtime_parallel_5",
@@ -1181,13 +1181,13 @@ def test_quality_suite_schema_v2_levers_expand_and_pass_runtime_knobs(
     )
     resolved_ids = [row["id"] for row in resolved["experiments"]]
     assert "baseline" in resolved_ids
-    assert "section_shared" in resolved_ids
+    assert "extractor_unstructured" in resolved_ids
     assert "runtime_parallel_5" in resolved_ids
     assert "all_on" in resolved_ids
     assert "disabled" not in resolved_ids
 
     assert observed_parallel_by_experiment["baseline"] == 2
-    assert observed_parallel_by_experiment["section_shared"] == 2
+    assert observed_parallel_by_experiment["extractor_unstructured"] == 2
     assert observed_parallel_by_experiment["runtime_parallel_5"] == 5
     assert observed_parallel_by_experiment["all_on"] == 5
 

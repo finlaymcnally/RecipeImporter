@@ -195,10 +195,6 @@ def execute_stage_import_session_from_result(
     else:
         result.chunks = []
 
-    # ConversionResult keeps only strict final non-recipe authority. Late outputs may
-    # use a broader routed candidate queue when non-recipe finalize did not run.
-    result.non_recipe_blocks = list(nonrecipe_finalize_result.authoritative_nonrecipe_blocks)
-
     tag_normalization_report = normalize_conversion_result_recipe_tags(result)
     if recipe_limit is not None:
         from cookimport.cli_worker import apply_result_limits
@@ -225,6 +221,7 @@ def execute_stage_import_session_from_result(
         result.report,
         result,
         source_file,
+        standalone_block_count=len(nonrecipe_finalize_result.authoritative_nonrecipe_blocks),
         count_diagnostics_path=count_diagnostics_path,
     )
 

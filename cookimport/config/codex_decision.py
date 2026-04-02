@@ -305,7 +305,7 @@ def resolve_codex_command_decision(
     benchmark_variant: str | None = None,
 ) -> CodexCommandDecision:
     surface = classify_codex_surfaces(payload)
-    if context in {"stage", "labelstudio_import", "labelstudio_benchmark", "entrypoint_stage"}:
+    if context in {"stage", "labelstudio_import", "labelstudio_benchmark"}:
         codex_requested = surface.any_codex_enabled
         explicit_required = codex_requested
         activation_granted = allow_codex if explicit_required else False

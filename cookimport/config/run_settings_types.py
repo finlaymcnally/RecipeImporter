@@ -68,7 +68,7 @@ RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR = (
 LINE_ROLE_PIPELINE_ROUTE_V2 = "codex-line-role-route-v2"
 KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2 = "codex-knowledge-candidate-v2"
 CODEX_EXEC_STYLE_TASKFILE_V1 = "taskfile-v1"
-CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1 = "structured-resume-v1"
+CODEX_EXEC_STYLE_INLINE_JSON_V1 = "inline-json-v1"
 
 
 class EpubExtractor(str, Enum):
@@ -233,7 +233,7 @@ class LlmKnowledgePipeline(str, Enum):
 
 class CodexExecStyle(str, Enum):
     taskfile_v1 = CODEX_EXEC_STYLE_TASKFILE_V1
-    structured_resume_v1 = CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1
+    inline_json_v1 = CODEX_EXEC_STYLE_INLINE_JSON_V1
 
 
 class CodexFarmFailureMode(str, Enum):
@@ -298,11 +298,15 @@ def normalize_codex_exec_style_value(value: Any) -> str:
     normalized = str(getattr(value, "value", value) or "").strip().lower().replace("_", "-")
     if normalized in {"", "default", "taskfile", "taskfile-v1"}:
         return CODEX_EXEC_STYLE_TASKFILE_V1
-    if normalized in {"structured", "structured-resume", "structured-resume-v1"}:
-        return CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1
+    if normalized in {
+        "inline",
+        "inline-json",
+        "inline-json-v1",
+    }:
+        return CODEX_EXEC_STYLE_INLINE_JSON_V1
     raise ValueError(
         "Invalid codex_exec_style. Expected one of: "
-        f"{CODEX_EXEC_STYLE_TASKFILE_V1}, {CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1}."
+        f"{CODEX_EXEC_STYLE_TASKFILE_V1}, {CODEX_EXEC_STYLE_INLINE_JSON_V1}."
     )
 
 

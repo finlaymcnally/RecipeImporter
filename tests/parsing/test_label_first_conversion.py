@@ -16,13 +16,9 @@ from cookimport.parsing.label_source_of_truth import (
 from cookimport.parsing.recipe_span_grouping import recipe_boundary_from_labels
 
 
-def _make_empty_label_first_original_result(
-    *,
-    non_recipe_blocks: list[dict[str, object]] | None = None,
-) -> ConversionResult:
+def _make_empty_label_first_original_result() -> ConversionResult:
     return ConversionResult(
         recipes=[],
-        non_recipe_blocks=list(non_recipe_blocks or []),
         raw_artifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -123,9 +119,7 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
             title_atomic_index=0,
         )
     ]
-    original_result = _make_empty_label_first_original_result(
-        non_recipe_blocks=[{"index": 99, "text": "old leftover"}]
-    )
+    original_result = _make_empty_label_first_original_result()
 
     updated = build_conversion_result_from_label_spans(
         source_file=Path("/tmp/book.txt"),
@@ -158,8 +152,8 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
     assert result.recipes[0].name == "Pancakes"
     assert result.recipes[0].ingredients == ["1 cup flour"]
     assert result.recipes[0].instructions == ["Whisk batter"]
-    assert [row["index"] for row in result.non_recipe_blocks] == [3]
-    assert result.non_recipe_blocks[0]["text"] == "Why batter rests matters"
+    assert [row["index"] for row in updated.outside_recipe_blocks] == [3]
+    assert updated.outside_recipe_blocks[0]["text"] == "Why batter rests matters"
     assert updated.non_recipe_lines[0].final_label == "KNOWLEDGE"
     assert updated.span_decisions[0].decision == "accepted_recipe_span"
 
@@ -294,14 +288,13 @@ def test_build_conversion_result_from_label_spans_rejects_empty_title_only_spans
 def test_build_conversion_result_from_label_spans_records_rejected_title_only_span() -> None:
     fixture = _run_title_only_span_rejection_fixture()
     updated = fixture["updated"]
-    result = updated.updated_conversion_result
     assert any(
         row.span_id == "recipe_span_0"
         and row.decision == "rejected_pseudo_recipe_span"
         and row.rejection_reason == "rejected_missing_recipe_body"
         for row in updated.span_decisions
     )
-    assert [row["index"] for row in result.non_recipe_blocks] == [0]
+    assert [row["index"] for row in updated.outside_recipe_blocks] == [0]
 
 
 def test_build_conversion_result_from_label_spans_keeps_explicit_invariant_warning_instead_of_late_demotion() -> None:
@@ -510,7 +503,6 @@ def test_atomize_archive_blocks_ignores_old_recipe_provenance_before_grouping() 
                 "provenance": {"location": {"start_block": 0, "end_block": 1}},
             }
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
         workbook="book",

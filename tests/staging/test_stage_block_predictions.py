@@ -155,9 +155,6 @@ def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Pat
 
 def test_build_stage_block_predictions_without_nonrecipe_authority_do_not_project_chunk_lanes() -> None:
     result = _build_result()
-    result.non_recipe_blocks = [
-        {"index": 8, "text": "Use clean tools for food safety.", "features": {}}
-    ]
     result.chunks = [
         KnowledgeChunk(
             id="c0",

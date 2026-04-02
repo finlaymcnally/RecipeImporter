@@ -22,12 +22,11 @@ from cookimport.config.last_run_store import (
     save_qualitysuite_winner_run_settings,
 )
 from cookimport.config.run_settings import (
-    CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1,
+    CODEX_EXEC_STYLE_INLINE_JSON_V1,
     CODEX_EXEC_STYLE_TASKFILE_V1,
     CodexReasoningEffort,
 )
 from cookimport.paths import history_root_for_output
-from cookimport import entrypoint
 
 REMOVED_EXTRACTOR_VALUE = "leg" "acy"
 
@@ -970,7 +969,7 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
         if message == "Workflow for this run:":
             return "codex-recipe-shard-v1"
         if message == "Codex Exec style for this run:":
-            return CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1
+            return CODEX_EXEC_STYLE_INLINE_JSON_V1
         if message == "Codex Exec model override:":
             seen_model_prompt["value"] = True
             return "__pipeline_default__"
@@ -999,7 +998,7 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
     assert selected.line_role_pipeline.value == "codex-line-role-route-v2"
     assert selected.llm_knowledge_pipeline.value == "off"
     assert selected.atomic_block_splitter.value == "off"
-    assert selected.codex_exec_style.value == CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1
+    assert selected.codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
 
 
 def test_build_interactive_benchmark_preset_settings_resolves_fast_codex_exec_single_book(
@@ -1465,55 +1464,6 @@ def test_interactive_import_passes_knowledge_pipeline_settings(
     assert captured["llm_knowledge_pipeline"] == "codex-knowledge-candidate-v2"
     assert captured["codex_farm_pipeline_knowledge"] == "recipe.knowledge.packet.v1"
     assert captured["codex_farm_knowledge_context_blocks"] == 37
-
-
-def test_import_entrypoint_passes_extended_stage_settings(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    captured: dict[str, object] = {}
-    input_dir = tmp_path / "input"
-    output_dir = tmp_path / "output"
-    settings = {
-        "epub_extractor": "beautifulsoup",
-        "epub_unstructured_html_parser_version": "v2",
-        "epub_unstructured_skip_headers_footers": True,
-        "epub_unstructured_preprocess_mode": "br_split_v1",
-        "llm_recipe_pipeline": "off",
-        "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
-        "codex_farm_pipeline_knowledge": "recipe.knowledge.custom.v9",
-        "codex_farm_knowledge_context_blocks": 42,
-    }
-
-    def fake_stage(*, path, limit, **kwargs):
-        captured["path"] = path
-        captured["limit"] = limit
-        captured.update(kwargs)
-
-    monkeypatch.setattr(entrypoint, "DEFAULT_INPUT", input_dir)
-    monkeypatch.setattr(entrypoint, "DEFAULT_OUTPUT", output_dir)
-    monkeypatch.setattr(entrypoint, "_load_settings", lambda: settings)
-    monkeypatch.setattr(entrypoint, "stage", fake_stage)
-    monkeypatch.setattr(
-        entrypoint,
-        "app",
-        lambda: (_ for _ in ()).throw(AssertionError("entrypoint.app should not run")),
-    )
-    monkeypatch.setattr(entrypoint.sys, "argv", ["import"])
-
-    entrypoint.main()
-
-    assert captured["path"] == input_dir
-    assert captured["limit"] is None
-    assert captured["out"] == output_dir
-    assert captured["epub_extractor"] == "beautifulsoup"
-    assert captured["epub_unstructured_html_parser_version"] == "v2"
-    assert captured["epub_unstructured_skip_headers_footers"] is True
-    assert captured["epub_unstructured_preprocess_mode"] == "br_split_v1"
-    assert captured["llm_knowledge_pipeline"] == "codex-knowledge-candidate-v2"
-    assert captured["codex_farm_pipeline_knowledge"] == "recipe.knowledge.packet.v1"
-    assert captured["codex_farm_knowledge_context_blocks"] == 42
-
 
 def test_stage_direct_call_uses_plain_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     source_file = tmp_path / "source.txt"

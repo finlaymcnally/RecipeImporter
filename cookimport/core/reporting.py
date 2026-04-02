@@ -52,11 +52,14 @@ def build_authoritative_stage_report(
     return ConversionReport(**payload)
 
 
-def _report_counts_from_result(result: ConversionResult) -> dict[str, int]:
-    non_recipe_blocks = list(result.non_recipe_blocks)
+def _report_counts_from_result(
+    result: ConversionResult,
+    *,
+    standalone_block_count: int = 0,
+) -> dict[str, int]:
     return {
         "totalRecipes": len(result.recipes),
-        "totalStandaloneBlocks": len(non_recipe_blocks),
+        "totalStandaloneBlocks": int(standalone_block_count),
     }
 
 
@@ -64,9 +67,13 @@ def finalize_report_totals(
     report: ConversionReport,
     result: ConversionResult,
     *,
+    standalone_block_count: int = 0,
     diagnostics_path: Path | None = None,
 ) -> dict[str, Any] | None:
-    expected = _report_counts_from_result(result)
+    expected = _report_counts_from_result(
+        result,
+        standalone_block_count=standalone_block_count,
+    )
     current = {
         field_alias: int(getattr(report, attr_name, 0) or 0)
         for field_alias, attr_name in _REPORT_TOTAL_FIELD_TO_ATTR
@@ -255,6 +262,7 @@ def enrich_report_with_stats(
     result: ConversionResult,
     source_path: Path,
     *,
+    standalone_block_count: int = 0,
     count_diagnostics_path: Path | None = None,
 ) -> dict[str, Any] | None:
     report.source_file = str(source_path)
@@ -294,5 +302,6 @@ def enrich_report_with_stats(
     return finalize_report_totals(
         report,
         result,
+        standalone_block_count=standalone_block_count,
         diagnostics_path=count_diagnostics_path,
     )

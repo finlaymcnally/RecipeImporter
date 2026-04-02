@@ -26,7 +26,7 @@ from cookimport.config.run_settings_contracts import (
     project_run_config_payload,
 )
 from cookimport.config.run_settings import (
-    CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1,
+    CODEX_EXEC_STYLE_INLINE_JSON_V1,
     CODEX_EXEC_STYLE_TASKFILE_V1,
     KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
     LINE_ROLE_PIPELINE_ROUTE_V2,
@@ -70,7 +70,7 @@ _CODEX_SURFACE_PROMPT_TARGET_FIELDS: dict[str, tuple[str, str]] = {
 }
 _CODEX_EXEC_STYLE_LABELS: dict[str, str] = {
     CODEX_EXEC_STYLE_TASKFILE_V1: "Taskfile workers",
-    CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1: "Structured resume",
+    CODEX_EXEC_STYLE_INLINE_JSON_V1: "Inline JSON",
 }
 INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST = (
     "saltfatacidheatcutdown_fast_codex_exec"
@@ -629,7 +629,7 @@ def _choose_interactive_codex_exec_style(
             "This choice applies only to block labelling and non-recipe finalize.\n"
             "Recipe correction stays on the current taskfile worker contract.\n"
             "Taskfile workers keep the existing editable `task.json` path.\n"
-            "Structured resume uses inline packets plus `codex exec resume --last` repair/grouping turns."
+            "Inline JSON uses immutable inline payloads plus `codex exec resume --last` repair/grouping turns."
         ),
         default=default_style,
         choices=[
@@ -638,8 +638,8 @@ def _choose_interactive_codex_exec_style(
                 value=CODEX_EXEC_STYLE_TASKFILE_V1,
             ),
             questionary.Choice(
-                _CODEX_EXEC_STYLE_LABELS[CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1],
-                value=CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1,
+                _CODEX_EXEC_STYLE_LABELS[CODEX_EXEC_STYLE_INLINE_JSON_V1],
+                value=CODEX_EXEC_STYLE_INLINE_JSON_V1,
             ),
         ],
     )

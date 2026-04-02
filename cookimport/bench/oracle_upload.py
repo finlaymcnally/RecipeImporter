@@ -372,8 +372,6 @@ def _current_profile_prompt_template(
 def _missing_bundle_files(bundle_dir: Path) -> list[str]:
     if _bundle_has_lane_layout(bundle_dir):
         return []
-    if _bundle_has_legacy_layout(bundle_dir):
-        return []
     missing: list[str] = []
     for review_dir_name in BENCHMARK_UPLOAD_BUNDLE_REVIEW_DIR_NAMES:
         review_dir = bundle_dir / review_dir_name
@@ -394,10 +392,6 @@ def oracle_upload_runs_dir(bundle_dir: Path) -> Path:
     return bundle_dir.parent / ORACLE_UPLOAD_RUNS_DIR_NAME
 
 
-def _legacy_oracle_upload_runs_dir(bundle_dir: Path) -> Path:
-    return bundle_dir / ORACLE_UPLOAD_RUNS_DIR_NAME
-
-
 def _bundle_has_lane_layout(bundle_dir: Path) -> bool:
     for review_dir_name in BENCHMARK_UPLOAD_BUNDLE_REVIEW_DIR_NAMES:
         review_dir = bundle_dir / review_dir_name
@@ -409,30 +403,12 @@ def _bundle_has_lane_layout(bundle_dir: Path) -> bool:
     return True
 
 
-def _bundle_has_legacy_layout(bundle_dir: Path) -> bool:
-    return all((bundle_dir / file_name).is_file() for file_name in LEGACY_BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES)
-
-
-def _legacy_bundle_file_path(bundle_dir: Path, file_name: str) -> Path:
-    legacy_map = {
-        BENCHMARK_UPLOAD_BUNDLE_OVERVIEW_FILE_NAME: "upload_bundle_overview.md",
-        BENCHMARK_UPLOAD_BUNDLE_INDEX_FILE_NAME: "upload_bundle_index.json",
-        BENCHMARK_UPLOAD_BUNDLE_PAYLOAD_FILE_NAME: "upload_bundle_payload.jsonl",
-    }
-    return bundle_dir / legacy_map[file_name]
-
-
 def oracle_benchmark_review_packet_file(
     bundle_dir: Path,
     review_profile: str | None,
     file_name: str,
 ) -> Path:
-    lane_path = oracle_benchmark_review_packet_dir(bundle_dir, review_profile) / file_name
-    if lane_path.is_file():
-        return lane_path
-    if _bundle_has_legacy_layout(bundle_dir):
-        return _legacy_bundle_file_path(bundle_dir, file_name)
-    return lane_path
+    return oracle_benchmark_review_packet_dir(bundle_dir, review_profile) / file_name
 
 
 def resolve_oracle_benchmark_bundle(path: Path) -> OracleBenchmarkBundleTarget:

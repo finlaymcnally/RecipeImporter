@@ -24,7 +24,6 @@ def test_writer_uses_schemaorg_and_draft_overrides(tmp_path: Path) -> None:
                 provenance={"location": {"start_block": 0, "end_block": 2}},
             )
         ],
-        nonRecipeBlocks=[],
         rawArtifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -78,7 +77,6 @@ def test_writer_uses_authoritative_recipe_payloads_before_candidate_rebuild(tmp_
                 provenance={"location": {"start_block": 0, "end_block": 2}},
             )
         ],
-        nonRecipeBlocks=[],
         rawArtifacts=[],
         report=ConversionReport(),
         workbook="book",

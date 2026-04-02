@@ -106,13 +106,6 @@ def _offset_result_block_indices(result: ConversionResult, offset: int) -> None:
         if isinstance(recipe.provenance, dict):
             _offset_provenance_block_indices(recipe.provenance, offset)
 
-    for block in result.non_recipe_blocks:
-        if isinstance(block, dict):
-            _offset_mapping_int(block, "index", offset)
-            location = block.get("location")
-            if isinstance(location, dict):
-                _offset_location_fields(location, offset)
-
     for artifact in result.raw_artifacts:
         content = artifact.content
         if not isinstance(content, dict):
@@ -175,13 +168,6 @@ def _extract_result_block_count(result: ConversionResult) -> int:
         if end is not None:
             max_block_index = max(max_block_index, end)
 
-    for block in result.non_recipe_blocks:
-        if not isinstance(block, dict):
-            continue
-        index = _coerce_int(block.get("index"))
-        if index is not None:
-            max_block_index = max(max_block_index, index)
-
     return max_block_index + 1 if max_block_index >= 0 else 0
 
 def _merge_parallel_results(
@@ -215,12 +201,11 @@ def _merge_parallel_results(
         recipes=[],
         source_blocks=normalize_source_blocks(merged_source_blocks),
         source_support=list(merged_source_support),
-        non_recipe_blocks=[],
         raw_artifacts=merged_raw_artifacts,
         report=report,
         workbook=path.stem,
         workbook_path=str(path),
     )
-    finalize_report_totals(report, merged_result)
+    finalize_report_totals(report, merged_result, standalone_block_count=0)
 
     return merged_result

@@ -214,6 +214,7 @@ class LabelFirstStageResult(BaseModel):
     recipe_spans: list[RecipeSpan] = Field(default_factory=list)
     span_decisions: list[RecipeSpanDecision] = Field(default_factory=list)
     non_recipe_lines: list[AuthoritativeLabeledLine] = Field(default_factory=list)
+    outside_recipe_blocks: list[dict[str, Any]] = Field(default_factory=list)
     updated_conversion_result: ConversionResult
     archive_blocks: list[dict[str, Any]] = Field(default_factory=list)
     source_hash: str | None = None
@@ -456,7 +457,6 @@ def build_conversion_result_from_label_spans(
         source_blocks=list(original_result.source_blocks),
         source_support=list(original_result.source_support),
         chunks=[],
-        non_recipe_blocks=non_recipe_blocks,
         raw_artifacts=list(original_result.raw_artifacts),
         report=report,
         workbook=original_result.workbook,
@@ -468,6 +468,7 @@ def build_conversion_result_from_label_spans(
         recipe_spans=accepted_recipe_spans,
         span_decisions=updated_span_decisions,
         non_recipe_lines=non_recipe_lines,
+        outside_recipe_blocks=non_recipe_blocks,
         updated_conversion_result=updated_result,
         archive_blocks=[dict(block) for block in ordered_blocks],
         source_hash=source_hash,

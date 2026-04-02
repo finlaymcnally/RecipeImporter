@@ -119,8 +119,8 @@ def test_source_support_does_not_create_recipe_authority(tmp_path: Path) -> None
     )
 
     assert stage_result.updated_conversion_result.recipes == []
-    assert [row["index"] for row in stage_result.updated_conversion_result.non_recipe_blocks] == [0]
-    assert stage_result.updated_conversion_result.non_recipe_blocks[0]["text"] == "Technique note"
+    assert [row["index"] for row in stage_result.outside_recipe_blocks] == [0]
+    assert stage_result.outside_recipe_blocks[0]["text"] == "Technique note"
 
 
 def test_write_source_model_artifacts_writes_expected_files(tmp_path: Path) -> None:

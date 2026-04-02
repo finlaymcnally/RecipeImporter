@@ -188,7 +188,6 @@ def _make_label_first_result(
                 {"blockId": "b3", "orderIndex": 3, "text": "Whisk batter"},
                 {"blockId": "b4", "orderIndex": 4, "text": "NOTE: Keep warm"},
             ],
-            non_recipe_blocks=[],
             raw_artifacts=raw_artifacts,
             report=ConversionReport(),
             workbook="book",
@@ -240,7 +239,6 @@ def _make_empty_conversion_result(source: Path) -> ConversionResult:
             {"blockId": "b3", "orderIndex": 3, "text": "Mix ingredients."},
             {"blockId": "b4", "orderIndex": 4, "text": "Salt strengthens flavor."},
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
         workbook="book",
@@ -312,7 +310,6 @@ def _make_projection_conversion_result(
             {"blockId": f"b{index}", "orderIndex": index, "text": text}
             for index, text in enumerate(block_texts)
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[
             RawArtifact(
                 importer="fake",

@@ -797,9 +797,6 @@ class ConversionResult(BaseModel):
     source_blocks: list[SourceBlock] = Field(default_factory=list, alias="sourceBlocks")
     source_support: list[SourceSupport] = Field(default_factory=list, alias="sourceSupport")
     chunks: list["KnowledgeChunk"] = Field(default_factory=list)
-    non_recipe_blocks: list[dict[str, Any]] = Field(
-        default_factory=list, alias="nonRecipeBlocks"
-    )
     raw_artifacts: list[RawArtifact] = Field(default_factory=list, alias="rawArtifacts")
     report: ConversionReport
     workbook: str | None = None

@@ -627,12 +627,6 @@ def build_quality_leaderboard(
                 },
             }
 
-    compatibility_passthrough_keys = {
-        "section_detector_backend",
-        "instruction_step_segmentation_policy",
-        "instruction_step_segmenter",
-    }
-
     def compute_winner_settings() -> dict[str, Any] | None:
         if not isinstance(winner, dict):
             return None
@@ -651,11 +645,6 @@ def build_quality_leaderboard(
                     # under run_config.prediction_run_config. Prefer those when available.
                     if isinstance(run_config_payload.get("prediction_run_config"), dict):
                         run_config_payload = dict(run_config_payload["prediction_run_config"])
-                    compatibility_values = {
-                        key: run_config_payload.get(key)
-                        for key in compatibility_passthrough_keys
-                        if key in run_config_payload
-                    }
                     runtime_derived_keys = {
                         "effective_workers",
                         "workers",
@@ -682,15 +671,7 @@ def build_quality_leaderboard(
                             ),
                             warn_context="quality-leaderboard winner",
                         )
-                        winner_settings = run_settings.to_run_config_dict()
-                        winner_settings.update(
-                            {
-                                key: value
-                                for key, value in compatibility_values.items()
-                                if value is not None
-                            }
-                        )
-                        return winner_settings
+                        return run_settings.to_run_config_dict()
                 except Exception:  # noqa: BLE001
                     pass
 

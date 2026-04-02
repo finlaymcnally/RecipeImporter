@@ -272,7 +272,6 @@ class PaprikaImporter:
                 recipes=[],
                 sourceBlocks=normalize_source_blocks(source_blocks),
                 sourceSupport=source_support,
-                nonRecipeBlocks=[],
                 rawArtifacts=raw_artifacts,
                 report=report,
                 workbook=path.stem,

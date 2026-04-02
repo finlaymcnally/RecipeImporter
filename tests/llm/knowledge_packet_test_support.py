@@ -60,10 +60,6 @@ def make_runtime_settings(
 def make_runtime_conversion_result(block_texts: list[str]) -> ConversionResult:
     return ConversionResult(
         recipes=[],
-        nonRecipeBlocks=[
-            {"index": index, "text": text}
-            for index, text in enumerate(block_texts)
-        ],
         rawArtifacts=[
             RawArtifact(
                 importer="text",

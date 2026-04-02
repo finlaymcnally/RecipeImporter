@@ -133,7 +133,6 @@ If you are reading old docs, tests, or artifacts that still imply numbered pass 
 
 - `cookimport` -> main Typer app
 - `cf-debug` -> follow-up/debug CLI for existing benchmark `upload_bundle_v1` bundles
-- `import` and `C3import` -> stage-on-default-input wrappers
 - `C3imp` -> interactive wrapper
 
 `cookimport --help` currently exposes:
@@ -236,7 +235,6 @@ Tables are now always extracted for stage/prediction runs. The old `table_extrac
 cookimport/
 ├── cli.py                    # Main command surface
 ├── c3imp_entrypoint.py       # Interactive wrapper
-├── entrypoint.py             # import / C3import wrapper
 ├── cf_debug_cli.py           # Benchmark follow-up CLI
 ├── cli_worker.py             # Worker-side stage execution
 ├── plugins/                  # Importers and registry

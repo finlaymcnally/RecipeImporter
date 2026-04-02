@@ -32,7 +32,6 @@ def test_run_recipe_refine_stage_applies_llm_recipe_divestments(monkeypatch, tmp
     recipe_id = "urn:recipe:test:toast"
     boundary_conversion = ConversionResult(
         recipes=[_recipe(recipe_id)],
-        nonRecipeBlocks=[],
         rawArtifacts=[],
         report=ConversionReport(),
         workbook="book",

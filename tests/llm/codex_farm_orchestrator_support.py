@@ -92,7 +92,6 @@ def _build_conversion_result(source_path: Path) -> ConversionResult:
                 provenance={"location": {"start_block": 1, "end_block": 5}},
             )
         ],
-        nonRecipeBlocks=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -144,7 +143,6 @@ def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult
                 provenance={"location": {"start_block": 10, "end_block": 13}},
             ),
         ],
-        nonRecipeBlocks=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",

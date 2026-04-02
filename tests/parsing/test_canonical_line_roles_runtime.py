@@ -930,7 +930,7 @@ def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_chang
     assert second[0].label == first[0].label
 
 
-def test_label_atomic_lines_structured_resume_repairs_in_place(tmp_path) -> None:
+def test_label_atomic_lines_inline_json_repairs_in_place(tmp_path) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:0",
@@ -970,7 +970,7 @@ def test_label_atomic_lines_structured_resume_repairs_in_place(tmp_path) -> None
             "codex-line-role-route-v2",
             line_role_prompt_target_count=1,
             line_role_worker_count=1,
-            codex_exec_style="structured-resume-v1",
+            codex_exec_style="inline-json-v1",
         ),
         artifact_root=tmp_path,
         codex_runner=runner,

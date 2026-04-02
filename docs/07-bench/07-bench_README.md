@@ -49,6 +49,7 @@ Active commands:
 - `bench gc`: prune old benchmark artifacts, keep only the newest five Label Studio benchmark runs by default, and wipe timestamped `data/output` run roots while preserving non-run folders
 - `bench pin` / `bench unpin`: add or remove GC keep sentinels
 - `bench oracle-upload`: upload an existing `upload_bundle_v1` to Oracle without rerunning the benchmark; defaults to both review lanes and accepts `--profile quality|token|all`
+- `bench oracle-followup`: build a follow-up packet from an Oracle review and continue the same chat
 
 Interactive benchmark wrap-up behavior:
 

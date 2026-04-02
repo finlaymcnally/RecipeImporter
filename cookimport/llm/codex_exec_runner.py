@@ -40,7 +40,6 @@ from .knowledge_same_session_handoff import (
     KNOWLEDGE_SAME_SESSION_STATE_ENV,
     advance_knowledge_same_session_handoff,
 )
-from .knowledge_tag_catalog import empty_grounding_payload, normalize_knowledge_tag_key
 from .recipe_same_session_handoff import (
     RECIPE_SAME_SESSION_STATE_ENV,
     advance_recipe_same_session_handoff,
@@ -678,12 +677,12 @@ class SubprocessCodexExecRunner:
         if resume_last:
             if prepared_execution_working_dir is None:
                 raise CodexFarmRunnerError(
-                    "Structured resume requires a previously prepared execution workspace."
+                    "Inline JSON requires a previously prepared execution workspace."
                 )
             execution_working_dir = Path(prepared_execution_working_dir).resolve(strict=False)
             if not execution_working_dir.exists():
                 raise CodexFarmRunnerError(
-                    "Structured resume execution workspace is missing: "
+                    "Inline JSON execution workspace is missing: "
                     f"{execution_working_dir}"
                 )
             prepared_workspace = PreparedDirectExecWorkspace(
@@ -1027,217 +1026,57 @@ class FakeCodexExecRunner:
     ) -> dict[str, Any]:
         if stage_key == "recipe_refine":
             hint_payload = dict(evidence.get("hint") or {})
-            legacy_input = {
-                "sid": str(evidence.get("recipe_id") or "task"),
-                "r": [
-                    {
-                        "rid": str(evidence.get("recipe_id") or "recipe"),
-                        "h": {
-                            "n": hint_payload.get("title"),
-                            "i": list(hint_payload.get("ingredients") or []),
-                            "s": list(hint_payload.get("steps") or []),
-                        },
-                        "txt": str(evidence.get("source_text") or ""),
-                        "ev": list(evidence.get("source_rows") or []),
-                    }
-                ],
-            }
-            legacy_output = self.output_builder(legacy_input)
-            recipe_row: dict[str, Any] = {}
-            if isinstance(legacy_output, Mapping):
-                recipe_rows = legacy_output.get("r")
-                if isinstance(recipe_rows, list) and recipe_rows and isinstance(recipe_rows[0], Mapping):
-                    recipe_row = dict(recipe_rows[0])
-                else:
-                    recipe_row = dict(legacy_output)
-            canonical_recipe = recipe_row.get("cr")
-            mapping_rows = recipe_row.get("m")
-            return {
-                "status": str(recipe_row.get("st") or "repaired"),
-                "status_reason": recipe_row.get("sr"),
-                "canonical_recipe": (
-                    {
-                        "title": canonical_recipe.get("t"),
-                        "ingredients": list(canonical_recipe.get("i") or []),
-                        "steps": list(canonical_recipe.get("s") or []),
-                        "description": canonical_recipe.get("d"),
-                        "recipe_yield": canonical_recipe.get("y"),
-                    }
-                    if isinstance(canonical_recipe, Mapping)
-                    else None
-                ),
-                "ingredient_step_mapping": [
-                    {
-                        "ingredient_indexes": [int(mapping_row.get("i"))],
-                        "step_indexes": [
-                            int(value) for value in (mapping_row.get("s") or [])
-                        ],
-                    }
-                    for mapping_row in (mapping_rows or [])
-                    if isinstance(mapping_row, Mapping) and mapping_row.get("i") is not None
-                ],
-                "ingredient_step_mapping_reason": recipe_row.get("mr"),
-                "divested_block_indices": [
-                    int(value)
-                    for value in (recipe_row.get("db") or [])
-                    if str(value).strip()
-                ],
-                "selected_tags": [
-                    str(tag_row.get("l") or "").strip()
-                    for tag_row in (recipe_row.get("g") or [])
-                    if isinstance(tag_row, Mapping) and str(tag_row.get("l") or "").strip()
-                ],
-                "warnings": [
-                    str(value).strip()
-                    for value in (recipe_row.get("w") or [])
-                    if str(value).strip()
-                ],
-            }
+            direct_output = self.output_builder(
+                {
+                    "stage_key": stage_key,
+                    "recipe_id": str(evidence.get("recipe_id") or "recipe"),
+                    "hint": {
+                        "title": hint_payload.get("title"),
+                        "ingredients": list(hint_payload.get("ingredients") or []),
+                        "steps": list(hint_payload.get("steps") or []),
+                    },
+                    "source_text": str(evidence.get("source_text") or ""),
+                    "source_rows": list(evidence.get("source_rows") or []),
+                }
+            )
+            return dict(direct_output) if isinstance(direct_output, Mapping) else {}
         if stage_key in {"nonrecipe_finalize", "nonrecipe_classify"}:
             block_index = int(evidence.get("block_index") or 0)
-            legacy_input = {
-                "packet_id": str(evidence.get("block_id") or f"block-{block_index}"),
-                "blocks": [
-                    {
-                        "block_index": block_index,
-                        "text": str(evidence.get("text") or ""),
-                    }
-                ],
-            }
-            legacy_output = self.output_builder(legacy_input)
-            decision_row: dict[str, Any] = {}
-            if isinstance(legacy_output, Mapping):
-                for row in legacy_output.get("block_decisions") or []:
-                    if (
-                        isinstance(row, Mapping)
-                        and row.get("block_index") is not None
-                        and int(row.get("block_index")) == block_index
-                    ):
-                        decision_row = dict(row)
-                        break
-            category = str(decision_row.get("category") or "knowledge")
-            if stage_key == "nonrecipe_classify":
-                grounding_payload = empty_grounding_payload()
-                if category == "knowledge":
-                    grounding_row = (
-                        dict(decision_row.get("grounding") or {})
-                        if isinstance(decision_row.get("grounding"), Mapping)
-                        else {}
-                    )
-                    candidate_tag_keys = [
+            direct_output = self.output_builder(
+                {
+                    "stage_key": stage_key,
+                    "block_id": str(evidence.get("block_id") or f"block-{block_index}"),
+                    "block_index": block_index,
+                    "text": str(evidence.get("text") or ""),
+                    "candidate_tag_keys": [
                         str(value).strip()
                         for value in (evidence.get("candidate_tag_keys") or [])
                         if str(value).strip()
-                    ]
-                    if grounding_row:
-                        grounding_payload = {
-                            "tag_keys": [
-                                str(value).strip()
-                                for value in (grounding_row.get("tag_keys") or [])
-                                if str(value).strip()
-                            ],
-                            "category_keys": [
-                                str(value).strip()
-                                for value in (grounding_row.get("category_keys") or [])
-                                if str(value).strip()
-                            ],
-                            "proposed_tags": [
-                                {
-                                    "key": str(tag.get("key") or "").strip(),
-                                    "display_name": str(tag.get("display_name") or "").strip(),
-                                    "category_key": str(tag.get("category_key") or "").strip(),
-                                }
-                                for tag in (grounding_row.get("proposed_tags") or [])
-                                if isinstance(tag, Mapping)
-                            ],
-                        }
-                    elif candidate_tag_keys:
-                        grounding_payload = {
-                            "tag_keys": candidate_tag_keys[:1],
-                            "category_keys": [],
-                            "proposed_tags": [],
-                        }
-                    else:
-                        proposed_key = normalize_knowledge_tag_key(
-                            " ".join(str(evidence.get("text") or "").split()[:4])
-                        ) or f"knowledge-{block_index}"
-                        grounding_payload = {
-                            "tag_keys": [],
-                            "category_keys": ["techniques"],
-                            "proposed_tags": [
-                                {
-                                    "key": proposed_key,
-                                    "display_name": f"Knowledge {block_index}",
-                                    "category_key": "techniques",
-                                }
-                            ],
-                        }
-                return {
-                    "category": category,
-                    "grounding": grounding_payload,
+                    ],
                 }
-            group_key = None
-            topic_label = None
-            if category == "knowledge" and isinstance(legacy_output, Mapping):
-                for group in legacy_output.get("idea_groups") or []:
-                    if not isinstance(group, Mapping):
-                        continue
-                    block_indices = [int(value) for value in (group.get("block_indices") or [])]
-                    if block_index in block_indices:
-                        group_key = str(group.get("group_id") or "").strip() or None
-                        topic_label = str(group.get("topic_label") or "").strip() or None
-                        break
-            return {
-                "category": category,
-                "group_key": group_key,
-                "topic_label": topic_label,
-            }
+            )
+            return dict(direct_output) if isinstance(direct_output, Mapping) else {}
         if stage_key == "knowledge_group":
             block_index = int(evidence.get("block_index") or 0)
-            legacy_input = {
-                "packet_id": str(evidence.get("block_id") or f"block-{block_index}"),
-                "blocks": [
-                    {
-                        "block_index": block_index,
-                        "text": str(evidence.get("text") or ""),
-                    }
-                ],
-            }
-            legacy_output = self.output_builder(legacy_input)
-            group_key = None
-            topic_label = None
-            if isinstance(legacy_output, Mapping):
-                for group in legacy_output.get("idea_groups") or []:
-                    if not isinstance(group, Mapping):
-                        continue
-                    block_indices = [int(value) for value in (group.get("block_indices") or [])]
-                    if block_index in block_indices:
-                        group_key = str(group.get("group_id") or "").strip() or None
-                        topic_label = str(group.get("topic_label") or "").strip() or None
-                        break
-            return {
-                "group_key": group_key,
-                "topic_label": topic_label,
-            }
+            direct_output = self.output_builder(
+                {
+                    "stage_key": stage_key,
+                    "block_id": str(evidence.get("block_id") or f"block-{block_index}"),
+                    "block_index": block_index,
+                    "text": str(evidence.get("text") or ""),
+                }
+            )
+            return dict(direct_output) if isinstance(direct_output, Mapping) else {}
         if stage_key == "line_role":
             atomic_index = int(evidence.get("atomic_index") or 0)
-            legacy_output = self.output_builder(
-                {"rows": [[atomic_index, str(evidence.get("text") or "")]]}
+            direct_output = self.output_builder(
+                {
+                    "stage_key": stage_key,
+                    "atomic_index": atomic_index,
+                    "text": str(evidence.get("text") or ""),
+                }
             )
-            row_payload: dict[str, Any] = {}
-            if isinstance(legacy_output, Mapping):
-                for row in legacy_output.get("rows") or []:
-                    if (
-                        isinstance(row, Mapping)
-                        and row.get("atomic_index") is not None
-                        and int(row.get("atomic_index")) == atomic_index
-                    ):
-                        row_payload = dict(row)
-                        break
-            return {
-                "label": str(row_payload.get("label") or "NONRECIPE_CANDIDATE"),
-                "exclusion_reason": row_payload.get("exclusion_reason"),
-            }
+            return dict(direct_output) if isinstance(direct_output, Mapping) else {}
         return {}
 
     def run_packet_worker(

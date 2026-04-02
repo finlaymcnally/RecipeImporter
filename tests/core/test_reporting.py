@@ -20,7 +20,6 @@ def _simple_result() -> ConversionResult:
                 identifier="urn:recipeimport:test:soup",
             )
         ],
-        non_recipe_blocks=[],
         raw_artifacts=[],
         report=ConversionReport(),
     )

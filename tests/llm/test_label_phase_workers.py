@@ -44,6 +44,15 @@ def _candidate(atomic_index: int, *, text: str | None = None) -> AtomicLineCandi
 
 def _line_role_builder(label_by_atomic_index: dict[int, str]):
     def _builder(payload):
+        if (
+            isinstance(payload, dict)
+            and payload.get("stage_key") == "line_role"
+            and payload.get("atomic_index") is not None
+        ):
+            atomic_index = int(payload["atomic_index"])
+            return {
+                "label": label_by_atomic_index.get(atomic_index, "RECIPE_NOTES"),
+            }
         rows = payload.get("rows") if isinstance(payload, dict) else []
         atomic_indices: list[int] = []
         for row in rows:

@@ -42,8 +42,8 @@ from .run_settings_types import (
     CodexFarmFailureMode,
     CodexFarmRecipeMode,
     CodexReasoningEffort,
+    CODEX_EXEC_STYLE_INLINE_JSON_V1,
     CODEX_EXEC_STYLE_TASKFILE_V1,
-    CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1,
     EpubExtractor,
     IngredientMissingUnitPolicy,
     IngredientPackagingMode,
@@ -785,8 +785,8 @@ class RunSettings(BaseModel):
             order=113,
             description=(
                 "Transport style for Codex-backed line-role and non-recipe finalize. "
-                "Taskfile keeps the current editable task.json contract; structured resume "
-                "uses inline packets plus resumed Codex sessions."
+                "Taskfile keeps the current editable task.json contract; inline JSON "
+                "uses immutable inline payloads plus resumed Codex sessions."
             ),
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),

@@ -600,7 +600,6 @@ class EpubImporter:
                 recipes=[],
                 sourceBlocks=source_blocks,
                 sourceSupport=source_support,
-                nonRecipeBlocks=[],
                 rawArtifacts=raw_artifacts,
                 report=report,
                 workbook=path.stem,

@@ -953,7 +953,6 @@ def generate_pred_run_artifacts(
                 full_blocks=authoritative_label_result.archive_blocks,
                 stage_result=nonrecipe_stage_result,
             )
-            result.non_recipe_blocks = list(authority_contract.final_blocks)
     line_role_artifacts: dict[str, Path] | None = None
     line_role_recipe_projection_summary: dict[str, Any] | None = None
     archive_payload_rows: list[dict[str, Any]] | None = None
@@ -1014,7 +1013,6 @@ def generate_pred_run_artifacts(
                 full_blocks=authoritative_label_result.archive_blocks,
                 stage_result=nonrecipe_stage_result,
             )
-            result.non_recipe_blocks = list(authority_contract.final_blocks)
         if (
             run_settings.llm_knowledge_pipeline.value == "off"
             and authority_contract is not None
@@ -1084,7 +1082,6 @@ def generate_pred_run_artifacts(
             full_blocks=authoritative_label_result.archive_blocks,
             stage_result=nonrecipe_stage_result,
         )
-        result.non_recipe_blocks = list(authority_contract.final_blocks)
         if (
             run_settings.llm_knowledge_pipeline.value == "off"
             and authority_contract.late_output_blocks

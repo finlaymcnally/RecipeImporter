@@ -26,7 +26,6 @@ Code verification references:
 - `cookimport/plugins/base.py`
 - `cookimport/plugins/registry.py`
 - `cookimport/core/reporting.py`
-- `cookimport/entrypoint.py`
 - `cookimport/c3imp_entrypoint.py`
 
 ## What This Project Is
@@ -60,7 +59,7 @@ Architecture priorities:
 - recipe-ID reassignment logic lives in `cookimport/staging/pdf_jobs.py`.
 - stage import session now builds the label-first authority seam before drafting: `label_deterministic`, optional `label_refine`, and `recipe_boundary` artifacts are written under the stage run root and drive downstream stage block predictions.
 - when label-first regrouping yields zero recipes, the run explains that outcome through `recipe_boundary/<workbook_slug>/recipe_spans.json` and `span_decisions.json`; stage-backed flows no longer compare against importer recipe candidates.
-- The legacy numbered non-recipe lane now runs through explicit `nonrecipe-route` and `nonrecipe-finalize` runtime results; `ConversionResult.non_recipe_blocks` is repopulated only from final non-recipe authority afterward as a downstream cache.
+- The legacy numbered non-recipe lane now runs through explicit `nonrecipe-route` and `nonrecipe-finalize` runtime results; final authority lives on the stage runtime objects and published non-recipe artifacts rather than on `ConversionResult`.
 
 ### Optional Label Studio lane
 - `cookimport/labelstudio/ingest_flows/prediction_run.py` and `cookimport/labelstudio/ingest_flows/upload.py` can:
@@ -138,14 +137,11 @@ Reason this exists:
 
 Primary entrypoints (`pyproject.toml`):
 - `cookimport = cookimport.cli:app`
-- `import = cookimport.entrypoint:main`
-- `C3import = cookimport.entrypoint:main`
 - `C3imp = cookimport.c3imp_entrypoint:main`
 
 Behavior:
 - `cookimport` with no subcommand starts interactive mode (`@app.callback`, `cookimport/cli.py`).
 - interactive mode includes one-level back navigation via `Esc` key binding (`cookimport/cli.py`) across select and text/confirm/password prompts.
-- `import`/`C3import` wrappers call stage-on-default-input shortcuts when invoked without normal subcommands (`cookimport/entrypoint.py`).
 - `C3imp` wrapper optionally sets `C3IMP_LIMIT` before entering interactive mode (`cookimport/c3imp_entrypoint.py`).
 
 ## Canonical Defaults and Paths

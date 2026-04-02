@@ -220,7 +220,7 @@ def run_recipe_boundary_stage(
         conversion_result=result,
         recipe_ownership_result=recipe_ownership_result,
         recipe_owned_blocks=recipe_owned_blocks,
-        outside_recipe_blocks=list(result.non_recipe_blocks),
+        outside_recipe_blocks=list(label_first_result.outside_recipe_blocks),
     )
 
 

@@ -89,16 +89,5 @@ _ALL_METHOD_RUNTIME_ALLOWED_KEYS = {
     "smart_scheduler",
 }
 _RACE_KEEP_RATIO_SECONDARY = 0.5
-_RUN_SETTINGS_PATCH_COMPAT_KEYS = {
-    "section_detector_backend",
-    "instruction_step_segmentation_policy",
-    "instruction_step_segmenter",
-    "benchmark_sequence_matcher",
-    "multi_recipe_trace",
-    "p6_emit_metadata_debug",
-    "codex_farm_pipeline_knowledge",
-}
-
-
 ProgressCallback = Callable[[str], None]
 ProgressCallback = Callable[[str], None]

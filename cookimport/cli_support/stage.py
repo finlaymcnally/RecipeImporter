@@ -898,14 +898,6 @@ def _offset_result_block_indices(result: ConversionResult, offset: int) -> None:
         if isinstance(location, dict):
             _offset_location_fields(location, offset)
 
-    for block in result.non_recipe_blocks:
-        if not isinstance(block, dict):
-            continue
-        _offset_mapping_int(block, "index", offset)
-        location = block.get("location")
-        if isinstance(location, dict):
-            _offset_location_fields(location, offset)
-
 
 def _load_split_job_full_blocks(job_raw_root: Path) -> list[dict[str, Any]]:
     full_text_paths = sorted(job_raw_root.glob("**/full_text.json"))
@@ -1081,7 +1073,6 @@ def _merge_source_jobs(
         recipes=[],
         source_blocks=resolved_source_blocks,
         source_support=list(merged_source_support),
-        non_recipe_blocks=[],
         raw_artifacts=[],
         report=report,
         workbook=file_path.stem,

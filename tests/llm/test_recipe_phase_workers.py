@@ -41,7 +41,6 @@ def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult
                 provenance={"location": {"start_block": 10, "end_block": 13}},
             ),
         ],
-        nonRecipeBlocks=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -93,7 +92,6 @@ def _build_fragmentary_recipe_conversion_result(source_path: Path) -> Conversion
                 provenance={"location": {"start_block": 5, "end_block": 7}},
             ),
         ],
-        nonRecipeBlocks=[],
         rawArtifacts=[
             RawArtifact(
                 importer="text",
@@ -128,6 +126,61 @@ def _build_recipe_workspace_output(
 ) -> dict[str, object]:
     shard_payload = dict(payload or {})
     statuses = dict(status_by_recipe_id or {})
+    if (
+        shard_payload.get("stage_key") == "recipe_refine"
+        and shard_payload.get("recipe_id") is not None
+    ):
+        recipe_id = str(shard_payload["recipe_id"])
+        recipe_hint = dict(shard_payload.get("hint") or {})
+        repair_status = str(statuses.get(recipe_id) or "repaired")
+        status_reason = None
+        warnings: list[str] = []
+        if repair_status == "fragmentary":
+            status_reason = "recipe evidence exists but the owned text is too incomplete"
+            warnings = ["incomplete_recipe_source"]
+        elif repair_status == "not_a_recipe":
+            status_reason = "owned text is not a recipe"
+        ingredient_count = len(
+            [item for item in recipe_hint.get("ingredients", []) if str(item or "").strip()]
+        )
+        step_count = len(
+            [item for item in recipe_hint.get("steps", []) if str(item or "").strip()]
+        )
+        if repair_status == "fragmentary":
+            mapping_reason = "not_applicable_fragmentary"
+        elif repair_status == "not_a_recipe":
+            mapping_reason = "not_applicable_not_a_recipe"
+        elif step_count <= 1:
+            mapping_reason = "not_needed_single_step"
+        elif ingredient_count <= 1:
+            mapping_reason = "not_needed_single_ingredient"
+        else:
+            mapping_reason = "unclear_alignment"
+        divested_block_indices: list[int] = []
+        if repair_status != "repaired":
+            for row in shard_payload.get("source_rows") or []:
+                if isinstance(row, (list, tuple)) and row:
+                    divested_block_indices.append(int(row[0]))
+        return {
+            "status": repair_status,
+            "status_reason": status_reason,
+            "canonical_recipe": (
+                {
+                    "title": recipe_hint.get("title"),
+                    "ingredients": list(recipe_hint.get("ingredients") or []),
+                    "steps": list(recipe_hint.get("steps") or []),
+                    "description": None,
+                    "recipe_yield": None,
+                }
+                if repair_status == "repaired"
+                else None
+            ),
+            "ingredient_step_mapping": [],
+            "ingredient_step_mapping_reason": mapping_reason,
+            "divested_block_indices": divested_block_indices,
+            "selected_tags": [],
+            "warnings": warnings,
+        }
     recipes = []
     for recipe_payload in shard_payload.get("r") or []:
         recipe_payload = dict(recipe_payload)

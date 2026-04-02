@@ -77,6 +77,11 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
     if pipeline_id == "recipe.correction.compact.v1":
         if not isinstance(payload, dict):
             raise ValueError("recipe correction fake payload must be a JSON object")
+        if (
+            str(payload.get("stage_key") or "").strip() == "recipe_refine"
+            and payload.get("recipe_id") is not None
+        ):
+            return _default_recipe_refine_task_output(payload)
         recipes_payload = payload.get("recipes", payload.get("r"))
         shard_id = payload.get("shard_id", payload.get("sid"))
         if isinstance(recipes_payload, list):
@@ -239,6 +244,48 @@ def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]
         "db": [],
         "g": selected_tags,
         "w": [],
+    }
+
+
+def _default_recipe_refine_task_output(payload: dict[str, Any]) -> dict[str, Any]:
+    recipe_hint = payload.get("hint") or {}
+    if not isinstance(recipe_hint, dict):
+        recipe_hint = {}
+    ingredient_count = len(
+        [item for item in recipe_hint.get("ingredients", []) if str(item or "").strip()]
+    )
+    step_count = len(
+        [item for item in recipe_hint.get("steps", []) if str(item or "").strip()]
+    )
+    if step_count <= 1:
+        mapping_reason = "not_needed_single_step"
+    elif ingredient_count <= 1:
+        mapping_reason = "not_needed_single_ingredient"
+    else:
+        mapping_reason = "unclear_alignment"
+    return {
+        "status": "repaired",
+        "status_reason": None,
+        "canonical_recipe": {
+            "title": recipe_hint.get("title"),
+            "ingredients": list(recipe_hint.get("ingredients") or []),
+            "steps": list(recipe_hint.get("steps") or []),
+            "description": None,
+            "recipe_yield": None,
+        },
+        "ingredient_step_mapping": [],
+        "ingredient_step_mapping_reason": mapping_reason,
+        "divested_block_indices": [],
+        "selected_tags": [
+            {
+                "category": tag.get("c"),
+                "label": tag.get("l"),
+                "confidence": tag.get("f"),
+            }
+            for tag in _select_recipe_tags(payload)
+            if isinstance(tag, dict)
+        ],
+        "warnings": [],
     }
 
 

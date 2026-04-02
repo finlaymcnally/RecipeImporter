@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
 import typer
 
-from cookimport import cli, entrypoint
+from cookimport import cli
 import cookimport.cli_support.progress as cli_progress
 from cookimport.config.codex_decision import (
     apply_benchmark_baseline_contract,
@@ -283,29 +282,3 @@ def test_benchmark_contracts_preserve_selected_atomic_block_splitter() -> None:
     assert codex["atomic_block_splitter"] == "atomic-v1"
     assert baseline_variant["atomic_block_splitter"] == "atomic-v1"
     assert codex_variant["atomic_block_splitter"] == "atomic-v1"
-
-
-def test_import_entrypoint_forwards_allow_codex_flag(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-    monkeypatch.setattr(entrypoint, "_load_settings", lambda: {})
-    monkeypatch.setattr(entrypoint, "DEFAULT_INPUT", Path("/tmp/input"))
-    monkeypatch.setattr(entrypoint, "DEFAULT_OUTPUT", Path("/tmp/output"))
-    monkeypatch.setattr(
-        entrypoint,
-        "build_stage_call_kwargs_from_run_settings",
-        lambda _settings, **kwargs: {"out": kwargs["out"]},
-    )
-    monkeypatch.setattr(
-        entrypoint,
-        "stage",
-        lambda *, path, **kwargs: captured.update({"path": path, **kwargs}),
-    )
-    monkeypatch.setattr(entrypoint, "app", lambda: pytest.fail("app should not run"))
-    monkeypatch.setattr(sys, "argv", ["cookimport-import", "--allow-codex"])
-
-    entrypoint.main()
-
-    assert captured["path"] == Path("/tmp/input")
-    assert captured["allow_codex"] is True

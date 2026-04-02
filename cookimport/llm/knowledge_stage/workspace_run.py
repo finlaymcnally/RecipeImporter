@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from cookimport.config.run_settings import (
-    CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1,
+    CODEX_EXEC_STYLE_INLINE_JSON_V1,
     normalize_codex_exec_style_value,
 )
 from . import _shared as _shared_module
@@ -1459,7 +1459,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
             runner_result=worker_runner_payload,
             metadata={
                 "out_dir": _relative_path(run_root, out_dir),
-                "codex_exec_style": CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1,
+                "codex_exec_style": CODEX_EXEC_STYLE_INLINE_JSON_V1,
             },
         ),
         proposals=tuple(worker_proposals),
@@ -1497,7 +1497,7 @@ def _run_phase_knowledge_worker_assignment_v1(
     requested_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
     if (
         normalize_codex_exec_style_value(settings.get("codex_exec_style"))
-        == CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1
+        == CODEX_EXEC_STYLE_INLINE_JSON_V1
     ):
         return _run_phase_knowledge_structured_worker_assignment_v1(
             run_root=run_root,
