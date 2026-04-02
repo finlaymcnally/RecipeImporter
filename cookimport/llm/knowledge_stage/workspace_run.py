@@ -4,11 +4,16 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from cookimport.config.run_settings import (
+    CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1,
+    normalize_codex_exec_style_value,
+)
 from . import _shared as _shared_module
 from . import planning as _planning_module
 from . import recovery as _recovery_module
 from ..editable_task_file import (
     TASK_FILE_NAME,
+    build_repair_task_file,
     load_task_file,
     validate_edited_task_file,
     write_task_file,
@@ -17,13 +22,22 @@ from ..knowledge_same_session_handoff import (
     KNOWLEDGE_SAME_SESSION_STATE_ENV,
     initialize_knowledge_same_session_state,
 )
+from ..knowledge_tag_catalog import empty_grounding_payload
 from .task_file_contracts import (
     KNOWLEDGE_CLASSIFY_STAGE_KEY,
     KNOWLEDGE_CLASSIFY_SCHEMA_VERSION,
     KNOWLEDGE_GROUP_STAGE_KEY,
+    build_task_file_answer_feedback,
     build_knowledge_classification_task_file,
+    build_knowledge_grouping_task_files,
+    combine_knowledge_task_file_outputs,
     validate_knowledge_classification_task_file,
     validate_knowledge_grouping_task_file,
+)
+from ..structured_session_runtime import (
+    assert_structured_session_can_resume,
+    initialize_structured_session_lineage,
+    record_structured_session_turn,
 )
 from ..task_file_guardrails import (
     build_task_file_guardrail,
@@ -653,6 +667,808 @@ def _build_knowledge_fresh_worker_replacement_prompt(
     )
 
 
+def _knowledge_task_file_to_structured_packet(
+    *,
+    task_file_payload: Mapping[str, Any],
+    packet_kind: str,
+    validation_errors: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    blocks: list[dict[str, Any]] = []
+    for unit in task_file_payload.get("units") or []:
+        if not isinstance(unit, Mapping):
+            continue
+        evidence = _coerce_dict(unit.get("evidence"))
+        block_index = int(evidence.get("block_index") or 0)
+        block_payload: dict[str, Any] = {
+            "i": block_index,
+            "id": str(evidence.get("block_id") or unit.get("owned_id") or block_index),
+            "t": str(evidence.get("text") or ""),
+        }
+        structure = _coerce_dict(evidence.get("structure"))
+        if structure.get("heading_level") is not None:
+            block_payload["hl"] = int(structure.get("heading_level"))
+        if isinstance(structure.get("table_hint"), Mapping):
+            block_payload["th"] = dict(structure.get("table_hint"))
+        blocks.append(block_payload)
+    packet = {
+        "schema_version": "knowledge_structured_packet.v1",
+        "stage_key": str(task_file_payload.get("stage_key") or ""),
+        "packet_kind": str(packet_kind or "initial"),
+        "assignment_id": str(task_file_payload.get("assignment_id") or ""),
+        "worker_id": str(task_file_payload.get("worker_id") or ""),
+        "bid": str(task_file_payload.get("assignment_id") or "knowledge-packet"),
+        "b": blocks,
+    }
+    if isinstance(task_file_payload.get("ontology"), Mapping):
+        packet["ontology"] = dict(task_file_payload.get("ontology") or {})
+    if isinstance(task_file_payload.get("review_contract"), Mapping):
+        packet["review_contract"] = dict(task_file_payload.get("review_contract") or {})
+    if isinstance(task_file_payload.get("grouping_batch"), Mapping):
+        packet["grouping_batch"] = dict(task_file_payload.get("grouping_batch") or {})
+    if validation_errors:
+        packet["validation_errors"] = [
+            str(error).strip() for error in validation_errors if str(error).strip()
+        ]
+    return packet
+
+
+def _build_knowledge_structured_prompt(
+    *,
+    task_file_payload: Mapping[str, Any],
+    packet: Mapping[str, Any],
+) -> str:
+    stage_key = str(task_file_payload.get("stage_key") or "").strip()
+    if stage_key == KNOWLEDGE_GROUP_STAGE_KEY:
+        response_shape = (
+            '{"rows":[{"block_index":12,"group_key":"heat-control","topic_label":"Heat control"}]}'
+        )
+        task_note = (
+            "Group every knowledge block in this packet. Cover each block exactly once.\n"
+            "Blocks with the same idea should share the same `group_key` and `topic_label`.\n"
+        )
+    else:
+        response_shape = (
+            '{"rows":[{"block_index":12,"category":"knowledge","grounding":{"tag_keys":[],"category_keys":["techniques"],"proposed_tags":[{"key":"heat-control","display_name":"Heat control","category_key":"techniques"}]}}]}'
+        )
+        task_note = (
+            "Classify each owned block as `knowledge` or `other` and include `grounding`.\n"
+            "Cover every block in this packet exactly once.\n"
+        )
+    return (
+        "Return JSON only.\n\n"
+        + task_note
+        + "Do not include commentary, markdown, or extra keys.\n"
+        + "Response shape:\n"
+        + response_shape
+        + "\n\nPacket JSON:\n"
+        + json.dumps(dict(packet), indent=2, sort_keys=True)
+        + "\n"
+    )
+
+
+def _blank_grounding_payload() -> dict[str, Any]:
+    return {
+        "tag_keys": [],
+        "category_keys": [],
+        "proposed_tags": [],
+    }
+
+
+def _build_knowledge_edited_task_file_from_classification_response(
+    *,
+    original_task_file: Mapping[str, Any],
+    response_text: str | None,
+) -> tuple[dict[str, Any] | None, tuple[str, ...], dict[str, Any]]:
+    cleaned = str(response_text or "").strip()
+    if not cleaned:
+        return None, ("missing_output_file",), {}
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        return None, ("response_json_invalid",), {"parse_error": str(exc)}
+    if not isinstance(parsed, Mapping):
+        return None, ("response_not_json_object",), {"response_type": type(parsed).__name__}
+    decision_rows = parsed.get("rows")
+    if not isinstance(decision_rows, list):
+        decision_rows = parsed.get("block_decisions")
+    if not isinstance(decision_rows, list):
+        return None, ("rows_missing_or_not_a_list",), {}
+    unit_id_by_block_index = {
+        int(_coerce_dict(unit.get("evidence")).get("block_index") or 0): str(unit.get("unit_id") or "").strip()
+        for unit in (original_task_file.get("units") or [])
+        if isinstance(unit, Mapping)
+    }
+    answers_by_unit_id: dict[str, dict[str, Any]] = {}
+    for row in decision_rows:
+        if not isinstance(row, Mapping):
+            return None, ("row_not_a_json_object",), {}
+        if row.get("block_index") is None:
+            return None, ("block_index_missing",), {}
+        block_index = int(row.get("block_index"))
+        unit_id = unit_id_by_block_index.get(block_index)
+        if not unit_id:
+            continue
+        answers_by_unit_id[unit_id] = {
+            "category": str(row.get("category") or "").strip(),
+            "grounding": dict(row.get("grounding") or _blank_grounding_payload()),
+        }
+    edited = dict(original_task_file)
+    edited["units"] = []
+    for unit in original_task_file.get("units") or []:
+        if not isinstance(unit, Mapping):
+            continue
+        unit_dict = dict(unit)
+        unit_id = str(unit_dict.get("unit_id") or "").strip()
+        if unit_id in answers_by_unit_id:
+            unit_dict["answer"] = answers_by_unit_id[unit_id]
+        edited["units"].append(unit_dict)
+    return edited, (), {}
+
+
+def _build_knowledge_edited_task_file_from_grouping_response(
+    *,
+    original_task_file: Mapping[str, Any],
+    response_text: str | None,
+) -> tuple[dict[str, Any] | None, tuple[str, ...], dict[str, Any]]:
+    cleaned = str(response_text or "").strip()
+    if not cleaned:
+        return None, ("missing_output_file",), {}
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        return None, ("response_json_invalid",), {"parse_error": str(exc)}
+    if not isinstance(parsed, Mapping):
+        return None, ("response_not_json_object",), {"response_type": type(parsed).__name__}
+    rows = parsed.get("rows")
+    answers_by_block_index: dict[int, dict[str, Any]] = {}
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, Mapping):
+                return None, ("row_not_a_json_object",), {}
+            if row.get("block_index") is None:
+                return None, ("block_index_missing",), {}
+            answers_by_block_index[int(row.get("block_index"))] = {
+                "group_key": str(row.get("group_key") or "").strip(),
+                "topic_label": str(row.get("topic_label") or "").strip(),
+            }
+    elif isinstance(parsed.get("idea_groups"), list):
+        for group in parsed.get("idea_groups") or []:
+            if not isinstance(group, Mapping):
+                continue
+            group_key = str(group.get("group_id") or group.get("group_key") or "").strip()
+            topic_label = str(group.get("topic_label") or "").strip()
+            for block_index in group.get("block_indices") or []:
+                try:
+                    normalized_block_index = int(block_index)
+                except (TypeError, ValueError):
+                    continue
+                answers_by_block_index[normalized_block_index] = {
+                    "group_key": group_key,
+                    "topic_label": topic_label,
+                }
+    else:
+        return None, ("rows_missing_or_not_a_list",), {}
+    edited = dict(original_task_file)
+    edited["units"] = []
+    for unit in original_task_file.get("units") or []:
+        if not isinstance(unit, Mapping):
+            continue
+        unit_dict = dict(unit)
+        evidence = _coerce_dict(unit_dict.get("evidence"))
+        block_index = int(evidence.get("block_index") or 0)
+        if block_index in answers_by_block_index:
+            unit_dict["answer"] = answers_by_block_index[block_index]
+        edited["units"].append(unit_dict)
+    return edited, (), {}
+
+
+def _knowledge_failed_unit_ids(
+    *,
+    task_file_payload: Mapping[str, Any],
+    validation_metadata: Mapping[str, Any],
+) -> list[str]:
+    failed_unit_ids = [
+        str(unit_id).strip()
+        for unit_id in (validation_metadata.get("failed_unit_ids") or [])
+        if str(unit_id).strip()
+    ]
+    if failed_unit_ids:
+        return failed_unit_ids
+    return [
+        str(unit.get("unit_id") or "").strip()
+        for unit in (task_file_payload.get("units") or [])
+        if isinstance(unit, Mapping) and str(unit.get("unit_id") or "").strip()
+    ]
+
+
+def _knowledge_merge_answers(
+    existing: Mapping[str, Mapping[str, Any]] | None,
+    new_answers: Mapping[str, Mapping[str, Any]] | None,
+) -> dict[str, dict[str, Any]]:
+    merged = {
+        str(unit_id): dict(answer)
+        for unit_id, answer in dict(existing or {}).items()
+        if str(unit_id).strip() and isinstance(answer, Mapping)
+    }
+    for unit_id, answer in dict(new_answers or {}).items():
+        if not str(unit_id).strip() or not isinstance(answer, Mapping):
+            continue
+        merged[str(unit_id)] = dict(answer)
+    return merged
+
+
+def _apply_answers_to_task_file(
+    *,
+    original_task_file: Mapping[str, Any],
+    answers_by_unit_id: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    edited = dict(original_task_file)
+    edited["units"] = []
+    for unit in original_task_file.get("units") or []:
+        if not isinstance(unit, Mapping):
+            continue
+        unit_dict = dict(unit)
+        unit_id = str(unit_dict.get("unit_id") or "").strip()
+        if unit_id in answers_by_unit_id:
+            unit_dict["answer"] = dict(answers_by_unit_id[unit_id])
+        edited["units"].append(unit_dict)
+    return edited
+
+
+def _run_phase_knowledge_structured_worker_assignment_v1(
+    *,
+    run_root: Path,
+    assignment: WorkerAssignmentV1,
+    artifacts: Mapping[str, str],
+    shard_by_id: Mapping[str, ShardManifestEntryV1],
+    runner: CodexExecRunner,
+    pipeline_id: str,
+    env: Mapping[str, str],
+    model: str | None,
+    reasoning_effort: str | None,
+    settings: Mapping[str, Any],
+    shard_completed_callback: Callable[..., None] | None,
+    progress_state: _KnowledgePhaseProgressState | None,
+) -> _DirectKnowledgeWorkerResult:
+    worker_root = Path(assignment.workspace_root)
+    out_dir = worker_root / "out"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    shard_dir = worker_root / "shards"
+    shard_dir.mkdir(parents=True, exist_ok=True)
+
+    worker_failure_count = 0
+    worker_proposal_count = 0
+    worker_failures: list[dict[str, Any]] = []
+    worker_proposals: list[ShardProposalV1] = []
+    worker_runner_results: list[dict[str, Any]] = []
+    stage_rows: list[dict[str, Any]] = []
+    requested_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
+
+    for shard in requested_shards:
+        preflight_failure = _preflight_knowledge_shard(shard)
+        if preflight_failure is not None:
+            reason_code = str(preflight_failure.get("reason_code") or "preflight_rejected")
+            proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
+            _write_json(
+                {
+                    "shard_id": shard.shard_id,
+                    "worker_id": assignment.worker_id,
+                    "payload": None,
+                    "validation_errors": [reason_code],
+                    "validation_metadata": {},
+                },
+                proposal_path,
+            )
+            worker_failure_count += 1
+            worker_failures.append(
+                {
+                    "worker_id": assignment.worker_id,
+                    "shard_id": shard.shard_id,
+                    "reason": "preflight_rejected",
+                    "validation_errors": [reason_code],
+                }
+            )
+            worker_proposals.append(
+                ShardProposalV1(
+                    shard_id=shard.shard_id,
+                    worker_id=assignment.worker_id,
+                    status="preflight_rejected",
+                    proposal_path=_relative_path(run_root, proposal_path),
+                    payload=None,
+                    validation_errors=(reason_code,),
+                    metadata={},
+                )
+            )
+            continue
+
+        session_root = shard_dir / shard.shard_id / "structured_session"
+        session_root.mkdir(parents=True, exist_ok=True)
+        classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+            assignment=assignment,
+            shards=[shard],
+            knowledge_group_task_max_units=int(
+                settings.get("knowledge_group_task_max_units") or 40
+            ),
+            knowledge_group_task_max_evidence_chars=int(
+                settings.get("knowledge_group_task_max_evidence_chars") or 12000
+            ),
+        )
+        classification_packet = _knowledge_task_file_to_structured_packet(
+            task_file_payload=classification_task_file,
+            packet_kind="classification_initial",
+        )
+        classification_prompt = _build_knowledge_structured_prompt(
+            task_file_payload=classification_task_file,
+            packet=classification_packet,
+        )
+        classification_packet_path = session_root / "classification_initial_packet.json"
+        classification_prompt_path = session_root / "classification_initial_prompt.txt"
+        classification_response_path = session_root / "classification_initial_response.json"
+        classification_events_path = session_root / "classification_initial_events.jsonl"
+        classification_last_message_path = session_root / "classification_initial_last_message.json"
+        classification_usage_path = session_root / "classification_initial_usage.json"
+        classification_workspace_manifest_path = (
+            session_root / "classification_initial_workspace_manifest.json"
+        )
+        classification_packet_path.write_text(
+            json.dumps(classification_packet, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        classification_prompt_path.write_text(classification_prompt, encoding="utf-8")
+        initial_run_result = runner.run_packet_worker(
+            prompt_text=classification_prompt,
+            input_payload=classification_packet,
+            working_dir=session_root,
+            env=env,
+            output_schema_path=None,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            persist_session=True,
+            workspace_task_label="knowledge structured classification session",
+        )
+        execution_workspace = Path(initial_run_result.execution_working_dir or session_root)
+        initialize_structured_session_lineage(
+            worker_root=session_root,
+            assignment_id=f"{assignment.worker_id}:{shard.shard_id}",
+            execution_working_dir=execution_workspace,
+        )
+        classification_response_path.write_text(
+            str(initial_run_result.response_text or ""),
+            encoding="utf-8",
+        )
+        classification_events_path.write_text(
+            _render_events_jsonl(initial_run_result.events),
+            encoding="utf-8",
+        )
+        _write_json(
+            {"text": initial_run_result.response_text},
+            classification_last_message_path,
+        )
+        _write_json(dict(initial_run_result.usage or {}), classification_usage_path)
+        _write_json(
+            initial_run_result.workspace_manifest(),
+            classification_workspace_manifest_path,
+        )
+        record_structured_session_turn(
+            worker_root=session_root,
+            execution_working_dir=execution_workspace,
+            turn_kind="classification_initial",
+            packet_path=classification_packet_path,
+            prompt_path=classification_prompt_path,
+            response_path=classification_response_path,
+        )
+        worker_runner_results.append(
+            _build_knowledge_inline_attempt_runner_payload(
+                pipeline_id=pipeline_id,
+                worker_id=assignment.worker_id,
+                shard_id=shard.shard_id,
+                run_result=initial_run_result,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                prompt_input_mode="structured_session_classification_initial",
+                events_path=classification_events_path,
+                last_message_path=classification_last_message_path,
+                usage_path=classification_usage_path,
+                workspace_manifest_path=classification_workspace_manifest_path,
+            )
+        )
+
+        edited_classification_task_file, parse_errors, parse_metadata = (
+            _build_knowledge_edited_task_file_from_classification_response(
+                original_task_file=classification_task_file,
+                response_text=initial_run_result.response_text,
+            )
+        )
+        classification_answers_by_unit_id: dict[str, dict[str, Any]] = {}
+        classification_validation_errors: tuple[str, ...] = ()
+        classification_validation_metadata: dict[str, Any] = {}
+        if edited_classification_task_file is None:
+            classification_validation_errors = tuple(parse_errors)
+            classification_validation_metadata = dict(parse_metadata)
+        else:
+            (
+                answers_by_unit_id,
+                validation_errors,
+                validation_metadata,
+            ) = validate_knowledge_classification_task_file(
+                original_task_file=classification_task_file,
+                edited_task_file=edited_classification_task_file,
+            )
+            classification_answers_by_unit_id = _knowledge_merge_answers(
+                {},
+                dict(validation_metadata.get("validated_answers_by_unit_id") or {}),
+            )
+            classification_answers_by_unit_id = _knowledge_merge_answers(
+                classification_answers_by_unit_id,
+                answers_by_unit_id,
+            )
+            classification_validation_errors = tuple(validation_errors)
+            classification_validation_metadata = dict(validation_metadata)
+
+        if classification_validation_errors or classification_validation_metadata.get("error_details"):
+            repair_task_file = build_repair_task_file(
+                original_task_file=classification_task_file,
+                failed_unit_ids=_knowledge_failed_unit_ids(
+                    task_file_payload=classification_task_file,
+                    validation_metadata=classification_validation_metadata,
+                ),
+                previous_answers_by_unit_id=classification_answers_by_unit_id,
+                validation_feedback_by_unit_id=build_task_file_answer_feedback(
+                    validation_errors=classification_validation_errors,
+                    validation_metadata=classification_validation_metadata,
+                ),
+            )
+            repair_packet = _knowledge_task_file_to_structured_packet(
+                task_file_payload=repair_task_file,
+                packet_kind="classification_repair",
+                validation_errors=classification_validation_errors,
+            )
+            repair_prompt = _build_knowledge_structured_prompt(
+                task_file_payload=repair_task_file,
+                packet=repair_packet,
+            )
+            repair_packet_path = session_root / "classification_repair_packet_01.json"
+            repair_prompt_path = session_root / "classification_repair_prompt_01.txt"
+            repair_response_path = session_root / "classification_repair_response_01.json"
+            repair_events_path = session_root / "classification_repair_events_01.jsonl"
+            repair_last_message_path = session_root / "classification_repair_last_message_01.json"
+            repair_usage_path = session_root / "classification_repair_usage_01.json"
+            repair_workspace_manifest_path = (
+                session_root / "classification_repair_workspace_manifest_01.json"
+            )
+            repair_packet_path.write_text(
+                json.dumps(repair_packet, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            repair_prompt_path.write_text(repair_prompt, encoding="utf-8")
+            assert_structured_session_can_resume(
+                worker_root=session_root,
+                execution_working_dir=execution_workspace,
+            )
+            repair_run_result = runner.run_packet_worker(
+                prompt_text=repair_prompt,
+                input_payload=repair_packet,
+                working_dir=session_root,
+                env=env,
+                output_schema_path=None,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                resume_last=True,
+                prepared_execution_working_dir=execution_workspace,
+                workspace_task_label="knowledge structured classification repair session",
+            )
+            repair_response_path.write_text(
+                str(repair_run_result.response_text or ""),
+                encoding="utf-8",
+            )
+            repair_events_path.write_text(
+                _render_events_jsonl(repair_run_result.events),
+                encoding="utf-8",
+            )
+            _write_json({"text": repair_run_result.response_text}, repair_last_message_path)
+            _write_json(dict(repair_run_result.usage or {}), repair_usage_path)
+            _write_json(
+                repair_run_result.workspace_manifest(),
+                repair_workspace_manifest_path,
+            )
+            record_structured_session_turn(
+                worker_root=session_root,
+                execution_working_dir=execution_workspace,
+                turn_kind="classification_repair",
+                packet_path=repair_packet_path,
+                prompt_path=repair_prompt_path,
+                response_path=repair_response_path,
+            )
+            worker_runner_results.append(
+                _build_knowledge_inline_attempt_runner_payload(
+                    pipeline_id=pipeline_id,
+                    worker_id=assignment.worker_id,
+                    shard_id=shard.shard_id,
+                    run_result=repair_run_result,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    prompt_input_mode="structured_session_classification_repair",
+                    events_path=repair_events_path,
+                    last_message_path=repair_last_message_path,
+                    usage_path=repair_usage_path,
+                    workspace_manifest_path=repair_workspace_manifest_path,
+                )
+            )
+            repair_edited_task_file, repair_parse_errors, repair_parse_metadata = (
+                _build_knowledge_edited_task_file_from_classification_response(
+                    original_task_file=repair_task_file,
+                    response_text=repair_run_result.response_text,
+                )
+            )
+            if repair_edited_task_file is None:
+                classification_validation_errors = tuple(repair_parse_errors)
+                classification_validation_metadata = dict(repair_parse_metadata)
+            else:
+                (
+                    repair_answers_by_unit_id,
+                    _repair_errors,
+                    repair_validation_metadata,
+                ) = validate_knowledge_classification_task_file(
+                    original_task_file=repair_task_file,
+                    edited_task_file=repair_edited_task_file,
+                )
+                classification_answers_by_unit_id = _knowledge_merge_answers(
+                    classification_answers_by_unit_id,
+                    dict(repair_validation_metadata.get("validated_answers_by_unit_id") or {}),
+                )
+                classification_answers_by_unit_id = _knowledge_merge_answers(
+                    classification_answers_by_unit_id,
+                    repair_answers_by_unit_id,
+                )
+                final_classification_task_file = _apply_answers_to_task_file(
+                    original_task_file=classification_task_file,
+                    answers_by_unit_id=classification_answers_by_unit_id,
+                )
+                (
+                    _final_answers,
+                    classification_validation_errors,
+                    classification_validation_metadata,
+                ) = validate_knowledge_classification_task_file(
+                    original_task_file=classification_task_file,
+                    edited_task_file=final_classification_task_file,
+                )
+                classification_answers_by_unit_id = _knowledge_merge_answers(
+                    classification_answers_by_unit_id,
+                    dict(
+                        classification_validation_metadata.get("validated_answers_by_unit_id") or {}
+                    ),
+                )
+
+        if classification_validation_errors or classification_validation_metadata.get("error_details"):
+            worker_failure_count += 1
+            worker_failures.append(
+                {
+                    "worker_id": assignment.worker_id,
+                    "shard_id": shard.shard_id,
+                    "reason": "classification_validation_failed",
+                    "validation_errors": list(classification_validation_errors),
+                }
+            )
+            proposal_payload = None
+            proposal_status = "invalid"
+            proposal_metadata = dict(classification_validation_metadata)
+            proposal_errors = tuple(classification_validation_errors)
+        else:
+            grouping_answers_by_unit_id: dict[str, dict[str, Any]] = {}
+            grouping_task_files, _grouping_unit_to_shard_id, _grouping_batches = (
+                build_knowledge_grouping_task_files(
+                    assignment_id=str(classification_task_file.get("assignment_id") or ""),
+                    worker_id=str(classification_task_file.get("worker_id") or ""),
+                    classification_task_file=classification_task_file,
+                    classification_answers_by_unit_id=classification_answers_by_unit_id,
+                    unit_to_shard_id=unit_to_shard_id,
+                    max_units_per_batch=int(
+                        settings.get("knowledge_group_task_max_units") or 40
+                    ),
+                    max_evidence_chars_per_batch=int(
+                        settings.get("knowledge_group_task_max_evidence_chars") or 12000
+                    ),
+                )
+            )
+            grouping_failed = False
+            for batch_index, grouping_task_file in enumerate(grouping_task_files, start=1):
+                grouping_packet = _knowledge_task_file_to_structured_packet(
+                    task_file_payload=grouping_task_file,
+                    packet_kind=f"grouping_{batch_index}",
+                )
+                grouping_prompt = _build_knowledge_structured_prompt(
+                    task_file_payload=grouping_task_file,
+                    packet=grouping_packet,
+                )
+                grouping_packet_path = session_root / f"grouping_packet_{batch_index:02d}.json"
+                grouping_prompt_path = session_root / f"grouping_prompt_{batch_index:02d}.txt"
+                grouping_response_path = session_root / f"grouping_response_{batch_index:02d}.json"
+                grouping_events_path = session_root / f"grouping_events_{batch_index:02d}.jsonl"
+                grouping_last_message_path = session_root / f"grouping_last_message_{batch_index:02d}.json"
+                grouping_usage_path = session_root / f"grouping_usage_{batch_index:02d}.json"
+                grouping_workspace_manifest_path = (
+                    session_root / f"grouping_workspace_manifest_{batch_index:02d}.json"
+                )
+                grouping_packet_path.write_text(
+                    json.dumps(grouping_packet, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                grouping_prompt_path.write_text(grouping_prompt, encoding="utf-8")
+                assert_structured_session_can_resume(
+                    worker_root=session_root,
+                    execution_working_dir=execution_workspace,
+                )
+                grouping_run_result = runner.run_packet_worker(
+                    prompt_text=grouping_prompt,
+                    input_payload=grouping_packet,
+                    working_dir=session_root,
+                    env=env,
+                    output_schema_path=None,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    resume_last=True,
+                    prepared_execution_working_dir=execution_workspace,
+                    workspace_task_label="knowledge structured grouping session",
+                )
+                grouping_response_path.write_text(
+                    str(grouping_run_result.response_text or ""),
+                    encoding="utf-8",
+                )
+                grouping_events_path.write_text(
+                    _render_events_jsonl(grouping_run_result.events),
+                    encoding="utf-8",
+                )
+                _write_json({"text": grouping_run_result.response_text}, grouping_last_message_path)
+                _write_json(dict(grouping_run_result.usage or {}), grouping_usage_path)
+                _write_json(
+                    grouping_run_result.workspace_manifest(),
+                    grouping_workspace_manifest_path,
+                )
+                record_structured_session_turn(
+                    worker_root=session_root,
+                    execution_working_dir=execution_workspace,
+                    turn_kind=f"grouping_{batch_index}",
+                    packet_path=grouping_packet_path,
+                    prompt_path=grouping_prompt_path,
+                    response_path=grouping_response_path,
+                )
+                worker_runner_results.append(
+                    _build_knowledge_inline_attempt_runner_payload(
+                        pipeline_id=pipeline_id,
+                        worker_id=assignment.worker_id,
+                        shard_id=shard.shard_id,
+                        run_result=grouping_run_result,
+                        model=model,
+                        reasoning_effort=reasoning_effort,
+                        prompt_input_mode="structured_session_grouping",
+                        events_path=grouping_events_path,
+                        last_message_path=grouping_last_message_path,
+                        usage_path=grouping_usage_path,
+                        workspace_manifest_path=grouping_workspace_manifest_path,
+                    )
+                )
+                grouping_edited_task_file, grouping_parse_errors, grouping_parse_metadata = (
+                    _build_knowledge_edited_task_file_from_grouping_response(
+                        original_task_file=grouping_task_file,
+                        response_text=grouping_run_result.response_text,
+                    )
+                )
+                if grouping_edited_task_file is None:
+                    grouping_validation_errors = tuple(grouping_parse_errors)
+                    grouping_validation_metadata = dict(grouping_parse_metadata)
+                else:
+                    (
+                        grouping_batch_answers_by_unit_id,
+                        grouping_validation_errors,
+                        grouping_validation_metadata,
+                    ) = validate_knowledge_grouping_task_file(
+                        original_task_file=grouping_task_file,
+                        edited_task_file=grouping_edited_task_file,
+                    )
+                    grouping_answers_by_unit_id = _knowledge_merge_answers(
+                        grouping_answers_by_unit_id,
+                        dict(
+                            grouping_validation_metadata.get("validated_answers_by_unit_id") or {}
+                        ),
+                    )
+                    grouping_answers_by_unit_id = _knowledge_merge_answers(
+                        grouping_answers_by_unit_id,
+                        grouping_batch_answers_by_unit_id,
+                    )
+                if grouping_validation_errors or grouping_validation_metadata.get("error_details"):
+                    grouping_failed = True
+                    proposal_payload = None
+                    proposal_status = "invalid"
+                    proposal_metadata = dict(grouping_validation_metadata)
+                    proposal_errors = tuple(grouping_validation_errors)
+                    break
+            if not grouping_failed:
+                proposal_payload = combine_knowledge_task_file_outputs(
+                    classification_task_file=classification_task_file,
+                    classification_answers_by_unit_id=classification_answers_by_unit_id,
+                    grouping_answers_by_unit_id=grouping_answers_by_unit_id,
+                    unit_to_shard_id=unit_to_shard_id,
+                ).get(shard.shard_id)
+                proposal_status = "validated" if proposal_payload is not None else "invalid"
+                proposal_metadata = dict(classification_validation_metadata)
+                proposal_errors = ()
+
+        proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
+        _write_json(
+            {
+                "shard_id": shard.shard_id,
+                "worker_id": assignment.worker_id,
+                "payload": proposal_payload,
+                "validation_errors": list(proposal_errors),
+                "validation_metadata": proposal_metadata,
+            },
+            proposal_path,
+        )
+        if proposal_payload is not None:
+            _write_json(proposal_payload, out_dir / f"{shard.shard_id}.json")
+            worker_proposal_count += 1
+        else:
+            worker_failure_count += 1
+            worker_failures.append(
+                {
+                    "worker_id": assignment.worker_id,
+                    "shard_id": shard.shard_id,
+                    "reason": "structured_validation_failed",
+                    "validation_errors": list(proposal_errors),
+                }
+            )
+        worker_proposals.append(
+            ShardProposalV1(
+                shard_id=shard.shard_id,
+                worker_id=assignment.worker_id,
+                status=proposal_status,
+                proposal_path=_relative_path(run_root, proposal_path),
+                payload=proposal_payload if proposal_payload is not None else None,
+                validation_errors=tuple(proposal_errors),
+                metadata=dict(proposal_metadata or {}),
+            )
+        )
+        if progress_state is not None:
+            progress_state.mark_task_packet_terminal(
+                worker_id=assignment.worker_id,
+                task_id=shard.shard_id,
+            )
+        if shard_completed_callback is not None:
+            shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
+
+    worker_runner_payload = _aggregate_worker_runner_payload(
+        pipeline_id=pipeline_id,
+        worker_runs=worker_runner_results,
+        stage_rows=stage_rows if stage_rows else None,
+    )
+    _write_json(worker_runner_payload, worker_root / "status.json")
+    return _DirectKnowledgeWorkerResult(
+        report=WorkerExecutionReportV1(
+            worker_id=assignment.worker_id,
+            shard_ids=assignment.shard_ids,
+            workspace_root=_relative_path(run_root, worker_root),
+            status="ok" if worker_failure_count == 0 else "partial_failure",
+            proposal_count=worker_proposal_count,
+            failure_count=worker_failure_count,
+            runtime_mode_audit={
+                "mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+                "status": "ok",
+                "output_schema_enforced": True,
+                "tool_affordances_requested": False,
+            },
+            runner_result=worker_runner_payload,
+            metadata={
+                "out_dir": _relative_path(run_root, out_dir),
+                "codex_exec_style": CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1,
+            },
+        ),
+        proposals=tuple(worker_proposals),
+        failures=tuple(worker_failures),
+        stage_rows=tuple(stage_rows),
+        worker_runner_payload=worker_runner_payload,
+    )
+
+
 def _run_phase_knowledge_worker_assignment_v1(
     *,
     run_root: Path,
@@ -679,6 +1495,24 @@ def _run_phase_knowledge_worker_assignment_v1(
     for path in (in_dir, hints_dir, logs_dir, out_dir, scratch_dir):
         path.mkdir(parents=True, exist_ok=True)
     requested_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
+    if (
+        normalize_codex_exec_style_value(settings.get("codex_exec_style"))
+        == CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1
+    ):
+        return _run_phase_knowledge_structured_worker_assignment_v1(
+            run_root=run_root,
+            assignment=assignment,
+            artifacts=artifacts,
+            shard_by_id=shard_by_id,
+            runner=runner,
+            pipeline_id=pipeline_id,
+            env=env,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            settings=settings,
+            shard_completed_callback=shard_completed_callback,
+            progress_state=progress_state,
+        )
 
     worker_failure_count = 0
     worker_proposal_count = 0

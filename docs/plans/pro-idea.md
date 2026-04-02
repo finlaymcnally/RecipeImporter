@@ -1,3 +1,9 @@
+---
+summary: "Early design spec for structured packet plus JSON output worker transport."
+read_when:
+  - When tracing pre-ExecPlan rationale for structured resume transport
+---
+
 This spec preserves the same core intent as your direct-batch plan: read the full assignment once, make all decisions in one pass, keep deterministic validation authoritative, remove bad helper affordances, and repair inside the same oriented run rather than restarting cold. The main difference is only the transport: immutable packet in, tiny structured JSON out.
 
 Important clarification: in this spec, a "repair run" is not a fresh `codex exec` call with no memory. The happy path is one non-interactive Codex session per assignment, and follow-up repair prompts use `codex exec resume <SESSION_ID>` so the same session continues with the validator feedback and failing-row subset. The same rule applies to the knowledge stage's second semantic pass: if nonrecipe classification keeps any rows, the grouping prompt resumes the same assignment session instead of starting a new agent.

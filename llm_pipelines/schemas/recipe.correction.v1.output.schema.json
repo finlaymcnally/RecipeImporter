@@ -18,7 +18,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["v", "rid", "st", "sr", "cr", "m", "mr", "g", "w"],
+        "required": ["v", "rid", "st", "sr", "cr", "m", "mr", "db", "g", "w"],
         "properties": {
           "v": {
             "type": "string",
@@ -87,6 +87,13 @@
           },
           "mr": {
             "type": ["string", "null"]
+          },
+          "db": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            }
           },
           "g": {
             "type": "array",

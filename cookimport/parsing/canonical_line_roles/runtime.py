@@ -3,6 +3,10 @@ from __future__ import annotations
 import sys
 from dataclasses import asdict, dataclass, replace
 
+from cookimport.config.run_settings import (
+    CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1,
+    normalize_codex_exec_style_value,
+)
 from cookimport.llm.codex_exec_runner import _summarize_live_codex_events
 from cookimport.llm.editable_task_file import (
     TASK_FILE_NAME,
@@ -12,6 +16,11 @@ from cookimport.llm.editable_task_file import (
     write_task_file,
 )
 from cookimport.llm.single_file_worker_commands import build_single_file_worker_surface
+from cookimport.llm.structured_session_runtime import (
+    assert_structured_session_can_resume,
+    initialize_structured_session_lineage,
+    record_structured_session_turn,
+)
 from cookimport.llm.task_file_guardrails import (
     build_task_file_guardrail,
     build_worker_session_guardrails,
@@ -1294,6 +1303,13 @@ def _run_line_role_phase_runtime(
         timeout_seconds=max(1, int(timeout_seconds)),
         settings={
             "line_role_pipeline": LINE_ROLE_PIPELINE_ROUTE_V2,
+            "codex_exec_style": normalize_codex_exec_style_value(
+                getattr(
+                    settings,
+                    "codex_exec_style",
+                    None,
+                )
+            ),
             "codex_timeout_seconds": int(timeout_seconds),
             "line_role_prompt_target_count": getattr(
                 settings,
@@ -3122,6 +3138,36 @@ def _run_line_role_direct_worker_assignment_v1(
         worker_root / "assigned_shards.json",
         [_line_role_asdict(shard) for shard in assigned_shards],
     )
+    if (
+        normalize_codex_exec_style_value(settings.get("codex_exec_style"))
+        == CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1
+    ):
+        return _run_line_role_structured_assignment_v1(
+            run_root=run_root,
+            assignment=assignment,
+            artifacts=artifacts,
+            assigned_shards=assigned_shards,
+            worker_root=worker_root,
+            in_dir=in_dir,
+            debug_dir=debug_dir,
+            hints_dir=hints_dir,
+            shard_dir=shard_dir,
+            logs_dir=logs_dir,
+            debug_payload_by_shard_id=debug_payload_by_shard_id,
+            deterministic_baseline_by_shard_id=deterministic_baseline_by_shard_id,
+            runner=runner,
+            pipeline_id=pipeline_id,
+            env=env,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            settings=settings,
+            output_schema_path=output_schema_path,
+            timeout_seconds=timeout_seconds,
+            cohort_watchdog_state=cohort_watchdog_state,
+            shard_completed_callback=shard_completed_callback,
+            prompt_state=prompt_state,
+            validator=validator,
+        )
     return _run_line_role_taskfile_assignment_v1(
         run_root=run_root,
         assignment=assignment,
@@ -3147,6 +3193,587 @@ def _run_line_role_direct_worker_assignment_v1(
         shard_completed_callback=shard_completed_callback,
         prompt_state=prompt_state,
         validator=validator,
+    )
+
+
+def _line_role_structured_packet_rows(
+    shard: ShardManifestEntryV1,
+) -> list[dict[str, Any]]:
+    rows_payload = _coerce_mapping_dict(shard.input_payload).get("rows") or []
+    rows: list[dict[str, Any]] = []
+    for row in rows_payload:
+        if not isinstance(row, (list, tuple)) or len(row) < 2:
+            continue
+        rows.append(
+            {
+                "atomic_index": int(row[0]),
+                "text": str(row[1] or ""),
+            }
+        )
+    return rows
+
+
+def _build_line_role_structured_packet(
+    *,
+    shard: ShardManifestEntryV1,
+    packet_kind: str,
+    validation_errors: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "schema_version": "line_role_structured_packet.v1",
+        "stage_key": "line_role",
+        "packet_kind": str(packet_kind or "initial"),
+        "shard_id": shard.shard_id,
+        "owned_ids": [int(value) for value in shard.owned_ids],
+        "rows": _line_role_structured_packet_rows(shard),
+    }
+    if validation_errors:
+        payload["validation_errors"] = [
+            str(error).strip() for error in validation_errors if str(error).strip()
+        ]
+    return payload
+
+
+def _build_line_role_structured_prompt(
+    *,
+    packet: Mapping[str, Any],
+) -> str:
+    allowed_labels = ", ".join(CANONICAL_LINE_ROLE_ALLOWED_LABELS)
+    packet_kind = str(packet.get("packet_kind") or "initial").strip()
+    repair_note = (
+        "This is a repair packet. Only answer the rows included here; previously accepted rows are already fixed.\n\n"
+        if packet_kind != "initial"
+        else ""
+    )
+    return (
+        "Return JSON only.\n\n"
+        "Review the canonical line-role packet and respond with:\n"
+        '{"rows":[{"atomic_index":123,"label":"RECIPE_NOTES"},{"atomic_index":124,"label":"NONRECIPE_EXCLUDE","exclusion_reason":"navigation"}]}\n\n'
+        "Rules:\n"
+        f"- Allowed labels: {allowed_labels}\n"
+        "- Cover every owned atomic index in this packet exactly once.\n"
+        "- Only include `exclusion_reason` when `label` is `NONRECIPE_EXCLUDE`.\n"
+        "- Do not include commentary, markdown, or extra keys.\n\n"
+        f"{repair_note}"
+        "Packet JSON:\n"
+        + json.dumps(dict(packet), indent=2, sort_keys=True)
+        + "\n"
+    )
+
+
+def _build_line_role_repair_shard(
+    *,
+    shard: ShardManifestEntryV1,
+    unresolved_atomic_indices: Sequence[int],
+) -> ShardManifestEntryV1:
+    unresolved_set = {int(value) for value in unresolved_atomic_indices}
+    rows = [
+        list(row)
+        for row in (_coerce_mapping_dict(shard.input_payload).get("rows") or [])
+        if isinstance(row, (list, tuple))
+        and row
+        and int(row[0]) in unresolved_set
+    ]
+    return ShardManifestEntryV1(
+        shard_id=shard.shard_id,
+        owned_ids=tuple(str(value) for value in unresolved_atomic_indices),
+        evidence_refs=tuple(shard.evidence_refs),
+        input_payload={"rows": rows},
+        input_text=shard.input_text,
+        metadata=dict(shard.metadata or {}),
+    )
+
+
+def _merge_line_role_validation_metadata(
+    *,
+    original_shard: ShardManifestEntryV1,
+    initial_metadata: Mapping[str, Any],
+    repair_metadata: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    accepted_rows: list[dict[str, Any]] = [
+        dict(row)
+        for row in (initial_metadata.get("accepted_rows") or [])
+        if isinstance(row, Mapping)
+    ]
+    if repair_metadata:
+        accepted_rows.extend(
+            dict(row)
+            for row in (repair_metadata.get("accepted_rows") or [])
+            if isinstance(row, Mapping)
+        )
+    accepted_by_atomic_index = {
+        int(row["atomic_index"]): dict(row)
+        for row in accepted_rows
+        if row.get("atomic_index") is not None and str(row.get("atomic_index")).strip()
+    }
+    ordered_atomic_indices = [int(value) for value in original_shard.owned_ids]
+    merged_rows = [
+        accepted_by_atomic_index[atomic_index]
+        for atomic_index in ordered_atomic_indices
+        if atomic_index in accepted_by_atomic_index
+    ]
+    return {
+        **dict(initial_metadata or {}),
+        **dict(repair_metadata or {}),
+        "accepted_rows": merged_rows,
+        "accepted_atomic_indices": [
+            int(row["atomic_index"])
+            for row in merged_rows
+            if row.get("atomic_index") is not None and str(row.get("atomic_index")).strip()
+        ],
+    }
+
+
+def _run_line_role_structured_assignment_v1(
+    *,
+    run_root: Path,
+    assignment: WorkerAssignmentV1,
+    artifacts: dict[str, str],
+    assigned_shards: Sequence[ShardManifestEntryV1],
+    worker_root: Path,
+    in_dir: Path,
+    debug_dir: Path,
+    hints_dir: Path,
+    shard_dir: Path,
+    logs_dir: Path,
+    debug_payload_by_shard_id: Mapping[str, Any],
+    deterministic_baseline_by_shard_id: Mapping[
+        str, Mapping[int, CanonicalLineRolePrediction]
+    ],
+    runner: CodexExecRunner,
+    pipeline_id: str,
+    env: dict[str, str],
+    model: str | None,
+    reasoning_effort: str | None,
+    settings: Mapping[str, Any],
+    output_schema_path: Path | None,
+    timeout_seconds: int,
+    cohort_watchdog_state: _LineRoleCohortWatchdogState,
+    shard_completed_callback: Callable[..., None] | None,
+    prompt_state: "_PromptArtifactState" | None,
+    validator: Callable[[ShardManifestEntryV1, dict[str, Any]], tuple[bool, Sequence[str], dict[str, Any] | None]],
+) -> _DirectLineRoleWorkerResult:
+    del debug_payload_by_shard_id, deterministic_baseline_by_shard_id, in_dir, debug_dir, hints_dir, logs_dir
+    worker_failure_count = 0
+    worker_proposal_count = 0
+    worker_runner_results: list[dict[str, Any]] = []
+    worker_failures: list[dict[str, Any]] = []
+    worker_proposals: list[ShardProposalV1] = []
+    stage_rows: list[dict[str, Any]] = []
+    runner_results_by_shard_id: dict[str, dict[str, Any]] = {}
+    task_status_rows: list[dict[str, Any]] = []
+
+    for shard in assigned_shards:
+        shard_root = shard_dir / shard.shard_id
+        shard_root.mkdir(parents=True, exist_ok=True)
+        preflight_failure = _preflight_line_role_shard(shard)
+        if preflight_failure is not None:
+            reason_code = str(preflight_failure.get("reason_code") or "preflight_rejected")
+            reason_detail = str(preflight_failure.get("reason_detail") or "")
+            proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
+            _write_runtime_json(
+                proposal_path,
+                {
+                    "shard_id": shard.shard_id,
+                    "worker_id": assignment.worker_id,
+                    "payload": None,
+                    "validation_errors": [reason_code],
+                    "validation_metadata": {},
+                },
+            )
+            worker_failure_count += 1
+            worker_failures.append(
+                {
+                    "worker_id": assignment.worker_id,
+                    "shard_id": shard.shard_id,
+                    "reason": "preflight_rejected",
+                    "validation_errors": [reason_code],
+                    "state": "preflight_rejected",
+                    "reason_code": reason_code,
+                }
+            )
+            worker_proposals.append(
+                ShardProposalV1(
+                    shard_id=shard.shard_id,
+                    worker_id=assignment.worker_id,
+                    status="preflight_rejected",
+                    proposal_path=_relative_runtime_path(run_root, proposal_path),
+                    payload=None,
+                    validation_errors=(reason_code,),
+                    metadata={},
+                )
+            )
+            continue
+
+        session_root = shard_root / "structured_session"
+        session_root.mkdir(parents=True, exist_ok=True)
+        packet_path = session_root / "initial_packet.json"
+        prompt_path = session_root / "prompt_initial.txt"
+        response_path = session_root / "response_initial.json"
+        events_path = session_root / "events_initial.jsonl"
+        last_message_path = session_root / "last_message_initial.json"
+        usage_path = session_root / "usage_initial.json"
+        workspace_manifest_path = session_root / "workspace_manifest_initial.json"
+        stdout_path = session_root / "stdout_initial.txt"
+        stderr_path = session_root / "stderr_initial.txt"
+        initial_packet = _build_line_role_structured_packet(
+            shard=shard,
+            packet_kind="initial",
+        )
+        packet_path.write_text(
+            json.dumps(initial_packet, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        prompt_text = _build_line_role_structured_prompt(packet=initial_packet)
+        prompt_path.write_text(prompt_text, encoding="utf-8")
+        if prompt_state is not None:
+            prompt_state.write_prompt(
+                phase_key=str((shard.metadata or {}).get("phase_key") or "line_role").strip(),
+                prompt_stem=str((shard.metadata or {}).get("prompt_stem") or "prompt").strip(),
+                prompt_index=int((shard.metadata or {}).get("prompt_index") or 0),
+                prompt_text=prompt_text,
+            )
+        initial_run_result = runner.run_packet_worker(
+            prompt_text=prompt_text,
+            input_payload={
+                **_coerce_mapping_dict(shard.input_payload),
+                "shard_id": shard.shard_id,
+                "owned_ids": list(shard.owned_ids),
+                "packet_kind": "initial",
+                "stage_key": "line_role",
+            },
+            working_dir=session_root,
+            env=env,
+            output_schema_path=output_schema_path,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            timeout_seconds=timeout_seconds,
+            workspace_task_label="canonical line-role structured session",
+            persist_session=True,
+        )
+        execution_workspace = Path(initial_run_result.execution_working_dir or session_root)
+        initialize_structured_session_lineage(
+            worker_root=session_root,
+            assignment_id=f"{assignment.worker_id}:{shard.shard_id}",
+            execution_working_dir=execution_workspace,
+        )
+        response_path.write_text(str(initial_run_result.response_text or ""), encoding="utf-8")
+        events_path.write_text(
+            _render_codex_events_jsonl(initial_run_result.events),
+            encoding="utf-8",
+        )
+        _write_runtime_json(last_message_path, {"text": initial_run_result.response_text})
+        _write_runtime_json(usage_path, dict(initial_run_result.usage or {}))
+        _write_runtime_json(workspace_manifest_path, initial_run_result.workspace_manifest())
+        _write_optional_runtime_text(stdout_path, initial_run_result.stdout_text)
+        _write_optional_runtime_text(stderr_path, initial_run_result.stderr_text)
+        record_structured_session_turn(
+            worker_root=session_root,
+            execution_working_dir=execution_workspace,
+            turn_kind="initial",
+            packet_path=packet_path,
+            prompt_path=prompt_path,
+            response_path=response_path,
+        )
+        initial_runner_payload = _build_line_role_inline_attempt_runner_payload(
+            pipeline_id=pipeline_id,
+            worker_id=assignment.worker_id,
+            shard_id=shard.shard_id,
+            run_result=initial_run_result,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            prompt_input_mode="structured_session_initial",
+            events_path=events_path,
+            last_message_path=last_message_path,
+            usage_path=usage_path,
+            workspace_manifest_path=workspace_manifest_path,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+        )
+        worker_runner_results.append(initial_runner_payload)
+        runner_results_by_shard_id[shard.shard_id] = initial_runner_payload
+
+        _initial_payload, initial_validation_errors, initial_validation_metadata, proposal_status = (
+            _evaluate_line_role_response(
+                shard=shard,
+                response_text=initial_run_result.response_text,
+                validator=validator,
+            )
+        )
+        final_validation_errors = tuple(initial_validation_errors)
+        final_validation_metadata = dict(initial_validation_metadata or {})
+        repair_attempted = False
+        repair_status = "not_attempted"
+        if _should_attempt_line_role_repair(
+            proposal_status=proposal_status,
+            validation_errors=initial_validation_errors,
+        ):
+            unresolved_atomic_indices = [
+                int(value)
+                for value in shard.owned_ids
+                if int(value)
+                not in {
+                    int(index)
+                    for index in (initial_validation_metadata or {}).get("accepted_atomic_indices") or []
+                    if str(index).strip()
+                }
+            ]
+            if unresolved_atomic_indices:
+                repair_attempted = True
+                repair_shard = _build_line_role_repair_shard(
+                    shard=shard,
+                    unresolved_atomic_indices=unresolved_atomic_indices,
+                )
+                repair_packet = _build_line_role_structured_packet(
+                    shard=repair_shard,
+                    packet_kind="repair",
+                    validation_errors=initial_validation_errors,
+                )
+                repair_packet_path = session_root / "repair_packet_01.json"
+                repair_prompt_path = session_root / "repair_prompt_01.txt"
+                repair_response_path = session_root / "repair_response_01.json"
+                repair_events_path = session_root / "repair_events_01.jsonl"
+                repair_last_message_path = session_root / "repair_last_message_01.json"
+                repair_usage_path = session_root / "repair_usage_01.json"
+                repair_workspace_manifest_path = session_root / "repair_workspace_manifest_01.json"
+                repair_stdout_path = session_root / "repair_stdout_01.txt"
+                repair_stderr_path = session_root / "repair_stderr_01.txt"
+                repair_packet_path.write_text(
+                    json.dumps(repair_packet, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                repair_prompt_text = _build_line_role_structured_prompt(packet=repair_packet)
+                repair_prompt_path.write_text(repair_prompt_text, encoding="utf-8")
+                assert_structured_session_can_resume(
+                    worker_root=session_root,
+                    execution_working_dir=execution_workspace,
+                )
+                repair_run_result = runner.run_packet_worker(
+                    prompt_text=repair_prompt_text,
+                    input_payload={
+                        **_coerce_mapping_dict(repair_shard.input_payload),
+                        "shard_id": shard.shard_id,
+                        "owned_ids": list(repair_shard.owned_ids),
+                        "packet_kind": "repair",
+                        "stage_key": "line_role",
+                        "validation_errors": list(initial_validation_errors),
+                    },
+                    working_dir=session_root,
+                    env=env,
+                    output_schema_path=None,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    timeout_seconds=timeout_seconds,
+                    workspace_task_label="canonical line-role structured repair session",
+                    resume_last=True,
+                    prepared_execution_working_dir=execution_workspace,
+                )
+                repair_response_path.write_text(
+                    str(repair_run_result.response_text or ""),
+                    encoding="utf-8",
+                )
+                repair_events_path.write_text(
+                    _render_codex_events_jsonl(repair_run_result.events),
+                    encoding="utf-8",
+                )
+                _write_runtime_json(
+                    repair_last_message_path, {"text": repair_run_result.response_text}
+                )
+                _write_runtime_json(repair_usage_path, dict(repair_run_result.usage or {}))
+                _write_runtime_json(
+                    repair_workspace_manifest_path,
+                    repair_run_result.workspace_manifest(),
+                )
+                _write_optional_runtime_text(repair_stdout_path, repair_run_result.stdout_text)
+                _write_optional_runtime_text(repair_stderr_path, repair_run_result.stderr_text)
+                record_structured_session_turn(
+                    worker_root=session_root,
+                    execution_working_dir=execution_workspace,
+                    turn_kind="repair",
+                    packet_path=repair_packet_path,
+                    prompt_path=repair_prompt_path,
+                    response_path=repair_response_path,
+                )
+                repair_runner_payload = _build_line_role_inline_attempt_runner_payload(
+                    pipeline_id=pipeline_id,
+                    worker_id=assignment.worker_id,
+                    shard_id=shard.shard_id,
+                    run_result=repair_run_result,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    prompt_input_mode="structured_session_repair",
+                    events_path=repair_events_path,
+                    last_message_path=repair_last_message_path,
+                    usage_path=repair_usage_path,
+                    workspace_manifest_path=repair_workspace_manifest_path,
+                    stdout_path=repair_stdout_path,
+                    stderr_path=repair_stderr_path,
+                )
+                worker_runner_results.append(repair_runner_payload)
+                runner_results_by_shard_id[shard.shard_id] = repair_runner_payload
+                (
+                    _repair_payload,
+                    repair_validation_errors,
+                    repair_validation_metadata,
+                    repair_proposal_status,
+                ) = _evaluate_line_role_response(
+                    shard=repair_shard,
+                    response_text=repair_run_result.response_text,
+                    validator=validator,
+                )
+                repair_status = (
+                    "repaired" if repair_proposal_status == "validated" else "failed"
+                )
+                final_validation_errors = tuple(repair_validation_errors)
+                final_validation_metadata = _merge_line_role_validation_metadata(
+                    original_shard=shard,
+                    initial_metadata=initial_validation_metadata,
+                    repair_metadata=repair_validation_metadata,
+                )
+                proposal_status = (
+                    "validated"
+                    if len(final_validation_metadata.get("accepted_atomic_indices") or [])
+                    == len(tuple(shard.owned_ids))
+                    else "invalid"
+                )
+
+        row_resolution_payload, row_resolution_metadata = _build_line_role_row_resolution(
+            shard=shard,
+            validation_metadata=final_validation_metadata,
+        )
+        proposal_payload = row_resolution_payload
+        proposal_status = "validated" if proposal_payload is not None else "invalid"
+        proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
+        _write_runtime_json(
+            proposal_path,
+            {
+                "shard_id": shard.shard_id,
+                "worker_id": assignment.worker_id,
+                "payload": proposal_payload,
+                "validation_errors": list(final_validation_errors),
+                "validation_metadata": dict(final_validation_metadata or {}),
+                "repair_attempted": repair_attempted,
+                "repair_status": repair_status,
+            },
+        )
+        output_path = worker_root / "out" / f"{shard.shard_id}.json"
+        if proposal_payload is not None:
+            _write_runtime_json(output_path, proposal_payload)
+            worker_proposal_count += 1
+            cohort_watchdog_state.record_validated_result(
+                duration_ms=(
+                    _safe_int_value(
+                        (runner_results_by_shard_id.get(shard.shard_id) or {})
+                        .get("telemetry", {})
+                        .get("summary", {})
+                        .get("duration_ms")
+                    )
+                ),
+                example_payload=_build_line_role_watchdog_example(
+                    shard=shard,
+                    payload=proposal_payload,
+                ),
+            )
+        else:
+            worker_failure_count += 1
+            worker_failures.append(
+                {
+                    "worker_id": assignment.worker_id,
+                    "shard_id": shard.shard_id,
+                    "reason": "validation_failed",
+                    "validation_errors": list(final_validation_errors),
+                    "state": "invalid_output",
+                    "reason_code": "structured_validation_failed",
+                }
+            )
+        stage_rows.append(
+            _build_line_role_shard_status_row(
+                shard=shard,
+                worker_id=assignment.worker_id,
+                state=(
+                    "repair_recovered"
+                    if proposal_payload is not None and repair_status == "repaired"
+                    else ("validated" if proposal_payload is not None else "repair_failed")
+                ),
+                last_attempt_type=(
+                    "repair" if repair_attempted else "structured_session_initial"
+                ),
+                output_path=output_path if proposal_payload is not None else None,
+                repair_path=session_root / "repair_packet_01.json" if repair_attempted else None,
+                validation_errors=final_validation_errors,
+                validation_metadata=final_validation_metadata,
+                row_resolution_metadata=row_resolution_metadata,
+                repair_attempted=repair_attempted,
+                repair_status=repair_status,
+                resumed_from_existing_output=False,
+            )
+        )
+        task_status_rows.append(
+            _build_line_role_shard_status_row(
+                shard=shard,
+                worker_id=assignment.worker_id,
+                state=(
+                    "repair_recovered"
+                    if proposal_payload is not None and repair_status == "repaired"
+                    else ("validated" if proposal_payload is not None else "invalid_output")
+                ),
+                last_attempt_type=(
+                    "repair" if repair_attempted else "structured_session_initial"
+                ),
+                output_path=output_path if proposal_payload is not None else None,
+                repair_path=session_root / "repair_packet_01.json" if repair_attempted else None,
+                validation_errors=final_validation_errors,
+                validation_metadata=final_validation_metadata,
+                row_resolution_metadata=row_resolution_metadata,
+                repair_attempted=repair_attempted,
+                repair_status=repair_status,
+                resumed_from_existing_output=False,
+            )
+        )
+        worker_proposals.append(
+            ShardProposalV1(
+                shard_id=shard.shard_id,
+                worker_id=assignment.worker_id,
+                status=proposal_status,
+                proposal_path=_relative_runtime_path(run_root, proposal_path),
+                payload=proposal_payload if proposal_payload is not None else None,
+                validation_errors=tuple(final_validation_errors),
+                metadata=dict(final_validation_metadata or {}),
+            )
+        )
+        if shard_completed_callback is not None:
+            shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
+
+    worker_runner_payload = _aggregate_line_role_worker_runner_payload(
+        pipeline_id=pipeline_id,
+        worker_runs=worker_runner_results,
+    )
+    _write_runtime_json(worker_root / "status.json", worker_runner_payload)
+    return _DirectLineRoleWorkerResult(
+        report=WorkerExecutionReportV1(
+            worker_id=assignment.worker_id,
+            shard_ids=assignment.shard_ids,
+            workspace_root=_relative_runtime_path(run_root, worker_root),
+            status="ok" if worker_failure_count == 0 else "partial_failure",
+            proposal_count=worker_proposal_count,
+            failure_count=worker_failure_count,
+            runtime_mode_audit={
+                "mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
+                "status": "ok",
+                "output_schema_enforced": True,
+                "tool_affordances_requested": False,
+            },
+            runner_result=worker_runner_payload,
+            metadata={
+                "shards_dir": _relative_runtime_path(run_root, shard_dir),
+                "codex_exec_style": CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1,
+            },
+        ),
+        proposals=tuple(worker_proposals),
+        failures=tuple(worker_failures),
+        stage_rows=tuple(stage_rows),
+        task_status_rows=tuple(task_status_rows),
+        runner_results_by_shard_id=dict(runner_results_by_shard_id),
     )
 
 

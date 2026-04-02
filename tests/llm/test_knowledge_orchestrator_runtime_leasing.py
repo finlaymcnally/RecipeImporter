@@ -29,14 +29,16 @@ def _run_runtime_phase(
     tmp_path: Path,
     *,
     runner: FakeCodexExecRunner,
+    settings=None,
 ) -> dict[str, object]:
     configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
     pack_root, run_root = make_runtime_pack_and_run_dirs(tmp_path)
-    settings = make_runtime_settings(
-        pack_root=pack_root,
-        worker_count=1,
-        knowledge_prompt_target_count=2,
-    )
+    if settings is None:
+        settings = make_runtime_settings(
+            pack_root=pack_root,
+            worker_count=1,
+            knowledge_prompt_target_count=2,
+        )
     apply_result = run_codex_farm_nonrecipe_finalize(
         conversion_result=make_runtime_conversion_result(
             ["Knowledge zero.", "Recipe gap.", "Knowledge two."]
@@ -218,6 +220,51 @@ def test_knowledge_orchestrator_retries_one_fresh_session_after_preserved_progre
         ]
         == 2
     )
+
+
+def test_knowledge_orchestrator_structured_resume_style_reuses_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
+    pack_root, _run_root = make_runtime_pack_and_run_dirs(tmp_path)
+    settings = make_runtime_settings(
+        pack_root=pack_root,
+        worker_count=1,
+        knowledge_prompt_target_count=2,
+    ).model_copy(update={"codex_exec_style": "structured-resume-v1"})
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: build_structural_pipeline_output(
+            "recipe.knowledge.packet.v1",
+            dict(payload or {}),
+        )
+    )
+
+    fixture = _run_runtime_phase(
+        monkeypatch,
+        tmp_path,
+        runner=runner,
+        settings=settings,
+    )
+    worker_root = Path(fixture["worker_root"])
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+    lineage_path = next(worker_root.rglob("session_lineage.json"))
+    lineage_payload = json.loads(lineage_path.read_text(encoding="utf-8"))
+
+    assert len(runner.calls) == 4
+    assert [call["mode"] for call in runner.calls].count("structured_prompt") == 2
+    assert [call["mode"] for call in runner.calls].count("structured_prompt_resume") == 2
+    assert [call["persist_session"] for call in runner.calls].count(True) == 2
+    assert [call["resume_last"] for call in runner.calls].count(True) == 2
+    assert len({call["execution_working_dir"] for call in runner.calls}) == 2
+    assert lineage_payload["turn_count"] == 2
+    assert lineage_payload["turns"][0]["turn_kind"] == "classification_initial"
+    assert lineage_payload["turns"][1]["turn_kind"] == "grouping_1"
+    assert worker_status["telemetry"]["summary"]["taskfile_session_count"] == 0
+    assert worker_status["telemetry"]["summary"]["prompt_input_mode_counts"] == {
+        "structured_session_classification_initial": 2,
+        "structured_session_grouping": 2,
+    }
 
 
 def test_knowledge_orchestrator_replaces_hard_boundary_failure_with_fresh_worker(

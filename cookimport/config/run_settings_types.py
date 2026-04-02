@@ -40,6 +40,7 @@ BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES = (
     "ocr_batch_size",
     "workspace_completion_quiescence_seconds",
     "completed_termination_grace_seconds",
+    "codex_exec_style",
     "knowledge_group_task_max_units",
     "knowledge_group_task_max_evidence_chars",
 )
@@ -66,6 +67,8 @@ RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR = (
 
 LINE_ROLE_PIPELINE_ROUTE_V2 = "codex-line-role-route-v2"
 KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2 = "codex-knowledge-candidate-v2"
+CODEX_EXEC_STYLE_TASKFILE_V1 = "taskfile-v1"
+CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1 = "structured-resume-v1"
 
 
 class EpubExtractor(str, Enum):
@@ -228,6 +231,11 @@ class LlmKnowledgePipeline(str, Enum):
     codex_knowledge_candidate_v2 = KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2
 
 
+class CodexExecStyle(str, Enum):
+    taskfile_v1 = CODEX_EXEC_STYLE_TASKFILE_V1
+    structured_resume_v1 = CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1
+
+
 class CodexFarmFailureMode(str, Enum):
     fail = "fail"
     fallback = "fallback"
@@ -284,6 +292,18 @@ def normalize_llm_knowledge_pipeline_value(value: Any) -> str:
             f"{LlmKnowledgePipeline.off.value}, {KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2}."
         )
     return normalized
+
+
+def normalize_codex_exec_style_value(value: Any) -> str:
+    normalized = str(getattr(value, "value", value) or "").strip().lower().replace("_", "-")
+    if normalized in {"", "default", "taskfile", "taskfile-v1"}:
+        return CODEX_EXEC_STYLE_TASKFILE_V1
+    if normalized in {"structured", "structured-resume", "structured-resume-v1"}:
+        return CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1
+    raise ValueError(
+        "Invalid codex_exec_style. Expected one of: "
+        f"{CODEX_EXEC_STYLE_TASKFILE_V1}, {CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1}."
+    )
 
 
 def _bucket1_fixed_behavior():

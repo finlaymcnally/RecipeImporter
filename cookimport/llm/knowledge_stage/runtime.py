@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from cookimport.config.run_settings import normalize_codex_exec_style_value
+
 from . import _shared as _shared_module
 from . import planning as _planning_module
 from . import promotion as _promotion_module
@@ -225,6 +227,9 @@ def run_codex_farm_nonrecipe_finalize(
             reasoning_effort=codex_reasoning_effort,
             settings={
                 "llm_knowledge_pipeline": run_settings.llm_knowledge_pipeline.value,
+                "codex_exec_style": normalize_codex_exec_style_value(
+                    getattr(run_settings, "codex_exec_style", None)
+                ),
                 "knowledge_prompt_target_count": run_settings.knowledge_prompt_target_count,
                 "knowledge_packet_input_char_budget": run_settings.knowledge_packet_input_char_budget,
                 "knowledge_packet_output_char_budget": run_settings.knowledge_packet_output_char_budget,
@@ -234,6 +239,9 @@ def run_codex_farm_nonrecipe_finalize(
             },
             runtime_metadata={
                 "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
+                "codex_exec_style": normalize_codex_exec_style_value(
+                    getattr(run_settings, "codex_exec_style", None)
+                ),
                 "input_mode": "nonrecipe_candidate_spans",
                 "workspace_root": str(workspace_root) if workspace_root is not None else None,
                 "configured_prompt_target_count": run_settings.knowledge_prompt_target_count,

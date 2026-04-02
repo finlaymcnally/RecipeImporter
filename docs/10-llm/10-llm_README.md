@@ -9,7 +9,7 @@ read_when:
 
 # LLM Section Reference
 
-LLM usage in this repo is optional. The direct-exec transport is now mixed by both attempt type and stage behavior: recipe, line-role, and knowledge main work all use assignment-first `taskfile` sessions, while narrow retry / repair follow-up attempts can still use `packet` one-shot calls. The happy path is direct `task.json` editing for `line_role`, `nonrecipe_classify`, and `knowledge_group`: open the repo-written file, edit only `/units/*/answer`, save the same file, run the repo-owned same-session helper, and keep any repair loop in the same session. Recipe refine stays assignment-first but still uses the richer helper surface for `task-summary`, `task-template`, and `task-apply`. Deterministic repo code still owns validation, repair rewrites, and final artifact expansion.
+LLM usage in this repo is optional. The direct-exec transport is now mixed by both attempt type and configured Codex style. Recipe refine stays on the assignment-first `taskfile` contract. For `line_role` and nonrecipe finalize, `codex_exec_style=taskfile-v1` keeps the current assignment-first `task.json` contract, while `codex_exec_style=structured-resume-v1` switches those stages to inline packet prompts plus `codex exec resume --last` follow-up turns for repair/grouping. Deterministic repo code still owns validation, repair rewrites, grounding gates, and final artifact expansion.
 
 The worker-visible self-help surface is now intentionally split. Direct-batch task files (`line_role`, `nonrecipe_classify`, `knowledge_group`) are multiline, semantically ordered, advertise the editable surface through `answer_schema.editable_pointer_pattern`, and omit worker-facing `helper_commands`, `workflow`, `next_action`, and `editable_json_pointers`. For those stages the prompt should treat `task.json` as the whole job; `task-status` and `task-doctor` are optional troubleshooting helpers, and ordinary local reads of `task.json` plus `AGENTS.md` are allowed. Recipe refine still keeps explicit helper metadata in `task.json` because its live contract remains helper-driven.
 
@@ -34,6 +34,7 @@ Settings and command boundary:
 - `cookimport/config/codex_decision.py`
 - `cookimport/cli.py`
 - `cookimport/cli_ui/run_settings_flow.py`
+- interactive `codex-exec` selection now has a second menu after surface toggles when line-role or knowledge are enabled: `Taskfile workers` (`taskfile-v1`) versus `Structured resume` (`structured-resume-v1`). Recipe correction stays on the taskfile contract.
 
 Primary entrypoints:
 
@@ -187,7 +188,7 @@ Recipe runtime note:
 - worker assignments now launch concurrently and then merge results back in planned assignment order so runtime artifacts stay stable while multi-worker runs become real
 - deterministic code still validates and normalizes recipe outputs locally, but the live promotion seam is now one canonical `AuthoritativeRecipeSemantics` payload per recipe. Codex still emits compact `ingredient_step_mapping` plus raw `selected_tags`, and promotion now records the merged semantic result under `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json` before intermediate/final drafts are written.
 - `CodexFarmApplyResult` now exposes only the canonical `authoritative_recipe_payloads_by_recipe_id` map plus the updated conversion result and recipe-stage telemetry; the older intermediate/final override maps are no longer part of the live orchestrator result contract.
-- the model-facing recipe shard now includes a compact candidate-quality hint `q` alongside weak deterministic parse hint `h`, and each recipe result now carries compact status fields (`st`, `sr`) so `fragmentary` / `not_a_recipe` candidates stay visible in proposals/audits but only `repaired` results promote into final recipe outputs
+- the model-facing recipe shard now includes a compact candidate-quality hint `q` alongside weak deterministic parse hint `h`, and each recipe result now carries compact status/divestment fields (`st`, `sr`, `db`) so `fragmentary` / `not_a_recipe` candidates stay visible in proposals/audits, recipe-refine can explicitly return owned blocks to nonrecipe, and only `repaired` results promote into final recipe outputs
 - `recipe_phase_runtime/promotion_report.json` now distinguishes validated recipe task outcomes from final-authority eligibility: `repair_status` still tells you the valid task result, while `final_recipe_authority_eligibility` tells you whether that result is promotable.
 - `recipe_manifest.json` and `recipe_correction_audit/*.json` now carry the final-authority decision explicitly. `repaired` plus successful deterministic assembly becomes `final_recipe_authority_status="promoted"`, while valid `fragmentary` / `not_a_recipe` outcomes remain visible as `final_recipe_authority_status="not_promoted"`.
 - recipe tag guidance is now recipe-local rather than purely global: single-candidate recipe shards carry a richer `recipe_tagging_guide.v3` with both the broader category catalog and a filtered `tg.s[*]` candidate label surface derived from the current recipe text/hints

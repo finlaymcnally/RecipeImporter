@@ -123,6 +123,7 @@ def build_run_settings(
     recipe_prompt_target_count: int | None = 5,
     atomic_block_splitter: str | AtomicBlockSplitter = AtomicBlockSplitter.off,
     line_role_pipeline: str | LineRolePipeline = LineRolePipeline.off,
+    codex_exec_style: str = "taskfile-v1",
     line_role_prompt_target_count: int | None = 5,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
     knowledge_prompt_target_count: int | None = 5,
@@ -235,6 +236,7 @@ def build_run_settings(
             ),
             "atomic_block_splitter": _normalized_value(atomic_block_splitter),
             "line_role_pipeline": _normalized_value(line_role_pipeline),
+            "codex_exec_style": _normalized_value(codex_exec_style),
             "line_role_prompt_target_count": (
                 int(line_role_prompt_target_count)
                 if line_role_prompt_target_count is not None

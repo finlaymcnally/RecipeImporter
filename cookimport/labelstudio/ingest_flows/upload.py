@@ -124,6 +124,7 @@ def run_labelstudio_import(
     knowledge_group_task_max_evidence_chars: int = int(
         serialized_run_setting_default("knowledge_group_task_max_evidence_chars")
     ),
+    codex_exec_style: str = str(serialized_run_setting_default("codex_exec_style")),
     line_role_prompt_target_count: int = 5,
     codex_farm_cmd: str = "codex-farm",
     codex_farm_model: str | None = None,
@@ -252,6 +253,7 @@ def run_labelstudio_import(
         knowledge_packet_output_char_budget=knowledge_packet_output_char_budget,
         knowledge_group_task_max_units=knowledge_group_task_max_units,
         knowledge_group_task_max_evidence_chars=knowledge_group_task_max_evidence_chars,
+        codex_exec_style=codex_exec_style,
         line_role_prompt_target_count=line_role_prompt_target_count,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_model=codex_farm_model,

@@ -26,12 +26,15 @@ from cookimport.config.run_settings_contracts import (
     project_run_config_payload,
 )
 from cookimport.config.run_settings import (
+    CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1,
+    CODEX_EXEC_STYLE_TASKFILE_V1,
     KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
     LINE_ROLE_PIPELINE_ROUTE_V2,
     RECIPE_CODEX_FARM_ALLOWED_PIPELINES,
     RECIPE_CODEX_FARM_EXECUTION_PIPELINES,
     RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
     RunSettings,
+    normalize_codex_exec_style_value,
     normalize_llm_recipe_pipeline_value,
 )
 from cookimport.llm.codex_farm_runner import list_codex_farm_models
@@ -64,6 +67,10 @@ _CODEX_SURFACE_PROMPT_TARGET_FIELDS: dict[str, tuple[str, str]] = {
     "recipe": ("recipe_prompt_target_count", "Recipe correction"),
     "line_role": ("line_role_prompt_target_count", "Block labelling"),
     "knowledge": ("knowledge_prompt_target_count", "Knowledge"),
+}
+_CODEX_EXEC_STYLE_LABELS: dict[str, str] = {
+    CODEX_EXEC_STYLE_TASKFILE_V1: "Taskfile workers",
+    CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1: "Structured resume",
 }
 INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST = (
     "saltfatacidheatcutdown_fast_codex_exec"
@@ -598,6 +605,53 @@ def choose_interactive_codex_surfaces(
     )
 
 
+def _codex_exec_style_applies(selected_settings: RunSettings) -> bool:
+    return any(
+        (
+            selected_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_ROUTE_V2,
+            selected_settings.llm_knowledge_pipeline.value != "off",
+        )
+    )
+
+
+def _choose_interactive_codex_exec_style(
+    *,
+    selected_settings: RunSettings,
+    menu_select: MenuSelect,
+    back_action: Any,
+) -> RunSettings | None:
+    if not _codex_exec_style_applies(selected_settings):
+        return selected_settings
+    default_style = normalize_codex_exec_style_value(selected_settings.codex_exec_style.value)
+    selected_style = menu_select(
+        "Codex Exec style for this run:",
+        menu_help=(
+            "This choice applies only to block labelling and non-recipe finalize.\n"
+            "Recipe correction stays on the current taskfile worker contract.\n"
+            "Taskfile workers keep the existing editable `task.json` path.\n"
+            "Structured resume uses inline packets plus `codex exec resume --last` repair/grouping turns."
+        ),
+        default=default_style,
+        choices=[
+            questionary.Choice(
+                _CODEX_EXEC_STYLE_LABELS[CODEX_EXEC_STYLE_TASKFILE_V1],
+                value=CODEX_EXEC_STYLE_TASKFILE_V1,
+            ),
+            questionary.Choice(
+                _CODEX_EXEC_STYLE_LABELS[CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1],
+                value=CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1,
+            ),
+        ],
+    )
+    if selected_style in {None, back_action}:
+        return None
+    return _patch_interactive_settings(
+        selected_settings,
+        warn_context="interactive codex exec style selection",
+        codex_exec_style=normalize_codex_exec_style_value(selected_style),
+    )
+
+
 def _selected_settings_enable_any_codex(selected_settings: RunSettings) -> bool:
     return any(
         (
@@ -886,6 +940,13 @@ def choose_run_settings(
             prompt_text=prompt_text,
             back_action=back_action,
             surface_options=codex_surface_menu_options,
+        )
+        if selected_settings is None:
+            return None
+        selected_settings = _choose_interactive_codex_exec_style(
+            selected_settings=selected_settings,
+            menu_select=menu_select,
+            back_action=back_action,
         )
         if selected_settings is None:
             return None

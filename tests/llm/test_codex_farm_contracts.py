@@ -85,6 +85,7 @@ def test_merged_repair_output_accepts_native_object_fields() -> None:
             },
             "ingredient_step_mapping": {"0": [0]},
             "ingredient_step_mapping_reason": None,
+            "divested_block_indices": [],
             "selected_tags": [
                 {"category": "meal", "label": "breakfast", "confidence": 0.92}
             ],
@@ -114,6 +115,7 @@ def test_merged_repair_output_accepts_mapping_entry_arrays() -> None:
                 {"ingredient_index": 1, "step_indexes": [0, 1]},
             ],
             "ingredient_step_mapping_reason": None,
+            "divested_block_indices": [],
             "selected_tags": [],
             "warnings": [],
         }
@@ -138,6 +140,7 @@ def test_merged_repair_output_rejects_complex_empty_mapping_without_reason() -> 
                 },
                 "ingredient_step_mapping": [],
                 "ingredient_step_mapping_reason": None,
+                "divested_block_indices": [],
                 "selected_tags": [],
                 "warnings": [],
             }
@@ -159,6 +162,7 @@ def test_merged_repair_output_accepts_single_step_empty_mapping_with_reason() ->
             },
             "ingredient_step_mapping": [],
             "ingredient_step_mapping_reason": "not_needed_single_step",
+            "divested_block_indices": [],
             "selected_tags": [],
             "warnings": [],
         }
@@ -190,6 +194,7 @@ def test_merged_repair_output_rejects_multi_ingredient_single_step_empty_mapping
                 },
                 "ingredient_step_mapping": [],
                 "ingredient_step_mapping_reason": None,
+                "divested_block_indices": [],
                 "selected_tags": [],
                 "warnings": [],
             }
@@ -203,6 +208,7 @@ def test_merged_repair_output_rejects_missing_required_fields() -> None:
                 "bundle_version": "1",
                 "recipe_id": "urn:recipe:test",
                 "canonical_recipe": {"title": "Toast"},
+                "divested_block_indices": [],
             }
         )
 
@@ -277,6 +283,7 @@ def test_recipe_correction_shard_output_accepts_nested_recipe_outputs() -> None:
                     },
                     "ingredient_step_mapping": {"0": [0]},
                     "ingredient_step_mapping_reason": None,
+                    "divested_block_indices": [],
                     "selected_tags": [],
                     "warnings": [],
                 }
@@ -303,6 +310,7 @@ def test_recipe_correction_shard_output_accepts_explicit_not_a_recipe_status() -
                     "canonical_recipe": None,
                     "ingredient_step_mapping": [],
                     "ingredient_step_mapping_reason": "not_applicable_not_a_recipe",
+                    "divested_block_indices": [1],
                     "selected_tags": [],
                     "warnings": ["candidate_rejected"],
                 }
@@ -330,6 +338,7 @@ def test_recipe_correction_shard_output_rejects_unknown_repair_status() -> None:
                         "canonical_recipe": None,
                         "ingredient_step_mapping": [],
                         "ingredient_step_mapping_reason": "unknown",
+                        "divested_block_indices": [],
                         "selected_tags": [],
                         "warnings": [],
                     }
@@ -353,6 +362,7 @@ def test_load_contract_json_validates_against_model(tmp_path) -> None:
   },
   "ingredient_step_mapping": {"0": [0]},
   "ingredient_step_mapping_reason": null,
+  "divested_block_indices": [],
   "selected_tags": [],
   "warnings": []
 }

@@ -271,6 +271,7 @@ def run_recipe_refine_stage(
             authoritative_recipe_payloads_by_recipe_id = dict(
                 llm_apply_result.authoritative_recipe_payloads_by_recipe_id
             )
+            recipe_divestments = list(llm_apply_result.recipe_divestments)
             llm_report = dict(llm_apply_result.llm_report)
             refinement_mode = "codex_recipe_refine"
 

@@ -457,6 +457,7 @@ def test_orchestrator_keeps_not_a_recipe_proposal_in_reports_but_skips_promotion
                     "sr": "reference_table",
                     "cr": None,
                     "mr": "not_applicable_not_a_recipe",
+                    "db": [1, 2, 3, 4, 5],
                     "g": [],
                     "w": ["candidate_rejected"],
                 }
@@ -500,6 +501,9 @@ def test_orchestrator_keeps_not_a_recipe_proposal_in_reports_but_skips_promotion
     )
 
     assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
+    assert [divestment.block_indices for divestment in apply_result.recipe_divestments] == [
+        [1, 2, 3, 4, 5]
+    ]
     assert apply_result.updated_conversion_result.recipes == []
     assert manifest["counts"]["recipe_correction_ok"] == 1
     assert manifest["counts"]["recipe_build_final_ok"] == 0
@@ -517,6 +521,7 @@ def test_orchestrator_keeps_not_a_recipe_proposal_in_reports_but_skips_promotion
         == "non_promotable"
     )
     assert proposal["payload"]["r"][0]["st"] == "not_a_recipe"
+    assert proposal["payload"]["r"][0]["db"] == [1, 2, 3, 4, 5]
     assert audit["output"]["repair_status"] == "not_a_recipe"
     assert audit["deterministic_final_assembly"]["status"] == "skipped"
     assert audit["task_outcome"]["final_recipe_authority_eligibility"] == "non_promotable"
@@ -543,6 +548,7 @@ def test_orchestrator_keeps_fragmentary_proposal_visible_but_non_promoted(
                     "sr": "incomplete_recipe_source",
                     "cr": None,
                     "mr": "not_applicable_fragmentary",
+                    "db": [1, 2, 3, 4, 5],
                     "g": [],
                     "w": ["incomplete_recipe_source"],
                 }
@@ -578,6 +584,9 @@ def test_orchestrator_keeps_fragmentary_proposal_visible_but_non_promoted(
     )
 
     assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
+    assert [divestment.block_indices for divestment in apply_result.recipe_divestments] == [
+        [1, 2, 3, 4, 5]
+    ]
     assert apply_result.updated_conversion_result.recipes == []
     assert manifest["recipes"][recipe_id]["correction_output_status"] == "fragmentary"
     assert manifest["recipes"][recipe_id]["final_recipe_authority_status"] == "not_promoted"
@@ -636,6 +645,7 @@ def test_orchestrator_rejects_complex_empty_mapping_without_reason_and_skips_pro
                     },
                     "m": [],
                     "mr": None,
+                    "db": [],
                     "g": [],
                     "w": [],
                 }
@@ -724,6 +734,7 @@ def test_orchestrator_rejects_multi_ingredient_single_step_empty_mapping_without
                     },
                     "m": [],
                     "mr": None,
+                    "db": [],
                     "g": [],
                     "w": [],
                 }

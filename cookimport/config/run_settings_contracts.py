@@ -86,6 +86,7 @@ _SUMMARY_ORDER = (
     "knowledge_group_task_max_units",
     "knowledge_group_task_max_evidence_chars",
     "line_role_pipeline",
+    "codex_exec_style",
     "line_role_prompt_target_count",
     "codex_farm_cmd",
     "codex_farm_model",

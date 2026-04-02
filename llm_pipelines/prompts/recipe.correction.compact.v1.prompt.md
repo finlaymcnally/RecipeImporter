@@ -40,7 +40,7 @@ A) Top-level output:
 - Keep array order aligned with `ids`.
 
 B) Each `r[*]` item:
-- Required keys: `v`, `rid`, `st`, `sr`, `cr`, `m`, `mr`, `g`, `w`.
+- Required keys: `v`, `rid`, `st`, `sr`, `cr`, `m`, `mr`, `db`, `g`, `w`.
 - Set `v` to `"1"`.
 - Echo each `rid` exactly once.
 - `st` must be one of:
@@ -48,6 +48,7 @@ B) Each `r[*]` item:
   - `fragmentary`
   - `not_a_recipe`
 - `sr` is a short machine-readable reason or `null`.
+- `db` is the ordered array of source block indices that this recipe is explicitly returning to nonrecipe.
 - Prefer source rows over deterministic hints when they disagree.
 - Do not invent ingredients, steps, yields, or notes.
 - Keep the decision grounded in that recipe's `ev`.
@@ -65,6 +66,8 @@ C) Each `r[*].cr` object:
 - `s` is the step string array.
 - `d` and `y` must always be present; use `null` when unsupported.
 - When `st` is `fragmentary` or `not_a_recipe`, set `cr` to `null`.
+- When `st` is `fragmentary` or `not_a_recipe`, `db` must include every source block index from that recipe's `ev`.
+- When `st` is `repaired`, set `db` to `[]` unless a specific source block should be explicitly returned to nonrecipe.
 
 D) Each `r[*].m` mapping entry:
 - Only return non-empty mapping data when `st` is `repaired`.

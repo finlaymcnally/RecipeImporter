@@ -250,6 +250,9 @@ class CodexExecRunner(Protocol):
             ["CodexExecLiveSnapshot"], "CodexExecSupervisionDecision | None"
         ]
         | None = None,
+        resume_last: bool = False,
+        persist_session: bool = False,
+        prepared_execution_working_dir: Path | None = None,
     ) -> "CodexExecRunResult":
         """Run one non-interactive packet worker call."""
 
@@ -576,6 +579,9 @@ class SubprocessCodexExecRunner:
             [CodexExecLiveSnapshot], CodexExecSupervisionDecision | None
         ]
         | None = None,
+        resume_last: bool = False,
+        persist_session: bool = False,
+        prepared_execution_working_dir: Path | None = None,
     ) -> CodexExecRunResult:
         return self._run_prompt_in_prepared_workspace(
             prompt_text=prompt_text,
@@ -592,6 +598,9 @@ class SubprocessCodexExecRunner:
             sandbox_mode="read-only",
             require_final_message=True,
             sync_output_paths=(),
+            resume_last=resume_last,
+            persist_session=persist_session,
+            prepared_execution_working_dir=prepared_execution_working_dir,
         )
 
     def run_taskfile_worker(
@@ -636,6 +645,9 @@ class SubprocessCodexExecRunner:
                 _DIRECT_EXEC_WORK_DIR_NAME,
                 _DIRECT_EXEC_REPAIR_DIR_NAME,
             ),
+            resume_last=False,
+            persist_session=False,
+            prepared_execution_working_dir=None,
         )
 
     def _run_prompt_in_prepared_workspace(
@@ -658,14 +670,34 @@ class SubprocessCodexExecRunner:
         sandbox_mode: str,
         require_final_message: bool,
         sync_output_paths: Sequence[str],
+        resume_last: bool,
+        persist_session: bool,
+        prepared_execution_working_dir: Path | None,
     ) -> CodexExecRunResult:
         process_env = _merge_env(env)
-        prepared_workspace = prepare_direct_exec_workspace(
-            source_working_dir=working_dir,
-            env=process_env,
-            task_label=workspace_task_label,
-            mode=workspace_mode,
-        )
+        if resume_last:
+            if prepared_execution_working_dir is None:
+                raise CodexFarmRunnerError(
+                    "Structured resume requires a previously prepared execution workspace."
+                )
+            execution_working_dir = Path(prepared_execution_working_dir).resolve(strict=False)
+            if not execution_working_dir.exists():
+                raise CodexFarmRunnerError(
+                    "Structured resume execution workspace is missing: "
+                    f"{execution_working_dir}"
+                )
+            prepared_workspace = PreparedDirectExecWorkspace(
+                source_working_dir=Path(working_dir).resolve(),
+                execution_working_dir=execution_working_dir,
+                agents_path=execution_working_dir / _DIRECT_EXEC_AGENTS_FILE_NAME,
+            )
+        else:
+            prepared_workspace = prepare_direct_exec_workspace(
+                source_working_dir=working_dir,
+                env=process_env,
+                task_label=workspace_task_label,
+                mode=workspace_mode,
+            )
         execution_working_dir = prepared_workspace.execution_working_dir
         single_file_worker_runtime = _uses_single_file_worker_runtime(
             workspace_root=working_dir,
@@ -704,10 +736,12 @@ class SubprocessCodexExecRunner:
         command = _build_codex_exec_command(
             cmd=self.cmd,
             working_dir=execution_working_dir,
-            output_schema_path=output_schema_path,
+            output_schema_path=None if resume_last else output_schema_path,
             model=model,
             reasoning_effort=reasoning_effort,
             sandbox_mode=sandbox_mode,
+            resume_last=resume_last,
+            persist_session=persist_session,
         )
         subprocess_command = (
             _build_taskfile_worker_fs_cage_command(
@@ -1043,6 +1077,11 @@ class FakeCodexExecRunner:
                     if isinstance(mapping_row, Mapping) and mapping_row.get("i") is not None
                 ],
                 "ingredient_step_mapping_reason": recipe_row.get("mr"),
+                "divested_block_indices": [
+                    int(value)
+                    for value in (recipe_row.get("db") or [])
+                    if str(value).strip()
+                ],
                 "selected_tags": [
                     str(tag_row.get("l") or "").strip()
                     for tag_row in (recipe_row.get("g") or [])
@@ -1218,19 +1257,30 @@ class FakeCodexExecRunner:
             [CodexExecLiveSnapshot], CodexExecSupervisionDecision | None
         ]
         | None = None,
+        resume_last: bool = False,
+        persist_session: bool = False,
+        prepared_execution_working_dir: Path | None = None,
     ) -> CodexExecRunResult:
+        execution_working_dir = (
+            Path(prepared_execution_working_dir).resolve(strict=False)
+            if prepared_execution_working_dir is not None
+            else Path(working_dir).resolve(strict=False)
+        )
         self.calls.append(
             {
-                "mode": "structured_prompt",
+                "mode": "structured_prompt_resume" if resume_last else "structured_prompt",
                 "prompt_text": prompt_text,
                 "input_payload": dict(input_payload or {}),
                 "working_dir": str(working_dir),
+                "execution_working_dir": str(execution_working_dir),
                 "output_schema_path": str(output_schema_path) if output_schema_path is not None else None,
                 "model": model,
                 "reasoning_effort": reasoning_effort,
                 "timeout_seconds": timeout_seconds,
                 "completed_termination_grace_seconds": completed_termination_grace_seconds,
                 "workspace_task_label": workspace_task_label,
+                "resume_last": bool(resume_last),
+                "persist_session": bool(persist_session),
             }
         )
         payload = self.output_builder(input_payload)
@@ -1280,7 +1330,11 @@ class FakeCodexExecRunner:
                 )
             )
         return CodexExecRunResult(
-            command=["codex", "exec"],
+            command=(
+                ["codex", "exec", "resume", "--last"]
+                if resume_last
+                else ["codex", "exec"]
+            ),
             subprocess_exit_code=0,
             output_schema_path=str(output_schema_path) if output_schema_path is not None else None,
             prompt_text=prompt_text,
@@ -1290,7 +1344,7 @@ class FakeCodexExecRunner:
             usage=usage,
             stdout_text="\n".join(json.dumps(event) for event in events) + "\n",
             source_working_dir=str(working_dir),
-            execution_working_dir=str(working_dir),
+            execution_working_dir=str(execution_working_dir),
             execution_agents_path=None,
             duration_ms=1,
             started_at_utc="2026-01-01T00:00:00Z",
@@ -2561,6 +2615,8 @@ def _build_codex_exec_command(
     model: str | None,
     reasoning_effort: str | None,
     sandbox_mode: str = "read-only",
+    resume_last: bool = False,
+    persist_session: bool = False,
 ) -> list[str]:
     try:
         tokens = shlex.split(str(cmd).strip())
@@ -2570,23 +2626,31 @@ def _build_codex_exec_command(
         tokens = ["codex", "exec"]
     executable = tokens[0]
     argv = tokens[1:]
-    if not argv or argv[0] not in {"exec", "e"}:
-        argv = ["exec", *argv]
-    if argv and argv[-1] == "-":
-        argv = argv[:-1]
-    command = [executable, *argv]
-    command.extend(
-        [
-            "--json",
-            "--ephemeral",
-            "--skip-git-repo-check",
-            "--sandbox",
-            str(sandbox_mode or "read-only"),
-        ]
-    )
-    command.extend(["--cd", str(working_dir)])
-    if output_schema_path is not None:
-        command.extend(["--output-schema", str(output_schema_path)])
+    if resume_last:
+        if not argv or argv[0] not in {"exec", "e"}:
+            argv = ["exec"]
+        elif argv and argv[-1] == "-":
+            argv = argv[:-1]
+        command = [executable, *argv, "resume", "--last", "--json", "--skip-git-repo-check"]
+    else:
+        if not argv or argv[0] not in {"exec", "e"}:
+            argv = ["exec", *argv]
+        if argv and argv[-1] == "-":
+            argv = argv[:-1]
+        command = [executable, *argv]
+        command.extend(
+            [
+                "--json",
+                "--skip-git-repo-check",
+                "--sandbox",
+                str(sandbox_mode or "read-only"),
+            ]
+        )
+        if not persist_session:
+            command.append("--ephemeral")
+        command.extend(["--cd", str(working_dir)])
+        if output_schema_path is not None:
+            command.extend(["--output-schema", str(output_schema_path)])
     if model:
         command.extend(["--model", str(model)])
     if reasoning_effort:

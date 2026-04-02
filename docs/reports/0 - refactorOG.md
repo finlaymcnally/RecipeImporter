@@ -1,3 +1,9 @@
+---
+summary: "Historical refactor spec for cookbook importer pipeline v2."
+read_when:
+  - When comparing the current pipeline against earlier refactor intent
+---
+
 # Refactor Spec: Cookbook Importer Pipeline v2
 
 ## Plain-English Pipeline

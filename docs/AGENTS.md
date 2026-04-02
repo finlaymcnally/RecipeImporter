@@ -1,3 +1,10 @@
+---
+summary: "Docs workflow reminder and required front matter format for docs files."
+read_when:
+  - When updating docs workflow expectations
+  - When fixing docs front matter drift
+---
+
 ## Docs workflow
 
 - Run `npm run docs:list` or `./bin/docs-list` to see summaries and Read when hints. `docs:list` is an npm script name, not a shell command.

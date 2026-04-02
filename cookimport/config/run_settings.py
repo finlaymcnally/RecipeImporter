@@ -38,9 +38,12 @@ logger = logging.getLogger(__name__)
 from .run_settings_types import (
     AtomicBlockSplitter,
     BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES,
+    CodexExecStyle,
     CodexFarmFailureMode,
     CodexFarmRecipeMode,
     CodexReasoningEffort,
+    CODEX_EXEC_STYLE_TASKFILE_V1,
+    CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1,
     EpubExtractor,
     IngredientMissingUnitPolicy,
     IngredientPackagingMode,
@@ -78,6 +81,7 @@ from .run_settings_types import (
     _bucket1_fixed_behavior,
     _ui_meta,
     normalize_line_role_pipeline_value,
+    normalize_codex_exec_style_value,
     normalize_llm_knowledge_pipeline_value,
     normalize_llm_recipe_pipeline_value,
 )
@@ -773,6 +777,20 @@ class RunSettings(BaseModel):
             ),
         ),
     )
+    codex_exec_style: CodexExecStyle = Field(
+        default=CodexExecStyle.taskfile_v1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Codex Exec Style",
+            order=113,
+            description=(
+                "Transport style for Codex-backed line-role and non-recipe finalize. "
+                "Taskfile keeps the current editable task.json contract; structured resume "
+                "uses inline packets plus resumed Codex sessions."
+            ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
     line_role_prompt_target_count: int | None = Field(
         default=5,
         ge=1,
@@ -1191,6 +1209,14 @@ class RunSettings(BaseModel):
     ) -> str | LlmKnowledgePipeline:
         return normalize_llm_knowledge_pipeline_value(value)
 
+    @field_validator("codex_exec_style", mode="before")
+    @classmethod
+    def _normalize_codex_exec_style(
+        cls,
+        value: Any,
+    ) -> str | CodexExecStyle:
+        return normalize_codex_exec_style_value(value)
+
     @classmethod
     def from_dict(
         cls,
@@ -1225,6 +1251,10 @@ class RunSettings(BaseModel):
         if "llm_knowledge_pipeline" in data:
             data["llm_knowledge_pipeline"] = normalize_llm_knowledge_pipeline_value(
                 data.get("llm_knowledge_pipeline")
+            )
+        if "codex_exec_style" in data:
+            data["codex_exec_style"] = normalize_codex_exec_style_value(
+                data.get("codex_exec_style")
             )
         return cls.model_validate(data)
 

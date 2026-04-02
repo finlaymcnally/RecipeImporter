@@ -80,6 +80,7 @@ def test_orchestrator_accepts_full_text_lines_when_blocks_missing(tmp_path: Path
                     },
                     "m": [],
                     "mr": "not_needed_single_step",
+                    "db": [],
                     "g": [
                         {
                             "c": "meal",

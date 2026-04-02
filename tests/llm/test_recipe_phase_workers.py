@@ -164,6 +164,13 @@ def _build_recipe_workspace_output(
         elif repair_status == "not_a_recipe":
             status_reason = "owned text is not a recipe"
             mapping_reason = "not_applicable_not_a_recipe"
+        divested_block_indices = []
+        if repair_status != "repaired":
+            divested_block_indices = [
+                int(row[0])
+                for row in recipe_payload.get("ev", [])
+                if isinstance(row, list | tuple) and row
+            ]
         recipes.append(
             {
                 "v": "1",
@@ -173,6 +180,7 @@ def _build_recipe_workspace_output(
                 "cr": canonical_recipe,
                 "m": [],
                 "mr": mapping_reason,
+                "db": divested_block_indices,
                 "g": [],
                 "w": warnings,
             }

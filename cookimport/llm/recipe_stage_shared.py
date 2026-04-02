@@ -21,6 +21,7 @@ from cookimport.core.models import (
     RecipeDraftV1,
 )
 from cookimport.runs import RECIPE_MANIFEST_FILE_NAME
+from cookimport.staging.recipe_ownership import RecipeDivestment
 from cookimport.staging.draft_v1 import (
     authoritative_recipe_semantics_to_draft_v1,
     build_authoritative_recipe_semantics,
@@ -192,6 +193,7 @@ class CodexFarmApplyResult:
     authoritative_recipe_payloads_by_recipe_id: dict[str, AuthoritativeRecipeSemantics]
     llm_report: dict[str, Any]
     llm_raw_dir: Path
+    recipe_divestments: list[RecipeDivestment] = field(default_factory=list)
 
 
 @dataclass
@@ -293,6 +295,7 @@ def _recipe_task_file_answer_schema() -> dict[str, Any]:
             "canonical_recipe",
             "ingredient_step_mapping",
             "ingredient_step_mapping_reason",
+            "divested_block_indices",
             "selected_tags",
             "warnings",
         ],
@@ -312,6 +315,7 @@ def _recipe_task_file_answer_schema() -> dict[str, Any]:
                 },
                 "ingredient_step_mapping": [],
                 "ingredient_step_mapping_reason": "not_needed_single_step",
+                "divested_block_indices": [],
                 "selected_tags": [],
                 "warnings": [],
             }
@@ -873,7 +877,7 @@ def _coerce_mapping_dict(value: Any) -> dict[str, Any]:
 
 
 _RECIPE_COMPACT_TOP_LEVEL_KEYS = frozenset({"v", "sid", "r"})
-_RECIPE_COMPACT_RESULT_KEYS = frozenset({"v", "rid", "st", "sr", "cr", "m", "mr", "g", "w"})
+_RECIPE_COMPACT_RESULT_KEYS = frozenset({"v", "rid", "st", "sr", "cr", "m", "mr", "db", "g", "w"})
 _RECIPE_COMPACT_CANONICAL_KEYS = frozenset({"t", "i", "s", "d", "y"})
 _RECIPE_COMPACT_MAPPING_KEYS = frozenset({"i", "s"})
 _RECIPE_COMPACT_TAG_KEYS = frozenset({"c", "l", "f"})
@@ -888,6 +892,7 @@ _RECIPE_LEGACY_KEY_SUGGESTIONS = {
     "canonical_recipe": "cr",
     "ingredient_step_mapping": "m",
     "ingredient_step_mapping_reason": "mr",
+    "divested_block_indices": "db",
     "selected_tags": "g",
     "warnings": "w",
     "not_a_recipe": "st=not_a_recipe",
@@ -2453,6 +2458,8 @@ def _build_recipe_task_file_worker_prompt(
             "- `status` must be one of `repaired`, `fragmentary`, or `not_a_recipe`.",
             "- When `status=repaired`, provide `canonical_recipe.title`, `ingredients`, and `steps`.",
             "- Use `ingredient_step_mapping` only for real ingredient-to-step links.",
+            "- `divested_block_indices` must list any owned evidence block indices that no longer belong to the recipe.",
+            "- When `status=fragmentary` or `status=not_a_recipe`, divest every owned evidence block.",
             "- Keep `selected_tags` as a short list of obvious semantic tag labels.",
             "- Keep `warnings` concise.",
         ]
@@ -2511,6 +2518,11 @@ def _recipe_answer_to_compact_payload(
         ]
         for ingredient_index in ingredient_indexes:
             mapping_rows.append({"i": ingredient_index, "s": step_indexes})
+    divested_block_indices = [
+        int(value)
+        for value in (answer_payload.get("divested_block_indices") or [])
+        if str(value).strip()
+    ]
     return {
         "v": "1",
         "sid": task_plan.task_id,
@@ -2533,6 +2545,7 @@ def _recipe_answer_to_compact_payload(
                 ),
                 "m": mapping_rows,
                 "mr": answer_payload.get("ingredient_step_mapping_reason"),
+                "db": divested_block_indices,
                 "g": [
                     {"c": "selected", "l": str(tag).strip()}
                     for tag in (answer_payload.get("selected_tags") or [])
@@ -2546,6 +2559,45 @@ def _recipe_answer_to_compact_payload(
             }
         ],
     }
+
+
+def _validate_recipe_output_divestments(
+    *,
+    prepared: _PreparedRecipeInput,
+    correction_output: MergedRecipeRepairOutput,
+) -> list[RecipeDivestment]:
+    owned_block_indices = [int(index) for index in prepared.block_indices]
+    owned_block_index_set = set(owned_block_indices)
+    requested_divestments = [int(index) for index in correction_output.divested_block_indices]
+    unexpected = [index for index in requested_divestments if index not in owned_block_index_set]
+    if unexpected:
+        raise ValueError(
+            f"recipe output divested unknown block indices {unexpected}; owned block indices are "
+            f"{owned_block_indices}"
+        )
+
+    if correction_output.repair_status != "repaired":
+        missing = [index for index in owned_block_indices if index not in requested_divestments]
+        if missing:
+            raise ValueError(
+                "recipe outputs with status "
+                f"{correction_output.repair_status!r} must divest every owned block; missing {missing}"
+            )
+    elif owned_block_indices and len(requested_divestments) == len(owned_block_indices):
+        raise ValueError(
+            "recipe outputs with status 'repaired' cannot divest every owned block"
+        )
+
+    if not requested_divestments:
+        return []
+    return [
+        RecipeDivestment(
+            recipe_id=prepared.state.recipe_id,
+            block_indices=requested_divestments,
+            reason=str(correction_output.status_reason or correction_output.repair_status).strip()
+            or "explicit_recipe_divestment",
+        )
+    ]
 
 
 def _evaluate_recipe_task_file_answers(
@@ -4182,6 +4234,7 @@ def _run_single_correction_recipe_pipeline(
                 "llmRawDir": str(llm_raw_dir),
             },
             llm_raw_dir=llm_raw_dir,
+            recipe_divestments=[],
         )
 
     pipeline_root = _resolve_pipeline_root(run_settings)
@@ -4342,6 +4395,7 @@ def _run_single_correction_recipe_pipeline(
     intermediate_overrides: dict[str, dict[str, Any]] = {}
     final_overrides: dict[str, dict[str, Any]] = {}
     explicitly_rejected_recipe_ids: set[str] = set()
+    recipe_divestments: list[RecipeDivestment] = []
     proposals_by_shard_id: dict[str, dict[str, Any]] = {}
     proposals_dir = phase_runtime_dir / "proposals"
     for proposal_path in sorted(proposals_dir.glob("*.json")):
@@ -4396,8 +4450,19 @@ def _run_single_correction_recipe_pipeline(
             state.correction_output_status = correction_output.repair_status
             state.correction_output_reason = correction_output.status_reason
             state.warnings.extend(list(correction_output.warnings))
+            try:
+                output_divestments = _validate_recipe_output_divestments(
+                    prepared=prepared,
+                    correction_output=correction_output,
+                )
+            except ValueError as exc:
+                state.single_correction_status = "error"
+                state.final_assembly_status = "error"
+                state.errors.append(f"invalid recipe divestment contract: {exc}")
+                continue
 
             if correction_output.repair_status != "repaired":
+                recipe_divestments.extend(output_divestments)
                 explicitly_rejected_recipe_ids.add(state.recipe_id)
                 state.single_correction_status = "ok"
                 state.final_assembly_status = "skipped"
@@ -4421,6 +4486,7 @@ def _run_single_correction_recipe_pipeline(
                 )
                 continue
 
+            recipe_divestments.extend(output_divestments)
             corrected_candidate = _corrected_candidate_from_output(
                 state=state,
                 output=correction_output,
@@ -4539,6 +4605,7 @@ def _run_single_correction_recipe_pipeline(
             "llmRawDir": str(llm_raw_dir),
         },
         llm_raw_dir=llm_raw_dir,
+        recipe_divestments=recipe_divestments,
     )
 
 
@@ -4633,6 +4700,7 @@ def run_codex_farm_recipe_pipeline(
             authoritative_recipe_payloads_by_recipe_id={},
             llm_report={"enabled": False, "pipeline": "off"},
             llm_raw_dir=run_root / "raw" / "llm" / sanitize_for_filename(workbook_slug),
+            recipe_divestments=[],
         )
     return _run_single_correction_recipe_pipeline(
         conversion_result=conversion_result,

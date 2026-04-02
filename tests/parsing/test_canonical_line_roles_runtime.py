@@ -930,6 +930,79 @@ def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_chang
     assert second[0].label == first[0].label
 
 
+def test_label_atomic_lines_structured_resume_repairs_in_place(tmp_path) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:structured:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous context sentence",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+
+    class _StructuredRepairRunner(FakeCodexExecRunner):
+        def __init__(self) -> None:
+            super().__init__(output_builder=self._build_output)
+
+        def _build_output(self, payload):  # noqa: ANN001
+            rows = payload.get("rows") if isinstance(payload, dict) else []
+            atomic_indices: list[int] = []
+            for row in rows:
+                if isinstance(row, dict) and row.get("atomic_index") is not None:
+                    atomic_indices.append(int(row.get("atomic_index")))
+                elif isinstance(row, (list, tuple)) and row:
+                    atomic_indices.append(int(row[0]))
+            label = "NOT_A_REAL_LABEL" if len(self.calls) == 1 else "RECIPE_NOTES"
+            return {
+                "rows": [
+                    {"atomic_index": atomic_index, "label": label}
+                    for atomic_index in atomic_indices
+                ]
+            }
+
+    runner = _StructuredRepairRunner()
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-route-v2",
+            line_role_prompt_target_count=1,
+            line_role_worker_count=1,
+            codex_exec_style="structured-resume-v1",
+        ),
+        artifact_root=tmp_path,
+        codex_runner=runner,
+        live_llm_allowed=True,
+    )
+
+    assert len(predictions) == 1
+    assert predictions[0].label == "RECIPE_NOTES"
+    assert [call["mode"] for call in runner.calls] == [
+        "structured_prompt",
+        "structured_prompt_resume",
+    ]
+    assert runner.calls[0]["persist_session"] is True
+    assert runner.calls[1]["resume_last"] is True
+    assert (
+        runner.calls[0]["execution_working_dir"]
+        == runner.calls[1]["execution_working_dir"]
+    )
+
+    lineage_path = next(
+        (tmp_path / "line-role-pipeline" / "runtime" / "line_role" / "workers").rglob(
+            "session_lineage.json"
+        )
+    )
+    lineage_payload = json.loads(lineage_path.read_text(encoding="utf-8"))
+    assert lineage_payload["turn_count"] == 2
+    assert [turn["turn_kind"] for turn in lineage_payload["turns"]] == [
+        "initial",
+        "repair",
+    ]
+
+
 def test_line_role_cache_path_changes_when_line_role_pipeline_changes(tmp_path) -> None:
     candidates = [
         AtomicLineCandidate(

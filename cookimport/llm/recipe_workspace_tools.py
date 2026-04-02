@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from typing import Any, Mapping
 
 _TOP_LEVEL_KEYS = frozenset({"v", "sid", "r"})
-_RESULT_KEYS = frozenset({"v", "rid", "st", "sr", "cr", "m", "mr", "g", "w"})
+_RESULT_KEYS = frozenset({"v", "rid", "st", "sr", "cr", "m", "mr", "db", "g", "w"})
 _CANONICAL_KEYS = frozenset({"t", "i", "s", "d", "y"})
 _MAPPING_KEYS = frozenset({"i", "s"})
 _TAG_KEYS = frozenset({"c", "l", "f"})
@@ -21,6 +21,7 @@ _LEGACY_KEY_SUGGESTIONS = {
     "canonical_recipe": "cr",
     "ingredient_step_mapping": "m",
     "ingredient_step_mapping_reason": "mr",
+    "divested_block_indices": "db",
     "selected_tags": "g",
     "warnings": "w",
     "not_a_recipe": "st=not_a_recipe",
@@ -132,6 +133,7 @@ def _build_recipe_worker_scaffold_row(
                 ingredients=ingredients,
                 steps=steps,
             ),
+            "db": [],
             "g": [],
             "w": [],
         }
@@ -143,6 +145,7 @@ def _build_recipe_worker_scaffold_row(
         "cr": None,
         "m": [],
         "mr": "not_applicable_fragmentary",
+        "db": [],
         "g": [],
         "w": [],
     }
@@ -321,6 +324,8 @@ def validate_recipe_worker_draft(
             errors.append(f"r[{index}].sr must explain the judgment when st={status}")
         if not isinstance(row_dict.get("m"), list):
             errors.append(f"r[{index}].m must be a list")
+        if not isinstance(row_dict.get("db"), list):
+            errors.append(f"r[{index}].db must be a list")
         if not isinstance(row_dict.get("g"), list):
             errors.append(f"r[{index}].g must be a list")
         if not isinstance(row_dict.get("w"), list):

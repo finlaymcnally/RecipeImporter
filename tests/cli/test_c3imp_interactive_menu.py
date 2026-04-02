@@ -21,7 +21,11 @@ from cookimport.config.last_run_store import (
     load_qualitysuite_winner_run_settings,
     save_qualitysuite_winner_run_settings,
 )
-from cookimport.config.run_settings import CodexReasoningEffort
+from cookimport.config.run_settings import (
+    CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1,
+    CODEX_EXEC_STYLE_TASKFILE_V1,
+    CodexReasoningEffort,
+)
 from cookimport.paths import history_root_for_output
 from cookimport import entrypoint
 
@@ -713,6 +717,8 @@ def test_choose_run_settings_workflow_menu_uses_family_labels_only(
         if message == "Workflow for this run:":
             captured_titles.extend(str(choice.title) for choice in kwargs.get("choices", []))
             return "codex-recipe-shard-v1"
+        if message == "Codex Exec style for this run:":
+            return CODEX_EXEC_STYLE_TASKFILE_V1
         pytest.fail(f"unexpected menu prompt: {message}")
 
     selected = run_settings_flow.choose_run_settings(
@@ -731,6 +737,7 @@ def test_choose_run_settings_workflow_menu_uses_family_labels_only(
 
     assert selected is not None
     assert captured_titles == ["Vanilla / no Codex", "Codex Exec"]
+    assert selected.codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
 
 
 def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
@@ -752,7 +759,11 @@ def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
         menu_select=lambda message, *_args, **_kwargs: (
             "codex-recipe-shard-v1"
             if message == "Workflow for this run:"
-            else pytest.fail(f"unexpected menu prompt: {message}")
+            else (
+                CODEX_EXEC_STYLE_TASKFILE_V1
+                if message == "Codex Exec style for this run:"
+                else pytest.fail(f"unexpected menu prompt: {message}")
+            )
         ),
         back_action=object(),
         prompt_codex_surface_menu=lambda **_kwargs: {
@@ -792,7 +803,11 @@ def test_choose_run_settings_prompts_for_enabled_codex_prompt_targets(
         menu_select=lambda message, *_args, **_kwargs: (
             "codex-recipe-shard-v1"
             if message == "Workflow for this run:"
-            else pytest.fail(f"unexpected menu prompt: {message}")
+            else (
+                CODEX_EXEC_STYLE_TASKFILE_V1
+                if message == "Codex Exec style for this run:"
+                else pytest.fail(f"unexpected menu prompt: {message}")
+            )
         ),
         back_action=object(),
         prompt_codex_surface_menu=lambda **_kwargs: {
@@ -820,6 +835,7 @@ def test_choose_run_settings_prompts_for_enabled_codex_prompt_targets(
     assert selected.recipe_prompt_target_count == 3
     assert selected.knowledge_prompt_target_count == 6
     assert selected.line_role_prompt_target_count == 5
+    assert selected.codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
 
 
 def test_choose_run_settings_benchmark_prompts_codex_targets_in_runtime_stage_order(
@@ -843,7 +859,11 @@ def test_choose_run_settings_benchmark_prompts_codex_targets_in_runtime_stage_or
         menu_select=lambda message, *_args, **_kwargs: (
             "codex-recipe-shard-v1"
             if message == "Workflow for this run:"
-            else pytest.fail(f"unexpected menu prompt: {message}")
+            else (
+                CODEX_EXEC_STYLE_TASKFILE_V1
+                if message == "Codex Exec style for this run:"
+                else pytest.fail(f"unexpected menu prompt: {message}")
+            )
         ),
         back_action=object(),
         prompt_codex_surface_menu=lambda **_kwargs: {
@@ -872,6 +892,7 @@ def test_choose_run_settings_benchmark_prompts_codex_targets_in_runtime_stage_or
     assert selected.line_role_prompt_target_count == 10
     assert selected.recipe_prompt_target_count == 5
     assert selected.knowledge_prompt_target_count == 10
+    assert selected.codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
 
 
 def test_choose_interactive_codex_surfaces_line_role_only_prompts_only_for_line_role_target() -> None:
@@ -948,6 +969,8 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
     def _menu_select(message, *_args, **_kwargs):
         if message == "Workflow for this run:":
             return "codex-recipe-shard-v1"
+        if message == "Codex Exec style for this run:":
+            return CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1
         if message == "Codex Exec model override:":
             seen_model_prompt["value"] = True
             return "__pipeline_default__"
@@ -976,6 +999,7 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
     assert selected.line_role_pipeline.value == "codex-line-role-route-v2"
     assert selected.llm_knowledge_pipeline.value == "off"
     assert selected.atomic_block_splitter.value == "off"
+    assert selected.codex_exec_style.value == CODEX_EXEC_STYLE_STRUCTURED_RESUME_V1
 
 
 def test_build_interactive_benchmark_preset_settings_resolves_fast_codex_exec_single_book(
@@ -1025,6 +1049,8 @@ def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowled
     def _menu_select(message, *_args, **_kwargs):
         if message == "Workflow for this run:":
             return "codex-recipe-shard-v1"
+        if message == "Codex Exec style for this run:":
+            return CODEX_EXEC_STYLE_TASKFILE_V1
         pytest.fail(f"unexpected menu prompt: {message}")
 
     selected = run_settings_flow.choose_run_settings(
@@ -1045,6 +1071,7 @@ def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowled
     assert selected.llm_knowledge_pipeline.value == "codex-knowledge-candidate-v2"
     assert selected.line_role_pipeline.value == "off"
     assert selected.atomic_block_splitter.value == "off"
+    assert selected.codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
 
 
 def test_prompt_codex_surface_menu_uses_arrow_keys_to_toggle_without_leaving_screen() -> None:

@@ -95,6 +95,7 @@ def test_build_recipe_worker_scaffold_uses_exact_task_and_recipe_ids() -> None:
             },
             "m": [],
             "mr": "not_needed_single_step",
+            "db": [],
             "g": [],
             "w": [],
         }
@@ -116,6 +117,7 @@ def test_build_recipe_worker_scaffold_fail_closed_when_hint_is_incomplete() -> N
             "cr": None,
             "m": [],
             "mr": "not_applicable_fragmentary",
+            "db": [],
             "g": [],
             "w": [],
         }
@@ -142,6 +144,7 @@ def test_validate_recipe_worker_draft_rejects_legacy_keys_and_wrong_owned_ids() 
                 },
                 "m": [],
                 "mr": None,
+                "db": [],
                 "g": [],
                 "w": [],
             }

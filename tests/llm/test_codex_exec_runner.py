@@ -895,6 +895,87 @@ def test_build_codex_exec_command_can_request_workspace_write(tmp_path: Path) ->
     assert command[command.index("--sandbox") + 1] == "workspace-write"
 
 
+def test_build_codex_exec_command_can_persist_initial_session(tmp_path: Path) -> None:
+    working_dir = tmp_path / "runtime-worker"
+    schema_path = tmp_path / "schema.json"
+
+    command = _build_codex_exec_command(
+        cmd="codex exec",
+        working_dir=working_dir,
+        output_schema_path=schema_path,
+        model=None,
+        reasoning_effort=None,
+        persist_session=True,
+    )
+
+    assert command[:2] == ["codex", "exec"]
+    assert "--ephemeral" not in command
+    assert command[command.index("--cd") + 1] == str(working_dir)
+    assert command[command.index("--output-schema") + 1] == str(schema_path)
+
+
+def test_build_codex_exec_command_builds_resume_last_variant(tmp_path: Path) -> None:
+    working_dir = tmp_path / "runtime-worker"
+    schema_path = tmp_path / "schema.json"
+
+    command = _build_codex_exec_command(
+        cmd="codex exec",
+        working_dir=working_dir,
+        output_schema_path=schema_path,
+        model="gpt-5.1-codex-mini",
+        reasoning_effort="medium",
+        resume_last=True,
+    )
+
+    assert command[:4] == ["codex", "exec", "resume", "--last"]
+    assert "--json" in command
+    assert "--skip-git-repo-check" in command
+    assert "--ephemeral" not in command
+    assert "--sandbox" not in command
+    assert "--cd" not in command
+    assert "--output-schema" not in command
+    assert command[command.index("--model") + 1] == "gpt-5.1-codex-mini"
+    assert command[command.index("-c") + 1] == 'model_reasoning_effort="medium"'
+    assert command[-1] == "-"
+
+
+def test_fake_codex_exec_runner_records_structured_resume_call(tmp_path: Path) -> None:
+    runner = FakeCodexExecRunner(output_builder=lambda _payload: {"rows": []})
+    execution_dir = tmp_path / "execution-session"
+    execution_dir.mkdir(parents=True, exist_ok=True)
+
+    result = runner.run_packet_worker(
+        prompt_text="Repair unresolved rows.",
+        input_payload={"rows": [{"atomic_index": 1}]},
+        working_dir=tmp_path / "worker-root",
+        env={},
+        output_schema_path=None,
+        resume_last=True,
+        persist_session=True,
+        prepared_execution_working_dir=execution_dir,
+    )
+
+    assert runner.calls == [
+        {
+            "mode": "structured_prompt_resume",
+            "prompt_text": "Repair unresolved rows.",
+            "input_payload": {"rows": [{"atomic_index": 1}]},
+            "working_dir": str(tmp_path / "worker-root"),
+            "execution_working_dir": str(execution_dir.resolve(strict=False)),
+            "output_schema_path": None,
+            "model": None,
+            "reasoning_effort": None,
+            "timeout_seconds": None,
+            "completed_termination_grace_seconds": None,
+            "workspace_task_label": None,
+            "resume_last": True,
+            "persist_session": True,
+        }
+    ]
+    assert result.command == ["codex", "exec", "resume", "--last"]
+    assert result.execution_working_dir == str(execution_dir.resolve(strict=False))
+
+
 def test_build_taskfile_worker_fs_cage_command_hides_home_and_sibling_workspaces(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

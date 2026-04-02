@@ -236,6 +236,7 @@ def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]
         },
         "m": [],
         "mr": "unclear_alignment",
+        "db": [],
         "g": selected_tags,
         "w": [],
     }

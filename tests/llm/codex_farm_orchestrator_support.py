@@ -219,6 +219,7 @@ def _build_valid_recipe_task_output(task_payload: dict[str, object]) -> dict[str
                 },
                 "m": [],
                 "mr": "unclear_alignment",
+                "db": [],
                 "g": [],
                 "w": [],
             }

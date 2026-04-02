@@ -56,6 +56,8 @@ coverage.xml
 # IDE / Editors
 .vscode/
 .idea/
+.codex
+.codex/
 *.swp
 *.swo
 .DS_Store

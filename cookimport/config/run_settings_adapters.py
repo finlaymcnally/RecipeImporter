@@ -37,6 +37,7 @@ _STAGE_BENCHMARK_LAB_FIELDS = (
 _STAGE_INTERNAL_FIELDS = (
     "recipe_prompt_target_count",
     "knowledge_prompt_target_count",
+    "codex_exec_style",
     "knowledge_packet_input_char_budget",
     "knowledge_packet_output_char_budget",
     "knowledge_group_task_max_units",

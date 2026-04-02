@@ -236,6 +236,7 @@ def _run_retryable_watchdog_fixture(tmp_path: Path) -> dict[str, object]:
                     },
                     "m": [],
                     "mr": "retry_pass",
+                    "db": [],
                     "g": [],
                     "w": [],
                 }
@@ -424,6 +425,7 @@ def _run_packed_watchdog_retry_fixture(tmp_path: Path) -> dict[str, object]:
                     },
                     "m": [],
                     "mr": "packed_retry_pass",
+                    "db": [],
                     "g": [],
                     "w": [],
                 }

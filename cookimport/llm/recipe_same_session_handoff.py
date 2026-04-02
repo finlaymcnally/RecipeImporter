@@ -350,6 +350,11 @@ def _recipe_answer_to_compact_payload(
                 ),
                 "m": mapping_rows,
                 "mr": answer_payload.get("ingredient_step_mapping_reason"),
+                "db": [
+                    int(value)
+                    for value in (answer_payload.get("divested_block_indices") or [])
+                    if str(value).strip()
+                ],
                 "g": [
                     {"c": "selected", "l": str(tag).strip()}
                     for tag in (answer_payload.get("selected_tags") or [])
