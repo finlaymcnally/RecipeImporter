@@ -10,13 +10,13 @@ from typing import Any, Callable, Mapping, Sequence
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_WORKSPACE_WORKER_PROGRESS_HEARTBEAT_SECONDS = 1.0
-DEFAULT_WORKSPACE_WORKER_STALL_SECONDS = 45.0
-DEFAULT_WORKSPACE_WORKER_ATTENTION_LIMIT = 2
+DEFAULT_TASKFILE_PROGRESS_HEARTBEAT_SECONDS = 1.0
+DEFAULT_TASKFILE_STALL_SECONDS = 45.0
+DEFAULT_TASKFILE_ATTENTION_LIMIT = 2
 
 
 @dataclass(frozen=True)
-class WorkspaceWorkerHealthSnapshot:
+class TaskfileHealthSnapshot:
     worker_id: str
     state: str
     reason_code: str | None
@@ -36,8 +36,8 @@ class WorkspaceWorkerHealthSnapshot:
 
 
 @dataclass(frozen=True)
-class WorkspaceWorkerHealthSummary:
-    snapshots_by_worker_id: dict[str, WorkspaceWorkerHealthSnapshot]
+class TaskfileHealthSummary:
+    snapshots_by_worker_id: dict[str, TaskfileHealthSnapshot]
     attention_suffix_by_worker_id: dict[str, str]
     live_activity_summary_by_worker_id: dict[str, str]
     warning_worker_count: int
@@ -144,11 +144,11 @@ def _classify_attention(
 def summarize_taskfile_health(
     *,
     worker_roots_by_id: Mapping[str, Path],
-    stall_after_seconds: float = DEFAULT_WORKSPACE_WORKER_STALL_SECONDS,
-    attention_limit: int = DEFAULT_WORKSPACE_WORKER_ATTENTION_LIMIT,
-) -> WorkspaceWorkerHealthSummary:
+    stall_after_seconds: float = DEFAULT_TASKFILE_STALL_SECONDS,
+    attention_limit: int = DEFAULT_TASKFILE_ATTENTION_LIMIT,
+) -> TaskfileHealthSummary:
     now = datetime.now(timezone.utc)
-    snapshots_by_worker_id: dict[str, WorkspaceWorkerHealthSnapshot] = {}
+    snapshots_by_worker_id: dict[str, TaskfileHealthSnapshot] = {}
     attention_suffix_by_worker_id: dict[str, str] = {}
     live_activity_summary_by_worker_id: dict[str, str] = {}
     warning_worker_count = 0
@@ -188,7 +188,7 @@ def summarize_taskfile_health(
             warning_worker_count += 1
         if stalled:
             stalled_worker_count += 1
-        snapshot = WorkspaceWorkerHealthSnapshot(
+        snapshot = TaskfileHealthSnapshot(
             worker_id=worker_id,
             state=str(live_status.get("state") or "").strip(),
             reason_code=str(live_status.get("reason_code") or "").strip() or None,
@@ -225,7 +225,7 @@ def summarize_taskfile_health(
         if last_activity_candidates
         else None
     )
-    return WorkspaceWorkerHealthSummary(
+    return TaskfileHealthSummary(
         snapshots_by_worker_id=snapshots_by_worker_id,
         attention_suffix_by_worker_id=attention_suffix_by_worker_id,
         live_activity_summary_by_worker_id=live_activity_summary_by_worker_id,
@@ -257,7 +257,7 @@ def start_taskfile_progress_heartbeat(
     *,
     emit_progress: Callable[[], None],
     thread_name: str,
-    interval_seconds: float = DEFAULT_WORKSPACE_WORKER_PROGRESS_HEARTBEAT_SECONDS,
+    interval_seconds: float = DEFAULT_TASKFILE_PROGRESS_HEARTBEAT_SECONDS,
 ) -> tuple[threading.Event, threading.Thread]:
     stop_event = threading.Event()
     safe_interval = max(0.2, float(interval_seconds))
