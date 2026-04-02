@@ -9,11 +9,17 @@ read_when:
 
 This is the current plain-English story of how a cookbook moves through the program from start to finish.
 
+This document is written from the intended product perspective: the normal "fully on" workflow is the Codex-backed one. The deterministic-only or "vanilla" path still matters, but mostly as a zero-token baseline, a fallback path, a debugging reference, and a benchmark comparison surface.
+
+So when this doc talks about what the program "does," read that as "what the program is trying to do in its real end-state workflow," not "the cheapest possible run with every AI-assisted stage turned off."
+
 A note to AI editors: keep this as a plain-language product walkthrough. Artifact names are fine when they help explain the product, but constant file-by-file references make this harder to read.
 
 ## Start of a run
 
 Every `cookimport stage` run starts by creating a new timestamped output folder and locking in the important behavior choices for that run.
+
+In the product's intended "real" workflow, that usually means turning on the Codex-backed review passes and deciding how aggressively to shard them. The safe/off defaults mostly exist so the repo can support zero-token testing, benchmarking, debugging, and explicit execution consent.
 
 The most important settings at the start of a run are:
 
@@ -36,7 +42,7 @@ The most important settings at the start of a run are:
 - `ingredient_text_fix_backend`, `ingredient_pre_normalize_mode`, `ingredient_packaging_mode`, `ingredient_parser_backend`, `ingredient_unit_canonicalizer`, and `ingredient_missing_unit_policy`: the main ingredient-parsing behavior knobs
 - `write_markdown`: whether the run writes human-readable markdown sidecars such as `sections.md`, `tables.md`, and `chunks.md`
 
-If an LLM-backed stage is enabled, explicit model overrides win. Otherwise the run uses discovered config or pipeline defaults. The product does not invent a fake hard-coded model id just because the UI could not discover one.
+If a Codex-backed stage is enabled, explicit model overrides win. Otherwise the run uses discovered config or pipeline defaults. The product does not invent a fake hard-coded model id just because the UI could not discover one.
 
 Then the importer registry looks at each input file and picks the importer that best matches that source type.
 
@@ -157,9 +163,9 @@ It starts with `label_deterministic`, which creates the deterministic line and b
 - does this line belong inside a recipe or outside it
 - if it is outside, should it stay alive for later non-recipe review
 
-That deterministic pass still matters even when LLM stages are on. It gives the run a reproducible baseline and a clear artifact trail.
+That deterministic pass still matters even in the intended Codex-backed workflow. It gives the run a reproducible baseline, a bounded review surface, and a clear artifact trail for later validation.
 
-If line-role Codex review is enabled, `label_refine` reviews those labels in bounded worker sessions. The exact worker transport can vary, but repo code still owns shard planning, validation, repair, and final acceptance. There is no hidden live-path fallback where repo code silently swaps invalid worker output back to deterministic rows and pretends nothing happened.
+In the intended AI-first path, `label_refine` then reviews those labels in bounded worker sessions. The exact worker transport can vary, but repo code still owns shard planning, validation, repair, and final acceptance. There is no hidden live-path fallback where repo code silently swaps invalid worker output back to deterministic rows and pretends nothing happened.
 
 After labeling, `recipe-boundary` groups the accepted recipe lines into candidate spans and decides which of those spans count as real recipes.
 
@@ -202,7 +208,7 @@ This stage handles the common recipe business logic:
 - variant handling
 - tag handling
 
-If recipe Codex is enabled, this is the stage that runs it. The public recipe pipeline is `codex-recipe-shard-v1`.
+This is the stage where the main recipe Codex pass runs. The public recipe pipeline is `codex-recipe-shard-v1`.
 
 That Codex pass is a refinement layer inside already-accepted recipe boundaries.
 
@@ -216,7 +222,7 @@ Only `repaired` promotes into final recipe authority. `fragmentary` and `not_a_r
 
 One important current rule is that `recipe-refine` cannot silently change block ownership just by changing recipe text or provenance. If it wants to give a block back, it must do that explicitly through divestment. Only blocks that were never recipe-owned, or were later explicitly divested, may enter the non-recipe lane.
 
-After the optional Codex pass, repo code still validates the result, normalizes it, builds authoritative recipe payloads, builds intermediate `schema.org Recipe JSON`, and then builds the final `cookbook3` output. Even when recipe Codex is on, deterministic repo code still owns the final write path.
+After the Codex pass, repo code still validates the result, normalizes it, builds authoritative recipe payloads, builds intermediate `schema.org Recipe JSON`, and then builds the final `cookbook3` output. Even in the AI-first workflow, deterministic repo code still owns the final write path.
 
 ## `nonrecipe-route`
 
@@ -246,9 +252,9 @@ This is why the run writes separate routing and final-authority artifacts.
 
 `nonrecipe-finalize` is the final semantic owner of reviewable outside-recipe material.
 
-If non-recipe finalize is off, the run still keeps the routing and status artifacts and can still build deterministic late outputs from the surviving outside-recipe block list.
+In the intended product workflow, this stage is on. The off path still exists so the repo can do deterministic baselines, zero-token rehearsals, and fallback behavior when needed.
 
-If non-recipe finalize is on, the public knowledge pipeline is `codex-knowledge-candidate-v2`.
+The public knowledge pipeline is `codex-knowledge-candidate-v2`.
 
 Before the model sees anything, repo code partitions the surviving candidate queue into ordered candidate shards and assigns those shards to workers. Repo code owns shard sizing, ordering, block ownership, validation, and promotion back into the final stage result.
 
@@ -282,6 +288,8 @@ In artifact terms:
 
 If reviewer-facing knowledge output is written, `knowledge.md` is the readable rendering of those promoted authority decisions and groups.
 
+If this stage is disabled or falls back, the run still keeps the routing and status artifacts and can still build deterministic late outputs from the surviving outside-recipe block list. That is the backup path, not the main product story.
+
 ## Late outputs
 
 Once recipe and outside-recipe authority are settled, the program can safely build the downstream artifacts that depend on them.
@@ -304,7 +312,7 @@ Sections come from the finalized recipe side.
 
 Tables follow the late-output outside-recipe block list. They are always extracted for stage-backed flows.
 
-Deterministic chunks are the fallback late-output lane when non-recipe finalize is off or falls back. When non-recipe finalize runs and produces reviewed authority, the run writes reviewed knowledge artifacts instead of `chunks/` files.
+Deterministic chunks are the fallback late-output lane when non-recipe finalize is off or falls back. In the intended AI-backed workflow, the run writes reviewed knowledge artifacts instead of `chunks/` files.
 
 If non-recipe finalize produced reviewed outside-recipe authority, that late-output list is the authoritative outside-recipe rows.
 
@@ -314,4 +322,4 @@ If non-recipe finalize is off or falls back, that late-output list is instead th
 
 It also follows the stricter current ownership rule: recipe-owned blocks and final non-recipe `knowledge` are not supposed to overlap. If the runtime ever sees both on the same block, that is treated as a bug or invariant violation, not as a normal merge case where one side quietly wins.
 
-So the end of the run is: write recipe authority, write non-recipe authority, write the downstream artifacts built from those decisions, and write enough observability to explain the run later.
+So the end of the run is: let the AI-assisted stages make the fuzzy semantic calls, let deterministic repo code validate and package those decisions, write recipe authority, write non-recipe authority, write the downstream artifacts built from those decisions, and write enough observability to explain the run later.

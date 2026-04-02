@@ -306,6 +306,34 @@ That failure-preserving behavior is important for real debugging and should gene
 
 This is the most important section for anyone proposing changes.
 
+### Stage input/output mental model
+
+At a high level, the five stages can be understood as a strict consume/produce chain:
+
+- `extract`
+  - consumes: merged importer `ConversionResult`
+  - produces: one normalized internal book bundle with canonical block/line coordinates
+- `recipe-boundary`
+  - consumes: extracted book bundle
+  - produces: authoritative labeled lines, authoritative block labels, accepted recipe spans, recipe-boundary diagnostics
+- `recipe-refine`
+  - consumes: accepted recipe spans plus the shared book bundle
+  - produces: canonical recipe semantics and the explicit recipe block ownership contract
+- `nonrecipe-route`
+  - consumes: final recipe ownership plus authoritative block labels
+  - produces: outside-recipe candidate queue and obvious-junk exclusions
+- `nonrecipe-finalize`
+  - consumes: nonrecipe candidates
+  - produces: final outside-recipe `knowledge` vs `other` authority plus optional knowledge groups
+
+That chain is important because it tells you where a new feature can legally and conceptually attach.
+
+Examples:
+
+- if a feature changes which text is considered recipe-owned, it belongs before or inside `recipe-boundary` or in the ownership-divestment seam of `recipe-refine`
+- if a feature changes how outside-recipe prose is semantically categorized, it belongs in `nonrecipe-finalize`, not `nonrecipe-route`
+- if a feature changes only how final outputs are written, it belongs after stage authority, not inside importer logic
+
 ### Stage 1: `extract`
 
 This is where importer output becomes one shared internal book shape.
@@ -489,6 +517,513 @@ Reviewer-facing prose output may also appear under:
 - `knowledge/knowledge_index.json`
 
 But the final machine-readable semantic truth is `09_nonrecipe_authority.json`, not `knowledge.md`.
+
+## Artifact glossary
+
+This section exists because many design mistakes come from confusing nearby artifacts that sound similar but mean different things.
+
+### `source_blocks`
+
+Canonical ordered source units emitted by importers and later merged into a shared whole-book source model.
+
+What they are for:
+
+- preserving source order
+- carrying importer-normalized source text
+- anchoring later block-level reasoning
+
+What they are not:
+
+- final recipe truth
+- final non-recipe truth
+
+### `source_support`
+
+Non-authoritative support data emitted by importers.
+
+What it is for:
+
+- carrying helpful hints and evidence
+- preserving source-local structure that later stages may consult
+
+What it is not:
+
+- a truth override surface
+
+### `label_deterministic/...`
+
+Deterministic first-pass authoritative labeling artifacts.
+
+What they are for:
+
+- reproducible baseline labels
+- evidence trail for line/block labeling
+- a stable handoff into optional line-role Codex correction
+
+### `label_refine/...`
+
+Final authoritative label artifacts after line-role Codex review, when that review is enabled.
+
+What they are for:
+
+- replacing the deterministic label set with the accepted corrected label set
+- preserving diffs and corrected route truth
+
+### `recipe_boundary/<workbook_slug>/recipe_spans.json`
+
+Accepted recipe spans only.
+
+What it is for:
+
+- telling later stages which spans were accepted as real recipes
+
+What it is not:
+
+- a mixed accepted/rejected diagnostic dump
+
+### `recipe_boundary/<workbook_slug>/span_decisions.json`
+
+Compact reviewer/debug rollup for both accepted and rejected span candidates.
+
+What it is for:
+
+- explaining why pseudo-recipes were rejected
+- explaining why accepted spans survived
+
+### `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json`
+
+Canonical recipe semantics handoff.
+
+What it is for:
+
+- acting as the recipe meaning contract after `recipe-refine`
+- feeding intermediate/final recipe output writing
+
+### `recipe_authority/<workbook_slug>/recipe_block_ownership.json`
+
+Canonical recipe block ownership contract.
+
+What it is for:
+
+- telling downstream systems which blocks recipe still owns
+- telling nonrecipe routing which blocks are even eligible to become outside-recipe candidates
+
+What it is not:
+
+- something downstream code should try to “reconstruct” from prose or provenance
+
+### `08_nonrecipe_route.json`
+
+Deterministic route/candidate ledger for outside-recipe material.
+
+What it is for:
+
+- showing what survived to semantic review
+- showing what was excluded immediately
+
+What it is not:
+
+- final `knowledge` authority
+
+### `08_nonrecipe_exclusions.jsonl`
+
+Row-level explanation ledger for upstream obvious-junk vetoes.
+
+What it is for:
+
+- explaining where candidate rows disappeared before semantic review
+- debugging route pressure and over-exclusion
+
+### `09_nonrecipe_authority.json`
+
+Final machine-readable authority for outside-recipe `knowledge` versus `other`.
+
+What it is for:
+
+- semantic truth for outside-recipe material
+- benchmark and downstream structured reuse
+
+### `09_nonrecipe_knowledge_groups.json`
+
+Promoted grouping output for kept knowledge rows.
+
+What it is for:
+
+- related-idea grouping
+- reviewer/debug understanding
+
+What it is not:
+
+- the category-authority file
+
+### `09_nonrecipe_finalize_status.json`
+
+Status file for finalized and unresolved nonrecipe candidates.
+
+What it is for:
+
+- preserving incompleteness or unresolved work without polluting the authority file
+
+### `stage_observability.json`
+
+Run-level semantic stage index.
+
+What it is for:
+
+- telling other systems which stages existed and what the current semantic stage model is
+- preventing downstream tools from reconstructing stage truth from old folder assumptions
+
+### `run_manifest.json`
+
+Run-level artifact index and source identity surface.
+
+What it is for:
+
+- source identity
+- artifact pointer discovery
+- downstream manifest-based resolution
+
+### `.bench/<workbook_slug>/stage_block_predictions.json`
+
+Primary scored prediction artifact for stage-backed benchmark evidence.
+
+What it is for:
+
+- downstream benchmark scoring
+- authoritative block-level label evidence
+
+## Common wrong assumptions
+
+This section exists because a web AI that lacks code access is especially vulnerable to making plausible but incorrect assumptions.
+
+### Wrong assumption 1: “Importers probably still emit recipes and later stages just clean them up.”
+
+That is not the current architecture.
+
+In normal stage-backed flows, importers are source normalizers. Recipe truth starts in the label-first authority flow, not in importer output.
+
+### Wrong assumption 2: “If a run has zero recipes, the importer probably missed them and later stages can recover from importer hints.”
+
+That is not the intended current debugging model.
+
+If a run yields zero accepted recipes, the primary debugging surface is the boundary artifacts, especially:
+
+- `recipe_spans.json`
+- `span_decisions.json`
+
+The repo no longer treats importer recipe candidates as the authoritative fallback answer.
+
+### Wrong assumption 3: “`nonrecipe-route` is just the first half of a classifier, so routing artifacts are basically final semantics.”
+
+No.
+
+`nonrecipe-route` packages candidates and exclusions.
+
+`nonrecipe-finalize` is the final semantic owner for outside-recipe `knowledge` versus `other`.
+
+### Wrong assumption 4: “Reviewer markdown probably reflects the true state.”
+
+Maybe, but that is not the contract.
+
+Markdown summaries are human-oriented convenience surfaces. Machine-readable truth lives in the explicit authority and manifest artifacts.
+
+### Wrong assumption 5: “Benchmark code can safely infer the real answer from old path conventions if a manifest is missing or weird.”
+
+That is the wrong direction for new design.
+
+The modern architecture wants explicit pointers and semantic-stage-first contracts, not guessing from old layouts.
+
+### Wrong assumption 6: “The LLM is still just an advisory overlay on top of deterministic labels.”
+
+Not on the main accepted runtime path.
+
+For accepted line-role and knowledge outputs, structurally valid worker outputs are current first-authority after validation. Repo code validates ownership, completeness, and structure, but it is not supposed to silently semantic-veto them back to baseline.
+
+### Wrong assumption 7: “Knowledge means any cooking-adjacent sentence outside recipes.”
+
+That is too broad.
+
+Current knowledge logic is aiming at portable, reusable cooking knowledge worth later retrieval, not just any true or relevant sentence.
+
+## Design cookbook
+
+This section is intended to help a web AI translate a product idea into the correct architectural landing zone.
+
+### New importer feature
+
+Good examples:
+
+- preserve richer source coordinates
+- preserve better table structure
+- emit new source-support hints
+- improve EPUB or PDF extraction quality
+
+Typical landing zones:
+
+- importer file under `cookimport/plugins/`
+- importer-specific parsing helper
+- split-job planning or merge support if the feature changes range execution
+
+What to preserve:
+
+- source-first handoff
+- no importer-owned semantic truth
+
+### Better recipe boundary detection
+
+Good examples:
+
+- improve title recall
+- reduce pseudo-recipe acceptance
+- better handle cookbook sidebars or chapter furniture
+- better bridge one stray misclassified block inside a real recipe
+
+Typical landing zones:
+
+- deterministic line/block labeling logic
+- recipe span grouping logic
+- label-first authority stage flow
+
+What to preserve:
+
+- recipe acceptance still needs title anchor plus body proof
+- accepted boundary artifacts stay the authority surface
+
+### Better recipe semantics inside accepted recipes
+
+Good examples:
+
+- improve ingredient parsing edge cases
+- improve instruction metadata extraction
+- improve yield or time extraction
+- improve tag selection and normalization
+- improve Codex recipe correction contract
+
+Typical landing zones:
+
+- parsing helpers
+- recipe semantic shaping
+- recipe Codex planning/validation/promotion
+
+What to preserve:
+
+- recipe semantics should project through canonical recipe authority payloads
+- recipe block ownership changes must remain explicit divestment, not accidental side effects
+
+### Better nonrecipe logic
+
+First decide which of these you actually mean:
+
+- route/exclusion improvement
+- semantic `knowledge` vs `other` improvement
+- better grouping of kept knowledge rows
+
+If it is route/exclusion:
+
+- it belongs near `nonrecipe-route`
+
+If it is final semantic categorization:
+
+- it belongs near `nonrecipe-finalize`
+
+If it is grouping:
+
+- it belongs in the knowledge grouping part of finalize, not route
+
+### Better benchmarking or external review
+
+Good examples:
+
+- new benchmark view
+- new compare report
+- new upload bundle slice
+- better follow-up export
+- new diagnostics around unresolved candidates or route/finalize mismatch
+
+Typical landing zones:
+
+- benchmark scoring or artifact rendering
+- follow-up/export tooling
+- manifest enrichment
+- stage prediction artifact builders when the benchmark issue is really upstream evidence quality
+
+What to preserve:
+
+- benchmark logic should consume authoritative prediction artifacts and explicit pointers
+- do not build parallel semantic inference in benchmark-only code
+
+### Better Label Studio workflow
+
+Good examples:
+
+- better segment shaping
+- better context windows
+- better prelabel reliability
+- better export normalization
+
+Typical landing zones:
+
+- freeform task generation
+- prelabel
+- export/eval normalization
+
+What to preserve:
+
+- freeform scope
+- offset integrity
+- shared truth model with stage-backed artifacts
+
+### Better analytics/dashboard
+
+Good examples:
+
+- new compare/control dimension
+- new dashboard metric
+- better token usage accounting
+- better history summarization
+
+Typical landing zones:
+
+- analytics collectors and schema
+- compare/control backend
+- benchmark/stage manifest enrichment
+
+What to preserve:
+
+- history CSV and manifest-backed enrichment remain the stable data story
+
+## Failure and debugging model
+
+This section is useful because good feature design often starts by understanding how the current system expects failures to be localized.
+
+### Symptom: zero recipes in a run
+
+Primary likely seam:
+
+- `recipe-boundary`
+
+Best current interpretation:
+
+- either the line/block labeling failed to create a viable recipe scaffold
+- or span grouping rejected all candidate spans as pseudo-recipes or bodyless title shells
+
+What that usually does not mean anymore:
+
+- “trust importer recipes instead”
+
+### Symptom: a block looks like recipe in one artifact but outside-recipe in another
+
+Primary likely seam:
+
+- recipe ownership contract drift, or misuse of non-authoritative artifacts
+
+The intended answer is:
+
+- recipe ownership comes from `recipe_block_ownership.json`
+- downstream systems should not guess from separate provenance or recipe text spans
+
+### Symptom: knowledge markdown looks right but benchmark says otherwise
+
+Primary likely seam:
+
+- confusion between reviewer-facing prose and machine-readable authority
+
+The intended truth surface is:
+
+- `09_nonrecipe_authority.json`
+
+not the markdown summary.
+
+### Symptom: benchmark output disagrees with staged truth
+
+Primary likely seam:
+
+- benchmark pointer resolution or projection logic
+
+The intended answer is not:
+
+- infer alternate files from path folklore
+
+The intended answer is:
+
+- follow the authoritative prediction artifact and manifest/index story
+
+### Symptom: line-role behavior seems inconsistent with deterministic baseline
+
+Primary likely seam:
+
+- misunderstanding of the live accepted LLM contract
+
+Accepted worker labels are not supposed to be silently collapsed back to deterministic baseline just because baseline looked cleaner.
+
+### Symptom: nonrecipe candidates vanish before semantic review
+
+Primary likely seam:
+
+- route/exclusion logic
+
+The explanatory artifact is:
+
+- `08_nonrecipe_exclusions.jsonl`
+
+not the final authority file.
+
+## Pressure points and likely improvement zones
+
+This section is not a bug list. It is a map of areas where a web AI could plausibly suggest meaningful improvements.
+
+### 1. Boundary quality is high leverage
+
+Many downstream outcomes get much better or worse depending on whether `recipe-boundary` correctly distinguishes:
+
+- real recipes
+- pseudo-recipes
+- outside-recipe knowledge
+- obvious junk
+
+This is high leverage because mistakes here cascade into recipe refinement, nonrecipe routing, benchmark scoring, and Label Studio projections.
+
+### 2. Large coordinator seams still exist
+
+The repo has improved ownership splits, but some understanding still bottlenecks through larger composition roots and cross-package coordination seams.
+
+That means proposals that improve boundary clarity, smaller owner modules, or cleaner contract surfaces can still be valuable if they preserve current semantics.
+
+### 3. Read-side compatibility remains a tax
+
+Some tooling still has to tolerate historical outputs or narrow compatibility paths.
+
+That means new work should usually move toward:
+
+- semantic-stage-first outputs
+- manifest/index pointers
+- explicit authority artifacts
+
+not toward adding more fallback guessing.
+
+### 4. Knowledge remains intrinsically hard
+
+Outside-recipe `knowledge` versus `other` is semantically harder than many recipe-local decisions.
+
+That means improvements around:
+
+- candidate shaping
+- ontology grounding
+- grouping quality
+- clearer unresolved-state handling
+
+are all likely high-value areas.
+
+### 5. Benchmark and review tooling is part of the product
+
+This repo is not just a recipe extractor. It also invests heavily in:
+
+- benchmark comparisons
+- external review handoffs
+- deterministic follow-up
+- dashboard and compare/control analysis
+
+That means improvements to observability, failure explanation, and artifact clarity are often first-class product improvements, not merely dev tooling.
 
 ## The current authority boundaries
 
