@@ -12,12 +12,12 @@ from cookimport.core.models import ConversionReport, ConversionResult, RawArtifa
 from cookimport.llm.codex_farm_knowledge_orchestrator import run_codex_farm_nonrecipe_finalize
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.parsing.canonical_line_roles import label_atomic_lines
-from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan, NonRecipeStageResult
 from tests.nonrecipe_stage_helpers import (
     make_authority_result,
     make_candidate_status_result,
+    make_recipe_ownership_result,
     make_routing_result,
     make_seed_result,
     make_stage_result,
@@ -34,7 +34,7 @@ def _patch_direct_exec_home(
         lambda explicit_env=None: str(tmp_path / ".codex-recipe"),
     )
     monkeypatch.setattr(
-        "cookimport.llm.codex_exec_runner._build_workspace_worker_fs_cage_command",
+        "cookimport.llm.codex_exec_runner._build_taskfile_worker_fs_cage_command",
         lambda *, command, working_dir, env: list(command),
     )
 
@@ -330,7 +330,7 @@ def test_recipe_orchestrator_can_run_through_fake_codex_farm_subprocess(
     assert proposal_files == ["recipe-shard-0000-r0000-r0000.json"]
 
 
-def test_recipe_workspace_worker_can_run_through_fake_codex_farm_subprocess(
+def test_recipe_taskfile_worker_can_run_through_fake_codex_farm_subprocess(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -438,15 +438,10 @@ def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
                 unresolved_candidate_route_by_index={4: "candidate"},
             ),
         ),
-        recipe_spans=[
-            RecipeSpan(
-                span_id="recipe.0",
-                start_block_index=1,
-                end_block_index=4,
-                block_indices=[1, 2, 3],
-                source_block_ids=["b1", "b2", "b3"],
-            )
-        ],
+        recipe_ownership_result=make_recipe_ownership_result(
+            owned_by_recipe_id={"urn:recipe:test:r0": [1, 2, 3]},
+            all_block_indices=[0, 1, 2, 3, 4],
+        ),
         run_settings=settings,
         run_root=tmp_path / "run",
         workbook_slug="book",
@@ -466,7 +461,7 @@ def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
     assert not (tmp_path / "run" / "knowledge" / "book" / "snippets.jsonl").exists()
 
 
-def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
+def test_knowledge_taskfile_worker_can_run_through_fake_codex_farm_subprocess(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -539,15 +534,10 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
                 unresolved_candidate_route_by_index={4: "candidate"},
             ),
         ),
-        recipe_spans=[
-            RecipeSpan(
-                span_id="recipe.0",
-                start_block_index=1,
-                end_block_index=4,
-                block_indices=[1, 2, 3],
-                source_block_ids=["b1", "b2", "b3"],
-            )
-        ],
+        recipe_ownership_result=make_recipe_ownership_result(
+            owned_by_recipe_id={"urn:recipe:test:r0": [1, 2, 3]},
+            all_block_indices=[0, 1, 2, 3, 4],
+        ),
         run_settings=settings,
         run_root=tmp_path / "run",
         workbook_slug="book",
@@ -568,7 +558,7 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
         (row.get("supervision_state"), row.get("supervision_reason_code"))
         for row in status["telemetry"]["rows"]
     } == {("completed", "workspace_expected_outputs_completed")}
-    assert status["telemetry"]["summary"]["workspace_worker_session_count"] == 1
+    assert status["telemetry"]["summary"]["taskfile_session_count"] == 1
     assert status["telemetry"]["rows"][0]["same_session_transition_count"] == 2
     assert live_status["state"] == "completed"
     assert live_status["reason_code"] == "workspace_expected_outputs_completed"
@@ -591,8 +581,6 @@ def test_knowledge_workspace_worker_can_run_through_fake_codex_farm_subprocess(
     assert shard_output["packet_id"] == "book.ks0000.nr"
     assert shard_output["block_decisions"][0]["block_index"] == 4
     assert shard_output["block_decisions"][0]["category"] == "knowledge"
-    assert shard_output["block_decisions"][0]["reviewer_category"] == "knowledge"
-    assert shard_output["block_decisions"][0]["retrieval_concept"]
     grounding = shard_output["block_decisions"][0]["grounding"]
     assert grounding["tag_keys"] or grounding["proposed_tags"]
     assert shard_output["idea_groups"] == [

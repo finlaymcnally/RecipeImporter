@@ -50,7 +50,7 @@ _STATUS_COUNT_KEYS = (
     "missing_output_shard_count",
 )
 _EXECUTION_MODE_COUNT_KEYS = (
-    "workspace_worker_session_count",
+    "taskfile_session_count",
     "structured_followup_call_count",
     "structured_followup_tokens_total",
 )
@@ -672,10 +672,10 @@ def _build_codex_farm_stage_summary(
         **token_totals,
         **breakdown_totals,
         "prompt_input_mode_counts": prompt_input_mode_counts,
-        "workspace_worker_session_count": (
-            _nonnegative_int(pathology_summary.get("workspace_worker_session_count"))
+        "taskfile_session_count": (
+            _nonnegative_int(pathology_summary.get("taskfile_session_count"))
             or (
-                _nonnegative_int(summary_payload.get("workspace_worker_session_count"))
+                _nonnegative_int(summary_payload.get("taskfile_session_count"))
                 if isinstance(summary_payload, Mapping)
                 else None
             )
@@ -736,7 +736,7 @@ def _execution_mode_summary_from_telemetry_rows(
     telemetry_rows: list[Any] | None,
 ) -> dict[str, dict[str, int]]:
     summary = {
-        "main_workspace_workers": {
+        "main_taskfile_workers": {
             "call_count": 0,
             "duration_total_ms": 0,
             "tokens_total": 0,
@@ -761,8 +761,8 @@ def _execution_mode_summary_from_telemetry_rows(
         if not isinstance(row, Mapping):
             continue
         prompt_input_mode = str(row.get("prompt_input_mode") or "path").strip().lower() or "path"
-        if prompt_input_mode == "workspace_worker":
-            bucket = summary["main_workspace_workers"]
+        if prompt_input_mode == "taskfile":
+            bucket = summary["main_taskfile_workers"]
         elif prompt_input_mode in {"inline_watchdog_retry", "inline_retry", "inline_repair"}:
             bucket = summary["structured_followups"]
         else:
@@ -770,7 +770,7 @@ def _execution_mode_summary_from_telemetry_rows(
         bucket["call_count"] += 1
         bucket["duration_total_ms"] += int(row.get("duration_ms") or 0)
         bucket["tokens_total"] += int(row.get("tokens_total") or 0)
-        if prompt_input_mode == "workspace_worker" and bool(row.get("worker_session_primary_row")):
+        if prompt_input_mode == "taskfile" and bool(row.get("worker_session_primary_row")):
             bucket["session_count"] += 1
     return summary
 
@@ -2003,8 +2003,8 @@ def _summary_looks_like_missing_token_usage(summary: Mapping[str, Any]) -> bool:
     visible_output_tokens = _nonnegative_int(summary.get("visible_output_tokens"))
     command_execution_count_total = _nonnegative_int(summary.get("command_execution_count_total"))
     prompt_input_mode_counts = summary.get("prompt_input_mode_counts")
-    workspace_worker_calls = (
-        _nonnegative_int(prompt_input_mode_counts.get("workspace_worker"))
+    taskfile_worker_calls = (
+        _nonnegative_int(prompt_input_mode_counts.get("taskfile"))
         if isinstance(prompt_input_mode_counts, Mapping)
         else None
     )
@@ -2015,7 +2015,7 @@ def _summary_looks_like_missing_token_usage(summary: Mapping[str, Any]) -> bool:
             visible_input_tokens,
             visible_output_tokens,
             command_execution_count_total,
-            workspace_worker_calls,
+            taskfile_worker_calls,
         )
     )
 

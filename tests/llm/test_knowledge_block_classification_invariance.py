@@ -15,8 +15,6 @@ _TARGET_CASES = {
         "text": "Balsamic Vinaigrette",
         "answer": {
             "category": "other",
-            "reviewer_category": "chapter_taxonomy",
-            "retrieval_concept": None,
             "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
         },
     },
@@ -28,8 +26,6 @@ _TARGET_CASES = {
         ),
         "answer": {
             "category": "other",
-            "reviewer_category": "other",
-            "retrieval_concept": None,
             "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
         },
     },
@@ -40,8 +36,6 @@ _TARGET_CASES = {
         ),
         "answer": {
             "category": "knowledge",
-            "reviewer_category": "knowledge",
-            "retrieval_concept": "Balance richness with acid",
             "grounding": {
                 "tag_keys": ["bright"],
                 "category_keys": ["flavor-profile"],
@@ -94,7 +88,7 @@ def _answers_for_task_file(task_file: dict) -> dict[str, dict[str, str]]:
         else:
             answers[unit["unit_id"]] = {
                 "category": "other",
-                "reviewer_category": "other",
+                "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
             }
     return answers
 
@@ -183,7 +177,7 @@ def test_expected_classifications_survive_alone_mixed_reordered_and_repair_shape
         failed_unit_ids=["knowledge::10"],
         previous_answers_by_unit_id=_answers_for_task_file(task_file),
         validation_feedback_by_unit_id={
-            "knowledge::10": {"validation_errors": ["knowledge_reviewer_category_mismatch"]}
+            "knowledge::10": {"validation_errors": ["example_feedback"]}
         },
     )
     repair_edited = _edited_task_file(repair_task_file)

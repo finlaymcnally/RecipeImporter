@@ -16,7 +16,6 @@ from cookimport.config.run_settings import RunSettings
 from cookimport.config.runtime_support import resolve_workspace_completion_quiescence_seconds
 from cookimport.core.progress_messages import format_stage_progress
 from cookimport.core.models import ConversionResult, ParsingOverrides
-from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.runs import (
     KNOWLEDGE_MANIFEST_FILE_NAME,
     stage_artifact_stem,
@@ -25,6 +24,7 @@ from cookimport.staging.nonrecipe_stage import (
     NonRecipeStageResult,
     refine_nonrecipe_stage_result,
 )
+from cookimport.staging.recipe_ownership import RecipeOwnershipResult
 from cookimport.staging.writer import (
     NONRECIPE_AUTHORITY_FILE_NAME,
     NONRECIPE_FINALIZE_STATUS_FILE_NAME,
@@ -56,8 +56,8 @@ from ..codex_exec_runner import (
     CodexExecSupervisionDecision,
     SubprocessCodexExecRunner,
     assess_final_agent_message,
-    classify_workspace_worker_command,
-    detect_workspace_worker_boundary_violation,
+    classify_taskfile_worker_command,
+    detect_taskfile_worker_boundary_violation,
     format_watchdog_command_reason_detail,
     format_watchdog_command_loop_reason_detail,
     is_single_file_workspace_command_drift_policy,

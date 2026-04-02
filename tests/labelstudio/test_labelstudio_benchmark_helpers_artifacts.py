@@ -1112,7 +1112,7 @@ def _build_line_role_only_prompt_log_fixture(tmp_path: Path) -> dict[str, object
                                 ),
                                 "duration_ms": 17,
                                 "tokens_total": 16,
-                                "prompt_input_mode": "workspace_worker",
+                                "prompt_input_mode": "taskfile",
                             }
                         ],
                         "batches": [

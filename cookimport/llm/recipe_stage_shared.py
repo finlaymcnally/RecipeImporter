@@ -48,8 +48,8 @@ from .codex_exec_runner import (
     CodexExecRunner,
     CodexExecSupervisionDecision,
     SubprocessCodexExecRunner,
-    classify_workspace_worker_command,
-    detect_workspace_worker_boundary_violation,
+    classify_taskfile_worker_command,
+    detect_taskfile_worker_boundary_violation,
     format_watchdog_command_reason_detail,
     format_watchdog_command_loop_reason_detail,
     is_single_file_workspace_command_drift_policy,
@@ -90,9 +90,9 @@ from .recipe_same_session_handoff import (
     initialize_recipe_same_session_state,
 )
 from .single_file_worker_commands import build_single_file_worker_surface
-from .workspace_worker_progress import (
+from .taskfile_progress import (
     decorate_active_worker_label,
-    summarize_workspace_worker_health,
+    summarize_taskfile_health,
 )
 from .worker_hint_sidecars import preview_text, write_worker_hint_markdown
 
@@ -1163,13 +1163,13 @@ def _build_recipe_watchdog_callback(
             )
             if path is not None and str(path).strip()
         ] or None
-        last_command_verdict = classify_workspace_worker_command(
+        last_command_verdict = classify_taskfile_worker_command(
             snapshot.last_command,
             allowed_absolute_roots=allowed_absolute_roots,
             single_file_worker_policy=allow_workspace_commands,
             single_file_stage_key="recipe_refine",
         )
-        last_command_boundary_violation = detect_workspace_worker_boundary_violation(
+        last_command_boundary_violation = detect_taskfile_worker_boundary_violation(
             snapshot.last_command,
             allowed_absolute_roots=allowed_absolute_roots,
         )
@@ -2015,7 +2015,7 @@ def _build_recipe_workspace_task_runner_payload(
             + int(row_payload.get("tokens_output") or 0)
             + int(row_payload.get("tokens_reasoning") or 0)
         )
-        row_payload["prompt_input_mode"] = "workspace_worker"
+        row_payload["prompt_input_mode"] = "taskfile"
         row_payload["request_input_file"] = request_input_file_str
         row_payload["request_input_file_bytes"] = request_input_file_bytes
         row_payload["worker_prompt_file"] = worker_prompt_file_str
@@ -2046,7 +2046,7 @@ def _build_recipe_workspace_task_runner_payload(
         "status": "done" if run_result.subprocess_exit_code == 0 else "failed",
         "codex_model": model,
         "codex_reasoning_effort": reasoning_effort,
-        "prompt_input_mode": "workspace_worker",
+        "prompt_input_mode": "taskfile",
         "request_input_file": request_input_file_str,
         "request_input_file_bytes": request_input_file_bytes,
         "worker_prompt_file": worker_prompt_file_str,
@@ -2090,7 +2090,7 @@ def _build_recipe_workspace_session_runner_payload(
     worker_prompt_file = str(worker_prompt_path)
     runtime_parent_shard_ids = [str(value).strip() for value in parent_shard_ids if str(value).strip()]
     if row_payload is not None:
-        row_payload["prompt_input_mode"] = "workspace_worker"
+        row_payload["prompt_input_mode"] = "taskfile"
         row_payload["worker_prompt_file"] = worker_prompt_file
         row_payload["worker_session_task_count"] = int(task_count)
         row_payload["worker_session_primary_row"] = True
@@ -2112,7 +2112,7 @@ def _build_recipe_workspace_session_runner_payload(
         "status": "done" if run_result.subprocess_exit_code == 0 else "failed",
         "codex_model": model,
         "codex_reasoning_effort": reasoning_effort,
-        "prompt_input_mode": "workspace_worker",
+        "prompt_input_mode": "taskfile",
         "worker_prompt_file": worker_prompt_file,
         "worker_session_task_count": int(task_count),
         "assigned_task_count": int(task_count),
@@ -2137,14 +2137,14 @@ def _aggregate_recipe_worker_runner_payload(
     stage_rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     rows = [dict(row) for row in stage_rows if isinstance(row, Mapping)]
-    uses_workspace_worker = any(
+    uses_taskfile_contract = any(
         str(
             ((payload.get("process_payload") or {}) if isinstance(payload, Mapping) else {}).get(
                 "prompt_input_mode"
             )
             or ""
         ).strip()
-        == "workspace_worker"
+        == "taskfile"
         for payload in worker_runs
         if isinstance(payload, Mapping)
     )
@@ -2160,8 +2160,8 @@ def _aggregate_recipe_worker_runner_payload(
         "runtime_mode_audit": {
             "mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
             "status": "ok",
-            "output_schema_enforced": not uses_workspace_worker,
-            "tool_affordances_requested": uses_workspace_worker,
+            "output_schema_enforced": not uses_taskfile_contract,
+            "tool_affordances_requested": uses_taskfile_contract,
         },
     }
 
@@ -2639,7 +2639,7 @@ def _empty_recipe_workspace_run_result(
         duration_ms=0,
         started_at_utc=timestamp,
         finished_at_utc=timestamp,
-        workspace_mode="workspace_worker",
+        workspace_mode="taskfile",
         supervision_state="completed",
         supervision_reason_code=None,
         supervision_reason_detail=None,
@@ -2691,7 +2691,7 @@ def _build_recipe_runner_exception_result(
         duration_ms=0,
         started_at_utc=_format_utc_now(),
         finished_at_utc=_format_utc_now(),
-        workspace_mode="workspace_worker",
+        workspace_mode="taskfile",
         supervision_state="worker_exception",
         supervision_reason_code=retryable_reason or "codex_exec_runner_exception",
         supervision_reason_detail=str(exc),
@@ -2749,7 +2749,7 @@ def _build_recipe_fresh_worker_replacement_prompt(
     )
 
 
-def _run_recipe_workspace_worker_assignment_v1(
+def _run_recipe_taskfile_assignment_v1(
     *,
     run_root: Path,
     assignment: WorkerAssignmentV1,
@@ -2809,7 +2809,7 @@ def _run_recipe_workspace_worker_assignment_v1(
                     "reason_code": preflight_result.supervision_reason_code,
                     "reason_detail": preflight_result.supervision_reason_detail,
                     "retryable": preflight_result.supervision_retryable,
-                    "watchdog_policy": "workspace_worker_v1",
+                    "watchdog_policy": "taskfile_v1",
                     "elapsed_seconds": 0.0,
                     "last_event_seconds_ago": None,
                     "command_execution_count": 0,
@@ -2973,8 +2973,8 @@ def _run_recipe_workspace_worker_assignment_v1(
         base_watchdog_callback = _build_recipe_watchdog_callback(
             live_status_path=worker_live_status_path,
             live_status_paths=shard_live_status_paths,
-            watchdog_policy="workspace_worker_v1",
-            stage_label="workspace worker stage",
+            watchdog_policy="taskfile_v1",
+            stage_label="taskfile worker stage",
             allow_workspace_commands=True,
             execution_workspace_root=worker_root,
         )
@@ -2986,7 +2986,7 @@ def _run_recipe_workspace_worker_assignment_v1(
         ) -> tuple[CodexExecRunResult, CodexFarmRunnerError | None, dict[str, Any]]:
             attempt_exception: CodexFarmRunnerError | None = None
             try:
-                current_run_result = runner.run_workspace_worker(
+                current_run_result = runner.run_taskfile_worker(
                     prompt_text=prompt_text,
                     working_dir=worker_root,
                     env={
@@ -3012,13 +3012,13 @@ def _run_recipe_workspace_worker_assignment_v1(
             _finalize_live_status(
                 worker_live_status_path,
                 run_result=current_run_result,
-                watchdog_policy="workspace_worker_v1",
+                watchdog_policy="taskfile_v1",
             )
             for live_status_path in shard_live_status_paths:
                 _finalize_live_status(
                     live_status_path,
                     run_result=current_run_result,
-                    watchdog_policy="workspace_worker_v1",
+                    watchdog_policy="taskfile_v1",
                 )
             (worker_root / "events.jsonl").write_text(
                 _render_events_jsonl(current_run_result.events),
@@ -3509,7 +3509,7 @@ def _run_recipe_workspace_worker_assignment_v1(
         worker_session_guardrails = build_worker_session_guardrails(
             planned_happy_path_worker_cap=3,
             actual_happy_path_worker_sessions=int(
-                worker_summary.get("workspace_worker_session_count") or 0
+                worker_summary.get("taskfile_session_count") or 0
             ),
             repair_worker_session_count=repair_worker_session_count,
         )
@@ -3596,7 +3596,7 @@ def _run_direct_recipe_worker_assignment_v1(
     logs_dir.mkdir(parents=True, exist_ok=True)
     assigned_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
     (worker_root / "assigned_shards.json").unlink(missing_ok=True)
-    return _run_recipe_workspace_worker_assignment_v1(
+    return _run_recipe_taskfile_assignment_v1(
         run_root=run_root,
         assignment=assignment,
         artifacts=artifacts,
@@ -3737,7 +3737,7 @@ def _run_direct_recipe_workers_v1(
             return
         if total_tasks <= 0 and total_shards <= 0:
             return
-        worker_health = summarize_workspace_worker_health(
+        worker_health = summarize_taskfile_health(
             worker_roots_by_id=worker_roots_by_id,
         )
         completed_task_ids: set[str] = set()
@@ -4058,7 +4058,7 @@ def _run_direct_recipe_workers_v1(
     worker_session_guardrails = build_worker_session_guardrails(
         planned_happy_path_worker_cap=len(assignments) * 3,
         actual_happy_path_worker_sessions=int(
-            telemetry["summary"].get("workspace_worker_session_count") or 0
+            telemetry["summary"].get("taskfile_session_count") or 0
         ),
         repair_worker_session_count=sum(
             int(

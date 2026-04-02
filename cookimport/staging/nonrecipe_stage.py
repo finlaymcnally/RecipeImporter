@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
-from cookimport.parsing.label_source_of_truth import (
-    AuthoritativeBlockLabel,
-    RecipeSpan,
-)
+from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel
 
 from .nonrecipe_authority import (
     block_rows_for_nonrecipe_authority,
@@ -35,6 +32,11 @@ from .nonrecipe_seed import (
     preview_nonrecipe_text,
     require_nonrecipe_final_category,
     require_nonrecipe_route_label,
+    normalize_nonrecipe_route_label,
+)
+from .recipe_ownership import (
+    RecipeOwnershipInvariantError,
+    RecipeOwnershipResult,
 )
 
 
@@ -76,34 +78,43 @@ def build_nonrecipe_stage_result(
     *,
     full_blocks: Sequence[Mapping[str, Any]],
     final_block_labels: Sequence[AuthoritativeBlockLabel],
-    recipe_spans: Sequence[RecipeSpan],
+    recipe_ownership_result: RecipeOwnershipResult,
     overrides: Any | None = None,
 ) -> NonRecipeStageResult:
     del overrides
 
     full_blocks_by_index = prepare_nonrecipe_full_blocks_by_index(full_blocks)
-    recipe_block_indices = {
-        int(block_index)
-        for span in recipe_spans
-        for block_index in span.block_indices
-    }
     labels_by_index = {
         int(row.source_block_index): row
         for row in final_block_labels
     }
+    owned_block_indices = set(recipe_ownership_result.owned_block_indices)
+    available_to_nonrecipe = list(recipe_ownership_result.available_to_nonrecipe_block_indices)
 
     route_by_index: dict[int, str] = {}
     exclusion_reason_by_block: dict[int, str] = {}
     warnings: list[str] = []
     block_preview_by_index = {
         int(block_index): preview_nonrecipe_text(full_blocks_by_index[block_index].get("text"))
-        for block_index in sorted(full_blocks_by_index)
-        if block_index not in recipe_block_indices
+        for block_index in available_to_nonrecipe
+        if block_index in full_blocks_by_index
     }
 
-    for block_index in sorted(full_blocks_by_index):
-        if block_index in recipe_block_indices:
+    for block_index in sorted(owned_block_indices):
+        block_label = labels_by_index.get(block_index)
+        if block_label is None:
             continue
+        route, warning = normalize_nonrecipe_route_label(getattr(block_label, "final_label", None))
+        if warning is None:
+            raise RecipeOwnershipInvariantError(
+                f"Recipe-owned block {block_index} carried nonrecipe route '{route}'."
+            )
+
+    for block_index in available_to_nonrecipe:
+        if block_index not in full_blocks_by_index:
+            raise RecipeOwnershipInvariantError(
+                f"Recipe ownership referenced missing nonrecipe-admissible block {block_index}."
+            )
 
         block_label = labels_by_index.get(block_index)
         if block_label is None:

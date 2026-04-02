@@ -44,6 +44,8 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Small owners for seed spans, review-queue routing, final authority, late-output/scoring views, and reviewed/unreviewed bookkeeping.
 - `cookimport/staging/nonrecipe_stage.py`
   - Thin public seam that assembles the owner modules above into the non-recipe route/final-authority runtime result.
+- `cookimport/staging/recipe_ownership.py`
+  - Canonical recipe-owned block contract/result types, explicit divestment helpers, and the persisted `recipe_block_ownership.json` artifact shape.
 - `cookimport/staging/pipeline_runtime.py`
   - Defines the stage-owned runtime bundles now used by `import_session.py`: `ExtractedBookBundle`, `RecipeBoundaryResult`, `RecipeRefineResult`, `NonrecipeRouteResult`, and `NonrecipeFinalizeResult`.
   - Keeps the five-stage authority order explicit; the writer now emits split non-recipe seed-routing, final-authority, and review-status artifacts instead of one mixed file.
@@ -101,6 +103,7 @@ Per workbook (slugified file stem):
 - `09_nonrecipe_knowledge_groups.json`
 - `09_nonrecipe_finalize_status.json`
 - `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json`
+- `recipe_authority/<workbook_slug>/recipe_block_ownership.json`
 - `label_deterministic/<workbook_slug>/labeled_lines.jsonl`
 - `label_deterministic/<workbook_slug>/block_labels.json`
 - `label_refine/<workbook_slug>/labeled_lines.jsonl`
@@ -165,6 +168,8 @@ Tags embedding note:
 
 Recipe-authority note:
 - `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json` is the canonical semantic handoff from Stage 3 into staging writes.
+- `recipe_authority/<workbook_slug>/recipe_block_ownership.json` is the canonical block-ownership handoff from Stage 2/3 into nonrecipe routing, knowledge packet planning, and stage-block scoring.
+- `recipe-refine` may only shrink that ownership through explicit divestment in the same artifact; recipe provenance is descriptive metadata, not a second ownership source.
 - When recipe Codex is enabled and validates, its promoted correction payload becomes the semantic owner for title, description, ingredients, instructions, notes, yield phrase, variants, tags, and ingredient-step links.
 - Recipe Codex task outcomes now stay explicit even when they do not promote. `recipe_phase_runtime/promotion_report.json` records whether a validated recipe task result is `promotable` or `non_promotable`, and also exposes `handled_locally_skip_llm` when repo-authored fragmentary / non-recipe scaffolds were finalized without a worker round-trip. `recipe_manifest.json` mirrors the topline local-skip count, while `recipe_correction_audit/*.json` still records whether final recipe authority was actually `promoted` or intentionally `not_promoted`.
 - When recipe Codex is off or falls back, `pipeline_runtime.py` still emits the same payload shape deterministically so writer contracts stay uniform.
@@ -172,7 +177,9 @@ Recipe-authority note:
 
 Stage-block `KNOWLEDGE` label contract:
 - `stage_block_predictions.json` now uses only the explicit final non-recipe authority recorded in `09_nonrecipe_authority.json`.
+- recipe-local block ownership comes from `recipe_authority/<workbook_slug>/recipe_block_ownership.json`, not from recipe provenance ranges rebuilt later from recipe payloads.
 - `08_nonrecipe_route.json` is the deterministic `nonrecipe-route` artifact. It keeps candidate/exclude routing, exclusion reasons, block ids, and previews, but it does not publish final semantic category guesses.
+- `08_nonrecipe_route.json` may contain only blocks that were unowned at boundary time or explicitly divested later; recipe-owned blocks are forbidden input, not just low-priority output.
 - The nonrecipe router consumes authoritative block labels, not repair heuristics: `NONRECIPE_CANDIDATE` feeds the knowledge queue, `NONRECIPE_EXCLUDE` becomes immediate final `other`, and malformed authoritative labels are hard errors.
 - `build_nonrecipe_authority_result(...)` now hard-enforces that excluded block indices stay final `other` even if a later refine/projection map tries to leak them back into final `knowledge`.
 - `09_nonrecipe_authority.json` is the only final-truth artifact for outside-recipe `knowledge` versus `other`. It contains only authoritative spans, categories, and block indices.
@@ -188,12 +195,13 @@ Stage-block `KNOWLEDGE` label contract:
 Stage-block label resolution contract:
 - `stage_block_predictions.py` labels blocks from recipe-local text matches (title, ingredients, instructions, notes, variant/yield/time lines).
 - `recipe_block_evidence.py` owns those recipe-local matches, `knowledge_block_evidence.py` owns final `KNOWLEDGE` evidence plus unresolved review metadata, and `block_label_resolution.py` is the only label-priority resolver.
+- knowledge packet inputs now omit recipe-owned block text entirely; nearby owned indices may survive only as guardrail metadata in the LLM payload.
 - `stage_block_predictions.py` now requires nearby recipe-boundary evidence before promoting `RECIPE_TITLE` or `RECIPE_VARIANT`, so isolated headings or memoir-style prose transitions do not become recipe headers in stage evidence.
 - `stage_block_predictions.py` emits `HOWTO_SECTION` for deterministic ingredient/instruction section-header hits (`extract_ingredient_sections`, `extract_instruction_sections`) when nearby recipe-structure signals are present.
 - `RECIPE_NOTES` evidence merges schema `comment` rows with recipe-specific notes deterministically extracted from `description` (`extract_recipe_specific_notes`).
 - If ingredient/instruction exact/fuzzy matching misses, it falls back to extracted archive `block_role` hints (`ingredient_line`, `instruction_line`).
 - Multi-label conflicts resolve by fixed priority (`RECIPE_VARIANT` > `RECIPE_TITLE` > `YIELD_LINE` > `TIME_LINE` > `HOWTO_SECTION` > `INGREDIENT_LINE` > `RECIPE_NOTES` > `INSTRUCTION_LINE` > `KNOWLEDGE`).
-- If a block has both `KNOWLEDGE` and recipe-local labels, recipe-local label wins.
+- If a block has both `KNOWLEDGE` and recipe-local labels, staging now raises an invariant violation instead of silently letting recipe-local win.
 - Recipe-local stage labeling can derive block ranges from provenance line ranges (`start_line`/`end_line`) when explicit block ranges are absent (for example text-import paths).
 
 ## Intermediate JSON-LD Section Behavior

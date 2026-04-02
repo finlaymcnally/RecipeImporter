@@ -155,9 +155,10 @@ Raw collision rule:
 - keeps deterministic projections when `llm_recipe_pipeline=off`
 - otherwise runs the recipe Codex path
 - writes authoritative recipe semantics to `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json`
+- carries the recipe block-ownership contract forward and may only shrink ownership through explicit divestment recorded in `recipe_authority/<workbook_slug>/recipe_block_ownership.json`
 
 4. `nonrecipe-route`
-- builds the route-first candidate/exclusion ledger from final block labels and accepted recipe spans
+- builds the route-first candidate/exclusion ledger from final block labels plus the post-refine recipe ownership contract, so only unowned or explicitly divested blocks can enter nonrecipe routing
 
 5. `nonrecipe-finalize`
 - if `llm_knowledge_pipeline=off`, final non-recipe authority stays deterministic and chunks are generated from the late-output non-recipe block set
@@ -168,6 +169,7 @@ After those stages, the session writes:
 - source-model artifacts
 - non-recipe authority artifacts
 - recipe authority payloads
+- recipe block ownership artifacts
 - intermediate drafts
 - final drafts
 - sections
@@ -296,6 +298,7 @@ Typical stage outputs under `data/output/<timestamp>/` now include:
 - `label_refine/<workbook_slug>/...` when line-role correction runs
 - `recipe_boundary/<workbook_slug>/...`
 - `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json`
+- `recipe_authority/<workbook_slug>/recipe_block_ownership.json`
 - `intermediate drafts/<workbook_slug>/r{index}.jsonld`
 - `final drafts/<workbook_slug>/r{index}.json`
 - `sections/<workbook_slug>/r{index}.sections.json`

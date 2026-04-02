@@ -1872,7 +1872,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             "--workspace-completion-quiescence-seconds",
             min=0.1,
             hidden=True,
-            help="Internal: quiet time required before a completed workspace worker is treated as done.",
+            help="Internal: quiet time required before a completed taskfile worker is treated as done.",
         )] = float(
             serialized_run_setting_default("workspace_completion_quiescence_seconds")
         ),
@@ -1880,7 +1880,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             "--completed-termination-grace-seconds",
             min=0.1,
             hidden=True,
-            help="Internal: grace window before terminating a finished workspace worker session.",
+            help="Internal: grace window before terminating a finished taskfile worker session.",
         )] = float(
             serialized_run_setting_default("completed_termination_grace_seconds")
         ),

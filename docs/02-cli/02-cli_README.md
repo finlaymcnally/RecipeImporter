@@ -107,7 +107,7 @@ Current spinner/status rule:
 - plain `task X/Y` updates are still valid and now infer `stage:` / `progress:` lines in the shared spinner even before a stage emits richer worker metadata
 - generic messages shaped like `task X/Y | running N` now expand into `active workers: N` rows just like the older codex-farm-specific worker surface
 - richer `stage_progress` payloads can now carry `work_unit_label`, typed worker-session counts (`worker_running`, `worker_completed`, `worker_failed`), typed repo-follow-up counts (`followup_*` + `followup_label`), compact `artifact_counts`, and `last_activity_at`
-- recipe, knowledge, and canonical line-role workspace-worker stages now also use those same structured fields to surface repo-owned worker-health attention from `live_status.json`; active rows can pick up a short live activity snippet from visible Codex events plus compact suffixes such as `quiet 58s` or `final message, no output`, and `detail_lines` can add `attention:` / `stalled workers:` summaries before a shard finishes
+- recipe, knowledge, and canonical line-role taskfile stages now also use those same structured fields to surface repo-owned worker-health attention from `live_status.json`; active rows can pick up a short live activity snippet from visible Codex events plus compact suffixes such as `quiet 58s` or `final message, no output`, and `detail_lines` can add `attention:` / `stalled workers:` summaries before a shard finishes
 - when those richer fields are present, the shared spinner should render worker-session state separately from repo-owned follow-up/finalization state instead of forcing stages to fake that truth through `active_tasks` labels
 - when `last_activity_at` is present, the shared spinner now renders a visible `last activity: ... ago` row instead of silently retaining that timestamp off-screen
 - worker panels no longer cap configured rows at eight when structured stage progress provides a larger `worker_total` or active-task list; a ten-worker knowledge stage should render ten worker lines instead of `10/8`
@@ -323,7 +323,7 @@ Developer note:
    - `C3IMP_EPUB_UNSTRUCTURED_SKIP_HEADERS_FOOTERS`
    - `C3IMP_EPUB_UNSTRUCTURED_PREPROCESS_MODE`
 4. Calls `stage(...)` using the full selected run settings payload (workers/OCR/extractor + section/ingredient parser controls + LLM/codex-farm knobs).
-   - When Codex Farm recipe/knowledge/tag passes run, stage now also writes prompt-debug artifacts under `<run_folder>/codex-exec/`:
+   - When Codex Exec recipe/knowledge/tag passes run, stage now also writes prompt-debug artifacts under `<run_folder>/codex-exec/`:
    - `prompt_request_response_log.txt`
    - `full_prompt_log.jsonl`
    - `prompt_type_samples_from_full_prompt_log.md`
@@ -365,7 +365,7 @@ Developer note:
    - `extracted_archive.json`
    - `extracted_text.txt`
    - `manifest.json`
-   - If Codex Farm recipe pass is enabled, this flow also writes prompt-debug artifacts under the run folder:
+   - If Codex Exec recipe pass is enabled, this flow also writes prompt-debug artifacts under the run folder:
    - `prompts/prompt_request_response_log.txt`
    - `prompts/full_prompt_log.jsonl`
    - `prompts/prompt_type_samples_from_full_prompt_log.md`
@@ -1060,10 +1060,10 @@ Options:
 - `--resume-run-dir PATH`: resume an existing speed run directory and skip tasks with completed sample snapshots.
 - `--run-settings-file PATH`: optional JSON payload in `RunSettings` shape for deterministic speed-run settings.
 - Canonical-text benchmark matching is fixed to `dmp` for normal runs; older saved payloads may still contain `benchmark_sequence_matcher` as a load-time transition key.
-- `--include-codex-farm / --no-include-codex-farm` (default disabled): include Codex Farm recipe-pipeline permutations in all-method scenarios.
+- `--include-codex-farm / --no-include-codex-farm` (default disabled): include Codex Exec recipe-pipeline permutations in all-method scenarios.
 - `--speedsuite-codex-farm-confirmation TEXT`: required with `--include-codex-farm`; must be `I_HAVE_EXPLICIT_USER_CONFIRMATION`.
-- `--codex-farm-model TEXT`: optional Codex Farm model override (blank keeps pipeline defaults).
-- `--codex-farm-thinking-effort|--codex-farm-reasoning-effort TEXT`: optional Codex Farm reasoning-effort override (`none|minimal|low|medium|high|xhigh`) (blank keeps pipeline defaults).
+- `--codex-farm-model TEXT`: optional Codex Exec model override (blank keeps pipeline defaults).
+- `--codex-farm-thinking-effort|--codex-farm-reasoning-effort TEXT`: optional Codex Exec reasoning-effort override (`none|minimal|low|medium|high|xhigh`) (blank keeps pipeline defaults).
 
 `cookimport labelstudio-import` also exposes `--upload-batch-size INTEGER` (default `200`) so Label Studio task uploads can be chunked without changing `cookimport/labelstudio/ingest_flows/upload.py`.
 
@@ -1114,10 +1114,10 @@ Options:
 - `--max-parallel-experiments INTEGER>=1` (optional): fixed experiment-level concurrency cap for quality-run. When omitted, quality-run auto-selects a CPU-aware adaptive cap.
 - `--require-process-workers / --allow-worker-fallback` (default allow fallback): fail fast when per-experiment all-method config workers cannot use process pools.
 - `--include-deterministic-sweeps / --no-include-deterministic-sweeps` (default disabled): expand each experiment’s all-method grid with deterministic Priority 2–6 sweep variants (section detector, multi-recipe splitter, ingredient missing-unit policy, instruction segmentation, time/temp/yield knobs).
-- `--include-codex-farm / --no-include-codex-farm` (default disabled): include Codex Farm recipe-pipeline permutations in all-method runs.
+- `--include-codex-farm / --no-include-codex-farm` (default disabled): include Codex Exec recipe-pipeline permutations in all-method runs.
 - `--qualitysuite-codex-farm-confirmation TEXT`: required with `--include-codex-farm`; must be `I_HAVE_EXPLICIT_USER_CONFIRMATION`.
-- `--codex-farm-model TEXT`: optional Codex Farm model override applied to all experiments.
-- `--codex-farm-thinking-effort|--codex-farm-reasoning-effort TEXT`: optional Codex Farm reasoning-effort override (`none|minimal|low|medium|high|xhigh`) applied to all experiments.
+- `--codex-farm-model TEXT`: optional Codex Exec model override applied to all experiments.
+- `--codex-farm-thinking-effort|--codex-farm-reasoning-effort TEXT`: optional Codex Exec reasoning-effort override (`none|minimal|low|medium|high|xhigh`) applied to all experiments.
 - `--qualitysuite-agent-bridge / --no-qualitysuite-agent-bridge` (default enabled): write `<run_dir>/agent_compare_control/` with compare-control insight JSON + `agent_requests.jsonl`.
 - `--qualitysuite-agent-bridge-since-days INTEGER` (optional): bound compare-control history scan when building bridge artifacts.
 - `--qualitysuite-agent-bridge-output-root PATH` (default `data/output`): compare-control output root used for bridge generation.

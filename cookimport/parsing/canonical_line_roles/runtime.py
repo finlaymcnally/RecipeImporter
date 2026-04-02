@@ -17,10 +17,10 @@ from cookimport.llm.task_file_guardrails import (
     build_worker_session_guardrails,
     summarize_task_file_guardrails,
 )
-from cookimport.llm.workspace_worker_progress import (
+from cookimport.llm.taskfile_progress import (
     decorate_active_worker_label,
-    start_workspace_worker_progress_heartbeat,
-    summarize_workspace_worker_health,
+    start_taskfile_progress_heartbeat,
+    summarize_taskfile_health,
 )
 from .same_session_handoff import (
     LINE_ROLE_SAME_SESSION_STATE_ENV,
@@ -317,7 +317,7 @@ def _build_line_role_runner_exception_result(
         duration_ms=0,
         started_at_utc=_format_utc_now(),
         finished_at_utc=_format_utc_now(),
-        workspace_mode="workspace_worker",
+        workspace_mode="taskfile",
         supervision_state="worker_exception",
         supervision_reason_code=retryable_reason or "codex_exec_runner_exception",
         supervision_reason_detail=str(exc),
@@ -371,7 +371,7 @@ def _build_line_role_fresh_worker_replacement_prompt(
         "The previous canonical line-role worker session was stopped before completion. "
         "Start over from the fresh `task.json` that the repo has restored in this workspace. "
         "Do not rely on prior scratch files or prior shell loops.\n\n"
-        + _build_line_role_workspace_worker_prompt(
+        + _build_line_role_taskfile_prompt(
             shards=shards,
             fresh_session_resume=False,
         )
@@ -701,7 +701,7 @@ def _line_role_incomplete_progress_summary_detail(
     if not any(marker in cleaned for marker in future_work_markers):
         return None
     return (
-        "workspace worker ended with a partial-progress summary instead of finishing the task-file workflow. "
+        "taskfile worker ended with a partial-progress summary instead of finishing the task-file workflow. "
         "Progress summaries and deferred `task-handoff` are off-contract for line-role workers."
     )
 
@@ -1568,7 +1568,7 @@ def _looks_like_codex_exec_command(command_text: str) -> bool:
     return executable in _CODEX_EXECUTABLES
 
 
-def _run_line_role_workspace_worker_assignment_v1(
+def _run_line_role_taskfile_assignment_v1(
     *,
     run_root: Path,
     assignment: WorkerAssignmentV1,
@@ -1641,7 +1641,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 "reason_code": str(preflight_failure.get("reason_code") or "preflight_rejected"),
                 "reason_detail": str(preflight_failure.get("reason_detail") or ""),
                 "retryable": False,
-                "watchdog_policy": "workspace_worker_v1",
+                "watchdog_policy": "taskfile_v1",
                 "elapsed_seconds": 0.0,
                 "last_event_seconds_ago": None,
                 "command_execution_count": 0,
@@ -1817,7 +1817,7 @@ def _run_line_role_workspace_worker_assignment_v1(
             output_dir=out_dir,
         )
         write_task_file(path=worker_root / TASK_FILE_NAME, payload=task_file_payload)
-        worker_prompt_text = _build_line_role_workspace_worker_prompt(
+        worker_prompt_text = _build_line_role_taskfile_prompt(
             shards=runnable_shards,
         )
         worker_prompt_path = worker_root / "prompt.txt"
@@ -1848,7 +1848,7 @@ def _run_line_role_workspace_worker_assignment_v1(
         ) -> tuple[CodexExecRunResult, CodexFarmRunnerError | None, dict[str, Any]]:
             attempt_exception: CodexFarmRunnerError | None = None
             try:
-                run_result = runner.run_workspace_worker(
+                run_result = runner.run_taskfile_worker(
                     prompt_text=prompt_text,
                     working_dir=worker_root,
                     env={
@@ -1867,7 +1867,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                         live_status_paths=shard_live_status_paths,
                         same_session_state_path=state_path,
                         cohort_watchdog_state=cohort_watchdog_state,
-                        watchdog_policy="workspace_worker_v1",
+                        watchdog_policy="taskfile_v1",
                         allow_workspace_commands=True,
                         expected_workspace_output_paths=expected_workspace_output_paths,
                         workspace_completion_quiescence_seconds=float(
@@ -1894,13 +1894,13 @@ def _run_line_role_workspace_worker_assignment_v1(
             _finalize_live_status(
                 worker_live_status_path,
                 run_result=run_result,
-                watchdog_policy="workspace_worker_v1",
+                watchdog_policy="taskfile_v1",
             )
             for live_status_path in shard_live_status_paths:
                 _finalize_live_status(
                     live_status_path,
                     run_result=run_result,
-                    watchdog_policy="workspace_worker_v1",
+                    watchdog_policy="taskfile_v1",
                 )
             (worker_root / "events.jsonl").write_text(
                 _render_codex_events_jsonl(run_result.events),
@@ -2059,13 +2059,13 @@ def _run_line_role_workspace_worker_assignment_v1(
                 _finalize_live_status(
                     worker_live_status_path,
                     run_result=session_run_result,
-                    watchdog_policy="workspace_worker_v1",
+                    watchdog_policy="taskfile_v1",
                 )
                 for live_status_path in shard_live_status_paths:
                     _finalize_live_status(
                         live_status_path,
                         run_result=session_run_result,
-                        watchdog_policy="workspace_worker_v1",
+                        watchdog_policy="taskfile_v1",
                     )
                 should_retry = False
                 retry_reason = "authoritative_completion_already_visible"
@@ -2150,12 +2150,12 @@ def _run_line_role_workspace_worker_assignment_v1(
             line_role_same_session_state_payload["fresh_session_retry_history"] = fresh_session_retry_history
             _write_runtime_json(state_path, line_role_same_session_state_payload)
             resume_prompt_path = retry_prompt_path or (worker_root / "prompt_resume.txt")
-            resume_prompt_text = retry_prompt_text or _build_line_role_workspace_worker_prompt(
+            resume_prompt_text = retry_prompt_text or _build_line_role_taskfile_prompt(
                 shards=runnable_shards,
                 fresh_session_resume=True,
             )
             resume_prompt_path.write_text(resume_prompt_text, encoding="utf-8")
-            session_run_result = runner.run_workspace_worker(
+            session_run_result = runner.run_taskfile_worker(
                 prompt_text=resume_prompt_text,
                 working_dir=worker_root,
                 env={
@@ -2174,7 +2174,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                     live_status_paths=shard_live_status_paths,
                     same_session_state_path=state_path,
                     cohort_watchdog_state=cohort_watchdog_state,
-                    watchdog_policy="workspace_worker_v1",
+                    watchdog_policy="taskfile_v1",
                     allow_workspace_commands=True,
                     expected_workspace_output_paths=expected_workspace_output_paths,
                     workspace_completion_quiescence_seconds=float(
@@ -2193,13 +2193,13 @@ def _run_line_role_workspace_worker_assignment_v1(
             _finalize_live_status(
                 worker_live_status_path,
                 run_result=session_run_result,
-                watchdog_policy="workspace_worker_v1",
+                watchdog_policy="taskfile_v1",
             )
             for live_status_path in shard_live_status_paths:
                 _finalize_live_status(
                     live_status_path,
                     run_result=session_run_result,
-                    watchdog_policy="workspace_worker_v1",
+                    watchdog_policy="taskfile_v1",
                 )
             (worker_root / "events.jsonl").write_text(
                 _render_codex_events_jsonl(session_run_result.events),
@@ -2368,7 +2368,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                     else "worker had no runnable canonical line-role shards"
                 ),
                 "retryable": False,
-                "watchdog_policy": "workspace_worker_v1",
+                "watchdog_policy": "taskfile_v1",
             },
         )
 
@@ -2825,7 +2825,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                         else "worker had no runnable canonical line-role shards"
                     ),
                     "retryable": False,
-                    "watchdog_policy": "workspace_worker_v1",
+                    "watchdog_policy": "taskfile_v1",
                 },
             )
         proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
@@ -2865,7 +2865,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 continue
             if str(row.get("task_id") or "").strip() != shard.shard_id:
                 continue
-            if str(row.get("prompt_input_mode") or "").strip() != "workspace_worker":
+            if str(row.get("prompt_input_mode") or "").strip() != "taskfile":
                 continue
             _annotate_line_role_final_outcome_row(
                 row,
@@ -2881,7 +2881,7 @@ def _run_line_role_workspace_worker_assignment_v1(
                 continue
             if str(process_payload.get("runtime_parent_shard_id") or "").strip() != shard.shard_id:
                 continue
-            if str(process_payload.get("prompt_input_mode") or "").strip() != "workspace_worker":
+            if str(process_payload.get("prompt_input_mode") or "").strip() != "taskfile":
                 continue
             _apply_line_role_final_outcome_to_runner_payload(
                 payload_row,
@@ -3122,7 +3122,7 @@ def _run_line_role_direct_worker_assignment_v1(
         worker_root / "assigned_shards.json",
         [_line_role_asdict(shard) for shard in assigned_shards],
     )
-    return _run_line_role_workspace_worker_assignment_v1(
+    return _run_line_role_taskfile_assignment_v1(
         run_root=run_root,
         assignment=assignment,
         artifacts=artifacts,
@@ -3287,7 +3287,7 @@ def _run_line_role_direct_workers_v1(
         return f"{base_label} ({completed_worker_shards}/{len(worker_shard_ids)} shards)"
 
     def _emit_progress_locked(*, force: bool = False) -> None:
-        worker_health = summarize_workspace_worker_health(
+        worker_health = summarize_taskfile_health(
             worker_roots_by_id=worker_roots_by_id,
         )
         completed_shard_ids: set[str] = set()
@@ -3415,7 +3415,7 @@ def _run_line_role_direct_workers_v1(
     heartbeat_stop_event: threading.Event | None = None
     heartbeat_thread: threading.Thread | None = None
     if progress_callback is not None and assignments:
-        heartbeat_stop_event, heartbeat_thread = start_workspace_worker_progress_heartbeat(
+        heartbeat_stop_event, heartbeat_thread = start_taskfile_progress_heartbeat(
             emit_progress=_heartbeat_emit,
             thread_name="line-role-progress-heartbeat",
         )
@@ -3547,7 +3547,7 @@ def _run_line_role_direct_workers_v1(
     worker_session_guardrails = build_worker_session_guardrails(
         planned_happy_path_worker_cap=len(assignments) * 3,
         actual_happy_path_worker_sessions=int(
-            telemetry["summary"].get("workspace_worker_session_count") or 0
+            telemetry["summary"].get("taskfile_session_count") or 0
         ),
     )
     telemetry["summary"]["task_file_guardrails"] = task_file_guardrails
@@ -3684,7 +3684,7 @@ def _build_line_role_workspace_task_runner_payload(
             if all(value is not None for value in token_components)
             else token_total_shares[task_index]
         )
-        row_payload["prompt_input_mode"] = "workspace_worker"
+        row_payload["prompt_input_mode"] = "taskfile"
         row_payload["runtime_shard_id"] = runtime_shard_id
         row_payload["runtime_parent_shard_id"] = shard_id
         row_payload["request_input_file"] = request_input_file_str
@@ -3724,7 +3724,7 @@ def _build_line_role_workspace_task_runner_payload(
         "status": "done" if run_result.subprocess_exit_code == 0 else "failed",
         "codex_model": model,
         "codex_reasoning_effort": reasoning_effort,
-        "prompt_input_mode": "workspace_worker",
+        "prompt_input_mode": "taskfile",
         "runtime_shard_id": runtime_shard_id,
         "runtime_parent_shard_id": shard_id,
         "request_input_file": request_input_file_str,
@@ -3786,14 +3786,14 @@ def _aggregate_line_role_worker_runner_payload(
                 for row_payload in worker_rows
                 if isinstance(row_payload, dict)
             )
-    uses_workspace_worker = any(
+    uses_taskfile_contract = any(
         str(
             ((payload.get("process_payload") or {}) if isinstance(payload, dict) else {}).get(
                 "prompt_input_mode"
             )
             or ""
         ).strip()
-        == "workspace_worker"
+        == "taskfile"
         for payload in worker_runs
         if isinstance(payload, dict)
     )
@@ -3809,8 +3809,8 @@ def _aggregate_line_role_worker_runner_payload(
         "runtime_mode_audit": {
             "mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
             "status": "ok",
-            "output_schema_enforced": not uses_workspace_worker,
-            "tool_affordances_requested": uses_workspace_worker,
+            "output_schema_enforced": not uses_taskfile_contract,
+            "tool_affordances_requested": uses_taskfile_contract,
         },
     }
 
@@ -3947,7 +3947,7 @@ def _build_strict_json_watchdog_callback(
             snapshot.last_command,
             single_file_worker_policy=allow_workspace_commands,
         )
-        last_command_boundary_violation = detect_workspace_worker_boundary_violation(
+        last_command_boundary_violation = detect_taskfile_worker_boundary_violation(
             snapshot.last_command,
         )
         cohort_snapshot = (
@@ -4007,7 +4007,7 @@ def _build_strict_json_watchdog_callback(
                     decision = CodexExecSupervisionDecision.terminate(
                         reason_code="boundary_command_execution_forbidden",
                         reason_detail=format_watchdog_command_reason_detail(
-                            stage_label="workspace worker stage",
+                            stage_label="taskfile worker stage",
                             last_command=snapshot.last_command,
                         ),
                         retryable=False,
@@ -4081,7 +4081,7 @@ def _build_strict_json_watchdog_callback(
                     _record_warning(
                         "command_loop_without_output",
                         format_watchdog_command_loop_reason_detail(
-                            stage_label="workspace worker stage",
+                            stage_label="taskfile worker stage",
                             snapshot=snapshot,
                         ),
                     )
@@ -4098,7 +4098,7 @@ def _build_strict_json_watchdog_callback(
             if allow_workspace_commands:
                 _record_warning(
                     "reasoning_without_output",
-                    "workspace worker emitted repeated reasoning without a final answer",
+                    "taskfile worker emitted repeated reasoning without a final answer",
                 )
             else:
                 decision = CodexExecSupervisionDecision.terminate(
@@ -4127,7 +4127,7 @@ def _build_strict_json_watchdog_callback(
             if allow_workspace_commands:
                 _record_warning(
                     "cohort_runtime_outlier",
-                    "workspace worker exceeded sibling median runtime without reaching final output",
+                    "taskfile worker exceeded sibling median runtime without reaching final output",
                 )
             else:
                 decision = CodexExecSupervisionDecision.terminate(
@@ -4178,7 +4178,7 @@ def _build_strict_json_watchdog_callback(
                         decision = CodexExecSupervisionDecision.terminate(
                             reason_code="workspace_final_message_missing_output",
                             reason_detail=(
-                                "workspace worker emitted a final agent message but the required output files "
+                                "taskfile worker emitted a final agent message but the required output files "
                                 f"were still missing after {missing_output_grace_seconds:.1f} "
                                 f"seconds: {missing_files}"
                             ),
@@ -4301,7 +4301,7 @@ def _classify_line_role_workspace_command(
     *,
     single_file_worker_policy: bool = False,
 ) -> WorkspaceCommandClassification:
-    return classify_workspace_worker_command(
+    return classify_taskfile_worker_command(
         command_text,
         single_file_worker_policy=single_file_worker_policy,
         single_file_stage_key="line_role",
@@ -4529,7 +4529,7 @@ def _run_line_role_watchdog_retry_attempt(
     shard_root = worker_root / "shards" / shard.shard_id
     shard_root.mkdir(parents=True, exist_ok=True)
     (shard_root / "watchdog_retry_prompt.txt").write_text(prompt_text, encoding="utf-8")
-    return runner.run_structured_prompt(
+    return runner.run_packet_worker(
         prompt_text=prompt_text,
         input_payload={
             "retry_mode": "line_role_watchdog",

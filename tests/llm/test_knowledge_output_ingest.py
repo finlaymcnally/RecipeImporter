@@ -28,8 +28,6 @@ def _semantic_payload(
             {
                 "block_index": 4,
                 "category": "knowledge",
-                "reviewer_category": "knowledge",
-                "retrieval_concept": "Control emulsion stability",
                 "grounding": {
                     "tag_keys": ["emulsify"],
                     "category_keys": ["techniques"],
@@ -39,8 +37,6 @@ def _semantic_payload(
             {
                 "block_index": 5,
                 "category": "other",
-                "reviewer_category": "other",
-                "retrieval_concept": None,
                 "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
             },
         ],
@@ -86,15 +82,11 @@ def test_normalize_knowledge_worker_payload_serializes_semantic_packet_result() 
             {
                 "i": 4,
                 "c": "knowledge",
-                "rc": "knowledge",
-                "rt": "Control emulsion stability",
                 "gr": {"tk": ["emulsify"], "ck": ["techniques"], "pt": []},
             },
             {
                 "i": 5,
                 "c": "other",
-                "rc": "other",
-                "rt": None,
                 "gr": {"tk": [], "ck": [], "pt": []},
             },
         ],

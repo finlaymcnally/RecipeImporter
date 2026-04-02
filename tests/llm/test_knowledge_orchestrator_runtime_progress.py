@@ -9,7 +9,7 @@ import pytest
 
 from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.llm.knowledge_stage import runtime as knowledge_module
-from cookimport.llm.workspace_worker_progress import summarize_workspace_worker_health
+from cookimport.llm.taskfile_progress import summarize_taskfile_health
 from cookimport.llm.codex_exec_runner import (
     FakeCodexExecRunner,
 )
@@ -23,6 +23,7 @@ from tests.llm.knowledge_packet_test_support import (
     make_runtime_conversion_result,
     make_runtime_nonrecipe_stage_result,
     make_runtime_pack_and_run_dirs,
+    make_runtime_recipe_ownership_result,
     make_runtime_settings,
 )
 
@@ -43,7 +44,7 @@ def _run_live_shard_progress_fixture(
         nonrecipe_stage_result=make_runtime_nonrecipe_stage_result(
             spans=[knowledge_span(0), knowledge_span(2)]
         ),
-        recipe_spans=[],
+        recipe_ownership_result=make_runtime_recipe_ownership_result(block_count=3),
         run_settings=settings,
         run_root=run_root,
         workbook_slug="book",
@@ -110,7 +111,7 @@ def test_knowledge_orchestrator_surfaces_worker_attention_in_progress(
     configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
 
     class WarningRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
             supervision_callback = kwargs.get("supervision_callback")
             if callable(supervision_callback):
                 supervision_callback(
@@ -130,7 +131,7 @@ def test_knowledge_orchestrator_surfaces_worker_attention_in_progress(
                     )
                 )
                 time.sleep(1.2)
-            return super().run_workspace_worker(*args, **kwargs)
+            return super().run_taskfile_worker(*args, **kwargs)
 
     pack_root, run_root = make_runtime_pack_and_run_dirs(tmp_path)
     settings = make_runtime_settings(pack_root=pack_root, worker_count=1)
@@ -142,7 +143,7 @@ def test_knowledge_orchestrator_surfaces_worker_attention_in_progress(
         nonrecipe_stage_result=make_runtime_nonrecipe_stage_result(
             spans=[knowledge_span(0), knowledge_span(2)]
         ),
-        recipe_spans=[],
+        recipe_ownership_result=make_runtime_recipe_ownership_result(block_count=3),
         run_settings=settings,
         run_root=run_root,
         workbook_slug="book",
@@ -188,7 +189,7 @@ def test_knowledge_orchestrator_surfaces_worker_attention_in_progress(
     assert any(payload.get("last_activity_at") for payload in payloads)
 
 
-def test_workspace_worker_progress_does_not_treat_inflight_final_message_as_missing_output(
+def test_taskfile_progress_does_not_treat_inflight_final_message_as_missing_output(
     tmp_path: Path,
 ) -> None:
     worker_root = tmp_path / "worker-001"
@@ -208,7 +209,7 @@ def test_workspace_worker_progress_does_not_treat_inflight_final_message_as_miss
         encoding="utf-8",
     )
 
-    summary = summarize_workspace_worker_health(
+    summary = summarize_taskfile_health(
         worker_roots_by_id={"worker-001": worker_root}
     )
 
@@ -216,7 +217,7 @@ def test_workspace_worker_progress_does_not_treat_inflight_final_message_as_miss
     assert summary.attention_lines == ()
 
 
-def test_workspace_worker_progress_surfaces_live_activity_summary(
+def test_taskfile_progress_surfaces_live_activity_summary(
     tmp_path: Path,
 ) -> None:
     worker_root = tmp_path / "worker-001"
@@ -237,7 +238,7 @@ def test_workspace_worker_progress_surfaces_live_activity_summary(
         encoding="utf-8",
     )
 
-    summary = summarize_workspace_worker_health(
+    summary = summarize_taskfile_health(
         worker_roots_by_id={"worker-001": worker_root}
     )
 
@@ -247,7 +248,7 @@ def test_workspace_worker_progress_surfaces_live_activity_summary(
 
 
 @pytest.mark.parametrize("state", ["completed", "completed_with_warnings"])
-def test_workspace_worker_progress_requires_explicit_missing_output_failure_evidence(
+def test_taskfile_progress_requires_explicit_missing_output_failure_evidence(
     tmp_path: Path,
     state: str,
 ) -> None:
@@ -268,7 +269,7 @@ def test_workspace_worker_progress_requires_explicit_missing_output_failure_evid
         encoding="utf-8",
     )
 
-    summary = summarize_workspace_worker_health(
+    summary = summarize_taskfile_health(
         worker_roots_by_id={"worker-001": worker_root}
     )
 
@@ -286,14 +287,14 @@ def test_knowledge_orchestrator_runs_shard_workers_concurrently(
     state = {"current": 0, "max": 0}
 
     class ConcurrentRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
             with lock:
                 state["current"] += 1
                 state["max"] = max(state["max"], state["current"])
             barrier.wait(timeout=1.0)
             time.sleep(0.05)
             try:
-                return super().run_workspace_worker(*args, **kwargs)
+                return super().run_taskfile_worker(*args, **kwargs)
             finally:
                 with lock:
                     state["current"] -= 1
@@ -307,7 +308,7 @@ def test_knowledge_orchestrator_runs_shard_workers_concurrently(
         nonrecipe_stage_result=make_runtime_nonrecipe_stage_result(
             spans=[knowledge_span(0), knowledge_span(2)]
         ),
-        recipe_spans=[],
+        recipe_ownership_result=make_runtime_recipe_ownership_result(block_count=3),
         run_settings=settings,
         run_root=run_root,
         workbook_slug="book",
@@ -322,7 +323,7 @@ def test_knowledge_orchestrator_runs_shard_workers_concurrently(
     process_summary = apply_result.llm_report["process_run"]["telemetry"]["summary"]
     assert apply_result.llm_report["phase_worker_runtime"]["shard_count"] == 2
     assert apply_result.llm_report["phase_worker_runtime"]["worker_count"] == 2
-    assert process_summary["workspace_worker_row_count"] == 2
-    assert process_summary["workspace_worker_session_count"] == 2
-    assert process_summary["prompt_input_mode_counts"]["workspace_worker"] == 2
+    assert process_summary["taskfile_row_count"] == 2
+    assert process_summary["taskfile_session_count"] == 2
+    assert process_summary["prompt_input_mode_counts"]["taskfile"] == 2
     assert state["max"] >= 2

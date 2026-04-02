@@ -46,8 +46,6 @@ def _classification_task_file(tmp_path: Path) -> dict[str, object]:
 def _valid_classification_answer() -> dict[str, object]:
     return {
         "category": "knowledge",
-        "reviewer_category": "knowledge",
-        "retrieval_concept": "Heat control",
         "grounding": {
             "tag_keys": [],
             "category_keys": [],
@@ -74,12 +72,7 @@ def test_task_summary_reports_direct_batch_progress_for_classification(
     summary = json.loads(capsys.readouterr().out)
 
     assert summary["current_unit_id"] == "knowledge::4"
-    assert summary["required_answer_keys"] == [
-        "category",
-        "reviewer_category",
-        "retrieval_concept",
-        "grounding",
-    ]
+    assert summary["required_answer_keys"] == ["category", "grounding"]
     assert "workflow" not in summary
     assert "helper_commands" not in summary
     assert "answer_schema_summary" not in summary

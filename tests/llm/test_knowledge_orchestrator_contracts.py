@@ -13,7 +13,7 @@ from cookimport.llm.editable_task_file import (
 from cookimport.llm.knowledge_stage import _shared as knowledge_stage_shared
 from cookimport.llm.knowledge_stage.recovery import (
     _KNOWLEDGE_WORKSPACE_COMPLETION_QUIESCENCE_SECONDS,
-    _build_knowledge_workspace_worker_prompt,
+    _build_knowledge_taskfile_prompt,
     _build_strict_json_watchdog_callback,
     _write_knowledge_worker_hint,
 )
@@ -51,7 +51,7 @@ def test_preflight_knowledge_shard_rejects_missing_bundle_id() -> None:
 
 
 def test_worker_prompt_describes_task_file_contract() -> None:
-    prompt = _build_knowledge_workspace_worker_prompt(
+    prompt = _build_knowledge_taskfile_prompt(
         stage_key="nonrecipe_classify",
         shards=[
             ShardManifestEntryV1(
@@ -90,13 +90,11 @@ def test_worker_prompt_describes_task_file_contract() -> None:
     assert "Do not invent queue advancement, control files, helper ledgers, or alternate output files." in prompt
     assert "This is the classification step." in prompt
     assert "Read the full classification file once" in prompt
-    assert "Answer each unit with `category`, `reviewer_category`, `retrieval_concept`, and `grounding`." in prompt
+    assert "Answer each unit with `category` and `grounding`." in prompt
     assert "You are doing close semantic review, not building a heuristic classifier" in prompt
     assert "Treat `candidate_tag_keys`, heading shape, and packet position as weak hints only" in prompt
     assert "If you feel tempted to invent a rule that covers many rows at once" in prompt
-    assert (
-        "If `category` is `knowledge`, `retrieval_concept` must be a short standalone concept" in prompt
-    )
+    assert "If `category` is `knowledge`, `grounding` must include at least one existing `tag_key`" in prompt
     assert "Short conceptual headings can still be `knowledge`" in prompt
     assert "Proposed tags are allowed only for real retrieval-grade concepts" in prompt
     assert "Do not compress the packet into one global keep/drop rule" in prompt
@@ -238,8 +236,6 @@ def test_knowledge_repair_task_file_preserves_semantic_review_contract() -> None
         previous_answers_by_unit_id={
             "knowledge::4": {
                 "category": "knowledge",
-                "reviewer_category": "knowledge",
-                "retrieval_concept": "Heat control",
                 "grounding": {
                     "tag_keys": [],
                     "category_keys": [],
@@ -269,7 +265,7 @@ def test_knowledge_workspace_watchdog_completes_after_stable_outputs_without_que
     output_path = tmp_path / "out" / "book.ks0000.nr.json"
     callback = _build_strict_json_watchdog_callback(
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
         expected_workspace_output_paths=[output_path],
     )
@@ -359,7 +355,7 @@ def test_knowledge_workspace_watchdog_warns_on_egregious_single_file_shell_trans
     write_task_file(path=tmp_path / "task.json", payload=task_file)
     callback = _build_strict_json_watchdog_callback(
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
         execution_workspace_root=tmp_path,
     )

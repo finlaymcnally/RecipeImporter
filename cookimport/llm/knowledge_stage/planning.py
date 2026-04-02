@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from . import _shared as _shared_module
-from ..workspace_worker_progress import (
+from ..taskfile_progress import (
     decorate_active_worker_label,
-    summarize_workspace_worker_health,
+    summarize_taskfile_health,
 )
 
 globals().update(
@@ -334,7 +334,7 @@ class _KnowledgePhaseProgressState:
             self._emit_locked()
 
     def _emit_locked(self, *, force: bool = False) -> None:
-        worker_health = summarize_workspace_worker_health(
+        worker_health = summarize_taskfile_health(
             worker_roots_by_id=self.worker_roots_by_id,
         )
         active_tasks = [

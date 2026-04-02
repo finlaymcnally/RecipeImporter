@@ -23,14 +23,14 @@ def test_orchestrator_repairs_near_miss_invalid_recipe_shard_once(
     )
 
     class _NearMissRepairRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+        def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
             working_dir = Path(kwargs["working_dir"])
             process_env = exec_runner_module._merge_env(kwargs["env"])
             prepared = exec_runner_module.prepare_direct_exec_workspace(
                 source_working_dir=working_dir,
                 env=process_env,
                 task_label=kwargs.get("workspace_task_label"),
-                mode="workspace_worker",
+                mode="taskfile",
             )
             execution_working_dir = prepared.execution_working_dir
             execution_prompt_text = exec_runner_module.rewrite_direct_exec_prompt_paths(
@@ -40,7 +40,7 @@ def test_orchestrator_repairs_near_miss_invalid_recipe_shard_once(
             )
             self.calls.append(
                 {
-                    "mode": "workspace_worker",
+                    "mode": "taskfile",
                     "prompt_text": execution_prompt_text,
                     "input_payload": None,
                     "working_dir": str(working_dir),
@@ -97,7 +97,7 @@ def test_orchestrator_repairs_near_miss_invalid_recipe_shard_once(
                 duration_ms=1,
                 started_at_utc="2026-01-01T00:00:00Z",
                 finished_at_utc="2026-01-01T00:00:00Z",
-                workspace_mode="workspace_worker",
+                workspace_mode="taskfile",
                 supervision_state="completed",
             )
 
@@ -112,8 +112,8 @@ def test_orchestrator_repairs_near_miss_invalid_recipe_shard_once(
     )
 
     assert [call["mode"] for call in runner.calls] == [
-        "workspace_worker",
-        "workspace_worker",
+        "taskfile",
+        "taskfile",
     ]
 
     proposal = json.loads(
@@ -168,14 +168,14 @@ def test_orchestrator_recovers_recipe_validation_failure_via_task_file_repair(
     )
 
     class _TaskFileRepairRecoveryRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+        def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
             working_dir = Path(kwargs["working_dir"])
             process_env = exec_runner_module._merge_env(kwargs["env"])
             prepared = exec_runner_module.prepare_direct_exec_workspace(
                 source_working_dir=working_dir,
                 env=process_env,
                 task_label=kwargs.get("workspace_task_label"),
-                mode="workspace_worker",
+                mode="taskfile",
             )
             execution_working_dir = prepared.execution_working_dir
             execution_prompt_text = exec_runner_module.rewrite_direct_exec_prompt_paths(
@@ -185,7 +185,7 @@ def test_orchestrator_recovers_recipe_validation_failure_via_task_file_repair(
             )
             self.calls.append(
                 {
-                    "mode": "workspace_worker",
+                    "mode": "taskfile",
                     "prompt_text": execution_prompt_text,
                     "input_payload": None,
                     "working_dir": str(working_dir),
@@ -295,7 +295,7 @@ def test_orchestrator_recovers_recipe_validation_failure_via_task_file_repair(
                 duration_ms=1,
                 started_at_utc="2026-01-01T00:00:00Z",
                 finished_at_utc="2026-01-01T00:00:00Z",
-                workspace_mode="workspace_worker",
+                workspace_mode="taskfile",
                 supervision_state="completed",
             )
 
@@ -312,8 +312,8 @@ def test_orchestrator_recovers_recipe_validation_failure_via_task_file_repair(
     )
 
     assert [call["mode"] for call in runner.calls] == [
-        "workspace_worker",
-        "workspace_worker",
+        "taskfile",
+        "taskfile",
     ]
     shard_root = (
         apply_result.llm_raw_dir
@@ -367,14 +367,14 @@ def test_orchestrator_marks_task_failed_after_repair_budget_exhausted(
         return _build_valid_recipe_task_output(payload)
 
     class _BudgetExhaustedRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+        def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
             working_dir = Path(kwargs["working_dir"])
             process_env = exec_runner_module._merge_env(kwargs["env"])
             prepared = exec_runner_module.prepare_direct_exec_workspace(
                 source_working_dir=working_dir,
                 env=process_env,
                 task_label=kwargs.get("workspace_task_label"),
-                mode="workspace_worker",
+                mode="taskfile",
             )
             execution_working_dir = prepared.execution_working_dir
             execution_prompt_text = exec_runner_module.rewrite_direct_exec_prompt_paths(
@@ -384,7 +384,7 @@ def test_orchestrator_marks_task_failed_after_repair_budget_exhausted(
             )
             self.calls.append(
                 {
-                    "mode": "workspace_worker",
+                    "mode": "taskfile",
                     "prompt_text": execution_prompt_text,
                     "input_payload": None,
                     "working_dir": str(working_dir),
@@ -476,7 +476,7 @@ def test_orchestrator_marks_task_failed_after_repair_budget_exhausted(
                 duration_ms=1,
                 started_at_utc="2026-01-01T00:00:00Z",
                 finished_at_utc="2026-01-01T00:00:00Z",
-                workspace_mode="workspace_worker",
+                workspace_mode="taskfile",
                 supervision_state=termination_decision.supervision_state,
                 supervision_reason_code=termination_decision.reason_code,
                 supervision_reason_detail=termination_decision.reason_detail,
@@ -494,8 +494,8 @@ def test_orchestrator_marks_task_failed_after_repair_budget_exhausted(
     )
 
     assert [call["mode"] for call in runner.calls] == [
-        "workspace_worker",
-        "workspace_worker",
+        "taskfile",
+        "taskfile",
     ]
     shard_root = (
         apply_result.llm_raw_dir
@@ -566,14 +566,14 @@ def test_orchestrator_repairs_after_task_file_continuation_is_lost(
         return _build_valid_recipe_task_output(payload)
 
     class _ContinuationLostRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+        def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
             working_dir = Path(kwargs["working_dir"])
             process_env = exec_runner_module._merge_env(kwargs["env"])
             prepared = exec_runner_module.prepare_direct_exec_workspace(
                 source_working_dir=working_dir,
                 env=process_env,
                 task_label=kwargs.get("workspace_task_label"),
-                mode="workspace_worker",
+                mode="taskfile",
             )
             execution_working_dir = prepared.execution_working_dir
             execution_prompt_text = exec_runner_module.rewrite_direct_exec_prompt_paths(
@@ -583,7 +583,7 @@ def test_orchestrator_repairs_after_task_file_continuation_is_lost(
             )
             self.calls.append(
                 {
-                    "mode": "workspace_worker",
+                    "mode": "taskfile",
                     "prompt_text": execution_prompt_text,
                     "input_payload": None,
                     "working_dir": str(working_dir),
@@ -669,7 +669,7 @@ def test_orchestrator_repairs_after_task_file_continuation_is_lost(
                 duration_ms=1,
                 started_at_utc="2026-01-01T00:00:00Z",
                 finished_at_utc="2026-01-01T00:00:00Z",
-                workspace_mode="workspace_worker",
+                workspace_mode="taskfile",
                 supervision_state=supervision_state,
                 supervision_reason_code=f"{supervision_state}_after_validation_failure",
                 supervision_reason_detail="worker stopped before rewriting the invalid draft",
@@ -687,8 +687,8 @@ def test_orchestrator_repairs_after_task_file_continuation_is_lost(
     )
 
     assert [call["mode"] for call in runner.calls] == [
-        "workspace_worker",
-        "workspace_worker",
+        "taskfile",
+        "taskfile",
     ]
     shard_root = (
         apply_result.llm_raw_dir
@@ -712,8 +712,8 @@ def test_orchestrator_repairs_after_task_file_continuation_is_lost(
     assert proposal["repair_attempted"] is True
     assert proposal["state"] == supervision_state
     assert [call["mode"] for call in runner.calls] == [
-        "workspace_worker",
-        "workspace_worker",
+        "taskfile",
+        "taskfile",
     ]
     assert proposal["validation_metadata"]["task_status_by_task_id"][
         "recipe-shard-0000-r0000-r0000"

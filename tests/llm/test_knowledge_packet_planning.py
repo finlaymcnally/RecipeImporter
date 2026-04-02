@@ -5,15 +5,22 @@ import json
 from pathlib import Path
 
 from cookimport.llm.codex_farm_knowledge_jobs import build_knowledge_jobs
-from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan
+from tests.nonrecipe_stage_helpers import make_recipe_ownership_result
+
+
+def _ownership(*, all_indices: list[int], owned_indices: list[int] | None = None) -> object:
+    return make_recipe_ownership_result(
+        owned_by_recipe_id={"urn:recipe:test:r0": list(owned_indices or [])},
+        all_block_indices=all_indices,
+    )
 
 
 def test_build_knowledge_jobs_exposes_only_live_planner_controls(tmp_path: Path) -> None:
     assert list(inspect.signature(build_knowledge_jobs).parameters) == [
         "full_blocks",
         "candidate_spans",
-        "recipe_spans",
+        "recipe_ownership_result",
         "workbook_slug",
         "out_dir",
         "context_blocks",
@@ -38,15 +45,7 @@ def test_build_knowledge_jobs_exposes_only_live_planner_controls(tmp_path: Path)
                 block_ids=["b2"],
             )
         ],
-        recipe_spans=[
-            RecipeSpan(
-                span_id="recipe.0",
-                start_block_index=0,
-                end_block_index=2,
-                block_indices=[0, 1],
-                source_block_ids=["b0", "b1"],
-            )
-        ],
+        recipe_ownership_result=_ownership(all_indices=[0, 1, 2], owned_indices=[0, 1]),
         workbook_slug="fixturebook",
         out_dir=tmp_path / "knowledge",
         context_blocks=1,
@@ -81,7 +80,7 @@ def test_build_knowledge_jobs_uses_prompt_target_as_shard_count(tmp_path: Path) 
             )
             for index in range(5)
         ],
-        recipe_spans=[],
+        recipe_ownership_result=_ownership(all_indices=list(range(5))),
         workbook_slug="fixturebook",
         out_dir=tmp_path / "knowledge",
         context_blocks=0,
@@ -120,7 +119,7 @@ def test_build_knowledge_jobs_splits_by_explicit_char_budgets_when_no_target_cou
             )
             for index in range(4)
         ],
-        recipe_spans=[],
+        recipe_ownership_result=_ownership(all_indices=list(range(4))),
         workbook_slug="fixturebook",
         out_dir=tmp_path / "knowledge",
         context_blocks=0,
@@ -160,7 +159,7 @@ def test_build_knowledge_jobs_treats_prompt_target_count_as_hard_cap(
             )
             for index in range(4)
         ],
-        recipe_spans=[],
+        recipe_ownership_result=_ownership(all_indices=list(range(4))),
         workbook_slug="fixturebook",
         out_dir=tmp_path / "knowledge",
         context_blocks=0,
@@ -198,7 +197,7 @@ def test_build_knowledge_jobs_keeps_review_order_inside_each_shard(tmp_path: Pat
                 block_ids=["b4", "b5"],
             )
         ],
-        recipe_spans=[],
+        recipe_ownership_result=_ownership(all_indices=[4, 5]),
         workbook_slug="book",
         out_dir=tmp_path / "knowledge",
         context_blocks=0,

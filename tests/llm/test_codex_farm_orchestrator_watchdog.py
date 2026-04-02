@@ -82,16 +82,16 @@ def test_orchestrator_marks_watchdog_killed_recipe_shards_in_summary(
                 supervision_retryable=False,
             )
 
-        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_structured_prompt(*args, **kwargs)
+        def run_packet_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_packet_worker(*args, **kwargs)
             return self._watchdog_result(
                 result,
                 supervision_callback=kwargs.get("supervision_callback"),
                 timeout_seconds=kwargs.get("timeout_seconds"),
             )
 
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_workspace_worker(*args, **kwargs)
+        def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_taskfile_worker(*args, **kwargs)
             return self._watchdog_result(
                 result,
                 supervision_callback=kwargs.get("supervision_callback"),
@@ -149,8 +149,8 @@ def _run_retryable_watchdog_fixture(tmp_path: Path) -> dict[str, object]:
     )
 
     class _RetryingWatchdogRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_workspace_worker(*args, **kwargs)
+        def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_taskfile_worker(*args, **kwargs)
             working_dir = Path(kwargs["working_dir"])
             for output_path in (working_dir / "out").glob("*.json"):
                 output_path.unlink()
@@ -180,7 +180,7 @@ def _run_retryable_watchdog_fixture(tmp_path: Path) -> dict[str, object]:
                 output_schema_path=result.output_schema_path,
                 prompt_text=result.prompt_text,
                 response_text=None,
-                turn_failed_message="workspace worker attempted a forbidden command",
+                turn_failed_message="taskfile worker attempted a forbidden command",
                 events=(
                     {"type": "thread.started"},
                     {
@@ -208,7 +208,7 @@ def _run_retryable_watchdog_fixture(tmp_path: Path) -> dict[str, object]:
                 finished_at_utc=result.finished_at_utc,
                 supervision_state="watchdog_killed",
                 supervision_reason_code="watchdog_command_execution_forbidden",
-                supervision_reason_detail="workspace worker attempted a forbidden command",
+                supervision_reason_detail="taskfile worker attempted a forbidden command",
                 supervision_retryable=True,
             )
 
@@ -251,7 +251,7 @@ def _run_retryable_watchdog_fixture(tmp_path: Path) -> dict[str, object]:
         runner=runner,
     )
 
-    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
+    assert [call["mode"] for call in runner.calls] == ["taskfile"]
     process_summary = apply_result.llm_report["process_runs"]["recipe_correction"][
         "telemetry_report"
     ]["summary"]
@@ -307,7 +307,7 @@ def test_orchestrator_recovers_retryable_watchdog_killed_recipe_shard(
     runner = fixture["runner"]
     process_summary = fixture["process_summary"]
 
-    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
+    assert [call["mode"] for call in runner.calls] == ["taskfile"]
     assert process_summary["watchdog_killed_shard_count"] == 1
     assert process_summary["watchdog_recovered_shard_count"] == 0
 
@@ -360,8 +360,8 @@ def _run_packed_watchdog_retry_fixture(tmp_path: Path) -> dict[str, object]:
     ).model_copy(update={"recipe_worker_count": 1})
 
     class _PackedRetryRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
-            result = super().run_workspace_worker(**kwargs)
+        def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+            result = super().run_taskfile_worker(**kwargs)
             out_dir = Path(str(kwargs["working_dir"])) / "out"
             for output_path in out_dir.glob("*.json"):
                 output_path.unlink()
@@ -371,7 +371,7 @@ def _run_packed_watchdog_retry_fixture(tmp_path: Path) -> dict[str, object]:
                 output_schema_path=result.output_schema_path,
                 prompt_text=result.prompt_text,
                 response_text=None,
-                turn_failed_message="workspace worker attempted a forbidden command",
+                turn_failed_message="taskfile worker attempted a forbidden command",
                 events=result.events
                 + (
                     {
@@ -401,7 +401,7 @@ def _run_packed_watchdog_retry_fixture(tmp_path: Path) -> dict[str, object]:
                 workspace_mode=result.workspace_mode,
                 supervision_state="watchdog_killed",
                 supervision_reason_code="watchdog_command_execution_forbidden",
-                supervision_reason_detail="workspace worker attempted a forbidden command",
+                supervision_reason_detail="taskfile worker attempted a forbidden command",
                 supervision_retryable=True,
             )
 
@@ -444,7 +444,7 @@ def _run_packed_watchdog_retry_fixture(tmp_path: Path) -> dict[str, object]:
         runner=runner,
     )
 
-    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
+    assert [call["mode"] for call in runner.calls] == ["taskfile"]
     process_summary = apply_result.llm_report["process_runs"]["recipe_correction"][
         "telemetry_report"
     ]["summary"]
@@ -482,7 +482,7 @@ def test_orchestrator_uses_one_packed_watchdog_retry_for_early_multi_task_worker
     runner = fixture["runner"]
     process_summary = fixture["process_summary"]
 
-    assert [call["mode"] for call in runner.calls] == ["workspace_worker"]
+    assert [call["mode"] for call in runner.calls] == ["taskfile"]
     assert process_summary["structured_followup_call_count"] == 0
     assert process_summary["watchdog_killed_shard_count"] == 1
     assert process_summary["watchdog_recovered_shard_count"] == 0

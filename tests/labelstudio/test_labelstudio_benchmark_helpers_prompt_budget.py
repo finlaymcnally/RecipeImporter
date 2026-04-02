@@ -696,7 +696,7 @@ def test_prompt_budget_summary_attaches_recipe_runtime_guardrails(
                                 "tokens_output": 20,
                                 "tokens_reasoning": 0,
                                 "tokens_total": 130,
-                                "prompt_input_mode": "workspace_worker",
+                                "prompt_input_mode": "taskfile",
                                 "worker_session_primary_row": True,
                             }
                         ]
@@ -865,7 +865,7 @@ def test_prompt_budget_summary_prefers_top_level_knowledge_telemetry_over_worker
     assert summary["by_stage"]["nonrecipe_finalize"]["tokens_total"] == 230
 
 
-def test_prompt_budget_summary_marks_partial_workspace_worker_token_usage_unavailable(
+def test_prompt_budget_summary_marks_partial_taskfile_worker_token_usage_unavailable(
     tmp_path: Path,
 ) -> None:
     pred_run = tmp_path / "prediction-run"
@@ -889,7 +889,7 @@ def test_prompt_budget_summary_marks_partial_workspace_worker_token_usage_unavai
                                     "visible_input_tokens": 40,
                                     "visible_output_tokens": 8,
                                     "wrapper_overhead_tokens": 2,
-                                    "prompt_input_mode_counts": {"workspace_worker": 1},
+                                    "prompt_input_mode_counts": {"taskfile": 1},
                                 }
                             }
                         },
@@ -907,7 +907,7 @@ def test_prompt_budget_summary_marks_partial_workspace_worker_token_usage_unavai
                                     "visible_output_tokens": 5,
                                     "wrapper_overhead_tokens": 0,
                                     "command_execution_count_total": 12,
-                                    "prompt_input_mode_counts": {"workspace_worker": 1},
+                                    "prompt_input_mode_counts": {"taskfile": 1},
                                 }
                             }
                         },
@@ -1131,7 +1131,7 @@ def _build_knowledge_prompt_budget_summary_fixture(tmp_path: Path) -> dict[str, 
                         "rows": [
                             {
                                 "task_id": "book.ks0000.nr.task-001",
-                                "prompt_input_mode": "workspace_worker",
+                                "prompt_input_mode": "taskfile",
                                 "worker_session_primary_row": True,
                                 "duration_ms": 900,
                                 "tokens_input": 100,
@@ -1256,11 +1256,11 @@ def test_prompt_budget_summary_surfaces_knowledge_execution_mode_rollups(
     assert isinstance(knowledge_stage, dict)
     assert isinstance(summary, dict)
 
-    assert knowledge_stage["execution_mode_summary"]["main_workspace_workers"]["call_count"] == 1
+    assert knowledge_stage["execution_mode_summary"]["main_taskfile_workers"]["call_count"] == 1
     assert knowledge_stage["execution_mode_summary"]["structured_followups"]["call_count"] == 1
     assert knowledge_stage["prompt_input_mode_counts"] == {
         "inline_watchdog_retry": 1,
-        "workspace_worker": 1,
+        "taskfile": 1,
     }
     assert summary["totals"]["structured_followup_call_count"] == 1
     assert knowledge_stage["packet_count_total"] == 3

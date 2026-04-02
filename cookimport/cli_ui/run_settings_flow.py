@@ -466,7 +466,7 @@ def _choose_interactive_codex_surfaces(
             )
 
     enabled_by_step = prompt_codex_surface_menu(
-        message="CodexFarm options for this run:",
+        message="Codex Exec options for this run:",
         step_rows=step_rows,
         enabled_by_step=enabled_by_step,
         back_action=back_action,

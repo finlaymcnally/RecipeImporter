@@ -579,7 +579,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             "--workspace-completion-quiescence-seconds",
             min=0.1,
             hidden=True,
-            help="Seconds a completed workspace worker may stay quiet before clean shutdown.",
+            help="Seconds a completed taskfile worker may stay quiet before clean shutdown.",
         ),
         completed_termination_grace_seconds: float = typer.Option(
             float(serialized_run_setting_default("completed_termination_grace_seconds")),

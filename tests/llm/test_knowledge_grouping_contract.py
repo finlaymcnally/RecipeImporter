@@ -49,14 +49,8 @@ def test_grouping_task_file_only_contains_accepted_knowledge_units() -> None:
         worker_id="worker-001",
         classification_task_file=classification_task_file,
         classification_answers_by_unit_id={
-            "knowledge::5": {
-                "category": "other",
-                "reviewer_category": "chapter_taxonomy",
-            },
-            "knowledge::6": {
-                "category": "knowledge",
-                "reviewer_category": "knowledge",
-            },
+            "knowledge::5": {"category": "other"},
+            "knowledge::6": {"category": "knowledge"},
         },
         unit_to_shard_id=unit_to_shard_id,
     )
@@ -77,10 +71,7 @@ def test_grouping_validator_requires_non_empty_group_fields() -> None:
         worker_id="worker-001",
         classification_task_file=classification_task_file,
         classification_answers_by_unit_id={
-            "knowledge::8": {
-                "category": "knowledge",
-                "reviewer_category": "knowledge",
-            }
+            "knowledge::8": {"category": "knowledge"}
         },
         unit_to_shard_id=unit_to_shard_id,
     )
@@ -145,10 +136,7 @@ def test_grouping_task_files_split_large_grouping_scope_into_bounded_batches() -
         ],
     )
     classification_answers_by_unit_id = {
-        f"knowledge::{block_index}": {
-            "category": "knowledge",
-            "reviewer_category": "knowledge",
-        }
+        f"knowledge::{block_index}": {"category": "knowledge"}
         for block_index in range(block_count)
     }
 
@@ -211,9 +199,9 @@ def test_grouping_task_files_use_custom_limits_from_classification_task() -> Non
         knowledge_group_task_max_evidence_chars=10_000,
     )
     classification_answers_by_unit_id = {
-        "knowledge::1": {"category": "knowledge", "reviewer_category": "knowledge"},
-        "knowledge::2": {"category": "knowledge", "reviewer_category": "knowledge"},
-        "knowledge::3": {"category": "knowledge", "reviewer_category": "knowledge"},
+        "knowledge::1": {"category": "knowledge"},
+        "knowledge::2": {"category": "knowledge"},
+        "knowledge::3": {"category": "knowledge"},
     }
 
     transition_task_file, _grouping_unit_to_shard_id = build_knowledge_grouping_task_file(

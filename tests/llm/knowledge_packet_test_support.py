@@ -8,6 +8,7 @@ from cookimport.staging.nonrecipe_stage import NonRecipeSpan, NonRecipeStageResu
 from tests.nonrecipe_stage_helpers import (
     make_authority_result,
     make_candidate_status_result,
+    make_recipe_ownership_result,
     make_routing_result,
     make_seed_result,
     make_stage_result,
@@ -122,4 +123,11 @@ def make_runtime_nonrecipe_stage_result(
             finalized_candidate_block_indices=[],
             unresolved_candidate_route_by_index=block_category_by_index,
         ),
+    )
+
+
+def make_runtime_recipe_ownership_result(*, block_count: int) -> object:
+    return make_recipe_ownership_result(
+        owned_by_recipe_id={},
+        all_block_indices=list(range(block_count)),
     )

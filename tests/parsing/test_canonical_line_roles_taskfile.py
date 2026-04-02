@@ -61,7 +61,7 @@ def test_label_atomic_lines_records_workspace_warnings_without_killing_shards(
                     and str(decision.supervision_state or "").strip() == "completed"
                     else str(
                         (decision.reason_detail if decision is not None else None)
-                        or "workspace worker completed with warnings"
+                        or "taskfile worker completed with warnings"
                     )
                 ),
                 events=(
@@ -105,16 +105,16 @@ def test_label_atomic_lines_records_workspace_warnings_without_killing_shards(
                 supervision_retryable=bool(decision.retryable if decision is not None else True),
             )
 
-        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_structured_prompt(*args, **kwargs)
+        def run_packet_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_packet_worker(*args, **kwargs)
             return self._watchdog_result(
                 result,
                 supervision_callback=kwargs.get("supervision_callback"),
                 timeout_seconds=kwargs.get("timeout_seconds"),
             )
 
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_workspace_worker(*args, **kwargs)
+        def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_taskfile_worker(*args, **kwargs)
             return self._watchdog_result(
                 result,
                 supervision_callback=kwargs.get("supervision_callback"),
@@ -203,7 +203,7 @@ def test_label_atomic_lines_allows_repo_helper_commands_without_immediate_kill(
     ]
 
     class _WorkspaceCommandRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
             supervision_callback = kwargs.get("supervision_callback")
             if supervision_callback is not None:
                 for command_count, last_command in (
@@ -234,7 +234,7 @@ def test_label_atomic_lines_allows_repo_helper_commands_without_immediate_kill(
                         )
                     )
                     assert decision is None
-            return super().run_workspace_worker(*args, **kwargs)
+            return super().run_taskfile_worker(*args, **kwargs)
 
     predictions = label_atomic_lines(
         candidates,
@@ -256,7 +256,7 @@ def test_label_atomic_lines_allows_line_role_workspace_orientation_commands(
 ) -> None:
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
     )
     decision = callback(
@@ -286,7 +286,7 @@ def test_line_role_workspace_watchdog_keeps_running_after_repeated_single_file_s
 ) -> None:
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
     )
 
@@ -332,7 +332,7 @@ def test_line_role_workspace_watchdog_observes_output_stabilization_without_forc
     output_path = out_dir / "line-role-canonical-0001-a000000-a000000.json"
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
         expected_workspace_output_paths=[output_path],
     )
@@ -414,7 +414,7 @@ def test_line_role_workspace_watchdog_starts_final_message_missing_output_grace_
     output_path.parent.mkdir(parents=True, exist_ok=True)
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
         expected_workspace_output_paths=[output_path],
     )
@@ -456,7 +456,7 @@ def test_line_role_workspace_watchdog_kills_incomplete_progress_summary_immediat
     output_path.parent.mkdir(parents=True, exist_ok=True)
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
         expected_workspace_output_paths=[output_path],
     )
@@ -496,7 +496,7 @@ def test_line_role_workspace_watchdog_allows_output_to_land_during_final_message
     output_path.parent.mkdir(parents=True, exist_ok=True)
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
         expected_workspace_output_paths=[output_path],
     )
@@ -552,7 +552,7 @@ def test_line_role_workspace_watchdog_kills_after_final_message_missing_output_g
     output_path.parent.mkdir(parents=True, exist_ok=True)
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
         expected_workspace_output_paths=[output_path],
     )
@@ -640,7 +640,7 @@ def test_line_role_workspace_watchdog_completes_after_authoritative_same_session
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
         same_session_state_path=state_path,
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
         expected_workspace_output_paths=[output_path],
         workspace_completion_quiescence_seconds=2.0,
@@ -715,7 +715,7 @@ def test_line_role_workspace_watchdog_waits_when_helper_completed_but_outputs_no
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
         same_session_state_path=state_path,
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
         expected_workspace_output_paths=[output_path],
         workspace_completion_quiescence_seconds=2.0,
@@ -774,7 +774,7 @@ def test_line_role_workspace_watchdog_waits_for_output_visibility_after_helper_r
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
         same_session_state_path=state_path,
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
         expected_workspace_output_paths=[output_path],
         workspace_completion_quiescence_seconds=2.0,
@@ -904,7 +904,7 @@ def test_label_atomic_lines_allows_line_role_jq_fallback_operator_output_command
 ) -> None:
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
     )
     decision = callback(
@@ -941,7 +941,7 @@ def test_label_atomic_lines_allows_line_role_workspace_cp_between_scratch_and_ou
 ) -> None:
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
     )
     decision = callback(
@@ -972,7 +972,7 @@ def test_label_atomic_lines_allows_line_role_node_transform(
 ) -> None:
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
     )
     decision = callback(

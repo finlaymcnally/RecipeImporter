@@ -227,14 +227,14 @@ def _build_valid_recipe_task_output(task_payload: dict[str, object]) -> dict[str
 
 
 class _ValidRecipeWorkspaceRunner(FakeCodexExecRunner):
-    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+    def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
         working_dir = Path(kwargs["working_dir"])
         process_env = exec_runner_module._merge_env(kwargs["env"])
         prepared = exec_runner_module.prepare_direct_exec_workspace(
             source_working_dir=working_dir,
             env=process_env,
             task_label=kwargs.get("workspace_task_label"),
-            mode="workspace_worker",
+            mode="taskfile",
         )
         execution_working_dir = prepared.execution_working_dir
         execution_prompt_text = exec_runner_module.rewrite_direct_exec_prompt_paths(
@@ -244,7 +244,7 @@ class _ValidRecipeWorkspaceRunner(FakeCodexExecRunner):
         )
         self.calls.append(
             {
-                "mode": "workspace_worker",
+                "mode": "taskfile",
                 "prompt_text": execution_prompt_text,
                 "input_payload": None,
                 "working_dir": str(working_dir),
@@ -322,6 +322,6 @@ class _ValidRecipeWorkspaceRunner(FakeCodexExecRunner):
             duration_ms=1,
             started_at_utc="2026-01-01T00:00:00Z",
             finished_at_utc="2026-01-01T00:00:00Z",
-            workspace_mode="workspace_worker",
+            workspace_mode="taskfile",
             supervision_state="completed",
         )

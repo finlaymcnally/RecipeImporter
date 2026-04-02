@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel, RecipeSpan
+from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel
 from cookimport.staging.nonrecipe_stage import (
     block_rows_for_nonrecipe_late_outputs,
     build_nonrecipe_authority_contract,
@@ -17,6 +17,7 @@ from cookimport.staging.writer import (
     write_knowledge_outputs_artifact,
     write_nonrecipe_stage_outputs,
 )
+from tests.nonrecipe_stage_helpers import make_recipe_ownership_result
 
 
 def _block_label(
@@ -37,29 +38,41 @@ def _block_label(
     )
 
 
-def test_nonrecipe_stage_ignores_recipe_local_blocks_inside_recipe_span() -> None:
-    result = build_nonrecipe_stage_result(
-        full_blocks=[
-            {"index": 0, "block_id": "b0", "text": "Intro"},
-            {"index": 1, "block_id": "b1", "text": "Recipe title"},
-            {"index": 2, "block_id": "b2", "text": "Technique note inside recipe"},
-            {"index": 3, "block_id": "b3", "text": "Outro"},
+def _ownership_result(
+    *,
+    full_blocks: list[dict[str, object]],
+    owned_block_indices: list[int] | None = None,
+    divested_block_indices: list[int] | None = None,
+) -> object:
+    return make_recipe_ownership_result(
+        owned_by_recipe_id={"urn:recipe:test:r0": list(owned_block_indices or [])},
+        divested_by_recipe_id={"urn:recipe:test:r0": list(divested_block_indices or [])},
+        all_block_indices=[
+            int(block["index"])
+            for block in full_blocks
         ],
+    )
+
+
+def test_nonrecipe_stage_ignores_recipe_local_blocks_inside_recipe_span() -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "Intro"},
+        {"index": 1, "block_id": "b1", "text": "Recipe title"},
+        {"index": 2, "block_id": "b2", "text": "Technique note inside recipe"},
+        {"index": 3, "block_id": "b3", "text": "Outro"},
+    ]
+    result = build_nonrecipe_stage_result(
+        full_blocks=full_blocks,
         final_block_labels=[
             _block_label(0, "NONRECIPE_CANDIDATE"),
             _block_label(1, "RECIPE_TITLE"),
             _block_label(2, "RECIPE_NOTES"),
             _block_label(3, "NONRECIPE_CANDIDATE"),
         ],
-        recipe_spans=[
-            RecipeSpan(
-                span_id="recipe.0",
-                start_block_index=1,
-                end_block_index=3,
-                block_indices=[1, 2],
-                source_block_ids=["b1", "b2"],
-            )
-        ],
+        recipe_ownership_result=_ownership_result(
+            full_blocks=full_blocks,
+            owned_block_indices=[1, 2],
+        ),
     )
 
     assert result.seed.seed_route_by_index == {0: "candidate", 3: "candidate"}
@@ -70,20 +83,21 @@ def test_nonrecipe_stage_ignores_recipe_local_blocks_inside_recipe_span() -> Non
 
 
 def test_nonrecipe_stage_groups_contiguous_candidate_and_excluded_routes() -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "Technique 1"},
+        {"index": 1, "block_id": "b1", "text": "Technique 2"},
+        {"index": 2, "block_id": "b2", "text": "Front matter"},
+        {"index": 3, "block_id": "b3", "text": "Still front matter"},
+    ]
     result = build_nonrecipe_stage_result(
-        full_blocks=[
-            {"index": 0, "block_id": "b0", "text": "Technique 1"},
-            {"index": 1, "block_id": "b1", "text": "Technique 2"},
-            {"index": 2, "block_id": "b2", "text": "Front matter"},
-            {"index": 3, "block_id": "b3", "text": "Still front matter"},
-        ],
+        full_blocks=full_blocks,
         final_block_labels=[
             _block_label(0, "NONRECIPE_CANDIDATE"),
             _block_label(1, "NONRECIPE_CANDIDATE"),
             _block_label(2, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
             _block_label(3, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
         ],
-        recipe_spans=[],
+        recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
     )
 
     assert [span.span_id for span in result.seed.seed_candidate_spans] == [
@@ -95,16 +109,17 @@ def test_nonrecipe_stage_groups_contiguous_candidate_and_excluded_routes() -> No
 
 
 def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path) -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "Intro"},
+        {"index": 1, "block_id": "b1", "text": "Technique"},
+    ]
     stage_result = build_nonrecipe_stage_result(
-        full_blocks=[
-            {"index": 0, "block_id": "b0", "text": "Intro"},
-            {"index": 1, "block_id": "b1", "text": "Technique"},
-        ],
+        full_blocks=full_blocks,
         final_block_labels=[
             _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="navigation"),
             _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
-        recipe_spans=[],
+        recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
     )
     stats = OutputStats(tmp_path)
 
@@ -156,16 +171,17 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
 
 
 def test_nonrecipe_stage_splits_routing_from_final_authority() -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
+        {"index": 1, "block_id": "b1", "text": "Useful technique"},
+    ]
     seed = build_nonrecipe_stage_result(
-        full_blocks=[
-            {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
-            {"index": 1, "block_id": "b1", "text": "Useful technique"},
-        ],
+        full_blocks=full_blocks,
         final_block_labels=[
             _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
             _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
-        recipe_spans=[],
+        recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
     )
 
     assert seed.routing.excluded_block_indices == [0]
@@ -177,20 +193,20 @@ def test_nonrecipe_stage_splits_routing_from_final_authority() -> None:
     assert seed.candidate_status.unresolved_candidate_route_by_index == {1: "candidate"}
 
 
-def test_nonrecipe_stage_refinement_keeps_internal_reviewer_categories_internal() -> None:
+def test_nonrecipe_stage_refinement_tracks_reviewed_blocks_without_reviewer_metadata() -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "SALT"},
+    ]
     seed = build_nonrecipe_stage_result(
-        full_blocks=[
-            {"index": 0, "block_id": "b0", "text": "SALT"},
-        ],
+        full_blocks=full_blocks,
         final_block_labels=[_block_label(0, "NONRECIPE_CANDIDATE")],
-        recipe_spans=[],
+        recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
     )
 
     refined = refine_nonrecipe_stage_result(
         stage_result=seed,
         full_blocks=[{"index": 0, "block_id": "b0", "text": "SALT"}],
         block_category_updates={0: "other"},
-        reviewer_categories_by_block={0: "chapter_taxonomy"},
     )
 
     assert refined.seed.seed_route_by_index == {0: "candidate"}
@@ -198,29 +214,26 @@ def test_nonrecipe_stage_refinement_keeps_internal_reviewer_categories_internal(
     assert refined.authority.authoritative_block_category_by_index == {0: "other"}
     assert refined.candidate_status.finalized_candidate_block_indices == [0]
     assert refined.candidate_status.unresolved_candidate_block_indices == []
-    assert refined.refinement_report["reviewer_category_counts"] == {
-        "chapter_taxonomy": 1
-    }
+    assert refined.refinement_report["reviewed_block_count"] == 1
 
 
 def test_nonrecipe_stage_refinement_keeps_grounding_metadata_visible() -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "Acid brightens rich dishes."},
+    ]
     seed = build_nonrecipe_stage_result(
-        full_blocks=[
-            {"index": 0, "block_id": "b0", "text": "Acid brightens rich dishes."},
-        ],
+        full_blocks=full_blocks,
         final_block_labels=[_block_label(0, "NONRECIPE_CANDIDATE")],
-        recipe_spans=[],
+        recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
     )
 
     refined = refine_nonrecipe_stage_result(
         stage_result=seed,
         full_blocks=[{"index": 0, "block_id": "b0", "text": "Acid brightens rich dishes."}],
         block_category_updates={0: "knowledge"},
-        reviewer_categories_by_block={0: "knowledge"},
         grounding_by_block={
             0: {
                 "packet_id": "book.ks0000.nr",
-                "retrieval_concept": "Balance richness with acid",
                 "grounding": {
                     "tag_keys": ["bright"],
                     "category_keys": ["flavor-profile"],
@@ -255,7 +268,6 @@ def test_nonrecipe_stage_refinement_keeps_grounding_metadata_visible() -> None:
     assert refined.refinement_report["grounding_by_block"] == {
         "0": {
             "packet_id": "book.ks0000.nr",
-            "retrieval_concept": "Balance richness with acid",
             "grounding": {
                 "tag_keys": ["bright"],
                 "category_keys": ["flavor-profile"],
@@ -266,16 +278,17 @@ def test_nonrecipe_stage_refinement_keeps_grounding_metadata_visible() -> None:
 
 
 def test_nonrecipe_stage_writes_exclusion_ledger(tmp_path: Path) -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
+        {"index": 1, "block_id": "b1", "text": "Useful technique text"},
+    ]
     stage_result = build_nonrecipe_stage_result(
-        full_blocks=[
-            {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
-            {"index": 1, "block_id": "b1", "text": "Useful technique text"},
-        ],
+        full_blocks=full_blocks,
         final_block_labels=[
             _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
             _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
-        recipe_spans=[],
+        recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
     )
 
     write_nonrecipe_stage_outputs(stage_result, tmp_path)
@@ -307,63 +320,64 @@ def test_nonrecipe_stage_writes_exclusion_ledger(tmp_path: Path) -> None:
 
 
 def test_nonrecipe_stage_requires_final_label_for_every_nonrecipe_block() -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "Intro"},
+        {"index": 1, "block_id": "b1", "text": "Useful technique"},
+    ]
     with pytest.raises(ValueError, match="Missing final block label for non-recipe block 1"):
         build_nonrecipe_stage_result(
-            full_blocks=[
-                {"index": 0, "block_id": "b0", "text": "Intro"},
-                {"index": 1, "block_id": "b1", "text": "Useful technique"},
-            ],
+            full_blocks=full_blocks,
             final_block_labels=[_block_label(0, "NONRECIPE_CANDIDATE")],
-            recipe_spans=[],
+            recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
         )
 
 
 def test_nonrecipe_stage_rejects_invalid_final_nonrecipe_labels() -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "Useful technique"},
+    ]
     with pytest.raises(
         ValueError,
         match="Invalid non-recipe route label at block 0: unexpected route label 'BROKEN_LABEL'",
     ):
         build_nonrecipe_stage_result(
-            full_blocks=[
-                {"index": 0, "block_id": "b0", "text": "Useful technique"},
-            ],
+            full_blocks=full_blocks,
             final_block_labels=[_block_label(0, "BROKEN_LABEL")],
-            recipe_spans=[],
+            recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
         )
 
 
 def test_nonrecipe_stage_rejects_recipe_only_labels_outside_recipe() -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "Heading"},
+    ]
     with pytest.raises(
         ValueError,
         match="Invalid non-recipe route label at block 0: unexpected route label 'RECIPE_TITLE'",
     ):
         build_nonrecipe_stage_result(
-            full_blocks=[
-                {"index": 0, "block_id": "b0", "text": "Heading"},
-            ],
+            full_blocks=full_blocks,
             final_block_labels=[_block_label(0, "RECIPE_TITLE")],
-            recipe_spans=[],
+            recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
         )
 
 
 def test_nonrecipe_late_output_rows_use_candidate_queue_before_review() -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
+        {"index": 1, "block_id": "b1", "text": "Useful technique"},
+    ]
     stage_result = build_nonrecipe_stage_result(
-        full_blocks=[
-            {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
-            {"index": 1, "block_id": "b1", "text": "Useful technique"},
-        ],
+        full_blocks=full_blocks,
         final_block_labels=[
             _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
             _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
-        recipe_spans=[],
+        recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
     )
 
     rows = block_rows_for_nonrecipe_late_outputs(
-        full_blocks=[
-            {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
-            {"index": 1, "block_id": "b1", "text": "Useful technique"},
-        ],
+        full_blocks=full_blocks,
         stage_result=stage_result,
     )
 
@@ -372,23 +386,21 @@ def test_nonrecipe_late_output_rows_use_candidate_queue_before_review() -> None:
 
 
 def test_nonrecipe_authority_contract_uses_candidate_queue_before_review() -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
+        {"index": 1, "block_id": "b1", "text": "Useful technique"},
+    ]
     stage_result = build_nonrecipe_stage_result(
-        full_blocks=[
-            {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
-            {"index": 1, "block_id": "b1", "text": "Useful technique"},
-        ],
+        full_blocks=full_blocks,
         final_block_labels=[
             _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
             _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
-        recipe_spans=[],
+        recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
     )
 
     contract = build_nonrecipe_authority_contract(
-        full_blocks=[
-            {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
-            {"index": 1, "block_id": "b1", "text": "Useful technique"},
-        ],
+        full_blocks=full_blocks,
         stage_result=stage_result,
     )
 
@@ -402,31 +414,26 @@ def test_nonrecipe_authority_contract_uses_candidate_queue_before_review() -> No
 
 
 def test_nonrecipe_authority_contract_uses_final_authority_after_review() -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "Useful technique"},
+        {"index": 1, "block_id": "b1", "text": "History note"},
+    ]
     seed = build_nonrecipe_stage_result(
-        full_blocks=[
-            {"index": 0, "block_id": "b0", "text": "Useful technique"},
-            {"index": 1, "block_id": "b1", "text": "History note"},
-        ],
+        full_blocks=full_blocks,
         final_block_labels=[
             _block_label(0, "NONRECIPE_CANDIDATE"),
             _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
-        recipe_spans=[],
+        recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
     )
     refined = refine_nonrecipe_stage_result(
         stage_result=seed,
-        full_blocks=[
-            {"index": 0, "block_id": "b0", "text": "Useful technique"},
-            {"index": 1, "block_id": "b1", "text": "History note"},
-        ],
+        full_blocks=full_blocks,
         block_category_updates={0: "knowledge"},
     )
 
     contract = build_nonrecipe_authority_contract(
-        full_blocks=[
-            {"index": 0, "block_id": "b0", "text": "Useful technique"},
-            {"index": 1, "block_id": "b1", "text": "History note"},
-        ],
+        full_blocks=full_blocks,
         stage_result=refined,
     )
 
@@ -437,24 +444,22 @@ def test_nonrecipe_authority_contract_uses_final_authority_after_review() -> Non
 
 
 def test_nonrecipe_stage_forces_excluded_rows_to_final_other_even_if_bad_map_leaks_in() -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
+        {"index": 1, "block_id": "b1", "text": "Useful technique"},
+    ]
     seed = build_nonrecipe_stage_result(
-        full_blocks=[
-            {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
-            {"index": 1, "block_id": "b1", "text": "Useful technique"},
-        ],
+        full_blocks=full_blocks,
         final_block_labels=[
             _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
             _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
-        recipe_spans=[],
+        recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
     )
 
     refined = refine_nonrecipe_stage_result(
         stage_result=seed,
-        full_blocks=[
-            {"index": 0, "block_id": "b0", "text": "Acknowledgments"},
-            {"index": 1, "block_id": "b1", "text": "Useful technique"},
-        ],
+        full_blocks=full_blocks,
         block_category_updates={0: "knowledge", 1: "knowledge"},
     )
 

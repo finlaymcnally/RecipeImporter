@@ -98,7 +98,7 @@ def test_line_role_runtime_retries_one_fresh_session_after_preserved_progress(
     assert runner.workspace_run_calls == 2
     assert worker_status["fresh_session_retry_count"] == 1
     assert worker_status["fresh_session_retry_status"] == "completed"
-    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 2
+    assert worker_status["telemetry"]["summary"]["taskfile_session_count"] == 2
     assert (
         phase_manifest["runtime_metadata"]["worker_session_guardrails"][
             "actual_happy_path_worker_sessions"
@@ -196,7 +196,7 @@ def test_line_role_runtime_replaces_timed_out_worker_with_fresh_worker(
     assert runner.workspace_run_calls == 2
     assert worker_status["fresh_worker_replacement_count"] == 1
     assert worker_status["fresh_worker_replacement_status"] == "recovered"
-    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 2
+    assert worker_status["telemetry"]["summary"]["taskfile_session_count"] == 2
     assert (
         shard_status["validation_metadata"]["fresh_worker_replacement"][
             "fresh_worker_replacement_status"
@@ -274,7 +274,7 @@ def test_line_role_runtime_keeps_successful_sibling_shards_after_timeout(
     assert runner.calls_by_worker_id["worker-002"] == 1
     assert worker_status["fresh_worker_replacement_status"] == "recovered"
     assert sibling_status["fresh_worker_replacement_count"] == 0
-    assert telemetry_payload["summary"]["workspace_worker_session_count"] == 3
+    assert telemetry_payload["summary"]["taskfile_session_count"] == 3
     assert telemetry_payload["fresh_agent_count"] == 3
 
 
@@ -418,11 +418,9 @@ def test_line_role_runtime_recovers_after_incomplete_progress_summary_with_answe
     )
     assert recovery_assessment["assessment"]["recoverable_by_fresh_session"] is True
     assert recovery_assessment["assessment"]["diagnosis_code"] == (
-        "answers_file_present_not_applied"
+        "answers_present_helper_not_run"
     )
-    assert (
-        recovery_assessment["answers_file_progress"]["has_useful_progress"] is True
-    )
+    assert recovery_assessment.get("answers_file_progress") in (None, {})
     assert recovery_assessment["fresh_session_recovery_status"] == "recovered"
     assert shard_status["watchdog_retry_status"] == "not_attempted"
     assert shard_status["fresh_session_recovery_status"] == "recovered"
@@ -477,8 +475,8 @@ def test_line_role_runtime_treats_authoritative_same_session_completion_as_clean
 
     assert len(predictions) == 1
     assert runner.workspace_run_calls == 1
-    assert worker_live_status["state"] == "completed_with_warnings"
-    assert "single_file_shell_drift" in worker_live_status["warning_codes"]
+    assert worker_live_status["state"] == "completed"
+    assert worker_live_status["warning_codes"] == []
     assert worker_live_status["reason_code"] in {None, ""}
     assert shard_status["finalization_path"] == "session_completed"
     assert shard_status["raw_supervision_reason_code"] is None
@@ -619,7 +617,7 @@ def test_line_role_runtime_overrides_missing_output_kill_when_assessment_proves_
     worker_rows = [
         row
         for row in runtime_telemetry["rows"]
-        if row.get("prompt_input_mode") == "workspace_worker"
+        if row.get("prompt_input_mode") == "taskfile"
     ]
     assert len(worker_rows) == 1
     assert worker_rows[0]["supervision_state"] == "completed"

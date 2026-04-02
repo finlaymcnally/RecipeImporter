@@ -60,8 +60,6 @@ def test_classification_task_file_uses_split_schema_and_local_evidence_only() ->
     unit = task_file["units"][0]
     assert unit["answer"] == {
         "category": None,
-        "reviewer_category": None,
-        "retrieval_concept": None,
         "grounding": {
             "tag_keys": [],
             "category_keys": [],
@@ -76,7 +74,7 @@ def test_classification_task_file_uses_split_schema_and_local_evidence_only() ->
     assert isinstance(unit["evidence"]["candidate_tag_keys"], list)
 
 
-def test_classification_validator_enforces_reviewer_category_rules_and_repair_scope() -> None:
+def test_classification_validator_rejects_invalid_other_grounding_and_preserves_repair_scope() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
@@ -95,8 +93,6 @@ def test_classification_validator_enforces_reviewer_category_rules_and_repair_sc
     edited = deepcopy(task_file)
     edited["units"][0]["answer"] = {
         "category": "knowledge",
-        "reviewer_category": "knowledge",
-        "retrieval_concept": "Balance richness with acid",
         "grounding": {
             "tag_keys": ["bright"],
             "category_keys": ["flavor-profile"],
@@ -105,8 +101,6 @@ def test_classification_validator_enforces_reviewer_category_rules_and_repair_sc
     }
     edited["units"][1]["answer"] = {
         "category": "other",
-        "reviewer_category": "chapter_taxonomy",
-        "retrieval_concept": None,
         "grounding": {
             "tag_keys": [],
             "category_keys": [],
@@ -124,8 +118,6 @@ def test_classification_validator_enforces_reviewer_category_rules_and_repair_sc
     assert answers_by_unit_id == {
         "knowledge::21": {
             "category": "knowledge",
-            "reviewer_category": "knowledge",
-            "retrieval_concept": "Balance richness with acid",
             "grounding": {
                 "tag_keys": ["bright"],
                 "category_keys": ["flavor-profile"],
@@ -134,8 +126,6 @@ def test_classification_validator_enforces_reviewer_category_rules_and_repair_sc
         },
         "knowledge::22": {
             "category": "other",
-            "reviewer_category": "chapter_taxonomy",
-            "retrieval_concept": None,
             "grounding": {
                 "tag_keys": [],
                 "category_keys": [],
@@ -146,9 +136,7 @@ def test_classification_validator_enforces_reviewer_category_rules_and_repair_sc
 
     invalid = deepcopy(task_file)
     invalid["units"][0]["answer"] = {
-        "category": "knowledge",
-        "reviewer_category": "other",
-        "retrieval_concept": "Balance richness with acid",
+        "category": "other",
         "grounding": {
             "tag_keys": ["bright"],
             "category_keys": ["flavor-profile"],
@@ -157,8 +145,6 @@ def test_classification_validator_enforces_reviewer_category_rules_and_repair_sc
     }
     invalid["units"][1]["answer"] = {
         "category": "other",
-        "reviewer_category": "chapter_taxonomy",
-        "retrieval_concept": None,
         "grounding": {
             "tag_keys": [],
             "category_keys": [],
@@ -171,7 +157,7 @@ def test_classification_validator_enforces_reviewer_category_rules_and_repair_sc
     )
 
     assert answers_by_unit_id is None
-    assert "knowledge_reviewer_category_mismatch" in errors
+    assert "other_grounding_forbidden" in errors
     assert metadata["failed_unit_ids"] == ["knowledge::21"]
     repair_task_file = build_repair_task_file(
         original_task_file=task_file,
@@ -203,8 +189,6 @@ def test_classification_validator_demotes_ungrounded_knowledge_to_other() -> Non
     edited = deepcopy(task_file)
     edited["units"][0]["answer"] = {
         "category": "knowledge",
-        "reviewer_category": "knowledge",
-        "retrieval_concept": "Balance richness with acid",
         "grounding": {
             "tag_keys": [],
             "category_keys": [],
@@ -227,8 +211,6 @@ def test_classification_validator_demotes_ungrounded_knowledge_to_other() -> Non
     assert answers_by_unit_id == {
         "knowledge::31": {
             "category": "other",
-            "reviewer_category": "other",
-            "retrieval_concept": None,
             "grounding": {
                 "tag_keys": [],
                 "category_keys": [],
@@ -241,21 +223,21 @@ def test_classification_validator_demotes_ungrounded_knowledge_to_other() -> Non
 def test_task_file_answer_feedback_is_filtered_to_each_failed_unit() -> None:
     feedback_by_unit_id = build_task_file_answer_feedback(
         validation_errors=(
-            "knowledge_reviewer_category_mismatch",
-            "knowledge_block_missing_grounding",
+            "other_grounding_forbidden",
+            "invalid_category",
         ),
         validation_metadata={
             "failed_unit_ids": ["knowledge::21", "knowledge::22"],
             "error_details": [
                 {
-                    "path": "/units/knowledge::21/answer/reviewer_category",
-                    "code": "knowledge_reviewer_category_mismatch",
-                    "message": "knowledge reviewer category must match category",
+                    "path": "/units/knowledge::21/answer/grounding",
+                    "code": "other_grounding_forbidden",
+                    "message": "other rows must not carry grounding metadata",
                 },
                 {
-                    "path": "/units/knowledge::22/answer/grounding",
-                    "code": "knowledge_block_missing_grounding",
-                    "message": "knowledge rows must include grounding",
+                    "path": "/units/knowledge::22/answer/category",
+                    "code": "invalid_category",
+                    "message": "category must be 'knowledge' or 'other'",
                 },
             ],
         },
@@ -263,22 +245,22 @@ def test_task_file_answer_feedback_is_filtered_to_each_failed_unit() -> None:
 
     assert feedback_by_unit_id == {
         "knowledge::21": {
-            "validation_errors": ["knowledge_reviewer_category_mismatch"],
+            "validation_errors": ["other_grounding_forbidden"],
             "error_details": [
                 {
-                    "path": "/units/knowledge::21/answer/reviewer_category",
-                    "code": "knowledge_reviewer_category_mismatch",
-                    "message": "knowledge reviewer category must match category",
+                    "path": "/units/knowledge::21/answer/grounding",
+                    "code": "other_grounding_forbidden",
+                    "message": "other rows must not carry grounding metadata",
                 }
             ],
         },
         "knowledge::22": {
-            "validation_errors": ["knowledge_block_missing_grounding"],
+            "validation_errors": ["invalid_category"],
             "error_details": [
                 {
-                    "path": "/units/knowledge::22/answer/grounding",
-                    "code": "knowledge_block_missing_grounding",
-                    "message": "knowledge rows must include grounding",
+                    "path": "/units/knowledge::22/answer/category",
+                    "code": "invalid_category",
+                    "message": "category must be 'knowledge' or 'other'",
                 }
             ],
         },

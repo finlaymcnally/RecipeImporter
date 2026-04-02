@@ -56,8 +56,6 @@ def _shard(
 def _valid_classification_answer() -> dict[str, object]:
     return {
         "category": "knowledge",
-        "reviewer_category": "knowledge",
-        "retrieval_concept": "Heat control",
         "grounding": {
             "tag_keys": [],
             "category_keys": [],
@@ -174,8 +172,6 @@ def test_same_session_handoff_demotes_ungrounded_knowledge_without_repair(
     edited = deepcopy(task_file)
     edited["units"][0]["answer"] = {
         "category": "knowledge",
-        "reviewer_category": "knowledge",
-        "retrieval_concept": "Heat control",
         "grounding": {
             "tag_keys": ["not-a-real-tag"],
             "category_keys": [],
@@ -205,8 +201,6 @@ def test_same_session_handoff_demotes_ungrounded_knowledge_without_repair(
         {
             "block_index": 8,
             "category": "other",
-            "reviewer_category": "other",
-            "retrieval_concept": None,
             "grounding": {
                 "tag_keys": [],
                 "category_keys": [],
@@ -225,12 +219,10 @@ def test_same_session_handoff_rewrites_invalid_classification_into_repair_mode(
     task_file = load_task_file(workspace_root / "task.json")
     edited = deepcopy(task_file)
     edited["units"][0]["answer"] = {
-        "category": "knowledge",
-        "reviewer_category": "other",
-        "retrieval_concept": "Heat control",
+        "category": "other",
         "grounding": {
-            "tag_keys": [],
-            "category_keys": [],
+            "tag_keys": ["saute"],
+            "category_keys": ["techniques"],
             "proposed_tags": [],
         },
     }
@@ -308,10 +300,12 @@ def test_same_session_handoff_keeps_prior_valid_classification_answers_after_rep
     valid_answer = _valid_classification_answer()
     task_file["units"][0]["answer"] = valid_answer
     task_file["units"][1]["answer"] = {
-        "category": "knowledge",
-        "reviewer_category": "other",
-        "retrieval_concept": "Balance richness with acid",
-        "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
+        "category": "other",
+        "grounding": {
+            "tag_keys": ["bright"],
+            "category_keys": ["flavor-profile"],
+            "proposed_tags": [],
+        },
     }
     write_task_file(path=workspace_root / "task.json", payload=task_file)
 

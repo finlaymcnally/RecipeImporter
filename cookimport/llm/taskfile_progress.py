@@ -141,7 +141,7 @@ def _classify_attention(
     return None, None, 99, False
 
 
-def summarize_workspace_worker_health(
+def summarize_taskfile_health(
     *,
     worker_roots_by_id: Mapping[str, Path],
     stall_after_seconds: float = DEFAULT_WORKSPACE_WORKER_STALL_SECONDS,
@@ -253,7 +253,7 @@ def decorate_active_worker_label(
     return f"{cleaned_label} [{cleaned_suffix}]"
 
 
-def start_workspace_worker_progress_heartbeat(
+def start_taskfile_progress_heartbeat(
     *,
     emit_progress: Callable[[], None],
     thread_name: str,
@@ -268,7 +268,7 @@ def start_workspace_worker_progress_heartbeat(
                 emit_progress()
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
-                    "Ignoring workspace worker progress heartbeat failure in %s: %s",
+                    "Ignoring taskfile worker progress heartbeat failure in %s: %s",
                     thread_name,
                     exc,
                 )

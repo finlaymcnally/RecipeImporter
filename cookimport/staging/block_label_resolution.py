@@ -25,7 +25,7 @@ _LABEL_RESOLUTION_PRIORITY: tuple[str, ...] = (
     "KNOWLEDGE",
 )
 
-_RECIPE_LOCAL_LABELS: set[str] = {
+RECIPE_LOCAL_LABELS: set[str] = {
     "RECIPE_TITLE",
     "INGREDIENT_LINE",
     "INSTRUCTION_LINE",
@@ -42,11 +42,6 @@ def resolve_stage_block_label(labels: list[str]) -> str:
         return "OTHER"
 
     label_set = set(labels)
-    if "KNOWLEDGE" in label_set and any(
-        recipe_label in label_set for recipe_label in _RECIPE_LOCAL_LABELS
-    ):
-        label_set.remove("KNOWLEDGE")
-
     for label in _LABEL_RESOLUTION_PRIORITY:
         if label in label_set:
             return label

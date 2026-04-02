@@ -649,7 +649,7 @@ def _prompt_rows_for_sharded_recipe_fixture() -> list[dict[str, object]]:
             "parsed_response": {
                 "payload": None,
                 "reason_code": "watchdog_command_execution_forbidden",
-                "reason_detail": "workspace worker stage attempted tool use",
+                "reason_detail": "taskfile worker stage attempted tool use",
                 "validation_errors": ["missing_output_file"],
             },
             "request_input_payload": {

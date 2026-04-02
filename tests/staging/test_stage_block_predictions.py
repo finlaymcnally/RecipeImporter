@@ -26,6 +26,7 @@ from cookimport.staging.writer import write_stage_block_predictions
 from tests.nonrecipe_stage_helpers import (
     make_authority_result,
     make_candidate_status_result,
+    make_recipe_ownership_result,
     make_routing_result,
     make_seed_result,
     make_stage_result,
@@ -39,6 +40,7 @@ def _build_result(
     note_block_text: str = "Chef's note: taste first.",
 ) -> ConversionResult:
     recipe_payload: dict[str, object] = {
+        "identifier": "urn:recipe:test:simple",
         "name": "Simple Soup",
         "recipeIngredient": ["1 cup stock", "Salt"],
         "recipeInstructions": ["Heat stock.", "Variations: add herbs.", "Serve."],
@@ -95,12 +97,24 @@ def _build_result(
     )
 
 
+def _single_recipe_ownership(
+    result: ConversionResult,
+    owned_block_indices: range | list[int],
+) -> object:
+    recipe_id = str(result.recipes[0].identifier)
+    return make_recipe_ownership_result(
+        owned_by_recipe_id={recipe_id: list(owned_block_indices)},
+        all_block_indices=list(range(len(result.source_blocks))),
+    )
+
+
 def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Path) -> None:
     result = _build_result()
 
     payload = build_stage_block_predictions(
         result,
         "simple",
+        recipe_ownership_result=_single_recipe_ownership(result, range(8)),
         nonrecipe_stage_result=make_stage_result(
             seed=make_seed_result({8: "candidate"}),
             routing=make_routing_result(candidate_block_indices=[8]),
@@ -153,7 +167,11 @@ def test_build_stage_block_predictions_without_nonrecipe_authority_do_not_projec
         )
     ]
 
-    payload = build_stage_block_predictions(result, "simple")
+    payload = build_stage_block_predictions(
+        result,
+        "simple",
+        recipe_ownership_result=_single_recipe_ownership(result, range(8)),
+    )
 
     assert payload["block_labels"]["8"] == "OTHER"
     assert 8 not in payload["label_blocks"]["KNOWLEDGE"]
@@ -169,6 +187,7 @@ def test_build_stage_block_predictions_ignores_nonrecipe_finalize_other_blocks()
     payload = build_stage_block_predictions(
         result,
         "simple",
+        recipe_ownership_result=_single_recipe_ownership(result, range(8)),
         nonrecipe_stage_result=make_stage_result(
             seed=make_seed_result({8: "candidate"}),
             routing=make_routing_result(candidate_block_indices=[8]),
@@ -189,6 +208,7 @@ def test_build_stage_block_predictions_ignores_unresolved_candidate_knowledge() 
     payload = build_stage_block_predictions(
         result,
         "simple",
+        recipe_ownership_result=_single_recipe_ownership(result, range(8)),
         nonrecipe_stage_result=make_stage_result(
             seed=make_seed_result({8: "candidate"}),
             routing=make_routing_result(candidate_block_indices=[8]),
@@ -217,7 +237,11 @@ def test_build_stage_block_predictions_marks_notes_from_description_only() -> No
         note_block_text="Keep the heat low to avoid curdling.",
     )
 
-    payload = build_stage_block_predictions(result, "simple")
+    payload = build_stage_block_predictions(
+        result,
+        "simple",
+        recipe_ownership_result=_single_recipe_ownership(result, range(8)),
+    )
 
     assert payload["block_labels"]["7"] == "RECIPE_NOTES"
     assert 7 in payload["label_blocks"]["RECIPE_NOTES"]
@@ -251,6 +275,7 @@ def test_write_stage_block_predictions_prefers_final_nonrecipe_authority(
         results=result,
         run_root=tmp_path,
         workbook_slug="simple",
+        recipe_ownership_result=_single_recipe_ownership(result, range(8)),
         source_file="/tmp/simple.txt",
         nonrecipe_stage_result=make_stage_result(
             seed=make_seed_result({8: "candidate"}),
@@ -270,6 +295,7 @@ def test_write_stage_block_predictions_prefers_final_nonrecipe_authority(
 
 def _build_sectioned_result() -> ConversionResult:
     recipe = RecipeCandidate(
+        identifier="urn:recipe:test:sectioned",
         name="Meat and Gravy",
         recipeIngredient=[
             "For the meat:",
@@ -333,7 +359,12 @@ def _build_sectioned_result() -> ConversionResult:
 
 
 def test_build_stage_block_predictions_emits_howto_sections_from_headers() -> None:
-    payload = build_stage_block_predictions(_build_sectioned_result(), "sectioned")
+    result = _build_sectioned_result()
+    payload = build_stage_block_predictions(
+        result,
+        "sectioned",
+        recipe_ownership_result=_single_recipe_ownership(result, range(9)),
+    )
 
     block_labels = payload["block_labels"]
     assert block_labels["0"] == "OTHER"
@@ -367,6 +398,7 @@ def test_is_howto_section_text_rejects_generic_all_caps_single_word_headers() ->
 
 def test_build_stage_block_predictions_supports_line_range_provenance() -> None:
     recipe = RecipeCandidate(
+        identifier="urn:recipe:test:line-range",
         name="Meat and Gravy",
         recipeIngredient=["For the meat:", "1 lb beef"],
         recipeInstructions=["For the meat:", "Brown the beef."],
@@ -408,7 +440,11 @@ def test_build_stage_block_predictions_supports_line_range_provenance() -> None:
         workbookPath="/tmp/line-range.txt",
     )
 
-    payload = build_stage_block_predictions(result, "line-range")
+    payload = build_stage_block_predictions(
+        result,
+        "line-range",
+        recipe_ownership_result=_single_recipe_ownership(result, range(7)),
+    )
 
     assert payload["block_labels"]["2"] == "HOWTO_SECTION"
     assert payload["block_labels"]["5"] == "HOWTO_SECTION"
@@ -420,6 +456,7 @@ def test_build_stage_block_predictions_supports_line_range_provenance() -> None:
 
 def test_build_stage_block_predictions_rejects_title_without_boundary_evidence() -> None:
     recipe = RecipeCandidate(
+        identifier="urn:recipe:test:narrative-title",
         name="PAN-SEARED SALMON",
         recipeIngredient=["2 salmon fillets"],
         recipeInstructions=["Sear the salmon."],
@@ -464,7 +501,11 @@ def test_build_stage_block_predictions_rejects_title_without_boundary_evidence()
         workbookPath="/tmp/narrative-title.txt",
     )
 
-    payload = build_stage_block_predictions(result, "narrative-title")
+    payload = build_stage_block_predictions(
+        result,
+        "narrative-title",
+        recipe_ownership_result=_single_recipe_ownership(result, range(2)),
+    )
 
     assert payload["block_labels"]["0"] == "OTHER"
     assert not payload["label_blocks"]["RECIPE_TITLE"]

@@ -244,6 +244,12 @@ def execute_stage_import_session_from_result(
         / workbook_slug
         / "authoritative_recipe_payloads.json"
     )
+    recipe_block_ownership_path = (
+        run_root
+        / "recipe_authority"
+        / workbook_slug
+        / "recipe_block_ownership.json"
+    )
     stage_predictions_path = run_root / ".bench" / workbook_slug / "stage_block_predictions.json"
 
     with measure(stats, "writing"):
@@ -307,6 +313,11 @@ def execute_stage_import_session_from_result(
         write_completed += 1
         _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         with measure(stats, "write_recipe_authority_seconds"):
+            runtime.write_recipe_block_ownership(
+                ownership_result=recipe_refine_result.recipe_ownership_result,
+                out_path=recipe_block_ownership_path,
+                output_stats=output_stats,
+            )
             runtime.write_authoritative_recipe_semantics(
                 payloads_by_recipe_id=authoritative_recipe_payloads_by_recipe_id,
                 out_path=authoritative_recipe_payloads_path,
@@ -380,6 +391,7 @@ def execute_stage_import_session_from_result(
                 results=result,
                 run_root=run_root,
                 workbook_slug=workbook_slug,
+                recipe_ownership_result=recipe_refine_result.recipe_ownership_result,
                 source_file=str(source_file),
                 archive_blocks=list(extracted_book_bundle.archive_blocks),
                 nonrecipe_stage_result=nonrecipe_stage_result,
@@ -411,6 +423,7 @@ def execute_stage_import_session_from_result(
         label_artifact_paths=label_artifact_paths,
         source_artifact_paths=source_artifact_paths,
         authoritative_recipe_payloads_path=authoritative_recipe_payloads_path,
+        recipe_block_ownership_path=recipe_block_ownership_path,
         nonrecipe_stage_result=nonrecipe_stage_result,
         extracted_book_bundle=extracted_book_bundle,
         recipe_boundary_result=recipe_boundary_result,

@@ -89,7 +89,8 @@ _DIRECT_EXEC_REPAIR_DIR_NAME = "repair"
 _DIRECT_EXEC_INTERNAL_DIR_NAME = "_repo_control"
 _DIRECT_EXEC_ORIGINAL_TASK_FILE_NAME = "original_task.json"
 _DIRECT_EXEC_HELPER_IMPORTS_ROOT_NAME = "recipeimport-helper-imports"
-DirectExecWorkspaceMode = Literal["structured_json", "workspace_worker"]
+DirectExecWorkerContract = Literal["packet", "taskfile"]
+DirectExecWorkspaceMode = DirectExecWorkerContract
 _WORKSPACE_ALLOWED_PATH_ROOTS = {
     ".",
     "./",
@@ -232,7 +233,7 @@ FinalAgentMessageState = Literal["absent", "informational", "malformed", "json_o
 
 
 class CodexExecRunner(Protocol):
-    def run_structured_prompt(
+    def run_packet_worker(
         self,
         *,
         prompt_text: str,
@@ -250,9 +251,9 @@ class CodexExecRunner(Protocol):
         ]
         | None = None,
     ) -> "CodexExecRunResult":
-        """Run one direct structured Codex exec call."""
+        """Run one non-interactive packet worker call."""
 
-    def run_workspace_worker(
+    def run_taskfile_worker(
         self,
         *,
         prompt_text: str,
@@ -268,7 +269,7 @@ class CodexExecRunner(Protocol):
         ]
         | None = None,
     ) -> "CodexExecRunResult":
-        """Run one long-lived Codex worker session against local workspace files."""
+        """Run one long-lived taskfile worker session against local workspace files."""
 
 
 @dataclass(frozen=True)
@@ -365,11 +366,15 @@ class CodexExecRunResult:
     duration_ms: int | None = None
     started_at_utc: str | None = None
     finished_at_utc: str | None = None
-    workspace_mode: DirectExecWorkspaceMode = "structured_json"
+    workspace_mode: DirectExecWorkerContract = "packet"
     supervision_state: str | None = None
     supervision_reason_code: str | None = None
     supervision_reason_detail: str | None = None
     supervision_retryable: bool = False
+
+    @property
+    def worker_contract(self) -> DirectExecWorkerContract:
+        return self.workspace_mode
 
     def completed_successfully(self) -> bool:
         if self.subprocess_exit_code == 0:
@@ -397,7 +402,7 @@ class CodexExecRunResult:
             self.events,
             allowed_absolute_roots=(
                 [self.execution_working_dir]
-                if self.workspace_mode == "workspace_worker" and self.execution_working_dir
+                if self.workspace_mode == "taskfile" and self.execution_working_dir
                 else None
             ),
         )
@@ -554,7 +559,7 @@ class CodexExecRunResult:
 class SubprocessCodexExecRunner:
     cmd: str = "codex exec"
 
-    def run_structured_prompt(
+    def run_packet_worker(
         self,
         *,
         prompt_text: str,
@@ -583,13 +588,13 @@ class SubprocessCodexExecRunner:
             completed_termination_grace_seconds=completed_termination_grace_seconds,
             workspace_task_label=workspace_task_label,
             supervision_callback=supervision_callback,
-            workspace_mode="structured_json",
+            workspace_mode="packet",
             sandbox_mode="read-only",
             require_final_message=True,
             sync_output_paths=(),
         )
 
-    def run_workspace_worker(
+    def run_taskfile_worker(
         self,
         *,
         prompt_text: str,
@@ -616,7 +621,7 @@ class SubprocessCodexExecRunner:
             completed_termination_grace_seconds=completed_termination_grace_seconds,
             workspace_task_label=workspace_task_label,
             supervision_callback=supervision_callback,
-            workspace_mode="workspace_worker",
+            workspace_mode="taskfile",
             sandbox_mode="workspace-write",
             require_final_message=False,
             sync_output_paths=(
@@ -666,19 +671,19 @@ class SubprocessCodexExecRunner:
             workspace_root=working_dir,
             mode=workspace_mode,
         )
-        if workspace_mode == "workspace_worker" and single_file_worker_runtime:
+        if workspace_mode == "taskfile" and single_file_worker_runtime:
             _sync_direct_exec_runtime_control_paths_to_execution(
                 source_working_dir=working_dir,
                 execution_working_dir=execution_working_dir,
                 relative_paths=(_DIRECT_EXEC_INTERNAL_DIR_NAME,),
             )
-            process_env = _rewrite_workspace_worker_env_paths(
+            process_env = _rewrite_taskfile_worker_env_paths(
                 env=process_env,
                 source_working_dir=working_dir,
                 execution_working_dir=execution_working_dir,
             )
-        if workspace_mode == "workspace_worker":
-            helper_import_root = _prepare_workspace_worker_helper_imports(
+        if workspace_mode == "taskfile":
+            helper_import_root = _prepare_taskfile_worker_helper_imports(
                 env=process_env,
                 execution_working_dir=execution_working_dir,
             )
@@ -705,12 +710,12 @@ class SubprocessCodexExecRunner:
             sandbox_mode=sandbox_mode,
         )
         subprocess_command = (
-            _build_workspace_worker_fs_cage_command(
+            _build_taskfile_worker_fs_cage_command(
                 command=command,
                 working_dir=execution_working_dir,
                 env=process_env,
             )
-            if workspace_mode == "workspace_worker"
+            if workspace_mode == "taskfile"
             else command
         )
         started_at = datetime.now(timezone.utc)
@@ -730,7 +735,7 @@ class SubprocessCodexExecRunner:
                 sync_output_paths=sync_output_paths,
                 sync_source_paths=(
                     _DIRECT_EXEC_RUNTIME_CONTROL_PATHS
-                    if workspace_mode == "workspace_worker"
+                    if workspace_mode == "taskfile"
                     and not single_file_worker_runtime
                     else ()
                 ),
@@ -742,7 +747,7 @@ class SubprocessCodexExecRunner:
             execution_working_dir=execution_working_dir,
             relative_paths=sync_output_paths,
         )
-        if workspace_mode == "workspace_worker" and not single_file_worker_runtime:
+        if workspace_mode == "taskfile" and not single_file_worker_runtime:
             _sync_direct_exec_workspace_paths(
                 source_working_dir=working_dir,
                 execution_working_dir=execution_working_dir,
@@ -1196,7 +1201,7 @@ class FakeCodexExecRunner:
             }
         return {}
 
-    def run_structured_prompt(
+    def run_packet_worker(
         self,
         *,
         prompt_text: str,
@@ -1255,7 +1260,7 @@ class FakeCodexExecRunner:
         if supervision_callback is not None:
             final_agent_message = assess_final_agent_message(
                 response_text,
-                workspace_mode="structured_json",
+                workspace_mode="packet",
             )
             supervision_callback(
                 CodexExecLiveSnapshot(
@@ -1290,11 +1295,11 @@ class FakeCodexExecRunner:
             duration_ms=1,
             started_at_utc="2026-01-01T00:00:00Z",
             finished_at_utc="2026-01-01T00:00:00Z",
-            workspace_mode="structured_json",
+            workspace_mode="packet",
             supervision_state="completed",
         )
 
-    def run_workspace_worker(
+    def run_taskfile_worker(
         self,
         *,
         prompt_text: str,
@@ -1315,7 +1320,7 @@ class FakeCodexExecRunner:
             source_working_dir=working_dir,
             env=process_env,
             task_label=workspace_task_label,
-            mode="workspace_worker",
+            mode="taskfile",
         )
         execution_working_dir = prepared_workspace.execution_working_dir
         execution_prompt_text = rewrite_direct_exec_prompt_paths(
@@ -1325,7 +1330,7 @@ class FakeCodexExecRunner:
         )
         self.calls.append(
             {
-                "mode": "workspace_worker",
+                "mode": "taskfile",
                 "prompt_text": execution_prompt_text,
                 "input_payload": None,
                 "working_dir": str(working_dir),
@@ -1537,7 +1542,7 @@ class FakeCodexExecRunner:
         if supervision_callback is not None:
             final_agent_message = assess_final_agent_message(
                 response_text,
-                workspace_mode="workspace_worker",
+                workspace_mode="taskfile",
             )
             supervision_callback(
                 CodexExecLiveSnapshot(
@@ -1571,7 +1576,7 @@ class FakeCodexExecRunner:
             duration_ms=1,
             started_at_utc="2026-01-01T00:00:00Z",
             finished_at_utc="2026-01-01T00:00:00Z",
-            workspace_mode="workspace_worker",
+            workspace_mode="taskfile",
             supervision_state="completed",
         )
 
@@ -1588,7 +1593,7 @@ def prepare_direct_exec_workspace(
     source_working_dir: Path,
     env: Mapping[str, str] | None,
     task_label: str | None = None,
-    mode: DirectExecWorkspaceMode = "structured_json",
+    mode: DirectExecWorkspaceMode = "packet",
 ) -> PreparedDirectExecWorkspace:
     source_root = Path(source_working_dir).resolve()
     single_file_worker_runtime = _uses_single_file_worker_runtime(
@@ -1846,7 +1851,7 @@ def _rewrite_workspace_runtime_control_tree_paths(
         )
 
 
-def _rewrite_workspace_worker_env_paths(
+def _rewrite_taskfile_worker_env_paths(
     *,
     env: Mapping[str, str],
     source_working_dir: Path,
@@ -1920,7 +1925,7 @@ def _sanitize_direct_exec_workspace_component(value: str) -> str:
     return rendered or "worker"
 
 
-def _prepare_workspace_worker_helper_imports(
+def _prepare_taskfile_worker_helper_imports(
     *,
     env: Mapping[str, str],
     execution_working_dir: Path,
@@ -1930,7 +1935,7 @@ def _prepare_workspace_worker_helper_imports(
     helper_session_root = helper_imports_root / execution_working_dir.name
     helper_package_root = helper_session_root / "cookimport"
     if helper_package_root.exists():
-        _write_workspace_worker_helper_bin_scripts(helper_session_root)
+        _write_taskfile_worker_helper_bin_scripts(helper_session_root)
         return helper_session_root
     source_package_root = Path(__file__).resolve().parents[1]
     shutil.copytree(
@@ -1938,11 +1943,11 @@ def _prepare_workspace_worker_helper_imports(
         helper_package_root,
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
     )
-    _write_workspace_worker_helper_bin_scripts(helper_session_root)
+    _write_taskfile_worker_helper_bin_scripts(helper_session_root)
     return helper_session_root
 
 
-def _write_workspace_worker_helper_bin_scripts(helper_session_root: Path) -> None:
+def _write_taskfile_worker_helper_bin_scripts(helper_session_root: Path) -> None:
     bin_root = helper_session_root / "bin"
     bin_root.mkdir(parents=True, exist_ok=True)
     python_executable = shlex.quote(sys.executable)
@@ -2314,7 +2319,7 @@ def _build_direct_exec_agents_text(
     single_file_task_file_payload: Mapping[str, Any] | None = None,
 ) -> str:
     rendered_task_label = str(task_label or "structured shard task").strip()
-    if mode == "workspace_worker":
+    if mode == "taskfile":
         if single_file_worker_runtime:
             stage_key = (
                 str(single_file_task_file_payload.get("stage_key") or "").strip()
@@ -2591,7 +2596,7 @@ def _build_codex_exec_command(
 
 
 @lru_cache(maxsize=1)
-def _workspace_worker_fs_cage_unshare_path() -> str | None:
+def _taskfile_worker_fs_cage_unshare_path() -> str | None:
     resolved = shutil.which("unshare")
     if not resolved:
         return None
@@ -2606,7 +2611,7 @@ def _path_is_within(path: Path, root: Path) -> bool:
         return False
 
 
-def _resolve_workspace_worker_command_path(
+def _resolve_taskfile_worker_command_path(
     *,
     token: str,
     env: Mapping[str, str],
@@ -2623,7 +2628,7 @@ def _resolve_workspace_worker_command_path(
     return Path(resolved).expanduser()
 
 
-def _workspace_worker_preserved_toolchain_root(
+def _taskfile_worker_preserved_toolchain_root(
     *,
     executable_path: Path | None,
     user_home: Path,
@@ -2643,7 +2648,7 @@ def _workspace_worker_preserved_toolchain_root(
     return None
 
 
-def _workspace_worker_preserved_virtualenv_root(
+def _taskfile_worker_preserved_virtualenv_root(
     *,
     env: Mapping[str, str],
     user_home: Path,
@@ -2661,16 +2666,16 @@ def _workspace_worker_preserved_virtualenv_root(
     return None
 
 
-def _build_workspace_worker_fs_cage_command(
+def _build_taskfile_worker_fs_cage_command(
     *,
     command: Sequence[str],
     working_dir: Path,
     env: Mapping[str, str],
 ) -> list[str]:
-    unshare_path = _workspace_worker_fs_cage_unshare_path()
+    unshare_path = _taskfile_worker_fs_cage_unshare_path()
     if not unshare_path:
         raise CodexFarmRunnerError(
-            "workspace-worker filesystem isolation requires `unshare`, but it was not found"
+            "taskfile filesystem isolation requires `unshare`, but it was not found"
         )
 
     explicit_env = {str(key): str(value) for key, value in (env or {}).items()}
@@ -2686,23 +2691,23 @@ def _build_workspace_worker_fs_cage_command(
         workspace_root.relative_to(direct_exec_root)
     except ValueError as exc:
         raise CodexFarmRunnerError(
-            "workspace-worker filesystem isolation expected the execution cwd to live "
+            "taskfile filesystem isolation expected the execution cwd to live "
             f"under {direct_exec_root}, got {workspace_root}"
         ) from exc
 
     user_home = Path.home().expanduser().resolve(strict=False)
     resolved_command = [str(token) for token in command]
-    resolved_executable_path = _resolve_workspace_worker_command_path(
+    resolved_executable_path = _resolve_taskfile_worker_command_path(
         token=resolved_command[0] if resolved_command else "",
         env=explicit_env,
     )
     if resolved_command and resolved_executable_path is not None:
         resolved_command[0] = str(resolved_executable_path)
-    preserved_toolchain_root = _workspace_worker_preserved_toolchain_root(
+    preserved_toolchain_root = _taskfile_worker_preserved_toolchain_root(
         executable_path=resolved_executable_path,
         user_home=user_home,
     )
-    preserved_virtualenv_root = _workspace_worker_preserved_virtualenv_root(
+    preserved_virtualenv_root = _taskfile_worker_preserved_virtualenv_root(
         env=explicit_env,
         user_home=user_home,
     )
@@ -2821,7 +2826,7 @@ def _wrap_workspace_supervision_callback(
 ) -> Callable[[CodexExecLiveSnapshot], CodexExecSupervisionDecision | None] | None:
     if supervision_callback is None:
         return None
-    if workspace_mode != "workspace_worker" or not sync_output_paths:
+    if workspace_mode != "taskfile" or not sync_output_paths:
         return supervision_callback
 
     def _wrapped(snapshot: CodexExecLiveSnapshot) -> CodexExecSupervisionDecision | None:
@@ -2988,7 +2993,7 @@ def _run_codex_exec_subprocess_streaming(
                         decision.supervision_state or ""
                     ).strip().lower()
                     if (
-                        workspace_mode == "workspace_worker"
+                        workspace_mode == "taskfile"
                         and normalized_supervision_state.startswith("completed")
                     ):
                         graceful_termination_deadline = (
@@ -3115,8 +3120,8 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
         "command_execution_tokens_total": 0,
         "reasoning_heavy_tokens_total": 0,
         "invalid_output_tokens_total": 0,
-        "workspace_worker_row_count": 0,
-        "workspace_worker_session_count": 0,
+        "taskfile_row_count": 0,
+        "taskfile_session_count": 0,
         "structured_followup_call_count": 0,
         "structured_followup_tokens_total": 0,
         "command_policy_counts": {},
@@ -3155,10 +3160,10 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
             token_usage_available_call_count += 1
         elif _row_looks_like_missing_token_usage(row):
             token_usage_missing_call_count += 1
-        if prompt_input_mode == "workspace_worker":
-            summary["workspace_worker_row_count"] += 1
+        if prompt_input_mode == "taskfile":
+            summary["taskfile_row_count"] += 1
             if bool(row.get("worker_session_primary_row")):
-                summary["workspace_worker_session_count"] += 1
+                summary["taskfile_session_count"] += 1
         if prompt_input_mode in {
             "inline_watchdog_retry",
             "inline_retry",
@@ -3382,15 +3387,15 @@ def _extract_last_agent_message(events: tuple[dict[str, Any], ...] | list[dict[s
 def assess_final_agent_message(
     message_text: str | None,
     *,
-    workspace_mode: DirectExecWorkspaceMode = "structured_json",
+    workspace_mode: DirectExecWorkspaceMode = "packet",
 ) -> FinalAgentMessageAssessment:
     cleaned = str(message_text or "").strip()
     if not cleaned:
         return FinalAgentMessageAssessment(state="absent", text=None)
-    if workspace_mode == "workspace_worker" and not cleaned.startswith("{"):
+    if workspace_mode == "taskfile" and not cleaned.startswith("{"):
         return FinalAgentMessageAssessment(
             state="informational",
-            reason="workspace worker final message is informational only",
+            reason="taskfile worker final message is informational only",
             text=cleaned,
         )
     if not cleaned.startswith("{"):
@@ -3589,7 +3594,7 @@ def _summarize_codex_events(
             if command_text and command_text not in seen_commands:
                 seen_commands.add(command_text)
                 command_execution_commands.append(command_text)
-                verdict = classify_workspace_worker_command(
+                verdict = classify_taskfile_worker_command(
                     command_text,
                     allowed_absolute_roots=allowed_absolute_roots,
                 )
@@ -3792,7 +3797,7 @@ def _summarize_live_item_activity(
         text_excerpt = _live_activity_excerpt(item.get("text"))
         if text_excerpt is None:
             return "Agent message" if payload_type == "item.completed" else None
-        if workspace_mode == "workspace_worker" and text_excerpt.startswith("{"):
+        if workspace_mode == "taskfile" and text_excerpt.startswith("{"):
             return None
         return f"Message: {text_excerpt}"
     if item_type == "reasoning":
@@ -4238,7 +4243,7 @@ def _uses_single_file_worker_runtime(
     workspace_root: Path,
     mode: DirectExecWorkspaceMode,
 ) -> bool:
-    return mode == "workspace_worker" and (workspace_root / _DIRECT_EXEC_TASK_FILE_NAME).exists()
+    return mode == "taskfile" and (workspace_root / _DIRECT_EXEC_TASK_FILE_NAME).exists()
 
 
 def _store_hidden_task_file_snapshot(workspace_root: Path) -> None:
@@ -4272,7 +4277,7 @@ def format_watchdog_command_loop_reason_detail(
     return "; ".join(parts)
 
 
-def classify_workspace_worker_command(
+def classify_taskfile_worker_command(
     command_text: str | None,
     *,
     allow_orientation_commands: bool = True,
@@ -4281,7 +4286,7 @@ def classify_workspace_worker_command(
     single_file_worker_policy: bool = False,
     single_file_stage_key: str | None = None,
 ) -> WorkspaceCommandClassification:
-    boundary_violation = detect_workspace_worker_boundary_violation(
+    boundary_violation = detect_taskfile_worker_boundary_violation(
         command_text,
         allow_output_paths=allow_output_paths,
         allowed_absolute_roots=allowed_absolute_roots,
@@ -4306,7 +4311,7 @@ def classify_workspace_worker_command(
         return egregious_verdict
     shell_body = _extract_workspace_shell_body(command_text)
     if shell_body is not None:
-        return _classify_workspace_worker_shell_script(
+        return _classify_taskfile_worker_shell_script(
             shell_body=shell_body,
             command_text=cleaned_command,
             allow_orientation_commands=allow_orientation_commands,
@@ -4344,7 +4349,7 @@ def classify_workspace_worker_command(
             command_text=cleaned_command,
             allowed=True,
             policy="tolerated_orientation_command",
-            reason="`pwd` stayed inside the relaxed workspace-worker command policy",
+            reason="`pwd` stayed inside the relaxed taskfile command policy",
         )
     if executable in {"ls", "find", "tree"} and allow_orientation_commands:
         for argument in inner_tokens[1:]:
@@ -4367,13 +4372,13 @@ def classify_workspace_worker_command(
             command_text=cleaned_command,
             allowed=True,
             policy="tolerated_orientation_command",
-            reason=f"`{executable}` stayed inside the relaxed workspace-worker command policy",
+            reason=f"`{executable}` stayed inside the relaxed taskfile command policy",
         )
     return WorkspaceCommandClassification(
         command_text=cleaned_command,
         allowed=True,
         policy="tolerated_workspace_shell_command",
-        reason="command stayed inside the relaxed workspace-worker command policy",
+        reason="command stayed inside the relaxed taskfile command policy",
     )
 
 
@@ -4523,7 +4528,7 @@ def is_single_file_workspace_command_egregious(policy: str | None) -> bool:
     return str(policy or "").strip() in _SINGLE_FILE_WORKSPACE_EGREGIOUS_POLICIES
 
 
-def detect_workspace_worker_boundary_violation(
+def detect_taskfile_worker_boundary_violation(
     command_text: str | None,
     *,
     allow_output_paths: bool = True,
@@ -4534,7 +4539,7 @@ def detect_workspace_worker_boundary_violation(
         return None
     shell_body = _extract_workspace_shell_body(command_text)
     if shell_body is not None:
-        return _detect_workspace_worker_boundary_violation_in_text(
+        return _detect_taskfile_worker_boundary_violation_in_text(
             shell_body,
             command_text=cleaned_command,
             allow_output_paths=allow_output_paths,
@@ -4551,7 +4556,7 @@ def detect_workspace_worker_boundary_violation(
     approximate_shell_body = _approximate_workspace_shell_body(command_text)
     if approximate_shell_body is None:
         return None
-    return _detect_workspace_worker_boundary_violation_in_text(
+    return _detect_taskfile_worker_boundary_violation_in_text(
         approximate_shell_body,
         command_text=cleaned_command,
         allow_output_paths=allow_output_paths,
@@ -4559,13 +4564,13 @@ def detect_workspace_worker_boundary_violation(
     )
 
 
-def is_tolerated_workspace_worker_command(
+def is_tolerated_taskfile_worker_command(
     command_text: str | None,
     *,
     allowed_absolute_roots: Sequence[str | Path] | None = None,
 ) -> bool:
     return (
-        detect_workspace_worker_boundary_violation(
+        detect_taskfile_worker_boundary_violation(
             command_text,
             allowed_absolute_roots=allowed_absolute_roots,
         )
@@ -4640,7 +4645,7 @@ def _approximate_workspace_shell_body(command_text: str | None) -> str | None:
     return body or None
 
 
-def _classify_workspace_worker_shell_script(
+def _classify_taskfile_worker_shell_script(
     *,
     shell_body: str,
     command_text: str | None,
@@ -4663,7 +4668,7 @@ def _classify_workspace_worker_shell_script(
             command_text=command_text,
             allowed=True,
             policy="tolerated_orientation_command",
-            reason="orientation commands stayed inside the relaxed workspace-worker command policy",
+            reason="orientation commands stayed inside the relaxed taskfile command policy",
         )
     if _looks_like_workspace_shell_script(shell_body):
         return WorkspaceCommandClassification(
@@ -4676,7 +4681,7 @@ def _classify_workspace_worker_shell_script(
         command_text=command_text,
         allowed=True,
         policy="tolerated_workspace_shell_command",
-        reason="command stayed inside the relaxed workspace-worker command policy",
+        reason="command stayed inside the relaxed taskfile command policy",
     )
 
 def _workspace_shell_executables(shell_body: str) -> list[str]:
@@ -4719,7 +4724,7 @@ def _looks_like_workspace_shell_script(shell_body: str) -> bool:
     )
 
 
-def _detect_workspace_worker_boundary_violation_in_text(
+def _detect_taskfile_worker_boundary_violation_in_text(
     shell_text: str,
     *,
     command_text: str | None,
@@ -4747,7 +4752,7 @@ def _detect_workspace_worker_boundary_violation_in_text(
     return None
 
 
-def _detect_workspace_worker_boundary_violation_in_python_heredoc(
+def _detect_taskfile_worker_boundary_violation_in_python_heredoc(
     shell_text: str,
     *,
     command_text: str | None,
@@ -4986,7 +4991,7 @@ def _workspace_egregious_command_verdict(
             command_text=command_text,
             allowed=False,
             policy="forbidden_non_helper_executable",
-            reason=f"`{executable}` is outside the egregious-only workspace-worker command policy",
+            reason=f"`{executable}` is outside the egregious-only taskfile command policy",
         )
     git_subcommand = _workspace_watchdog_git_subcommand(token_list)
     if git_subcommand in _WORKSPACE_EGREGIOUS_GIT_SUBCOMMANDS:
@@ -4994,7 +4999,7 @@ def _workspace_egregious_command_verdict(
             command_text=command_text,
             allowed=False,
             policy="forbidden_non_helper_executable",
-            reason=f"`git {git_subcommand}` is outside the egregious-only workspace-worker command policy",
+            reason=f"`git {git_subcommand}` is outside the egregious-only taskfile command policy",
         )
     return None
 

@@ -14,8 +14,6 @@ def _packet_payload(*, packet_id: str, block_indices: list[int]) -> dict[str, ob
             {
                 "block_index": block_index,
                 "category": "knowledge",
-                "reviewer_category": "knowledge",
-                "retrieval_concept": "Control heat steadily",
                 "grounding": {
                     "tag_keys": ["saute"],
                     "category_keys": ["cooking-method"],
@@ -72,15 +70,11 @@ def test_normalize_knowledge_worker_payload_serializes_packet_result() -> None:
             {
                 "i": 4,
                 "c": "knowledge",
-                "rc": "knowledge",
-                "rt": "Control heat steadily",
                 "gr": {"tk": ["saute"], "ck": ["cooking-method"], "pt": []},
             },
             {
                 "i": 5,
                 "c": "knowledge",
-                "rc": "knowledge",
-                "rt": "Control heat steadily",
                 "gr": {"tk": ["saute"], "ck": ["cooking-method"], "pt": []},
             },
         ],
@@ -121,8 +115,6 @@ def test_validate_knowledge_shard_output_rejects_knowledge_blocks_missing_groups
                 {
                     "block_index": 20,
                     "category": "knowledge",
-                    "reviewer_category": "knowledge",
-                    "retrieval_concept": "Control heat steadily",
                     "grounding": {
                         "tag_keys": ["saute"],
                         "category_keys": ["cooking-method"],
@@ -132,8 +124,6 @@ def test_validate_knowledge_shard_output_rejects_knowledge_blocks_missing_groups
                 {
                     "block_index": 21,
                     "category": "knowledge",
-                    "reviewer_category": "knowledge",
-                    "retrieval_concept": "Control heat steadily",
                     "grounding": {
                         "tag_keys": ["saute"],
                         "category_keys": ["cooking-method"],

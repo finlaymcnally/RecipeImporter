@@ -59,7 +59,7 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
     )
 
     assert len(runner.calls) == 1
-    assert runner.calls[0]["mode"] == "workspace_worker"
+    assert runner.calls[0]["mode"] == "taskfile"
     task_file = exec_runner_module.load_task_file(
         apply_result.llm_raw_dir
         / "recipe_phase_runtime"
@@ -136,8 +136,8 @@ def test_recipe_workspace_watchdog_allows_orientation_and_helper_scripts(
 ) -> None:
     callback = recipe_module._build_recipe_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
-        stage_label="workspace worker stage",
+        watchdog_policy="taskfile_v1",
+        stage_label="taskfile worker stage",
         allow_workspace_commands=True,
     )
     decision = callback(
@@ -171,8 +171,8 @@ def test_recipe_workspace_watchdog_allows_jq_fallback_operator_output_command(
 ) -> None:
     callback = recipe_module._build_recipe_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
-        stage_label="workspace worker stage",
+        watchdog_policy="taskfile_v1",
+        stage_label="taskfile worker stage",
         allow_workspace_commands=True,
     )
     decision = callback(
@@ -204,8 +204,8 @@ def test_recipe_workspace_watchdog_allows_bounded_python_transform(
 ) -> None:
     callback = recipe_module._build_recipe_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
-        stage_label="workspace worker stage",
+        watchdog_policy="taskfile_v1",
+        stage_label="taskfile worker stage",
         allow_workspace_commands=True,
     )
     decision = callback(
@@ -237,8 +237,8 @@ def test_recipe_workspace_watchdog_allows_bounded_python_heredoc_scratch_edit(
 ) -> None:
     callback = recipe_module._build_recipe_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
-        stage_label="workspace worker stage",
+        watchdog_policy="taskfile_v1",
+        stage_label="taskfile worker stage",
         allow_workspace_commands=True,
     )
     decision = callback(
@@ -280,8 +280,8 @@ def test_recipe_workspace_watchdog_marks_forbidden_boundary_command_nonretryable
 ) -> None:
     callback = recipe_module._build_recipe_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
-        stage_label="workspace worker stage",
+        watchdog_policy="taskfile_v1",
+        stage_label="taskfile worker stage",
         allow_workspace_commands=True,
     )
     decision = callback(
@@ -310,8 +310,8 @@ def test_recipe_workspace_watchdog_allows_execution_root_startup_command(
     execution_root = tmp_path / ".codex-recipe" / "runtime" / "worker-001"
     callback = recipe_module._build_recipe_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
-        stage_label="workspace worker stage",
+        watchdog_policy="taskfile_v1",
+        stage_label="taskfile worker stage",
         allow_workspace_commands=True,
         execution_workspace_root=source_root,
     )
@@ -665,8 +665,8 @@ def test_orchestrator_rejects_complex_empty_mapping_without_reason_and_skips_pro
     )
 
     assert [call["mode"] for call in runner.calls] == [
-        "workspace_worker",
-        "workspace_worker",
+        "taskfile",
+        "taskfile",
     ]
     assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
     assert proposal["payload"] is None
@@ -753,8 +753,8 @@ def test_orchestrator_rejects_multi_ingredient_single_step_empty_mapping_without
     )
 
     assert [call["mode"] for call in runner.calls] == [
-        "workspace_worker",
-        "workspace_worker",
+        "taskfile",
+        "taskfile",
     ]
     assert proposal["payload"] is None
     assert proposal["repair_attempted"] is True

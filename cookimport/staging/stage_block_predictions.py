@@ -5,6 +5,7 @@ from typing import Any
 from cookimport.core.models import ConversionResult
 from cookimport.staging.block_label_resolution import (
     FREEFORM_LABELS,
+    RECIPE_LOCAL_LABELS,
     resolve_stage_block_label,
 )
 from cookimport.staging.knowledge_block_evidence import build_knowledge_block_evidence
@@ -16,6 +17,10 @@ from cookimport.staging.recipe_block_evidence import (
     resolve_stage_prediction_source_file,
     resolve_stage_prediction_source_hash,
 )
+from cookimport.staging.recipe_ownership import (
+    RecipeOwnershipInvariantError,
+    RecipeOwnershipResult,
+)
 
 UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY = "unresolved_candidate_block_indices"
 UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY = "unresolved_candidate_route_by_index"
@@ -25,6 +30,7 @@ def build_stage_block_predictions(
     conversion_result: ConversionResult,
     workbook_slug: str,
     *,
+    recipe_ownership_result: RecipeOwnershipResult,
     source_file: str | None = None,
     source_hash: str | None = None,
     archive_blocks: list[dict[str, Any]] | None = None,
@@ -32,7 +38,11 @@ def build_stage_block_predictions(
 ) -> dict[str, Any]:
     """Build a deterministic per-block label manifest from staged outputs."""
     archive = load_stage_prediction_archive(conversion_result, archive_blocks)
-    recipe_evidence = build_recipe_block_evidence(conversion_result, archive=archive)
+    recipe_evidence = build_recipe_block_evidence(
+        conversion_result,
+        archive=archive,
+        recipe_ownership_result=recipe_ownership_result,
+    )
     knowledge_evidence = build_knowledge_block_evidence(nonrecipe_stage_result)
 
     block_labels = {
@@ -45,6 +55,11 @@ def build_stage_block_predictions(
     if knowledge_evidence.knowledge_indices and recipe_evidence.block_count == 0:
         notes.append("Knowledge blocks were present but no extracted archive blocks were available.")
     for block_index in sorted(knowledge_evidence.knowledge_indices):
+        if recipe_ownership_result.is_block_recipe_owned(block_index):
+            owner = recipe_ownership_result.block_owner_by_index.get(int(block_index), "unknown")
+            raise RecipeOwnershipInvariantError(
+                f"Block {block_index} was marked KNOWLEDGE but is recipe-owned by '{owner}'."
+            )
         if block_index < 0 or block_index >= recipe_evidence.block_count:
             notes.append(
                 f"Knowledge block reference was out of range ({block_index}); ignored."
@@ -61,6 +76,11 @@ def build_stage_block_predictions(
     resolved: dict[int, str] = {}
     for block_index in range(recipe_evidence.block_count):
         labels = sorted(label for label in block_labels.get(block_index, set()) if label != "OTHER")
+        if "KNOWLEDGE" in labels and any(label in RECIPE_LOCAL_LABELS for label in labels):
+            raise RecipeOwnershipInvariantError(
+                "Recipe/local vs KNOWLEDGE overlap is forbidden: "
+                f"block {block_index} had labels {labels}."
+            )
         if len(labels) > 1:
             conflicts.append({"block_index": block_index, "labels": labels})
         resolved[block_index] = resolve_stage_block_label(labels)

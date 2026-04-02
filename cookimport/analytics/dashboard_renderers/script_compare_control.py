@@ -268,7 +268,8 @@ _JS_COMPARE_CONTROL = """\
     const explicit = cleanConfigValue(record && record.benchmark_variant);
     if (explicit) {
       const explicitKey = String(explicit).toLowerCase().replace(/[-\\s]+/g, "_");
-      if (["vanilla", "codex-exec", "deterministic", "line_role_only", "recipe_only", "full_stack", "other"].includes(explicitKey)) {
+      if (explicitKey === "codex_exec") return "codex-exec";
+      if (["vanilla", "deterministic", "line_role_only", "recipe_only", "full_stack", "other"].includes(explicitKey)) {
         return explicitKey;
       }
     }
@@ -593,7 +594,7 @@ _JS_COMPARE_CONTROL = """\
     return {
       default: base,
       vanilla: benchmarkTrendShiftHexColor(base, 58),
-      codex-exec: base,
+      "codex-exec": base,
       other: benchmarkTrendShiftHexColor(base, 20),
     };
   }

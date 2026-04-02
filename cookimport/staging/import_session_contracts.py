@@ -35,6 +35,7 @@ class StageImportSessionResult:
     label_artifact_paths: dict[str, Path] | None = None
     source_artifact_paths: dict[str, Path] | None = None
     authoritative_recipe_payloads_path: Path | None = None
+    recipe_block_ownership_path: Path | None = None
     nonrecipe_stage_result: NonRecipeStageResult | None = None
     extracted_book_bundle: ExtractedBookBundle | None = None
     recipe_boundary_result: RecipeBoundaryResult | None = None

@@ -16,11 +16,13 @@ NONRECIPE_EXCLUSIONS_FILE_NAME = "08_nonrecipe_exclusions.jsonl"
 NONRECIPE_AUTHORITY_FILE_NAME = "09_nonrecipe_authority.json"
 NONRECIPE_KNOWLEDGE_GROUPS_FILE_NAME = "09_nonrecipe_knowledge_groups.json"
 NONRECIPE_FINALIZE_STATUS_FILE_NAME = "09_nonrecipe_finalize_status.json"
+RECIPE_BLOCK_OWNERSHIP_FILE_NAME = "recipe_block_ownership.json"
 
 NONRECIPE_ROUTE_SCHEMA_VERSION = "nonrecipe_route.v1"
 NONRECIPE_AUTHORITY_SCHEMA_VERSION = "nonrecipe_authority.v1"
 NONRECIPE_KNOWLEDGE_GROUPS_SCHEMA_VERSION = "nonrecipe_knowledge_groups.v1"
 NONRECIPE_FINALIZE_STATUS_SCHEMA_VERSION = "nonrecipe_finalize_status.v1"
+RECIPE_BLOCK_OWNERSHIP_SCHEMA_VERSION = "recipe_block_ownership.v1"
 
 NONRECIPE_ROUTE_FIELD = "nonrecipe_route"
 NONRECIPE_FINAL_CATEGORY_FIELD = "nonrecipe_final_category"

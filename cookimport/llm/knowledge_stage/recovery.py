@@ -383,7 +383,7 @@ def _merge_live_status_metadata(path: Path, *, payload: Mapping[str, Any]) -> No
     _write_live_status(path, merged)
 
 
-def _combine_workspace_worker_run_results(
+def _combine_taskfile_worker_run_results(
     run_results: Sequence[CodexExecRunResult],
 ) -> CodexExecRunResult:
     if len(run_results) == 1:
@@ -686,7 +686,7 @@ def _relative_path(base: Path, path: Path) -> str:
         return str(path)
 
 
-def _build_knowledge_workspace_worker_prompt(
+def _build_knowledge_taskfile_prompt(
     *,
     stage_key: str,
     shards: Sequence[ShardManifestEntryV1] | None = None,
@@ -1023,7 +1023,7 @@ def _build_knowledge_workspace_task_runner_payload(
             + int(row_payload.get("tokens_output") or 0)
             + int(row_payload.get("tokens_reasoning") or 0)
         )
-        row_payload["prompt_input_mode"] = "workspace_worker"
+        row_payload["prompt_input_mode"] = "taskfile"
         row_payload["request_input_file"] = request_input_file_str
         row_payload["request_input_file_bytes"] = request_input_file_bytes
         row_payload["worker_prompt_file"] = worker_prompt_file_str
@@ -1054,7 +1054,7 @@ def _build_knowledge_workspace_task_runner_payload(
         "status": _run_result_process_status(run_result),
         "codex_model": model,
         "codex_reasoning_effort": reasoning_effort,
-        "prompt_input_mode": "workspace_worker",
+        "prompt_input_mode": "taskfile",
         "request_input_file": request_input_file_str,
         "request_input_file_bytes": request_input_file_bytes,
         "worker_prompt_file": worker_prompt_file_str,
@@ -1370,13 +1370,13 @@ def _build_strict_json_watchdog_callback(
             if execution_workspace_root is not None
             else None
         )
-        last_command_verdict = classify_workspace_worker_command(
+        last_command_verdict = classify_taskfile_worker_command(
             snapshot.last_command,
             allowed_absolute_roots=allowed_absolute_roots,
             single_file_worker_policy=allow_workspace_commands,
             single_file_stage_key=current_workspace_stage_key,
         )
-        last_command_boundary_violation = detect_workspace_worker_boundary_violation(
+        last_command_boundary_violation = detect_taskfile_worker_boundary_violation(
             snapshot.last_command,
             allowed_absolute_roots=allowed_absolute_roots,
         )
@@ -1482,12 +1482,12 @@ def _build_strict_json_watchdog_callback(
                         else "workspace_expected_outputs_completed"
                     ),
                     reason_detail=(
-                        "knowledge workspace worker produced repo-validated outputs for "
+                        "knowledge taskfile worker produced repo-validated outputs for "
                         "every assigned current task and the session either emitted "
                         "a post-install completion signal or went quiet while waiting to exit"
                         if completion_queue_completed
                         else (
-                            "knowledge workspace worker produced every expected shard "
+                            "knowledge taskfile worker produced every expected shard "
                             "output and the session either emitted a post-output "
                             "completion signal or remained in completion-wait long "
                             "enough to treat the assignment as done"
@@ -1511,7 +1511,7 @@ def _build_strict_json_watchdog_callback(
                 ):
                     _record_warning(
                         "inline_python_heredoc_used",
-                        "workspace worker used inline python heredoc execution instead "
+                        "taskfile worker used inline python heredoc execution instead "
                         "of a short local file or direct task-file editing",
                     )
                 if (
@@ -1548,7 +1548,7 @@ def _build_strict_json_watchdog_callback(
                     decision = CodexExecSupervisionDecision.terminate(
                         reason_code="boundary_command_execution_forbidden",
                         reason_detail=format_watchdog_command_reason_detail(
-                            stage_label="workspace worker stage",
+                            stage_label="taskfile worker stage",
                             last_command=snapshot.last_command,
                         ),
                         retryable=False,
@@ -1565,7 +1565,7 @@ def _build_strict_json_watchdog_callback(
                     _record_warning(
                         "command_loop_without_output",
                         format_watchdog_command_loop_reason_detail(
-                            stage_label="workspace worker stage",
+                            stage_label="taskfile worker stage",
                             snapshot=snapshot,
                         ),
                     )
@@ -1591,7 +1591,7 @@ def _build_strict_json_watchdog_callback(
             if allow_workspace_commands:
                 _record_warning(
                     "reasoning_without_output",
-                    "workspace worker emitted repeated reasoning without a final answer",
+                    "taskfile worker emitted repeated reasoning without a final answer",
                 )
             else:
                 decision = CodexExecSupervisionDecision.terminate(
@@ -1638,7 +1638,7 @@ def _build_strict_json_watchdog_callback(
             if allow_workspace_commands:
                 _record_warning(
                     "cohort_runtime_outlier",
-                    "workspace worker exceeded sibling median runtime without reaching final output",
+                    "taskfile worker exceeded sibling median runtime without reaching final output",
                 )
             else:
                 decision = CodexExecSupervisionDecision.terminate(
@@ -2459,7 +2459,7 @@ def _run_knowledge_snippet_repair_attempt(
         prompt_text,
         encoding="utf-8",
     )
-    return runner.run_structured_prompt(
+    return runner.run_packet_worker(
         prompt_text=prompt_text,
         input_payload={
             "repair_mode": "knowledge_snippet_only",
@@ -2509,7 +2509,7 @@ def _run_knowledge_repair_attempt(
         prompt_text,
         encoding="utf-8",
     )
-    return runner.run_structured_prompt(
+    return runner.run_packet_worker(
         prompt_text=prompt_text,
         input_payload={
             "repair_mode": "knowledge",
@@ -2558,7 +2558,7 @@ def _run_knowledge_watchdog_retry_attempt(
     retry_root = worker_root / "shards" / shard.shard_id / "watchdog_retry"
     retry_root.mkdir(parents=True, exist_ok=True)
     (retry_root / "prompt.txt").write_text(prompt_text, encoding="utf-8")
-    return runner.run_structured_prompt(
+    return runner.run_packet_worker(
         prompt_text=prompt_text,
         input_payload={
             "retry_mode": "knowledge_watchdog",

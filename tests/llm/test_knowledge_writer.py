@@ -17,8 +17,6 @@ def test_write_knowledge_artifacts_writes_group_json_and_preview(tmp_path: Path)
                     {
                         "i": 4,
                         "c": "knowledge",
-                        "rc": "knowledge",
-                        "rt": "heat control",
                         "gr": {"tk": ["technique.heat-control"]},
                     }
                 ],
@@ -52,8 +50,6 @@ def test_write_knowledge_artifacts_fails_on_missing_block_index(tmp_path: Path) 
                     {
                         "i": 4,
                         "c": "knowledge",
-                        "rc": "knowledge",
-                        "rt": "heat control",
                         "gr": {"tk": ["technique.heat-control"]},
                     }
                 ],

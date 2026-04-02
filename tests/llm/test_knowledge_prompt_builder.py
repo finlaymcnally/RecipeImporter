@@ -31,7 +31,7 @@ def test_build_knowledge_direct_prompt_uses_inline_json_contract() -> None:
     assert "Do not treat two blocks as one idea just because they are adjacent in the packet" in prompt
     assert "Every `knowledge` block must belong to exactly one idea group." in prompt
     assert "top level: `v`, `bid`, `d`, `g`" in prompt
-    assert "decision: `i`, `c`, `rc`, `rt`, `gr`" in prompt
+    assert "decision: `i`, `c`, `gr`" in prompt
     assert "top level: `v` packet version, `bid` packet id, `b` owned packet blocks" in prompt
     assert "Every `g[*].s[*]` needs at least one evidence quote from owned packet blocks." in prompt
     assert "final answer must be that JSON object only" in prompt

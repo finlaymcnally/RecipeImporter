@@ -122,13 +122,13 @@ _JS_BOOTSTRAP = """\
     strict_accuracy: {
       default: "#1f5ea8",
       vanilla: "#7daee8",
-      codex-exec: "#1f5ea8",
+      "codex-exec": "#1f5ea8",
       other: "#7f96b3",
     },
     macro_f1_excluding_other: {
       default: "#127a52",
       vanilla: "#55b895",
-      codex-exec: "#127a52",
+      "codex-exec": "#127a52",
       other: "#6ea08c",
     },
   };

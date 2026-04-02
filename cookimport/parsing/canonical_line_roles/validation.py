@@ -458,7 +458,7 @@ def _normalize_line_role_shard_outcome(
         if str(raw_supervision_state or "").lower() == "watchdog_killed":
             detail = (
                 "line-role shard validated using a durable shard ledger even though the main "
-                "workspace worker was killed before it terminated cleanly."
+                "taskfile worker was killed before it terminated cleanly."
             )
             if raw_supervision_reason_code:
                 detail += f" Original workspace reason: {raw_supervision_reason_code}."
@@ -638,7 +638,7 @@ def _apply_line_role_final_outcome_to_runner_payload(
                 continue
             if str(row_payload.get("task_id") or "").strip() != str(shard_id).strip():
                 continue
-            if str(row_payload.get("prompt_input_mode") or "").strip() != "workspace_worker":
+            if str(row_payload.get("prompt_input_mode") or "").strip() != "taskfile":
                 continue
             _annotate_line_role_final_outcome_row(
                 row_payload,

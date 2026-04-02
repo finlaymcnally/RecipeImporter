@@ -220,6 +220,28 @@ def _build_existing_run_at(run_dir: Path) -> Path:
         },
     )
     _write_json(
+        run_dir / "recipe_authority" / workbook_slug / "recipe_block_ownership.json",
+        {
+            "schema_version": "recipe_block_ownership.v1",
+            "ownership_mode": "recipe_boundary_with_explicit_divestment",
+            "owned_block_indices": [0, 1],
+            "divested_block_indices": [],
+            "available_to_nonrecipe_block_indices": [2, 3],
+            "block_owner_by_index": {
+                "0": "urn:recipe:test:r0",
+                "1": "urn:recipe:test:r0",
+            },
+            "recipes": [
+                {
+                    "recipe_id": "urn:recipe:test:r0",
+                    "recipe_span_id": "recipe_span_0",
+                    "owned_block_indices": [0, 1],
+                    "divested_block_indices": [],
+                }
+            ],
+        },
+    )
+    _write_json(
         run_dir / "final drafts" / workbook_slug / "r0.json",
         {
             "title": "Ambiguous title-ish line",

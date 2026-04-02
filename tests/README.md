@@ -65,7 +65,7 @@ pytest tests/parsing/test_canonical_line_roles_recipe_span.py
 pytest tests/parsing/test_canonical_line_roles.py
 pytest tests/parsing/test_canonical_line_roles_codex.py
 pytest tests/parsing/test_canonical_line_roles_prompting.py
-pytest tests/parsing/test_canonical_line_roles_workspace.py
+pytest tests/parsing/test_canonical_line_roles_taskfile.py
 pytest tests/parsing/test_canonical_line_roles_runtime.py
 pytest tests/parsing/test_canonical_line_roles_runtime_recovery.py
 

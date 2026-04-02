@@ -2600,16 +2600,16 @@ _JS_TABLES = """\
       record,
       !hasOfficialVariants
     );
-    const runCodexFarmRows = aggregatePerLabelRows(
+    const runCodexExecRows = aggregatePerLabelRows(
       latestRunRecords.filter(record => mapVariant(record) === "codex-exec")
     );
     const runVanillaRows = aggregatePerLabelRows(
       latestRunRecords.filter(record => benchmarkVariantForRecord(record) === "vanilla")
     );
     const latestRows = aggregatePerLabelRows(latestRunRecords);
-    const runCodexFarmByLabel = perLabelRowsByLabel(runCodexFarmRows);
+    const runCodexExecByLabel = perLabelRowsByLabel(runCodexExecRows);
     const runVanillaByLabel = perLabelRowsByLabel(runVanillaRows);
-    const rollingCodexFarmByLabel = rollingPerLabelByVariant(
+    const rollingCodexExecByLabel = rollingPerLabelByVariant(
       candidateRecords,
       "codex-exec",
       rollingWindowSize,
@@ -2617,22 +2617,22 @@ _JS_TABLES = """\
     );
 
     latestRows.forEach(lbl => {
-      const runCodexFarm = runCodexFarmByLabel[lbl.label] || {};
+      const runCodexExec = runCodexExecByLabel[lbl.label] || {};
       const runVanilla = runVanillaByLabel[lbl.label] || {};
-      const rollingCodexFarm = rollingCodexFarmByLabel[lbl.label] || {};
-      const baselinePrecision = runCodexFarm.precision;
-      const baselineRecall = runCodexFarm.recall;
+      const rollingCodexExec = rollingCodexExecByLabel[lbl.label] || {};
+      const baselinePrecision = runCodexExec.precision;
+      const baselineRecall = runCodexExec.recall;
       const tr = document.createElement("tr");
       tr.innerHTML =
         '<td>' + esc(lbl.label) + '</td>' +
         '<td class="num" style="text-align:left">' + (lbl.gold_total != null ? Math.round(lbl.gold_total) : "-") + '</td>' +
         '<td class="num" style="text-align:left">' + (lbl.pred_total != null ? Math.round(lbl.pred_total) : "-") + '</td>' +
-        '<td class="num" style="text-align:left">' + fmt4(runCodexFarm.precision) + '</td>' +
-        '<td class="num" style="text-align:left">' + fmt4(runCodexFarm.recall) + '</td>' +
+        '<td class="num" style="text-align:left">' + fmt4(runCodexExec.precision) + '</td>' +
+        '<td class="num" style="text-align:left">' + fmt4(runCodexExec.recall) + '</td>' +
         perLabelComparisonCell(runVanilla.precision, baselinePrecision) +
         perLabelComparisonCell(runVanilla.recall, baselineRecall) +
-        perLabelComparisonCell(rollingCodexFarm.precision, baselinePrecision) +
-        perLabelComparisonCell(rollingCodexFarm.recall, baselineRecall);
+        perLabelComparisonCell(rollingCodexExec.precision, baselinePrecision) +
+        perLabelComparisonCell(rollingCodexExec.recall, baselineRecall);
       tbody.appendChild(tr);
     });
   }

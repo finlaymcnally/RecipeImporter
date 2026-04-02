@@ -5,11 +5,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from cookimport.parsing.label_source_of_truth import RecipeSpan
 from cookimport.staging.nonrecipe_stage import (
     NonRecipeSpan,
     block_rows_for_nonrecipe_span,
 )
+from cookimport.staging.recipe_ownership import RecipeOwnershipResult
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 from cookimport.llm.shard_prompt_targets import (
     coerce_positive_int,
@@ -24,7 +24,6 @@ from .codex_farm_knowledge_contracts import (
     KnowledgePacketJobInputV1,
     KnowledgeShardJobInputV1,
     KnowledgeTableHintV1,
-    SpanV1,
 )
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +70,7 @@ def build_knowledge_jobs(
     *,
     full_blocks: Sequence[Mapping[str, Any]],
     candidate_spans: Sequence[NonRecipeSpan],
-    recipe_spans: Sequence[RecipeSpan],
+    recipe_ownership_result: RecipeOwnershipResult,
     workbook_slug: str,
     out_dir: Path,
     context_blocks: int = 2,
@@ -86,11 +85,7 @@ def build_knowledge_jobs(
     full_blocks_by_index = _prepare_full_blocks_by_index(full_blocks)
     if not full_blocks_by_index:
         raise ValueError("Cannot build knowledge jobs: empty full_blocks.")
-
-    recipe_spans_payload = [
-        SpanV1(start=int(span.start_block_index), end=int(span.end_block_index))
-        for span in recipe_spans
-    ]
+    owned_block_indices = set(recipe_ownership_result.owned_block_indices)
     planning_warnings: list[str] = []
     ordered_review_rows: list[dict[str, Any]] = []
     source_span_ids_by_index: dict[int, list[str]] = {}
@@ -182,7 +177,7 @@ def build_knowledge_jobs(
                 estimated_pass1_input_chars=_estimate_pass1_input_chars(
                     absolute_indices=absolute_indices,
                     full_blocks_by_index=full_blocks_by_index,
-                    recipe_spans_payload=recipe_spans_payload,
+                    owned_block_indices=owned_block_indices,
                     context_blocks=context_blocks,
                 ),
                 estimated_pass1_output_chars=_estimate_pass1_output_chars(
@@ -204,7 +199,7 @@ def build_knowledge_jobs(
         bundle_payload = _build_packet_job_payload(
             packet=packet,
             full_blocks_by_index=full_blocks_by_index,
-            recipe_spans_payload=recipe_spans_payload,
+            owned_block_indices=owned_block_indices,
             context_blocks=context_blocks,
         )
         bundle_payload_json = bundle_payload.model_dump(
@@ -382,7 +377,7 @@ def _estimate_pass1_input_chars(
     *,
     absolute_indices: Sequence[int],
     full_blocks_by_index: Mapping[int, Mapping[str, Any]],
-    recipe_spans_payload: Sequence[SpanV1],
+    owned_block_indices: set[int],
     context_blocks: int,
 ) -> int:
     if not absolute_indices:
@@ -394,7 +389,7 @@ def _estimate_pass1_input_chars(
     context_indices = [
         idx
         for idx in [*before_indices, *after_indices]
-        if idx in full_blocks_by_index and not _index_in_recipe_spans(idx, recipe_spans_payload)
+        if idx in full_blocks_by_index and idx not in owned_block_indices
     ]
     owned_chars = sum(
         _estimate_row_input_chars(full_blocks_by_index.get(index) or {})
@@ -456,7 +451,7 @@ def _build_packet_job_payload(
     *,
     packet: _PreparedKnowledgePacket,
     full_blocks_by_index: Mapping[int, Mapping[str, Any]],
-    recipe_spans_payload: list[SpanV1],
+    owned_block_indices: set[int],
     context_blocks: int,
 ) -> KnowledgePacketJobInputV1:
     packet_start_index = min(packet.absolute_indices)
@@ -466,7 +461,7 @@ def _build_packet_job_payload(
     context_recipe_block_indices = sorted(
         idx
         for idx in [*before_indices, *after_indices]
-        if _index_in_recipe_spans(idx, recipe_spans_payload)
+        if idx in owned_block_indices
     )
     blocks_before = [
         _to_knowledge_context_block(
@@ -474,7 +469,7 @@ def _build_packet_job_payload(
             fallback_index=idx,
         )
         for idx in before_indices
-        if idx in full_blocks_by_index
+        if idx in full_blocks_by_index and idx not in owned_block_indices
     ]
     blocks_after = [
         _to_knowledge_context_block(
@@ -482,7 +477,7 @@ def _build_packet_job_payload(
             fallback_index=idx,
         )
         for idx in after_indices
-        if idx in full_blocks_by_index
+        if idx in full_blocks_by_index and idx not in owned_block_indices
     ]
     context_payload = KnowledgePacketContextPayloadV1(
         blocks_before=blocks_before,
@@ -505,11 +500,6 @@ def _build_packet_job_payload(
             else None
         ),
     )
-
-
-def _index_in_recipe_spans(index: int, recipe_spans_payload: Sequence[SpanV1]) -> bool:
-    return any(int(span.start) <= index < int(span.end) for span in recipe_spans_payload)
-
 
 def _to_knowledge_packet_block(
     block: Mapping[str, Any],

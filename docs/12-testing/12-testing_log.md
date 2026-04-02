@@ -60,7 +60,7 @@ Anti-loop note:
 
 Still-active outcomes:
 
-- direct Codex exec workspace/runtime coverage now lives in `tests/llm/test_codex_exec_runner_workspace.py`, while pure helper/classifier coverage stays in `tests/llm/test_codex_exec_runner.py`
+- direct Codex exec workspace/runtime coverage now lives in `tests/llm/test_codex_exec_runner_taskfile.py`, while pure helper/classifier coverage stays in `tests/llm/test_codex_exec_runner.py`
 - knowledge-stage runtime coverage is now intentionally spread across `tests/llm/test_knowledge_orchestrator_runtime_progress.py`, `tests/llm/test_knowledge_orchestrator_runtime_leasing.py`, `tests/llm/test_knowledge_runtime_replay.py`, and `tests/llm/test_knowledge_stage_bindings.py`
 - centralized marker routing is still the intended owner for those splits, even though the marker map now lags some newer files
 - moved runtime tests now assert the exact contracts they name: sterile execution cwd, worker-manifest entry files, synced workspace outputs, packet totals, packet-lease finalization, and worker/session telemetry shapes

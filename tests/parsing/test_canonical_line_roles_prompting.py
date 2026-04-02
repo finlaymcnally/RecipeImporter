@@ -126,15 +126,15 @@ def test_line_role_shared_contract_block_includes_required_contract_text() -> No
     assert "Use limes in guacamole" in contract
 
 
-def test_line_role_workspace_worker_prompt_includes_title_yield_reset_contract() -> None:
+def test_line_role_taskfile_worker_prompt_includes_title_yield_reset_contract() -> None:
     from cookimport.parsing.canonical_line_roles.planning import (
-        _build_line_role_workspace_worker_prompt,
+        _build_line_role_taskfile_prompt,
     )
     from cookimport.llm.canonical_line_role_prompt import (
         build_line_role_shared_contract_block,
     )
 
-    prompt = _build_line_role_workspace_worker_prompt(
+    prompt = _build_line_role_taskfile_prompt(
         shards=[SimpleNamespace(shard_id="line-role-canonical-0001-a000000-a000002")]
     )
     shared_contract = build_line_role_shared_contract_block()
@@ -631,7 +631,7 @@ def test_label_atomic_lines_codex_cache_hit_skips_runner(tmp_path) -> None:
         live_llm_allowed=True,
     )
     assert len(runner.calls) == 1
-    assert runner.calls[0]["mode"] == "workspace_worker"
+    assert runner.calls[0]["mode"] == "taskfile"
     assert runner.calls[0]["output_schema_path"] is None
     assert first[0].decided_by == "codex"
     second = label_atomic_lines(
@@ -685,12 +685,12 @@ def test_label_atomic_lines_writes_line_role_telemetry_summary_from_runtime_rows
                 stdout_text=result.stdout_text,
             )
 
-        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_structured_prompt(*args, **kwargs)
+        def run_packet_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_packet_worker(*args, **kwargs)
             return self._with_usage(result)
 
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_workspace_worker(*args, **kwargs)
+        def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_taskfile_worker(*args, **kwargs)
             return self._with_usage(result)
 
     predictions = label_atomic_lines(
@@ -753,12 +753,12 @@ def test_label_atomic_lines_leave_missing_line_role_usage_unavailable(tmp_path) 
                 stdout_text=result.stdout_text,
             )
 
-        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_structured_prompt(*args, **kwargs)
+        def run_packet_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_packet_worker(*args, **kwargs)
             return self._without_usage(result)
 
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_workspace_worker(*args, **kwargs)
+        def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_taskfile_worker(*args, **kwargs)
             return self._without_usage(result)
 
     predictions = label_atomic_lines(
@@ -911,7 +911,7 @@ def test_label_atomic_lines_codex_progress_callback_reports_shard_runtime_start_
 
 def test_label_atomic_lines_codex_progress_callback_surfaces_worker_attention() -> None:
     class _WarningLineRoleRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
             supervision_callback = kwargs.get("supervision_callback")
             if callable(supervision_callback):
                 supervision_callback(
@@ -928,7 +928,7 @@ def test_label_atomic_lines_codex_progress_callback_surfaces_worker_attention() 
                     )
                 )
                 time.sleep(1.2)
-            return super().run_workspace_worker(*args, **kwargs)
+            return super().run_taskfile_worker(*args, **kwargs)
 
     candidates: list[AtomicLineCandidate] = []
     for atomic_index in range(2):

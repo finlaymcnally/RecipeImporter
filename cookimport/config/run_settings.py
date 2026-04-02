@@ -1063,7 +1063,7 @@ class RunSettings(BaseModel):
             group="LLM",
             label="Workspace Completion Quiescence",
             order=151,
-            description="Seconds a workspace worker may stay quietly complete before repo code terminates the session cleanly.",
+            description="Seconds a taskfile worker may stay quietly complete before repo code terminates the session cleanly.",
             step=1,
             minimum=0.1,
             maximum=600.0,

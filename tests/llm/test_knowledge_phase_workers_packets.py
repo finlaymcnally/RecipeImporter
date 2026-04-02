@@ -11,6 +11,7 @@ from cookimport.llm.codex_farm_knowledge_jobs import build_knowledge_jobs
 from cookimport.llm.fake_codex_farm_runner import FakeCodexFarmRunner
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1, run_phase_workers_v1
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan
+from tests.nonrecipe_stage_helpers import make_recipe_ownership_result
 
 
 def test_build_knowledge_jobs_emits_shard_entries(tmp_path: Path) -> None:
@@ -30,7 +31,10 @@ def test_build_knowledge_jobs_emits_shard_entries(tmp_path: Path) -> None:
                 block_ids=["b0", "b1", "b2"],
             )
         ],
-        recipe_spans=[],
+        recipe_ownership_result=make_recipe_ownership_result(
+            owned_by_recipe_id={},
+            all_block_indices=[0, 1, 2],
+        ),
         workbook_slug="book",
         out_dir=tmp_path / "in",
         context_blocks=1,
@@ -54,8 +58,6 @@ def test_knowledge_phase_workers_reject_off_surface_group_outputs(tmp_path: Path
                     {
                         "block_index": 4,
                         "category": "knowledge",
-                        "reviewer_category": "knowledge",
-                        "retrieval_concept": "Keep the emulsion stable",
                         "grounding": {
                             "tag_keys": ["emulsify"],
                             "category_keys": ["techniques"],

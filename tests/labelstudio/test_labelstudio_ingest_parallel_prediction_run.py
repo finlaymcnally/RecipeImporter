@@ -776,7 +776,6 @@ def _build_final_nonrecipe_authority_fixture(
                     "block_index": 2,
                     "previous_final_category": None,
                     "final_category": "knowledge",
-                    "reviewer_category": None,
                     "applied_packet_ids": [],
                 }
             ],

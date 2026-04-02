@@ -54,6 +54,7 @@ Architecture priorities:
 - shared source-job planning lives in `cookimport/staging/job_planning.py`.
 - `cookimport/staging/pipeline_runtime.py` now makes the post-import semantic session explicit as five stage-owned runtime steps: `extract`, `recipe-boundary`, `recipe-refine`, `nonrecipe-route`, and `nonrecipe-finalize`.
 - `cookimport/staging/import_session.py` remains the composition root, but it now threads stage-owned results instead of treating `ConversionResult` as the only post-import carrier.
+- `recipe-boundary` now builds one explicit recipe block-ownership contract, and later stages read `recipe_authority/<workbook_slug>/recipe_block_ownership.json` instead of re-deriving recipe-owned blocks from recipe provenance or raw spans.
 - `cookimport/staging/nonrecipe_stage.py` and `cookimport/staging/stage_block_predictions.py` are now thin public seams. The owned logic lives under `nonrecipe_authority_contract.py`, `nonrecipe_seed.py`, `nonrecipe_routing.py`, `nonrecipe_authority.py`, `nonrecipe_finalize_status.py`, `recipe_block_evidence.py`, `knowledge_block_evidence.py`, and `block_label_resolution.py`.
 - output-writing primitives live in `cookimport/staging/writer.py`.
 - recipe-ID reassignment logic lives in `cookimport/staging/pdf_jobs.py`.
@@ -74,10 +75,11 @@ Architecture priorities:
 ### Current authority boundaries
 
 - label-first grouped spans and normalized block labels are the recipe/non-recipe authority boundary for stage-backed flows.
-- `recipe-refine` may improve recipe content, but it may not change recipe ownership decided by `recipe-boundary`.
+- `recipe-refine` may improve recipe content, but it may only shrink recipe ownership through explicit divestment recorded on the recipe ownership contract.
 - The legacy numbered nickname now refers to the outside-recipe routing seam, not one mixed semantic classifier.
-- `nonrecipe-route` only honors obvious-junk exclusions and packages surviving outside-recipe rows into one category-neutral candidate queue.
+- `nonrecipe-route` only honors blocks that the recipe ownership contract marks as available to nonrecipe, then packages surviving outside-recipe rows into one category-neutral candidate queue.
 - obvious-junk exclusions become final `other` immediately; `nonrecipe-finalize` is the only live semantic owner of candidate outside-recipe `knowledge` versus `other`.
+- recipe-local evidence and final non-recipe `KNOWLEDGE` are no longer an overlap-tolerant merge case. If both appear on the same block, runtime raises an invariant violation.
 - scalar trust/confidence is no longer part of the label-first line-role contract.
 - line-role Codex escalation now depends on explicit escalation reasons, not score thresholds; that remains an escalation seam, not the main runtime truth boundary.
 - accepted line-role Codex labels now either survive as Codex after structural validation, recover through the same-session worker repair loop, recover through one bounded watchdog retry after a retryable worker kill, or fail closed if no clean shard result validates; repo code no longer silently substitutes deterministic fallback rows on the live worker path.
@@ -203,6 +205,7 @@ For `cookimport stage`, each run uses a timestamped root:
 - `<out>/<timestamp>/09_nonrecipe_authority.json`
 - `<out>/<timestamp>/09_nonrecipe_knowledge_groups.json`
 - `<out>/<timestamp>/09_nonrecipe_finalize_status.json`
+- `<out>/<timestamp>/recipe_authority/<workbook_slug>/recipe_block_ownership.json`
 - `<out>/<timestamp>/raw/<importer>/<source_hash>/<location_id>.<ext>`
 - `<out>/<timestamp>/raw/source/<workbook_slug>/source_blocks.jsonl`
 - `<out>/<timestamp>/raw/source/<workbook_slug>/source_support.json`

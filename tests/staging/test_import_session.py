@@ -21,6 +21,7 @@ from cookimport.parsing.label_source_of_truth import (
 )
 from cookimport.staging import import_session
 from cookimport.staging.import_session_flows import output_stage as output_stage_flow
+from tests.nonrecipe_stage_helpers import make_recipe_ownership_result
 
 
 def _recipe(name: str, start_block: int, end_block: int) -> RecipeCandidate:
@@ -48,6 +49,7 @@ def _label_block(index: int, label: str) -> AuthoritativeBlockLabel:
 def _no_op_writers(monkeypatch) -> None:
     monkeypatch.setattr(import_session, "write_nonrecipe_stage_outputs", lambda *args, **kwargs: None)
     monkeypatch.setattr(import_session, "write_knowledge_outputs_artifact", lambda *args, **kwargs: None)
+    monkeypatch.setattr(import_session, "write_recipe_block_ownership", lambda *args, **kwargs: None)
     monkeypatch.setattr(import_session, "write_authoritative_recipe_semantics", lambda *args, **kwargs: None)
     monkeypatch.setattr(import_session, "write_intermediate_outputs", lambda *args, **kwargs: None)
     monkeypatch.setattr(import_session, "write_draft_outputs", lambda *args, **kwargs: None)
@@ -86,10 +88,25 @@ def _boundary_result(
         for block in label_result.archive_blocks
         if int(block.get("index", -1)) not in recipe_block_indices
     ]
+    recipe_ownership_result = make_recipe_ownership_result(
+        owned_by_recipe_id={
+            str(recipe.identifier): list(span.block_indices)
+            for recipe, span in zip(
+                conversion_result.recipes,
+                label_result.recipe_spans,
+                strict=False,
+            )
+        },
+        all_block_indices=[
+            int(block.get("index", 0))
+            for block in label_result.archive_blocks
+        ],
+    )
     return import_session.RecipeBoundaryResult(
         extracted_bundle=extracted_bundle,
         label_first_result=label_result,
         conversion_result=conversion_result,
+        recipe_ownership_result=recipe_ownership_result,
         recipe_owned_blocks=recipe_owned_blocks,
         outside_recipe_blocks=outside_recipe_blocks,
     )

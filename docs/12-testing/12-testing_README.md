@@ -85,7 +85,7 @@ Active intentional split seams:
 - `tests/llm/test_llm_module_bindings.py` now provides one broad offline import/unresolved-global audit across `cookimport.llm.*`; keep it cheap and let focused files like `test_knowledge_stage_bindings.py` cover package-local failure modes in more detail.
 - Direct Codex exec runner coverage is split into:
   - `tests/llm/test_codex_exec_runner.py` for helper/classification coverage
-  - `tests/llm/test_codex_exec_runner_workspace.py` for sterile workspace preparation and subprocess/workspace-worker runtime coverage
+  - `tests/llm/test_codex_exec_runner_taskfile.py` for sterile workspace preparation and subprocess/taskfile runtime coverage
 - workspace/direct-exec runtime tests must not inherit the host Codex profile; keep them on temp paths and only override the suite-level temp `CODEX_HOME` fixture when the test is asserting explicit home-resolution behavior
 - Bench CLI coverage is split into:
   - `tests/bench/test_bench.py`
@@ -100,7 +100,7 @@ Active intentional split seams:
   - `tests/parsing/test_canonical_line_roles.py` for non-Codex baseline labeling behavior and regression fixtures
   - `tests/parsing/test_canonical_line_roles_codex.py` for Codex override/acceptance regressions
   - `tests/parsing/test_canonical_line_roles_prompting.py` for prompt/cache/telemetry/progress seams
-  - `tests/parsing/test_canonical_line_roles_workspace.py` for workspace-watchdog and command-policy behavior
+  - `tests/parsing/test_canonical_line_roles_taskfile.py` for workspace-watchdog and command-policy behavior
   - `tests/parsing/test_canonical_line_roles_runtime.py` for fail-closed/artifact/runtime contract behavior
   - `tests/parsing/test_canonical_line_roles_runtime_recovery.py` for retry/recovery behavior
 - Benchmark cutdown coverage for the external-AI bundle tool is split into:
@@ -224,4 +224,4 @@ Design intent:
 - Bench Oracle, Oracle follow-up, and `cf-debug` tests should use tiny synthetic `upload_bundle_v1` fixtures under `tmp_path` unless a slow realism slice explicitly needs a larger artifact tree.
 - For shard-shape assertions, opt out of the default `line_role_prompt_target_count=5` when the test needs exact per-line planning.
 - LLM pack/schema tests should assert current transport and schema truth per pipeline instead of freezing one legacy shared assumption.
-- Knowledge/runtime telemetry assertions must distinguish row-level from session-level counters; `workspace_worker_row_count` and `workspace_worker_session_count` are intentionally different shapes.
+- Knowledge/runtime telemetry assertions must distinguish row-level from session-level counters; `taskfile_row_count` and `taskfile_session_count` are intentionally different shapes.

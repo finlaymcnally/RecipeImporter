@@ -30,7 +30,7 @@ def test_label_atomic_lines_records_cohort_outlier_as_warning_not_retry(
         cohort_state.record_validated_result(duration_ms=20, example_payload={"rows": []})
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
         cohort_watchdog_state=cohort_state,
     )
@@ -76,7 +76,7 @@ def test_label_atomic_lines_persists_cohort_outlier_warning_artifacts(
     live_status_path = tmp_path / "live_status.json"
     callback = canonical_line_roles_module._build_strict_json_watchdog_callback(  # noqa: SLF001
         live_status_path=live_status_path,
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
         allow_workspace_commands=True,
         cohort_watchdog_state=cohort_state,
     )
@@ -109,10 +109,10 @@ def test_label_atomic_lines_persists_cohort_outlier_warning_artifacts(
             duration_ms=1,
             started_at_utc="2026-01-01T00:00:00Z",
             finished_at_utc="2026-01-01T00:00:00Z",
-            workspace_mode="workspace_worker",
+            workspace_mode="taskfile",
             supervision_state="completed",
         ),
-        watchdog_policy="workspace_worker_v1",
+        watchdog_policy="taskfile_v1",
     )
 
     warning_live_status = json.loads(live_status_path.read_text(encoding="utf-8"))
@@ -136,14 +136,14 @@ def test_label_atomic_lines_keeps_unrecovered_boundary_interrupt_visible(
     ]
 
     class _ForbiddenWorkspaceRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
             return CodexExecRunResult(
                 command=["codex", "exec"],
                 subprocess_exit_code=0,
                 output_schema_path=None,
                 prompt_text=str(kwargs.get("prompt_text") or ""),
                 response_text=None,
-                turn_failed_message="workspace worker stage attempted forbidden tool use",
+                turn_failed_message="taskfile worker stage attempted forbidden tool use",
                 events=(),
                 usage={
                     "input_tokens": 7,
@@ -160,7 +160,7 @@ def test_label_atomic_lines_keeps_unrecovered_boundary_interrupt_visible(
                 supervision_state="boundary_interrupted",
                 supervision_reason_code="boundary_command_execution_forbidden",
                 supervision_reason_detail=(
-                    "workspace worker stage attempted tool use: /bin/bash -lc 'pip install foo'"
+                    "taskfile worker stage attempted tool use: /bin/bash -lc 'pip install foo'"
                 ),
                 supervision_retryable=False,
             )
@@ -334,7 +334,7 @@ def test_label_atomic_lines_near_miss_invalid_task_file_edit_fails_closed_withou
     workspace_rows = [
         row
         for row in runtime_telemetry["rows"]
-        if row.get("prompt_input_mode") == "workspace_worker"
+        if row.get("prompt_input_mode") == "taskfile"
     ]
     assert workspace_rows
     assert workspace_rows[0]["proposal_status"] == "invalid"
@@ -358,8 +358,8 @@ def test_label_atomic_lines_fails_closed_when_task_file_missing_even_if_worker_l
     ]
 
     class _WorkOnlyRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, **kwargs):  # noqa: ANN003
-            result = super().run_workspace_worker(**kwargs)
+        def run_taskfile_worker(self, **kwargs):  # noqa: ANN003
+            result = super().run_taskfile_worker(**kwargs)
             worker_root = Path(kwargs["working_dir"])
             (worker_root / "task.json").unlink()
             work_dir = worker_root / "work"
@@ -434,8 +434,8 @@ def test_label_atomic_lines_fails_closed_when_task_file_missing_without_helper_l
     ]
 
     class _NoOutputRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, **kwargs):  # noqa: ANN003
-            result = super().run_workspace_worker(**kwargs)
+        def run_taskfile_worker(self, **kwargs):  # noqa: ANN003
+            result = super().run_taskfile_worker(**kwargs)
             worker_root = Path(kwargs["working_dir"])
             (worker_root / "task.json").unlink()
             return result
@@ -490,8 +490,8 @@ def test_label_atomic_lines_ignores_stale_repair_request_when_task_file_missing(
     ]
 
     class _StaleRepairRequestRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, **kwargs):  # noqa: ANN003
-            result = super().run_workspace_worker(**kwargs)
+        def run_taskfile_worker(self, **kwargs):  # noqa: ANN003
+            result = super().run_taskfile_worker(**kwargs)
             worker_root = Path(kwargs["working_dir"])
             (worker_root / "task.json").unlink()
             repair_dir = worker_root / "repair"
@@ -592,8 +592,8 @@ def test_label_atomic_lines_ignores_stale_repair_state_file_when_task_file_missi
     ]
 
     class _RepairStateOnlyRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, **kwargs):  # noqa: ANN003
-            result = super().run_workspace_worker(**kwargs)
+        def run_taskfile_worker(self, **kwargs):  # noqa: ANN003
+            result = super().run_taskfile_worker(**kwargs)
             worker_root = Path(kwargs["working_dir"])
             (worker_root / "task.json").unlink()
             repair_dir = worker_root / "repair"
@@ -915,7 +915,7 @@ def test_label_atomic_lines_codex_cache_reuses_across_runtime_only_setting_chang
         live_llm_allowed=True,
     )
     assert len(runner.calls) == 1
-    assert runner.calls[0]["mode"] == "workspace_worker"
+    assert runner.calls[0]["mode"] == "taskfile"
     assert runner.calls[0]["output_schema_path"] is None
     assert first[0].decided_by == "codex"
     second = label_atomic_lines(
@@ -1379,7 +1379,7 @@ def test_label_atomic_lines_resume_existing_valid_shard_outputs_without_rerunnin
         live_llm_allowed=True,
     )
     assert [prediction.label for prediction in first_predictions] == ["RECIPE_NOTES", "RECIPE_NOTES"]
-    assert any(call["mode"] == "workspace_worker" for call in first_runner.calls)
+    assert any(call["mode"] == "taskfile" for call in first_runner.calls)
 
     second_runner = _line_role_runner({0: "RECIPE_TITLE", 1: "RECIPE_TITLE"})
     second_predictions = label_atomic_lines(
@@ -1408,7 +1408,7 @@ def test_label_atomic_lines_resume_existing_valid_shard_outputs_without_rerunnin
     assert shard_status_rows[0]["metadata"]["resumed_from_existing_output"] is True
 
 
-def test_line_role_workspace_worker_invalid_task_file_answer_fails_closed_without_promoting_it(
+def test_line_role_taskfile_worker_invalid_task_file_answer_fails_closed_without_promoting_it(
     tmp_path,
 ) -> None:
     def _invalid_task_file_builder(payload):

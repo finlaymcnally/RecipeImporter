@@ -67,7 +67,7 @@ def _attach_worker_guardrail_summary(
     summary["task_file_guardrails"] = summarize_task_file_guardrails([task_file_guardrail])
     worker_session_guardrails = build_worker_session_guardrails(
         planned_happy_path_worker_cap=max(1, int(planned_happy_path_worker_cap)),
-        actual_happy_path_worker_sessions=int(summary.get("workspace_worker_session_count") or 0),
+        actual_happy_path_worker_sessions=int(summary.get("taskfile_session_count") or 0),
         repair_followup_call_count=repair_followup_call_count,
     )
     summary["worker_session_guardrails"] = worker_session_guardrails
@@ -584,7 +584,7 @@ def _build_knowledge_runner_exception_result(
         duration_ms=0,
         started_at_utc=_format_utc_now(),
         finished_at_utc=_format_utc_now(),
-        workspace_mode="workspace_worker",
+        workspace_mode="taskfile",
         supervision_state="worker_exception",
         supervision_reason_code=retryable_reason or "codex_exec_runner_exception",
         supervision_reason_detail=str(exc),
@@ -646,7 +646,7 @@ def _build_knowledge_fresh_worker_replacement_prompt(
         "The previous knowledge worker session was stopped before completion. "
         "Start over from the fresh `task.json` that the repo has restored in this workspace. "
         "Do not rely on prior partial outputs or shell state.\n\n"
-        + _build_knowledge_workspace_worker_prompt(
+        + _build_knowledge_taskfile_prompt(
             stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY,
             shards=shards,
         )
@@ -855,7 +855,7 @@ def _run_phase_knowledge_worker_assignment_v1(
             suffix="initial",
             payload=task_file_payload,
         )
-        classification_prompt_text = _build_knowledge_workspace_worker_prompt(
+        classification_prompt_text = _build_knowledge_taskfile_prompt(
             stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY,
             shards=assigned_shards,
         )
@@ -891,7 +891,7 @@ def _run_phase_knowledge_worker_assignment_v1(
         ) -> tuple[CodexExecRunResult, CodexFarmRunnerError | None, dict[str, Any]]:
             attempt_exception: CodexFarmRunnerError | None = None
             try:
-                current_run_result = runner.run_workspace_worker(
+                current_run_result = runner.run_taskfile_worker(
                     prompt_text=prompt_text,
                     working_dir=worker_root,
                     env={
@@ -918,7 +918,7 @@ def _run_phase_knowledge_worker_assignment_v1(
             _finalize_live_status(
                 worker_root / "live_status.json",
                 run_result=current_run_result,
-                watchdog_policy="workspace_worker_v1",
+                watchdog_policy="taskfile_v1",
             )
             (worker_root / "events.jsonl").write_text(
                 _render_events_jsonl(current_run_result.events),
@@ -1033,7 +1033,7 @@ def _run_phase_knowledge_worker_assignment_v1(
             _write_json(same_session_state_payload, state_path)
             current_task_file = load_task_file(worker_root / TASK_FILE_NAME)
             resume_prompt_path = worker_root / "prompt_resume.txt"
-            resume_prompt_text = _build_knowledge_workspace_worker_prompt(
+            resume_prompt_text = _build_knowledge_taskfile_prompt(
                 stage_key=str(
                     current_task_file.get("stage_key")
                     or same_session_state_payload.get("current_stage_key")

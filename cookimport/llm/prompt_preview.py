@@ -66,6 +66,10 @@ from cookimport.parsing.recipe_block_atomizer import (
 )
 from cookimport.staging.nonrecipe_seed import normalize_nonrecipe_route_label
 from cookimport.staging.nonrecipe_stage import build_nonrecipe_stage_result
+from cookimport.staging.recipe_ownership import (
+    RecipeOwnershipResult,
+    recipe_ownership_from_payload,
+)
 
 _DEFAULT_RECIPE_PIPELINE_ID = "recipe.correction.compact.v1"
 _DEFAULT_RECIPE_SURFACE = "codex-recipe-shard-v1"
@@ -136,6 +140,7 @@ class ExistingRunPreviewContext:
     workbook_slug: str
     full_blocks: list[dict[str, Any]]
     recipe_spans: list[RecipeSpan]
+    recipe_ownership_result: RecipeOwnershipResult
     block_labels: list[AuthoritativeBlockLabel]
     recipe_drafts: list[dict[str, Any]]
     recipe_draft_by_span_id: dict[str, dict[str, Any]]
@@ -147,13 +152,9 @@ class ExistingRunPreviewContext:
 def _preview_sanitized_nonrecipe_block_labels(
     *,
     block_labels: Sequence[AuthoritativeBlockLabel],
-    recipe_spans: Sequence[RecipeSpan],
+    recipe_ownership_result: RecipeOwnershipResult,
 ) -> list[AuthoritativeBlockLabel]:
-    recipe_block_indices = {
-        int(block_index)
-        for span in recipe_spans
-        for block_index in span.block_indices
-    }
+    recipe_block_indices = set(recipe_ownership_result.owned_block_indices)
     sanitized: list[AuthoritativeBlockLabel] = []
     for block_label in block_labels:
         if int(block_label.source_block_index) in recipe_block_indices:
@@ -484,6 +485,16 @@ def _load_existing_run_preview_context(*, run_path: Path) -> ExistingRunPreviewC
         for row in recipe_spans_payload.get("recipe_spans") or []
         if isinstance(row, dict)
     ]
+    recipe_ownership_payload = _read_json(
+        processed_run_dir
+        / "recipe_authority"
+        / workbook_slug
+        / "recipe_block_ownership.json"
+    )
+    recipe_ownership_result = recipe_ownership_from_payload(
+        recipe_ownership_payload,
+        full_blocks=full_blocks,
+    )
 
     recipe_drafts = _load_recipe_drafts(processed_run_dir=processed_run_dir, workbook_slug=workbook_slug)
     recipe_draft_by_span_id: dict[str, dict[str, Any]] = {}
@@ -511,6 +522,7 @@ def _load_existing_run_preview_context(*, run_path: Path) -> ExistingRunPreviewC
         workbook_slug=workbook_slug,
         full_blocks=full_blocks,
         recipe_spans=recipe_spans,
+        recipe_ownership_result=recipe_ownership_result,
         block_labels=block_labels,
         recipe_drafts=recipe_drafts,
         recipe_draft_by_span_id=recipe_draft_by_span_id,
@@ -724,14 +736,14 @@ def _build_knowledge_preview_rows(
         full_blocks=context.full_blocks,
         final_block_labels=_preview_sanitized_nonrecipe_block_labels(
             block_labels=context.block_labels,
-            recipe_spans=context.recipe_spans,
+            recipe_ownership_result=context.recipe_ownership_result,
         ),
-        recipe_spans=context.recipe_spans,
+        recipe_ownership_result=context.recipe_ownership_result,
     )
     build_knowledge_jobs(
         full_blocks=context.full_blocks,
         candidate_spans=nonrecipe_stage_result.unresolved_candidate_spans(),
-        recipe_spans=context.recipe_spans,
+        recipe_ownership_result=context.recipe_ownership_result,
         workbook_slug=context.workbook_slug,
         out_dir=in_dir,
         context_blocks=context_blocks,

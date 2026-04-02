@@ -454,7 +454,7 @@ def _build_line_role_file_prompt_for_shard(
     )
 
 
-def _build_line_role_workspace_worker_prompt(
+def _build_line_role_taskfile_prompt(
     *,
     shards: Sequence[ShardManifestEntryV1],
     fresh_session_resume: bool = False,

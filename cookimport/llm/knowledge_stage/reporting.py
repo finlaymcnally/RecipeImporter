@@ -406,14 +406,14 @@ def _aggregate_worker_runner_payload(
             rows.extend([dict(row) for row in worker_rows if isinstance(row, Mapping)])
     if stage_rows is not None:
         rows = [dict(row) for row in stage_rows if isinstance(row, Mapping)]
-    uses_workspace_worker = any(
+    uses_taskfile_contract = any(
         str(
             ((payload.get("process_payload") or {}) if isinstance(payload, Mapping) else {}).get(
                 "prompt_input_mode"
             )
             or ""
         ).strip()
-        == "workspace_worker"
+        == "taskfile"
         for payload in worker_runs
         if isinstance(payload, Mapping)
     )
@@ -429,8 +429,8 @@ def _aggregate_worker_runner_payload(
         "runtime_mode_audit": {
             "mode": DIRECT_CODEX_EXEC_RUNTIME_MODE_V1,
             "status": "ok",
-            "output_schema_enforced": not uses_workspace_worker,
-            "tool_affordances_requested": uses_workspace_worker,
+            "output_schema_enforced": not uses_taskfile_contract,
+            "tool_affordances_requested": uses_taskfile_contract,
         },
     }
 
@@ -700,7 +700,7 @@ def _write_knowledge_runtime_summary_artifacts(
     worker_session_guardrails = build_worker_session_guardrails(
         planned_happy_path_worker_cap=len(assignments) * 3,
         actual_happy_path_worker_sessions=int(
-            telemetry_summary.get("workspace_worker_session_count") or 0
+            telemetry_summary.get("taskfile_session_count") or 0
         ),
         repair_followup_call_count=int(
             telemetry_summary.get("structured_followup_call_count") or 0

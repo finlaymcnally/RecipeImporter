@@ -11,7 +11,7 @@ read_when:
 Use this file for LLM debugging history that still applies to the current codebase. Retired rollout notes, removed UI paths, and old gating experiments were intentionally pruned.
 Entries are dated snapshots. When a worker surface or transport is removed, its rollout notes should be pruned instead of preserved as pseudo-current guidance.
 
-## 2026-03-22 workspace-worker paved-road contract converged across recipe, line-role, and knowledge
+## 2026-03-22 taskfile paved-road contract converged across recipe, line-role, and knowledge
 
 Problem captured:
 - the first worker-runtime cutover fixed the big transport problems, but the day-to-day worker contract still had too many sharp edges:
@@ -21,7 +21,7 @@ Problem captured:
   - watchdog behavior was still being reasoned about in shell-shape terms instead of clear workspace boundaries
 
 Durable decisions:
-- main workspace-worker success is file-authoritative:
+- main taskfile success is file-authoritative:
   - validated `workers/*/out/*.json` files win
   - prose or absent final chat messages are telemetry only
 - the shared worker contract starts from repo-written local files, not broad queue spelunking:
@@ -46,13 +46,13 @@ Evidence worth keeping:
 Anti-loop note:
 - if a future fix proposal starts from final assistant message formatting, stale verbose keys, or prompt wording alone, re-check the worker file/manifest/helper contract first
 
-## 2026-03-22 main workspace-worker watchdog rollback converged on executable-only enforcement
+## 2026-03-22 main taskfile watchdog rollback converged on executable-only enforcement
 
 Problem captured:
 - the first March 22 false-kill fix was too narrow: relaxing one knowledge-stage override did not remove the shared detector paths that were still killing workers for absolute paths, heredoc parseability, slash-heavy helper payloads, and other ordinary local shell shapes
 
 Durable decisions:
-- main `workspace_worker` sessions now die on command policy only for explicit off-contract executables plus the separate liveness guards
+- main `taskfile_worker` sessions now die on command policy only for explicit off-contract executables plus the separate liveness guards
 - path- and shell-shape heuristics are telemetry only on the main worker path:
   - absolute paths
   - parent-traversal-looking strings
@@ -62,8 +62,8 @@ Durable decisions:
   - read-only `git` inspection
 - structured retry/repair attempts stay on the stricter one-shot policy; the rollback applies to the main long-lived worker path only
 - the right debugging split is now:
-  - `classify_workspace_worker_command(...)` for reviewer-facing telemetry
-  - `detect_workspace_worker_boundary_violation(...)` for the actual kill/no-kill seam
+  - `classify_taskfile_worker_command(...)` for reviewer-facing telemetry
+  - `detect_taskfile_worker_boundary_violation(...)` for the actual kill/no-kill seam
 
 Evidence worth keeping:
 - the false-kill run family recorded `forbidden_absolute_path` and `forbidden_unparseable_python_heredoc`, which proved the problem was shared detector policy rather than a stage-local helper bug
@@ -75,7 +75,7 @@ Anti-loop note:
 ## 2026-03-22 line-role and knowledge spend reporting had to fail closed on missing usage instead of publishing fake zeroes
 
 Problem captured:
-- workspace-worker runs could complete useful work without a normal JSON `turn.completed` usage payload, which made downstream summaries liable to publish zero-spend lies or silently undercount line-role cost
+- taskfile runs could complete useful work without a normal JSON `turn.completed` usage payload, which made downstream summaries liable to publish zero-spend lies or silently undercount line-role cost
 - the missing-usage cases were especially confusing because the worker often had valid `out/*.json` files and only the accounting path was incomplete
 
 Durable decisions:
@@ -139,10 +139,10 @@ Durable decisions:
 - the shared runner always passes `--skip-git-repo-check`; sterile workspaces remain the right repo-visibility boundary, but the runner must acknowledge that they live outside the trusted git root
 - live runner supervision is now real: stream events, quarantine malformed payloads before spend, preserve `reason_code` / `reason_detail`, and persist `workspace_manifest.json` so shard-local provenance survives
 - recipe gained parity with the strict JSON stages on near-miss repair and on propagated status fields such as `preflight_rejected`, `watchdog_killed`, and repair/live-status metadata
-- at this point in the rollout, main attempts across recipe, knowledge, and line-role had moved onto long-lived workspace-worker sessions with explicit `worker_manifest.json`, task/phase sidecars, `hints/*.md`, and per-task `out/*.json`; later cutovers replaced recipe and knowledge task-sidecar control files with packet-first surfaces while line-role stayed phase-first
+- at this point in the rollout, main attempts across recipe, knowledge, and line-role had moved onto long-lived taskfile sessions with explicit `worker_manifest.json`, task/phase sidecars, `hints/*.md`, and per-task `out/*.json`; later cutovers replaced recipe and knowledge task-sidecar control files with packet-first surfaces while line-role stayed phase-first
 - prompt/authority lessons from the March 19 line-role failures still apply after the worker cutover: wrapper/example JSON is not authority, stored task files are
-- workspace-worker startup must name local files directly, and watchdog diagnostics must preserve the exact offending command text in `reason_detail`
-- main workspace-worker watchdog policy is now intentionally boundary-based for local shell work, while structured retry/repair calls remain strict one-shot JSON paths
+- taskfile startup must name local files directly, and watchdog diagnostics must preserve the exact offending command text in `reason_detail`
+- main taskfile watchdog policy is now intentionally boundary-based for local shell work, while structured retry/repair calls remain strict one-shot JSON paths
 - worker-facing hint sidecars are first-class now, and recipe defaulted to one candidate-owned task/shard so boundary repair, tagging, and validation stay grounded in local context
 - knowledge shard counts now honor the operator-selected target literally, recording warnings instead of silently widening shard count; semantically empty blanket-`u:false` knowledge outputs are seed-kept but reported as unreviewed/semantically rejected, not as reviewed-empty success
 

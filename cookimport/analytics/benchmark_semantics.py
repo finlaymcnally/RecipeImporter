@@ -22,6 +22,16 @@ _VARIANT_KEYS = {
     "other",
 }
 
+_CANONICAL_VARIANT_BY_NORMALIZED_KEY = {
+    "vanilla": "vanilla",
+    "codex_exec": "codex-exec",
+    "deterministic": "deterministic",
+    "line_role_only": "line_role_only",
+    "recipe_only": "recipe_only",
+    "full_stack": "full_stack",
+    "other": "other",
+}
+
 
 def _normalize_path(path_value: Any) -> str:
     return str(path_value or "").strip().replace("\\", "/").lower()
@@ -98,9 +108,7 @@ def explicit_variant_for_record(record: Any) -> str | None:
     if explicit is None:
         return None
     lowered = explicit.lower().replace("-", "_").replace(" ", "_")
-    if lowered in _VARIANT_KEYS:
-        return lowered
-    return None
+    return _CANONICAL_VARIANT_BY_NORMALIZED_KEY.get(lowered)
 
 
 def artifact_variant_for_record(record: Any) -> str | None:

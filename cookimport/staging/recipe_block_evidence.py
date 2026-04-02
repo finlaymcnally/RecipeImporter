@@ -11,6 +11,10 @@ from cookimport.parsing.sections import (
     extract_instruction_sections,
 )
 from cookimport.parsing.tips import extract_recipe_specific_notes
+from cookimport.staging.recipe_ownership import (
+    RecipeOwnershipInvariantError,
+    RecipeOwnershipResult,
+)
 
 
 _YIELD_KEYWORDS_RE = re.compile(r"\b(yield|serves?|servings?|makes?)\b", re.IGNORECASE)
@@ -126,17 +130,34 @@ def build_recipe_block_evidence(
     conversion_result: ConversionResult,
     *,
     archive: list[ArchiveBlockView],
+    recipe_ownership_result: RecipeOwnershipResult,
 ) -> RecipeBlockEvidence:
     notes: list[str] = []
     max_index = max((block.index for block in archive), default=-1)
     block_count = max_index + 1 if max_index >= 0 else 0
     block_labels: dict[int, set[str]] = {index: set() for index in range(block_count)}
+    archive_by_index = {block.index: block for block in archive}
     for recipe in conversion_result.recipes:
+        recipe_id = _require_recipe_id(recipe)
+        ownership_entry = recipe_ownership_result.recipe_entry_by_recipe_id(recipe_id)
+        if ownership_entry is None:
+            raise RecipeOwnershipInvariantError(
+                f"Recipe-local evidence could not be projected because '{recipe_id}' has no ownership entry."
+            )
         _label_recipe_blocks(
             recipe,
-            archive=archive,
+            archive_by_index=archive_by_index,
+            owned_block_indices=ownership_entry.owned_block_indices,
             block_labels=block_labels,
             notes=notes,
+        )
+    ownership_recipe_ids = {entry.recipe_id for entry in recipe_ownership_result.recipe_entries}
+    result_recipe_ids = {_require_recipe_id(recipe) for recipe in conversion_result.recipes}
+    extra_ownership_ids = sorted(ownership_recipe_ids - result_recipe_ids)
+    if extra_ownership_ids:
+        raise RecipeOwnershipInvariantError(
+            "Recipe ownership referenced recipes that were not present in the conversion result: "
+            f"{extra_ownership_ids}."
         )
     return RecipeBlockEvidence(
         archive=archive,
@@ -216,20 +237,29 @@ def _resolve_recipe_range(
 def _label_recipe_blocks(
     recipe: RecipeCandidate,
     *,
-    archive: list[ArchiveBlockView],
+    archive_by_index: dict[int, ArchiveBlockView],
+    owned_block_indices: list[int],
     block_labels: dict[int, set[str]],
     notes: list[str],
 ) -> None:
-    start, end = _resolve_recipe_range(recipe, archive=archive)
-    if start is None or end is None:
+    recipe_id = _require_recipe_id(recipe)
+    if not owned_block_indices:
         notes.append(
-            f"Recipe '{recipe.name}' lacked block-range provenance; skipped recipe-local labeling."
+            f"Recipe '{recipe.name}' ({recipe_id}) owns no blocks; skipped recipe-local labeling."
         )
         return
-    candidate_blocks = [block for block in archive if start <= block.index <= end]
-    if not candidate_blocks:
-        notes.append(f"Recipe '{recipe.name}' range {start}-{end} had no archive blocks.")
-        return
+    candidate_blocks: list[ArchiveBlockView] = []
+    missing_block_indices: list[int] = []
+    for block_index in owned_block_indices:
+        block = archive_by_index.get(int(block_index))
+        if block is None:
+            missing_block_indices.append(int(block_index))
+            continue
+        candidate_blocks.append(block)
+    if missing_block_indices:
+        raise RecipeOwnershipInvariantError(
+            f"Recipe '{recipe_id}' owns missing archive blocks: {missing_block_indices}."
+        )
 
     title_index = _find_title_block_index(recipe, candidate_blocks)
     if title_index is not None:
@@ -332,6 +362,20 @@ def _mark_label(block_labels: dict[int, set[str]], block_index: int, label: str)
     if block_index < 0:
         return
     block_labels.setdefault(block_index, set()).add(label)
+
+
+def _require_recipe_id(recipe: RecipeCandidate) -> str:
+    recipe_id = str(getattr(recipe, "identifier", None) or "").strip()
+    if recipe_id:
+        return recipe_id
+    provenance = recipe.provenance if isinstance(recipe.provenance, dict) else {}
+    for key in ("@id", "id"):
+        raw_value = provenance.get(key)
+        if isinstance(raw_value, str) and raw_value.strip():
+            return raw_value.strip()
+    raise RecipeOwnershipInvariantError(
+        f"Recipe '{getattr(recipe, 'name', '')}' is missing an identifier."
+    )
 
 
 def _normalize_for_match(text: str) -> str:

@@ -10,6 +10,10 @@ from cookimport.staging.nonrecipe_stage import (
     NonRecipeSpan,
     NonRecipeStageResult,
 )
+from cookimport.staging.recipe_ownership import (
+    RecipeOwnershipEntry,
+    RecipeOwnershipResult,
+)
 
 
 def make_stage_result(
@@ -158,6 +162,53 @@ def make_finalize_status_result(
     return make_candidate_status_result(
         finalized_candidate_block_indices=reviewed_block_indices,
         unresolved_candidate_route_by_index=unreviewed_block_category_by_index,
+    )
+
+
+def make_recipe_ownership_result(
+    *,
+    owned_by_recipe_id: Mapping[str, Sequence[int]],
+    all_block_indices: Sequence[int],
+    divested_by_recipe_id: Mapping[str, Sequence[int]] | None = None,
+    ownership_mode: str = "recipe_boundary_with_explicit_divestment",
+) -> RecipeOwnershipResult:
+    resolved_divested = {
+        str(recipe_id): [int(index) for index in indices]
+        for recipe_id, indices in (divested_by_recipe_id or {}).items()
+    }
+    entries = [
+        RecipeOwnershipEntry(
+            recipe_id=str(recipe_id),
+            recipe_span_id=f"span:{recipe_id}",
+            owned_block_indices=[int(index) for index in indices],
+            divested_block_indices=list(resolved_divested.get(str(recipe_id), [])),
+        )
+        for recipe_id, indices in owned_by_recipe_id.items()
+    ]
+    block_owner_by_index = {
+        int(index): str(recipe_id)
+        for recipe_id, indices in owned_by_recipe_id.items()
+        for index in indices
+    }
+    owned_block_indices = sorted(block_owner_by_index)
+    divested_block_indices = sorted(
+        {
+            int(index)
+            for indices in resolved_divested.values()
+            for index in indices
+        }
+    )
+    all_indices = sorted({int(index) for index in all_block_indices})
+    return RecipeOwnershipResult(
+        ownership_mode=ownership_mode,
+        recipe_entries=entries,
+        block_owner_by_index=block_owner_by_index,
+        owned_block_indices=owned_block_indices,
+        divested_block_indices=divested_block_indices,
+        available_to_nonrecipe_block_indices=[
+            index for index in all_indices if index not in block_owner_by_index
+        ],
+        all_block_indices=all_indices,
     )
 
 

@@ -94,7 +94,7 @@ def test_line_role_phase_workers_write_runtime_artifacts_and_reuse_workers(
     assert [row.atomic_index for row in predictions] == [0, 1, 2]
     assert all(row.decided_by == "codex" for row in predictions)
     assert len(runner.calls) == 1
-    assert runner.calls[0]["mode"] == "workspace_worker"
+    assert runner.calls[0]["mode"] == "taskfile"
 
     runtime_root = tmp_path / "line-role-pipeline" / "runtime"
     phase_manifest = json.loads(
@@ -280,12 +280,12 @@ def test_line_role_phase_workers_emit_runtime_telemetry_summary(
                 stdout_text=result.stdout_text,
             )
 
-        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_structured_prompt(*args, **kwargs)
+        def run_packet_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_packet_worker(*args, **kwargs)
             return self._with_usage(result)
 
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_workspace_worker(*args, **kwargs)
+        def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_taskfile_worker(*args, **kwargs)
             return self._with_usage(result)
 
     predictions = label_atomic_lines(
@@ -336,11 +336,11 @@ def test_line_role_phase_workers_run_concurrently_when_multiple_workers_assigned
                 with lock:
                     state["current"] -= 1
 
-        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            return self._run_with_overlap(super().run_structured_prompt, *args, **kwargs)
+        def run_packet_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            return self._run_with_overlap(super().run_packet_worker, *args, **kwargs)
 
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            return self._run_with_overlap(super().run_workspace_worker, *args, **kwargs)
+        def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            return self._run_with_overlap(super().run_taskfile_worker, *args, **kwargs)
 
     predictions = label_atomic_lines(
         [_candidate(0), _candidate(1)],
@@ -480,8 +480,8 @@ def test_line_role_phase_workers_report_task_packet_progress(
     tmp_path: Path,
 ) -> None:
     class _SlowRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
-            result = super().run_workspace_worker(*args, **kwargs)
+        def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            result = super().run_taskfile_worker(*args, **kwargs)
             time.sleep(0.2)
             return result
 

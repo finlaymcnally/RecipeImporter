@@ -288,6 +288,7 @@ cookimport/staging/output_names.py
 cookimport/staging/pdf_jobs.py
 cookimport/staging/pipeline_runtime.py
 cookimport/staging/recipe_block_evidence.py
+cookimport/staging/recipe_ownership.py
 cookimport/staging/recipe_tag_normalization.py
 cookimport/staging/stage_block_predictions.py
 cookimport/staging/writer.py

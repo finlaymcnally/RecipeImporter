@@ -205,8 +205,8 @@ def _build_legacy_recipe_workspace_output(payload: dict[str, object] | None) -> 
 
 
 class _NoFinalWorkspaceMessageRunner(FakeCodexExecRunner):
-    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
-        result = super().run_workspace_worker(**kwargs)
+    def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+        result = super().run_taskfile_worker(**kwargs)
         return CodexExecRunResult(
             command=list(result.command),
             subprocess_exit_code=result.subprocess_exit_code,
@@ -242,7 +242,7 @@ class _FreshSessionRecoveryRunner(FakeCodexExecRunner):
         self.workspace_run_calls = 0
         self.hard_boundary = hard_boundary
 
-    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+    def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
         self.workspace_run_calls += 1
         working_dir = Path(kwargs.get("working_dir"))
         if self.workspace_run_calls == 1:
@@ -286,13 +286,13 @@ class _FreshSessionRecoveryRunner(FakeCodexExecRunner):
                 duration_ms=1,
                 started_at_utc="2026-01-01T00:00:00Z",
                 finished_at_utc="2026-01-01T00:00:00Z",
-                workspace_mode="workspace_worker",
+                workspace_mode="taskfile",
                 supervision_state="watchdog_killed" if self.hard_boundary else "completed",
                 supervision_reason_code=(
                     "watchdog_command_execution_forbidden" if self.hard_boundary else None
                 ),
             )
-        return super().run_workspace_worker(**kwargs)
+        return super().run_taskfile_worker(**kwargs)
 
 
 def _run_multi_recipe_phase_fixture(
@@ -416,7 +416,7 @@ def test_recipe_phase_runtime_groups_multi_recipe_shards_and_promotes_outputs(
     assert not (apply_result.llm_raw_dir / "recipe_correction").exists()
     assert len(apply_result.authoritative_recipe_payloads_by_recipe_id) == 3
     assert len(runner.calls) == 1
-    assert runner.calls[0]["mode"] == "workspace_worker"
+    assert runner.calls[0]["mode"] == "taskfile"
 
 
 def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
@@ -509,7 +509,7 @@ def test_recipe_phase_runtime_writes_packet_outputs_and_session_telemetry(
     assert (worker_root / "usage.json").exists()
     assert worker_status["runtime_mode_audit"]["output_schema_enforced"] is False
     assert worker_status["runtime_mode_audit"]["tool_affordances_requested"] is True
-    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 1
+    assert worker_status["telemetry"]["summary"]["taskfile_session_count"] == 1
     assert (
         worker_status["telemetry"]["summary"]["worker_session_guardrails"][
             "planned_happy_path_worker_cap"
@@ -539,7 +539,7 @@ def test_recipe_phase_runtime_retries_one_fresh_session_after_preserved_progress
     proposal = fixture["proposal"]
 
     assert runner.workspace_run_calls == 2
-    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 2
+    assert worker_status["telemetry"]["summary"]["taskfile_session_count"] == 2
     assert (
         phase_manifest["runtime_metadata"]["worker_session_guardrails"][
             "actual_happy_path_worker_sessions"
@@ -560,7 +560,7 @@ def test_recipe_phase_runtime_replaces_hard_boundary_failure_with_fresh_worker(
     assert runner.workspace_run_calls == 2
     assert worker_status["fresh_worker_replacement_count"] == 1
     assert worker_status["fresh_worker_replacement_status"] == "recovered"
-    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 2
+    assert worker_status["telemetry"]["summary"]["taskfile_session_count"] == 2
     assert (
         phase_manifest["runtime_metadata"]["worker_session_guardrails"][
             "actual_happy_path_worker_sessions"
@@ -644,7 +644,7 @@ def test_recipe_phase_runtime_repairs_invalid_task_file_answers_in_same_session(
     )
 
     assert len(runner.calls) == 1
-    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 1
+    assert worker_status["telemetry"]["summary"]["taskfile_session_count"] == 1
     assert proposal["repair_attempted"] is True
     assert proposal["repair_status"] == "repaired"
     assert proposal["validation_errors"] == []
@@ -730,7 +730,7 @@ def test_recipe_phase_runtime_short_circuits_fragmentary_scaffolds_before_worker
         recipe_manifest["counts"]["recipe_correction_handled_locally_skip_llm"] == 1
     )
     assert len(runner.calls) == 1
-    assert runner.calls[0]["mode"] == "workspace_worker"
+    assert runner.calls[0]["mode"] == "taskfile"
 
 
 def test_recipe_phase_runtime_defaults_workers_to_shard_count_when_unspecified(
@@ -773,8 +773,8 @@ def test_recipe_phase_runtime_forwards_structured_progress(
     monkeypatch,
 ) -> None:
     class _SlowFakeCodexExecRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, *args, **kwargs):
-            result = super().run_workspace_worker(*args, **kwargs)
+        def run_taskfile_worker(self, *args, **kwargs):
+            result = super().run_taskfile_worker(*args, **kwargs)
             time.sleep(0.25)
             return result
 
@@ -844,7 +844,7 @@ def test_recipe_phase_runtime_surfaces_worker_attention_in_progress(
     monkeypatch,
 ) -> None:
     class _WarningFakeCodexExecRunner(FakeCodexExecRunner):
-        def run_workspace_worker(self, *args, **kwargs):
+        def run_taskfile_worker(self, *args, **kwargs):
             supervision_callback = kwargs.get("supervision_callback")
             if callable(supervision_callback):
                 supervision_callback(
@@ -861,7 +861,7 @@ def test_recipe_phase_runtime_surfaces_worker_attention_in_progress(
                     )
                 )
                 time.sleep(0.35)
-            return super().run_workspace_worker(*args, **kwargs)
+            return super().run_taskfile_worker(*args, **kwargs)
 
     codex_home = str(tmp_path / "codex-home")
     monkeypatch.setenv("COOKIMPORT_CODEX_FARM_CODEX_HOME", codex_home)
@@ -1053,7 +1053,7 @@ def test_recipe_prompt_target_count_is_a_hard_cap(
     ]
 
 
-def test_recipe_workspace_worker_with_valid_files_and_prose_final_message_stays_valid(
+def test_recipe_taskfile_worker_with_valid_files_and_prose_final_message_stays_valid(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "book.txt"
@@ -1094,15 +1094,15 @@ def test_recipe_workspace_worker_with_valid_files_and_prose_final_message_stays_
     ]
 
     assert rows
-    assert rows[0]["prompt_input_mode"] == "workspace_worker"
+    assert rows[0]["prompt_input_mode"] == "taskfile"
     assert rows[0]["repair_task_count"] == 0
     assert rows[0]["final_agent_message_state"] == "informational"
     assert "informational only" in str(rows[0]["final_agent_message_reason"])
     assert telemetry["summary"]["structured_followup_call_count"] == 0
-    assert telemetry["summary"]["workspace_worker_session_count"] == 1
+    assert telemetry["summary"]["taskfile_session_count"] == 1
 
 
-def test_recipe_workspace_worker_with_valid_files_and_no_final_message_stays_valid(
+def test_recipe_taskfile_worker_with_valid_files_and_no_final_message_stays_valid(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "book.txt"
@@ -1142,12 +1142,12 @@ def test_recipe_workspace_worker_with_valid_files_and_no_final_message_stays_val
     ]
 
     assert rows
-    assert rows[0]["prompt_input_mode"] == "workspace_worker"
+    assert rows[0]["prompt_input_mode"] == "taskfile"
     assert rows[0]["repair_task_count"] == 0
     assert rows[0]["final_agent_message_state"] == "absent"
     assert rows[0]["final_agent_message_reason"] is None
     assert telemetry["summary"]["structured_followup_call_count"] == 0
-    assert telemetry["summary"]["workspace_worker_session_count"] == 1
+    assert telemetry["summary"]["taskfile_session_count"] == 1
 
 
 def test_recipe_workspace_validation_rejects_legacy_results_shape() -> None:
@@ -1248,8 +1248,8 @@ def test_recipe_workspace_watchdog_allows_shell_work_until_command_loop(
 ) -> None:
     callback = recipe_module._build_recipe_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
-        stage_label="workspace worker stage",
+        watchdog_policy="taskfile_v1",
+        stage_label="taskfile worker stage",
         allow_workspace_commands=True,
     )
     decision = callback(
@@ -1279,8 +1279,8 @@ def test_recipe_workspace_watchdog_keeps_running_after_repeated_single_file_shel
 ) -> None:
     callback = recipe_module._build_recipe_watchdog_callback(  # noqa: SLF001
         live_status_path=tmp_path / "live_status.json",
-        watchdog_policy="workspace_worker_v1",
-        stage_label="workspace worker stage",
+        watchdog_policy="taskfile_v1",
+        stage_label="taskfile worker stage",
         allow_workspace_commands=True,
     )
 

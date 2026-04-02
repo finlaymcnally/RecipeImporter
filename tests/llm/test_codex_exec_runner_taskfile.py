@@ -86,7 +86,7 @@ def test_prepare_direct_exec_workspace_mirrors_local_inputs_and_writes_agents(
     assert "Prefer reading the local task file directly" not in agents_text
 
 
-def test_prepare_direct_exec_workspace_worker_mode_uses_fixed_assignment_manifest(
+def test_prepare_direct_exec_taskfile_worker_mode_uses_fixed_assignment_manifest(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
@@ -155,7 +155,7 @@ def test_prepare_direct_exec_workspace_worker_mode_uses_fixed_assignment_manifes
         source_working_dir=source_root,
         env={"CODEX_HOME": str(tmp_path / ".codex-recipe")},
         task_label="canonical line-role worker session",
-        mode="workspace_worker",
+        mode="taskfile",
     )
 
     agents_text = workspace.agents_path.read_text(encoding="utf-8")
@@ -220,7 +220,7 @@ def test_prepare_direct_exec_workspace_worker_mode_uses_fixed_assignment_manifes
     assert not (workspace.execution_working_dir / "current_phase.json").exists()
 
 
-def test_prepare_direct_exec_workspace_worker_mode_mirrors_assigned_tasks_files(
+def test_prepare_direct_exec_taskfile_worker_mode_mirrors_assigned_tasks_files(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
@@ -275,7 +275,7 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_assigned_tasks_files(
         source_working_dir=source_root,
         env={"CODEX_HOME": str(tmp_path / ".codex-recipe")},
         task_label="knowledge worker session",
-        mode="workspace_worker",
+        mode="taskfile",
     )
 
     worker_manifest = json.loads(
@@ -298,7 +298,7 @@ def test_prepare_direct_exec_workspace_worker_mode_mirrors_assigned_tasks_files(
     assert (source_root / "_repo_control" / "original_task.json").exists()
 
 
-def test_prepare_direct_exec_workspace_worker_mode_knows_assignment_first_knowledge_helpers(
+def test_prepare_direct_exec_taskfile_worker_mode_knows_assignment_first_knowledge_helpers(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
@@ -354,7 +354,7 @@ def test_prepare_direct_exec_workspace_worker_mode_knows_assignment_first_knowle
         source_working_dir=source_root,
         env={"CODEX_HOME": str(tmp_path / ".codex-recipe")},
         task_label="knowledge worker session",
-        mode="workspace_worker",
+        mode="taskfile",
     )
 
     worker_manifest = json.loads(
@@ -393,8 +393,8 @@ def test_workspace_boundary_detector_allows_jq_fallback_operator_with_output_red
         "in/task-001.json > out/task-001.json\""
     )
 
-    assert detect_workspace_worker_boundary_violation(command) is None
-    verdict = classify_workspace_worker_command(command)
+    assert detect_taskfile_worker_boundary_violation(command) is None
+    verdict = classify_taskfile_worker_command(command)
     assert verdict.allowed is True
     assert verdict.policy in {
         "shell_script_workspace_local",
@@ -408,8 +408,8 @@ def test_workspace_boundary_detector_allows_workspace_tool_helper() -> None:
         "\"python3 tools/line_role_worker.py scaffold task-001 --dest scratch/task-001.json\""
     )
 
-    assert detect_workspace_worker_boundary_violation(command) is None
-    verdict = classify_workspace_worker_command(command)
+    assert detect_taskfile_worker_boundary_violation(command) is None
+    verdict = classify_taskfile_worker_command(command)
     assert verdict.allowed is True
 
 
@@ -426,8 +426,8 @@ def test_workspace_boundary_detector_allows_bounded_python_and_node_transforms()
         "\\\"const fs=require('fs'); "
         "fs.writeFileSync('out/task-001.json', fs.readFileSync('in/task-001.json', 'utf8'));\\\"\"",
     ):
-        assert detect_workspace_worker_boundary_violation(command) is None
-        verdict = classify_workspace_worker_command(command)
+        assert detect_taskfile_worker_boundary_violation(command) is None
+        verdict = classify_taskfile_worker_command(command)
         assert verdict.allowed is True
         assert verdict.policy in {
             "shell_script_workspace_local",
@@ -447,8 +447,8 @@ def test_workspace_boundary_detector_allows_multi_python_heredoc_shell_body() ->
         "PY2\""
     )
 
-    assert detect_workspace_worker_boundary_violation(command) is None
-    verdict = classify_workspace_worker_command(command)
+    assert detect_taskfile_worker_boundary_violation(command) is None
+    verdict = classify_taskfile_worker_command(command)
     assert verdict.allowed is True
     assert verdict.policy == "shell_script_workspace_local"
 
@@ -461,8 +461,8 @@ def test_workspace_boundary_detector_allows_slashy_heredoc_write_payload() -> No
         "EOF\""
     )
 
-    assert detect_workspace_worker_boundary_violation(command) is None
-    verdict = classify_workspace_worker_command(command)
+    assert detect_taskfile_worker_boundary_violation(command) is None
+    verdict = classify_taskfile_worker_command(command)
     assert verdict.allowed is True
     assert verdict.policy in {
         "shell_script_workspace_local",
@@ -481,13 +481,13 @@ def test_workspace_boundary_detector_allows_execution_root_cd_and_manifest_reads
     )
 
     assert (
-        detect_workspace_worker_boundary_violation(
+        detect_taskfile_worker_boundary_violation(
             command,
             allowed_absolute_roots=[source_root, execution_root],
         )
         is None
     )
-    verdict = classify_workspace_worker_command(
+    verdict = classify_taskfile_worker_command(
         command,
         allowed_absolute_roots=[source_root, execution_root],
     )
@@ -502,8 +502,8 @@ def test_workspace_boundary_detector_allows_local_cp_and_mv_between_scratch_and_
         '/bin/bash -lc "cp scratch/task-001.json out/task-001.json"',
         '/bin/bash -lc "mv scratch/task-001.json out/task-001.json"',
     ):
-        assert detect_workspace_worker_boundary_violation(command) is None
-        verdict = classify_workspace_worker_command(command)
+        assert detect_taskfile_worker_boundary_violation(command) is None
+        verdict = classify_taskfile_worker_command(command)
         assert verdict.allowed is True
         assert verdict.policy in {
             "shell_script_workspace_local",
@@ -511,7 +511,7 @@ def test_workspace_boundary_detector_allows_local_cp_and_mv_between_scratch_and_
         }
 
 
-def test_fake_workspace_worker_reads_local_inputs_and_syncs_outputs(
+def test_fake_taskfile_worker_reads_local_inputs_and_syncs_outputs(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
@@ -533,14 +533,14 @@ def test_fake_workspace_worker_reads_local_inputs_and_syncs_outputs(
             ]
         }
     )
-    result = runner.run_workspace_worker(
+    result = runner.run_taskfile_worker(
         prompt_text="Process every local shard file and write outputs under out/.",
         working_dir=source_root,
         env={"CODEX_HOME": str(tmp_path / ".codex-recipe")},
         workspace_task_label="canonical line-role worker session",
     )
 
-    assert runner.calls[0]["mode"] == "workspace_worker"
+    assert runner.calls[0]["mode"] == "taskfile"
     assert result.source_working_dir == str(source_root)
     assert result.execution_working_dir != str(source_root)
     synced_output = json.loads(
@@ -549,7 +549,7 @@ def test_fake_workspace_worker_reads_local_inputs_and_syncs_outputs(
     assert synced_output == {"rows": [{"atomic_index": 1, "label": "OTHER"}]}
 
 
-def test_fake_workspace_worker_loops_line_role_same_session_repair_until_completed(
+def test_fake_taskfile_worker_loops_line_role_same_session_repair_until_completed(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
@@ -598,7 +598,7 @@ def test_fake_workspace_worker_loops_line_role_same_session_repair_until_complet
         return {}
 
     runner = FakeCodexExecRunner(output_builder=_output_builder)
-    runner.run_workspace_worker(
+    runner.run_taskfile_worker(
         prompt_text="Edit task.json and run the line-role helper.",
         working_dir=source_root,
         env={
@@ -620,7 +620,7 @@ def test_fake_workspace_worker_loops_line_role_same_session_repair_until_complet
     assert state_payload["same_session_repair_rewrite_count"] == 1
 
 
-def test_subprocess_workspace_worker_parses_token_usage_from_text_stream(
+def test_subprocess_taskfile_worker_parses_token_usage_from_text_stream(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -695,7 +695,7 @@ def test_subprocess_workspace_worker_parses_token_usage_from_text_stream(
     )
 
     runner = SubprocessCodexExecRunner(cmd="codex exec")
-    result = runner.run_workspace_worker(
+    result = runner.run_taskfile_worker(
         prompt_text="Process local task files and write outputs.",
         working_dir=source_root,
         env={"CODEX_HOME": str(tmp_path / ".codex-recipe")},
@@ -816,7 +816,7 @@ def test_subprocess_runner_uses_sterile_execution_workspace(
     )
 
     runner = SubprocessCodexExecRunner(cmd="codex exec")
-    result = runner.run_structured_prompt(
+    result = runner.run_packet_worker(
         prompt_text=f"Read the task file at `{input_path}` and return JSON only.",
         input_payload={"shard_id": "shard-001"},
         working_dir=source_root,
@@ -844,7 +844,7 @@ def test_subprocess_runner_uses_sterile_execution_workspace(
     assert result.execution_agents_path == str(cwd / "AGENTS.md")
 
 
-def test_workspace_worker_uses_configured_codex_home_even_under_output_run_root(
+def test_taskfile_worker_uses_configured_codex_home_even_under_output_run_root(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -948,7 +948,7 @@ def test_workspace_worker_uses_configured_codex_home_even_under_output_run_root(
     )
 
     runner = SubprocessCodexExecRunner(cmd="codex exec")
-    result = runner.run_workspace_worker(
+    result = runner.run_taskfile_worker(
         prompt_text="Process local worker files and write outputs under out/.",
         working_dir=source_root,
         env={},
@@ -970,7 +970,7 @@ def test_workspace_worker_uses_configured_codex_home_even_under_output_run_root(
     assert result.source_working_dir == str(source_root)
 
 
-def test_single_file_workspace_worker_rewrites_same_session_state_into_execution_root(
+def test_single_file_taskfile_worker_rewrites_same_session_state_into_execution_root(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1079,7 +1079,7 @@ def test_single_file_workspace_worker_rewrites_same_session_state_into_execution
     )
 
     runner = SubprocessCodexExecRunner(cmd="codex exec")
-    result = runner.run_workspace_worker(
+    result = runner.run_taskfile_worker(
         prompt_text="Edit task.json and run the same-session helper.",
         working_dir=source_root,
         env={LINE_ROLE_SAME_SESSION_STATE_ENV: str(state_path)},
@@ -1177,7 +1177,7 @@ def test_subprocess_runner_can_terminate_from_streamed_watchdog_snapshot(
     )
 
     runner = SubprocessCodexExecRunner(cmd="codex exec")
-    result = runner.run_structured_prompt(
+    result = runner.run_packet_worker(
         prompt_text=f"Read the task file at `{input_path}` and return JSON only.",
         input_payload={"shard_id": "shard-001"},
         working_dir=source_root,
@@ -1207,7 +1207,7 @@ def test_subprocess_runner_can_terminate_from_streamed_watchdog_snapshot(
     assert str(result.finished_at_utc or "").endswith("Z")
 
 
-def test_workspace_worker_supervision_syncs_live_outputs_before_callback(
+def test_taskfile_worker_supervision_syncs_live_outputs_before_callback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1296,7 +1296,7 @@ def test_workspace_worker_supervision_syncs_live_outputs_before_callback(
     )
 
     runner = SubprocessCodexExecRunner(cmd="codex exec")
-    result = runner.run_workspace_worker(
+    result = runner.run_taskfile_worker(
         prompt_text="Write shard output files locally and stop once done.",
         working_dir=source_root,
         env={"CODEX_HOME": str(tmp_path / ".codex-recipe")},
@@ -1324,7 +1324,7 @@ def test_workspace_worker_supervision_syncs_live_outputs_before_callback(
     assert result.completed_successfully() is True
 
 
-def test_workspace_worker_supervision_syncs_repo_control_and_outputs_before_callback(
+def test_taskfile_worker_supervision_syncs_repo_control_and_outputs_before_callback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1422,7 +1422,7 @@ def test_workspace_worker_supervision_syncs_repo_control_and_outputs_before_call
     )
 
     runner = SubprocessCodexExecRunner(cmd="codex exec")
-    result = runner.run_workspace_worker(
+    result = runner.run_taskfile_worker(
         prompt_text="Write task outputs locally and stop once done.",
         working_dir=source_root,
         env={
@@ -1474,7 +1474,7 @@ def test_workspace_worker_supervision_syncs_repo_control_and_outputs_before_call
         ("completed_with_failures", "workspace_validated_task_queue_incomplete"),
     ],
 )
-def test_workspace_worker_completed_supervision_allows_turn_completed_usage_to_arrive(
+def test_taskfile_worker_completed_supervision_allows_turn_completed_usage_to_arrive(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     supervision_state: str,
@@ -1574,7 +1574,7 @@ def test_workspace_worker_completed_supervision_allows_turn_completed_usage_to_a
     )
 
     runner = SubprocessCodexExecRunner(cmd="codex exec")
-    result = runner.run_workspace_worker(
+    result = runner.run_taskfile_worker(
         prompt_text="Write shard output files locally and stop once done.",
         working_dir=source_root,
         env={"CODEX_HOME": str(tmp_path / ".codex-recipe")},

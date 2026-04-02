@@ -38,6 +38,12 @@ from cookimport.staging.nonrecipe_stage import (
     build_nonrecipe_authority_contract,
     build_nonrecipe_stage_result,
 )
+from cookimport.staging.recipe_ownership import (
+    RecipeDivestment,
+    RecipeOwnershipResult,
+    apply_recipe_divestments,
+    build_recipe_ownership_result,
+)
 from cookimport.staging.draft_v1 import build_authoritative_recipe_semantics
 
 
@@ -107,6 +113,7 @@ class RecipeBoundaryResult:
     extracted_bundle: ExtractedBookBundle
     label_first_result: LabelFirstStageResult
     conversion_result: ConversionResult
+    recipe_ownership_result: RecipeOwnershipResult
     recipe_owned_blocks: list[dict[str, Any]]
     outside_recipe_blocks: list[dict[str, Any]]
 
@@ -115,6 +122,7 @@ class RecipeBoundaryResult:
 class RecipeRefineResult:
     recipe_boundary_result: RecipeBoundaryResult
     conversion_result: ConversionResult
+    recipe_ownership_result: RecipeOwnershipResult
     authoritative_recipe_payloads_by_recipe_id: dict[str, AuthoritativeRecipeSemantics]
     llm_report: dict[str, Any]
     refinement_mode: str
@@ -196,19 +204,21 @@ def run_recipe_boundary_stage(
         result.source_blocks = list(extracted_bundle.source_blocks)
     if extracted_bundle.source_support and not result.source_support:
         result.source_support = list(extracted_bundle.source_support)
-    recipe_block_indices = {
-        int(block_index)
-        for span in label_first_result.recipe_spans
-        for block_index in span.block_indices
-    }
+    recipe_ownership_result = build_recipe_ownership_result(
+        full_blocks=extracted_bundle.archive_blocks,
+        recipe_spans=label_first_result.recipe_spans,
+        recipes=result.recipes,
+        ownership_mode="recipe_boundary",
+    )
     recipe_owned_blocks = _block_rows_for_indices(
         extracted_bundle.archive_blocks,
-        sorted(recipe_block_indices),
+        recipe_ownership_result.owned_block_indices,
     )
     return RecipeBoundaryResult(
         extracted_bundle=extracted_bundle,
         label_first_result=label_first_result,
         conversion_result=result,
+        recipe_ownership_result=recipe_ownership_result,
         recipe_owned_blocks=recipe_owned_blocks,
         outside_recipe_blocks=list(result.non_recipe_blocks),
     )
@@ -229,6 +239,7 @@ def run_recipe_refine_stage(
     llm_apply_result: CodexFarmApplyResult | None = None
     authoritative_recipe_payloads_by_recipe_id: dict[str, AuthoritativeRecipeSemantics] = {}
     refinement_mode = "deterministic_only"
+    recipe_divestments: list[RecipeDivestment] = []
 
     if run_settings.llm_recipe_pipeline.value != "off":
         try:
@@ -274,9 +285,16 @@ def run_recipe_refine_stage(
             )
             authoritative_recipe_payloads_by_recipe_id[semantics.recipe_id] = semantics
 
+    recipe_ownership_result = apply_recipe_divestments(
+        ownership_result=recipe_boundary_result.recipe_ownership_result,
+        divestments=recipe_divestments,
+        ownership_mode="recipe_boundary_with_explicit_divestment",
+    )
+
     return RecipeRefineResult(
         recipe_boundary_result=recipe_boundary_result,
         conversion_result=result,
+        recipe_ownership_result=recipe_ownership_result,
         authoritative_recipe_payloads_by_recipe_id=authoritative_recipe_payloads_by_recipe_id,
         llm_report=llm_report,
         refinement_mode=refinement_mode,
@@ -293,7 +311,7 @@ def run_nonrecipe_route_stage(
     stage_result = build_nonrecipe_stage_result(
         full_blocks=recipe_boundary_result.extracted_bundle.archive_blocks,
         final_block_labels=recipe_boundary_result.label_first_result.block_labels,
-        recipe_spans=recipe_boundary_result.label_first_result.recipe_spans,
+        recipe_ownership_result=recipe_refine_result.recipe_ownership_result,
         overrides=overrides,
     )
     return NonrecipeRouteResult(
@@ -336,7 +354,7 @@ def run_nonrecipe_finalize_stage(
             nonrecipe_finalize_apply_result = run_codex_farm_nonrecipe_finalize(
                 conversion_result=recipe_refine_result.conversion_result,
                 nonrecipe_stage_result=stage_result,
-                recipe_spans=list(recipe_boundary_result.label_first_result.recipe_spans),
+                recipe_ownership_result=recipe_refine_result.recipe_ownership_result,
                 run_settings=run_settings,
                 run_root=run_root,
                 workbook_slug=recipe_boundary_result.extracted_bundle.workbook_slug,

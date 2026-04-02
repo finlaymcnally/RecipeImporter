@@ -5,8 +5,8 @@ from . import planning as _planning_module
 from . import promotion as _promotion_module
 from . import recovery as _recovery_module
 from . import workspace_run as _workspace_run_module
-from ..workspace_worker_progress import (
-    start_workspace_worker_progress_heartbeat,
+from ..taskfile_progress import (
+    start_taskfile_progress_heartbeat,
 )
 
 for _module in (
@@ -32,7 +32,7 @@ def run_codex_farm_nonrecipe_finalize(
     *,
     conversion_result: ConversionResult,
     nonrecipe_stage_result: NonRecipeStageResult,
-    recipe_spans: list[RecipeSpan],
+    recipe_ownership_result: RecipeOwnershipResult,
     run_settings: RunSettings,
     run_root: Path,
     workbook_slug: str,
@@ -159,7 +159,7 @@ def run_codex_farm_nonrecipe_finalize(
     build_report = build_knowledge_jobs(
         full_blocks=full_blocks_payload,
         candidate_spans=candidate_spans,
-        recipe_spans=recipe_spans,
+        recipe_ownership_result=recipe_ownership_result,
         workbook_slug=workbook_slug,
         out_dir=knowledge_in_dir,
         context_blocks=run_settings.codex_farm_knowledge_context_blocks,
@@ -700,7 +700,7 @@ def _run_direct_knowledge_workers_v1(
     heartbeat_thread: threading.Thread | None = None
     if progress_callback is not None and assignments:
         heartbeat_stop_event, heartbeat_thread = (
-            start_workspace_worker_progress_heartbeat(
+            start_taskfile_progress_heartbeat(
                 emit_progress=progress_state.emit,
                 thread_name="knowledge-progress-heartbeat",
             )

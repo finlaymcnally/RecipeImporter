@@ -66,14 +66,10 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
         classification_answers_by_unit_id={
             "knowledge::10": {
                 "category": "other",
-                "reviewer_category": "other",
-                "retrieval_concept": None,
                 "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
             },
             "knowledge::11": {
                 "category": "knowledge",
-                "reviewer_category": "knowledge",
-                "retrieval_concept": "Balance rich dishes with acid",
                 "grounding": {
                     "tag_keys": ["bright"],
                     "category_keys": ["flavor-profile"],
@@ -82,8 +78,6 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
             },
             "knowledge::25": {
                 "category": "knowledge",
-                "reviewer_category": "knowledge",
-                "retrieval_concept": "Rest dough before rolling",
                 "grounding": {
                     "tag_keys": ["rest"],
                     "category_keys": ["techniques"],
@@ -110,15 +104,11 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
             {
                 "block_index": 10,
                 "category": "other",
-                "reviewer_category": "other",
-                "retrieval_concept": None,
                 "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
             },
             {
                 "block_index": 11,
                 "category": "knowledge",
-                "reviewer_category": "knowledge",
-                "retrieval_concept": "Balance rich dishes with acid",
                 "grounding": {
                     "tag_keys": ["bright"],
                     "category_keys": ["flavor-profile"],
@@ -136,8 +126,6 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
             {
                 "block_index": 25,
                 "category": "knowledge",
-                "reviewer_category": "knowledge",
-                "retrieval_concept": "Rest dough before rolling",
                 "grounding": {
                     "tag_keys": ["rest"],
                     "category_keys": ["techniques"],
@@ -166,7 +154,6 @@ def test_grounding_detail_rollup_includes_grounding_gate_demotions() -> None:
                 SimpleNamespace(
                     block_index=10,
                     category="other",
-                    retrieval_concept=None,
                     grounding=SimpleNamespace(
                         tag_keys=(),
                         category_keys=(),
@@ -176,7 +163,6 @@ def test_grounding_detail_rollup_includes_grounding_gate_demotions() -> None:
                 SimpleNamespace(
                     block_index=11,
                     category="knowledge",
-                    retrieval_concept="Balance rich dishes with acid",
                     grounding=SimpleNamespace(
                         tag_keys=("bright",),
                         category_keys=("flavor-profile",),

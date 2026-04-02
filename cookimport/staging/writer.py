@@ -55,6 +55,11 @@ from cookimport.staging.output_names import (
     NONRECIPE_ROUTE_FILE_NAME,
     NONRECIPE_ROUTE_SCHEMA_VERSION,
     NONRECIPE_CANDIDATE_INPUT_MODE,
+    RECIPE_BLOCK_OWNERSHIP_FILE_NAME,
+)
+from cookimport.staging.recipe_ownership import (
+    RecipeOwnershipResult,
+    recipe_ownership_to_payload,
 )
 from cookimport.staging.stage_block_predictions import build_stage_block_predictions
 
@@ -735,6 +740,21 @@ def write_authoritative_recipe_semantics(
     return out_path
 
 
+def write_recipe_block_ownership(
+    *,
+    ownership_result: RecipeOwnershipResult,
+    out_path: Path,
+    output_stats: OutputStats | None = None,
+) -> Path:
+    _write_json_payload(
+        recipe_ownership_to_payload(ownership_result),
+        out_path,
+        output_stats=output_stats,
+        category=_OUTPUT_CATEGORY_RECIPE_AUTHORITY,
+    )
+    return out_path
+
+
 def write_raw_artifacts(
     results: ConversionResult,
     out_dir: Path,
@@ -912,6 +932,7 @@ def write_stage_block_predictions(
     results: ConversionResult,
     run_root: Path,
     workbook_slug: str,
+    recipe_ownership_result: RecipeOwnershipResult,
     source_file: str | None = None,
     source_hash: str | None = None,
     archive_blocks: list[dict[str, Any]] | None = None,
@@ -923,6 +944,7 @@ def write_stage_block_predictions(
     payload = build_stage_block_predictions(
         results,
         workbook_slug,
+        recipe_ownership_result=recipe_ownership_result,
         source_file=source_file,
         source_hash=source_hash or (label_first_result.source_hash if label_first_result is not None else None),
         archive_blocks=archive_blocks or (

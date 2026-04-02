@@ -19,6 +19,7 @@ from tests.llm.knowledge_packet_test_support import (
     make_runtime_conversion_result,
     make_runtime_nonrecipe_stage_result,
     make_runtime_pack_and_run_dirs,
+    make_runtime_recipe_ownership_result,
     make_runtime_settings,
 )
 
@@ -43,7 +44,7 @@ def _run_runtime_phase(
         nonrecipe_stage_result=make_runtime_nonrecipe_stage_result(
             spans=[knowledge_span(0), knowledge_span(2)]
         ),
-        recipe_spans=[],
+        recipe_ownership_result=make_runtime_recipe_ownership_result(block_count=3),
         run_settings=settings,
         run_root=run_root,
         workbook_slug="book",
@@ -78,7 +79,7 @@ def _run_runtime_phase_fixture(
             self.saw_task_queue_surface = False
             self.saw_task_file_surface = False
 
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
             working_dir = Path(kwargs.get("working_dir"))
             self.saw_task_queue_surface = any(
                 (working_dir / name).exists()
@@ -105,7 +106,7 @@ def _run_runtime_phase_fixture(
             assert not (working_dir / "current_phase.json").exists()
             assert not (working_dir / "CURRENT_PHASE.md").exists()
             assert not (working_dir / "CURRENT_PHASE_FEEDBACK.md").exists()
-            return super().run_workspace_worker(*args, **kwargs)
+            return super().run_taskfile_worker(*args, **kwargs)
 
     return _run_runtime_phase(monkeypatch, tmp_path, runner=AssignmentRunner())
 
@@ -166,8 +167,6 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert first_output["packet_id"] == "book.ks0000.nr"
     assert first_output["block_decisions"][0]["block_index"] == 0
     assert first_output["block_decisions"][0]["category"] == "knowledge"
-    assert first_output["block_decisions"][0]["reviewer_category"] == "knowledge"
-    assert first_output["block_decisions"][0]["retrieval_concept"]
     assert first_output["block_decisions"][0]["grounding"]["proposed_tags"]
     assert first_output["idea_groups"] == [
         {"group_id": "g01", "topic_label": "Fake knowledge group", "block_indices": [0]}
@@ -175,8 +174,6 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert second_output["packet_id"] == "book.ks0001.nr"
     assert second_output["block_decisions"][0]["block_index"] == 2
     assert second_output["block_decisions"][0]["category"] == "knowledge"
-    assert second_output["block_decisions"][0]["reviewer_category"] == "knowledge"
-    assert second_output["block_decisions"][0]["retrieval_concept"]
     assert second_output["block_decisions"][0]["grounding"]["proposed_tags"]
     phase_manifest = json.loads((phase_dir / "phase_manifest.json").read_text(encoding="utf-8"))
     telemetry = json.loads((phase_dir / "telemetry.json").read_text(encoding="utf-8"))
@@ -214,7 +211,7 @@ def test_knowledge_orchestrator_retries_one_fresh_session_after_preserved_progre
     assert runner.workspace_run_calls == 2
     assert worker_status["fresh_session_retry_count"] == 1
     assert worker_status["fresh_session_retry_status"] == "completed"
-    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 2
+    assert worker_status["telemetry"]["summary"]["taskfile_session_count"] == 2
     assert (
         phase_manifest["runtime_metadata"]["worker_session_guardrails"][
             "actual_happy_path_worker_sessions"
@@ -238,7 +235,7 @@ def test_knowledge_orchestrator_replaces_hard_boundary_failure_with_fresh_worker
     assert worker_status["fresh_worker_replacement_count"] == 1
     assert worker_status["fresh_worker_replacement_status"] == "recovered"
     assert worker_status["fresh_session_retry_count"] == 0
-    assert worker_status["telemetry"]["summary"]["workspace_worker_session_count"] == 2
+    assert worker_status["telemetry"]["summary"]["taskfile_session_count"] == 2
     assert (
         phase_manifest["runtime_metadata"]["worker_session_guardrails"][
             "actual_happy_path_worker_sessions"
@@ -258,7 +255,7 @@ class _NoOutputLeaseRunner(FakeCodexExecRunner):
         self._supervision_state = supervision_state
         self._supervision_reason_code = supervision_reason_code
 
-    def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+    def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
         working_dir = Path(kwargs.get("working_dir"))
         return CodexExecRunResult(
             command=["codex", "exec"],
@@ -279,7 +276,7 @@ class _NoOutputLeaseRunner(FakeCodexExecRunner):
             duration_ms=1,
             started_at_utc="2026-01-01T00:00:00Z",
             finished_at_utc="2026-01-01T00:00:00Z",
-            workspace_mode="workspace_worker",
+            workspace_mode="taskfile",
             supervision_state=self._supervision_state,
             supervision_reason_code=self._supervision_reason_code,
         )
@@ -296,7 +293,7 @@ class _FreshSessionKnowledgeRunner(FakeCodexExecRunner):
         self.workspace_run_calls = 0
         self.hard_boundary = hard_boundary
 
-    def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+    def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
         self.workspace_run_calls += 1
         working_dir = Path(kwargs.get("working_dir"))
         if self.workspace_run_calls == 1:
@@ -305,8 +302,6 @@ class _FreshSessionKnowledgeRunner(FakeCodexExecRunner):
             for unit in edited["units"]:
                 unit["answer"] = {
                     "category": "knowledge",
-                    "reviewer_category": "knowledge",
-                    "retrieval_concept": "Recovered concept",
                     "grounding": {
                         "tag_keys": [],
                         "category_keys": [],
@@ -339,13 +334,13 @@ class _FreshSessionKnowledgeRunner(FakeCodexExecRunner):
                 duration_ms=1,
                 started_at_utc="2026-01-01T00:00:00Z",
                 finished_at_utc="2026-01-01T00:00:00Z",
-                workspace_mode="workspace_worker",
+                workspace_mode="taskfile",
                 supervision_state="watchdog_killed" if self.hard_boundary else "completed",
                 supervision_reason_code=(
                     "watchdog_command_execution_forbidden" if self.hard_boundary else None
                 ),
             )
-        return super().run_workspace_worker(*args, **kwargs)
+        return super().run_taskfile_worker(*args, **kwargs)
 
 
 def _load_task_status_rows(path: Path) -> dict[str, dict[str, object]]:

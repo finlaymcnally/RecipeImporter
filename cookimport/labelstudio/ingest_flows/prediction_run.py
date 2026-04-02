@@ -145,6 +145,7 @@ from cookimport.staging.nonrecipe_stage import (
     build_nonrecipe_authority_contract,
     build_nonrecipe_stage_result,
 )
+from cookimport.staging.recipe_ownership import build_recipe_ownership_result
 
 
 def _build_prediction_nonrecipe_stage_result(
@@ -154,10 +155,16 @@ def _build_prediction_nonrecipe_stage_result(
     notify: Callable[[str], None],
 ) -> NonRecipeStageResult | None:
     try:
+        recipe_ownership_result = build_recipe_ownership_result(
+            full_blocks=authoritative_label_result.archive_blocks,
+            recipe_spans=authoritative_label_result.recipe_spans,
+            recipes=result.recipes,
+            ownership_mode="recipe_boundary",
+        )
         return build_nonrecipe_stage_result(
             full_blocks=authoritative_label_result.archive_blocks,
             final_block_labels=authoritative_label_result.block_labels,
-            recipe_spans=authoritative_label_result.recipe_spans,
+            recipe_ownership_result=recipe_ownership_result,
         )
     except ValueError as exc:
         if result.report is None:
@@ -1031,10 +1038,19 @@ def generate_pred_run_artifacts(
                         notify=_notify,
                     )
                 ),
-                recipe_spans=list(
-                    authoritative_label_result.recipe_spans
-                    if authoritative_label_result is not None
-                    else []
+                recipe_ownership_result=build_recipe_ownership_result(
+                    full_blocks=(
+                        authoritative_label_result.archive_blocks
+                        if authoritative_label_result is not None
+                        else []
+                    ),
+                    recipe_spans=(
+                        authoritative_label_result.recipe_spans
+                        if authoritative_label_result is not None
+                        else []
+                    ),
+                    recipes=result.recipes,
+                    ownership_mode="recipe_boundary_with_explicit_divestment",
                 ),
                 run_settings=run_settings,
                 run_root=run_root,

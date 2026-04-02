@@ -283,8 +283,8 @@ def test_expand_line_role_task_file_outputs_recovers_answers_despite_immutable_d
 
 
 class _NoFinalWorkspaceMessageRunner(FakeCodexExecRunner):
-    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
-        result = super().run_workspace_worker(**kwargs)
+    def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+        result = super().run_taskfile_worker(**kwargs)
         return CodexExecRunResult(
             command=list(result.command),
             subprocess_exit_code=result.subprocess_exit_code,
@@ -328,7 +328,7 @@ class _FreshSessionLineRoleRunner(FakeCodexExecRunner):
         self.workspace_run_calls = 0
         self.hard_boundary = hard_boundary
 
-    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+    def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
         self.workspace_run_calls += 1
         working_dir = Path(kwargs.get("working_dir"))
         if self.workspace_run_calls == 1:
@@ -356,13 +356,13 @@ class _FreshSessionLineRoleRunner(FakeCodexExecRunner):
                 duration_ms=1,
                 started_at_utc="2026-01-01T00:00:00Z",
                 finished_at_utc="2026-01-01T00:00:00Z",
-                workspace_mode="workspace_worker",
+                workspace_mode="taskfile",
                 supervision_state="watchdog_killed" if self.hard_boundary else "completed",
                 supervision_reason_code=(
                     "watchdog_command_execution_forbidden" if self.hard_boundary else None
                 ),
             )
-        return super().run_workspace_worker(**kwargs)
+        return super().run_taskfile_worker(**kwargs)
 
 
 class _TimeoutThenRecoveredLineRoleRunner(FakeCodexExecRunner):
@@ -381,7 +381,7 @@ class _TimeoutThenRecoveredLineRoleRunner(FakeCodexExecRunner):
         self.fail_worker_ids = set(fail_worker_ids or {"worker-001"})
         self._lock = threading.Lock()
 
-    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+    def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
         working_dir = Path(kwargs.get("working_dir"))
         worker_id = working_dir.name
         with self._lock:
@@ -423,7 +423,7 @@ class _TimeoutThenRecoveredLineRoleRunner(FakeCodexExecRunner):
             duration_ms=1,
             started_at_utc="2026-01-01T00:00:00Z",
             finished_at_utc="2026-01-01T00:00:00Z",
-            workspace_mode="workspace_worker",
+            workspace_mode="taskfile",
             supervision_state="completed",
             supervision_reason_code=None,
             supervision_reason_detail=None,
@@ -451,7 +451,7 @@ class _FinalMessageMissingOutputRunner(FakeCodexExecRunner):
         self.set_answers_before_exit = set_answers_before_exit
         self.spend_retry_budget = spend_retry_budget
 
-    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+    def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
         self.workspace_run_calls += 1
         working_dir = Path(kwargs.get("working_dir"))
         if self.workspace_run_calls == 1:
@@ -543,13 +543,13 @@ class _FinalMessageMissingOutputRunner(FakeCodexExecRunner):
                 duration_ms=1,
                 started_at_utc="2026-01-01T00:00:00Z",
                 finished_at_utc="2026-01-01T00:00:00Z",
-                workspace_mode="workspace_worker",
+                workspace_mode="taskfile",
                 supervision_state=decision.supervision_state,
                 supervision_reason_code=decision.reason_code,
                 supervision_reason_detail=decision.reason_detail,
                 supervision_retryable=decision.retryable,
             )
-        return super().run_workspace_worker(**kwargs)
+        return super().run_taskfile_worker(**kwargs)
 
 
 class _ProgressSummaryAnswersFileRunner(FakeCodexExecRunner):
@@ -565,7 +565,7 @@ class _ProgressSummaryAnswersFileRunner(FakeCodexExecRunner):
         )
         self.workspace_run_calls = 0
 
-    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+    def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
         self.workspace_run_calls += 1
         working_dir = Path(kwargs.get("working_dir"))
         if self.workspace_run_calls == 1:
@@ -625,7 +625,7 @@ class _ProgressSummaryAnswersFileRunner(FakeCodexExecRunner):
                 duration_ms=1,
                 started_at_utc="2026-01-01T00:00:00Z",
                 finished_at_utc="2026-01-01T00:00:00Z",
-                workspace_mode="workspace_worker",
+                workspace_mode="taskfile",
                 supervision_state=decision.supervision_state,
                 supervision_reason_code=decision.reason_code,
                 supervision_reason_detail=decision.reason_detail,
@@ -664,7 +664,7 @@ class _ProgressSummaryAnswersFileRunner(FakeCodexExecRunner):
             duration_ms=1,
             started_at_utc="2026-01-01T00:00:00Z",
             finished_at_utc="2026-01-01T00:00:00Z",
-            workspace_mode="workspace_worker",
+            workspace_mode="taskfile",
             supervision_state="completed",
             supervision_reason_code=None,
             supervision_reason_detail=None,
@@ -685,7 +685,7 @@ class _KilledAfterHelperCompletionRunner(FakeCodexExecRunner):
         )
         self.workspace_run_calls = 0
 
-    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+    def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
         self.workspace_run_calls += 1
         working_dir = Path(kwargs.get("working_dir"))
         task_file = load_task_file(working_dir / "task.json")
@@ -722,11 +722,11 @@ class _KilledAfterHelperCompletionRunner(FakeCodexExecRunner):
             duration_ms=1,
             started_at_utc="2026-01-01T00:00:00Z",
             finished_at_utc="2026-01-01T00:00:00Z",
-            workspace_mode="workspace_worker",
+            workspace_mode="taskfile",
             supervision_state="watchdog_killed",
             supervision_reason_code="workspace_final_message_missing_output",
             supervision_reason_detail=(
-                "workspace worker emitted a final agent message but the required output files "
+                "taskfile worker emitted a final agent message but the required output files "
                 "were still missing after 15.0 seconds: line-role-canonical-0001-a000000-a000000.json"
             ),
             supervision_retryable=True,
@@ -747,7 +747,7 @@ class _AuthoritativeCompletionRunner(FakeCodexExecRunner):
         self.workspace_run_calls = 0
         self.emit_shell_drift = emit_shell_drift
 
-    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+    def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
         self.workspace_run_calls += 1
         working_dir = Path(kwargs.get("working_dir"))
         callback = kwargs.get("supervision_callback")
@@ -847,7 +847,7 @@ class _AuthoritativeCompletionRunner(FakeCodexExecRunner):
             duration_ms=1,
             started_at_utc="2026-01-01T00:00:00Z",
             finished_at_utc="2026-01-01T00:00:00Z",
-            workspace_mode="workspace_worker",
+            workspace_mode="taskfile",
             supervision_state=decision.supervision_state,
             supervision_reason_code=decision.reason_code,
             supervision_reason_detail=decision.reason_detail,
@@ -868,7 +868,7 @@ class _HelperCompletionVisibilityLagRunner(FakeCodexExecRunner):
         )
         self.workspace_run_calls = 0
 
-    def run_workspace_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
+    def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
         self.workspace_run_calls += 1
         working_dir = Path(kwargs.get("working_dir"))
         callback = kwargs.get("supervision_callback")
@@ -1002,7 +1002,7 @@ class _HelperCompletionVisibilityLagRunner(FakeCodexExecRunner):
             duration_ms=1,
             started_at_utc="2026-01-01T00:00:00Z",
             finished_at_utc="2026-01-01T00:00:00Z",
-            workspace_mode="workspace_worker",
+            workspace_mode="taskfile",
             supervision_state=decision.supervision_state,
             supervision_reason_code=decision.reason_code,
             supervision_reason_detail=decision.reason_detail,
@@ -1064,12 +1064,12 @@ def _run_line_role_cohort_outlier_warning_fixture(
             first_row = rows[0]
             return int(first_row[0]) if isinstance(first_row, list) and first_row else -1
 
-        def run_structured_prompt(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        def run_packet_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
             payload = dict(kwargs.get("input_payload") or {})
             rows = payload.get("rows") or []
             first_atomic_index = int(rows[0][0]) if rows else -1
             if payload.get("retry_mode") == "line_role_watchdog":
-                return super().run_structured_prompt(*args, **kwargs)
+                return super().run_packet_worker(*args, **kwargs)
             if first_atomic_index == 3:
                 supervision_callback = kwargs.get("supervision_callback")
                 if supervision_callback is not None:
@@ -1089,9 +1089,9 @@ def _run_line_role_cohort_outlier_warning_fixture(
                             )
                         )
                         assert decision is None
-            return super().run_structured_prompt(*args, **kwargs)
+            return super().run_packet_worker(*args, **kwargs)
 
-        def run_workspace_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
             first_atomic_index = self._first_atomic_index_for_workspace(kwargs.get("working_dir"))
             if first_atomic_index == 3:
                 supervision_callback = kwargs.get("supervision_callback")
@@ -1112,7 +1112,7 @@ def _run_line_role_cohort_outlier_warning_fixture(
                             )
                         )
                         assert decision is None
-            return super().run_workspace_worker(*args, **kwargs)
+            return super().run_taskfile_worker(*args, **kwargs)
 
     predictions = label_atomic_lines(
         candidates,
