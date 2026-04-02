@@ -27,6 +27,8 @@ from cookimport.labelstudio.label_config_freeform import (
     FREEFORM_TEXT_NAME,
     normalize_freeform_label,
 )
+from .prelabel_codex import LlmProvider, normalize_prelabel_granularity
+from .prelabel_mapping import _resolve_focus_block_indices
 _MODEL_CONFIG_LINE_RE = re.compile(r"^\s*model\s*=\s*['\"]([^'\"]+)['\"]\s*$")
 _MODEL_REASONING_EFFORT_CONFIG_LINE_RE = re.compile(
     r"^\s*model_reasoning_effort\s*=\s*['\"]([^'\"]+)['\"]\s*$"

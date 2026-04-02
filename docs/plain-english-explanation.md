@@ -1,8 +1,8 @@
 ---
-summary: "Plain-English walkthrough of the current stage pipeline from importer selection through final outputs."
+summary: "Plain-English walkthrough for humans of the program"
 read_when:
-  - When you want a non-code explanation of how a cookbook moves through the program
-  - When updating high-level docs about recipe authority or outside-recipe authority
+  - Coding agents, DO NOT READ
+  - This is a simple explaination for simple humans.
 ---
 
 # A-to-Z
@@ -15,17 +15,26 @@ A note to AI editors: keep this as a plain-language product walkthrough. Artifac
 
 Every `cookimport stage` run starts by creating a new timestamped output folder and locking in the important behavior choices for that run.
 
-Those settings decide things like:
+The most important settings at the start of a run are:
 
-- how many workers to use
-- whether PDF or EPUB source jobs should be split
-- whether line-role Codex review is on
-- whether recipe Codex is on
-- whether non-recipe finalize is on
-- whether explicit Codex model or reasoning overrides are set
-- which Codex execution style is used for the stages that support it
-- how ingredient parsing should behave
-- whether markdown sidecars should be written
+- `workers`: the overall process parallelism cap for the run
+- `pdf_split_workers`: how many worker slots one split PDF is allowed to use
+- `epub_split_workers`: how many worker slots one split EPUB is allowed to use
+- `pdf_pages_per_job`: how many PDF pages go into one split source-conversion job
+- `epub_spine_items_per_job`: how many EPUB spine items go into one split source-conversion job
+- `epub_extractor`: which EPUB extraction engine to use
+- `pdf_ocr_policy`: whether PDF OCR is off, automatic, or forced on
+- `line_role_pipeline`: whether Codex reviews and corrects line/block labels before recipe grouping
+- `llm_recipe_pipeline`: whether Codex runs the recipe-refine stage after recipe boundaries are accepted
+- `llm_knowledge_pipeline`: whether Codex runs non-recipe finalize on the surviving outside-recipe candidate queue
+- `codex_exec_style`: whether line-role and non-recipe finalize use editable `task.json` workers or inline JSON prompts
+- `codex_farm_model`: an explicit model override for enabled Codex-backed stages
+- `codex_farm_reasoning_effort`: an explicit reasoning override for enabled Codex-backed stages
+- `recipe_prompt_target_count`: the requested shard count for recipe-refine workers
+- `line_role_prompt_target_count`: the requested shard count for line-role workers
+- `knowledge_prompt_target_count`: the requested shard count for non-recipe finalize workers
+- `ingredient_text_fix_backend`, `ingredient_pre_normalize_mode`, `ingredient_packaging_mode`, `ingredient_parser_backend`, `ingredient_unit_canonicalizer`, and `ingredient_missing_unit_policy`: the main ingredient-parsing behavior knobs
+- `write_markdown`: whether the run writes human-readable markdown sidecars such as `sections.md`, `tables.md`, and `chunks.md`
 
 If an LLM-backed stage is enabled, explicit model overrides win. Otherwise the run uses discovered config or pipeline defaults. The product does not invent a fake hard-coded model id just because the UI could not discover one.
 
@@ -35,9 +44,55 @@ Then the importer registry looks at each input file and picks the importer that 
 
 Importers read the source and preserve as much useful structure as they can for the shared stage pipeline.
 
-Some importers are record-first. They start from rows, fields, or exported recipe objects and preserve that record structure as much as possible.
+There are three practical importer shapes in the current repo.
 
-Some importers are block-first. They start from pages, spine items, paragraphs, headings, or similar document fragments and turn the source into one ordered stream of canonical source blocks.
+Some importers are record-first. These are used when the source already has a meaningful row-like or record-like structure, so preserving that structure is more honest than pretending the file started as free-flowing prose.
+
+Current record-first importers are:
+
+- Excel
+- text / markdown / DOCX
+
+In plain English, these importers start from things like rows, paragraphs, fields, or small document units and try to keep those units intact as they build canonical source blocks.
+
+That does not mean they avoid blocks. They still end up producing canonical source blocks. The difference is that the importer trusts the source's small native units first, then turns those units into blocks.
+
+Excel is the clearest example: a worksheet row is already a meaningful source unit, so the importer preserves row identity instead of pretending the sheet was one continuous document stream.
+
+Text and markdown are similar in a simpler way: the importer mostly trusts line-level or small-section structure that already exists in the file.
+
+DOCX sits in this bucket in the current repo for practical implementation reasons. The current DOCX path mostly treats the file as extracted paragraphs or table rows. It does not try to recover a rich whole-document flow the way the EPUB importer does.
+
+Some importers are block-first. These are used when the source is really a document stream, not a clean record set, so the importer's job is to recover one ordered archive of document blocks as faithfully as possible.
+
+Current block-first importers are:
+
+- PDF
+- EPUB
+
+In plain English, these importers start from things like pages, spine items, paragraphs, headings, and extracted fragments, then turn that document flow into one ordered stream of canonical source blocks.
+
+This is why EPUB is grouped with PDF instead of with DOCX. Even though EPUB is technically a packaged HTML-like format, the repo treats it as a flowing document with spine order, extracted HTML structure, and block ordering that must be recovered first.
+
+So the practical distinction is not "does this source eventually become blocks?" They all do. The distinction is "what does the importer believe the truthful source unit is before canonicalization?"
+
+Some importers are structured-export-first. These are used when the source is already an exported recipe-oriented format with named fields or explicit recipe objects.
+
+Current structured-export-first importers are:
+
+- Paprika
+- RecipeSage
+- webschema
+
+These importers preserve that exported structure as much as they can, but they still hand off to the shared stage pipeline instead of claiming final recipe authority on their own.
+
+So the choice is not a runtime "mode switch" where the same importer decides to be block-first one day and record-first the next. It is a design choice based on the shape of the source:
+
+- if the source is naturally row-like or field-like, preserve records
+- if the source is naturally one flowing document, preserve ordered blocks
+- if the source is already a structured recipe export, preserve the recipe objects and fields as long as possible
+
+For that reason, the current DOCX treatment is partly a product choice and partly an implementation choice. If the repo later grows a much richer DOCX document-structure importer, it could make sense to describe DOCX differently. Right now the current implementation is closer to text-like source-unit preservation than to EPUB-style document-flow recovery.
 
 The important rule is that all of them converge on the same kind of bundle:
 

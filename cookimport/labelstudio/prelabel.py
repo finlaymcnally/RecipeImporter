@@ -27,6 +27,8 @@ from cookimport.labelstudio.label_config_freeform import (
     FREEFORM_TEXT_NAME,
     normalize_freeform_label,
 )
+from . import prelabel_codex as _prelabel_codex_module
+from . import prelabel_prompt as _prelabel_prompt_module
 _MODEL_CONFIG_LINE_RE = re.compile(r"^\s*model\s*=\s*['\"]([^'\"]+)['\"]\s*$")
 _MODEL_REASONING_EFFORT_CONFIG_LINE_RE = re.compile(
     r"^\s*model_reasoning_effort\s*=\s*['\"]([^'\"]+)['\"]\s*$"
@@ -218,7 +220,7 @@ _PRELABEL_SELECTION_LABEL_ALIASES = {
 
 from .prelabel_codex import (
     LlmProvider,
-    CodexFarmProvider,
+    CodexFarmProvider as _CodexFarmProviderImpl,
     normalize_prelabel_granularity,
     normalize_codex_reasoning_effort,
     _normalize_codex_error_detail,
@@ -258,7 +260,7 @@ from .prelabel_codex import (
     _codex_farm_return_code,
     _codex_farm_usage_payload,
     run_codex_farm_json_prompt,
-    preflight_codex_model_access,
+    preflight_codex_model_access as _preflight_codex_model_access_impl,
     default_codex_cmd,
 )
 from .prelabel_parse import (
@@ -300,6 +302,19 @@ from .prelabel_prompt import (
     _build_prompt_log_entry,
 )
 
+_PROMPT_TEMPLATE_CACHE = _prelabel_prompt_module._PROMPT_TEMPLATE_CACHE
+
+
+class CodexFarmProvider(_CodexFarmProviderImpl):
+    def complete(self, prompt: str) -> str:
+        _prelabel_codex_module.run_codex_farm_json_prompt = run_codex_farm_json_prompt
+        return super().complete(prompt)
+
+
+def preflight_codex_model_access(*, cmd: str, timeout_s: int) -> None:
+    _prelabel_codex_module.run_codex_farm_json_prompt = run_codex_farm_json_prompt
+    _preflight_codex_model_access_impl(cmd=cmd, timeout_s=timeout_s)
+
 def prelabel_freeform_task(
     task: dict[str, Any],
     *,
@@ -338,6 +353,10 @@ def prelabel_freeform_task(
     if not block_map:
         raise ValueError("task source_map has no valid block offsets")
 
+    _prelabel_prompt_module._FULL_PROMPT_TEMPLATE_PATH = _FULL_PROMPT_TEMPLATE_PATH
+    _prelabel_prompt_module._SPAN_PROMPT_TEMPLATE_PATH = _SPAN_PROMPT_TEMPLATE_PATH
+    _prelabel_prompt_module._PROMPT_TEMPLATE_CACHE = _PROMPT_TEMPLATE_CACHE
+    _prelabel_codex_module.run_codex_farm_json_prompt = run_codex_farm_json_prompt
     prompt = _build_prompt(
         task=task,
         allowed_labels=normalized_allowed,

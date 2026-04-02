@@ -92,8 +92,8 @@ Other active Codex-backed surfaces:
 - line-role and knowledge worker roots now also save raw `stdout.txt` / `stderr.txt` sidecars when the direct-exec subprocess emitted text, which makes missing-usage sessions inspectable from the artifact tree
 - the shared guardrail payloads now also follow the same repo-owned reporting path across those stages: `task_file_guardrails` records deterministic `task.json` size/estimated-token pressure for the real worker-visible file, and `worker_session_guardrails` records planned-versus-actual happy-path sessions plus explicit repair/follow-up counts in worker `status.json`, stage `telemetry.json`, stage summaries, and prompt-budget summaries
 - Canonical line-role: `cookimport/parsing/canonical_line_roles/` (`planning.py`, `policy.py`, `runtime.py`, `validation.py`, plus `contracts.py` / `prompt_inputs.py` / `artifacts.py`), `cookimport/llm/canonical_line_role_prompt.py`, `cookimport/llm/codex_exec_runner.py`
-- Freeform prelabel: `cookimport/labelstudio/prelabel.py`
-- Prompt/debug artifact export: `cookimport/llm/prompt_artifacts.py`
+- Freeform prelabel: `cookimport/labelstudio/prelabel.py` facade over `prelabel_codex.py`, `prelabel_parse.py`, `prelabel_mapping.py`, and `prelabel_prompt.py`
+- Prompt/debug artifact export: `cookimport/llm/prompt_artifacts.py` facade over `prompt_artifacts_discovery.py`, `prompt_artifacts_loader.py`, and `prompt_artifacts_activity.py`
 
 Recipe tagging is part of the recipe surface itself. The recipe-correction prompt emits raw selected tags, and deterministic normalization folds them into staged outputs.
 

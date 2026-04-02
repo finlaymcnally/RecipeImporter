@@ -286,6 +286,7 @@ Benchmark eval artifacts include:
 - `wrong_label_blocks.jsonl`
 - `run_manifest.json`
 - interrupted benchmark runs now also write `benchmark_status.json` plus `partial_benchmark_summary.json`; when prediction-manifest telemetry is already present, they also try to write `prompt_budget_summary.json` before returning control
+  - the command-layer recovery/finalization helpers now live in `cookimport/cli_support/labelstudio_benchmark_recovery.py`, while transient eval-output pruning lives in `cookimport/cli_support/labelstudio_benchmark_artifacts.py`
 
 Canonical-text mode also writes line/alignment diagnostics:
 

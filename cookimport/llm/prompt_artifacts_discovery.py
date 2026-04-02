@@ -93,6 +93,7 @@ __all__ = [
     "write_prompt_log_summary",
 ]
 
+@dataclass(frozen=True)
 class PromptCallRecord:
     schema_version: str
     row: dict[str, Any]
@@ -101,6 +102,7 @@ class PromptCallRecord:
         payload = dict(self.row)
         payload.setdefault("schema_version", self.schema_version)
         return payload
+@dataclass(frozen=True)
 class PromptStageDescriptor:
     schema_version: str
     stage_order: int
@@ -116,6 +118,7 @@ class PromptStageDescriptor:
     process_run_payload: dict[str, Any] | None
     input_dir: Path
     output_dir: Path
+@dataclass(frozen=True)
 class PromptRunDescriptor:
     schema_version: str
     run_dir: Path

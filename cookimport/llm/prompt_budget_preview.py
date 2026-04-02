@@ -13,6 +13,12 @@ from cookimport.runs.stage_observability import (
     build_line_role_stage_summary as build_stage_observability_line_role_summary,
     build_recipe_stage_summary,
 )
+from .prompt_budget_runtime import (
+    _nonnegative_float,
+    _nonnegative_int,
+    _rows_for_stage,
+    _sum_optional_ints,
+)
 _TOKEN_KEYS = (
     "tokens_input",
     "tokens_cached_input",

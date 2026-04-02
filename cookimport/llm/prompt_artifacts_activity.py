@@ -15,6 +15,13 @@ from cookimport.runs import (
     stage_artifact_stem,
 )
 from cookimport.runs.stage_names import canonical_stage_key
+from .prompt_artifacts_discovery import (
+    _clean_text,
+    _coerce_int,
+    _parse_json_text,
+    _prompt_stage_metadata_from_row,
+    _safe_read_text,
+)
 PROMPT_RUN_DESCRIPTOR_SCHEMA_VERSION = "prompt_run_descriptor.v1"
 PROMPT_STAGE_DESCRIPTOR_SCHEMA_VERSION = "prompt_stage_descriptor.v1"
 PROMPT_CALL_RECORD_SCHEMA_VERSION = "prompt_call_record.v1"
@@ -439,6 +446,32 @@ def _build_activity_trace_from_events(
         "entries": entries,
         "entries_truncated": len(entries) >= _ACTIVITY_TRACE_MAX_ENTRIES,
     }
+def _resolve_saved_artifact_path(*, raw_path: str | None, repo_root: Path) -> Path | None:
+    cleaned = _clean_text(raw_path)
+    if cleaned is None:
+        return None
+    candidate = Path(cleaned).expanduser()
+    if not candidate.is_absolute():
+        candidate = (repo_root / candidate).resolve()
+    resolved = candidate.resolve(strict=False)
+    if resolved.exists() and resolved.is_file():
+        return resolved
+    return None
+def _load_prompt_rows(path: Path) -> list[dict[str, Any]]:
+    if not path.exists() or not path.is_file():
+        return []
+    rows: list[dict[str, Any]] = []
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        text = raw_line.strip()
+        if not text:
+            continue
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            rows.append(payload)
+    return rows
 def _export_prompt_activity_trace(
     *,
     row_payload: dict[str, Any],

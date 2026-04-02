@@ -7,6 +7,8 @@ Start points:
 - `codex_exec_runner.py` is the shared direct `codex exec` subprocess seam.
 - `codex_farm_runner.py` is the `codex-farm process` runner seam.
 - `prompt_preview.py`, `prompt_artifacts.py`, and `prompt_budget.py` own prompt/cost inspection surfaces.
+  - `prompt_artifacts.py` is now a thin public facade over `prompt_artifacts_discovery.py`, `prompt_artifacts_loader.py`, and `prompt_artifacts_activity.py`.
+  - `prompt_budget.py` is now a thin facade over `prompt_budget_runtime.py` and `prompt_budget_preview.py`.
 
 Active worker surfaces:
 - Recipe, canonical line-role, and knowledge all use assignment-first taskfile workers, but the happy path now differs by stage. Recipe refine still uses the richer helper-driven surface inside `task.json`. Canonical line-role plus knowledge classification/grouping are direct-batch: open `task.json` directly, read the full assignment, edit only `/units/*/answer`, run `task-handoff`, and keep any repair/grouping follow-up in the same workspace session.
