@@ -1156,6 +1156,19 @@ def write_nonrecipe_authority_artifact(
             "authoritative_other_spans": len(authority.authoritative_other_spans),
             "final_authority_blocks": len(authority.authoritative_block_indices),
             **_knowledge_counts_for_block_map(authority.authoritative_block_category_by_index),
+            "grounding_gate_demoted_block_count": int(
+                grounding_counts.get("grounding_gate_demoted_block_count") or 0
+            ),
+            "grounding_gate_demoted_after_invalid_grounding_drop_count": int(
+                grounding_counts.get(
+                    "grounding_gate_demoted_after_invalid_grounding_drop_count"
+                )
+                or 0
+            ),
+            "grounding_gate_demoted_for_category_only_count": int(
+                grounding_counts.get("grounding_gate_demoted_for_category_only_count")
+                or 0
+            ),
             "knowledge_blocks_grounded_to_existing_tags": int(
                 grounding_counts.get("knowledge_blocks_grounded_to_existing_tags") or 0
             ),

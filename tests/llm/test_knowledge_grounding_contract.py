@@ -111,7 +111,99 @@ def test_grounding_validator_accepts_existing_and_proposed_tag_answers() -> None
     ]
 
 
-def test_grounding_validator_rejects_missing_concept_and_unknown_tags() -> None:
+def test_grounding_validator_demotes_unknown_or_empty_grounding_to_other() -> None:
+    task_file, _ = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[_shard(text="Good advice, but not grounded.")],
+    )
+    demoted = deepcopy(task_file)
+    demoted["units"][0]["answer"] = {
+        "category": "knowledge",
+        "reviewer_category": "knowledge",
+        "retrieval_concept": "General cooking advice",
+        "grounding": {
+            "tag_keys": ["not-a-real-tag"],
+            "category_keys": [],
+            "proposed_tags": [],
+        },
+    }
+
+    answers_by_unit_id, errors, metadata = validate_knowledge_classification_task_file(
+        original_task_file=task_file,
+        edited_task_file=demoted,
+    )
+
+    assert errors == ()
+    assert metadata["failed_unit_ids"] == []
+    assert metadata["grounding_gate_demoted_unit_ids"] == ["knowledge::10"]
+    assert metadata["grounding_gate_demotion_reason_counts"] == {
+        "invalid_grounding_dropped_to_empty": 1
+    }
+    assert answers_by_unit_id == {
+        "knowledge::10": {
+            "category": "other",
+            "reviewer_category": "other",
+            "retrieval_concept": None,
+            "grounding": {
+                "tag_keys": [],
+                "category_keys": [],
+                "proposed_tags": [],
+            },
+        }
+    }
+
+
+def test_grounding_validator_drops_invalid_entries_when_valid_grounding_survives() -> None:
+    task_file, _ = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[_shard(text="Whisk oil into vinegar slowly to emulsify the dressing.")],
+    )
+    edited = deepcopy(task_file)
+    edited["units"][0]["answer"] = {
+        "category": "knowledge",
+        "reviewer_category": "knowledge",
+        "retrieval_concept": "Emulsify dressings by slow whisking",
+        "grounding": {
+            "tag_keys": ["emulsify", "not-a-real-tag"],
+            "category_keys": ["techniques", "not-a-real-category"],
+            "proposed_tags": [
+                {
+                    "key": "bad key",
+                    "display_name": "Bad Key",
+                    "category_key": "techniques",
+                },
+                {
+                    "key": "stable-emulsion",
+                    "display_name": "Stable Emulsion",
+                    "category_key": "techniques",
+                },
+            ],
+        },
+    }
+
+    answers_by_unit_id, errors, metadata = validate_knowledge_classification_task_file(
+        original_task_file=task_file,
+        edited_task_file=edited,
+    )
+
+    assert errors == ()
+    assert metadata["failed_unit_ids"] == []
+    assert metadata["grounding_gate_demoted_unit_ids"] == []
+    assert answers_by_unit_id is not None
+    assert answers_by_unit_id["knowledge::10"]["grounding"] == {
+        "tag_keys": ["emulsify"],
+        "category_keys": ["techniques"],
+        "proposed_tags": [
+            {
+                "key": "stable-emulsion",
+                "display_name": "Stable Emulsion",
+                "category_key": "techniques",
+            }
+        ],
+    }
+
+
+def test_grounding_validator_still_rejects_missing_retrieval_concept() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[_shard(text="Good advice, but not grounded.")],
@@ -134,6 +226,5 @@ def test_grounding_validator_rejects_missing_concept_and_unknown_tags() -> None:
     )
 
     assert answers_by_unit_id is None
-    assert "knowledge_missing_retrieval_concept" in errors
-    assert "unknown_grounding_tag_key" in errors
+    assert errors == ("knowledge_missing_retrieval_concept",)
     assert metadata["failed_unit_ids"] == ["knowledge::10"]

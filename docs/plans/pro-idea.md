@@ -1,4 +1,6 @@
-This spec preserves the same core intent as your direct-batch plan: read the full assignment once, make all decisions in one pass, keep deterministic validation authoritative, remove bad helper affordances, and repair inside the same oriented run rather than restarting cold. The main difference is only the transport: immutable packet in, tiny structured JSON out.   
+This spec preserves the same core intent as your direct-batch plan: read the full assignment once, make all decisions in one pass, keep deterministic validation authoritative, remove bad helper affordances, and repair inside the same oriented run rather than restarting cold. The main difference is only the transport: immutable packet in, tiny structured JSON out.
+
+Important clarification: in this spec, a "repair run" is not a fresh `codex exec` call with no memory. The happy path is one non-interactive Codex session per assignment, and follow-up repair prompts use `codex exec resume <SESSION_ID>` so the same session continues with the validator feedback and failing-row subset. The same rule applies to the knowledge stage's second semantic pass: if nonrecipe classification keeps any rows, the grouping prompt resumes the same assignment session instead of starting a new agent.
 
 # High-level design spec: structured packet + JSON output worker architecture
 
@@ -26,8 +28,8 @@ This is a sibling experiment to your direct-batch file plan, not a prompt-tuning
 3. **Deterministic authority boundary**
    The model proposes semantic answers. Repo code owns shape validation, coverage validation, tag validation, stage transitions, persistence, and scoring.
 
-4. **Repair by subset, not rerun**
-   Validation failures should produce a repair packet that contains only the failing rows plus validator complaints, not the whole shard again unless the error is truly global.
+4. **Repair by subset, same resumed session**
+   Validation failures should produce a repair packet that contains only the failing rows plus validator complaints, not the whole shard again unless the error is truly global. That repair prompt is sent by resuming the same Codex session, not by spawning a fresh session.
 
 5. **No writable worker contract**
    For these stages, the model should not be asked to edit `task.json`, write `answers.json`, or invent local scripts as part of the happy path.
@@ -74,7 +76,7 @@ This is a sibling experiment to your direct-batch file plan, not a prompt-tuning
    * enum/tag validity
    * stage invariants
 6. If valid, deterministic code writes authoritative outputs and advances the pipeline.
-7. If invalid, deterministic code creates a repair packet and reruns only the failing portion.
+7. If invalid, deterministic code creates a repair packet and resumes the same Codex session with only the failing portion.
 
 ### 4.2 Repair run
 
@@ -85,7 +87,7 @@ This is a sibling experiment to your direct-batch file plan, not a prompt-tuning
    * only the failing rows or failing groups
    * prior answers for those rows
    * validator errors, expressed clearly and deterministically
-3. Ask the model for corrected JSON only.
+3. Resume the same Codex session and ask for corrected JSON only.
 4. Merge corrected rows into the previous valid result set.
 5. Revalidate.
 6. Stop after a small fixed max repair count.
@@ -96,7 +98,7 @@ Once a stage validates:
 
 * line-role writes shard outputs as today
 * nonrecipe classification writes kept/dropped decisions and tag grounding
-* if any rows are kept, grouping packet generation begins
+* if any rows are kept, grouping packet generation begins in the same resumed assignment session for that shard
 * grouping validates and writes final grouped knowledge outputs
 
 ## 5. Worker contract
@@ -112,10 +114,13 @@ For these structured stages, the worker contract is:
 * no helper commands
 * no explanations unless explicitly requested in the schema
 
+For knowledge shards, this same assignment session may later be resumed for the grouping pass after classification validates and some rows survive as kept knowledge.
+
 ## 5.2 Repair contract
 
 For repair runs, the worker contract is:
 
+* resume the same assignment session
 * read the repair packet
 * correct only the specified rows or groups
 * return only corrected JSON payloads in the same schema family
@@ -238,7 +243,9 @@ Assumption: `reviewer_category` and `retrieval_concept` are gone by the time thi
 
 ## 7.3 Knowledge grouping
 
-Grouping remains a second semantic phase, as in your direct-batch plan. 
+Grouping remains a second semantic phase, as in your direct-batch plan.
+
+Clarification: `nonrecipe_classify` and `knowledge_group` are two prompts in one knowledge-shard session, not two different agents. The classification packet starts the session. If deterministic validation accepts the classification result and any rows survive as kept knowledge, deterministic code builds a grouping packet for only those kept rows and resumes the same session id for the grouping prompt. If classification needs repair first, that repair also happens in the same resumed session before grouping begins.
 
 ### Input unit shape
 
@@ -293,6 +300,7 @@ Each structured stage prompt should say, in plain language:
 
 Repair prompt should say:
 
+* you are resuming the same assignment session
 * you already answered this assignment
 * deterministic validation found the following exact issues
 * correct only the listed rows or groups
@@ -380,6 +388,7 @@ Repairs happen only on deterministic validation failure.
 
 * repair packet should include only failing rows unless the failure is global
 * global failures include invalid top-level JSON shape, missing entire output arrays, or completely broken schema
+* repair prompts are sent with `codex exec resume <SESSION_ID>`, not a fresh `codex exec`
 * merge corrected rows back into the last valid partial result
 * max repair rounds: 2 or 3
 * after max failures, mark shard failed and persist full artifacts
@@ -462,7 +471,7 @@ This is crucial for debugging without having to interpret agent logs.
 
 ## 13. Integration with current codebase
 
-Your uploaded plan already identifies the current seams around task files, prompts, same-session handoff, and workspace enforcement. This structured architecture should reuse the same deterministic authority but move it out of editable-worker-file assumptions.  
+Your uploaded plan already identifies the current seams around task files, prompts, same-session handoff, and workspace enforcement. This structured architecture should reuse the same deterministic authority but move it out of editable-worker-file assumptions.
 
 ### 13.1 New shared modules
 
@@ -481,6 +490,8 @@ Add these new modules or equivalent:
 * `cookimport/llm/structured_runner.py`
 
   * invokes codex exec
+  * records the initial session id
+  * resumes the same session id for repair prompts and knowledge grouping follow-up prompts
   * captures stdout
   * parses JSON
   * logs artifacts
@@ -507,6 +518,7 @@ These should:
 * build packets from existing deterministic upstream data
 * call the structured runner
 * validate results
+* keep one session id per knowledge shard across classification, repair, and grouping
 * hand successful outputs to existing downstream writers
 
 ### 13.3 Refactor target
@@ -583,11 +595,12 @@ This architecture is accepted when all of the following are true:
 1. `line_role`, `nonrecipe_classify`, and `knowledge_group` can run with no editable `task.json` contract.
 2. The model’s happy path is packet read + JSON return only.
 3. Deterministic validation remains authoritative.
-4. Repair operates on failing subsets instead of whole-shard reruns.
+4. Repair operates on failing subsets by resuming the same session, instead of restarting the whole shard in a new session.
 5. Grouping still remains a distinct second semantic phase.
-6. Raw artifacts are sufficient to debug failures without reading freeform agent logs.
-7. Structured mode is benchmark-comparable against direct-batch mode.
-8. No stage in this mode depends on `answers.json`, queue helpers, or writable worker files.
+6. For knowledge shards, classification and grouping use the same resumed Codex session rather than separate agents.
+7. Raw artifacts are sufficient to debug failures without reading freeform agent logs.
+8. Structured mode is benchmark-comparable against direct-batch mode.
+9. No stage in this mode depends on `answers.json`, queue helpers, or writable worker files.
 
 ## 16. Copy/paste implementation brief for Codex
 
@@ -602,8 +615,9 @@ Key rules:
 - The model reads one full packet and returns one JSON object.
 - No writable task.json, no answers.json, no helper workflow commands on the happy path.
 - Validation is deterministic and authoritative.
-- Repairs operate on only failing rows/groups unless the failure is global.
+- Repairs operate on only failing rows/groups unless the failure is global, and they must resume the same `codex exec` session id rather than starting a fresh agent.
 - Keep grouping as a second semantic phase after successful nonrecipe classification.
+- For each knowledge shard, classification and grouping must use the same resumed session/agent when grouping is needed.
 - Support two packet transports with identical semantics: inline prompt packet and read-only packet file.
 - Output contracts must be tiny:
   - line_role: answers[{id,label}]
@@ -623,3 +637,5 @@ Suggested modules:
 - stage adapters under parsing canonical line roles and knowledge_stage
 
 Do not broaden scope into recipe correction, ontology redesign, or benchmark retuning.
+
+Revision note (2026-04-01): clarified that repair and knowledge grouping are resumed-session follow-ups using `codex exec resume <SESSION_ID>`, not fresh agent invocations. This was added so the transport description matches the intended "same oriented run" behavior for repair and for the two-pass knowledge flow.

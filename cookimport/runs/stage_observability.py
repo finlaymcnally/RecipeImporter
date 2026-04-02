@@ -756,10 +756,25 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
         if isinstance(knowledge_manifest_payload.get("counts"), Mapping)
         else {}
     )
+    manifest_grounding_counts = (
+        knowledge_manifest_payload.get("grounding_counts")
+        if isinstance(knowledge_manifest_payload.get("grounding_counts"), Mapping)
+        else {}
+    )
     grounding_counts = {
         "kept_knowledge_block_count": int(manifest_counts.get("kept_knowledge_block_count") or 0),
         "retrieval_gate_rejected_block_count": int(
             manifest_counts.get("retrieval_gate_rejected_block_count") or 0
+        ),
+        "grounding_gate_demoted_block_count": int(
+            manifest_counts.get("grounding_gate_demoted_block_count") or 0
+        ),
+        "grounding_gate_demoted_after_invalid_grounding_drop_count": int(
+            manifest_counts.get("grounding_gate_demoted_after_invalid_grounding_drop_count")
+            or 0
+        ),
+        "grounding_gate_demoted_for_category_only_count": int(
+            manifest_counts.get("grounding_gate_demoted_for_category_only_count") or 0
         ),
         "knowledge_blocks_grounded_to_existing_tags": int(
             manifest_counts.get("knowledge_blocks_grounded_to_existing_tags") or 0
@@ -768,6 +783,19 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
             manifest_counts.get("knowledge_blocks_using_proposed_tags") or 0
         ),
         "tag_proposal_count": int(manifest_counts.get("tag_proposal_count") or 0),
+        "grounding_gate_demotion_reason_counts": dict(
+            sorted(
+                (
+                    str(reason).strip(),
+                    int(value or 0),
+                )
+                for reason, value in _coerce_dict(
+                    manifest_grounding_counts.get("grounding_gate_demotion_reason_counts")
+                    or manifest_counts.get("grounding_gate_demotion_reason_counts")
+                ).items()
+                if str(reason).strip()
+            )
+        ),
     }
     summary = {
         "authoritative": bool(status_payload),

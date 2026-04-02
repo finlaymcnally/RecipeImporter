@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from cookimport.llm.codex_farm_knowledge_ingest import validate_knowledge_shard_output
+from cookimport.llm.knowledge_stage.promotion import _collect_block_grounding_details
 from cookimport.llm.knowledge_stage.task_file_contracts import (
     build_knowledge_classification_task_file,
     combine_knowledge_task_file_outputs,
@@ -154,3 +157,57 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
         assert valid is True
         assert errors == ()
         assert metadata["knowledge_decision_count"] >= 0
+
+
+def test_grounding_detail_rollup_includes_grounding_gate_demotions() -> None:
+    outputs = {
+        "book.ks0000.nr": SimpleNamespace(
+            block_decisions=(
+                SimpleNamespace(
+                    block_index=10,
+                    category="other",
+                    retrieval_concept=None,
+                    grounding=SimpleNamespace(
+                        tag_keys=(),
+                        category_keys=(),
+                        proposed_tags=(),
+                    ),
+                ),
+                SimpleNamespace(
+                    block_index=11,
+                    category="knowledge",
+                    retrieval_concept="Balance rich dishes with acid",
+                    grounding=SimpleNamespace(
+                        tag_keys=("bright",),
+                        category_keys=("flavor-profile",),
+                        proposed_tags=(),
+                    ),
+                ),
+            )
+        )
+    }
+
+    _grounding_by_block, counts, proposal_rows = _collect_block_grounding_details(
+        outputs=outputs,
+        allowed_block_indices={10: "candidate", 11: "candidate"},
+        proposal_metadata_by_packet_id={
+            "book.ks0000.nr": {
+                "grounding_gate_demoted_block_count": 1,
+                "grounding_gate_demoted_after_invalid_grounding_drop_count": 1,
+                "grounding_gate_demotion_reason_counts": {
+                    "invalid_grounding_dropped_to_empty": 1
+                },
+            }
+        },
+    )
+
+    assert counts["kept_knowledge_block_count"] == 1
+    assert counts["retrieval_gate_rejected_block_count"] == 1
+    assert counts["grounding_gate_demoted_block_count"] == 1
+    assert counts["grounding_gate_demoted_after_invalid_grounding_drop_count"] == 1
+    assert counts["grounding_gate_demoted_for_category_only_count"] == 0
+    assert counts["grounding_gate_demotion_reason_counts"] == {
+        "invalid_grounding_dropped_to_empty": 1
+    }
+    assert counts["knowledge_blocks_grounded_to_existing_tags"] == 1
+    assert proposal_rows == []

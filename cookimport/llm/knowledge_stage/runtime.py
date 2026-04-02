@@ -304,6 +304,9 @@ def run_codex_farm_nonrecipe_finalize(
         outputs, _ = read_validated_knowledge_outputs_from_proposals(
             knowledge_stage_dir / "proposals"
         )
+        proposal_metadata_by_packet_id = load_validated_knowledge_proposal_metadata_by_packet_id(
+            knowledge_stage_dir / "proposals"
+        )
         missing_packet_ids = sorted(set(build_report.packet_ids) - set(outputs))
         (
             block_category_updates,
@@ -328,6 +331,7 @@ def run_codex_farm_nonrecipe_finalize(
                 int(block_index): "candidate"
                 for block_index in routing.candidate_block_indices
             },
+            proposal_metadata_by_packet_id=proposal_metadata_by_packet_id,
         )
         proposal_sidecar_path = knowledge_stage_dir / "knowledge_tag_proposals.jsonl"
         _write_jsonl(proposal_sidecar_path, proposal_rows)
@@ -430,6 +434,19 @@ def run_codex_farm_nonrecipe_finalize(
                 ),
                 "retrieval_gate_rejected_block_count": int(
                     grounding_counts.get("retrieval_gate_rejected_block_count") or 0
+                ),
+                "grounding_gate_demoted_block_count": int(
+                    grounding_counts.get("grounding_gate_demoted_block_count") or 0
+                ),
+                "grounding_gate_demoted_after_invalid_grounding_drop_count": int(
+                    grounding_counts.get(
+                        "grounding_gate_demoted_after_invalid_grounding_drop_count"
+                    )
+                    or 0
+                ),
+                "grounding_gate_demoted_for_category_only_count": int(
+                    grounding_counts.get("grounding_gate_demoted_for_category_only_count")
+                    or 0
                 ),
                 "knowledge_blocks_grounded_to_existing_tags": int(
                     grounding_counts.get("knowledge_blocks_grounded_to_existing_tags") or 0

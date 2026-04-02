@@ -94,6 +94,15 @@ def _blank_classification_answer() -> dict[str, Any]:
     }
 
 
+def _canonical_other_classification_answer() -> dict[str, Any]:
+    return {
+        "category": "other",
+        "reviewer_category": "other",
+        "retrieval_concept": None,
+        "grounding": empty_grounding_payload(),
+    }
+
+
 def _trimmed_text_or_none(value: Any) -> str | None:
     cleaned = str(value or "").strip()
     return cleaned or None
@@ -555,6 +564,8 @@ def validate_knowledge_classification_task_file(
     failed_unit_ids: list[str] = []
     unresolved_block_indices: list[int] = []
     validated_answers: dict[str, dict[str, Any]] = {}
+    grounding_gate_demotion_details: list[dict[str, Any]] = []
+    grounding_drop_details: list[dict[str, Any]] = []
     units_by_id = {
         str(unit.get("unit_id") or "").strip(): dict(unit)
         for unit in (original_task_file.get("units") or [])
@@ -567,9 +578,13 @@ def validate_knowledge_classification_task_file(
         reviewer_category = str(answer.get("reviewer_category") or "").strip()
         retrieval_concept = _trimmed_text_or_none(answer.get("retrieval_concept"))
         grounding = _coerce_dict(answer.get("grounding"))
+        raw_tag_keys = grounding.get("tag_keys")
+        raw_category_keys = grounding.get("category_keys")
         proposed_tags_raw = grounding.get("proposed_tags")
         normalized_grounding = empty_grounding_payload()
         unit_failed = False
+        unit_grounding_drop_codes: list[str] = []
+        unit_grounding_drop_details: list[dict[str, Any]] = []
         if category not in ALLOWED_KNOWLEDGE_FINAL_CATEGORIES:
             next_errors.append("invalid_category")
             error_details.append(
@@ -610,7 +625,6 @@ def validate_knowledge_classification_task_file(
                 }
             )
             unit_failed = True
-        raw_tag_keys = grounding.get("tag_keys")
         if raw_tag_keys not in (None, "") and not isinstance(raw_tag_keys, list):
             next_errors.append("invalid_grounding_tag_keys")
             error_details.append(
@@ -624,18 +638,16 @@ def validate_knowledge_classification_task_file(
         for tag_key in _normalized_string_list(raw_tag_keys):
             normalized_tag_key = normalize_knowledge_tag_key(tag_key)
             if normalized_tag_key not in tag_keys:
-                next_errors.append("unknown_grounding_tag_key")
-                error_details.append(
+                unit_grounding_drop_codes.append("unknown_grounding_tag_key")
+                unit_grounding_drop_details.append(
                     {
                         "path": f"/units/{unit_id}/answer/grounding/tag_keys",
                         "code": "unknown_grounding_tag_key",
                         "message": f"unknown grounding tag key {tag_key!r}",
                     }
                 )
-                unit_failed = True
                 continue
             normalized_grounding["tag_keys"].append(normalized_tag_key)
-        raw_category_keys = grounding.get("category_keys")
         if raw_category_keys not in (None, "") and not isinstance(raw_category_keys, list):
             next_errors.append("invalid_grounding_category_keys")
             error_details.append(
@@ -649,15 +661,14 @@ def validate_knowledge_classification_task_file(
         for category_key in _normalized_string_list(raw_category_keys):
             normalized_category_key = normalize_knowledge_tag_key(category_key)
             if normalized_category_key not in category_keys:
-                next_errors.append("unknown_grounding_category_key")
-                error_details.append(
+                unit_grounding_drop_codes.append("unknown_grounding_category_key")
+                unit_grounding_drop_details.append(
                     {
                         "path": f"/units/{unit_id}/answer/grounding/category_keys",
                         "code": "unknown_grounding_category_key",
                         "message": f"unknown grounding category key {category_key!r}",
                     }
                 )
-                unit_failed = True
                 continue
             normalized_grounding["category_keys"].append(normalized_category_key)
         if proposed_tags_raw not in (None, "") and not isinstance(proposed_tags_raw, list):
@@ -685,65 +696,73 @@ def validate_knowledge_classification_task_file(
                 continue
             proposed_key = str(row.get("key") or "").strip()
             normalized_proposed_key = normalize_knowledge_tag_key(proposed_key)
+            proposed_drop_details: list[dict[str, Any]] = []
             if not proposed_key or proposed_key != normalized_proposed_key:
-                next_errors.append("invalid_proposed_tag_key")
-                error_details.append(
+                proposed_drop_details.append(
                     {
                         "path": f"/units/{unit_id}/answer/grounding/proposed_tags/{index}/key",
                         "code": "invalid_proposed_tag_key",
                         "message": "proposed tag keys must already be normalized slug strings",
                     }
                 )
-                unit_failed = True
             if normalized_proposed_key in tag_keys:
-                next_errors.append("proposed_tag_key_conflicts_existing")
-                error_details.append(
+                proposed_drop_details.append(
                     {
                         "path": f"/units/{unit_id}/answer/grounding/proposed_tags/{index}/key",
                         "code": "proposed_tag_key_conflicts_existing",
                         "message": "proposed tag keys must not duplicate an existing tag key",
                     }
                 )
-                unit_failed = True
             if normalized_proposed_key in proposed_keys_seen:
-                next_errors.append("duplicate_proposed_tag_key")
-                error_details.append(
+                proposed_drop_details.append(
                     {
                         "path": f"/units/{unit_id}/answer/grounding/proposed_tags/{index}/key",
                         "code": "duplicate_proposed_tag_key",
                         "message": "proposed tag keys must be unique within one answer",
                     }
                 )
-                unit_failed = True
-            proposed_keys_seen.add(normalized_proposed_key)
             display_name = str(row.get("display_name") or "").strip()
             if not display_name or len(display_name) > 64:
-                next_errors.append("invalid_proposed_tag_display_name")
-                error_details.append(
+                proposed_drop_details.append(
                     {
                         "path": f"/units/{unit_id}/answer/grounding/proposed_tags/{index}/display_name",
                         "code": "invalid_proposed_tag_display_name",
                         "message": "proposed display_name must be a short non-empty string",
                     }
                 )
-                unit_failed = True
             proposed_category_key = normalize_knowledge_tag_key(row.get("category_key"))
             if not proposed_category_key or proposed_category_key not in category_keys:
-                next_errors.append("unknown_grounding_category_key")
-                error_details.append(
+                proposed_drop_details.append(
                     {
                         "path": f"/units/{unit_id}/answer/grounding/proposed_tags/{index}/category_key",
                         "code": "unknown_grounding_category_key",
                         "message": "proposed tag category_key must be an existing category key",
                     }
                 )
-                unit_failed = True
+            if proposed_drop_details:
+                unit_grounding_drop_codes.extend(
+                    str(detail.get("code") or "").strip()
+                    for detail in proposed_drop_details
+                    if str(detail.get("code") or "").strip()
+                )
+                unit_grounding_drop_details.extend(proposed_drop_details)
+                continue
+            proposed_keys_seen.add(normalized_proposed_key)
             normalized_grounding["proposed_tags"].append(
                 {
                     "key": normalized_proposed_key,
                     "display_name": display_name,
                     "category_key": proposed_category_key,
                 }
+            )
+        if unit_grounding_drop_details:
+            grounding_drop_details.extend(
+                {
+                    "unit_id": unit_id,
+                    "block_index": block_index,
+                    **dict(detail),
+                }
+                for detail in unit_grounding_drop_details
             )
         if category == "knowledge":
             if retrieval_concept is None:
@@ -756,16 +775,33 @@ def validate_knowledge_classification_task_file(
                     }
                 )
                 unit_failed = True
-            if not normalized_grounding["tag_keys"] and not normalized_grounding["proposed_tags"]:
-                next_errors.append("knowledge_missing_grounding")
-                error_details.append(
+            if (
+                not unit_failed
+                and not normalized_grounding["tag_keys"]
+                and not normalized_grounding["proposed_tags"]
+            ):
+                demotion_reason = "missing_grounding"
+                if normalized_grounding["category_keys"]:
+                    demotion_reason = "category_only_grounding"
+                elif unit_grounding_drop_details:
+                    demotion_reason = "invalid_grounding_dropped_to_empty"
+                grounding_gate_demotion_details.append(
                     {
-                        "path": f"/units/{unit_id}/answer/grounding",
-                        "code": "knowledge_missing_grounding",
-                        "message": "knowledge rows must ground to an existing tag or a proposed tag",
+                        "unit_id": unit_id,
+                        "block_index": block_index,
+                        "reason": demotion_reason,
+                        "retained_category_keys": list(normalized_grounding["category_keys"]),
+                        "dropped_grounding_error_codes": sorted(
+                            {
+                                str(code).strip()
+                                for code in unit_grounding_drop_codes
+                                if str(code).strip()
+                            }
+                        ),
                     }
                 )
-                unit_failed = True
+                validated_answers[unit_id] = _canonical_other_classification_answer()
+                continue
         elif category == "other":
             if retrieval_concept is not None:
                 next_errors.append("other_retrieval_concept_forbidden")
@@ -781,6 +817,10 @@ def validate_knowledge_classification_task_file(
                 normalized_grounding["tag_keys"]
                 or normalized_grounding["category_keys"]
                 or normalized_grounding["proposed_tags"]
+                or _normalized_string_list(raw_tag_keys)
+                or _normalized_string_list(raw_category_keys)
+                or list(proposed_tags_raw or [])
+                or unit_grounding_drop_details
             ):
                 next_errors.append("other_grounding_forbidden")
                 error_details.append(
@@ -807,6 +847,46 @@ def validate_knowledge_classification_task_file(
         "failed_unit_ids": failed_unit_ids,
         "unresolved_block_indices": sorted(set(unresolved_block_indices)),
         "validated_answers_by_unit_id": validated_answers,
+        "grounding_gate_demotion_details": grounding_gate_demotion_details,
+        "grounding_gate_demoted_unit_ids": [
+            str(detail.get("unit_id") or "").strip()
+            for detail in grounding_gate_demotion_details
+            if str(detail.get("unit_id") or "").strip()
+        ],
+        "grounding_gate_demoted_block_indices": sorted(
+            {
+                int(detail.get("block_index"))
+                for detail in grounding_gate_demotion_details
+                if detail.get("block_index") is not None
+            }
+        ),
+        "grounding_gate_demotion_reason_counts": {
+            reason: sum(
+                1
+                for detail in grounding_gate_demotion_details
+                if str(detail.get("reason") or "").strip() == reason
+            )
+            for reason in sorted(
+                {
+                    str(detail.get("reason") or "").strip()
+                    for detail in grounding_gate_demotion_details
+                    if str(detail.get("reason") or "").strip()
+                }
+            )
+        },
+        "grounding_gate_demoted_after_invalid_grounding_drop_unit_ids": [
+            str(detail.get("unit_id") or "").strip()
+            for detail in grounding_gate_demotion_details
+            if str(detail.get("reason") or "").strip() == "invalid_grounding_dropped_to_empty"
+            and str(detail.get("unit_id") or "").strip()
+        ],
+        "grounding_gate_demoted_for_category_only_unit_ids": [
+            str(detail.get("unit_id") or "").strip()
+            for detail in grounding_gate_demotion_details
+            if str(detail.get("reason") or "").strip() == "category_only_grounding"
+            and str(detail.get("unit_id") or "").strip()
+        ],
+        "grounding_drop_details": grounding_drop_details,
     }
     if next_errors:
         return None, tuple(dict.fromkeys(next_errors)), next_metadata

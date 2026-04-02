@@ -27,6 +27,7 @@ Decision boundary:
 - Ask: can this block produce a short retrieval concept plus at least one existing ontology tag, or a crisp proposed tag under an existing category if the catalog is missing the concept?
 - Ask: does it explain cause, judgment, troubleshooting, ingredient behavior, sensory cues, durable technique, substitution, storage, or safety?
 - If the text is technically true but low-value, too generic, motivational, or not worth preserving on its own, keep it as `other`.
+- If you cannot name a specific existing tag fit, and you also cannot point to a real catalog gap that deserves a proposed tag, keep the block `other`.
 - In mixed packets, keep memoir/framing blocks `other`; only mark a block `knowledge` when that block itself stands on its own as reusable cooking guidance.
 - If only one block in a mixed packet is genuinely reusable, keep only that block and leave the surrounding framing `other`.
 - If a short conceptual heading directly introduces useful explanatory blocks in the same packet, keep that heading with the useful body instead of forcing it to `other`.
@@ -36,7 +37,7 @@ Decision boundary:
 Grounding rules:
 - Every `knowledge` block must include `rt` as a short retrieval concept phrase.
 - Every `knowledge` block must include `gr.tk` with one or more existing tag keys, or `gr.pt` with one or more proposed tags.
-- Proposed tags are for real catalog gaps only. Each proposed tag needs normalized `k`, short `d`, and existing category `ck`.
+- Proposed tags are for real catalog gaps only, not as a fallback when no existing tag actually fits. Each proposed tag needs normalized `k`, short `d`, and existing category `ck`.
 - `gr.ck` is optional support metadata only. It does not make a block keepable by itself.
 - `other` blocks must use `rt=null`, `gr.tk=[]`, `gr.ck=[]`, and `gr.pt=[]`.
 

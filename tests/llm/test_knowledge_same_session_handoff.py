@@ -165,6 +165,58 @@ def test_same_session_handoff_advances_from_classification_to_grouping_and_compl
     ]
 
 
+def test_same_session_handoff_demotes_ungrounded_knowledge_without_repair(
+    tmp_path: Path,
+) -> None:
+    workspace_root, state_path = _initialize_workspace(tmp_path)
+
+    task_file = load_task_file(workspace_root / "task.json")
+    edited = deepcopy(task_file)
+    edited["units"][0]["answer"] = {
+        "category": "knowledge",
+        "reviewer_category": "knowledge",
+        "retrieval_concept": "Heat control",
+        "grounding": {
+            "tag_keys": ["not-a-real-tag"],
+            "category_keys": [],
+            "proposed_tags": [],
+        },
+    }
+    write_task_file(path=workspace_root / "task.json", payload=edited)
+
+    result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    output_payload = json.loads(
+        (workspace_root / "out" / "book.ks0000.nr.json").read_text(encoding="utf-8")
+    )
+
+    assert result["status"] == "completed_without_grouping"
+    assert result["same_session_repair_rewrite_count"] == 0
+    assert result["validation_errors"] == []
+    assert result["validation_metadata"]["grounding_gate_demoted_unit_ids"] == [
+        "knowledge::8"
+    ]
+    assert result["validation_metadata"]["grounding_gate_demotion_reason_counts"] == {
+        "invalid_grounding_dropped_to_empty": 1
+    }
+    assert output_payload["block_decisions"] == [
+        {
+            "block_index": 8,
+            "category": "other",
+            "reviewer_category": "other",
+            "retrieval_concept": None,
+            "grounding": {
+                "tag_keys": [],
+                "category_keys": [],
+                "proposed_tags": [],
+            },
+        }
+    ]
+    assert output_payload["idea_groups"] == []
+
+
 def test_same_session_handoff_rewrites_invalid_classification_into_repair_mode(
     tmp_path: Path,
 ) -> None:

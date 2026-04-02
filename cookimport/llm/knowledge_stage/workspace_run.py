@@ -471,6 +471,90 @@ def _apply_knowledge_same_session_row_metadata(
     row["final_output_shard_count"] = int(state_payload.get("final_output_shard_count") or 0)
 
 
+def _knowledge_same_session_grounding_gate_metadata_by_shard(
+    *,
+    initial_task_file: Mapping[str, Any],
+    state_payload: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    unit_to_shard_id = {
+        str(unit_id): str(shard_id)
+        for unit_id, shard_id in dict(state_payload.get("unit_to_shard_id") or {}).items()
+        if str(unit_id).strip() and str(shard_id).strip()
+    }
+    unit_to_block_index = {
+        str(unit.get("unit_id") or "").strip(): int(
+            _coerce_dict(unit.get("evidence")).get("block_index") or 0
+        )
+        for unit in (initial_task_file.get("units") or [])
+        if isinstance(unit, Mapping) and str(unit.get("unit_id") or "").strip()
+    }
+    shard_metadata: dict[str, dict[str, Any]] = {}
+    for transition_row in state_payload.get("transition_history") or []:
+        transition = _coerce_dict(transition_row)
+        if str(transition.get("current_stage_key") or "").strip() != KNOWLEDGE_CLASSIFY_STAGE_KEY:
+            continue
+        validation_metadata = _coerce_dict(transition.get("validation_metadata"))
+        for raw_detail in validation_metadata.get("grounding_gate_demotion_details") or []:
+            detail = _coerce_dict(raw_detail)
+            unit_id = str(detail.get("unit_id") or "").strip()
+            shard_id = str(unit_to_shard_id.get(unit_id) or "").strip()
+            if not unit_id or not shard_id:
+                continue
+            reason = str(detail.get("reason") or "").strip() or "missing_grounding"
+            block_index = int(
+                detail.get("block_index")
+                if detail.get("block_index") is not None
+                else unit_to_block_index.get(unit_id) or 0
+            )
+            shard_row = shard_metadata.setdefault(
+                shard_id,
+                {
+                    "grounding_gate_demotion_details": [],
+                    "grounding_gate_demoted_unit_ids": set(),
+                    "grounding_gate_demoted_block_indices": set(),
+                    "grounding_gate_demotion_reason_counts": {},
+                },
+            )
+            shard_row["grounding_gate_demotion_details"].append(
+                {
+                    "unit_id": unit_id,
+                    "block_index": block_index,
+                    "reason": reason,
+                }
+            )
+            shard_row["grounding_gate_demoted_unit_ids"].add(unit_id)
+            shard_row["grounding_gate_demoted_block_indices"].add(block_index)
+            shard_row["grounding_gate_demotion_reason_counts"][reason] = (
+                int(shard_row["grounding_gate_demotion_reason_counts"].get(reason) or 0) + 1
+            )
+    finalized: dict[str, dict[str, Any]] = {}
+    for shard_id, metadata in shard_metadata.items():
+        reason_counts = dict(metadata.get("grounding_gate_demotion_reason_counts") or {})
+        finalized[shard_id] = {
+            "grounding_gate_demotion_details": list(
+                metadata.get("grounding_gate_demotion_details") or []
+            ),
+            "grounding_gate_demoted_unit_ids": sorted(
+                str(unit_id) for unit_id in (metadata.get("grounding_gate_demoted_unit_ids") or set())
+            ),
+            "grounding_gate_demoted_block_indices": sorted(
+                int(block_index)
+                for block_index in (
+                    metadata.get("grounding_gate_demoted_block_indices") or set()
+                )
+            ),
+            "grounding_gate_demotion_reason_counts": dict(sorted(reason_counts.items())),
+            "grounding_gate_demoted_block_count": sum(reason_counts.values()),
+            "grounding_gate_demoted_after_invalid_grounding_drop_count": int(
+                reason_counts.get("invalid_grounding_dropped_to_empty") or 0
+            ),
+            "grounding_gate_demoted_for_category_only_count": int(
+                reason_counts.get("category_only_grounding") or 0
+            ),
+        }
+    return finalized
+
+
 def _build_knowledge_runner_exception_result(
     *,
     exc: CodexFarmRunnerError,
@@ -1098,6 +1182,14 @@ def _run_phase_knowledge_worker_assignment_v1(
         )
     )
     task_file_errors_by_shard: dict[str, tuple[tuple[str, ...], dict[str, Any]]] = {}
+    same_session_grounding_gate_metadata_by_shard: dict[str, dict[str, Any]] = {}
+    if task_file_payload is not None:
+        same_session_grounding_gate_metadata_by_shard = (
+            _knowledge_same_session_grounding_gate_metadata_by_shard(
+                initial_task_file=task_file_payload,
+                state_payload=same_session_state_payload,
+            )
+        )
     for unit_id in classification_validation_metadata.get("failed_unit_ids") or []:
         shard_id = str(unit_to_shard_id.get(str(unit_id)) or "").strip()
         if shard_id:
@@ -1272,6 +1364,10 @@ def _run_phase_knowledge_worker_assignment_v1(
             **dict(shard_summary),
             **dict(explicit_terminal_reason_metadata or {}),
         }
+        if shard.shard_id in same_session_grounding_gate_metadata_by_shard:
+            validation_metadata.update(
+                dict(same_session_grounding_gate_metadata_by_shard[shard.shard_id])
+            )
         if fresh_worker_replacement_metadata:
             validation_metadata["fresh_worker_replacement"] = dict(
                 fresh_worker_replacement_metadata

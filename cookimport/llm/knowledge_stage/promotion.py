@@ -429,11 +429,45 @@ def _serialize_decision_grounding(decision: Any) -> dict[str, Any]:
     }
 
 
+def load_validated_knowledge_proposal_metadata_by_packet_id(
+    proposals_dir: Path,
+) -> dict[str, dict[str, Any]]:
+    metadata_by_packet_id: dict[str, dict[str, Any]] = {}
+    for proposal_path in sorted(proposals_dir.glob("*.json")):
+        wrapper = json.loads(proposal_path.read_text(encoding="utf-8"))
+        if not isinstance(wrapper, Mapping):
+            continue
+        validation_metadata = _coerce_dict(
+            wrapper.get("validation_metadata")
+            if isinstance(wrapper.get("validation_metadata"), Mapping)
+            else wrapper.get("metadata")
+        )
+        payload = _coerce_dict(wrapper.get("payload"))
+        packet_ids: list[str] = []
+        packet_id = str(payload.get("packet_id") or payload.get("bid") or "").strip()
+        if packet_id:
+            packet_ids.append(packet_id)
+        for packet_row in payload.get("packet_results") or payload.get("results") or []:
+            packet_dict = _coerce_dict(packet_row)
+            nested_packet_id = str(
+                packet_dict.get("packet_id") or packet_dict.get("bid") or ""
+            ).strip()
+            if nested_packet_id:
+                packet_ids.append(nested_packet_id)
+        fallback_packet_id = str(wrapper.get("shard_id") or proposal_path.stem).strip()
+        if not packet_ids and fallback_packet_id:
+            packet_ids.append(fallback_packet_id)
+        for resolved_packet_id in packet_ids:
+            metadata_by_packet_id[resolved_packet_id] = dict(validation_metadata)
+    return metadata_by_packet_id
+
+
 def _collect_block_grounding_details(
     *,
     outputs: Mapping[str, Any],
     allowed_block_indices: Mapping[int, str],
-) -> tuple[dict[int, dict[str, Any]], dict[str, int], list[dict[str, Any]]]:
+    proposal_metadata_by_packet_id: Mapping[str, Mapping[str, Any]] | None = None,
+) -> tuple[dict[int, dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
     normalized_allowed = {int(block_index) for block_index in allowed_block_indices}
     grounding_by_block: dict[int, dict[str, Any]] = {}
     proposal_rollups: dict[tuple[str, str], dict[str, Any]] = {}
@@ -442,8 +476,32 @@ def _collect_block_grounding_details(
         "retrieval_gate_rejected_block_count": 0,
         "knowledge_blocks_grounded_to_existing_tags": 0,
         "knowledge_blocks_using_proposed_tags": 0,
+        "grounding_gate_demoted_block_count": 0,
+        "grounding_gate_demoted_after_invalid_grounding_drop_count": 0,
+        "grounding_gate_demoted_for_category_only_count": 0,
     }
+    demotion_reason_counts: dict[str, int] = {}
     for packet_id, output in outputs.items():
+        packet_metadata = _coerce_dict((proposal_metadata_by_packet_id or {}).get(packet_id))
+        packet_demoted_block_count = int(
+            packet_metadata.get("grounding_gate_demoted_block_count") or 0
+        )
+        counts["grounding_gate_demoted_block_count"] += packet_demoted_block_count
+        counts["grounding_gate_demoted_after_invalid_grounding_drop_count"] += int(
+            packet_metadata.get("grounding_gate_demoted_after_invalid_grounding_drop_count") or 0
+        )
+        counts["grounding_gate_demoted_for_category_only_count"] += int(
+            packet_metadata.get("grounding_gate_demoted_for_category_only_count") or 0
+        )
+        for reason, value in _coerce_dict(
+            packet_metadata.get("grounding_gate_demotion_reason_counts")
+        ).items():
+            cleaned_reason = str(reason).strip()
+            if not cleaned_reason:
+                continue
+            demotion_reason_counts[cleaned_reason] = (
+                int(demotion_reason_counts.get(cleaned_reason) or 0) + int(value or 0)
+            )
         for decision in getattr(output, "block_decisions", ()) or ():
             block_index = int(getattr(decision, "block_index", 0) or 0)
             if block_index not in normalized_allowed:
@@ -505,4 +563,7 @@ def _collect_block_grounding_details(
         )
     ]
     counts["tag_proposal_count"] = len(proposal_rows)
+    counts["grounding_gate_demotion_reason_counts"] = dict(
+        sorted(demotion_reason_counts.items())
+    )
     return grounding_by_block, counts, proposal_rows

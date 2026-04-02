@@ -189,6 +189,55 @@ def test_classification_validator_enforces_reviewer_category_rules_and_repair_sc
     assert [unit["unit_id"] for unit in repair_task_file["units"]] == ["knowledge::21"]
 
 
+def test_classification_validator_demotes_ungrounded_knowledge_to_other() -> None:
+    task_file, _ = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[
+            _shard(
+                shard_id="book.ks0000.nr",
+                block_index=31,
+                text="Acid can wake up heavy dishes.",
+            )
+        ],
+    )
+    edited = deepcopy(task_file)
+    edited["units"][0]["answer"] = {
+        "category": "knowledge",
+        "reviewer_category": "knowledge",
+        "retrieval_concept": "Balance richness with acid",
+        "grounding": {
+            "tag_keys": [],
+            "category_keys": [],
+            "proposed_tags": [],
+        },
+    }
+
+    answers_by_unit_id, errors, metadata = validate_knowledge_classification_task_file(
+        original_task_file=task_file,
+        edited_task_file=edited,
+    )
+
+    assert errors == ()
+    assert metadata["failed_unit_ids"] == []
+    assert metadata["grounding_gate_demoted_unit_ids"] == ["knowledge::31"]
+    assert metadata["grounding_gate_demoted_block_indices"] == [31]
+    assert metadata["grounding_gate_demotion_reason_counts"] == {
+        "missing_grounding": 1
+    }
+    assert answers_by_unit_id == {
+        "knowledge::31": {
+            "category": "other",
+            "reviewer_category": "other",
+            "retrieval_concept": None,
+            "grounding": {
+                "tag_keys": [],
+                "category_keys": [],
+                "proposed_tags": [],
+            },
+        }
+    }
+
+
 def test_task_file_answer_feedback_is_filtered_to_each_failed_unit() -> None:
     feedback_by_unit_id = build_task_file_answer_feedback(
         validation_errors=(
