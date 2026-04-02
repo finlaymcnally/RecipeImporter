@@ -159,6 +159,8 @@ Worker/shard mental model:
 
 - A setting such as `10 / 5 / 10` in benchmark interactive mode means the runtime will build at most ten `line_role` shards, five `recipe` shards, and ten `knowledge` shards; phases may use fewer shards only when they have fewer owned items total.
 - Recipe, line-role, and knowledge all treat their prompt target counts as hard caps on shard count. When worker count is not overridden separately, implicit worker count is bounded by the final shard count.
+- Live direct-exec planning now also runs deterministic shard survivability budgeting before worker launch. The planner counts prompt/input tokens and structural output tokens per planned shard, applies conservative repo-owned caps for `input`, `output`, `session_peak`, and owned-unit count, writes `shard_survivability_report.json` beside the stage runtime, and refuses unsafe requested shard counts instead of silently increasing them.
+- In prompt preview, `minimum_safe_shard_count` means the smallest shard count the shared survivability solver considers safe under those conservative caps. `binding_limit` names the constraint that forced that recommendation (`input`, `output`, `session_peak`, or `owned_units`).
 - The durable contract is "immutable input payload in, structured owned output/proposal out." The runtime then validates exact ownership/coverage and promotes only valid results.
 - Recipe tags are part of the recipe correction surface, not a fourth independent Codex phase.
 - Freeform prelabel is separate again; it is not part of the recipe/line-role/knowledge trio above.
@@ -327,6 +329,7 @@ Prompt/debug artifacts:
 - for line-role, requested-vs-actual run-count reporting is surface-level: compare the requested line-role target against the actual shard count on the single live `line_role` phase
 - `cf-debug preview-prompts --run ... --out ...` rebuilds zero-token prompt previews from an existing processed run, or from a benchmark root that resolves to a predictive-safe processed run, and writes `prompt_preview_manifest.json` plus prompt artifacts under the chosen output dir
 - prompt preview manifests now also record `codex_farm_cmd`, and preview rows use that effective command when reconstructing fallback runtime model/reasoning labels
+- prompt preview manifests and `prompt_preview_budget_summary.{json,md}` now also carry shard survivability fields such as `minimum_safe_shard_count`, `binding_limit`, per-shard input/output/followup/peak estimates, and unsafe-shard warnings when the requested count is below the recommendation
 - preview budget estimation is predictive-only: it rebuilds deterministic/`vanilla` shard payloads locally, estimates tokens from reconstructable prompt/output structure, and never reuses Codex-backed run telemetry
 - predictive preview is now structural rather than ratio-based: it tokenizes the reconstructed prompt wrapper plus deposited task-file body with `tiktoken`, estimates output tokens from schema-shaped JSON built from the planned shard input, and reports stages as unavailable when that structure cannot be rebuilt safely
 - older saved runs that predate the prompt-target fields should default preview planning to the current shard-v1 target count (`5`) for each enabled phase instead of falling back to legacy shard-size defaults

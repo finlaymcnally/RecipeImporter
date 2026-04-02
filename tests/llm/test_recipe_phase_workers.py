@@ -5,6 +5,8 @@ import time
 from copy import deepcopy
 from pathlib import Path
 
+import pytest
+
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.progress_messages import parse_stage_progress
 from cookimport.core.models import ConversionReport, ConversionResult, RawArtifact, RecipeCandidate
@@ -1112,6 +1114,58 @@ def test_recipe_prompt_target_count_is_a_hard_cap(
             "urn:recipe:test:cereal",
         ]
     ]
+
+
+def test_recipe_pipeline_fails_closed_before_worker_launch_when_survivability_is_unsafe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    settings = RunSettings.model_validate(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "codex_farm_cmd": "codex-farm",
+            "codex_farm_root": str(tmp_path / "pack"),
+            "recipe_prompt_target_count": 1,
+            "recipe_worker_count": 1,
+        }
+    )
+    for name in ("pipelines", "prompts", "schemas"):
+        (tmp_path / "pack" / name).mkdir(parents=True, exist_ok=True)
+
+    runner = FakeCodexExecRunner(
+        output_builder=lambda _payload: pytest.fail("worker should not start for unsafe shard plans")
+    )
+    unsafe_report = lambda **_kwargs: {
+        "stage_label": "Recipe Refine",
+        "requested_shard_count": 1,
+        "minimum_safe_shard_count": 3,
+        "binding_limit": "output",
+        "survivability_verdict": "unsafe",
+        "worst_shard": {"shard_id": "recipe-shard-0000-r0000-r0002"},
+    }
+    monkeypatch.setattr(recipe_module, "_build_recipe_shard_survivability_report", unsafe_report)
+    monkeypatch.setattr(
+        "cookimport.llm.recipe_stage_shared._build_recipe_shard_survivability_report",
+        unsafe_report,
+    )
+    monkeypatch.setitem(
+        run_codex_farm_recipe_pipeline.__globals__,
+        "_build_recipe_shard_survivability_report",
+        unsafe_report,
+    )
+
+    with pytest.raises(RuntimeError, match="minimum safe count is 3"):
+        run_codex_farm_recipe_pipeline(
+            conversion_result=_build_multi_recipe_conversion_result(source),
+            run_settings=settings,
+            run_root=tmp_path / "run",
+            workbook_slug="book",
+            runner=runner,
+        )
+
+    assert runner.calls == []
 
 
 def test_recipe_taskfile_worker_with_valid_files_and_prose_final_message_stays_valid(

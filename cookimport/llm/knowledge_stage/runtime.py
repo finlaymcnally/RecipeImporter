@@ -203,6 +203,18 @@ def run_codex_farm_nonrecipe_finalize(
         requested_worker_count=run_settings.knowledge_worker_count,
         shard_count=len(build_report.shard_entries),
     )
+    survivability_report = _build_knowledge_shard_survivability_report(
+        shard_entries=build_report.shard_entries,
+        pipeline_id=pipeline_id,
+        model_name=codex_model,
+        requested_shard_count=run_settings.knowledge_prompt_target_count,
+    )
+    _write_json(
+        survivability_report,
+        knowledge_stage_dir / "shard_survivability_report.json",
+    )
+    if str(survivability_report.get("survivability_verdict") or "") != "safe":
+        raise ShardSurvivabilityPreflightError(survivability_report)
     configured_worker_total = (
         max(1, int(run_settings.knowledge_worker_count))
         if run_settings.knowledge_worker_count is not None

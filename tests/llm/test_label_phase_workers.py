@@ -485,6 +485,49 @@ def test_line_role_prompt_target_count_is_a_hard_cap(
     assert [len(shard["owned_ids"]) for shard in shard_manifest] == [5]
 
 
+def test_line_role_fails_closed_before_worker_launch_when_survivability_is_unsafe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeCodexExecRunner(
+        output_builder=lambda _payload: pytest.fail("worker should not start for unsafe shard plans")
+    )
+    unsafe_report = lambda **_kwargs: {
+        "stage_label": "Canonical Line Role",
+        "requested_shard_count": 1,
+        "minimum_safe_shard_count": 2,
+        "binding_limit": "session_peak",
+        "survivability_verdict": "unsafe",
+        "worst_shard": {"shard_id": "line-role-canonical-0001-a000000-a000004"},
+    }
+    monkeypatch.setattr(
+        canonical_line_roles_module,
+        "_build_line_role_shard_survivability_report",
+        unsafe_report,
+    )
+    monkeypatch.setattr(
+        "cookimport.parsing.canonical_line_roles.runtime._build_line_role_shard_survivability_report",
+        unsafe_report,
+    )
+    monkeypatch.setitem(
+        label_atomic_lines.__globals__,
+        "_build_line_role_shard_survivability_report",
+        unsafe_report,
+    )
+
+    with pytest.raises(RuntimeError, match="minimum safe count is 2"):
+        label_atomic_lines(
+            [_candidate(index) for index in range(5)],
+            _settings(line_role_prompt_target_count=1, line_role_worker_count=1),
+            artifact_root=tmp_path,
+            codex_batch_size=1,
+            codex_runner=runner,
+            live_llm_allowed=True,
+        )
+
+    assert runner.calls == []
+
+
 def test_line_role_phase_workers_report_task_packet_progress(
     tmp_path: Path,
 ) -> None:

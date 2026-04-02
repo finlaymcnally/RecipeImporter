@@ -31,6 +31,12 @@ from cookimport.llm.taskfile_progress import (
     start_taskfile_progress_heartbeat,
     summarize_taskfile_health,
 )
+from cookimport.llm.shard_survivability import (
+    ShardSurvivabilityPreflightError,
+    count_structural_output_tokens,
+    count_tokens_for_model,
+    evaluate_stage_survivability,
+)
 from .same_session_handoff import (
     LINE_ROLE_SAME_SESSION_STATE_ENV,
     describe_line_role_same_session_doctor,
@@ -218,6 +224,51 @@ def _line_role_hard_boundary_failure(run_result: CodexExecRunResult) -> bool:
     if str(run_result.supervision_state or "").strip() == "boundary_interrupted":
         return True
     return reason_code.startswith("watchdog_") or "boundary" in reason_code
+
+
+def _build_line_role_shard_survivability_report(
+    *,
+    shard_plans: Sequence[_LineRoleShardPlan],
+    requested_shard_count: int | None,
+    model_name: str | None,
+) -> dict[str, Any]:
+    resolved_model_name = str(model_name or "").strip()
+    shard_estimates: list[dict[str, Any]] = []
+    for shard_plan in shard_plans:
+        input_payload = (
+            dict(shard_plan.manifest_entry.input_payload)
+            if isinstance(shard_plan.manifest_entry.input_payload, Mapping)
+            else {}
+        )
+        prompt_path = Path("in") / f"{shard_plan.shard_id}.json"
+        prompt_text = build_canonical_line_role_file_prompt(
+            input_path=prompt_path,
+            input_payload=input_payload,
+        )
+        shard_estimates.append(
+            {
+                "shard_id": shard_plan.shard_id,
+                "owned_unit_count": len(shard_plan.candidates),
+                "estimated_input_tokens": count_tokens_for_model(
+                    prompt_text,
+                    model_name=resolved_model_name,
+                ),
+                "estimated_output_tokens": count_structural_output_tokens(
+                    pipeline_id=shard_plan.runtime_pipeline_id,
+                    input_payload=input_payload,
+                    model_name=resolved_model_name,
+                ),
+                "metadata": {
+                    "owned_ids": list(shard_plan.manifest_entry.owned_ids),
+                },
+            }
+        )
+    return evaluate_stage_survivability(
+        stage_key="line_role",
+        shard_estimates=shard_estimates,
+        requested_shard_count=requested_shard_count or len(shard_plans),
+        stage_label_override="Canonical Line Role",
+    )
 
 
 def _should_attempt_line_role_fresh_session_retry(
@@ -1155,6 +1206,18 @@ def _run_line_role_shard_runtime(
             else Path.cwd() / ".tmp" / "line-role-pipeline-runtime"
         )
     )
+    survivability_report = _build_line_role_shard_survivability_report(
+        shard_plans=shard_plans,
+        requested_shard_count=getattr(settings, "line_role_prompt_target_count", None),
+        model_name=codex_farm_model,
+    )
+    (runtime_root / "line_role").mkdir(parents=True, exist_ok=True)
+    _write_runtime_json(
+        runtime_root / "line_role" / "shard_survivability_report.json",
+        survivability_report,
+    )
+    if str(survivability_report.get("survivability_verdict") or "") != "safe":
+        raise ShardSurvivabilityPreflightError(survivability_report)
     phase_result = _run_line_role_phase_runtime(
         shard_plans=shard_plans,
         artifact_root=artifact_root,

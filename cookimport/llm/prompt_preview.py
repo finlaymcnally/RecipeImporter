@@ -373,6 +373,10 @@ def write_prompt_preview_for_existing_run(
         preview_dir=out_dir,
         phase_plans=stage_plans,
     )
+    _annotate_phase_plans_with_budget_summary(
+        phase_plans=stage_plans,
+        budget_summary=budget_summary,
+    )
     budget_json_path, budget_md_path = write_prompt_preview_budget_summary(
         out_dir,
         budget_summary,
@@ -1383,6 +1387,53 @@ def _annotate_rows_from_phase_plan(
             "shard_id": shard.get("shard_id"),
             "owned_ids": list(shard.get("owned_ids") or []),
         }
+
+
+def _annotate_phase_plans_with_budget_summary(
+    *,
+    phase_plans: Mapping[str, dict[str, Any]],
+    budget_summary: Mapping[str, Any],
+) -> None:
+    by_stage = budget_summary.get("by_stage")
+    if not isinstance(by_stage, Mapping):
+        return
+    for stage_key, phase_plan in phase_plans.items():
+        if not isinstance(phase_plan, dict):
+            continue
+        stage_budget = by_stage.get(stage_key)
+        if not isinstance(stage_budget, Mapping):
+            continue
+        for key in (
+            "minimum_safe_shard_count",
+            "binding_limit",
+            "survivability_verdict",
+        ):
+            if key in stage_budget:
+                phase_plan[key] = stage_budget.get(key)
+        survivability = stage_budget.get("survivability")
+        if not isinstance(survivability, Mapping):
+            continue
+        phase_plan["survivability"] = dict(survivability)
+        shard_metrics = {
+            str(row.get("shard_id") or ""): row
+            for row in survivability.get("shards") or []
+            if isinstance(row, Mapping)
+        }
+        for shard in phase_plan.get("shards") or []:
+            if not isinstance(shard, dict):
+                continue
+            metrics = shard_metrics.get(str(shard.get("shard_id") or ""))
+            if not isinstance(metrics, Mapping):
+                continue
+            for key in (
+                "estimated_input_tokens",
+                "estimated_output_tokens",
+                "estimated_followup_tokens",
+                "estimated_peak_session_tokens",
+                "verdict",
+                "binding_limit",
+            ):
+                shard[key] = metrics.get(key)
 
 
 def _int_distribution(values: Sequence[int]) -> dict[str, int | float]:

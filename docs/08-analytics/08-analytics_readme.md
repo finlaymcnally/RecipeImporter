@@ -46,10 +46,12 @@ This README documents active behavior only. Historical notes that still matter f
 Primary modules:
 - `cookimport/analytics/perf_report.py`
 - `cookimport/analytics/dashboard_collect.py`
+- `cookimport/analytics/benchmark_manifest_runtime.py`
 - `cookimport/analytics/dashboard_schema.py`
 - `cookimport/analytics/dashboard_render.py` (public facade)
 - `cookimport/analytics/dashboard_renderers/` (asset/page/template ownership)
   - `templates.py` is now a tiny facade over `html_shell.py`, `style_asset.py`, and `script_asset.py`
+  - `dashboard_renderers/assets/script_filters.js` and `dashboard_renderers/assets/script_tables.js` are the source-of-truth JS files; the same-named Python modules are thin loaders so the import surface stays stable
 - `cookimport/analytics/compare_control_engine.py`
 - `cookimport/analytics/benchmark_timing.py`
 - `cookimport/cli_commands/analytics.py`

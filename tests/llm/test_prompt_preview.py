@@ -572,6 +572,7 @@ def test_prompt_preview_knowledge_prompt_target_count_controls_shard_count(
 
     assert manifest["preview_settings"]["knowledge_prompt_target_count"] == 1
     assert knowledge_phase["shard_count"] == 1
+    assert knowledge_phase["minimum_safe_shard_count"] == 1
     assert knowledge_phase["worker_count"] == 1
     assert knowledge_phase["shards"][0]["owned_ids"] == [
         "fixturebook.ks0000.nr",
@@ -837,11 +838,21 @@ def test_prompt_preview_writes_artifacts_and_budget_summary(tmp_path: Path) -> N
     line_role_budget = budget_summary["by_stage"]["line_role"]
     assert line_role_budget["worker_count"] == 1
     assert line_role_budget["shard_count"] == 1
+    assert line_role_budget["minimum_safe_shard_count"] == 1
+    assert line_role_budget["binding_limit"] in {
+        "input",
+        "output",
+        "session_peak",
+        "owned_units",
+    }
     assert line_role_budget["owned_ids_per_shard"]["avg"] == 4.0
     assert line_role_budget["task_prompt_chars_total"] > 0
     knowledge_budget = budget_summary["by_stage"]["nonrecipe_finalize"]
     assert knowledge_budget["worker_count"] == 1
     assert knowledge_budget["shard_count"] == 1
+    assert knowledge_budget["minimum_safe_shard_count"] == 1
+    assert knowledge_budget["estimated_peak_session_tokens"] is not None
+    assert knowledge_budget["estimated_followup_tokens"] is not None
     assert knowledge_budget["owned_ids_per_shard"]["avg"] == 1.0
     assert budget_summary["estimation_method"]["type"] == "structural_prompt_tokenization"
     assert budget_summary["estimation_method"]["mode"] == "predictive"
@@ -849,6 +860,8 @@ def test_prompt_preview_writes_artifacts_and_budget_summary(tmp_path: Path) -> N
     budget_summary_md = (out_dir / "prompt_preview_budget_summary.md").read_text(encoding="utf-8")
     assert "Workers" in budget_summary_md
     assert "Prompt Detail" in budget_summary_md
+    assert "Min Safe" in budget_summary_md
+    assert "Binding" in budget_summary_md
     assert "structural prompt tokenization" in budget_summary_md
     assert (out_dir / "prompt_preview_budget_summary.md").is_file()
 

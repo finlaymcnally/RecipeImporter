@@ -79,6 +79,12 @@ from ..phase_worker_runtime import (
     WorkerExecutionReportV1,
     resolve_phase_worker_count,
 )
+from ..shard_survivability import (
+    ShardSurvivabilityPreflightError,
+    count_structural_output_tokens,
+    count_tokens_for_model,
+    evaluate_stage_survivability,
+)
 from ..worker_hint_sidecars import preview_text, write_worker_hint_markdown
 
 from .reporting import (
@@ -144,3 +150,41 @@ _KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS = frozenset(
         "proposed_tag_key_conflicts_existing",
     }
 )
+
+
+def _build_knowledge_shard_survivability_report(
+    *,
+    shard_entries: Sequence[ShardManifestEntryV1],
+    pipeline_id: str,
+    model_name: str | None,
+    requested_shard_count: int | None,
+) -> dict[str, Any]:
+    resolved_model_name = str(model_name or "").strip()
+    shard_estimates: list[dict[str, Any]] = []
+    for shard in shard_entries:
+        input_payload = dict(shard.input_payload) if isinstance(shard.input_payload, Mapping) else {}
+        prompt_text = build_knowledge_direct_prompt(input_payload)
+        shard_estimates.append(
+            {
+                "shard_id": shard.shard_id,
+                "owned_unit_count": len(tuple(shard.owned_ids)),
+                "estimated_input_tokens": count_tokens_for_model(
+                    prompt_text,
+                    model_name=resolved_model_name,
+                ),
+                "estimated_output_tokens": count_structural_output_tokens(
+                    pipeline_id=pipeline_id,
+                    input_payload=input_payload,
+                    model_name=resolved_model_name,
+                ),
+                "metadata": {
+                    "owned_ids": list(shard.owned_ids),
+                },
+            }
+        )
+    return evaluate_stage_survivability(
+        stage_key="nonrecipe_finalize",
+        shard_estimates=shard_estimates,
+        requested_shard_count=requested_shard_count or len(shard_entries),
+        stage_label_override="Nonrecipe Finalize",
+    )

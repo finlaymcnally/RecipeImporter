@@ -80,6 +80,12 @@ from .recipe_workspace_tools import (
     validate_recipe_worker_draft,
 )
 from .recipe_tagging_guide import build_recipe_tagging_guide
+from .shard_survivability import (
+    ShardSurvivabilityPreflightError,
+    count_structural_output_tokens,
+    count_tokens_for_model,
+    evaluate_stage_survivability,
+)
 from .shard_prompt_targets import partition_contiguous_items, resolve_shard_count
 from .task_file_guardrails import (
     build_task_file_guardrail,
@@ -1591,6 +1597,54 @@ def render_recipe_direct_prompt(
     rendered = rendered.replace("{{INPUT_PATH}}", str(input_path))
     rendered = rendered.replace("{{ INPUT_PATH }}", str(input_path))
     return rendered
+
+
+def _build_recipe_shard_survivability_report(
+    *,
+    recipe_shards: Sequence[_RecipeShardPlan],
+    phase_input_dir: Path,
+    pipeline_assets: Mapping[str, Any],
+    model_name: str | None,
+    requested_shard_count: int | None,
+) -> dict[str, Any]:
+    shard_estimates: list[dict[str, Any]] = []
+    resolved_model_name = str(model_name or "").strip()
+    for recipe_shard in recipe_shards:
+        serialized_input = _serialize_compact_prompt_json(
+            serialize_recipe_correction_shard_input(recipe_shard.shard_input)
+        )
+        input_path = phase_input_dir / f"{recipe_shard.shard_id}.json"
+        prompt_text = render_recipe_direct_prompt(
+            pipeline_assets=pipeline_assets,
+            input_text=serialized_input,
+            input_path=input_path,
+        )
+        shard_estimates.append(
+            {
+                "shard_id": recipe_shard.shard_id,
+                "owned_unit_count": len(recipe_shard.states),
+                "estimated_input_tokens": count_tokens_for_model(
+                    prompt_text,
+                    model_name=resolved_model_name,
+                ),
+                "estimated_output_tokens": count_structural_output_tokens(
+                    pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID,
+                    input_payload=serialize_recipe_correction_shard_input(
+                        recipe_shard.shard_input
+                    ),
+                    model_name=resolved_model_name,
+                ),
+                "metadata": {
+                    "recipe_ids": [state.recipe_id for state in recipe_shard.states],
+                },
+            }
+        )
+    return evaluate_stage_survivability(
+        stage_key="recipe_refine",
+        shard_estimates=shard_estimates,
+        requested_shard_count=requested_shard_count or len(recipe_shards),
+        stage_label_override="Recipe Refine",
+    )
 
 
 def _build_single_correction_manifest(
@@ -4298,6 +4352,19 @@ def _run_single_correction_recipe_pipeline(
     correction_started = time.perf_counter()
     phase_runtime_summary: dict[str, Any] = {}
     if recipe_shards:
+        survivability_report = _build_recipe_shard_survivability_report(
+            recipe_shards=recipe_shards,
+            phase_input_dir=phase_input_dir,
+            pipeline_assets=pipeline_assets,
+            model_name=codex_model,
+            requested_shard_count=run_settings.recipe_prompt_target_count,
+        )
+        _write_json(
+            survivability_report,
+            phase_runtime_dir / "shard_survivability_report.json",
+        )
+        if str(survivability_report.get("survivability_verdict") or "") != "safe":
+            raise ShardSurvivabilityPreflightError(survivability_report)
         phase_manifest, worker_reports = _run_direct_recipe_workers_v1(
             phase_key="recipe_refine",
             pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID,

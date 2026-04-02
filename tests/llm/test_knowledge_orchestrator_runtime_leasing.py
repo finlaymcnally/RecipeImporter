@@ -473,8 +473,10 @@ def test_knowledge_orchestrator_classifies_repair_packet_exhaustion(
     }
     assert summary["attention_summary"]["zero_target_counts"]["no_final_output_shard_count"] == 2
     assert handoff_state["same_session_repair_rewrite_count"] == 1
-    assert handoff_state["current_stage_key"] == "knowledge_group"
-    assert (worker_root / "task.json").exists()
+    assert handoff_state["current_stage_key"] == "nonrecipe_classify"
+    assert json.loads((worker_root / "task.json").read_text(encoding="utf-8"))["stage_key"] == (
+        "nonrecipe_classify"
+    )
 
 
 def test_knowledge_orchestrator_preserves_watchdog_reason_precedence(

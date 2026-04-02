@@ -80,6 +80,7 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
         if (
             str(payload.get("stage_key") or "").strip() == "recipe_refine"
             and payload.get("recipe_id") is not None
+            and "source_text" in payload
         ):
             return _default_recipe_refine_task_output(payload)
         recipes_payload = payload.get("recipes", payload.get("r"))
@@ -102,6 +103,14 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
     }:
         if not isinstance(payload, dict):
             raise ValueError("knowledge fake payload must be a JSON object")
+        stage_key = str(payload.get("stage_key") or "").strip()
+        if (
+            stage_key in {"nonrecipe_finalize", "nonrecipe_classify"}
+            and payload.get("block_index") is not None
+        ):
+            return _default_knowledge_classification_task_output(payload)
+        if stage_key == "knowledge_group" and payload.get("block_index") is not None:
+            return _default_knowledge_grouping_task_output(payload)
         blocks = knowledge_input_blocks(payload)
         first_block = blocks[0] if isinstance(blocks, list) and blocks else {}
         block_index = knowledge_input_block_index(first_block) or 0
@@ -146,6 +155,12 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
             ],
         }
     if pipeline_id == "line-role.canonical.v1":
+        if (
+            isinstance(payload, dict)
+            and str(payload.get("stage_key") or "").strip() == "line_role"
+            and payload.get("atomic_index") is not None
+        ):
+            return {"label": "RECIPE_NOTES"}
         atomic_indices = _extract_atomic_indices(payload)
         return {
             "rows": [
@@ -286,6 +301,54 @@ def _default_recipe_refine_task_output(payload: dict[str, Any]) -> dict[str, Any
             if isinstance(tag, dict)
         ],
         "warnings": [],
+    }
+
+
+def _default_knowledge_classification_task_output(payload: dict[str, Any]) -> dict[str, Any]:
+    text = str(payload.get("text") or "").strip()
+    catalog = load_knowledge_tag_catalog()
+    candidate_tag_keys = [
+        str(value).strip()
+        for value in (payload.get("candidate_tag_keys") or [])
+        if str(value).strip()
+    ]
+    if not candidate_tag_keys:
+        candidate_tag_keys = catalog.candidate_tag_keys_for_text(text)
+    if candidate_tag_keys:
+        return {
+            "category": "knowledge",
+            "grounding": {
+                "tag_keys": candidate_tag_keys[:1],
+                "category_keys": [],
+                "proposed_tags": [],
+            },
+        }
+    return {
+        "category": "knowledge",
+        "grounding": {
+            "tag_keys": [],
+            "category_keys": [],
+            "proposed_tags": [
+                {
+                    "key": "heat-control",
+                    "display_name": "Heat control",
+                    "category_key": "techniques",
+                }
+            ],
+        },
+    }
+
+
+def _default_knowledge_grouping_task_output(payload: dict[str, Any]) -> dict[str, Any]:
+    text = str(payload.get("text") or "").strip().lower()
+    if "heat" in text:
+        return {
+            "group_key": "heat-control",
+            "topic_label": "Heat control",
+        }
+    return {
+        "group_key": "fake-knowledge-group",
+        "topic_label": "Fake knowledge group",
     }
 
 

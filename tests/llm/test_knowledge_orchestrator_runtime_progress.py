@@ -83,6 +83,58 @@ def test_knowledge_orchestrator_reports_live_shard_progress(
     assert payloads[-1]["task_total"] == 2
 
 
+def test_knowledge_orchestrator_fails_closed_before_worker_launch_when_survivability_is_unsafe(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
+
+    pack_root, run_root = make_runtime_pack_and_run_dirs(tmp_path)
+    settings = make_runtime_settings(pack_root=pack_root, worker_count=1)
+    runner = FakeCodexExecRunner(
+        output_builder=lambda _payload: pytest.fail("worker should not start for unsafe shard plans")
+    )
+    unsafe_report = lambda **_kwargs: {
+        "stage_label": "Nonrecipe Finalize",
+        "requested_shard_count": 1,
+        "minimum_safe_shard_count": 3,
+        "binding_limit": "output",
+        "survivability_verdict": "unsafe",
+        "worst_shard": {"shard_id": "book.ks0000.nr"},
+    }
+    monkeypatch.setattr(
+        knowledge_module,
+        "_build_knowledge_shard_survivability_report",
+        unsafe_report,
+    )
+    monkeypatch.setattr(
+        "cookimport.llm.knowledge_stage._shared._build_knowledge_shard_survivability_report",
+        unsafe_report,
+    )
+    monkeypatch.setitem(
+        run_codex_farm_nonrecipe_finalize.__globals__,
+        "_build_knowledge_shard_survivability_report",
+        unsafe_report,
+    )
+
+    with pytest.raises(RuntimeError, match="minimum safe count is 3"):
+        run_codex_farm_nonrecipe_finalize(
+            conversion_result=make_runtime_conversion_result(
+                ["Knowledge zero.", "Recipe gap.", "Knowledge two."]
+            ),
+            nonrecipe_stage_result=make_runtime_nonrecipe_stage_result(
+                spans=[knowledge_span(0), knowledge_span(2)]
+            ),
+            recipe_ownership_result=make_runtime_recipe_ownership_result(block_count=3),
+            run_settings=settings,
+            run_root=run_root,
+            workbook_slug="book",
+            runner=runner,
+        )
+
+    assert runner.calls == []
+
+
 def test_knowledge_orchestrator_progress_detail_lines_track_live_shards(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

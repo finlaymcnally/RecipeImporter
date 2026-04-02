@@ -9,6 +9,7 @@ import tiktoken
 
 from cookimport.llm.codex_exec_runner import summarize_direct_telemetry_rows
 from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output
+from cookimport.llm.shard_survivability import evaluate_stage_survivability
 from cookimport.runs.stage_names import canonical_stage_key, stage_label
 from cookimport.runs.stage_observability import (
     build_knowledge_stage_summary,
@@ -443,6 +444,37 @@ def build_prompt_preview_budget_summary(
                             "max": int(_nonnegative_int(distribution.get("max")) or 0),
                             "avg": float(distribution.get("avg") or 0.0),
                         }
+        survivability_report = _build_preview_stage_survivability(
+            stage_key=stage_key,
+            stage_rows=_rows_for_stage(prompt_rows=prompt_rows, stage_key=stage_key),
+            phase_plan=(phase_plans or {}).get(stage_key)
+            if isinstance(phase_plans, Mapping)
+            else None,
+        )
+        if survivability_report is not None:
+            payload["survivability"] = survivability_report
+            payload["minimum_safe_shard_count"] = int(
+                survivability_report.get("minimum_safe_shard_count") or 1
+            )
+            payload["binding_limit"] = survivability_report.get("binding_limit")
+            payload["survivability_verdict"] = survivability_report.get(
+                "survivability_verdict"
+            )
+            worst_shard = survivability_report.get("worst_shard")
+            if isinstance(worst_shard, Mapping):
+                payload["worst_shard_id"] = str(worst_shard.get("shard_id") or "")
+                payload["estimated_peak_session_tokens"] = _nonnegative_int(
+                    worst_shard.get("estimated_peak_session_tokens")
+                )
+                payload["estimated_followup_tokens"] = _nonnegative_int(
+                    worst_shard.get("estimated_followup_tokens")
+                )
+                payload["estimated_input_tokens_max"] = _nonnegative_int(
+                    worst_shard.get("estimated_input_tokens")
+                )
+                payload["estimated_output_tokens_max"] = _nonnegative_int(
+                    worst_shard.get("estimated_output_tokens")
+                )
         totals["call_count"] += call_count
         totals["task_prompt_chars_total"] += task_prompt_chars_total
         totals["prompt_chars_total"] += prompt_chars_total
@@ -498,7 +530,7 @@ def build_prompt_preview_budget_summary(
     )
 
     return {
-        "schema_version": "prompt_preview_budget_summary.v5",
+        "schema_version": "prompt_preview_budget_summary.v6",
         "preview_dir": str(preview_dir),
         "estimation_method": {
             "type": (
@@ -2104,6 +2136,85 @@ def _build_structural_stage_estimate(
     )
 
 
+def _build_preview_stage_survivability(
+    *,
+    stage_key: str,
+    stage_rows: list[Mapping[str, Any]],
+    phase_plan: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not stage_rows:
+        return None
+    shard_estimates: list[dict[str, Any]] = []
+    shard_rows = {
+        str(row.get("runtime_shard_id") or row.get("call_id") or ""): row
+        for row in stage_rows
+    }
+    if isinstance(phase_plan, Mapping) and isinstance(phase_plan.get("shards"), list):
+        plan_shards = phase_plan.get("shards") or []
+    else:
+        plan_shards = []
+    if not plan_shards:
+        plan_shards = [
+            {
+                "shard_id": str(row.get("runtime_shard_id") or row.get("call_id") or ""),
+                "owned_ids": list(row.get("runtime_owned_ids") or []),
+            }
+            for row in stage_rows
+        ]
+    for shard in plan_shards:
+        if not isinstance(shard, Mapping):
+            continue
+        shard_id = str(shard.get("shard_id") or "").strip()
+        row = shard_rows.get(shard_id)
+        if row is None:
+            call_ids = shard.get("call_ids")
+            if isinstance(call_ids, list):
+                for call_id in call_ids:
+                    row = next(
+                        (
+                            candidate
+                            for candidate in stage_rows
+                            if str(candidate.get("call_id") or "") == str(call_id)
+                        ),
+                        None,
+                    )
+                    if row is not None:
+                        break
+        if row is None:
+            continue
+        estimated_input_tokens = _count_structural_input_tokens(row)
+        estimated_output_tokens = _count_structural_output_tokens(row)
+        if estimated_input_tokens is None or estimated_output_tokens is None:
+            return None
+        shard_estimates.append(
+            {
+                "shard_id": shard_id or str(row.get("call_id") or ""),
+                "owned_unit_count": len(list(shard.get("owned_ids") or [])),
+                "estimated_input_tokens": estimated_input_tokens,
+                "estimated_output_tokens": estimated_output_tokens,
+                "metadata": {
+                    "call_id": str(row.get("call_id") or ""),
+                },
+            }
+        )
+    if not shard_estimates:
+        return None
+    requested_shard_count = (
+        _nonnegative_int(phase_plan.get("shard_count"))
+        if isinstance(phase_plan, Mapping)
+        else None
+    ) or len(shard_estimates)
+    return evaluate_stage_survivability(
+        stage_key=stage_key,
+        shard_estimates=shard_estimates,
+        requested_shard_count=requested_shard_count,
+        stage_label_override=_PREVIEW_STAGE_LABELS.get(
+            stage_key,
+            stage_key.replace("_", " ").title(),
+        ),
+    )
+
+
 def _count_structural_input_tokens(row: Mapping[str, Any]) -> int | None:
     rendered_prompt_text = str(row.get("rendered_prompt_text") or "")
     if not rendered_prompt_text:
@@ -2289,6 +2400,29 @@ def _build_prompt_preview_budget_warnings(
                     "message": f"Knowledge extraction fan-out is high: {knowledge_calls} shard interactions.",
                 }
             )
+    for stage_key, payload in by_stage.items():
+        if not isinstance(payload, Mapping):
+            continue
+        minimum_safe_shard_count = _nonnegative_int(payload.get("minimum_safe_shard_count"))
+        current_shard_count = _nonnegative_int(payload.get("shard_count"))
+        if (
+            minimum_safe_shard_count is None
+            or current_shard_count is None
+            or minimum_safe_shard_count <= current_shard_count
+        ):
+            continue
+        warnings.append(
+            {
+                "severity": "danger",
+                "code": "unsafe_shard_count",
+                "stage": stage_key,
+                "message": (
+                    f"{payload.get('stage_label') or stage_key} is planned for {current_shard_count} shard(s), "
+                    f"but deterministic survivability recommends at least {minimum_safe_shard_count}. "
+                    f"Binding limit: {payload.get('binding_limit') or 'unknown'}."
+                ),
+            }
+        )
     return warnings
 
 
@@ -2346,9 +2480,9 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
     lines.append("## By Stage")
     lines.append("")
     lines.append(
-        "| Stage | Basis | Workers | Shards | Interactions | Owned IDs / Shard | First-Turn Chars / Shard | Est. Total Tokens | Range |"
+        "| Stage | Basis | Workers | Shards | Min Safe | Binding | Interactions | Owned IDs / Shard | Peak / Shard | Est. Total Tokens | Range |"
     )
-    lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+    lines.append("| --- | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |")
     by_stage = summary.get("by_stage")
     if isinstance(by_stage, Mapping):
         for stage_key, payload in by_stage.items():
@@ -2366,9 +2500,16 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
                 + f"{str(payload.get('estimation_basis') or 'unavailable')} | "
                 + f"{int(_nonnegative_int(payload.get('worker_count')) or 0):,} | "
                 + f"{int(_nonnegative_int(payload.get('shard_count')) or 0):,} | "
+                + f"{int(_nonnegative_int(payload.get('minimum_safe_shard_count')) or 0):,} | "
+                + f"{str(payload.get('binding_limit') or 'unavailable')} | "
                 + f"{int(_nonnegative_int(payload.get('interaction_count')) or _nonnegative_int(payload.get('call_count')) or 0):,} | "
                 + f"{float(owned_ids_per_shard.get('avg') or 0.0):.2f} | "
-                + f"{float(first_turn_chars.get('avg') or 0.0):.1f} | "
+                + (
+                    f"{int(_nonnegative_int(payload.get('estimated_peak_session_tokens'))):,}"
+                    if _nonnegative_int(payload.get('estimated_peak_session_tokens')) is not None
+                    else "unavailable"
+                )
+                + " | "
                 + (
                     f"{int(_nonnegative_int(payload.get('estimated_total_tokens'))):,}"
                     if _nonnegative_int(payload.get('estimated_total_tokens')) is not None
@@ -2388,9 +2529,9 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
     lines.append("## Prompt Detail")
     lines.append("")
     lines.append(
-        "| Stage | Basis | Task Chars | Wrapped Chars | Overhead Chars | Est. Input Tokens |"
+        "| Stage | Basis | Task Chars | Wrapped Chars | Overhead Chars | Est. Input Tokens | Est. Output Tokens | Est. Followup Tokens |"
     )
-    lines.append("| --- | --- | ---: | ---: | ---: | ---: |")
+    lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |")
     if isinstance(by_stage, Mapping):
         for stage_key, payload in by_stage.items():
             if not isinstance(payload, Mapping):
@@ -2405,6 +2546,18 @@ def _render_prompt_preview_budget_summary_md(summary: Mapping[str, Any]) -> str:
                 + (
                     f"{int(_nonnegative_int(payload.get('estimated_input_tokens'))):,}"
                     if _nonnegative_int(payload.get('estimated_input_tokens')) is not None
+                    else "unavailable"
+                )
+                + " | "
+                + (
+                    f"{int(_nonnegative_int(payload.get('estimated_output_tokens'))):,}"
+                    if _nonnegative_int(payload.get('estimated_output_tokens')) is not None
+                    else "unavailable"
+                )
+                + " | "
+                + (
+                    f"{int(_nonnegative_int(payload.get('estimated_followup_tokens'))):,}"
+                    if _nonnegative_int(payload.get('estimated_followup_tokens')) is not None
                     else "unavailable"
                 )
                 + " |"
