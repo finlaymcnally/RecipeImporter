@@ -794,7 +794,8 @@ def test_choose_run_settings_prompts_for_enabled_codex_prompt_targets(
         "load_qualitysuite_winner_run_settings",
         lambda *_args, **_kwargs: None,
     )
-    prompt_messages: list[str] = []
+    captured_rows: list[dict[str, object]] = []
+    captured_summary_lines: list[str] = []
 
     selected = run_settings_flow.choose_run_settings(
         global_defaults=global_defaults,
@@ -814,23 +815,21 @@ def test_choose_run_settings_prompts_for_enabled_codex_prompt_targets(
             "line_role": False,
             "knowledge": True,
         },
-        prompt_text=lambda message, **_kwargs: (
-            prompt_messages.append(message)
-            or (
-                "3"
-                if message == "Recipe correction shard count for this run:"
-                else "6"
-            )
+        prompt_codex_shard_plan_menu=lambda **kwargs: (
+            captured_rows.extend(dict(row) for row in kwargs["rows"])
+            or captured_summary_lines.extend(list(kwargs["summary_lines"]))
+            or {"recipe": 3, "knowledge": 6}
         ),
         prompt_recipe_pipeline_menu=True,
         prompt_benchmark_llm_surface_toggles=True,
     )
 
     assert selected is not None
-    assert prompt_messages == [
-        "Recipe correction shard count for this run:",
-        "Knowledge shard count for this run:",
+    assert [str(row["step_id"]) for row in captured_rows] == [
+        "recipe",
+        "knowledge",
     ]
+    assert any("Exact survivability estimates appear" in line for line in captured_summary_lines)
     assert selected.recipe_prompt_target_count == 3
     assert selected.knowledge_prompt_target_count == 6
     assert selected.line_role_prompt_target_count == 5
@@ -850,7 +849,7 @@ def test_choose_run_settings_benchmark_prompts_codex_targets_in_runtime_stage_or
         "load_qualitysuite_winner_run_settings",
         lambda *_args, **_kwargs: None,
     )
-    prompt_messages: list[str] = []
+    captured_rows: list[dict[str, object]] = []
 
     selected = run_settings_flow.choose_run_settings(
         global_defaults=global_defaults,
@@ -870,23 +869,19 @@ def test_choose_run_settings_benchmark_prompts_codex_targets_in_runtime_stage_or
             "recipe": True,
             "knowledge": True,
         },
-        prompt_text=lambda message, **_kwargs: (
-            prompt_messages.append(message)
-            or (
-                "10"
-                if message == "Block labelling shard count for this run:"
-                else ("5" if message == "Recipe correction shard count for this run:" else "10")
-            )
+        prompt_codex_shard_plan_menu=lambda **kwargs: (
+            captured_rows.extend(dict(row) for row in kwargs["rows"])
+            or {"line_role": 10, "recipe": 5, "knowledge": 10}
         ),
         prompt_recipe_pipeline_menu=True,
         prompt_benchmark_llm_surface_toggles=True,
     )
 
     assert selected is not None
-    assert prompt_messages == [
-        "Block labelling shard count for this run:",
-        "Recipe correction shard count for this run:",
-        "Knowledge shard count for this run:",
+    assert [str(row["step_id"]) for row in captured_rows] == [
+        "line_role",
+        "recipe",
+        "knowledge",
     ]
     assert selected.line_role_prompt_target_count == 10
     assert selected.recipe_prompt_target_count == 5
@@ -904,7 +899,7 @@ def test_choose_interactive_codex_surfaces_line_role_only_prompts_only_for_line_
         },
         warn_context="test line-role-only prompt targets",
     )
-    prompt_messages: list[str] = []
+    captured_rows: list[dict[str, object]] = []
 
     result = run_settings_flow.choose_interactive_codex_surfaces(
         selected_settings=selected_settings,
@@ -915,13 +910,65 @@ def test_choose_interactive_codex_surfaces_line_role_only_prompts_only_for_line_
             "line_role": True,
             "knowledge": False,
         },
-        prompt_text=lambda message, **_kwargs: prompt_messages.append(message) or "4",
+        prompt_codex_shard_plan_menu=lambda **kwargs: (
+            captured_rows.extend(dict(row) for row in kwargs["rows"]) or {"line_role": 4}
+        ),
     )
 
     assert result is not None
-    assert prompt_messages == ["Block labelling shard count for this run:"]
+    assert [str(row["step_id"]) for row in captured_rows] == ["line_role"]
     assert result.recipe_prompt_target_count == selected_settings.recipe_prompt_target_count
     assert result.line_role_prompt_target_count == 4
+
+
+def test_choose_run_settings_threads_target_context_into_shard_planning_page(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "codex-recipe-shard-v1"},
+        warn_context="test target context defaults",
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    captured_summary_lines: list[str] = []
+
+    selected = run_settings_flow.choose_run_settings(
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda message, *_args, **_kwargs: (
+            "codex-recipe-shard-v1"
+            if message == "Workflow for this run:"
+            else (
+                CODEX_EXEC_STYLE_TASKFILE_V1
+                if message == "Codex Exec style for this run:"
+                else pytest.fail(f"unexpected menu prompt: {message}")
+            )
+        ),
+        back_action=object(),
+        prompt_codex_surface_menu=lambda **_kwargs: {
+            "recipe": True,
+            "knowledge": False,
+        },
+        prompt_codex_shard_plan_menu=lambda **kwargs: (
+            captured_summary_lines.extend(list(kwargs["summary_lines"])) or {"recipe": 7}
+        ),
+        prompt_recipe_pipeline_menu=True,
+        interactive_codex_surface_options=("recipe", "knowledge"),
+        interactive_codex_target_context={
+            "title": "Target: book.epub",
+            "summary_lines": ["Gold: dinner-for-two"],
+        },
+    )
+
+    assert selected is not None
+    assert captured_summary_lines[:2] == [
+        "Target: book.epub",
+        "Gold: dinner-for-two",
+    ]
 
 
 def test_prompt_codex_prompt_target_count_caps_interactive_choice_at_256() -> None:
@@ -1138,6 +1185,54 @@ def test_prompt_codex_surface_menu_allows_left_and_right_to_move_current_choice(
 
     assert "exc" not in error, f"Prompt crashed instead of handling arrows: {error.get('exc')}"
     assert result["value"] == {"recipe": True, "knowledge": True}
+
+
+def test_prompt_codex_shard_plan_menu_uses_arrow_keys_to_adjust_counts() -> None:
+    result: dict[str, dict[str, int] | None] = {"value": None}
+    error: dict[str, BaseException] = {}
+
+    with create_pipe_input() as pipe_input:
+        def _run_prompt() -> None:
+            try:
+                result["value"] = run_settings_flow._prompt_codex_shard_plan_menu(
+                    message="Codex Exec shard planning for this run:",
+                    rows=[
+                        {
+                            "step_id": "recipe",
+                            "label": "Recipe correction",
+                            "current_count": 5,
+                            "minimum_safe_shard_count": None,
+                            "binding_limit": None,
+                            "budget_summary": "in 240k / out 88k / peak 320k",
+                        },
+                        {
+                            "step_id": "knowledge",
+                            "label": "Knowledge",
+                            "current_count": 6,
+                            "minimum_safe_shard_count": None,
+                            "binding_limit": None,
+                            "budget_summary": "in 220k / out 80k / peak 300k",
+                        },
+                    ],
+                    summary_lines=["Target: book.epub"],
+                    back_action="back",
+                    input=pipe_input,
+                    output=DummyOutput(),
+                )
+            except BaseException as exc:  # noqa: BLE001
+                error["exc"] = exc
+
+        worker = threading.Thread(target=_run_prompt, daemon=True)
+        worker.start()
+        pipe_input.send_bytes(b"\x1b[C")  # Right -> recipe 6
+        pipe_input.send_bytes(b"\x1b[B")  # Down -> knowledge
+        pipe_input.send_bytes(b"\x1b[D")  # Left -> knowledge 5
+        pipe_input.send_bytes(b"\x1b[B")  # Down -> Continue
+        pipe_input.send_bytes(b"\r")
+        worker.join(timeout=2)
+
+    assert "exc" not in error, f"Prompt crashed instead of handling arrows: {error.get('exc')}"
+    assert result["value"] == {"recipe": 6, "knowledge": 5}
 
 
 def test_choose_run_settings_codex_profile_prompts_for_ai_settings_when_enabled(

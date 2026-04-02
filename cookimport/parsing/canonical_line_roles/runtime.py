@@ -32,6 +32,7 @@ from cookimport.llm.taskfile_progress import (
     summarize_taskfile_health,
 )
 from cookimport.llm.shard_survivability import (
+    attach_observed_telemetry_to_survivability_report,
     ShardSurvivabilityPreflightError,
     count_structural_output_tokens,
     count_tokens_for_model,
@@ -1235,6 +1236,25 @@ def _run_line_role_shard_runtime(
         codex_max_inflight=codex_max_inflight,
         progress_callback=progress_callback,
         validator=_validate_line_role_shard_proposal,
+    )
+    telemetry_rows: list[Mapping[str, Any]] = []
+    for report in phase_result.worker_reports:
+        runner_result = report.runner_result or {}
+        telemetry_payload = (
+            runner_result.get("telemetry")
+            if isinstance(runner_result, Mapping)
+            else None
+        )
+        rows = telemetry_payload.get("rows") if isinstance(telemetry_payload, Mapping) else None
+        if isinstance(rows, list):
+            telemetry_rows.extend(row for row in rows if isinstance(row, Mapping))
+    survivability_report = attach_observed_telemetry_to_survivability_report(
+        survivability_report,
+        telemetry_rows=telemetry_rows,
+    )
+    _write_runtime_json(
+        runtime_root / "line_role" / "shard_survivability_report.json",
+        survivability_report,
     )
 
     predictions_by_atomic_index: dict[int, CanonicalLineRolePrediction] = {}

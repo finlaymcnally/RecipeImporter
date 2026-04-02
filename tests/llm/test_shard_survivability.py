@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from cookimport.llm.shard_survivability import (
+    attach_observed_telemetry_to_survivability_report,
     ShardSurvivabilityPreflightError,
     StageSurvivabilityBudget,
     evaluate_stage_survivability,
@@ -76,3 +77,53 @@ def test_shard_survivability_error_formats_actionable_message() -> None:
     assert "binding limit is output" in message
     assert "recipe-0001" in message
     assert str(ShardSurvivabilityPreflightError(report)) == message
+
+
+def test_attach_observed_telemetry_to_survivability_report_records_predicted_vs_observed() -> None:
+    report = evaluate_stage_survivability(
+        stage_key="recipe_refine",
+        requested_shard_count=1,
+        shard_estimates=[
+            {
+                "shard_id": "recipe-0001",
+                "owned_unit_count": 2,
+                "estimated_input_tokens": 100,
+                "estimated_output_tokens": 50,
+                "estimated_followup_tokens": 20,
+            }
+        ],
+    )
+
+    enriched = attach_observed_telemetry_to_survivability_report(
+        report,
+        telemetry_rows=[
+            {
+                "task_id": "recipe-0001",
+                "tokens_input": 110,
+                "tokens_output": 55,
+                "tokens_total": 165,
+                "prompt_input_mode": "path",
+                "proposal_status": "validated",
+                "supervision_state": "completed",
+            },
+            {
+                "task_id": "recipe-0001",
+                "tokens_total": 18,
+                "prompt_input_mode": "inline_repair",
+                "proposal_status": "validated",
+                "supervision_state": "completed",
+            },
+        ],
+    )
+
+    shard_payload = enriched["shards"][0]
+    assert shard_payload["observed"]["attempt_count"] == 2
+    assert shard_payload["observed"]["initial_input_tokens"] == 110
+    assert shard_payload["observed"]["structured_followup_call_count"] == 1
+    assert shard_payload["observed"]["structured_followup_tokens_total"] == 18
+    assert shard_payload["predicted_vs_observed"]["initial_input_tokens"]["delta"] == 10
+    assert (
+        shard_payload["predicted_vs_observed"]["followup_tokens"]["delta"]
+        == -2
+    )
+    assert enriched["observed_summary"]["call_count"] == 2

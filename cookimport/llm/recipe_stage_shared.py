@@ -81,6 +81,7 @@ from .recipe_workspace_tools import (
 )
 from .recipe_tagging_guide import build_recipe_tagging_guide
 from .shard_survivability import (
+    attach_observed_telemetry_to_survivability_report,
     ShardSurvivabilityPreflightError,
     count_structural_output_tokens,
     count_tokens_for_model,
@@ -4435,6 +4436,16 @@ def _run_single_correction_recipe_pipeline(
         )
         telemetry = json.loads(
             (phase_runtime_dir / "telemetry.json").read_text(encoding="utf-8")
+        )
+        survivability_report = attach_observed_telemetry_to_survivability_report(
+            survivability_report,
+            telemetry_rows=(
+                telemetry.get("rows") if isinstance(telemetry, Mapping) else None
+            ),
+        )
+        _write_json(
+            survivability_report,
+            phase_runtime_dir / "shard_survivability_report.json",
         )
         worker_reports_payload = [asdict(report) for report in worker_reports]
         phase_runtime_summary = {

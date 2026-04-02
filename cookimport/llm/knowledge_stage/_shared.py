@@ -80,6 +80,7 @@ from ..phase_worker_runtime import (
     resolve_phase_worker_count,
 )
 from ..shard_survivability import (
+    attach_observed_telemetry_to_survivability_report,
     ShardSurvivabilityPreflightError,
     count_structural_output_tokens,
     count_tokens_for_model,

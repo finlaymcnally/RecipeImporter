@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from .command_resolution import resolve_registered_command
 
@@ -63,6 +64,67 @@ def _interactive_benchmark_preset_summary(preset_id: str) -> str:
             "gpt-5.3-codex-spark, low)"
         )
     return normalized_preset_id or "interactive benchmark preset"
+
+
+def _format_interactive_target_size(path: Path | None) -> str | None:
+    if path is None:
+        return None
+    try:
+        size_bytes = int(path.stat().st_size)
+    except OSError:
+        return None
+    if size_bytes >= 1_000_000:
+        return f"{size_bytes / 1_000_000:.1f} MB"
+    if size_bytes >= 1_000:
+        return f"{size_bytes / 1_000:.1f} KB"
+    return f"{size_bytes} B"
+
+
+def _build_import_codex_target_context(
+    *,
+    selection: object,
+    input_folder: Path,
+) -> dict[str, object]:
+    if selection == "all":
+        return {
+            "title": "Target: all supported input files",
+            "summary_lines": [
+                f"Input root: {input_folder}",
+                "Exact survivability recommendations are deferred until each book is deterministically planned.",
+            ],
+        }
+    if isinstance(selection, Path):
+        size_text = _format_interactive_target_size(selection)
+        summary_lines = [f"Source: {selection.name}"]
+        if size_text:
+            summary_lines.append(f"Source size: {size_text}")
+        return {
+            "title": f"Target: {selection.name}",
+            "summary_lines": summary_lines,
+        }
+    return {
+        "title": "Target: import run",
+        "summary_lines": [f"Input root: {input_folder}"],
+    }
+
+
+def _build_single_book_benchmark_codex_target_context(
+    *,
+    gold_spans: Path,
+    source_file: Path,
+    golden_root: Path,
+) -> dict[str, object]:
+    source_size = _format_interactive_target_size(source_file)
+    summary_lines = [
+        f"Gold: {_display_gold_export_path(gold_spans, golden_root)}",
+        f"Source: {source_file.name}",
+    ]
+    if source_size:
+        summary_lines.append(f"Source size: {source_size}")
+    return {
+        "title": f"Target: {source_file.name}",
+        "summary_lines": summary_lines,
+    }
 
 def _interactive_mode(*, limit: int | None = None) -> None:
     """Run the interactive guided flow."""
@@ -197,6 +259,10 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 prompt_codex_ai_settings=True,
                 prompt_recipe_pipeline_menu=True,
                 interactive_codex_surface_options=("recipe", "knowledge"),
+                interactive_codex_target_context=_build_import_codex_target_context(
+                    selection=selection,
+                    input_folder=input_folder,
+                ),
             )
             if selected_run_settings is None:
                 typer.secho("Import cancelled.", fg=typer.colors.YELLOW)
@@ -670,6 +736,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 warn_context="interactive benchmark global settings",
             )
             preset_gold_spans: Path | None = None
+            resolved_single_book_inputs: tuple[Path, Path] | None = None
             if (
                 benchmark_mode
                 == INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST
@@ -700,6 +767,16 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     fg=typer.colors.CYAN,
                 )
             else:
+                if benchmark_mode == INTERACTIVE_BENCHMARK_MODE_SINGLE_BOOK:
+                    resolved_single_book_inputs = _resolve_benchmark_gold_and_source(
+                        gold_spans=None,
+                        source_file=None,
+                        output_dir=DEFAULT_GOLDEN,
+                        allow_cancel=True,
+                    )
+                    if resolved_single_book_inputs is None:
+                        typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
+                        continue
                 selected_benchmark_settings = choose_run_settings(
                     global_defaults=benchmark_defaults,
                     output_dir=output_folder,
@@ -710,6 +787,15 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     prompt_codex_ai_settings=True,
                     prompt_recipe_pipeline_menu=True,
                     prompt_benchmark_llm_surface_toggles=True,
+                    interactive_codex_target_context=(
+                        _build_single_book_benchmark_codex_target_context(
+                            gold_spans=resolved_single_book_inputs[0],
+                            source_file=resolved_single_book_inputs[1],
+                            golden_root=DEFAULT_GOLDEN,
+                        )
+                        if resolved_single_book_inputs is not None
+                        else None
+                    ),
                 )
                 if selected_benchmark_settings is None:
                     typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
@@ -745,7 +831,20 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     write_markdown=benchmark_write_markdown,
                     write_label_studio_tasks=benchmark_write_labelstudio_tasks,
                     write_starter_pack=benchmark_write_single_book_starter_pack,
-                    preselected_gold_spans=preset_gold_spans,
+                    preselected_gold_spans=(
+                        preset_gold_spans
+                        if preset_gold_spans is not None
+                        else (
+                            resolved_single_book_inputs[0]
+                            if resolved_single_book_inputs is not None
+                            else None
+                        )
+                    ),
+                    preselected_source_file=(
+                        resolved_single_book_inputs[1]
+                        if resolved_single_book_inputs is not None
+                        else None
+                    ),
                 )
             elif benchmark_mode in {
                 INTERACTIVE_BENCHMARK_MODE_SELECTED_MATCHED_BOOKS,

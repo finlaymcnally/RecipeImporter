@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import sys
 
+from cookimport.cli_ui.run_settings_flow import _prompt_codex_shard_plan_menu
 from cookimport.core.executor_fallback import preferred_multiprocessing_context
 
 from .command_resolution import resolve_registered_command
@@ -9056,7 +9057,7 @@ def _interactive_all_method_benchmark(
         ),
         back_action=BACK_ACTION,
         surface_options=("recipe", "line_role", "knowledge"),
-        prompt_text=_prompt_text,
+        prompt_codex_shard_plan_menu=_prompt_codex_shard_plan_menu,
     )
     if all_method_codex_settings is None:
         typer.secho("All method benchmark cancelled.", fg=typer.colors.YELLOW)

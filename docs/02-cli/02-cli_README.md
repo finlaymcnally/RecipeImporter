@@ -174,12 +174,13 @@ Interactive `Import` and benchmark runs (`single_book` + matched-books) ask:
   - unchecked block labelling maps to `line_role_pipeline=off` and `atomic_block_splitter=off`
   - checked block labelling no longer auto-enables `atomic_block_splitter`; it preserves the current/default setting, which is now `off` unless explicitly overridden elsewhere
   - unchecked non-recipe finalize maps to `llm_knowledge_pipeline=off`
-- after that shared Codex surface toggle menu, interactive flows now also ask for the target prompt count for each enabled Codex-backed task in that run
-  - import asks for recipe correction shard count, then knowledge shard count when those surfaces are enabled
-  - benchmark and all-method Codex menus ask in runtime stage order: block-labelling, then recipe correction, then non-recipe finalize
-  - these map directly to `line_role_prompt_target_count`, `recipe_prompt_target_count`, and `knowledge_prompt_target_count`
-  - the interactive chooser now caps each per-step prompt/shard count at `20`
-  - the stage and benchmark adapter/CLI seams now preserve those values into the live run config, so interactive shard choices survive through execution instead of silently falling back to saved defaults
+- after that shared Codex surface toggle menu, interactive flows now open one shard-planning page for all enabled Codex-backed tasks in that run
+  - import shows the selected source file above the page; single-book benchmark now resolves the concrete gold/source pair first and shows that target above the page before run settings continue
+  - benchmark and all-method Codex rows stay in runtime stage order: block-labelling, then recipe correction, then non-recipe finalize
+  - the page edits `line_role_prompt_target_count`, `recipe_prompt_target_count`, and `knowledge_prompt_target_count` in one screen instead of three separate typed prompts
+  - the row note shows the current stage survivability budget now and can show target-specific minimum-safe recommendations when that context is available; live planning still fails closed later if the requested shard count is unsafe
+  - the interactive chooser still caps each per-step prompt/shard count at `256`
+  - the stage and benchmark adapter/CLI seams preserve those values into the live run config, so interactive shard choices survive through execution instead of silently falling back to saved defaults
   - `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count` now all mean requested shard count on the live runtime path; worker count remains a separate concurrency override
   - for recipe correction specifically, recipe count may be larger than shard count because several contiguous recipe tasks can share one planned shard
 - interactive all-method benchmark callers reuse that same Codex submenu too, so any interactive benchmark flow that exposes Codex Exec now makes the operator pick concrete Codex processes instead of falling back to a separate generic `Include Codex Exec permutations?` prompt

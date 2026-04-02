@@ -21,6 +21,10 @@ Modules:
 - `dashboard_schema.py` – Pydantic v2 models (`DashboardData`, `StageRecord`, `BenchmarkRecord`)
 - `dashboard_collect.py` – Read-only collectors for CSV history + eval_report.json
 - `dashboard_render.py` – Thin public facade exposing `render_dashboard(...)`
+- `compare_control_engine.py` – Thin public compare/control facade
+- `compare_control_fields.py` – Derived benchmark field values plus compare/control field catalog ownership
+- `compare_control_filters.py` – Quick-filter and column-filter normalization/evaluation
+- `compare_control_analysis.py` – Compare/control statistics, discovery cards, and insights ownership
 - `dashboard_renderers/` – Asset writing, shared formatting, all-method page generation, and static templates
 
 Dashboard UX rule:

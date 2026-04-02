@@ -8,6 +8,7 @@ from typing import Any, Mapping, Sequence
 
 import tiktoken
 
+from cookimport.llm.codex_exec_runner import summarize_direct_telemetry_rows
 from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output
 from cookimport.runs.stage_names import canonical_stage_key, stage_label
 
@@ -403,7 +404,168 @@ def _worst_offender_for_limit(
     return dict(worst_peak)
 
 
+def attach_observed_telemetry_to_survivability_report(
+    report: Mapping[str, Any],
+    *,
+    telemetry_rows: Sequence[Mapping[str, Any]] | None = None,
+    observed_overrides_by_shard_id: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    updated_report = dict(report)
+    shard_rows = updated_report.get("shards")
+    if not isinstance(shard_rows, list):
+        return updated_report
+    rows_by_shard_id: dict[str, list[Mapping[str, Any]]] = {}
+    for row in telemetry_rows or ():
+        if not isinstance(row, Mapping):
+            continue
+        shard_id = str(row.get("task_id") or row.get("shard_id") or "").strip()
+        if not shard_id:
+            continue
+        rows_by_shard_id.setdefault(shard_id, []).append(row)
+    override_lookup = (
+        {
+            str(shard_id): dict(payload)
+            for shard_id, payload in observed_overrides_by_shard_id.items()
+            if str(shard_id).strip() and isinstance(payload, Mapping)
+        }
+        if isinstance(observed_overrides_by_shard_id, Mapping)
+        else {}
+    )
+
+    enriched_shards: list[dict[str, Any]] = []
+    for shard_row in shard_rows:
+        if not isinstance(shard_row, Mapping):
+            continue
+        shard_payload = dict(shard_row)
+        shard_id = str(shard_payload.get("shard_id") or "").strip()
+        matching_rows = rows_by_shard_id.get(shard_id, [])
+        observed_summary = (
+            summarize_direct_telemetry_rows(matching_rows)
+            if matching_rows
+            else {
+                "call_count": 0,
+                "token_usage_status": "unavailable",
+            }
+        )
+        first_row = matching_rows[0] if matching_rows else {}
+        observed_payload: dict[str, Any] = {
+            "attempt_count": int(observed_summary.get("call_count") or 0),
+            "token_usage_status": str(
+                observed_summary.get("token_usage_status") or "unavailable"
+            ),
+            "initial_input_tokens": (
+                int(first_row.get("tokens_input") or 0)
+                if isinstance(first_row, Mapping)
+                else None
+            ),
+            "initial_output_tokens": (
+                int(first_row.get("tokens_output") or 0)
+                if isinstance(first_row, Mapping)
+                else None
+            ),
+            "initial_total_tokens": (
+                int(first_row.get("tokens_total") or 0)
+                if isinstance(first_row, Mapping)
+                else None
+            ),
+            "total_billed_tokens": int(observed_summary.get("tokens_total") or 0),
+            "structured_followup_call_count": int(
+                observed_summary.get("structured_followup_call_count") or 0
+            ),
+            "structured_followup_tokens_total": int(
+                observed_summary.get("structured_followup_tokens_total") or 0
+            ),
+            "final_supervision_state": (
+                str(
+                    (
+                        first_row.get("final_supervision_state")
+                        or first_row.get("supervision_state")
+                        or ""
+                    )
+                ).strip()
+                if isinstance(first_row, Mapping)
+                else ""
+            ),
+            "proposal_status": (
+                str(
+                    (
+                        first_row.get("final_proposal_status")
+                        or first_row.get("proposal_status")
+                        or ""
+                    )
+                ).strip()
+                if isinstance(first_row, Mapping)
+                else ""
+            ),
+            "watchdog_killed": bool(
+                int(observed_summary.get("watchdog_killed_shard_count") or 0) > 0
+            ),
+            "missing_output": bool(
+                int(observed_summary.get("missing_output_shard_count") or 0) > 0
+            ),
+            "invalid_output": bool(
+                int(observed_summary.get("invalid_output_shard_count") or 0) > 0
+            ),
+            "repaired": bool(
+                int(observed_summary.get("repaired_shard_count") or 0) > 0
+            ),
+            "pathological": bool(
+                int(observed_summary.get("pathological_shard_count") or 0) > 0
+            ),
+        }
+        if shard_id in override_lookup:
+            observed_payload.update(dict(override_lookup[shard_id]))
+        shard_payload["observed"] = observed_payload
+        shard_payload["predicted_vs_observed"] = {
+            "initial_input_tokens": {
+                "predicted": int(shard_payload.get("estimated_input_tokens") or 0),
+                "observed": observed_payload.get("initial_input_tokens"),
+                "delta": (
+                    int(observed_payload["initial_input_tokens"])
+                    - int(shard_payload.get("estimated_input_tokens") or 0)
+                    if observed_payload.get("initial_input_tokens") is not None
+                    else None
+                ),
+            },
+            "initial_output_tokens": {
+                "predicted": int(shard_payload.get("estimated_output_tokens") or 0),
+                "observed": observed_payload.get("initial_output_tokens"),
+                "delta": (
+                    int(observed_payload["initial_output_tokens"])
+                    - int(shard_payload.get("estimated_output_tokens") or 0)
+                    if observed_payload.get("initial_output_tokens") is not None
+                    else None
+                ),
+            },
+            "followup_tokens": {
+                "predicted": int(shard_payload.get("estimated_followup_tokens") or 0),
+                "observed": int(
+                    observed_payload.get("structured_followup_tokens_total") or 0
+                ),
+                "delta": int(observed_payload.get("structured_followup_tokens_total") or 0)
+                - int(shard_payload.get("estimated_followup_tokens") or 0),
+            },
+            "billed_total_tokens_vs_predicted_peak": {
+                "predicted_peak_session_tokens": int(
+                    shard_payload.get("estimated_peak_session_tokens") or 0
+                ),
+                "observed_billed_total_tokens": int(
+                    observed_payload.get("total_billed_tokens") or 0
+                ),
+                "delta": int(observed_payload.get("total_billed_tokens") or 0)
+                - int(shard_payload.get("estimated_peak_session_tokens") or 0),
+            },
+        }
+        enriched_shards.append(shard_payload)
+    updated_report["shards"] = enriched_shards
+    updated_report["observed_summary"] = summarize_direct_telemetry_rows(
+        [row for row in telemetry_rows or () if isinstance(row, Mapping)]
+    )
+    return updated_report
+
+
 __all__ = [
+    "attach_observed_telemetry_to_survivability_report",
     "ShardSurvivabilityPreflightError",
     "StageSurvivabilityBudget",
     "count_structural_output_tokens",

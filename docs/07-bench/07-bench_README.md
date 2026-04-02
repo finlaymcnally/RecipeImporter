@@ -122,6 +122,7 @@ Current behavior notes:
 - interrupted benchmark runs now also record `interruption_cause = "operator"` in both files, and when the prediction run contains `raw/llm/<workbook>/nonrecipe_finalize/stage_status.json` the partial summary carries forward the normalized knowledge-stage attribution instead of treating missing wrap-up artifacts as generic failure by default
 - benchmark-side actual-cost review should now use the finished recipe / knowledge / line-role rows in `prompt_budget_summary.json` when asking whether spend came from main `taskfile` workers or from repo-owned follow-up/finalization; those rows now carry the same work-unit / worker / follow-up vocabulary used by the stage-local summary artifacts
 - Codex-backed prediction/stage planning now also refuses unsafe requested shard counts before live worker launch. The shared survivability preflight uses deterministic prompt/output token estimates plus conservative per-stage caps, so benchmark/prediction operators should use prompt preview first when tuning shard counts and treat the refusal message as the minimum-safe recommendation rather than a runtime flake.
+- Single-book interactive benchmark now resolves the concrete gold/source pair before the Codex shard-planning page opens, so the operator sees the actual selected target while editing block-labelling / recipe / knowledge shard counts on one screen.
 
 Interactive benchmark modes are still active and remain offline canonical-text workflows:
 

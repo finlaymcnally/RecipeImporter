@@ -40,6 +40,7 @@ This README documents active behavior only. Historical notes that still matter f
 4. Compare/control backend utilities
 - Terminal/agent entry points share the same benchmark-record model used by the dashboard
 - Live dashboard state helpers can read/write `assets/dashboard_ui_state.json`
+- Runtime ownership is split cleanly: `compare_control_engine.py` is the import-stable facade, `compare_control_fields.py` owns derived field normalization/catalog work, `compare_control_filters.py` owns filter normalization/evaluation, and `compare_control_analysis.py` owns statistics/discovery/insights.
 
 ## 2) Code map
 
@@ -52,7 +53,10 @@ Primary modules:
 - `cookimport/analytics/dashboard_renderers/` (asset/page/template ownership)
   - `templates.py` is now a tiny facade over `html_shell.py`, `style_asset.py`, and `script_asset.py`
   - `dashboard_renderers/assets/script_filters.js` and `dashboard_renderers/assets/script_tables.js` are the source-of-truth JS files; the same-named Python modules are thin loaders so the import surface stays stable
-- `cookimport/analytics/compare_control_engine.py`
+- `cookimport/analytics/compare_control_engine.py` (public facade)
+- `cookimport/analytics/compare_control_fields.py` (derived field values and compare/control field catalog ownership)
+- `cookimport/analytics/compare_control_filters.py` (quick-filter and column-filter normalization/evaluation)
+- `cookimport/analytics/compare_control_analysis.py` (raw/controlled stats, discovery ranking, split summaries, and insights ownership)
 - `cookimport/analytics/benchmark_timing.py`
 - `cookimport/cli_commands/analytics.py`
 - `cookimport/cli_commands/compare_control.py`

@@ -375,6 +375,16 @@ def run_codex_farm_nonrecipe_finalize(
         elapsed_seconds = round(time.perf_counter() - started, 3)
         promotion_report = _load_json_dict(knowledge_stage_dir / "promotion_report.json")
         telemetry = _load_json_dict(knowledge_stage_dir / "telemetry.json")
+        survivability_report = attach_observed_telemetry_to_survivability_report(
+            survivability_report,
+            telemetry_rows=(
+                telemetry.get("rows") if isinstance(telemetry, Mapping) else None
+            ),
+        )
+        _write_json(
+            survivability_report,
+            knowledge_stage_dir / "shard_survivability_report.json",
+        )
         promotion_report["grounding_counts"] = dict(grounding_counts)
         promotion_report["tag_proposal_count"] = int(grounding_counts.get("tag_proposal_count") or 0)
         _write_json(promotion_report, knowledge_stage_dir / "promotion_report.json")

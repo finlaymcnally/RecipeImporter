@@ -28,6 +28,16 @@ def _capture_interactive_single_book_helper(
     return helper_calls
 
 
+def _write_single_book_benchmark_target_fixture(tmp_path: Path) -> tuple[Path, Path]:
+    gold_spans = tmp_path / "golden" / "fixture-run" / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    source_file = tmp_path / "data" / "input" / "book.epub"
+    source_file.parent.mkdir(parents=True, exist_ok=True)
+    source_file.write_text("book", encoding="utf-8")
+    return gold_spans, source_file
+
+
 def test_resolve_interactive_labelstudio_settings_uses_saved_credentials_without_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -429,6 +439,7 @@ def test_interactive_benchmark_uses_golden_output_roots(
 ) -> None:
     configured_output = tmp_path / "custom-output"
     golden_root = tmp_path / "golden"
+    resolved_gold, resolved_source = _write_single_book_benchmark_target_fixture(tmp_path)
     selected_benchmark_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "off",
@@ -457,6 +468,11 @@ def test_interactive_benchmark_uses_golden_output_roots(
         lambda **_kwargs: selected_benchmark_settings,
     )
     _patch_cli_attr(monkeypatch, "DEFAULT_GOLDEN", golden_root)
+    _patch_cli_attr(
+        monkeypatch,
+        "_resolve_benchmark_gold_and_source",
+        lambda **_kwargs: (resolved_gold, resolved_source),
+    )
 
     def _unexpected_confirm(*_args, **_kwargs):
         raise AssertionError("Interactive benchmark upload should not ask for confirmation.")
@@ -470,6 +486,8 @@ def test_interactive_benchmark_uses_golden_output_roots(
     assert len(helper_calls) == 1
     assert helper_calls[0]["benchmark_eval_output"].parent == golden_root / "benchmark-vs-golden"
     assert helper_calls[0]["processed_output_root"] == configured_output
+    assert helper_calls[0]["preselected_gold_spans"] == resolved_gold
+    assert helper_calls[0]["preselected_source_file"] == resolved_source
     selected_settings = helper_calls[0]["selected_benchmark_settings"]
     assert isinstance(selected_settings, cli.RunSettings)
     assert selected_settings.llm_recipe_pipeline.value == "off"
@@ -486,6 +504,7 @@ def test_interactive_benchmark_single_book_mode_skips_credentials(
 ) -> None:
     configured_output = tmp_path / "custom-output"
     golden_root = tmp_path / "golden"
+    resolved_gold, resolved_source = _write_single_book_benchmark_target_fixture(tmp_path)
     selected_benchmark_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "off",
@@ -506,6 +525,11 @@ def test_interactive_benchmark_single_book_mode_skips_credentials(
         lambda **_kwargs: selected_benchmark_settings,
     )
     _patch_cli_attr(monkeypatch, "DEFAULT_GOLDEN", golden_root)
+    _patch_cli_attr(
+        monkeypatch,
+        "_resolve_benchmark_gold_and_source",
+        lambda **_kwargs: (resolved_gold, resolved_source),
+    )
     _patch_cli_attr(monkeypatch, "_resolve_interactive_labelstudio_settings",
         lambda _settings: (_ for _ in ()).throw(
             AssertionError("Offline benchmark mode should not resolve Label Studio credentials.")
@@ -519,6 +543,8 @@ def test_interactive_benchmark_single_book_mode_skips_credentials(
     assert len(helper_calls) == 1
     assert helper_calls[0]["benchmark_eval_output"].parent == golden_root / "benchmark-vs-golden"
     assert helper_calls[0]["processed_output_root"] == configured_output
+    assert helper_calls[0]["preselected_gold_spans"] == resolved_gold
+    assert helper_calls[0]["preselected_source_file"] == resolved_source
 
 
 def test_interactive_benchmark_single_book_codex_pipeline_passes_settings_to_helper_without_credentials(
@@ -527,6 +553,7 @@ def test_interactive_benchmark_single_book_codex_pipeline_passes_settings_to_hel
 ) -> None:
     configured_output = tmp_path / "custom-output"
     golden_root = tmp_path / "golden"
+    resolved_gold, resolved_source = _write_single_book_benchmark_target_fixture(tmp_path)
     selected_benchmark_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -546,6 +573,11 @@ def test_interactive_benchmark_single_book_codex_pipeline_passes_settings_to_hel
         lambda **_kwargs: selected_benchmark_settings,
     )
     _patch_cli_attr(monkeypatch, "DEFAULT_GOLDEN", golden_root)
+    _patch_cli_attr(
+        monkeypatch,
+        "_resolve_benchmark_gold_and_source",
+        lambda **_kwargs: (resolved_gold, resolved_source),
+    )
     _patch_cli_attr(monkeypatch, "_resolve_interactive_labelstudio_settings",
         lambda _settings: (_ for _ in ()).throw(
             AssertionError("Offline benchmark mode should not resolve Label Studio credentials.")
@@ -566,6 +598,8 @@ def test_interactive_benchmark_single_book_codex_pipeline_passes_settings_to_hel
     assert selected_settings.codex_farm_reasoning_effort.value == "low"
     assert helper_calls[0]["benchmark_eval_output"].parent == golden_root / "benchmark-vs-golden"
     assert helper_calls[0]["processed_output_root"] == configured_output
+    assert helper_calls[0]["preselected_gold_spans"] == resolved_gold
+    assert helper_calls[0]["preselected_source_file"] == resolved_source
 
 
 def test_interactive_benchmark_enables_per_surface_codex_toggle_prompt(
@@ -574,6 +608,7 @@ def test_interactive_benchmark_enables_per_surface_codex_toggle_prompt(
 ) -> None:
     configured_output = tmp_path / "custom-output"
     golden_root = tmp_path / "golden"
+    resolved_gold, resolved_source = _write_single_book_benchmark_target_fixture(tmp_path)
     menu_answers = iter(["labelstudio_benchmark", "single_book", "exit"])
     selected_benchmark_settings = cli.RunSettings.from_dict(
         {"llm_recipe_pipeline": "off"},
@@ -587,6 +622,11 @@ def test_interactive_benchmark_enables_per_surface_codex_toggle_prompt(
         lambda: {"output_dir": str(configured_output), "epub_extractor": "beautifulsoup"},
     )
     _patch_cli_attr(monkeypatch, "DEFAULT_GOLDEN", golden_root)
+    _patch_cli_attr(
+        monkeypatch,
+        "_resolve_benchmark_gold_and_source",
+        lambda **_kwargs: (resolved_gold, resolved_source),
+    )
     _patch_cli_attr(monkeypatch, "choose_run_settings",
         lambda **kwargs: choose_kwargs.update(kwargs) or selected_benchmark_settings,
     )
@@ -603,6 +643,7 @@ def test_interactive_benchmark_enables_per_surface_codex_toggle_prompt(
     assert choose_kwargs["prompt_recipe_pipeline_menu"] is True
     assert choose_kwargs["prompt_codex_ai_settings"] is True
     assert choose_kwargs["prompt_benchmark_llm_surface_toggles"] is True
+    assert choose_kwargs["interactive_codex_target_context"]["title"] == f"Target: {resolved_source.name}"
     assert len(helper_calls) == 1
 
 
@@ -721,6 +762,9 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_offline_
     gold_spans.write_text("{}\n", encoding="utf-8")
 
     menu_answers = iter(["labelstudio_benchmark", "single_book", "exit"])
+    resolved_source = tmp_path / "data" / "input" / "book.epub"
+    resolved_source.parent.mkdir(parents=True, exist_ok=True)
+    resolved_source.write_text("book", encoding="utf-8")
     mode_prompt_count = 0
     mode_titles: list[str] = []
     selected_benchmark_settings = cli.RunSettings.from_dict(
@@ -746,6 +790,11 @@ def test_interactive_benchmark_ignores_existing_eval_artifacts_and_runs_offline_
         lambda **_kwargs: selected_benchmark_settings,
     )
     _patch_cli_attr(monkeypatch, "DEFAULT_GOLDEN", golden_root)
+    _patch_cli_attr(
+        monkeypatch,
+        "_resolve_benchmark_gold_and_source",
+        lambda **_kwargs: (gold_spans, resolved_source),
+    )
     _patch_cli_attr(monkeypatch, "_resolve_interactive_labelstudio_settings",
         lambda _settings: (_ for _ in ()).throw(
             AssertionError("Offline benchmark mode should not resolve Label Studio credentials.")

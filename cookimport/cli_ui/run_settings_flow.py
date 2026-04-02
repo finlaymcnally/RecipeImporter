@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 import questionary
 from prompt_toolkit.application import Application
@@ -38,10 +38,12 @@ from cookimport.config.run_settings import (
     normalize_llm_recipe_pipeline_value,
 )
 from cookimport.llm.codex_farm_runner import list_codex_farm_models
+from cookimport.llm.shard_survivability import default_stage_survivability_budget
 
 MenuSelect = Callable[..., Any]
 PromptConfirm = Callable[..., Any]
 PromptCodexSurfaceMenu = Callable[..., Any]
+PromptCodexShardPlanMenu = Callable[..., Any]
 PromptText = Callable[..., Any]
 _WORKER_UTILIZATION_ENV = "COOKIMPORT_WORKER_UTILIZATION"
 _WORKER_UTILIZATION_DEFAULT = 1.0
@@ -67,6 +69,11 @@ _CODEX_SURFACE_PROMPT_TARGET_FIELDS: dict[str, tuple[str, str]] = {
     "recipe": ("recipe_prompt_target_count", "Recipe correction"),
     "line_role": ("line_role_prompt_target_count", "Block labelling"),
     "knowledge": ("knowledge_prompt_target_count", "Knowledge"),
+}
+_CODEX_SURFACE_STAGE_KEYS: dict[str, str] = {
+    "recipe": "recipe_refine",
+    "line_role": "line_role",
+    "knowledge": "nonrecipe_finalize",
 }
 _CODEX_EXEC_STYLE_LABELS: dict[str, str] = {
     CODEX_EXEC_STYLE_TASKFILE_V1: "Taskfile workers",
@@ -443,9 +450,10 @@ def _choose_interactive_codex_surfaces(
     *,
     selected_settings: RunSettings,
     prompt_codex_surface_menu: PromptCodexSurfaceMenu,
-    prompt_text: PromptText | None,
+    prompt_codex_shard_plan_menu: PromptCodexShardPlanMenu | None,
     back_action: Any,
     surface_options: tuple[str, ...],
+    target_context: Mapping[str, Any] | None = None,
 ) -> RunSettings | None:
     step_rows: list[tuple[str, str]] = []
     enabled_by_step: dict[str, bool] = {}
@@ -508,13 +516,14 @@ def _choose_interactive_codex_surfaces(
             else "off"
         ),
     )
-    if prompt_text is None or not selected_step_ids:
+    if prompt_codex_shard_plan_menu is None or not selected_step_ids:
         return selected_settings
     return _choose_interactive_codex_prompt_targets(
         selected_settings=selected_settings,
-        prompt_text=prompt_text,
+        prompt_codex_shard_plan_menu=prompt_codex_shard_plan_menu,
         back_action=back_action,
         selected_step_ids=selected_step_ids,
+        target_context=target_context,
     )
 
 
@@ -554,32 +563,361 @@ def _prompt_codex_prompt_target_count(
     return parsed if 1 <= parsed <= max_value else None
 
 
-def _choose_interactive_codex_prompt_targets(
+def _format_shard_budget_value(token_count: int) -> str:
+    if token_count >= 1_000_000:
+        return f"{token_count / 1_000_000:.1f}m"
+    if token_count >= 1_000:
+        return f"{token_count // 1_000}k"
+    return str(token_count)
+
+
+def _build_codex_shard_plan_rows(
     *,
     selected_settings: RunSettings,
-    prompt_text: PromptText,
-    back_action: Any,
     selected_step_ids: Sequence[str],
-) -> RunSettings | None:
-    patched_payload = project_run_config_payload(
-        selected_settings.to_run_config_dict(),
-        contract=RUN_SETTING_CONTRACT_FULL,
+    target_context: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    recommendations_by_step = (
+        target_context.get("recommendations_by_step")
+        if isinstance(target_context, Mapping)
+        else None
     )
+    recommendation_lookup = (
+        dict(recommendations_by_step)
+        if isinstance(recommendations_by_step, Mapping)
+        else {}
+    )
+    rows: list[dict[str, Any]] = []
     for step_id in selected_step_ids:
         if step_id not in _CODEX_SURFACE_PROMPT_TARGET_FIELDS:
             continue
         field_name, label = _CODEX_SURFACE_PROMPT_TARGET_FIELDS[step_id]
         current_value = getattr(selected_settings, field_name, None)
-        resolved_default = int(current_value) if current_value is not None else 5
-        prompt_target_count = _prompt_codex_prompt_target_count(
-            prompt_text=prompt_text,
-            message=f"{label} shard count for this run:",
-            default_value=resolved_default,
-            back_action=back_action,
+        recommendation = recommendation_lookup.get(step_id)
+        recommendation_payload = (
+            dict(recommendation) if isinstance(recommendation, Mapping) else {}
         )
-        if prompt_target_count is None:
-            return None
-        patched_payload[field_name] = prompt_target_count
+        minimum_safe_shard_count = recommendation_payload.get(
+            "minimum_safe_shard_count"
+        )
+        binding_limit = str(recommendation_payload.get("binding_limit") or "").strip() or None
+        stage_budget = default_stage_survivability_budget(
+            _CODEX_SURFACE_STAGE_KEYS.get(step_id, step_id)
+        )
+        rows.append(
+            {
+                "step_id": step_id,
+                "label": label,
+                "current_count": max(
+                    1,
+                    int(current_value) if current_value is not None else 5,
+                ),
+                "minimum_safe_shard_count": (
+                    int(minimum_safe_shard_count)
+                    if minimum_safe_shard_count is not None
+                    else None
+                ),
+                "binding_limit": binding_limit,
+                "budget_summary": (
+                    f"in {_format_shard_budget_value(stage_budget.max_input_tokens)} / "
+                    f"out {_format_shard_budget_value(stage_budget.max_output_tokens)} / "
+                    f"peak {_format_shard_budget_value(stage_budget.max_session_peak_tokens)}"
+                ),
+            }
+        )
+    return rows
+
+
+def _build_codex_shard_plan_summary_lines(
+    *,
+    target_context: Mapping[str, Any] | None,
+    rows: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    lines: list[str] = []
+    title = str((target_context or {}).get("title") or "").strip()
+    if title:
+        lines.append(title)
+    raw_summary_lines = (
+        (target_context or {}).get("summary_lines")
+        if isinstance(target_context, Mapping)
+        else None
+    )
+    if isinstance(raw_summary_lines, Sequence) and not isinstance(
+        raw_summary_lines, (str, bytes)
+    ):
+        for line in raw_summary_lines:
+            text = str(line or "").strip()
+            if text:
+                lines.append(text)
+    has_recommendations = any(
+        row.get("minimum_safe_shard_count") is not None for row in rows
+    )
+    if not has_recommendations:
+        lines.append(
+            "Exact survivability estimates appear after deterministic planning. "
+            "Live preflight still refuses unsafe shard counts before worker launch."
+        )
+    return lines
+
+
+def _prompt_codex_shard_plan_menu(
+    *,
+    message: str,
+    rows: list[dict[str, Any]],
+    summary_lines: Sequence[str],
+    back_action: Any,
+    max_value: int = 256,
+    **kwargs: Any,
+) -> dict[str, int] | Any:
+    choices: list[questionary.Choice | questionary.Separator] = []
+    for summary_line in summary_lines:
+        choices.append(questionary.Separator(summary_line))
+    if summary_lines:
+        choices.append(questionary.Separator())
+    for row in rows:
+        choices.append(
+            questionary.Choice(
+                "",
+                value=str(row.get("step_id") or ""),
+                shortcut_key=False,
+            )
+        )
+    choices.append(questionary.Separator())
+    choices.append(questionary.Choice("Continue", value="__done__"))
+    row_lookup = {
+        str(row.get("step_id") or ""): row
+        for row in rows
+        if str(row.get("step_id") or "").strip()
+    }
+    label_width = max(
+        (len(str(row.get("label") or "")) for row in rows),
+        default=0,
+    )
+    merged_style = merge_styles_default([])
+    initial_choice = next(
+        (
+            choice
+            for choice in choices
+            if not isinstance(choice, questionary.Separator)
+            and str(choice.value) != "__done__"
+        ),
+        choices[-1],
+    )
+
+    ic = common.InquirerControl(
+        choices,
+        default="__done__",
+        pointer="»",
+        use_indicator=False,
+        use_shortcuts=False,
+        show_selected=False,
+        show_description=False,
+        use_arrow_keys=True,
+        initial_choice=initial_choice,
+    )
+
+    def _select_next() -> None:
+        ic.select_next()
+        while not ic.is_selection_valid():
+            ic.select_next()
+
+    def _select_previous() -> None:
+        ic.select_previous()
+        while not ic.is_selection_valid():
+            ic.select_previous()
+
+    def _set_current_count(delta: int) -> None:
+        current = ic.get_pointed_at()
+        step_id = str(current.value)
+        row = row_lookup.get(step_id)
+        if row is None:
+            return
+        current_count = int(row.get("current_count") or 1)
+        row["current_count"] = max(1, min(max_value, current_count + delta))
+
+    def _adopt_recommendation_or_increment() -> None:
+        current = ic.get_pointed_at()
+        step_id = str(current.value)
+        row = row_lookup.get(step_id)
+        if row is None:
+            return
+        recommended = row.get("minimum_safe_shard_count")
+        if recommended is not None and int(row.get("current_count") or 1) != int(
+            recommended
+        ):
+            row["current_count"] = max(1, min(max_value, int(recommended)))
+            return
+        _set_current_count(1)
+
+    def _sync_titles() -> None:
+        for index, choice in enumerate(ic.choices):
+            if isinstance(choice, questionary.Separator):
+                continue
+            if choice.value == "__done__":
+                choice.title = "Continue"
+                continue
+            step_id = str(choice.value)
+            row = row_lookup.get(step_id) or {}
+            label = str(row.get("label") or step_id)
+            is_current = index == ic.pointed_at
+            count_value = int(row.get("current_count") or 1)
+            minimum_safe = row.get("minimum_safe_shard_count")
+            binding_limit = str(row.get("binding_limit") or "").strip()
+            budget_summary = str(row.get("budget_summary") or "").strip()
+            label_class = "class:highlighted" if is_current else "class:text"
+            count_class = "class:highlighted" if is_current else "class:selected"
+            if minimum_safe is not None:
+                recommended_text = f"min {int(minimum_safe)}"
+                if count_value < int(minimum_safe):
+                    note_text = (
+                        f"unsafe: {binding_limit}"
+                        if binding_limit
+                        else "unsafe"
+                    )
+                    note_class = "class:answer"
+                else:
+                    note_text = (
+                        f"safe: {binding_limit}"
+                        if binding_limit
+                        else "safe"
+                    )
+                    note_class = "class:selected"
+            else:
+                recommended_text = "min --"
+                note_text = budget_summary
+                note_class = "class:text"
+            count_text = f"[{count_value:>3}]"
+            if is_current:
+                count_text = f">[{count_value:>3}]<"
+            choice.title = [
+                (label_class, f"{label.ljust(label_width)}  "),
+                (count_class, f"{count_text}  "),
+                ("class:text", f"{recommended_text:<7}  "),
+                (note_class, note_text),
+            ]
+
+    _sync_titles()
+
+    def _get_prompt_tokens() -> list[tuple[str, str]]:
+        return [
+            ("class:qmark", "?"),
+            ("class:question", f" {message} "),
+            (
+                "class:instruction",
+                "(Use up/down to pick a row, left/right or +/- to change shard count, Enter to continue, Esc to go back)",
+            ),
+        ]
+
+    layout = common.create_inquirer_layout(ic, _get_prompt_tokens, **kwargs)
+    bindings = KeyBindings()
+
+    @bindings.add(Keys.ControlQ, eager=True)
+    @bindings.add(Keys.ControlC, eager=True)
+    def _abort(event: Any) -> None:
+        event.app.exit(exception=KeyboardInterrupt, style="class:aborting")
+
+    @bindings.add(Keys.Escape, eager=True)
+    def _go_back(event: Any) -> None:
+        event.app.exit(result=back_action)
+
+    @bindings.add(Keys.Down, eager=True)
+    def _move_down(event: Any) -> None:
+        _select_next()
+        _sync_titles()
+        event.app.invalidate()
+
+    @bindings.add(Keys.Up, eager=True)
+    def _move_up(event: Any) -> None:
+        _select_previous()
+        _sync_titles()
+        event.app.invalidate()
+
+    @bindings.add(Keys.Left, eager=True)
+    @bindings.add("-", eager=True)
+    @bindings.add("h", eager=True)
+    def _decrement(event: Any) -> None:
+        _set_current_count(-1)
+        _sync_titles()
+        event.app.invalidate()
+
+    @bindings.add(Keys.Right, eager=True)
+    @bindings.add("+", eager=True)
+    @bindings.add("l", eager=True)
+    def _increment(event: Any) -> None:
+        _set_current_count(1)
+        _sync_titles()
+        event.app.invalidate()
+
+    @bindings.add(Keys.ControlM, eager=True)
+    def _submit(event: Any) -> None:
+        current = ic.get_pointed_at()
+        current_value = str(current.value)
+        if current_value == "__done__":
+            ic.is_answered = True
+            event.app.exit(
+                result={
+                    step_id: int(row.get("current_count") or 1)
+                    for step_id, row in row_lookup.items()
+                }
+            )
+            return
+        _adopt_recommendation_or_increment()
+        _sync_titles()
+        event.app.invalidate()
+
+    @bindings.add(Keys.Any)
+    def _other(event: Any) -> None:
+        """Disallow inserting other text."""
+
+    question = Question(
+        Application(
+            layout=layout,
+            key_bindings=bindings,
+            style=merged_style,
+            **utils.used_kwargs(kwargs, Application.__init__),
+        )
+    )
+    return question.ask()
+
+
+def _choose_interactive_codex_prompt_targets(
+    *,
+    selected_settings: RunSettings,
+    prompt_codex_shard_plan_menu: PromptCodexShardPlanMenu,
+    back_action: Any,
+    selected_step_ids: Sequence[str],
+    target_context: Mapping[str, Any] | None = None,
+) -> RunSettings | None:
+    patched_payload = project_run_config_payload(
+        selected_settings.to_run_config_dict(),
+        contract=RUN_SETTING_CONTRACT_FULL,
+    )
+    rows = _build_codex_shard_plan_rows(
+        selected_settings=selected_settings,
+        selected_step_ids=selected_step_ids,
+        target_context=target_context,
+    )
+    if not rows:
+        return RunSettings.from_dict(
+            patched_payload,
+            warn_context="interactive codex prompt targets",
+        )
+    selected_counts = prompt_codex_shard_plan_menu(
+        message="Codex Exec shard planning for this run:",
+        rows=rows,
+        summary_lines=_build_codex_shard_plan_summary_lines(
+            target_context=target_context,
+            rows=rows,
+        ),
+        back_action=back_action,
+    )
+    if selected_counts is None or selected_counts is back_action:
+        return None
+    for step_id, prompt_target_count in dict(selected_counts).items():
+        if step_id not in _CODEX_SURFACE_PROMPT_TARGET_FIELDS:
+            continue
+        field_name, _label = _CODEX_SURFACE_PROMPT_TARGET_FIELDS[step_id]
+        patched_payload[field_name] = int(prompt_target_count)
     return RunSettings.from_dict(
         patched_payload,
         warn_context="interactive codex prompt targets",
@@ -592,16 +930,18 @@ def choose_interactive_codex_surfaces(
     back_action: Any,
     surface_options: tuple[str, ...],
     prompt_codex_surface_menu: PromptCodexSurfaceMenu | None = None,
-    prompt_text: PromptText | None = None,
+    prompt_codex_shard_plan_menu: PromptCodexShardPlanMenu | None = None,
+    target_context: Mapping[str, Any] | None = None,
 ) -> RunSettings | None:
     return _choose_interactive_codex_surfaces(
         selected_settings=selected_settings,
         prompt_codex_surface_menu=(
             prompt_codex_surface_menu or _prompt_codex_surface_menu
         ),
-        prompt_text=prompt_text,
+        prompt_codex_shard_plan_menu=prompt_codex_shard_plan_menu,
         back_action=back_action,
         surface_options=surface_options,
+        target_context=target_context,
     )
 
 
@@ -879,11 +1219,13 @@ def choose_run_settings(
     back_action: Any,
     prompt_confirm: PromptConfirm | None = None,
     prompt_codex_surface_menu: PromptCodexSurfaceMenu | None = None,
+    prompt_codex_shard_plan_menu: PromptCodexShardPlanMenu | None = None,
     prompt_text: PromptText | None = None,
     prompt_codex_ai_settings: bool = False,
     prompt_recipe_pipeline_menu: bool = False,
     prompt_benchmark_llm_surface_toggles: bool = False,
     interactive_codex_surface_options: tuple[str, ...] | None = None,
+    interactive_codex_target_context: Mapping[str, Any] | None = None,
 ) -> RunSettings | None:
     """Resolve one interactive top-tier run profile family."""
 
@@ -937,9 +1279,14 @@ def choose_run_settings(
         selected_settings = choose_interactive_codex_surfaces(
             selected_settings=selected_settings,
             prompt_codex_surface_menu=prompt_codex_surface_menu,
-            prompt_text=prompt_text,
+            prompt_codex_shard_plan_menu=(
+                prompt_codex_shard_plan_menu
+                if prompt_codex_shard_plan_menu is not None
+                else (_prompt_codex_shard_plan_menu if prompt_text is not None else None)
+            ),
             back_action=back_action,
             surface_options=codex_surface_menu_options,
+            target_context=interactive_codex_target_context,
         )
         if selected_settings is None:
             return None
