@@ -1,14 +1,53 @@
 from __future__ import annotations
 
-import sys
+import hashlib
+import json
+import os
+import cookimport.parsing.canonical_line_roles as runtime
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Mapping, Sequence
 
-runtime = sys.modules["cookimport.parsing.canonical_line_roles"]
-globals().update(
-    {
-        name: value
-        for name, value in vars(runtime).items()
-        if not name.startswith("__")
-    }
+from cookimport.config.prediction_identity import build_line_role_cache_identity_payload
+from cookimport.config.run_settings import RunSettings, normalize_line_role_pipeline_value
+from cookimport.llm.canonical_line_role_prompt import (
+    build_canonical_line_role_file_prompt,
+    build_line_role_shared_contract_block,
+)
+from cookimport.llm.codex_exec_runner import CodexExecRunResult
+from cookimport.llm.phase_worker_runtime import (
+    ShardManifestEntryV1,
+    ShardProposalV1,
+    WorkerExecutionReportV1,
+    resolve_phase_worker_count,
+)
+from cookimport.llm.shard_prompt_targets import (
+    partition_contiguous_items,
+    resolve_shard_count,
+)
+from cookimport.llm.worker_hint_sidecars import write_worker_hint_markdown
+from cookimport.parsing.line_role_workspace_tools import (
+    build_line_role_workspace_shard_metadata,
+)
+from cookimport.parsing.recipe_block_atomizer import (
+    AtomicLineCandidate,
+    build_atomic_index_lookup,
+    get_atomic_line_neighbor_texts,
+)
+
+from . import (
+    _CODEX_EXECUTABLES,
+    _LINE_ROLE_CACHE_ROOT_ENV,
+    _LINE_ROLE_CACHE_SCHEMA_VERSION,
+    _LINE_ROLE_CODEX_EXEC_DEFAULT_CMD,
+    _LINE_ROLE_CODEX_FARM_PIPELINE_ID,
+    _LINE_ROLE_CODEX_MAX_INFLIGHT_DEFAULT,
+    _LINE_ROLE_CODEX_MAX_INFLIGHT_ENV,
+)
+from .contracts import CanonicalLineRolePrediction
+from .policy import (
+    build_line_role_debug_input_payload,
+    build_line_role_model_input_payload,
 )
 
 

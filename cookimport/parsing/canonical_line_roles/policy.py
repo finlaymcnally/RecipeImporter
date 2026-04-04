@@ -1,14 +1,72 @@
 from __future__ import annotations
 
-import sys
+import re
+from typing import Any, Mapping, Sequence
 
-runtime = sys.modules["cookimport.parsing.canonical_line_roles"]
-globals().update(
-    {
-        name: value
-        for name, value in vars(runtime).items()
-        if not name.startswith("__")
-    }
+from cookimport.labelstudio.label_config_freeform import FREEFORM_ALLOWED_LABELS
+from cookimport.parsing.recipe_block_atomizer import (
+    AtomicLineCandidate,
+    build_atomic_index_lookup,
+)
+
+from . import (
+    _BOOK_FRAMING_EXHORTATION_CUE_RE,
+    _COPYRIGHT_LEGAL_RE,
+    _EDITORIAL_NOTE_PREFIXES,
+    _ENDORSEMENT_BLURB_CUE_RE,
+    _EXPLICIT_KNOWLEDGE_CUE_RE,
+    _FIRST_PERSON_RE,
+    _FIRST_PERSON_SINGULAR_RE,
+    _FRONT_MATTER_EXCLUSION_HEADINGS,
+    _FRONT_MATTER_NAVIGATION_HEADINGS,
+    _HOW_TO_TITLE_PREFIX_RE,
+    _HOWTO_PREFIX_RE,
+    _INGREDIENT_FRAGMENT_STOPWORDS,
+    _INGREDIENT_NAME_FRAGMENT_RE,
+    _INGREDIENT_UNIT_RE,
+    _INSTRUCTION_LEADIN_RE,
+    _INSTRUCTION_VERB_RE,
+    _KNOWLEDGE_DOMAIN_CUE_RE,
+    _KNOWLEDGE_EXPLANATION_CUE_RE,
+    _KNOWLEDGE_HEADING_FORM_RE,
+    _LINE_ROLE_MODEL_PAYLOAD_VERSION,
+    _NAVIGATION_SECTION_RE,
+    _NON_RECIPE_PROSE_PREFIXES,
+    _NOTE_PREFIX_RE,
+    _NUMBERED_STEP_RE,
+    _PAGE_FURNITURE_RE,
+    _PEDAGOGICAL_KNOWLEDGE_CUE_RE,
+    _PEDAGOGICAL_KNOWLEDGE_HEADING_RE,
+    _PROSE_WORD_RE,
+    _PUBLISHER_PROMO_RE,
+    _PUBLISHING_METADATA_RE,
+    _QUANTITY_LINE_RE,
+    _RECIPE_ACTION_CUE_RE,
+    _RECIPE_CONTEXT_RE,
+    _RECIPE_NOTE_ADVISORY_CUE_RE,
+    _RECIPEISH_OUTSIDE_SPAN_LABELS,
+    _SECOND_PERSON_RE,
+    _SERVING_NOTE_PREFIX_RE,
+    _STORAGE_NOTE_PREFIX_RE,
+    _TIME_PREFIX_RE,
+    _TITLE_CONNECTOR_WORDS,
+    _unique_string_list,
+    _VARIANT_EXPLICIT_HEADINGS,
+    _VARIANT_GENERIC_HEADINGS,
+    _VARIANT_RECIPE_SUFFIXES,
+    _YIELD_COUNT_HINT_RE,
+    _YIELD_PREFIX_RE,
+)
+from .contracts import (
+    CANONICAL_LINE_ROLE_ALLOWED_LABELS,
+    CanonicalLineRolePrediction,
+    RECIPE_LOCAL_LINE_ROLE_LABELS,
+)
+from .prompt_inputs import (
+    serialize_line_role_debug_context_row,
+    serialize_line_role_file_row,
+    serialize_line_role_model_context_row,
+    serialize_line_role_model_row,
 )
 
 _RECIPE_LOCAL_LABELS = set(RECIPE_LOCAL_LINE_ROLE_LABELS)

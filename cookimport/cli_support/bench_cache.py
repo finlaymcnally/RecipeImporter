@@ -1,21 +1,45 @@
 from __future__ import annotations
 
-import importlib
-import sys
+import datetime as dt
+import hashlib
+import json
+import os
+import re
+import shutil
+import time
+from collections import defaultdict
+from pathlib import Path
+from typing import Any
 
-runtime = sys.modules["cookimport.cli_support.bench"]
-globals().update(
-    {
-        name: value
-        for name, value in vars(runtime).items()
-        if not name.startswith("__")
-    }
+from cookimport.bench.prediction_records import read_prediction_records
+from cookimport.cli_support import (
+    ALL_METHOD_EVAL_SIGNATURE_RESULT_CACHE_SCHEMA_VERSION,
+    ALL_METHOD_EVAL_SIGNATURE_SCHEMA_VERSION,
+    ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT_ENV,
+    ALL_METHOD_PREDICTION_REUSE_CACHE_SCHEMA_VERSION,
+    ALL_METHOD_PREDICTION_REUSE_KEY_SCHEMA_VERSION,
+    ALL_METHOD_PREDICTION_REUSE_LOCK_SUFFIX,
+    ALL_METHOD_PREDICTION_REUSE_POLL_SECONDS,
+    ALL_METHOD_PREDICTION_REUSE_WAIT_SECONDS,
+    ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS,
+    ALL_METHOD_SPLIT_CONVERT_INPUT_KEY_SCHEMA_VERSION,
+    BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+    SINGLE_BOOK_SPLIT_CACHE_KEY_SCHEMA_VERSION,
+    SINGLE_BOOK_SPLIT_CACHE_LOCK_SUFFIX,
+    SINGLE_BOOK_SPLIT_CACHE_POLL_SECONDS,
+    SINGLE_BOOK_SPLIT_CACHE_ROOT_ENV,
+    SINGLE_BOOK_SPLIT_CACHE_SCHEMA_VERSION,
+    SINGLE_BOOK_SPLIT_CACHE_WAIT_SECONDS,
+    SINGLE_BOOK_SPLIT_CONVERT_INPUT_FIELDS,
+    _fail,
 )
+from cookimport.config.prediction_identity import (
+    build_all_method_prediction_identity_payload,
+)
+from cookimport.config.run_settings import RunSettings
+from cookimport.core.reporting import compute_file_hash
 
-
-def _report_count(value: Any) -> int:
-    all_method = importlib.import_module("cookimport.cli_support.bench_all_method")
-    return all_method._report_count(value)
+from .bench_all_method_reporting import _report_count
 
 
 def _json_safe(value: Any) -> Any:
@@ -739,9 +763,24 @@ def _materialize_all_method_cached_eval_outputs(
         rendered_md = (
             "# Benchmark Eval Report (Cached)\n\n"
             "Evaluation report reused from all-method signature cache."
-        )
+    )
     report_md_path.write_text(rendered_md, encoding="utf-8")
     return report_json_path, report_md_path
+
+
+def _resolve_all_method_prediction_record_path(
+    *,
+    root_output_dir: Path,
+    row: dict[str, Any],
+) -> Path | None:
+    raw_value = str(row.get("prediction_record_jsonl") or "").strip()
+    if not raw_value:
+        return None
+    candidate = Path(raw_value)
+    if not candidate.is_absolute():
+        candidate = root_output_dir / candidate
+    return candidate
+
 
 def _resolve_single_book_split_cache_root(
     *,

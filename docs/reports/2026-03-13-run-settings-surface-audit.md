@@ -1,8 +1,7 @@
 ---
-summary: "Run settings surface audit: `RunSettings` currently exposes 78 fields (75 visible), but the real product surface is much smaller; many fields are implementation seams, tuning leftovers, or benchmark/debug internals."
+summary: THIS IS OLD AND OUT OF DATE, KEEPING IT HERE AS A REMINDER TO ME (HUMAN)
 read_when:
-  - "When deciding whether a pipeline behavior should be a user-facing setting or an internal default"
-  - "When pruning the run-settings / benchmark config surface"
+  - "DO NOT READ, OUT OF DATE"
 ---
 
 `cookimport/config/run_settings.py` currently defines 78 `RunSettings` fields.

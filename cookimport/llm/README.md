@@ -6,6 +6,9 @@ Start points:
 - `phase_worker_runtime.py` is the shared shard/worker runtime foundation.
 - `codex_exec_runner.py` is the shared direct `codex exec` subprocess seam.
   - `codex_exec_types.py` now owns the shared direct-exec protocol/live-snapshot/watchdog contract dataclasses that `codex_exec_runner.py` re-exports.
+  - `codex_exec_workspace.py` owns direct-exec workspace preparation and mirror-manifest shaping. It now resolves the small runner-owned hook surface explicitly instead of inheriting the runner namespace wholesale.
+  - `codex_exec_telemetry.py` owns direct-exec event parsing, token-usage/status summarization, live-activity/watchdog summaries, and final-message assessment.
+  - `codex_exec_command_builder.py` owns `codex exec` argv construction plus Linux taskfile fs-cage command assembly; `codex_exec_runner.py` keeps thin wrappers so the historical monkeypatch/import surface stays stable.
 - `codex_farm_runner.py` is the `codex-farm process` runner seam.
 - `prompt_preview.py`, `prompt_artifacts.py`, and `prompt_budget.py` own prompt/cost inspection surfaces.
   - `prompt_artifacts.py` is now a thin public facade over `prompt_artifacts_discovery.py`, `prompt_artifacts_loader.py`, and `prompt_artifacts_activity.py`.
@@ -37,6 +40,8 @@ Owner packages:
 - Recipe: `recipe_stage/` owns the extracted helpers. `recipe_stage_shared.py` is now the shrinking runtime coordinator, with `recipe_stage/task_file_contract.py` owning worker-visible task payload/schema helpers and `recipe_stage/worker_io.py` owning prompt/jsonl/input writing plus local path helpers.
 - Knowledge: `knowledge_stage/`.
   - `knowledge_stage/structured_session_contract.py` owns the inline-JSON packet/prompt/answer helpers that were previously embedded in `workspace_run.py`.
+  - `knowledge_stage/recovery_status.py` owns task-status tracking, stale-followup finalization, and stage-status writing that were previously embedded in `recovery.py`.
+  - `knowledge_stage/runtime.py` and `knowledge_stage/recovery.py` now import their `_shared` and owner-module dependencies explicitly instead of cloning `_shared` into module globals.
 - Line-role: `parsing/canonical_line_roles/`.
 
 Read `docs/10-llm/10-llm_README.md` for the full current contract surface.

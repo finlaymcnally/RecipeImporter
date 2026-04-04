@@ -3,31 +3,103 @@ from __future__ import annotations
 from cookimport.config.run_settings import normalize_codex_exec_style_value
 
 from . import _shared as _shared_module
-from . import planning as _planning_module
-from . import promotion as _promotion_module
-from . import recovery as _recovery_module
 from . import workspace_run as _workspace_run_module
+from ._shared import (
+    _aggregate_worker_runner_payload,
+    _build_knowledge_shard_survivability_report,
+    _build_nonrecipe_finalize_rollup,
+    _build_review_summary,
+    _derive_knowledge_authority_mode,
+    _derive_nonrecipe_finalize_status,
+    _KNOWLEDGE_TASK_STATUS_FILE_NAME,
+    _load_json_dict,
+    _runtime_artifact_paths,
+    _summarize_knowledge_workspace_relaunches,
+    _write_json,
+    _write_jsonl,
+    _write_knowledge_runtime_summary_artifacts,
+    Any,
+    asdict,
+    attach_observed_telemetry_to_survivability_report,
+    build_knowledge_jobs,
+    Callable,
+    CodexExecLiveSnapshot,
+    CodexExecRunner,
+    CodexFarmRunnerError,
+    ConversionResult,
+    DEFAULT_KNOWLEDGE_PIPELINE_ID,
+    ensure_codex_farm_pipelines_exist,
+    KNOWLEDGE_MANIFEST_FILE_NAME,
+    logger,
+    Mapping,
+    NONRECIPE_AUTHORITY_FILE_NAME,
+    NONRECIPE_FINALIZE_STATUS_FILE_NAME,
+    NONRECIPE_ROUTE_FILE_NAME,
+    NonRecipeStageResult,
+    ParsingOverrides,
+    Path,
+    PhaseManifestV1,
+    read_validated_knowledge_outputs_from_proposals,
+    RecipeOwnershipResult,
+    refine_nonrecipe_stage_result,
+    replace,
+    resolve_codex_farm_output_schema_path,
+    resolve_phase_worker_count,
+    RunSettings,
+    sanitize_for_filename,
+    ShardManifestEntryV1,
+    ShardProposalV1,
+    ShardSurvivabilityPreflightError,
+    stage_artifact_stem,
+    SubprocessCodexExecRunner,
+    threading,
+    ThreadPoolExecutor,
+    time,
+    WorkerAssignmentV1,
+    WorkerExecutionReportV1,
+    write_knowledge_artifacts,
+)
+from .planning import (
+    _build_knowledge_task_manifest_entry,
+    _effort_override_value,
+    _KnowledgeCohortWatchdogState,
+    _KnowledgePhaseProgressState,
+    _KnowledgeWorkerProgressState,
+    _summarize_knowledge_shard_distribution,
+    CodexFarmNonrecipeFinalizeResult,
+)
+from .promotion import (
+    _build_noop_knowledge_llm_report,
+    _build_runtime_failed_knowledge_llm_report,
+    _collect_block_category_updates,
+    _collect_block_grounding_details,
+    _extract_full_blocks,
+    _non_empty,
+    _prepare_full_blocks,
+    _resolve_pipeline_root,
+    _resolve_workspace_root,
+    load_validated_knowledge_proposal_metadata_by_packet_id,
+)
+from .recovery import (
+    _build_knowledge_task_status_tracker,
+    _mark_running_knowledge_status_files_interrupted,
+    _write_knowledge_stage_status,
+)
 from ..taskfile_progress import (
     start_taskfile_progress_heartbeat,
 )
 
-for _module in (
-    _shared_module,
-    _planning_module,
-    _promotion_module,
-    _recovery_module,
-):
-    globals().update(
-        {
-            name: value
-            for name, value in vars(_module).items()
-            if not name.startswith("__")
-        }
-    )
-
 
 def _runtime_attr(name: str, default: Any) -> Any:
     return getattr(_shared_module, name, default)
+
+
+def _current_knowledge_shard_survivability_report_builder():
+    return getattr(
+        _shared_module,
+        "_build_knowledge_shard_survivability_report",
+        _build_knowledge_shard_survivability_report,
+    )
 
 
 def run_codex_farm_nonrecipe_finalize(
@@ -203,7 +275,7 @@ def run_codex_farm_nonrecipe_finalize(
         requested_worker_count=run_settings.knowledge_worker_count,
         shard_count=len(build_report.shard_entries),
     )
-    survivability_report = _build_knowledge_shard_survivability_report(
+    survivability_report = _current_knowledge_shard_survivability_report_builder()(
         shard_entries=build_report.shard_entries,
         pipeline_id=pipeline_id,
         model_name=codex_model,

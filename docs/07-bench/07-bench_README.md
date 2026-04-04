@@ -20,6 +20,12 @@ Benchmarking in this repo has three active surfaces:
 - `cookimport labelstudio-benchmark` for single-run benchmark generation/eval plus the interactive benchmark modes
 - `cf-debug ...` for deterministic follow-up packets built on top of `upload_bundle_v1`
 
+Current owner note for large benchmark helpers:
+
+- `cookimport/cli_support/bench_all_method.py` remains the orchestration root, but target discovery now lives in `bench_all_method_targets.py`, variant/codex matrix building in `bench_all_method_variants.py`, source-estimation/job planning plus scheduler/runtime planning and process-pool probing in `bench_all_method_scheduler.py`, split-cache/prediction-reuse/eval-signature helpers in `bench_cache.py`, QualitySuite compare-control bridge writing in `bench_all_method_qualitysuite.py`, and dashboard/report rendering in `bench_all_method_reporting.py`.
+  The extracted owner modules now import their real dependencies explicitly and only resolve patch-sensitive root hooks at call time; they no longer clone the full `bench` helper namespace into themselves.
+- `scripts/benchmark_cutdown_for_external_ai.py` remains the public wrapper, but deterministic run discovery, prompt/prediction/processed-output artifact-path resolution, JSON/JSONL/clipping helpers, prompt-log sampling, project-context digest rendering, and canonical-line sampling helpers now start in `cookimport/bench/external_ai_cutdown/`. The wrapper still keeps thin compatibility shims for `PROJECT_CONTEXT_REL_PATH`, `_prompt_category_sort_key`, and a few tested path helpers while the deeper upload-bundle/runtime logic remains in the script.
+
 Current scoring modes:
 
 - `stage-blocks`: compare stage evidence labels against freeform gold block labels

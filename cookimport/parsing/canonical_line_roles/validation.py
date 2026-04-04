@@ -1,15 +1,24 @@
 from __future__ import annotations
 
-import sys
+import json
+from pathlib import Path
+from typing import Any, Callable, Mapping, Sequence
 
-runtime = sys.modules["cookimport.parsing.canonical_line_roles"]
-globals().update(
-    {
-        name: value
-        for name, value in vars(runtime).items()
-        if not name.startswith("__")
-    }
+from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
+from cookimport.llm.codex_exec_runner import (
+    CodexExecRunResult,
+    summarize_direct_telemetry_rows,
 )
+from cookimport.parsing.line_role_workspace_tools import validate_line_role_output_payload
+from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
+
+from .contracts import (
+    CANONICAL_LINE_ROLE_ALLOWED_LABELS,
+    CanonicalLineRolePrediction,
+    _normalize_exclusion_reason,
+)
+from .policy import _is_within_recipe_span
+from .planning import ShardManifestEntryV1
 
 def _validate_line_role_shard_proposal(
     shard: ShardManifestEntryV1,

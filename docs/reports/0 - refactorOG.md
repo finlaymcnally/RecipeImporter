@@ -1,7 +1,7 @@
 ---
 summary: "Historical refactor spec for cookbook importer pipeline v2."
 read_when:
-  - When comparing the current pipeline against earlier refactor intent
+  - DO NOT READ
 ---
 
 # Refactor Spec: Cookbook Importer Pipeline v2

@@ -34,6 +34,58 @@ from typing import Any
 
 from cookimport.bench.line_role_artifact_lookup import LineRoleArtifactLookup
 from cookimport.bench import oracle_upload as oracle_upload_contract
+from cookimport.bench.external_ai_cutdown.canonical_lines import (
+    _build_canonical_lines,
+    _build_correct_label_sample,
+    _line_gold_labels,
+    _load_gold_spans,
+    _overlap_len,
+)
+from cookimport.bench.external_ai_cutdown.artifact_paths import (
+    _iter_prompt_category_manifest_paths as _iter_prompt_category_manifest_paths_impl,
+    _resolve_extracted_archive_path as _resolve_extracted_archive_path_impl,
+    _resolve_full_prompt_log_path as _resolve_full_prompt_log_path_impl,
+    _resolve_knowledge_manifest_path as _resolve_knowledge_manifest_path_impl,
+    _resolve_knowledge_prompt_path as _resolve_knowledge_prompt_path_impl,
+    _resolve_prediction_run_dir as _resolve_prediction_run_dir_impl,
+    _resolve_processed_output_run_dir as _resolve_processed_output_run_dir_impl,
+    _resolve_prompt_log_path as _resolve_prompt_log_path_impl,
+    _resolve_prompt_type_samples_path as _resolve_prompt_type_samples_path_impl,
+)
+from cookimport.bench.external_ai_cutdown.discovery import (
+    _default_output_dir_from_runs,
+    _discover_run_dirs,
+    _is_ignored_dir,
+    _is_run_dir,
+    _parse_run_timestamp,
+    _read_run_id_for_dir,
+    _timestamp_now,
+)
+from cookimport.bench.external_ai_cutdown.io import (
+    _clip_large_text_fields,
+    _clip_strings_deep,
+    _coerce_bool,
+    _coerce_float,
+    _coerce_int,
+    _excerpt,
+    _iter_jsonl,
+    _jsonl_row_count,
+    _load_json,
+    _sample_indices_evenly,
+    _sample_rows_evenly,
+    _write_json,
+    _write_jsonl,
+    _write_jsonl_sample,
+)
+from cookimport.bench.external_ai_cutdown.project_context import (
+    _build_project_context_digest as _build_project_context_digest_impl,
+    _project_context_metadata as _project_context_metadata_impl,
+)
+from cookimport.bench.external_ai_cutdown.prompt_logs import (
+    _prompt_category_sort_key as _prompt_category_sort_key_impl,
+    _write_prompt_log_samples as _write_prompt_log_samples_impl,
+    _write_prompt_log_samples_from_full_prompt_log as _write_prompt_log_samples_from_full_prompt_log_impl,
+)
 from cookimport.bench.eval_stage_blocks import (
     compute_block_metrics,
     load_gold_block_labels,
@@ -110,9 +162,6 @@ RUN_CONFIG_KEYS_OF_INTEREST = (
     "predict_only",
 )
 PROJECT_CONTEXT_REL_PATH = Path("docs/AI_context.md")
-PROJECT_CONTEXT_FRONT_MATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
-PROJECT_CONTEXT_HEADING_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
-PROJECT_CONTEXT_DATE_RE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
 
 ROOT_METADATA_FILES = (
     "README.md",
@@ -254,12 +303,6 @@ FULL_PROMPT_LOG_MANIFEST_ARTIFACT_KEYS = (
 PROMPT_TYPE_SAMPLES_MANIFEST_ARTIFACT_KEYS = (
     "prompt_type_samples_from_full_prompt_log_md",
 )
-PROMPT_LOG_SEPARATOR = "--------------------------------------------------------------------------------"
-PROMPT_SECTION_HEADER_RE = re.compile(
-    r"^---\s+([0-9A-Za-z_-]+)\s+(INPUT|RESPONSE)\s+FILES\s+---$"
-)
-PROMPT_ENTRY_RE = re.compile(r"^(INPUT|OUTPUT)\s+([0-9A-Za-z_-]+)\s*=>\s*(.+)$")
-PROMPT_CATEGORY_SORT_RE = re.compile(r"^([a-z]+)(\d+)(.*)$")
 LLM_STAGE_MAP = {
     "recipe_build_intermediate": {
         "artifact_stem": stage_artifact_stem("recipe_build_intermediate"),
@@ -488,409 +531,25 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _timestamp_now() -> str:
-    return datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
-
-
-def _parse_run_timestamp(run_id: str) -> datetime | None:
-    try:
-        return datetime.strptime(run_id, "%Y-%m-%d_%H.%M.%S")
-    except ValueError:
-        return None
-
-
-def _is_run_dir(path: Path) -> bool:
-    return (path / "eval_report.json").is_file() and (path / "run_manifest.json").is_file()
-
-
-def _is_ignored_dir(path: Path) -> bool:
-    parts = {part.lower() for part in path.parts}
-    if ".cache" in parts:
-        return True
-    for part in parts:
-        if part.endswith("_cutdown") or part.endswith("_md"):
-            return True
-    return False
-
-
-def _discover_run_dirs(input_dir: Path) -> list[Path]:
-    discovered: dict[Path, None] = {}
-    if _is_run_dir(input_dir):
-        discovered[input_dir] = None
-
-    for report_path in input_dir.rglob("eval_report.json"):
-        run_dir = report_path.parent
-        if _is_ignored_dir(run_dir):
-            continue
-        if _is_run_dir(run_dir):
-            discovered[run_dir] = None
-
-    return sorted(discovered.keys())
-
-
-def _read_run_id_for_dir(run_dir: Path) -> str:
-    manifest_path = run_dir / "run_manifest.json"
-    try:
-        manifest = _load_json(manifest_path)
-    except Exception:
-        return run_dir.name
-    run_id = manifest.get("run_id")
-    if isinstance(run_id, str) and run_id.strip():
-        return run_id.strip()
-    return run_dir.name
-
-
-def _default_output_dir_from_runs(input_dir: Path, run_dirs: list[Path]) -> Path:
-    run_ids = sorted({_read_run_id_for_dir(run_dir) for run_dir in run_dirs})
-    timestamp_ids = sorted(
-        run_id for run_id in run_ids if _parse_run_timestamp(run_id) is not None
-    )
-    if len(timestamp_ids) == 1:
-        base_name = timestamp_ids[0]
-    elif len(timestamp_ids) > 1:
-        base_name = f"{timestamp_ids[0]}__to__{timestamp_ids[-1]}"
-    else:
-        base_name = input_dir.name
-    return input_dir.parent / f"{base_name}_cutdown"
-
-
-def _load_json(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-    if not isinstance(payload, dict):
-        raise ValueError(f"Expected JSON object in {path}")
-    return payload
-
-
-def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=False)
-        handle.write("\n")
-
-
-def _iter_jsonl(path: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    if not path.is_file():
-        return rows
-    with path.open("r", encoding="utf-8") as handle:
-        for raw_line in handle:
-            line = raw_line.strip()
-            if not line:
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(row, dict):
-                rows.append(row)
-    return rows
-
-
-def _coerce_int(value: Any) -> int | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return None
-        try:
-            return int(text)
-        except ValueError:
-            return None
-    return None
-
-
-def _coerce_float(value: Any) -> float | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return None
-        try:
-            return float(text)
-        except ValueError:
-            return None
-    return None
-
-
-def _coerce_bool(value: Any) -> bool | None:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int):
-        if value in {0, 1}:
-            return bool(value)
-        return None
-    if isinstance(value, str):
-        text = value.strip().lower()
-        if text in {"true", "1", "yes"}:
-            return True
-        if text in {"false", "0", "no"}:
-            return False
-    return None
-
-
-def _excerpt(text: str, max_len: int) -> str:
-    if len(text) <= max_len:
-        return text
-    if max_len <= 3:
-        return text[:max_len]
-    return text[: max_len - 3] + "..."
-
-
-def _clip_strings_deep(value: Any, *, excerpt_limit: int, max_depth: int = 8) -> Any:
-    if max_depth <= 0:
-        return "<clipped: max depth>"
-    if isinstance(value, str):
-        return _excerpt(value, max_len=excerpt_limit)
-    if isinstance(value, list):
-        return [
-            _clip_strings_deep(item, excerpt_limit=excerpt_limit, max_depth=max_depth - 1)
-            for item in value
-        ]
-    if isinstance(value, dict):
-        clipped: dict[str, Any] = {}
-        for key, item in value.items():
-            clipped[str(key)] = _clip_strings_deep(
-                item,
-                excerpt_limit=excerpt_limit,
-                max_depth=max_depth - 1,
-            )
-        return clipped
-    return value
-
-
-def _clip_large_text_fields(row: dict[str, Any], *, excerpt_limit: int) -> dict[str, Any]:
-    clipped = dict(row)
-    for key in ("line_text_excerpt", "block_text_excerpt", "selected_text", "text"):
-        value = clipped.get(key)
-        if isinstance(value, str):
-            clipped[key] = _excerpt(value, max_len=excerpt_limit)
-    return clipped
-
-
-def _sample_rows_evenly(rows: list[dict[str, Any]], sample_limit: int) -> list[dict[str, Any]]:
-    selected_indices = _sample_indices_evenly(len(rows), sample_limit)
-    return [rows[index] for index in selected_indices]
-
-
-def _sample_indices_evenly(total_count: int, sample_limit: int) -> list[int]:
-    if total_count <= 0 or sample_limit <= 0:
-        return []
-    if sample_limit >= total_count:
-        return list(range(total_count))
-    if sample_limit == 1:
-        return [0]
-
-    last_index = total_count - 1
-    selected_indices = {
-        int(round(position * last_index / (sample_limit - 1))) for position in range(sample_limit)
-    }
-    if len(selected_indices) < sample_limit:
-        extras = [index for index in range(total_count) if index not in selected_indices][
-            : sample_limit - len(selected_indices)
-        ]
-        selected_indices.update(extras)
-    return sorted(selected_indices)[:sample_limit]
-
-
-def _write_jsonl_sample(
-    *,
-    source_path: Path,
-    output_path: Path,
-    sample_limit: int,
-    excerpt_limit: int,
-) -> dict[str, int]:
-    rows = _iter_jsonl(source_path)
-    sampled_raw = _sample_rows_evenly(rows, sample_limit)
-    sampled = [_clip_large_text_fields(row, excerpt_limit=excerpt_limit) for row in sampled_raw]
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8") as handle:
-        for row in sampled:
-            handle.write(json.dumps(row))
-            handle.write("\n")
-    return {"total_rows": len(rows), "sample_rows": len(sampled)}
-
-
-def _parse_prompt_log_sections(source_path: Path) -> dict[str, dict[str, list[dict[str, str]]]]:
-    sections: dict[str, dict[str, list[dict[str, str]]]] = defaultdict(
-        lambda: {"input": [], "output": []}
-    )
-
-    current_category: str | None = None
-    current_kind: str | None = None
-    current_filename: str | None = None
-    current_lines: list[str] = []
-    current_body_started = False
-    collecting = False
-
-    def flush_current_entry() -> None:
-        nonlocal collecting, current_category, current_kind, current_filename, current_lines
-        nonlocal current_body_started
-        if not collecting or current_category is None or current_kind is None:
-            return
-        if current_filename is None:
-            return
-        text = "\n".join(current_lines).rstrip()
-        if text:
-            sections[current_category][current_kind].append(
-                {"filename": current_filename, "text": text}
-            )
-        collecting = False
-        current_filename = None
-        current_lines = []
-        current_kind = None
-        current_body_started = False
-
-    for raw_line in source_path.read_text(encoding="utf-8").splitlines():
-        stripped = raw_line.strip()
-
-        section_match = PROMPT_SECTION_HEADER_RE.match(stripped)
-        if section_match:
-            flush_current_entry()
-            current_category = section_match.group(1).lower()
-            continue
-
-        entry_match = PROMPT_ENTRY_RE.match(stripped)
-        if entry_match:
-            flush_current_entry()
-            current_category = entry_match.group(2).lower()
-            current_kind = "input" if entry_match.group(1).upper() == "INPUT" else "output"
-            current_filename = entry_match.group(3).strip()
-            current_lines = [raw_line]
-            current_body_started = False
-            collecting = True
-            continue
-
-        if collecting and stripped == PROMPT_LOG_SEPARATOR:
-            current_lines.append(raw_line)
-            if current_body_started:
-                flush_current_entry()
-            else:
-                current_body_started = True
-            continue
-
-        if collecting and current_category is not None:
-            current_lines.append(raw_line)
-
-    flush_current_entry()
-    return {
-        category: payload
-        for category, payload in sections.items()
-        if payload["input"] or payload["output"]
-    }
-
-
-def _prompt_category_sort_key(category: str) -> tuple[int, str, int, str]:
-    lower = category.lower()
-    stage_sort = int(LLM_STAGE_MAP.get(lower, {}).get("sort_order") or -1)
-    if stage_sort >= 0:
-        return (0, "", stage_sort, lower)
-    match = PROMPT_CATEGORY_SORT_RE.match(lower)
-    if match:
-        return (1, match.group(1), int(match.group(2)), match.group(3))
-    return (2, lower, 0, "")
-
-
 def _write_prompt_log_samples(
     *,
     source_path: Path,
     output_path: Path,
     max_pairs_per_category: int,
 ) -> dict[str, Any]:
-    parsed = _parse_prompt_log_sections(source_path)
-    if not parsed:
-        output_path.write_text(
-            (
-                "No parseable prompt input/response sections were found in this log.\n"
-            ),
-            encoding="utf-8",
-        )
-        return {
-            "status": "no_sections",
-            "max_pairs_per_category": max_pairs_per_category,
-            "categories": [],
-            "sampled_pairs": 0,
-        }
+    return _write_prompt_log_samples_impl(
+        source_path=source_path,
+        output_path=output_path,
+        max_pairs_per_category=max_pairs_per_category,
+        llm_stage_map=LLM_STAGE_MAP,
+    )
 
-    lines: list[str] = [
-        "# Codex Exec prompt input/output examples (sampled)",
-        "",
-        (
-            "This file keeps a deterministic sample of whole prompt-input/output file "
-            f"blocks from the full prompt log, at most {max_pairs_per_category} pairs "
-            "per category."
-        ),
-        "",
-        f"Source log: {source_path}",
-        "",
-    ]
 
-    category_metadata: dict[str, dict[str, int]] = {}
-    sampled_pairs = 0
-    for category in sorted(parsed.keys(), key=_prompt_category_sort_key):
-        input_blocks = parsed[category]["input"]
-        output_blocks = parsed[category]["output"]
-        pairable_count = min(len(input_blocks), len(output_blocks))
-        sampled_pair_indices = _sample_indices_evenly(pairable_count, max_pairs_per_category)
-        pair_count = len(sampled_pair_indices)
-
-        category_metadata[category] = {
-            "input_blocks": len(input_blocks),
-            "output_blocks": len(output_blocks),
-            "pairable_blocks": pairable_count,
-            "sampled_pairs": pair_count,
-            "sampled_pair_indices": sampled_pair_indices,
-        }
-        lines.append(
-            (
-                f"--- {category.upper()} INPUT/OUTPUT PAIRS (showing {pair_count} of "
-                f"{pairable_count}) ---"
-            )
-        )
-        if pair_count == 0:
-            lines.append("No full input/output pair available for this category in this log.")
-            lines.append("")
-            continue
-
-        for pair_no, pair_index in enumerate(sampled_pair_indices, start=1):
-            input_block = input_blocks[pair_index]
-            output_block = output_blocks[pair_index]
-            lines.extend(
-                [
-                    (
-                        f"[{category}] Pair {pair_no} (source index {pair_index + 1}) "
-                        f"- INPUT file: {input_block['filename']}"
-                    ),
-                    input_block["text"],
-                    PROMPT_LOG_SEPARATOR,
-                    (
-                        f"[{category}] Pair {pair_no} (source index {pair_index + 1}) "
-                        f"- OUTPUT file: {output_block['filename']}"
-                    ),
-                    output_block["text"],
-                    PROMPT_LOG_SEPARATOR,
-                    "",
-                ]
-            )
-            sampled_pairs += 1
-
-    output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
-    return {
-        "status": "sampled",
-        "source_path": str(source_path),
-        "max_pairs_per_category": max_pairs_per_category,
-        "categories": sorted(parsed.keys(), key=_prompt_category_sort_key),
-        "sampled_pairs": sampled_pairs,
-        "category_metadata": category_metadata,
-    }
+def _prompt_category_sort_key(category: str) -> tuple[int, str, int, str]:
+    return _prompt_category_sort_key_impl(
+        category,
+        llm_stage_map=LLM_STAGE_MAP,
+    )
 
 
 def _write_prompt_log_samples_from_full_prompt_log(
@@ -900,330 +559,15 @@ def _write_prompt_log_samples_from_full_prompt_log(
     max_pairs_per_category: int,
     excerpt_limit: int,
 ) -> dict[str, Any]:
-    rows = _iter_jsonl(source_path)
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        stage_key = _prompt_row_stage_key(row) or "unknown"
-        grouped[stage_key].append(row)
-
-    if not grouped:
-        output_path.write_text(
-            "No parseable rows were found in full_prompt_log.jsonl.\n",
-            encoding="utf-8",
-        )
-        return {
-            "status": "no_rows",
-            "source_path": str(source_path),
-            "max_pairs_per_category": max_pairs_per_category,
-            "categories": [],
-            "sampled_pairs": 0,
-        }
-
-    for stage_key in grouped:
-        grouped[stage_key].sort(
-            key=lambda row: (
-                str(row.get("call_id") or ""),
-                str(row.get("timestamp_utc") or ""),
-            )
-        )
-
-    lines: list[str] = [
-        "# Codex Exec prompt input/output examples (from full_prompt_log.jsonl)",
-        "",
-        (
-            "This convenience file is derived from full_prompt_log.jsonl and keeps "
-            "request/response payload content for sampled calls (with long strings clipped)."
-            if max_pairs_per_category > 0
-            else (
-                "This convenience file is derived from full_prompt_log.jsonl and keeps all calls "
-                "(with long strings clipped)."
-            )
-        ),
-        "",
-        f"Source log: {source_path}",
-        f"String clip limit: {excerpt_limit} chars",
-        "",
-    ]
-
-    category_metadata: dict[str, dict[str, Any]] = {}
-    sampled_pairs = 0
-    for category in sorted(grouped.keys(), key=_prompt_category_sort_key):
-        category_rows = grouped[category]
-        if max_pairs_per_category <= 0:
-            sampled_indices = list(range(len(category_rows)))
-        else:
-            sampled_indices = _sample_indices_evenly(
-                len(category_rows),
-                max_pairs_per_category,
-            )
-        pair_count = len(sampled_indices)
-        category_metadata[category] = {
-            "total_calls": len(category_rows),
-            "sampled_calls": pair_count,
-            "sampled_call_indices": sampled_indices,
-        }
-
-        lines.append(
-            f"--- {category.upper()} STAGE CALLS (showing {pair_count} of {len(category_rows)}) ---"
-        )
-        if pair_count == 0:
-            lines.append("No calls available for this stage category.")
-            lines.append("")
-            continue
-
-        for sample_no, source_index in enumerate(sampled_indices, start=1):
-            row = category_rows[source_index]
-            call_id = str(row.get("call_id") or "").strip()
-            recipe_id = str(row.get("recipe_id") or "").strip()
-            timestamp_utc = str(row.get("timestamp_utc") or "").strip()
-            source_file = str(row.get("source_file") or "").strip()
-            lines.extend(
-                [
-                    (
-                        f"[{category}] Sample {sample_no} (source index {source_index + 1})"
-                        f" call_id={call_id} recipe_id={recipe_id} timestamp_utc={timestamp_utc}"
-                    ),
-                    f"source_file={source_file}",
-                    "",
-                    "REQUEST_MESSAGES:",
-                    json.dumps(
-                        _clip_strings_deep(
-                            row.get("request_messages"),
-                            excerpt_limit=excerpt_limit,
-                        ),
-                        indent=2,
-                        ensure_ascii=False,
-                        sort_keys=True,
-                    ),
-                    "",
-                    "RAW_RESPONSE:",
-                    json.dumps(
-                        _clip_strings_deep(
-                            row.get("raw_response"),
-                            excerpt_limit=excerpt_limit,
-                        ),
-                        indent=2,
-                        ensure_ascii=False,
-                        sort_keys=True,
-                    ),
-                    "",
-                    "PARSED_RESPONSE:",
-                    json.dumps(
-                        _clip_strings_deep(
-                            row.get("parsed_response"),
-                            excerpt_limit=excerpt_limit,
-                        ),
-                        indent=2,
-                        ensure_ascii=False,
-                        sort_keys=True,
-                    ),
-                    PROMPT_LOG_SEPARATOR,
-                    "",
-                ]
-            )
-            sampled_pairs += 1
-
-    output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
-    return {
-        "status": "sampled_from_full_prompt_log",
-        "source_path": str(source_path),
-        "max_pairs_per_category": max_pairs_per_category,
-        "excerpt_limit": excerpt_limit,
-        "categories": sorted(grouped.keys(), key=_prompt_category_sort_key),
-        "sampled_pairs": sampled_pairs,
-        "category_metadata": category_metadata,
-    }
-
-
-def _build_canonical_lines(canonical_text: str) -> list[dict[str, Any]]:
-    lines: list[dict[str, Any]] = []
-    cursor = 0
-    for raw_line in canonical_text.splitlines(keepends=True):
-        line_start = cursor
-        line_end = line_start + len(raw_line)
-        text_end = line_end
-        while text_end > line_start and canonical_text[text_end - 1] in {"\n", "\r"}:
-            text_end -= 1
-        if text_end > line_start:
-            lines.append(
-                {
-                    "line_index": len(lines),
-                    "start_char": line_start,
-                    "end_char": text_end,
-                    "text": canonical_text[line_start:text_end],
-                }
-            )
-        cursor = line_end
-    if not lines and canonical_text:
-        lines.append(
-            {
-                "line_index": 0,
-                "start_char": 0,
-                "end_char": len(canonical_text),
-                "text": canonical_text,
-            }
-        )
-    return lines
-
-
-def _load_gold_spans(canonical_spans_path: Path) -> list[dict[str, Any]]:
-    spans: list[dict[str, Any]] = []
-    for row in _iter_jsonl(canonical_spans_path):
-        start_char = _coerce_int(row.get("start_char"))
-        end_char = _coerce_int(row.get("end_char"))
-        label = str(row.get("label") or "").strip()
-        if start_char is None or end_char is None or end_char <= start_char:
-            continue
-        if not label:
-            continue
-        spans.append(
-            {
-                "label": label,
-                "start_char": start_char,
-                "end_char": end_char,
-            }
-        )
-    spans.sort(key=lambda span: (int(span["start_char"]), int(span["end_char"])))
-    return spans
-
-
-def _overlap_len(a_start: int, a_end: int, b_start: int, b_end: int) -> int:
-    return max(0, min(a_end, b_end) - max(a_start, b_start))
-
-
-def _line_gold_labels(
-    *,
-    lines: list[dict[str, Any]],
-    spans: list[dict[str, Any]],
-) -> dict[int, list[str]]:
-    labels_by_line: dict[int, list[str]] = {}
-    span_cursor = 0
-    span_total = len(spans)
-
-    for line in lines:
-        line_index = int(line["line_index"])
-        line_start = int(line["start_char"])
-        line_end = int(line["end_char"])
-
-        while span_cursor < span_total and int(spans[span_cursor]["end_char"]) <= line_start:
-            span_cursor += 1
-
-        overlap_by_label: dict[str, int] = defaultdict(int)
-        scan_index = span_cursor
-        while scan_index < span_total:
-            span = spans[scan_index]
-            span_start = int(span["start_char"])
-            if span_start >= line_end:
-                break
-            span_end = int(span["end_char"])
-            overlap = _overlap_len(line_start, line_end, span_start, span_end)
-            if overlap > 0:
-                overlap_by_label[str(span["label"])] += overlap
-            scan_index += 1
-
-        if not overlap_by_label:
-            labels_by_line[line_index] = ["OTHER"]
-            continue
-
-        ordered = sorted(
-            overlap_by_label.items(),
-            key=lambda item: (-item[1], item[0]),
-        )
-        labels_by_line[line_index] = [label for label, _ in ordered]
-
-    return labels_by_line
-
-
-def _build_correct_label_sample(
-    *,
-    eval_report: dict[str, Any],
-    wrong_label_rows: list[dict[str, Any]],
-    sample_limit: int,
-    excerpt_limit: int,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    canonical = eval_report.get("canonical")
-    if not isinstance(canonical, dict):
-        return [], {"status": "skipped", "reason": "missing_canonical_block"}
-
-    canonical_text_path_raw = canonical.get("canonical_text_path")
-    canonical_span_path_raw = canonical.get("canonical_span_labels_path")
-    if not isinstance(canonical_text_path_raw, str) or not isinstance(canonical_span_path_raw, str):
-        return [], {"status": "skipped", "reason": "missing_canonical_paths"}
-
-    canonical_text_path = Path(canonical_text_path_raw)
-    canonical_span_path = Path(canonical_span_path_raw)
-    if not canonical_text_path.is_file() or not canonical_span_path.is_file():
-        return [], {
-            "status": "skipped",
-            "reason": "canonical_paths_not_found",
-            "canonical_text_path": str(canonical_text_path),
-            "canonical_span_labels_path": str(canonical_span_path),
-        }
-
-    canonical_text = canonical_text_path.read_text(encoding="utf-8")
-    lines = _build_canonical_lines(canonical_text)
-    spans = _load_gold_spans(canonical_span_path)
-    labels_by_line = _line_gold_labels(lines=lines, spans=spans)
-
-    wrong_line_indices = {
-        idx
-        for row in wrong_label_rows
-        if (idx := _coerce_int(row.get("line_index"))) is not None
-    }
-
-    primary_pool: list[dict[str, Any]] = []
-    fallback_pool: list[dict[str, Any]] = []
-
-    for line in lines:
-        line_index = int(line["line_index"])
-        if line_index in wrong_line_indices:
-            continue
-        gold_labels = labels_by_line.get(line_index, ["OTHER"])
-        gold_label = gold_labels[0] if gold_labels else "OTHER"
-        row = {
-            "line_index": line_index,
-            "line_text_excerpt": _excerpt(str(line.get("text") or ""), max_len=excerpt_limit),
-            "gold_label": gold_label,
-            "gold_labels": gold_labels,
-            "pred_label": gold_label,
-            "correctness_basis": "line_index_absent_from_wrong_label_lines",
-        }
-        if gold_label == "OTHER":
-            fallback_pool.append(row)
-        else:
-            primary_pool.append(row)
-
-    combined = primary_pool + fallback_pool
-    sample = combined[:sample_limit]
-    metadata = {
-        "status": "ok",
-        "candidate_rows_total": len(combined),
-        "sample_rows": len(sample),
-        "non_other_candidates": len(primary_pool),
-        "other_candidates": len(fallback_pool),
-        "canonical_text_path": str(canonical_text_path),
-        "canonical_span_labels_path": str(canonical_span_path),
-    }
-    return sample, metadata
-
-
-def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        for row in rows:
-            handle.write(json.dumps(row))
-            handle.write("\n")
-
-
-def _jsonl_row_count(path: Path) -> int:
-    if not path.is_file():
-        return 0
-    count = 0
-    with path.open("r", encoding="utf-8") as handle:
-        for raw_line in handle:
-            if raw_line.strip():
-                count += 1
-    return count
+    return _write_prompt_log_samples_from_full_prompt_log_impl(
+        source_path=source_path,
+        output_path=output_path,
+        max_pairs_per_category=max_pairs_per_category,
+        excerpt_limit=excerpt_limit,
+        llm_stage_map=LLM_STAGE_MAP,
+        prompt_row_stage_key=_prompt_row_stage_key,
+        clip_strings_deep=_clip_strings_deep,
+    )
 
 
 def _write_jsonl_gzip_deterministic(path: Path, rows: list[dict[str, Any]]) -> int:
@@ -2351,82 +1695,11 @@ def _record_setting_values(records: list[RunRecord], key: str) -> set[str]:
     return {_normalized_setting_value(record.config_snapshot.get(key)) for record in records}
 
 
-def _extract_project_context_front_matter(text: str) -> dict[str, str]:
-    match = PROJECT_CONTEXT_FRONT_MATTER_RE.match(text)
-    if not match:
-        return {}
-    payload: dict[str, str] = {}
-    for raw_line in match.group(1).splitlines():
-        if ":" not in raw_line:
-            continue
-        key, value = raw_line.split(":", 1)
-        key_text = key.strip()
-        value_text = value.strip().strip("'\"")
-        if key_text and value_text:
-            payload[key_text] = value_text
-    return payload
-
-
-def _extract_project_context_title(text: str, context_path: Path) -> str:
-    heading_match = PROJECT_CONTEXT_HEADING_RE.search(text)
-    if heading_match:
-        heading = heading_match.group(1).strip()
-        heading = re.sub(r"`[^`]+`", "", heading)
-        heading = re.sub(r"\s*\(code-verified on [^)]+\)\s*$", "", heading, flags=re.IGNORECASE)
-        if ":" in heading:
-            heading = heading.split(":", 1)[0].strip()
-        heading = " ".join(heading.split())
-        if heading:
-            return heading
-
-    front_matter = _extract_project_context_front_matter(text)
-    summary = front_matter.get("summary")
-    if summary:
-        return summary
-    return context_path.stem
-
-
-def _extract_project_context_version_or_date(text: str, context_path: Path) -> str:
-    heading_match = PROJECT_CONTEXT_HEADING_RE.search(text)
-    if heading_match:
-        heading = heading_match.group(1)
-        date_match = PROJECT_CONTEXT_DATE_RE.search(heading)
-        if date_match:
-            return date_match.group(1)
-
-    front_matter = _extract_project_context_front_matter(text)
-    for key in ("version", "date", "updated", "last_updated"):
-        value = front_matter.get(key)
-        if value:
-            date_match = PROJECT_CONTEXT_DATE_RE.search(value)
-            if date_match:
-                return date_match.group(1)
-            return value
-
-    timestamp = datetime.fromtimestamp(context_path.stat().st_mtime, tz=timezone.utc)
-    return timestamp.strftime("%Y-%m-%d")
-
-
 def _project_context_metadata(repo_root: Path) -> dict[str, Any]:
-    context_path = repo_root / PROJECT_CONTEXT_REL_PATH
-    metadata = {
-        "project_context_path": str(PROJECT_CONTEXT_REL_PATH).replace("\\", "/"),
-        "project_context_title": "missing",
-        "project_context_version_or_date": "missing",
-        "project_context_hash": "missing",
-    }
-    if not context_path.is_file():
-        return metadata
-
-    raw_bytes = context_path.read_bytes()
-    text = raw_bytes.decode("utf-8", errors="replace")
-    metadata["project_context_title"] = _extract_project_context_title(text, context_path)
-    metadata["project_context_version_or_date"] = _extract_project_context_version_or_date(
-        text,
-        context_path,
+    return _project_context_metadata_impl(
+        repo_root=repo_root,
+        project_context_rel_path=PROJECT_CONTEXT_REL_PATH,
     )
-    metadata["project_context_hash"] = hashlib.sha256(raw_bytes).hexdigest()
-    return metadata
 
 
 def _build_project_context_digest(
@@ -2436,87 +1709,18 @@ def _build_project_context_digest(
     project_context_metadata: dict[str, Any],
     prompt_pairs_per_category: int,
 ) -> list[str]:
-    codex_runs = [record for record in records if record.codex_enabled]
-    baseline_runs = [record for record in records if not record.codex_enabled]
-    pairs_raw = comparison_summary.get("pairs")
-    pair_count = len(pairs_raw) if isinstance(pairs_raw, list) else 0
-    changed_lines_total = _coerce_int(comparison_summary.get("changed_lines_total")) or 0
-
-    llm_pipelines = {_normalized_setting_value(record.llm_recipe_pipeline) for record in records}
-    line_role_values = {record.line_role_pipeline for record in records}
-    atomic_splitter_values = {record.atomic_block_splitter for record in records}
-    section_backends = _record_setting_values(records, "section_detector_backend")
-    ingredient_parsers = _record_setting_values(records, "ingredient_parser_backend")
-    ingredient_fix_backends = _record_setting_values(records, "ingredient_text_fix_backend")
-    epub_preprocess_modes = _record_setting_values(records, "epub_unstructured_preprocess_mode")
-
-    prompt_sampling_caveat = (
-        "convenience prompt log keeps all calls when `--prompt-pairs-per-category 0`; "
-        "`full_prompt_log.jsonl` remains the source of truth."
-        if prompt_pairs_per_category <= 0
-        else (
-            "convenience prompt log samples at most "
-            f"{prompt_pairs_per_category} calls per stage; `full_prompt_log.jsonl` remains complete."
-        )
+    return _build_project_context_digest_impl(
+        records=records,
+        comparison_summary=comparison_summary,
+        project_context_metadata=project_context_metadata,
+        prompt_pairs_per_category=prompt_pairs_per_category,
+        alignment_healthy_coverage_min=ALIGNMENT_HEALTHY_COVERAGE_MIN,
+        alignment_healthy_match_ratio_min=ALIGNMENT_HEALTHY_MATCH_RATIO_MIN,
+        coerce_int=_coerce_int,
+        normalized_setting_value=_normalized_setting_value,
+        record_setting_values=_record_setting_values,
+        format_setting_values=_format_setting_values,
     )
-
-    return [
-        (
-            "- context_pointer: "
-            f"`{project_context_metadata['project_context_path']}` | "
-            f"title=`{project_context_metadata['project_context_title']}` | "
-            f"version_or_date=`{project_context_metadata['project_context_version_or_date']}` | "
-            f"sha256=`{project_context_metadata['project_context_hash']}`"
-        ),
-        (
-            "- system_summary: "
-            f"runs={len(records)} (codex={len(codex_runs)}, baseline={len(baseline_runs)}), "
-            f"paired_comparisons={pair_count}, changed_lines={changed_lines_total}."
-        ),
-        (
-            "- benchmark_contract: canonical-text scoring compares predicted labels against "
-            "canonical line-space gold labels (including structural labels such as "
-            "`INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`)."
-        ),
-        (
-            "- label_ontology_cheat_sheet: common canonical labels in this benchmark include "
-            "`RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`, "
-            "`RECIPE_NOTES`, and `OTHER`."
-        ),
-        (
-            "- projection_bridge: build-intermediate prompt spans (`start_block_index`/`end_block_index`) "
-            "are projected into canonical line diagnostics so changed-line rows can be split into "
-            "`inside_active_recipe_span` vs `outside_active_recipe_span`."
-        ),
-        (
-            "- active_pipeline_map: llm_recipe_pipeline="
-            f"{_format_setting_values(llm_pipelines)}, "
-            f"line_role_pipeline={_format_setting_values(line_role_values)}, "
-            f"atomic_block_splitter={_format_setting_values(atomic_splitter_values)}; "
-            "codex-vs-baseline pairing is by source_key with nearest timestamp baseline "
-            "(baseline values: `off`/`none`/empty)."
-        ),
-        (
-            "- backend_caveat: section_detector_backend="
-            f"{_format_setting_values(section_backends)}, "
-            f"ingredient_parser_backend={_format_setting_values(ingredient_parsers)}, "
-            f"ingredient_text_fix_backend={_format_setting_values(ingredient_fix_backends)}, "
-            f"epub_unstructured_preprocess_mode={_format_setting_values(epub_preprocess_modes)}."
-        ),
-        (
-            "- artifact_legend: root diagnosis artifacts are `changed_lines.codex_vs_vanilla.jsonl`, "
-            "`per_recipe_or_per_span_breakdown.json`, `targeted_prompt_cases.md`, and "
-            "`label_policy_adjudication_notes.md`; blended starter-pack artifacts live under "
-            "`starter_pack_v1/`; run folders retain `need_to_know_summary.json` plus codex trace "
-            "artifacts when available."
-        ),
-        (
-            "- sampling_caveat: sampled line-level JSONL artifacts are bounded by `--sample-limit`; "
-            "`unmatched_pred_blocks.jsonl` is counts-only unless alignment quality is weak "
-            f"(coverage<{ALIGNMENT_HEALTHY_COVERAGE_MIN} or match_ratio<{ALIGNMENT_HEALTHY_MATCH_RATIO_MIN}); "
-            f"{prompt_sampling_caveat}"
-        ),
-    ]
 
 
 def _source_file_name(path_raw: str | None) -> str | None:
@@ -2543,171 +1747,47 @@ def _run_output_dir_name(run_id: str, seen: dict[str, int]) -> str:
 
 
 def _resolve_prompt_log_path(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
-    candidate_paths: list[Path] = []
-
-    artifacts = run_manifest.get("artifacts")
-    if isinstance(artifacts, dict):
-        manifest_path_raw = artifacts.get(PROMPT_LOG_MANIFEST_ARTIFACT_KEY)
-        if isinstance(manifest_path_raw, str) and manifest_path_raw.strip():
-            manifest_path = Path(manifest_path_raw.strip())
-            candidate_paths.append(
-                manifest_path if manifest_path.is_absolute() else run_dir / manifest_path
-            )
-
-    candidate_paths.extend(
-        [
-            run_dir / PROMPT_LOG_FILE_NAME,
-            run_dir / "codex-exec" / PROMPT_REQUEST_RESPONSE_LOG_NAME,
-            run_dir / "codex-exec" / PROMPT_LOG_FILE_NAME,
-            run_dir / PROMPT_REQUEST_RESPONSE_LOG_NAME,
-        ]
+    return _resolve_prompt_log_path_impl(
+        run_dir=run_dir,
+        run_manifest=run_manifest,
+        prompt_log_manifest_artifact_key=PROMPT_LOG_MANIFEST_ARTIFACT_KEY,
+        prompt_log_file_name=PROMPT_LOG_FILE_NAME,
+        prompt_request_response_log_name=PROMPT_REQUEST_RESPONSE_LOG_NAME,
     )
-
-    seen: set[Path] = set()
-    for candidate in candidate_paths:
-        resolved = candidate.resolve(strict=False)
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        if candidate.is_file():
-            return candidate
-    return None
-
 
 def _resolve_full_prompt_log_path(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
-    candidate_paths: list[Path] = []
-
-    artifacts = run_manifest.get("artifacts")
-    if isinstance(artifacts, dict):
-        for key in FULL_PROMPT_LOG_MANIFEST_ARTIFACT_KEYS:
-            manifest_path_raw = artifacts.get(key)
-            if isinstance(manifest_path_raw, str) and manifest_path_raw.strip():
-                manifest_path = Path(manifest_path_raw.strip())
-                candidate_paths.append(
-                    manifest_path if manifest_path.is_absolute() else run_dir / manifest_path
-                )
-
-    candidate_paths.extend(
-        [
-            run_dir / "prompts" / FULL_PROMPT_LOG_FILE_NAME,
-            run_dir / FULL_PROMPT_LOG_FILE_NAME,
-            run_dir / "codex-exec" / FULL_PROMPT_LOG_FILE_NAME,
-        ]
+    return _resolve_full_prompt_log_path_impl(
+        run_dir=run_dir,
+        run_manifest=run_manifest,
+        full_prompt_log_manifest_artifact_keys=FULL_PROMPT_LOG_MANIFEST_ARTIFACT_KEYS,
+        full_prompt_log_file_name=FULL_PROMPT_LOG_FILE_NAME,
     )
-
-    seen: set[Path] = set()
-    for candidate in candidate_paths:
-        resolved = candidate.resolve(strict=False)
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        if candidate.is_file():
-            return candidate
-    return None
-
 
 def _resolve_prompt_type_samples_path(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
-    candidate_paths: list[Path] = []
-
-    artifacts = run_manifest.get("artifacts")
-    if isinstance(artifacts, dict):
-        for key in PROMPT_TYPE_SAMPLES_MANIFEST_ARTIFACT_KEYS:
-            manifest_path_raw = artifacts.get(key)
-            if isinstance(manifest_path_raw, str) and manifest_path_raw.strip():
-                manifest_path = Path(manifest_path_raw.strip())
-                candidate_paths.append(
-                    manifest_path if manifest_path.is_absolute() else run_dir / manifest_path
-                )
-
-    candidate_paths.extend(
-        [
-            run_dir / "prompts" / PROMPT_TYPE_SAMPLES_FILE_NAME,
-            run_dir / "codex-exec" / "prompts" / PROMPT_TYPE_SAMPLES_FILE_NAME,
-        ]
+    return _resolve_prompt_type_samples_path_impl(
+        run_dir=run_dir,
+        run_manifest=run_manifest,
+        prompt_type_samples_manifest_artifact_keys=PROMPT_TYPE_SAMPLES_MANIFEST_ARTIFACT_KEYS,
+        prompt_type_samples_file_name=PROMPT_TYPE_SAMPLES_FILE_NAME,
     )
 
-    seen: set[Path] = set()
-    for candidate in candidate_paths:
-        resolved = candidate.resolve(strict=False)
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        if candidate.is_file():
-            return candidate
-    return None
-
-
 def _iter_prompt_category_manifest_paths(prompts_dir: Path) -> list[Path]:
-    manifest_path = prompts_dir / "prompt_category_logs_manifest.txt"
-    if not manifest_path.is_file():
-        return []
-    rows: list[Path] = []
-    for raw_line in manifest_path.read_text(encoding="utf-8").splitlines():
-        text = raw_line.strip()
-        if not text:
-            continue
-        candidate = Path(text)
-        if not candidate.is_absolute():
-            candidate = (prompts_dir / candidate).resolve()
-        rows.append(candidate)
-    return rows
+    return _iter_prompt_category_manifest_paths_impl(prompts_dir)
 
 
 def _resolve_knowledge_prompt_path(run_dir: Path) -> Path | None:
-    candidate_paths: list[Path] = [
-        run_dir / "prompts" / KNOWLEDGE_PROMPT_FILE_NAME,
-        run_dir / "codex-exec" / "prompts" / KNOWLEDGE_PROMPT_FILE_NAME,
-    ]
-    for prompts_dir in (
-        run_dir / "prompts",
-        run_dir / "codex-exec" / "prompts",
-    ):
-        if not prompts_dir.is_dir():
-            continue
-        for candidate in _iter_prompt_category_manifest_paths(prompts_dir):
-            name = candidate.name.lower()
-            if name.startswith("prompt_nonrecipe_finalize") and name.endswith(".txt"):
-                candidate_paths.append(candidate)
-        candidate_paths.extend(sorted(prompts_dir.glob("prompt_nonrecipe_finalize*.txt")))
-    seen: set[Path] = set()
-    for candidate in candidate_paths:
-        resolved = candidate.resolve(strict=False)
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        if candidate.is_file():
-            return candidate
-    return None
+    return _resolve_knowledge_prompt_path_impl(
+        run_dir=run_dir,
+        knowledge_prompt_file_name=KNOWLEDGE_PROMPT_FILE_NAME,
+    )
 
 
 def _resolve_prediction_run_dir(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
-    artifacts = run_manifest.get("artifacts")
-    if isinstance(artifacts, dict):
-        pred_run_raw = artifacts.get("pred_run_dir")
-        if isinstance(pred_run_raw, str) and pred_run_raw.strip():
-            pred_candidate = Path(pred_run_raw.strip())
-            pred_path = pred_candidate if pred_candidate.is_absolute() else run_dir / pred_candidate
-            if pred_path.exists() and pred_path.is_dir():
-                return pred_path
-    fallback = run_dir / "prediction-run"
-    if fallback.exists() and fallback.is_dir():
-        return fallback
-    return None
+    return _resolve_prediction_run_dir_impl(run_dir, run_manifest)
 
 
 def _resolve_processed_output_run_dir(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
-    artifacts = run_manifest.get("artifacts")
-    if not isinstance(artifacts, dict):
-        return None
-    for key in ("processed_output_run_dir", "stage_run_dir"):
-        artifact_raw = artifacts.get(key)
-        if not isinstance(artifact_raw, str) or not artifact_raw.strip():
-            continue
-        candidate = Path(artifact_raw.strip())
-        candidate = candidate if candidate.is_absolute() else run_dir / candidate
-        if candidate.exists() and candidate.is_dir():
-            return candidate
-    return None
+    return _resolve_processed_output_run_dir_impl(run_dir, run_manifest)
 
 
 def _resolve_extracted_archive_path(
@@ -2716,100 +1796,18 @@ def _resolve_extracted_archive_path(
     *,
     pred_run_dir: Path | None = None,
 ) -> Path | None:
-    candidate_paths: list[Path] = []
-    artifacts = run_manifest.get("artifacts")
-    if isinstance(artifacts, dict):
-        for key in ("evaluation_extracted_archive_json", "extracted_archive_json"):
-            artifact_raw = artifacts.get(key)
-            if not isinstance(artifact_raw, str) or not artifact_raw.strip():
-                continue
-            candidate = Path(artifact_raw.strip())
-            candidate_paths.append(candidate if candidate.is_absolute() else run_dir / candidate)
-    if pred_run_dir is not None:
-        candidate_paths.extend(
-            [
-                pred_run_dir / "extracted_archive.json",
-                pred_run_dir / "line-role-pipeline" / "extracted_archive.json",
-            ]
-        )
-    candidate_paths.extend(
-        [
-            run_dir
-            / ".prediction-record-replay"
-            / "pipelined"
-            / "extracted_archive.from_records.json",
-            run_dir / "line-role-pipeline" / "extracted_archive.json",
-        ]
+    return _resolve_extracted_archive_path_impl(
+        run_dir=run_dir,
+        run_manifest=run_manifest,
+        pred_run_dir=pred_run_dir,
     )
 
-    seen: set[Path] = set()
-    for candidate in candidate_paths:
-        resolved = candidate.resolve(strict=False)
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        if candidate.is_file():
-            return candidate
-    return None
-
-
 def _resolve_knowledge_manifest_path(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
-    candidate_paths: list[Path] = []
-    pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
-    if pred_run_dir is not None:
-        pred_manifest_path = pred_run_dir / "manifest.json"
-        pred_manifest = (
-            _upload_bundle_load_json_object(pred_manifest_path)
-            if pred_manifest_path.is_file()
-            else {}
-        )
-        llm_payload = (
-            pred_manifest.get("llm_codex_farm") if isinstance(pred_manifest, dict) else {}
-        )
-        llm_payload = llm_payload if isinstance(llm_payload, dict) else {}
-        knowledge_payload = llm_payload.get("knowledge")
-        knowledge_payload = knowledge_payload if isinstance(knowledge_payload, dict) else {}
-        knowledge_paths = (
-            knowledge_payload.get("paths")
-            if isinstance(knowledge_payload.get("paths"), dict)
-            else {}
-        )
-        manifest_path_raw = (
-            knowledge_paths.get("manifest_path")
-            or knowledge_payload.get("manifest_path")
-            or ""
-        )
-        if isinstance(manifest_path_raw, str) and manifest_path_raw.strip():
-            manifest_path = Path(manifest_path_raw.strip())
-            candidate_paths.append(
-                manifest_path if manifest_path.is_absolute() else pred_run_dir / manifest_path
-            )
-
-        raw_llm_dir = pred_run_dir / "raw" / "llm"
-        if raw_llm_dir.is_dir():
-            candidate_paths.extend(
-                sorted(raw_llm_dir.glob(f"*/{KNOWLEDGE_MANIFEST_FILE_NAME}"))
-            )
-            candidate_paths.append(raw_llm_dir / KNOWLEDGE_MANIFEST_FILE_NAME)
-
-    processed_output_dir = _resolve_processed_output_run_dir(run_dir, run_manifest)
-    if processed_output_dir is not None:
-        processed_raw_llm_dir = processed_output_dir / "raw" / "llm"
-        if processed_raw_llm_dir.is_dir():
-            candidate_paths.extend(
-                sorted(processed_raw_llm_dir.glob(f"*/{KNOWLEDGE_MANIFEST_FILE_NAME}"))
-            )
-            candidate_paths.append(processed_raw_llm_dir / KNOWLEDGE_MANIFEST_FILE_NAME)
-
-    seen: set[Path] = set()
-    for candidate in candidate_paths:
-        resolved = candidate.resolve(strict=False)
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        if candidate.is_file():
-            return candidate
-    return None
+    return _resolve_knowledge_manifest_path_impl(
+        run_dir=run_dir,
+        run_manifest=run_manifest,
+        knowledge_manifest_file_name=KNOWLEDGE_MANIFEST_FILE_NAME,
+    )
 
 
 def _manifest_pass_status(value: Any) -> str:
