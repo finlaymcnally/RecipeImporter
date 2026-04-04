@@ -24,6 +24,30 @@ Keep notes short; update docs when behavior/API changes (no ship w/o docs).
 Add read_when hints on cross-cutting docs.
 Do not read the "_log.md" files in docs/ unless we are circling a problem, the "_log.md" files only exist as anti-loop memory in case we run into a hard to solve issue.
 
+Before searching code widely, use the docs tree as the discovery map. This repo is intentionally set up so you can understand most tasks by reading a tiny, relevant slice first.
+
+Default orientation flow:
+  - Run `npm run docs:list`.
+  - For narrow tasks, read only the owning domain doc.
+  - Read `docs/01-architecture/01-architecture_README.md` when the task is cross-cutting, architectural, or you are not yet sure which domain owns the behavior.
+  - Only search code after the owning docs point you to the likely module/package.
+  - If the docs clearly identify the owner, do not broad-search the repo.
+
+Owning docs map:
+  - CLI / commands / interactive flows -> `docs/02-cli/02-cli_README.md`
+  - Ingestion / importers / source jobs / merges -> `docs/03-ingestion/03-ingestion_readme.md`
+  - Parsing / ingredients / instructions / chunks / segmentation -> `docs/04-parsing/04-parsing_readme.md`
+  - Staging / outputs / run artifacts / draft writing -> `docs/05-staging/05-staging_readme.md`
+  - Label Studio flows / import-export / benchmark uploads -> `docs/06-label-studio/06-label-studio_README.md`
+  - Benchmarks / eval loops / QualitySuite -> `docs/07-bench/07-bench_README.md`
+  - Analytics / dashboard / metrics history -> `docs/08-analytics/08-analytics_readme.md`
+  - Tagging -> `docs/09-tagging/09-tagging_README.md`
+  - LLM runtime / prompts / worker transport -> `docs/10-llm/10-llm_README.md`
+  - Schemas / field inventories / reference artifacts -> `docs/11-reference/11-reference_README.md`
+  - Tests / test layout / low-noise pytest behavior -> `docs/12-testing/12-testing_README.md`
+
+Do not go rampant hunting through the codebase. The docs are the intended index. Read the smallest relevant doc slice first, then do targeted code search only where the docs point.
+
 # ExecPlans
 When writing complex features or significant refactors, use an ExecPlan (as described in docs/PLANS.md) from design to implementation. Save exec plans to /docs/plans/. - do a filename with a timestamp + descriptive short title, be consistent with other files in folder. REMEMBER TO UPDATE THE EXECPLAN YOU ARE WORKING OUT OF. BY THE TIME IT IS FULLY IMPLEMENTED, THE EXECPLAN SHOULD JUST BE A DOCUMENT THAT EXPLAINS HOW IT WORKS AND KEY CHOICES/DESIGN.
 

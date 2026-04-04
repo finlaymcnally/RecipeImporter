@@ -52,6 +52,15 @@ from cookimport.bench.external_ai_cutdown.artifact_paths import (
     _resolve_prompt_log_path as _resolve_prompt_log_path_impl,
     _resolve_prompt_type_samples_path as _resolve_prompt_type_samples_path_impl,
 )
+from cookimport.bench.external_ai_cutdown.comparison_diagnostics import (
+    _aggregate_confusion_deltas as _aggregate_confusion_deltas_impl,
+    _aggregate_region_accuracy as _aggregate_region_accuracy_impl,
+    _build_comparison_summary as _build_comparison_summary_impl,
+    _build_pair_diagnostics as _build_pair_diagnostics_impl,
+    _build_warning_and_trace_summary as _build_warning_and_trace_summary_impl,
+    _select_targeted_prompt_cases as _select_targeted_prompt_cases_impl,
+    _write_targeted_prompt_cases_markdown as _write_targeted_prompt_cases_markdown_impl,
+)
 from cookimport.bench.external_ai_cutdown.discovery import (
     _default_output_dir_from_runs,
     _discover_run_dirs,
@@ -60,6 +69,14 @@ from cookimport.bench.external_ai_cutdown.discovery import (
     _parse_run_timestamp,
     _read_run_id_for_dir,
     _timestamp_now,
+)
+from cookimport.bench.external_ai_cutdown.diagnostic_packets import (
+    _build_preprocess_trace_failure_rows as _build_preprocess_trace_failure_rows_impl,
+    _build_wrong_label_full_context_rows as _build_wrong_label_full_context_rows_impl,
+    _load_extracted_archive_blocks as _load_extracted_archive_blocks_impl,
+    _prompt_row_sort_key as _prompt_row_sort_key_impl,
+    _select_prompt_rows_by_recipe as _select_prompt_rows_by_recipe_impl,
+    _write_jsonl_gzip_deterministic as _write_jsonl_gzip_deterministic_impl,
 )
 from cookimport.bench.external_ai_cutdown.io import (
     _clip_large_text_fields,
@@ -77,6 +94,41 @@ from cookimport.bench.external_ai_cutdown.io import (
     _write_jsonl,
     _write_jsonl_sample,
 )
+from cookimport.bench.external_ai_cutdown.line_projection import (
+    _build_line_prediction_view as _build_line_prediction_view_impl,
+    _build_recipe_spans_from_full_prompt_rows as _build_recipe_spans_from_full_prompt_rows_impl,
+    _normalize_recipe_spans_to_line_coordinates as _normalize_recipe_spans_to_line_coordinates_impl,
+    _resolve_recipe_for_line as _resolve_recipe_for_line_impl,
+    _span_contains_line as _span_contains_line_impl,
+    _span_line_bounds as _span_line_bounds_impl,
+    _span_line_indices as _span_line_indices_impl,
+)
+from cookimport.bench.external_ai_cutdown.prompt_diagnostics import (
+    _coerce_str_list as _coerce_str_list_impl,
+    _is_empty_mapping_value as _is_empty_mapping_value_impl,
+    _normalize_warning_bucket_name as _normalize_warning_bucket_name_impl,
+    _normalize_warning_bucket_reason as _normalize_warning_bucket_reason_impl,
+    _normalize_whitespace as _normalize_whitespace_impl,
+    _parse_json_like as _parse_json_like_impl,
+    _prompt_warning_bucket as _prompt_warning_bucket_impl,
+    _summarize_prompt_warning_aggregate as _summarize_prompt_warning_aggregate_impl,
+    _upload_bundle_recipe_correction_input_block_count as _upload_bundle_recipe_correction_input_block_count_impl,
+    _upload_bundle_recipe_correction_metrics as _upload_bundle_recipe_correction_metrics_impl,
+    _upload_bundle_recipe_correction_output_for_recipe as _upload_bundle_recipe_correction_output_for_recipe_impl,
+    _upload_bundle_recipe_correction_output_rows as _upload_bundle_recipe_correction_output_rows_impl,
+)
+from cookimport.bench.external_ai_cutdown.prompt_log_reconstruction import (
+    _reconstruct_full_prompt_log as _reconstruct_full_prompt_log_impl,
+)
+from cookimport.bench.external_ai_cutdown.projection_trace import (
+    _alignment_is_healthy as _alignment_is_healthy_impl,
+    _build_projection_trace as _build_projection_trace_impl,
+    _first_prompt_block_excerpt as _first_prompt_block_excerpt_impl,
+    _line_context as _line_context_impl,
+    _prompt_row_owned_recipe_ids as _prompt_row_owned_recipe_ids_impl,
+    _prompt_row_recipe_id as _prompt_row_recipe_id_impl,
+    _prompt_row_stage_key as _prompt_row_stage_key_impl,
+)
 from cookimport.bench.external_ai_cutdown.project_context import (
     _build_project_context_digest as _build_project_context_digest_impl,
     _project_context_metadata as _project_context_metadata_impl,
@@ -85,6 +137,48 @@ from cookimport.bench.external_ai_cutdown.prompt_logs import (
     _prompt_category_sort_key as _prompt_category_sort_key_impl,
     _write_prompt_log_samples as _write_prompt_log_samples_impl,
     _write_prompt_log_samples_from_full_prompt_log as _write_prompt_log_samples_from_full_prompt_log_impl,
+)
+from cookimport.bench.external_ai_cutdown.prompt_case_views import (
+    _block_id_from_row as _block_id_from_row_impl,
+    _blocks_from_request_payload as _blocks_from_request_payload_impl,
+    _build_intermediate_selected_blocks as _build_intermediate_selected_blocks_impl,
+    _correction_input_blocks as _correction_input_blocks_impl,
+    _count_list_entries as _count_list_entries_impl,
+    _final_recipe_step_count as _final_recipe_step_count_impl,
+    _input_excerpt_for_prompt_row as _input_excerpt_for_prompt_row_impl,
+    _mapping_count as _mapping_count_impl,
+    _nearest_recipe_id_for_line_index as _nearest_recipe_id_for_line_index_impl,
+    _output_excerpt_for_prompt_row as _output_excerpt_for_prompt_row_impl,
+    _prompt_case_score as _prompt_case_score_impl,
+    _prompt_row_identity_key as _prompt_row_identity_key_impl,
+    _recipe_short_title as _recipe_short_title_impl,
+    _to_json_excerpt as _to_json_excerpt_impl,
+    _warning_buckets as _warning_buckets_impl,
+)
+from cookimport.bench.external_ai_cutdown.run_cutdown import (
+    _build_run_cutdown as _build_run_cutdown_impl,
+    _build_run_record_from_existing_run as _build_run_record_from_existing_run_impl,
+)
+from cookimport.bench.external_ai_cutdown.root_rendering import (
+    _flatten_output as _flatten_output_impl,
+    _write_readme as _write_readme_impl,
+    _write_root_summary_markdown as _write_root_summary_markdown_impl,
+    write_flattened_summary_for_existing_runs as write_flattened_summary_for_existing_runs_impl,
+)
+from cookimport.bench.external_ai_cutdown.starter_pack import (
+    _bridge_anomaly_summary as _bridge_anomaly_summary_impl,
+    _build_selected_recipe_packets as _build_selected_recipe_packets_impl,
+    _group_changed_lines_by_recipe as _group_changed_lines_by_recipe_impl,
+    _recipe_row_key as _recipe_row_key_impl,
+    _render_starter_pack_casebook as _render_starter_pack_casebook_impl,
+    _render_starter_pack_label_policy as _render_starter_pack_label_policy_impl,
+    _select_starter_pack_recipe_cases as _select_starter_pack_recipe_cases_impl,
+    _sort_recipe_rows_for_metric as _sort_recipe_rows_for_metric_impl,
+    _warning_summary_for_recipe as _warning_summary_for_recipe_impl,
+    _write_starter_pack_readme as _write_starter_pack_readme_impl,
+)
+from cookimport.bench.external_ai_cutdown.starter_pack_writer import (
+    _write_starter_pack_v1 as _write_starter_pack_v1_impl,
 )
 from cookimport.bench.eval_stage_blocks import (
     compute_block_metrics,
@@ -571,82 +665,34 @@ def _write_prompt_log_samples_from_full_prompt_log(
 
 
 def _write_jsonl_gzip_deterministic(path: Path, rows: list[dict[str, Any]]) -> int:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    written = 0
-    with path.open("wb") as raw_handle:
-        with gzip.GzipFile(fileobj=raw_handle, mode="wb", mtime=0) as gzip_handle:
-            for row in rows:
-                payload = json.dumps(
-                    row,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode("utf-8")
-                gzip_handle.write(payload)
-                gzip_handle.write(b"\n")
-                written += 1
-    return written
+    return _write_jsonl_gzip_deterministic_impl(path, rows)
 
 
 def _load_extracted_archive_blocks(path: Path) -> dict[int, dict[str, Any]]:
-    if not path.is_file():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return {}
-
-    rows: list[dict[str, Any]]
-    if isinstance(payload, list):
-        rows = [row for row in payload if isinstance(row, dict)]
-    elif isinstance(payload, dict):
-        blocks = payload.get("blocks")
-        rows = [row for row in blocks if isinstance(row, dict)] if isinstance(blocks, list) else []
-    else:
-        rows = []
-
-    indexed: dict[int, dict[str, Any]] = {}
-    for fallback_index, row in enumerate(rows):
-        index = _coerce_int(row.get("index"))
-        if index is None:
-            index = _coerce_int(row.get("block_index"))
-        location = row.get("location")
-        if index is None and isinstance(location, dict):
-            index = _coerce_int(location.get("block_index"))
-        if index is None:
-            index = fallback_index
-        features = location.get("features") if isinstance(location, dict) else None
-        indexed[int(index)] = {
-            "text": str(row.get("text") or ""),
-            "features": dict(features) if isinstance(features, dict) else {},
-        }
-    return indexed
+    return _load_extracted_archive_blocks_impl(
+        path,
+        coerce_int=_coerce_int,
+    )
 
 
 def _prompt_row_sort_key(row: dict[str, Any]) -> tuple[int, int, str]:
-    stage_key = _prompt_row_stage_key(row)
-    pass_rank = int(LLM_STAGE_MAP.get(stage_key, {}).get("sort_order") or 99)
-
-    parsed_response = _parse_json_like(row.get("parsed_response"))
-    parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
-    warning_count = len(_coerce_str_list(parsed_response.get("warnings")))
-    call_id = str(row.get("call_id") or "")
-    return (pass_rank, -warning_count, call_id)
+    return _prompt_row_sort_key_impl(
+        row,
+        prompt_row_stage_key=_prompt_row_stage_key,
+        llm_stage_map=LLM_STAGE_MAP,
+        parse_json_like=_parse_json_like,
+        coerce_str_list=_coerce_str_list,
+    )
 
 
 def _select_prompt_rows_by_recipe(
     full_prompt_rows: list[dict[str, Any]],
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any] | None]:
-    if not full_prompt_rows:
-        return {}, None
-    sorted_rows = sorted(full_prompt_rows, key=_prompt_row_sort_key)
-    by_recipe: dict[str, dict[str, Any]] = {}
-    fallback: dict[str, Any] | None = sorted_rows[0]
-    for row in sorted_rows:
-        for recipe_id in _prompt_row_owned_recipe_ids(row):
-            if recipe_id not in by_recipe:
-                by_recipe[recipe_id] = row
-    return by_recipe, fallback
+    return _select_prompt_rows_by_recipe_impl(
+        full_prompt_rows,
+        prompt_row_sort_key=_prompt_row_sort_key,
+        prompt_row_owned_recipe_ids=_prompt_row_owned_recipe_ids,
+    )
 
 
 def _build_wrong_label_full_context_rows(
@@ -655,61 +701,18 @@ def _build_wrong_label_full_context_rows(
     recipe_spans: list[dict[str, Any]],
     excerpt_limit: int,
 ) -> list[dict[str, Any]]:
-    wrong_rows = _iter_jsonl(run_dir / "wrong_label_lines.jsonl")
-    if not wrong_rows:
-        return []
-
-    run_manifest_path = run_dir / "run_manifest.json"
-    run_manifest = _load_json(run_manifest_path) if run_manifest_path.is_file() else {}
-    run_id = str(run_manifest.get("run_id") or run_dir.name)
-    source = run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
-    source_path = source.get("path") if isinstance(source, dict) else None
-    source_hash = source.get("source_hash") if isinstance(source, dict) else None
-    source_file = _source_file_name(source_path if isinstance(source_path, str) else None)
-    source_key = _source_key(
-        source_hash if isinstance(source_hash, str) else None,
-        source_file,
+    return _build_wrong_label_full_context_rows_impl(
+        run_dir=run_dir,
+        recipe_spans=recipe_spans,
+        excerpt_limit=excerpt_limit,
+        iter_jsonl=_iter_jsonl,
+        load_json=_load_json,
+        coerce_int=_coerce_int,
+        source_file_name=_source_file_name,
+        source_key=_source_key,
+        build_line_prediction_view=_build_line_prediction_view,
+        line_context=_line_context,
     )
-
-    line_view = _build_line_prediction_view(run_dir=run_dir, recipe_spans=recipe_spans)
-
-    rows: list[dict[str, Any]] = []
-    for wrong_row in wrong_rows:
-        line_index = _coerce_int(wrong_row.get("line_index"))
-        if line_index is None:
-            continue
-        recipe_id = line_view.recipe_id_by_index.get(line_index)
-        span_region = line_view.recipe_span_by_index.get(line_index, "outside_active_recipe_span")
-        gold_label = str(
-            wrong_row.get("gold_label")
-            or line_view.gold_label_by_index.get(line_index)
-            or "OTHER"
-        )
-        pred_label = str(
-            wrong_row.get("pred_label")
-            or line_view.pred_label_by_index.get(line_index)
-            or "OTHER"
-        )
-        rows.append(
-            {
-                "run_id": run_id,
-                "line_index": line_index,
-                "recipe_id": recipe_id,
-                "span_region": span_region,
-                "gold_label": gold_label,
-                "pred_label": pred_label,
-                "source_file": source_file,
-                "source_hash": source_hash if isinstance(source_hash, str) else None,
-                "source_key": source_key,
-                **_line_context(
-                    line_text_by_index=line_view.line_text_by_index,
-                    line_index=line_index,
-                    excerpt_limit=excerpt_limit,
-                ),
-            }
-        )
-    rows.sort(key=lambda row: int(row.get("line_index") or 0))
-    return rows
 
 
 def _build_preprocess_trace_failure_rows(
@@ -719,250 +722,48 @@ def _build_preprocess_trace_failure_rows(
     full_prompt_rows: list[dict[str, Any]],
     excerpt_limit: int,
 ) -> tuple[list[dict[str, Any]], str]:
-    wrong_rows = _iter_jsonl(run_dir / "wrong_label_lines.jsonl")
-    if not wrong_rows:
-        return [], "not_applicable"
-
-    if not full_prompt_rows:
-        return [], "missing_full_prompt_log"
-
-    pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
-    extracted_archive_path = _resolve_extracted_archive_path(
-        run_dir,
-        run_manifest,
-        pred_run_dir=pred_run_dir,
+    return _build_preprocess_trace_failure_rows_impl(
+        run_dir=run_dir,
+        run_manifest=run_manifest,
+        full_prompt_rows=full_prompt_rows,
+        excerpt_limit=excerpt_limit,
+        iter_jsonl=_iter_jsonl,
+        coerce_int=_coerce_int,
+        parse_json_like=_parse_json_like,
+        coerce_str_list=_coerce_str_list,
+        normalize_whitespace=_normalize_whitespace,
+        prompt_warning_bucket=_prompt_warning_bucket,
+        prompt_row_stage_key=_prompt_row_stage_key,
+        source_file_name=_source_file_name,
+        source_key=_source_key,
+        excerpt=_excerpt,
+        line_context=_line_context,
+        first_prompt_block_excerpt=_first_prompt_block_excerpt,
+        select_prompt_row_for_trace=select_prompt_row_for_trace,
+        resolve_trace_status=resolve_trace_status,
+        resolve_prediction_run_dir=_resolve_prediction_run_dir,
+        resolve_extracted_archive_path=_resolve_extracted_archive_path,
+        load_extracted_archive_blocks=_load_extracted_archive_blocks,
+        select_prompt_rows_by_recipe=_select_prompt_rows_by_recipe,
+        build_recipe_spans_from_full_prompt_rows=_build_recipe_spans_from_full_prompt_rows,
+        build_line_prediction_view=_build_line_prediction_view,
     )
-    if extracted_archive_path is None:
-        return [], "missing_prediction_run" if pred_run_dir is None else "missing_extracted_archive"
-
-    archive_blocks = _load_extracted_archive_blocks(extracted_archive_path)
-    prompt_rows_by_recipe, fallback_prompt_row = _select_prompt_rows_by_recipe(full_prompt_rows)
-    recipe_spans = _build_recipe_spans_from_full_prompt_rows(full_prompt_rows)
-    line_view = _build_line_prediction_view(run_dir=run_dir, recipe_spans=recipe_spans)
-
-    run_id = str(run_manifest.get("run_id") or run_dir.name)
-    source = run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
-    source_path = source.get("path") if isinstance(source, dict) else None
-    source_hash = source.get("source_hash") if isinstance(source, dict) else None
-    source_file = _source_file_name(source_path if isinstance(source_path, str) else None)
-    source_key = _source_key(
-        source_hash if isinstance(source_hash, str) else None,
-        source_file,
-    )
-
-    rows: list[dict[str, Any]] = []
-    for wrong_row in wrong_rows:
-        line_index = _coerce_int(wrong_row.get("line_index"))
-        if line_index is None:
-            continue
-
-        recipe_id = line_view.recipe_id_by_index.get(line_index)
-        span_region = line_view.recipe_span_by_index.get(
-            line_index,
-            "outside_active_recipe_span",
-        )
-        recipe_key = str(recipe_id or "").strip()
-        prompt_row = select_prompt_row_for_trace(
-            recipe_key=recipe_key,
-            span_region=span_region,
-            prompt_rows_by_recipe=prompt_rows_by_recipe,
-            fallback_prompt_row=fallback_prompt_row,
-        )
-        prompt_stage_key = _prompt_row_stage_key(prompt_row) if isinstance(prompt_row, dict) else None
-        call_id = str(prompt_row.get("call_id") or "").strip() if prompt_row else None
-
-        parsed_response = (
-            _parse_json_like(prompt_row.get("parsed_response")) if isinstance(prompt_row, dict) else {}
-        )
-        parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
-        warnings = _coerce_str_list(parsed_response.get("warnings"))
-        warning_buckets = sorted(
-            {
-                _prompt_warning_bucket(_normalize_whitespace(warning))
-                for warning in warnings
-                if warning.strip()
-            }
-        )
-        prompt_candidate_block_excerpt = (
-            _first_prompt_block_excerpt(prompt_row, excerpt_limit=excerpt_limit)
-            if isinstance(prompt_row, dict)
-            else ""
-        )
-
-        archive_row = archive_blocks.get(line_index, {})
-        raw_block_text = str(archive_row.get("text") or "")
-        raw_block_excerpt = (
-            _excerpt(_normalize_whitespace(raw_block_text), max_len=excerpt_limit)
-            if raw_block_text
-            else ""
-        )
-        features = archive_row.get("features")
-        features = features if isinstance(features, dict) else {}
-        trace_status = resolve_trace_status(
-            span_region=span_region,
-            has_prompt_excerpt=bool(prompt_candidate_block_excerpt),
-            has_archive_excerpt=bool(raw_block_excerpt),
-        )
-
-        rows.append(
-            {
-                "run_id": run_id,
-                "line_index": line_index,
-                "recipe_id": recipe_id,
-                "span_region": span_region,
-                "gold_label": str(
-                    wrong_row.get("gold_label")
-                    or line_view.gold_label_by_index.get(line_index)
-                    or "OTHER"
-                ),
-                "pred_label": str(
-                    wrong_row.get("pred_label")
-                    or line_view.pred_label_by_index.get(line_index)
-                    or "OTHER"
-                ),
-                "raw_block_excerpt": raw_block_excerpt,
-                "raw_block_unstructured_preprocess_mode": features.get(
-                    "unstructured_preprocess_mode"
-                ),
-                "raw_block_stable_key": features.get("unstructured_stable_key"),
-                "prompt_candidate_block_excerpt": prompt_candidate_block_excerpt,
-                "stage_key": prompt_stage_key,
-                "call_id": call_id,
-                "warning_buckets": warning_buckets,
-                "trace_status": trace_status,
-                "source_file": source_file,
-                "source_hash": source_hash if isinstance(source_hash, str) else None,
-                "source_key": source_key,
-                **_line_context(
-                    line_text_by_index=line_view.line_text_by_index,
-                    line_index=line_index,
-                    excerpt_limit=excerpt_limit,
-                ),
-            }
-        )
-
-    rows.sort(key=lambda row: int(row.get("line_index") or 0))
-    if not rows:
-        return [], "not_applicable"
-    return rows, "ready"
 
 
 def _parse_json_like(value: Any) -> Any:
-    if isinstance(value, (dict, list)):
-        return value
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return value
-        if text.startswith("{") or text.startswith("["):
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                return value
-    return value
+    return _parse_json_like_impl(value)
 
 
 def _coerce_str_list(value: Any) -> list[str]:
-    parsed = _parse_json_like(value)
-    if isinstance(parsed, list):
-        rows: list[str] = []
-        for entry in parsed:
-            if isinstance(entry, str):
-                text = entry.strip()
-                if text:
-                    rows.append(text)
-        return rows
-    if isinstance(parsed, str):
-        text = parsed.strip()
-        if text:
-            return [text]
-    return []
+    return _coerce_str_list_impl(value)
 
 
 def _is_empty_mapping_value(value: Any) -> bool:
-    parsed = _parse_json_like(value)
-    if isinstance(parsed, dict):
-        return len(parsed) == 0
-    if isinstance(parsed, str):
-        return parsed.strip() in {"{}", "null", ""}
-    return value is None
+    return _is_empty_mapping_value_impl(value)
 
 
 def _upload_bundle_recipe_correction_output_rows(value: Any) -> list[dict[str, Any]]:
-    parsed = _parse_json_like(value)
-    if not isinstance(parsed, dict):
-        return []
-
-    candidates: list[dict[str, Any]] = []
-    payload = parsed.get("payload")
-    if isinstance(payload, dict):
-        candidates.append(payload)
-    candidates.append(parsed)
-
-    for candidate in candidates:
-        recipe_rows = candidate.get("r")
-        if not isinstance(recipe_rows, list):
-            continue
-        normalized_rows: list[dict[str, Any]] = []
-        for recipe_row in recipe_rows:
-            if not isinstance(recipe_row, dict):
-                continue
-            compact_recipe = recipe_row.get("cr")
-            compact_recipe = compact_recipe if isinstance(compact_recipe, dict) else {}
-            normalized_rows.append(
-                {
-                    "recipe_id": str(recipe_row.get("rid") or "").strip(),
-                    "repair_status": str(recipe_row.get("st") or "").strip(),
-                    "status_reason": str(recipe_row.get("sr") or "").strip(),
-                    "warnings": _coerce_str_list(recipe_row.get("w")),
-                    "has_mapping_field": "m" in recipe_row,
-                    "canonical_recipe": {
-                        "title": str(compact_recipe.get("t") or "").strip(),
-                        "ingredients": _coerce_str_list(compact_recipe.get("i")),
-                        "steps": _coerce_str_list(compact_recipe.get("s")),
-                        "description": str(compact_recipe.get("d") or "").strip(),
-                        "recipe_yield": str(compact_recipe.get("y") or "").strip(),
-                    },
-                    "ingredient_step_mapping": recipe_row.get("m"),
-                    "ingredient_step_mapping_reason": str(recipe_row.get("mr") or "").strip(),
-                }
-            )
-        if normalized_rows:
-            return normalized_rows
-
-    if any(
-        key in parsed
-        for key in (
-            "canonical_recipe",
-            "ingredient_step_mapping",
-            "ingredient_step_mapping_reason",
-            "warnings",
-        )
-    ):
-        canonical_recipe = (
-            parsed.get("canonical_recipe") if isinstance(parsed.get("canonical_recipe"), dict) else {}
-        )
-        return [
-            {
-                "recipe_id": str(parsed.get("recipe_id") or "").strip(),
-                "repair_status": str(parsed.get("repair_status") or "").strip(),
-                "status_reason": str(parsed.get("status_reason") or "").strip(),
-                "warnings": _coerce_str_list(parsed.get("warnings")),
-                "has_mapping_field": "ingredient_step_mapping" in parsed,
-                "canonical_recipe": {
-                    "title": str(canonical_recipe.get("title") or "").strip(),
-                    "ingredients": _coerce_str_list(canonical_recipe.get("ingredients")),
-                    "steps": _coerce_str_list(canonical_recipe.get("steps")),
-                    "description": str(canonical_recipe.get("description") or "").strip(),
-                    "recipe_yield": str(canonical_recipe.get("recipe_yield") or "").strip(),
-                },
-                "ingredient_step_mapping": parsed.get("ingredient_step_mapping"),
-                "ingredient_step_mapping_reason": str(
-                    parsed.get("ingredient_step_mapping_reason") or ""
-                ).strip(),
-            }
-        ]
-    return []
+    return _upload_bundle_recipe_correction_output_rows_impl(value)
 
 
 def _upload_bundle_recipe_correction_output_for_recipe(
@@ -970,13 +771,10 @@ def _upload_bundle_recipe_correction_output_for_recipe(
     *,
     recipe_id: str,
 ) -> dict[str, Any]:
-    normalized_recipe_id = str(recipe_id or "").strip()
-    rows = _upload_bundle_recipe_correction_output_rows(value)
-    if normalized_recipe_id:
-        for row in rows:
-            if str(row.get("recipe_id") or "").strip() == normalized_recipe_id:
-                return row
-    return rows[0] if len(rows) == 1 else {}
+    return _upload_bundle_recipe_correction_output_for_recipe_impl(
+        value,
+        recipe_id=recipe_id,
+    )
 
 
 def _upload_bundle_recipe_correction_input_block_count(
@@ -984,305 +782,49 @@ def _upload_bundle_recipe_correction_input_block_count(
     *,
     recipe_id: str | None = None,
 ) -> int:
-    parsed = _parse_json_like(value)
-    if not isinstance(parsed, dict):
-        return 0
-    normalized_recipe_id = str(recipe_id or "").strip()
-    if normalized_recipe_id:
-        shard_recipe_rows = parsed.get("r")
-        if isinstance(shard_recipe_rows, list):
-            for recipe_row in shard_recipe_rows:
-                if not isinstance(recipe_row, dict):
-                    continue
-                if str(recipe_row.get("rid") or "").strip() != normalized_recipe_id:
-                    continue
-                evidence_rows = recipe_row.get("ev")
-                return len(evidence_rows) if isinstance(evidence_rows, list) else 0
-    evidence_rows = parsed.get("evidence_rows")
-    if isinstance(evidence_rows, list):
-        return len(evidence_rows)
-    shard_recipe_rows = parsed.get("r")
-    if isinstance(shard_recipe_rows, list):
-        return sum(
-            len(recipe_row.get("ev") or [])
-            for recipe_row in shard_recipe_rows
-            if isinstance(recipe_row, dict) and isinstance(recipe_row.get("ev"), list)
-        )
-    return 0
+    return _upload_bundle_recipe_correction_input_block_count_impl(
+        value,
+        recipe_id=recipe_id,
+    )
 
 
 def _upload_bundle_recipe_correction_metrics(output_row: dict[str, Any]) -> dict[str, Any]:
-    canonical_recipe = (
-        output_row.get("canonical_recipe")
-        if isinstance(output_row.get("canonical_recipe"), dict)
-        else {}
+    return _upload_bundle_recipe_correction_metrics_impl(
+        output_row,
+        mapping_count=_mapping_count,
     )
-    ingredients = _coerce_str_list(canonical_recipe.get("ingredients"))
-    steps = _coerce_str_list(canonical_recipe.get("steps"))
-    warnings = _coerce_str_list(output_row.get("warnings"))
-    mapping_value = output_row.get("ingredient_step_mapping")
-    mapping_count = _mapping_count(mapping_value)
-    has_signal = bool(
-        str(canonical_recipe.get("title") or "").strip()
-        or str(canonical_recipe.get("description") or "").strip()
-        or str(canonical_recipe.get("recipe_yield") or "").strip()
-        or ingredients
-        or steps
-        or mapping_count > 0
-        or warnings
-        or str(output_row.get("repair_status") or "").strip()
-        or str(output_row.get("status_reason") or "").strip()
-    )
-    return {
-        "ingredient_count": len(ingredients),
-        "step_count": len(steps),
-        "mapping_count": mapping_count,
-        "warnings": warnings,
-        "empty_mapping": bool(output_row.get("has_mapping_field"))
-        and _is_empty_mapping_value(mapping_value),
-        "empty_output": not has_signal,
-    }
 
 
 def _normalize_whitespace(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
+    return _normalize_whitespace_impl(text)
 
 
 def _normalize_warning_bucket_name(bucket: str) -> str:
-    cleaned = str(bucket or "").strip().lower()
-    if cleaned in {"ocr_or_page_artifact", "page_or_layout_artifact"}:
-        return "page_or_layout_artifact"
-    return cleaned
+    return _normalize_warning_bucket_name_impl(bucket)
 
 
 def _normalize_warning_bucket_reason(reason: str) -> str:
-    cleaned = str(reason or "").strip()
-    normalized_bare = _normalize_warning_bucket_name(cleaned)
-    if normalized_bare and normalized_bare != cleaned:
-        return normalized_bare
-    prefix = "warning_bucket:"
-    if not cleaned.startswith(prefix):
-        return cleaned
-    bucket = _normalize_warning_bucket_name(cleaned[len(prefix) :])
-    if not bucket:
-        return cleaned
-    return f"{prefix}{bucket}"
+    return _normalize_warning_bucket_reason_impl(reason)
 
 
 def _prompt_warning_bucket(message: str) -> str:
-    lowered = message.lower()
-    if "split" in lowered and "line" in lowered:
-        return "split_line_boundary"
-    if "serving" in lowered and "split" in lowered:
-        return "serving_boundary_split"
-    if "ingredient" in lowered and ("fragment" in lowered or "incomplete" in lowered):
-        return "ingredient_fragment"
-    if "no " in lowered and "instruction" in lowered:
-        return "missing_instructions"
-    if "page" in lowered or "ocr" in lowered or "artifact" in lowered:
-        return "page_or_layout_artifact"
-    if "yield" in lowered:
-        return "yield_detection"
-    return "other"
+    return _prompt_warning_bucket_impl(message)
 
 
 def _summarize_prompt_warning_aggregate(full_prompt_log_path: Path) -> dict[str, Any]:
-    rows = _iter_jsonl(full_prompt_log_path)
-    by_stage_calls: Counter[str] = Counter()
-    by_stage_calls_with_warnings: Counter[str] = Counter()
-    warning_message_counts: Counter[str] = Counter()
-    warning_bucket_counts: Counter[str] = Counter()
-    correction_empty_mapping_calls = 0
-    correction_empty_mapping_recipe_ids: Counter[str] = Counter()
-
-    calls_with_warnings = 0
-    warning_total = 0
-
-    for row in rows:
-        stage_key = _prompt_row_stage_key(row) or "unknown"
-        by_stage_calls[stage_key] += 1
-
-        parsed_response = _parse_json_like(row.get("parsed_response"))
-        parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
-        warnings = _coerce_str_list(parsed_response.get("warnings"))
-        correction_outputs = (
-            _upload_bundle_recipe_correction_output_rows(parsed_response)
-            if stage_key == "recipe_refine"
-            else []
-        )
-        if correction_outputs:
-            warnings = []
-            for output_row in correction_outputs:
-                warnings.extend(_upload_bundle_recipe_correction_metrics(output_row)["warnings"])
-        if warnings:
-            calls_with_warnings += 1
-            by_stage_calls_with_warnings[stage_key] += 1
-        for warning in warnings:
-            normalized = _normalize_whitespace(warning)
-            warning_message_counts[normalized] += 1
-            warning_bucket_counts[_prompt_warning_bucket(normalized)] += 1
-            warning_total += 1
-
-        if correction_outputs:
-            empty_mapping_recipe_ids: list[str] = []
-            for output_row in correction_outputs:
-                metrics = _upload_bundle_recipe_correction_metrics(output_row)
-                if not metrics["empty_mapping"]:
-                    continue
-                recipe_id = str(output_row.get("recipe_id") or row.get("recipe_id") or "").strip()
-                if recipe_id:
-                    empty_mapping_recipe_ids.append(recipe_id)
-            if empty_mapping_recipe_ids:
-                correction_empty_mapping_calls += 1
-                for recipe_id in empty_mapping_recipe_ids:
-                    correction_empty_mapping_recipe_ids[recipe_id] += 1
-        elif "ingredient_step_mapping" in parsed_response and _is_empty_mapping_value(
-            parsed_response.get("ingredient_step_mapping")
-        ):
-            correction_empty_mapping_calls += 1
-            recipe_id = str(row.get("recipe_id") or "").strip()
-            if recipe_id:
-                correction_empty_mapping_recipe_ids[recipe_id] += 1
-
-    return {
-        "source_full_prompt_log": str(full_prompt_log_path),
-        "total_calls": len(rows),
-        "calls_with_warnings": calls_with_warnings,
-        "warnings_total": warning_total,
-        "calls_by_stage": dict(sorted(by_stage_calls.items())),
-        "calls_with_warnings_by_stage": dict(sorted(by_stage_calls_with_warnings.items())),
-        "warning_buckets": dict(
-            sorted(warning_bucket_counts.items(), key=lambda item: (-item[1], item[0]))
-        ),
-        "top_warning_messages": [
-            {"warning": message, "count": count}
-            for message, count in warning_message_counts.most_common(20)
-        ],
-        "correction_empty_ingredient_step_mapping_calls": correction_empty_mapping_calls,
-        "correction_empty_ingredient_step_mapping_recipe_ids": [
-            {"recipe_id": recipe_id, "count": count}
-            for recipe_id, count in correction_empty_mapping_recipe_ids.most_common()
-        ],
-    }
+    return _summarize_prompt_warning_aggregate_impl(
+        full_prompt_log_path,
+        prompt_row_stage_key=_prompt_row_stage_key,
+        mapping_count=_mapping_count,
+    )
 
 
 def _build_recipe_spans_from_full_prompt_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    spans: list[dict[str, Any]] = []
-    seen: set[tuple[str, int, int]] = set()
-    for row in rows:
-        stage_key = _prompt_row_stage_key(row)
-        if stage_key not in {"recipe_refine", "recipe_build_intermediate"}:
-            continue
-        request_input_payload = _parse_json_like(row.get("request_input_payload"))
-        if not isinstance(request_input_payload, dict):
-            continue
-        parsed_response = _parse_json_like(row.get("parsed_response"))
-        parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
-
-        shard_recipe_rows = request_input_payload.get("r")
-        if isinstance(shard_recipe_rows, list) and shard_recipe_rows:
-            for recipe_row in shard_recipe_rows:
-                if not isinstance(recipe_row, dict):
-                    continue
-                recipe_id = str(recipe_row.get("rid") or "").strip()
-                if not recipe_id:
-                    continue
-                evidence_rows = recipe_row.get("ev")
-                evidence_rows = (
-                    evidence_rows if isinstance(evidence_rows, list) else []
-                )
-                indices = [
-                    int(index)
-                    for index in (
-                        _coerce_int(item[0])
-                        for item in evidence_rows
-                        if isinstance(item, (list, tuple)) and len(item) >= 2
-                    )
-                    if index is not None
-                ]
-                if not indices:
-                    continue
-                start = min(indices)
-                end = max(indices)
-                if start is None or end is None or end < start:
-                    continue
-                hints = recipe_row.get("h") if isinstance(recipe_row.get("h"), dict) else {}
-                title = (
-                    str(hints.get("n") or "").strip()
-                    or str(recipe_row.get("txt") or "").strip()
-                    or None
-                )
-                dedupe_key = (recipe_id, start, end)
-                if dedupe_key in seen:
-                    continue
-                seen.add(dedupe_key)
-                spans.append(
-                    {
-                        "recipe_id": recipe_id,
-                        "start_block_index": start,
-                        "end_block_index": end,
-                        "title": title,
-                        "call_id": row.get("call_id"),
-                    }
-                )
-            continue
-
-        evidence_rows = request_input_payload.get("evidence_rows")
-        indices: list[int] = []
-        if isinstance(evidence_rows, list) and evidence_rows:
-            indices = [
-                int(index)
-                for index in (
-                    _coerce_int(item[0])
-                    for item in evidence_rows
-                    if isinstance(item, (list, tuple)) and len(item) >= 2
-                )
-                if index is not None
-            ]
-        if not indices:
-            start = _coerce_int(parsed_response.get("start_block_index"))
-            end = _coerce_int(parsed_response.get("end_block_index"))
-            if start is not None and end is not None and end >= start:
-                indices = list(range(int(start), int(end) + 1))
-        if not indices:
-            continue
-        start = min(indices)
-        end = max(indices)
-        if start is None or end is None or end < start:
-            continue
-        recipe_id = str(
-            row.get("recipe_id") or request_input_payload.get("recipe_id") or ""
-        ).strip()
-        if not recipe_id:
-            continue
-        canonical_recipe = (
-            parsed_response.get("canonical_recipe")
-            if isinstance(parsed_response.get("canonical_recipe"), dict)
-            else {}
-        )
-        dedupe_key = (recipe_id, start, end)
-        if dedupe_key in seen:
-            continue
-        seen.add(dedupe_key)
-        spans.append(
-            {
-                "recipe_id": recipe_id,
-                "start_block_index": start,
-                "end_block_index": end,
-                "title": canonical_recipe.get("title")
-                or parsed_response.get("title")
-                or ((request_input_payload.get("recipe_candidate_hint") or {}).get("name") if isinstance(request_input_payload.get("recipe_candidate_hint"), dict) else None),
-                "call_id": row.get("call_id"),
-            }
-        )
-    spans.sort(
-        key=lambda row: (
-            int(row["start_block_index"]),
-            int(row["end_block_index"]) - int(row["start_block_index"]),
-            str(row["recipe_id"]),
-        )
+    return _build_recipe_spans_from_full_prompt_rows_impl(
+        rows=rows,
+        prompt_row_stage_key=_prompt_row_stage_key,
+        parse_json_like=_parse_json_like,
     )
-    return spans
 
 
 def _normalize_recipe_spans_to_line_coordinates(
@@ -1290,103 +832,22 @@ def _normalize_recipe_spans_to_line_coordinates(
     run_dir: Path,
     recipe_spans: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    if not recipe_spans:
-        return []
-
-    normalized = [dict(span) for span in recipe_spans if isinstance(span, dict)]
-    needs_projection = False
-    for span in normalized:
-        start_line_index = _coerce_int(span.get("start_line_index"))
-        end_line_index = _coerce_int(span.get("end_line_index"))
-        if start_line_index is not None and end_line_index is not None:
-            continue
-        if "line_indices" in span:
-            continue
-        needs_projection = True
-
-    if not needs_projection:
-        return normalized
-
-    projected_rows = _iter_jsonl(run_dir / "line-role-pipeline" / "projected_spans.jsonl")
-    if not projected_rows:
-        return normalized
-
-    line_indices_by_block_index: dict[int, set[int]] = defaultdict(set)
-    for row in projected_rows:
-        block_index = _coerce_int(row.get("block_index"))
-        line_index = _coerce_int(row.get("line_index"))
-        if block_index is None or line_index is None:
-            continue
-        line_indices_by_block_index[int(block_index)].add(int(line_index))
-
-    if not line_indices_by_block_index:
-        return normalized
-
-    for span in normalized:
-        if "line_indices" in span:
-            continue
-        start_block_index = _coerce_int(span.get("start_block_index"))
-        end_block_index = _coerce_int(span.get("end_block_index"))
-        if start_block_index is None or end_block_index is None or end_block_index < start_block_index:
-            continue
-        projected_line_indices = sorted(
-            line_index
-            for block_index, line_indices in line_indices_by_block_index.items()
-            if start_block_index <= block_index <= end_block_index
-            for line_index in line_indices
-        )
-        span["line_indices"] = projected_line_indices
-        if projected_line_indices:
-            span["start_line_index"] = projected_line_indices[0]
-            span["end_line_index"] = projected_line_indices[-1]
-    return normalized
+    return _normalize_recipe_spans_to_line_coordinates_impl(
+        run_dir=run_dir,
+        recipe_spans=recipe_spans,
+    )
 
 
 def _span_line_indices(span: dict[str, Any]) -> list[int] | None:
-    if "line_indices" not in span:
-        return None
-    raw_values = span.get("line_indices")
-    if not isinstance(raw_values, list):
-        return []
-    seen: set[int] = set()
-    line_indices: list[int] = []
-    for value in raw_values:
-        parsed = _coerce_int(value)
-        if parsed is None or parsed in seen:
-            continue
-        seen.add(parsed)
-        line_indices.append(int(parsed))
-    line_indices.sort()
-    return line_indices
+    return _span_line_indices_impl(span)
 
 
 def _span_line_bounds(span: dict[str, Any]) -> tuple[int | None, int | None]:
-    line_indices = _span_line_indices(span)
-    if line_indices is not None:
-        if not line_indices:
-            return None, None
-        return line_indices[0], line_indices[-1]
-
-    start_line_index = _coerce_int(span.get("start_line_index"))
-    end_line_index = _coerce_int(span.get("end_line_index"))
-    if start_line_index is not None and end_line_index is not None:
-        return int(start_line_index), int(end_line_index)
-
-    start_block_index = _coerce_int(span.get("start_block_index"))
-    end_block_index = _coerce_int(span.get("end_block_index"))
-    if start_block_index is None or end_block_index is None:
-        return None, None
-    return int(start_block_index), int(end_block_index)
+    return _span_line_bounds_impl(span)
 
 
 def _span_contains_line(*, span: dict[str, Any], line_index: int) -> bool:
-    line_indices = _span_line_indices(span)
-    if line_indices is not None:
-        return line_index in line_indices
-    start, end = _span_line_bounds(span)
-    if start is None or end is None:
-        return False
-    return start <= line_index <= end
+    return _span_contains_line_impl(span=span, line_index=line_index)
 
 
 def _resolve_recipe_for_line(
@@ -1394,21 +855,10 @@ def _resolve_recipe_for_line(
     line_index: int,
     recipe_spans: list[dict[str, Any]],
 ) -> tuple[str | None, str]:
-    matches: list[dict[str, Any]] = []
-    for span in recipe_spans:
-        if _span_contains_line(span=span, line_index=line_index):
-            matches.append(span)
-    if not matches:
-        return None, "outside_active_recipe_span"
-    best = sorted(
-        matches,
-        key=lambda span: (
-            int((_span_line_bounds(span)[1] or 0) - (_span_line_bounds(span)[0] or 0)),
-            int(_span_line_bounds(span)[0] or 0),
-            str(span["recipe_id"]),
-        ),
-    )[0]
-    return str(best["recipe_id"]), "inside_active_recipe_span"
+    return _resolve_recipe_for_line_impl(
+        line_index=line_index,
+        recipe_spans=recipe_spans,
+    )
 
 
 def _build_line_prediction_view(
@@ -1416,72 +866,10 @@ def _build_line_prediction_view(
     run_dir: Path,
     recipe_spans: list[dict[str, Any]],
 ) -> LinePredictionView:
-    normalized_recipe_spans = _normalize_recipe_spans_to_line_coordinates(
+    return _build_line_prediction_view_impl(
         run_dir=run_dir,
         recipe_spans=recipe_spans,
-    )
-    eval_report_path = run_dir / "eval_report.json"
-    eval_report = _load_json(eval_report_path) if eval_report_path.is_file() else {}
-    canonical = eval_report.get("canonical")
-    if not isinstance(canonical, dict):
-        return LinePredictionView({}, {}, {}, {}, {}, normalized_recipe_spans)
-
-    canonical_text_path_raw = canonical.get("canonical_text_path")
-    canonical_spans_path_raw = canonical.get("canonical_span_labels_path")
-    if not isinstance(canonical_text_path_raw, str) or not isinstance(canonical_spans_path_raw, str):
-        return LinePredictionView({}, {}, {}, {}, {}, normalized_recipe_spans)
-
-    canonical_text_path = Path(canonical_text_path_raw)
-    canonical_spans_path = Path(canonical_spans_path_raw)
-    if not canonical_text_path.is_file() or not canonical_spans_path.is_file():
-        return LinePredictionView({}, {}, {}, {}, {}, normalized_recipe_spans)
-
-    canonical_text = canonical_text_path.read_text(encoding="utf-8")
-    lines = _build_canonical_lines(canonical_text)
-    gold_spans = _load_gold_spans(canonical_spans_path)
-    gold_labels_by_line = _line_gold_labels(lines=lines, spans=gold_spans)
-
-    wrong_label_rows = _iter_jsonl(run_dir / "wrong_label_lines.jsonl")
-    predicted_overrides: dict[int, str] = {}
-    for row in wrong_label_rows:
-        line_index = _coerce_int(row.get("line_index"))
-        if line_index is None:
-            continue
-        pred_label = str(row.get("pred_label") or "").strip()
-        if not pred_label:
-            continue
-        predicted_overrides[line_index] = pred_label
-
-    line_text_by_index: dict[int, str] = {}
-    gold_label_by_index: dict[int, str] = {}
-    pred_label_by_index: dict[int, str] = {}
-    recipe_id_by_index: dict[int, str | None] = {}
-    recipe_span_by_index: dict[int, str] = {}
-
-    for line in lines:
-        line_index = int(line["line_index"])
-        line_text = str(line.get("text") or "")
-        gold_labels = gold_labels_by_line.get(line_index, ["OTHER"])
-        gold_label = gold_labels[0] if gold_labels else "OTHER"
-        pred_label = predicted_overrides.get(line_index, gold_label)
-        recipe_id, span_region = _resolve_recipe_for_line(
-            line_index=line_index,
-            recipe_spans=normalized_recipe_spans,
-        )
-
-        line_text_by_index[line_index] = line_text
-        gold_label_by_index[line_index] = gold_label
-        pred_label_by_index[line_index] = pred_label
-        recipe_id_by_index[line_index] = recipe_id
-        recipe_span_by_index[line_index] = span_region
-
-    return LinePredictionView(
-        line_text_by_index=line_text_by_index,
-        gold_label_by_index=gold_label_by_index,
-        pred_label_by_index=pred_label_by_index,
-        recipe_id_by_index=recipe_id_by_index,
-        recipe_span_by_index=recipe_span_by_index,
-        recipe_spans=normalized_recipe_spans,
+        line_prediction_view_type=LinePredictionView,
     )
 
 
@@ -1532,14 +920,12 @@ def _line_context(
     line_index: int,
     excerpt_limit: int,
 ) -> dict[str, str]:
-    previous = line_text_by_index.get(line_index - 1, "")
-    current = line_text_by_index.get(line_index, "")
-    following = line_text_by_index.get(line_index + 1, "")
-    return {
-        "previous_line": _excerpt(previous, max_len=excerpt_limit),
-        "current_line": _excerpt(current, max_len=excerpt_limit),
-        "next_line": _excerpt(following, max_len=excerpt_limit),
-    }
+    return _line_context_impl(
+        line_text_by_index=line_text_by_index,
+        line_index=line_index,
+        excerpt_limit=excerpt_limit,
+        excerpt=_excerpt,
+    )
 
 
 def _render_label_policy_notes() -> str:
@@ -2021,304 +1407,26 @@ def _load_llm_manifest_recipe_diagnostics(
     return diagnostics_by_recipe
 
 
-def _safe_read_text(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        return path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""
-
-
-def _parse_json_text(raw_text: str) -> Any | None:
-    text = str(raw_text or "").strip()
-    if not text:
-        return None
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return None
-
-
-def _mtime_utc(path: Path | None) -> str | None:
-    if path is None or not path.exists() or not path.is_file():
-        return None
-    try:
-        stamp = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
-    except OSError:
-        return None
-    return stamp.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _load_run_assets_payload(run_id: str) -> dict[str, Any]:
-    if not run_id:
-        return {}
-    run_assets_dir = Path("var") / "run_assets" / run_id
-    if not run_assets_dir.exists() or not run_assets_dir.is_dir():
-        return {"run_id": run_id}
-
-    def _safe_load_json_dict(path: Path) -> dict[str, Any] | None:
-        if not path.is_file():
-            return None
-        try:
-            return _load_json(path)
-        except Exception:
-            return None
-
-    return {
-        "run_id": run_id,
-        "prompt_template_text": _safe_read_text(run_assets_dir / "prompt.template.txt"),
-        "output_schema_payload": _safe_load_json_dict(run_assets_dir / "output.schema.json"),
-        "effective_pipeline_payload": _safe_load_json_dict(
-            run_assets_dir / "effective_pipeline.json"
-        ),
-        "manifest_payload": _safe_load_json_dict(run_assets_dir / "manifest.json"),
-    }
-
-
-def _render_prompt(template_text: str | None, input_text: str, input_file: Path) -> str:
-    template = str(template_text or "")
-    if not template.strip():
-        return input_text
-    rendered = template.replace("{{INPUT_TEXT}}", input_text)
-    rendered = rendered.replace("{{ INPUT_TEXT }}", input_text)
-    rendered = rendered.replace("{{INPUT_PATH}}", str(input_file))
-    rendered = rendered.replace("{{ INPUT_PATH }}", str(input_file))
-    return rendered
-
-
-def _collect_context_blocks(parsed_input: Any) -> list[dict[str, Any]]:
-    if not isinstance(parsed_input, dict):
-        return []
-    rows: list[dict[str, Any]] = []
-    for key in ("blocks_before", "blocks_candidate", "blocks_after", "blocks"):
-        blocks = parsed_input.get(key)
-        if not isinstance(blocks, list):
-            continue
-        for block in blocks:
-            if not isinstance(block, dict):
-                continue
-            rows.append(
-                {
-                    "source_key": key,
-                    "block_id": block.get("block_id"),
-                    "index": block.get("index"),
-                    "text": block.get("text"),
-                }
-            )
-    evidence_rows = parsed_input.get("evidence_rows")
-    if isinstance(evidence_rows, list):
-        for fallback_index, row in enumerate(evidence_rows):
-            if not isinstance(row, (list, tuple)) or len(row) < 2:
-                continue
-            index = _coerce_int(row[0])
-            if index is None:
-                index = fallback_index
-            rows.append(
-                {
-                    "source_key": "evidence_rows",
-                    "block_id": None,
-                    "index": int(index),
-                    "text": str(row[1] or ""),
-                }
-            )
-    return rows
-
-
 def _reconstruct_full_prompt_log(
     *,
     run_dir: Path,
     run_manifest: dict[str, Any],
     output_path: Path,
 ) -> int:
-    pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
-    if pred_run_dir is None:
-        return 0
-    raw_llm_dir = pred_run_dir / "raw" / "llm"
-    if not raw_llm_dir.exists() or not raw_llm_dir.is_dir():
-        return 0
-
-    pred_manifest_path = pred_run_dir / "manifest.json"
-    pred_manifest = _load_json(pred_manifest_path) if pred_manifest_path.is_file() else {}
-    llm_payload = pred_manifest.get("llm_codex_farm") if isinstance(pred_manifest, dict) else {}
-    process_runs = llm_payload.get("process_runs") if isinstance(llm_payload, dict) else {}
-    knowledge_payload = llm_payload.get("knowledge") if isinstance(llm_payload, dict) else {}
-    knowledge_payload = knowledge_payload if isinstance(knowledge_payload, dict) else {}
-    source_payload = run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
-    source_file = source_payload.get("path") if isinstance(source_payload, dict) else None
-    source_file = str(source_file).strip() if isinstance(source_file, str) else None
-
-    rows_written = 0
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8") as handle:
-        run_dirs = sorted(path for path in raw_llm_dir.iterdir() if path.is_dir())
-        for llm_run_dir in run_dirs:
-            for stage_key, stage_meta in sorted(
-                LLM_STAGE_MAP.items(),
-                key=lambda item: (
-                    int(item[1].get("sort_order") or 999),
-                    str(item[0]),
-                ),
-            ):
-                stage_dir = str(stage_meta.get("artifact_stem") or "").strip()
-                if not stage_dir:
-                    continue
-                stage_in_dir = llm_run_dir / stage_dir / "in"
-                stage_out_dir = llm_run_dir / stage_dir / "out"
-                input_files = (
-                    sorted(path for path in stage_in_dir.iterdir() if path.is_file())
-                    if stage_in_dir.exists()
-                    else []
-                )
-                output_files = (
-                    sorted(path for path in stage_out_dir.iterdir() if path.is_file())
-                    if stage_out_dir.exists()
-                    else []
-                )
-                if not input_files and not output_files:
-                    continue
-                input_by_name = {path.name: path for path in input_files}
-                output_by_name = {path.name: path for path in output_files}
-                if stage_key == "nonrecipe_finalize":
-                    pass_process_payload = (
-                        knowledge_payload.get("process_run")
-                        if isinstance(knowledge_payload.get("process_run"), dict)
-                        else None
-                    )
-                elif stage_key == "recipe_refine":
-                    pass_process_payload = (
-                        process_runs.get("recipe_correction")
-                        if isinstance(process_runs, dict)
-                        else None
-                    )
-                else:
-                    pass_process_payload = None
-                pass_run_id = None
-                if isinstance(pass_process_payload, dict):
-                    pass_run_id = str(pass_process_payload.get("run_id") or "").strip() or None
-                run_assets = _load_run_assets_payload(pass_run_id or "")
-                prompt_template_text = (
-                    run_assets.get("prompt_template_text")
-                    if isinstance(run_assets, dict)
-                    else None
-                )
-                output_schema_payload = (
-                    run_assets.get("output_schema_payload")
-                    if isinstance(run_assets, dict)
-                    else None
-                )
-                effective_pipeline_payload = (
-                    run_assets.get("effective_pipeline_payload")
-                    if isinstance(run_assets, dict)
-                    else None
-                )
-                model_value = None
-                if isinstance(effective_pipeline_payload, dict):
-                    model_raw = effective_pipeline_payload.get("codex_model")
-                    if isinstance(model_raw, str) and model_raw.strip():
-                        model_value = model_raw.strip()
-
-                for file_name in sorted(set(input_by_name) | set(output_by_name)):
-                    input_file = input_by_name.get(file_name)
-                    output_file = output_by_name.get(file_name)
-                    input_text = _safe_read_text(input_file) if input_file is not None else ""
-                    output_text = _safe_read_text(output_file) if output_file is not None else ""
-                    parsed_input = _parse_json_text(input_text)
-                    parsed_output = _parse_json_text(output_text)
-                    timestamp_utc = _mtime_utc(output_file) or _mtime_utc(input_file)
-                    call_id = (
-                        input_file.stem
-                        if input_file is not None
-                        else (output_file.stem if output_file is not None else Path(file_name).stem)
-                    )
-                    recipe_id = None
-                    if isinstance(parsed_input, dict):
-                        recipe_id = str(parsed_input.get("recipe_id") or "").strip() or None
-                    if recipe_id is None and isinstance(parsed_output, dict):
-                        recipe_id = str(parsed_output.get("recipe_id") or "").strip() or None
-                    if recipe_id is None and stage_key == "nonrecipe_finalize":
-                        chunk_id = None
-                        if isinstance(parsed_input, dict):
-                            chunk_id = str(parsed_input.get("chunk_id") or "").strip() or None
-                        if chunk_id is None and isinstance(parsed_output, dict):
-                            chunk_id = str(parsed_output.get("chunk_id") or "").strip() or None
-                        recipe_id = chunk_id
-                    rendered_prompt = _render_prompt(
-                        prompt_template_text,
-                        input_text,
-                        input_file or (stage_in_dir / file_name),
-                    )
-                    request_messages = [{"role": "user", "content": rendered_prompt}]
-                    response_format = (
-                        {
-                            "type": "json_schema",
-                            "json_schema": output_schema_payload,
-                        }
-                        if isinstance(output_schema_payload, dict)
-                        else None
-                    )
-                    row = {
-                        "run_id": str(run_manifest.get("run_id") or run_dir.name),
-                        "stage_key": stage_key,
-                        "stage_label": stage_label(stage_key),
-                        "stage_artifact_stem": stage_dir,
-                        "call_id": call_id,
-                        "timestamp_utc": timestamp_utc,
-                        "recipe_id": recipe_id,
-                        "source_file": source_file,
-                        "pipeline_id": stage_meta.get("pipeline_id"),
-                        "process_run_id": pass_run_id,
-                        "model": model_value,
-                        "request_messages": request_messages,
-                        "system_prompt": None,
-                        "developer_prompt": None,
-                        "user_prompt": rendered_prompt,
-                        "rendered_prompt_text": rendered_prompt,
-                        "rendered_messages": request_messages,
-                        "prompt_templates": {
-                            "prompt_template_text": prompt_template_text,
-                        },
-                        "template_vars": {
-                            "INPUT_PATH": str(input_file) if input_file is not None else None,
-                            "INPUT_TEXT": input_text,
-                        },
-                        "inserted_context_blocks": _collect_context_blocks(parsed_input),
-                        "request": {
-                            "messages": request_messages,
-                            "tools": [],
-                            "response_format": response_format,
-                            "model": model_value,
-                            "temperature": None,
-                            "top_p": None,
-                            "max_output_tokens": None,
-                            "seed": None,
-                            "pipeline_id": stage_meta.get("pipeline_id"),
-                        },
-                        "raw_response": {
-                            "output_text": output_text,
-                            "output_file": str(output_file) if output_file is not None else None,
-                        },
-                        "parsed_response": parsed_output,
-                        "request_input_payload": parsed_input,
-                        "request_input_file": str(input_file) if input_file is not None else None,
-                    }
-                    handle.write(json.dumps(row, ensure_ascii=False))
-                    handle.write("\n")
-                    rows_written += 1
-
-    if rows_written <= 0:
-        output_path.unlink(missing_ok=True)
-    return rows_written
+    return _reconstruct_full_prompt_log_impl(
+        run_dir=run_dir,
+        run_manifest=run_manifest,
+        output_path=output_path,
+        llm_stage_map=LLM_STAGE_MAP,
+    )
 
 
 def _alignment_is_healthy(alignment: dict[str, Any]) -> bool:
-    canonical_coverage = _coerce_float(alignment.get("canonical_char_coverage"))
-    prediction_match_ratio = _coerce_float(alignment.get("prediction_block_match_ratio"))
-    if canonical_coverage is None or prediction_match_ratio is None:
-        return False
-    return (
-        canonical_coverage >= ALIGNMENT_HEALTHY_COVERAGE_MIN
-        and prediction_match_ratio >= ALIGNMENT_HEALTHY_MATCH_RATIO_MIN
+    return _alignment_is_healthy_impl(
+        alignment,
+        coerce_float=_coerce_float,
+        coverage_min=ALIGNMENT_HEALTHY_COVERAGE_MIN,
+        match_ratio_min=ALIGNMENT_HEALTHY_MATCH_RATIO_MIN,
     )
 
 
@@ -2327,126 +1435,17 @@ def _build_projection_trace(
     line_view: LinePredictionView,
     full_prompt_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    wrong_line_indices = [
-        line_index
-        for line_index, gold_label in line_view.gold_label_by_index.items()
-        if line_view.pred_label_by_index.get(line_index, gold_label) != gold_label
-    ]
-    wrong_line_set = set(wrong_line_indices)
-
-    stage_call_counts: Counter[str] = Counter()
-    stage_warning_counts: Counter[str] = Counter()
-    stage_recipe_ids: dict[str, set[str]] = defaultdict(set)
-    correction_empty_mapping_calls = 0
-    correction_empty_mapping_recipe_ids: Counter[str] = Counter()
-
-    for row in full_prompt_rows:
-        stage_key = _prompt_row_stage_key(row) or "unknown"
-        stage_call_counts[stage_key] += 1
-
-        recipe_id = str(row.get("recipe_id") or "").strip()
-        if recipe_id:
-            stage_recipe_ids[stage_key].add(recipe_id)
-
-        parsed_response = _parse_json_like(row.get("parsed_response"))
-        parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
-        warnings = _coerce_str_list(parsed_response.get("warnings"))
-        correction_outputs = (
-            _upload_bundle_recipe_correction_output_rows(parsed_response)
-            if stage_key == "recipe_refine"
-            else []
-        )
-        if correction_outputs:
-            warnings = []
-            for output_row in correction_outputs:
-                warnings.extend(_upload_bundle_recipe_correction_metrics(output_row)["warnings"])
-        if warnings:
-            stage_warning_counts[stage_key] += len(warnings)
-
-        if correction_outputs:
-            empty_mapping_recipe_ids: list[str] = []
-            for output_row in correction_outputs:
-                metrics = _upload_bundle_recipe_correction_metrics(output_row)
-                if not metrics["empty_mapping"]:
-                    continue
-                output_recipe_id = str(output_row.get("recipe_id") or "").strip()
-                if output_recipe_id:
-                    empty_mapping_recipe_ids.append(output_recipe_id)
-            if empty_mapping_recipe_ids:
-                correction_empty_mapping_calls += 1
-                for output_recipe_id in empty_mapping_recipe_ids:
-                    correction_empty_mapping_recipe_ids[output_recipe_id] += 1
-        elif "ingredient_step_mapping" in parsed_response and _is_empty_mapping_value(
-            parsed_response.get("ingredient_step_mapping")
-        ):
-            correction_empty_mapping_calls += 1
-            if recipe_id:
-                correction_empty_mapping_recipe_ids[recipe_id] += 1
-
-    region_counts = {
-        "inside_active_recipe_span": {"line_total": 0, "wrong_total": 0},
-        "outside_active_recipe_span": {"line_total": 0, "wrong_total": 0},
-    }
-    recipe_counts: dict[str, dict[str, int]] = defaultdict(
-        lambda: {"line_total": 0, "wrong_total": 0}
+    return _build_projection_trace_impl(
+        line_view=line_view,
+        full_prompt_rows=full_prompt_rows,
+        prompt_row_stage_key=_prompt_row_stage_key,
+        parse_json_like=_parse_json_like,
+        coerce_str_list=_coerce_str_list,
+        upload_bundle_recipe_correction_output_rows=_upload_bundle_recipe_correction_output_rows,
+        upload_bundle_recipe_correction_metrics=_upload_bundle_recipe_correction_metrics,
+        is_empty_mapping_value=_is_empty_mapping_value,
+        rate=_rate,
     )
-    for line_index in sorted(line_view.gold_label_by_index.keys()):
-        recipe_id = line_view.recipe_id_by_index.get(line_index)
-        region_key = "inside_active_recipe_span" if recipe_id else "outside_active_recipe_span"
-        region_counts[region_key]["line_total"] += 1
-        if line_index in wrong_line_set:
-            region_counts[region_key]["wrong_total"] += 1
-
-        if recipe_id:
-            recipe_counts[recipe_id]["line_total"] += 1
-            if line_index in wrong_line_set:
-                recipe_counts[recipe_id]["wrong_total"] += 1
-
-    return {
-        "summary": {
-            "canonical_line_total": len(line_view.gold_label_by_index),
-            "wrong_line_total": len(wrong_line_indices),
-            "stage_call_counts": dict(sorted(stage_call_counts.items())),
-            "stage_warning_counts": dict(sorted(stage_warning_counts.items())),
-            "correction_empty_ingredient_step_mapping_calls": correction_empty_mapping_calls,
-        },
-        "regions": {
-            region: {
-                **payload,
-                "wrong_rate": _rate(payload["wrong_total"], payload["line_total"]),
-            }
-            for region, payload in region_counts.items()
-        },
-        "per_recipe": [
-            {
-                "recipe_id": recipe_id,
-                "line_total": payload["line_total"],
-                "wrong_total": payload["wrong_total"],
-                "wrong_rate": _rate(payload["wrong_total"], payload["line_total"]),
-            }
-            for recipe_id, payload in sorted(
-                recipe_counts.items(),
-                key=lambda item: (
-                    -item[1]["wrong_total"],
-                    -item[1]["line_total"],
-                    item[0],
-                ),
-            )
-        ],
-        "recipe_ids_seen_by_stage": {
-            stage_key: sorted(recipe_ids)
-            for stage_key, recipe_ids in sorted(stage_recipe_ids.items())
-        },
-        "correction_empty_mapping_recipe_ids": [
-            {"recipe_id": recipe_id, "count": count}
-            for recipe_id, count in correction_empty_mapping_recipe_ids.most_common()
-        ],
-        "bridge_note": (
-            "Recipe span assignment for per-line diagnostics uses recipe-correction evidence rows. "
-            "Canonical line indices that do not fall inside an active recipe span are treated as "
-            "outside_active_recipe_span."
-        ),
-    }
 
 
 def _build_run_cutdown(
@@ -2460,379 +1459,54 @@ def _build_run_cutdown(
     prompt_pairs_per_category: int,
     prompt_excerpt_limit: int,
 ) -> RunRecord:
-    run_manifest = _load_json(run_dir / "run_manifest.json")
-    eval_report = _load_json(run_dir / "eval_report.json")
-
-    run_id = str(run_manifest.get("run_id") or run_dir.name)
-    source = run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
-    source_path = source.get("path") if isinstance(source, dict) else None
-    source_hash = source.get("source_hash") if isinstance(source, dict) else None
-    source_file = _source_file_name(source_path if isinstance(source_path, str) else None)
-
-    run_config = run_manifest.get("run_config")
-    if not isinstance(run_config, dict):
-        run_config = {}
-    llm_recipe_pipeline = str(run_config.get("llm_recipe_pipeline") or "unknown")
-    atomic_block_splitter = str(run_config.get("atomic_block_splitter") or "off")
-    line_role_pipeline = str(run_config.get("line_role_pipeline") or "off")
-    codex_enabled = llm_recipe_pipeline not in {"off", "none", ""}
-
-    counts = eval_report.get("counts")
-    if not isinstance(counts, dict):
-        counts = {}
-    alignment = eval_report.get("alignment")
-    if not isinstance(alignment, dict):
-        alignment = {}
-    worst_label_recall = eval_report.get("worst_label_recall")
-    if not isinstance(worst_label_recall, dict):
-        worst_label_recall = {}
-
-    output_run_dir.mkdir(parents=True, exist_ok=True)
-
-    eval_report_md_path = run_dir / "eval_report.md"
-    if eval_report_md_path.is_file():
-        shutil.copy2(eval_report_md_path, output_run_dir / "eval_report.md")
-
-    sample_counts: dict[str, Any] = {}
-    for source_name, output_name in LINE_LEVEL_SAMPLED_JSONL_INPUTS:
-        source_path_jsonl = run_dir / source_name
-        output_path_jsonl = output_run_dir / output_name
-        counts = _write_jsonl_sample(
-            source_path=source_path_jsonl,
-            output_path=output_path_jsonl,
-            sample_limit=sample_limit,
-            excerpt_limit=excerpt_limit,
-        )
-        sample_counts[output_name] = counts
-
-    unmatched_total_rows = _jsonl_row_count(run_dir / UNMATCHED_PRED_BLOCKS_INPUT)
-    sample_counts[UNMATCHED_PRED_BLOCKS_INPUT] = {
-        "total_rows": unmatched_total_rows,
-        "sample_rows": 0,
-        "mode": "counts_only_default",
-    }
-
-    alignment_total_counts = {
-        source_name: _jsonl_row_count(run_dir / source_name)
-        for source_name, _ in ALIGNMENT_SAMPLED_JSONL_INPUTS
-    }
-    alignment_healthy = _alignment_is_healthy(alignment)
-    sample_counts["alignment_debug_sampling"] = {
-        "mode": "counts_only_healthy_alignment"
-        if alignment_healthy
-        else "sampled_alignment_debug",
-        "counts": alignment_total_counts,
-        "thresholds": {
-            "canonical_char_coverage_min": ALIGNMENT_HEALTHY_COVERAGE_MIN,
-            "prediction_block_match_ratio_min": ALIGNMENT_HEALTHY_MATCH_RATIO_MIN,
-        },
-        "actual": {
-            "canonical_char_coverage": _coerce_float(alignment.get("canonical_char_coverage")),
-            "prediction_block_match_ratio": _coerce_float(
-                alignment.get("prediction_block_match_ratio")
-            ),
-        },
-    }
-    if not alignment_healthy:
-        for source_name, output_name in ALIGNMENT_SAMPLED_JSONL_INPUTS:
-            source_path_jsonl = run_dir / source_name
-            output_path_jsonl = output_run_dir / output_name
-            counts = _write_jsonl_sample(
-                source_path=source_path_jsonl,
-                output_path=output_path_jsonl,
-                sample_limit=sample_limit,
-                excerpt_limit=excerpt_limit,
-            )
-            sample_counts[output_name] = counts
-
-    codex_prompt_log = _resolve_prompt_log_path(run_dir, run_manifest)
-    full_prompt_log_source = _resolve_full_prompt_log_path(run_dir, run_manifest)
-    full_prompt_log_output = output_run_dir / FULL_PROMPT_LOG_FILE_NAME
-    full_prompt_log_status = "not_applicable"
-    full_prompt_log_rows = 0
-    full_prompt_log_output_path: str | None = None
-    full_prompt_rows: list[dict[str, Any]] = []
-    if full_prompt_log_source is not None:
-        shutil.copy2(full_prompt_log_source, full_prompt_log_output)
-        full_prompt_rows = _iter_jsonl(full_prompt_log_output)
-        full_prompt_log_rows = len(full_prompt_rows)
-        full_prompt_log_status = "complete"
-        full_prompt_log_output_path = FULL_PROMPT_LOG_FILE_NAME
-    elif codex_enabled:
-        reconstructed_rows = _reconstruct_full_prompt_log(
-            run_dir=run_dir,
-            run_manifest=run_manifest,
-            output_path=full_prompt_log_output,
-        )
-        if reconstructed_rows > 0:
-            full_prompt_log_status = "complete"
-            full_prompt_log_rows = reconstructed_rows
-            full_prompt_log_output_path = FULL_PROMPT_LOG_FILE_NAME
-            full_prompt_rows = _iter_jsonl(full_prompt_log_output)
-            if len(full_prompt_rows) != reconstructed_rows:
-                full_prompt_log_rows = len(full_prompt_rows)
-        else:
-            full_prompt_log_status = "missing"
-
-    sample_counts[FULL_PROMPT_LOG_FILE_NAME] = {
-        "status": full_prompt_log_status,
-        "rows": full_prompt_log_rows,
-        "source_path": str(full_prompt_log_source) if full_prompt_log_source is not None else None,
-    }
-    recipe_spans = (
-        _build_recipe_spans_from_full_prompt_rows(full_prompt_rows)
-        if full_prompt_rows
-        else []
-    )
-
-    prompt_log_output = output_run_dir / PROMPT_LOG_FILE_NAME
-    if full_prompt_log_status == "complete" and full_prompt_log_output.is_file():
-        sample_counts[PROMPT_LOG_FILE_NAME] = _write_prompt_log_samples_from_full_prompt_log(
-            source_path=full_prompt_log_output,
-            output_path=prompt_log_output,
-            max_pairs_per_category=prompt_pairs_per_category,
-            excerpt_limit=prompt_excerpt_limit,
-        )
-    elif codex_prompt_log is not None:
-        if prompt_pairs_per_category <= 0:
-            shutil.copy2(codex_prompt_log, prompt_log_output)
-            sample_counts[PROMPT_LOG_FILE_NAME] = {
-                "status": "full_copied",
-                "source_path": str(codex_prompt_log),
-            }
-        else:
-            sample_counts[PROMPT_LOG_FILE_NAME] = _write_prompt_log_samples(
-                source_path=codex_prompt_log,
-                output_path=prompt_log_output,
-                max_pairs_per_category=prompt_pairs_per_category,
-            )
-    elif codex_enabled:
-        sample_counts[PROMPT_LOG_FILE_NAME] = {
-            "status": "missing",
-            "source_path": None,
-        }
-
-    if codex_enabled and full_prompt_log_status == "complete" and full_prompt_log_output.is_file():
-        prompt_warning_aggregate = _summarize_prompt_warning_aggregate(full_prompt_log_output)
-        _write_json(output_run_dir / PROMPT_WARNING_AGGREGATE_FILE_NAME, prompt_warning_aggregate)
-        sample_counts[PROMPT_WARNING_AGGREGATE_FILE_NAME] = {
-            "status": "written",
-            "total_calls": int(prompt_warning_aggregate.get("total_calls") or 0),
-            "calls_with_warnings": int(prompt_warning_aggregate.get("calls_with_warnings") or 0),
-            "warnings_total": int(prompt_warning_aggregate.get("warnings_total") or 0),
-        }
-
-        line_view = _build_line_prediction_view(run_dir=run_dir, recipe_spans=recipe_spans)
-        projection_trace = _build_projection_trace(
-            line_view=line_view,
-            full_prompt_rows=full_prompt_rows,
-        )
-        projection_trace["recipe_span_count"] = len(recipe_spans)
-        projection_trace["recipe_spans"] = recipe_spans
-        _write_json(output_run_dir / PROJECTION_TRACE_FILE_NAME, projection_trace)
-        sample_counts[PROJECTION_TRACE_FILE_NAME] = {
-            "status": "written",
-            "recipe_span_count": len(recipe_spans),
-            "canonical_line_total": int(
-                projection_trace.get("summary", {}).get("canonical_line_total") or 0
-            ),
-        }
-    elif codex_enabled:
-        sample_counts[PROMPT_WARNING_AGGREGATE_FILE_NAME] = {"status": "missing_full_prompt_log"}
-        sample_counts[PROJECTION_TRACE_FILE_NAME] = {"status": "missing_full_prompt_log"}
-
-    wrong_label_total_rows = _jsonl_row_count(run_dir / "wrong_label_lines.jsonl")
-    if wrong_label_total_rows <= 0:
-        sample_counts[WRONG_LABEL_FULL_CONTEXT_FILE_NAME] = {
-            "status": "not_applicable",
-            "rows": 0,
-            "source_rows": 0,
-        }
-        sample_counts[PREPROCESS_TRACE_FAILURES_FILE_NAME] = {
-            "status": "not_applicable",
-            "rows": 0,
-            "source_rows": 0,
-        }
-    else:
-        wrong_label_full_rows = _build_wrong_label_full_context_rows(
-            run_dir=run_dir,
-            recipe_spans=recipe_spans,
-            excerpt_limit=excerpt_limit,
-        )
-        wrong_label_full_output = output_run_dir / WRONG_LABEL_FULL_CONTEXT_FILE_NAME
-        if wrong_label_full_rows:
-            written_wrong_context_rows = _write_jsonl_gzip_deterministic(
-                wrong_label_full_output,
-                wrong_label_full_rows,
-            )
-            sample_counts[WRONG_LABEL_FULL_CONTEXT_FILE_NAME] = {
-                "status": "written",
-                "rows": written_wrong_context_rows,
-                "source_rows": wrong_label_total_rows,
-            }
-        else:
-            sample_counts[WRONG_LABEL_FULL_CONTEXT_FILE_NAME] = {
-                "status": "not_applicable",
-                "rows": 0,
-                "source_rows": wrong_label_total_rows,
-            }
-
-        if not codex_enabled:
-            sample_counts[PREPROCESS_TRACE_FAILURES_FILE_NAME] = {
-                "status": "not_applicable",
-                "rows": 0,
-                "source_rows": wrong_label_total_rows,
-            }
-        else:
-            preprocess_rows, preprocess_status = _build_preprocess_trace_failure_rows(
-                run_dir=run_dir,
-                run_manifest=run_manifest,
-                full_prompt_rows=full_prompt_rows,
-                excerpt_limit=excerpt_limit,
-            )
-            preprocess_output = output_run_dir / PREPROCESS_TRACE_FAILURES_FILE_NAME
-            if preprocess_status == "ready" and preprocess_rows:
-                written_preprocess_rows = _write_jsonl_gzip_deterministic(
-                    preprocess_output,
-                    preprocess_rows,
-                )
-                sample_counts[PREPROCESS_TRACE_FAILURES_FILE_NAME] = {
-                    "status": "written",
-                    "rows": written_preprocess_rows,
-                    "source_rows": wrong_label_total_rows,
-                }
-            else:
-                sample_counts[PREPROCESS_TRACE_FAILURES_FILE_NAME] = {
-                    "status": (
-                        preprocess_status
-                        if preprocess_status != "ready"
-                        else "not_applicable"
-                    ),
-                    "rows": 0,
-                    "source_rows": wrong_label_total_rows,
-                }
-
-    top_confusions = _top_confusions(
-        eval_report.get("confusion"),
-        top_k=top_confusions_limit,
-    )
-    compact_per_label = _compact_per_label(eval_report.get("per_label"))
-    low_recall_labels = _lowest_metric_labels(
-        per_label=compact_per_label,
-        metric_key="recall",
-        total_key="gold_total",
-        limit=top_labels_limit,
-    )
-    low_precision_labels = _lowest_metric_labels(
-        per_label=compact_per_label,
-        metric_key="precision",
-        total_key="pred_total",
-        limit=top_labels_limit,
-    )
-
-    summary = {
-        "run_id": run_id,
-        "source": {
-            "source_file": source_file,
-            "source_path": source_path,
-            "source_hash": source_hash,
-            "source_key": _source_key(
-                source_hash if isinstance(source_hash, str) else None,
-                source_file,
-            ),
-        },
-        "run_config_snapshot": _config_snapshot(run_manifest),
-        "eval_mode": eval_report.get("eval_mode"),
-        "eval_type": eval_report.get("eval_type"),
-        "pipeline_knobs": {
-            "llm_recipe_pipeline": llm_recipe_pipeline,
-            "atomic_block_splitter": atomic_block_splitter,
-            "line_role_pipeline": line_role_pipeline,
-        },
-        "key_metrics": {
-            "overall_line_accuracy": _coerce_float(eval_report.get("overall_line_accuracy")),
-            "overall_block_accuracy": _coerce_float(eval_report.get("overall_block_accuracy")),
-            "macro_f1_excluding_other": _coerce_float(eval_report.get("macro_f1_excluding_other")),
-            "practical_precision": _coerce_float(eval_report.get("practical_precision")),
-            "practical_recall": _coerce_float(eval_report.get("practical_recall")),
-            "practical_f1": _coerce_float(eval_report.get("practical_f1")),
-        },
-        "counts": {
-            "gold_total": _coerce_int(counts.get("gold_total")),
-            "gold_matched": _coerce_int(counts.get("gold_matched")),
-            "gold_missed": _coerce_int(counts.get("gold_missed")),
-            "pred_total": _coerce_int(counts.get("pred_total")),
-            "pred_matched": _coerce_int(counts.get("pred_matched")),
-            "pred_false_positive": _coerce_int(counts.get("pred_false_positive")),
-        },
-        "alignment_summary": {
-            "alignment_strategy": alignment.get("alignment_strategy"),
-            "alignment_primary_strategy": alignment.get("alignment_primary_strategy"),
-            "canonical_char_coverage": _coerce_float(alignment.get("canonical_char_coverage")),
-            "prediction_char_coverage": _coerce_float(alignment.get("prediction_char_coverage")),
-            "prediction_block_match_ratio": _coerce_float(
-                alignment.get("prediction_block_match_ratio")
-            ),
-            "nonempty_prediction_block_match_ratio": _coerce_float(
-                alignment.get("nonempty_prediction_block_match_ratio")
-            ),
-        },
-        "worst_label_recall": {
-            "label": worst_label_recall.get("label"),
-            "recall": _coerce_float(worst_label_recall.get("recall")),
-            "gold_total": _coerce_int(worst_label_recall.get("gold_total")),
-        },
-        "top_confusions": top_confusions,
-        "per_label_metrics": compact_per_label,
-        "lowest_recall_labels": low_recall_labels,
-        "lowest_precision_labels": low_precision_labels,
-        "sample_counts": sample_counts,
-        "full_prompt_log_status": full_prompt_log_status,
-        "full_prompt_log_rows": full_prompt_log_rows,
-        "full_prompt_log_path": full_prompt_log_output_path,
-        "included_files": sorted(
-            path.name for path in output_run_dir.iterdir() if path.is_file()
-        ),
-    }
-
-    summary_path = output_run_dir / "need_to_know_summary.json"
-    _write_json(summary_path, summary)
-
-    return RunRecord(
-        run_id=run_id,
-        source_key=_source_key(
-            source_hash if isinstance(source_hash, str) else None,
-            source_file,
-        ),
-        source_file=source_file,
-        source_hash=source_hash if isinstance(source_hash, str) else None,
-        llm_recipe_pipeline=llm_recipe_pipeline,
-        atomic_block_splitter=atomic_block_splitter,
-        line_role_pipeline=line_role_pipeline,
-        codex_enabled=codex_enabled,
-        metric_overall_line_accuracy=_coerce_float(eval_report.get("overall_line_accuracy")),
-        metric_macro_f1_excluding_other=_coerce_float(
-            eval_report.get("macro_f1_excluding_other")
-        ),
-        metric_practical_f1=_coerce_float(eval_report.get("practical_f1")),
-        worst_label_recall={
-            "label": worst_label_recall.get("label"),
-            "recall": _coerce_float(worst_label_recall.get("recall")),
-            "gold_total": _coerce_int(worst_label_recall.get("gold_total")),
-        },
-        run_timestamp=_parse_run_timestamp(run_id),
-        output_subdir=output_run_dir.name,
-        config_snapshot=_config_snapshot(run_manifest),
-        top_confusions=top_confusions,
-        summary_path=str(summary_path),
-        run_dir=str(run_dir),
-        full_prompt_log_status=full_prompt_log_status,
-        full_prompt_log_rows=full_prompt_log_rows,
-        full_prompt_log_path=(
-            f"{output_run_dir.name}/{FULL_PROMPT_LOG_FILE_NAME}"
-            if full_prompt_log_output_path is not None
-            else None
-        ),
+    return _build_run_cutdown_impl(
+        run_dir=run_dir,
+        output_run_dir=output_run_dir,
+        sample_limit=sample_limit,
+        excerpt_limit=excerpt_limit,
+        top_confusions_limit=top_confusions_limit,
+        top_labels_limit=top_labels_limit,
+        prompt_pairs_per_category=prompt_pairs_per_category,
+        prompt_excerpt_limit=prompt_excerpt_limit,
+        record_cls=RunRecord,
+        load_json=_load_json,
+        write_json=_write_json,
+        write_jsonl_sample=_write_jsonl_sample,
+        jsonl_row_count=_jsonl_row_count,
+        iter_jsonl=_iter_jsonl,
+        coerce_float=_coerce_float,
+        coerce_int=_coerce_int,
+        source_file_name=_source_file_name,
+        source_key=_source_key,
+        parse_run_timestamp=_parse_run_timestamp,
+        config_snapshot=_config_snapshot,
+        top_confusions=_top_confusions,
+        compact_per_label=_compact_per_label,
+        lowest_metric_labels=_lowest_metric_labels,
+        alignment_is_healthy=_alignment_is_healthy,
+        resolve_prompt_log_path=_resolve_prompt_log_path,
+        resolve_full_prompt_log_path=_resolve_full_prompt_log_path,
+        reconstruct_full_prompt_log=_reconstruct_full_prompt_log,
+        build_recipe_spans_from_full_prompt_rows=_build_recipe_spans_from_full_prompt_rows,
+        write_prompt_log_samples_from_full_prompt_log=_write_prompt_log_samples_from_full_prompt_log,
+        write_prompt_log_samples=_write_prompt_log_samples,
+        summarize_prompt_warning_aggregate=_summarize_prompt_warning_aggregate,
+        build_line_prediction_view=_build_line_prediction_view,
+        build_projection_trace=_build_projection_trace,
+        build_wrong_label_full_context_rows=_build_wrong_label_full_context_rows,
+        write_jsonl_gzip_deterministic=_write_jsonl_gzip_deterministic,
+        build_preprocess_trace_failure_rows=_build_preprocess_trace_failure_rows,
+        line_level_sampled_jsonl_inputs=LINE_LEVEL_SAMPLED_JSONL_INPUTS,
+        unmatched_pred_blocks_input=UNMATCHED_PRED_BLOCKS_INPUT,
+        alignment_sampled_jsonl_inputs=ALIGNMENT_SAMPLED_JSONL_INPUTS,
+        full_prompt_log_file_name=FULL_PROMPT_LOG_FILE_NAME,
+        prompt_log_file_name=PROMPT_LOG_FILE_NAME,
+        prompt_warning_aggregate_file_name=PROMPT_WARNING_AGGREGATE_FILE_NAME,
+        projection_trace_file_name=PROJECTION_TRACE_FILE_NAME,
+        wrong_label_full_context_file_name=WRONG_LABEL_FULL_CONTEXT_FILE_NAME,
+        preprocess_trace_failures_file_name=PREPROCESS_TRACE_FAILURES_FILE_NAME,
+        alignment_healthy_coverage_min=ALIGNMENT_HEALTHY_COVERAGE_MIN,
+        alignment_healthy_match_ratio_min=ALIGNMENT_HEALTHY_MATCH_RATIO_MIN,
     )
 
 
@@ -2841,75 +1515,20 @@ def _build_run_record_from_existing_run(
     run_dir: Path,
     top_confusions_limit: int = DEFAULT_TOP_CONFUSIONS,
 ) -> RunRecord:
-    run_manifest = _load_json(run_dir / "run_manifest.json")
-    eval_report = _load_json(run_dir / "eval_report.json")
-
-    run_id = str(run_manifest.get("run_id") or run_dir.name)
-    source = run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
-    source_path = source.get("path") if isinstance(source, dict) else None
-    source_hash = source.get("source_hash") if isinstance(source, dict) else None
-    source_file = _source_file_name(source_path if isinstance(source_path, str) else None)
-
-    run_config = run_manifest.get("run_config")
-    if not isinstance(run_config, dict):
-        run_config = {}
-    llm_recipe_pipeline = str(run_config.get("llm_recipe_pipeline") or "unknown")
-    atomic_block_splitter = str(run_config.get("atomic_block_splitter") or "off")
-    line_role_pipeline = str(run_config.get("line_role_pipeline") or "off")
-    codex_enabled = llm_recipe_pipeline not in {"off", "none", ""}
-
-    worst_label_recall = eval_report.get("worst_label_recall")
-    if not isinstance(worst_label_recall, dict):
-        worst_label_recall = {}
-
-    full_prompt_log_source = _resolve_full_prompt_log_path(run_dir, run_manifest)
-    full_prompt_log_status = "not_applicable"
-    full_prompt_log_rows = 0
-    full_prompt_log_path: str | None = None
-    if full_prompt_log_source is not None and full_prompt_log_source.is_file():
-        full_prompt_log_rows = len(_iter_jsonl(full_prompt_log_source))
-        full_prompt_log_status = "complete"
-        try:
-            full_prompt_log_path = str(full_prompt_log_source.relative_to(run_dir))
-        except ValueError:
-            full_prompt_log_path = str(full_prompt_log_source)
-    elif codex_enabled:
-        full_prompt_log_status = "missing"
-
-    return RunRecord(
-        run_id=run_id,
-        source_key=_source_key(
-            source_hash if isinstance(source_hash, str) else None,
-            source_file,
-        ),
-        source_file=source_file,
-        source_hash=source_hash if isinstance(source_hash, str) else None,
-        llm_recipe_pipeline=llm_recipe_pipeline,
-        atomic_block_splitter=atomic_block_splitter,
-        line_role_pipeline=line_role_pipeline,
-        codex_enabled=codex_enabled,
-        metric_overall_line_accuracy=_coerce_float(eval_report.get("overall_line_accuracy")),
-        metric_macro_f1_excluding_other=_coerce_float(
-            eval_report.get("macro_f1_excluding_other")
-        ),
-        metric_practical_f1=_coerce_float(eval_report.get("practical_f1")),
-        worst_label_recall={
-            "label": worst_label_recall.get("label"),
-            "recall": _coerce_float(worst_label_recall.get("recall")),
-            "gold_total": _coerce_int(worst_label_recall.get("gold_total")),
-        },
-        run_timestamp=_parse_run_timestamp(run_id),
-        output_subdir=run_dir.name,
-        config_snapshot=_config_snapshot(run_manifest),
-        top_confusions=_top_confusions(
-            eval_report.get("confusion"),
-            top_k=top_confusions_limit,
-        ),
-        summary_path=str(run_dir / "need_to_know_summary.json"),
-        run_dir=str(run_dir),
-        full_prompt_log_status=full_prompt_log_status,
-        full_prompt_log_rows=full_prompt_log_rows,
-        full_prompt_log_path=full_prompt_log_path,
+    return _build_run_record_from_existing_run_impl(
+        run_dir=run_dir,
+        top_confusions_limit=top_confusions_limit,
+        record_cls=RunRecord,
+        load_json=_load_json,
+        source_file_name=_source_file_name,
+        source_key=_source_key,
+        coerce_float=_coerce_float,
+        coerce_int=_coerce_int,
+        parse_run_timestamp=_parse_run_timestamp,
+        config_snapshot=_config_snapshot,
+        top_confusions=_top_confusions,
+        resolve_full_prompt_log_path=_resolve_full_prompt_log_path,
+        iter_jsonl=_iter_jsonl,
     )
 
 
@@ -2959,28 +1578,13 @@ def _load_full_prompt_rows_for_run(record: RunRecord) -> list[dict[str, Any]]:
 
 
 def _first_prompt_block_excerpt(row: dict[str, Any], *, excerpt_limit: int) -> str:
-    request_input_payload = _parse_json_like(row.get("request_input_payload"))
-    if not isinstance(request_input_payload, dict):
-        return ""
-    for key in ("blocks_candidate", "blocks_before", "blocks_after", "blocks"):
-        blocks = request_input_payload.get(key)
-        if not isinstance(blocks, list):
-            continue
-        for block in blocks:
-            if not isinstance(block, dict):
-                continue
-            text = block.get("text")
-            if isinstance(text, str) and text.strip():
-                return _excerpt(_normalize_whitespace(text), max_len=excerpt_limit)
-    evidence_rows = request_input_payload.get("evidence_rows")
-    if isinstance(evidence_rows, list):
-        for evidence_row in evidence_rows:
-            if not isinstance(evidence_row, (list, tuple)) or len(evidence_row) < 2:
-                continue
-            text = str(evidence_row[1] or "").strip()
-            if text:
-                return _excerpt(_normalize_whitespace(text), max_len=excerpt_limit)
-    return ""
+    return _first_prompt_block_excerpt_impl(
+        row,
+        excerpt_limit=excerpt_limit,
+        parse_json_like=_parse_json_like,
+        excerpt=_excerpt,
+        normalize_whitespace=_normalize_whitespace,
+    )
 
 
 def _prompt_case_score(
@@ -2990,230 +1594,124 @@ def _prompt_case_score(
     empty_mapping: bool,
     changed_lines_for_recipe: int,
 ) -> int:
-    stage_weights = {
-        "recipe_refine": 6,
-        "nonrecipe_finalize": 3,
-        "tags": 1,
-    }
-    return (
-        stage_weights.get(stage_key, 1)
-        + warnings_count * 4
-        + (8 if empty_mapping else 0)
-        + changed_lines_for_recipe * 5
+    return _prompt_case_score_impl(
+        stage_key=stage_key,
+        warnings_count=warnings_count,
+        empty_mapping=empty_mapping,
+        changed_lines_for_recipe=changed_lines_for_recipe,
     )
 
 
 def _prompt_row_identity_key(row: dict[str, Any]) -> tuple[str, str, str]:
-    return (
-        str(row.get("timestamp_utc") or ""),
-        str(row.get("call_id") or ""),
-        str(row.get("stage_key") or row.get("stage_artifact_stem") or ""),
-    )
+    return _prompt_row_identity_key_impl(row)
 
 
 def _prompt_row_stage_key(row: dict[str, Any]) -> str:
-    return str(row.get("stage_key") or "").strip()
+    return _prompt_row_stage_key_impl(row)
 
 
 def _prompt_row_recipe_id(row: dict[str, Any]) -> str:
-    direct = str(row.get("recipe_id") or "").strip()
-    if direct:
-        return direct
-    parsed_response = _parse_json_like(row.get("parsed_response"))
-    if isinstance(parsed_response, dict):
-        parsed_recipe_id = str(parsed_response.get("recipe_id") or "").strip()
-        if parsed_recipe_id:
-            return parsed_recipe_id
-    return ""
+    return _prompt_row_recipe_id_impl(
+        row,
+        parse_json_like=_parse_json_like,
+    )
 
 
 def _prompt_row_owned_recipe_ids(row: dict[str, Any]) -> list[str]:
-    request_input_payload = _parse_json_like(row.get("request_input_payload"))
-    request_input_payload = (
-        request_input_payload if isinstance(request_input_payload, dict) else {}
+    return _prompt_row_owned_recipe_ids_impl(
+        row,
+        parse_json_like=_parse_json_like,
     )
-
-    owned_ids: list[str] = []
-    shard_recipe_rows = request_input_payload.get("r")
-    if isinstance(shard_recipe_rows, list):
-        for recipe_row in shard_recipe_rows:
-            if not isinstance(recipe_row, dict):
-                continue
-            recipe_id = str(recipe_row.get("rid") or "").strip()
-            if recipe_id:
-                owned_ids.append(recipe_id)
-
-    if not owned_ids:
-        for key in ("owned_ids", "ids"):
-            values = request_input_payload.get(key)
-            if not isinstance(values, list):
-                continue
-            for value in values:
-                recipe_id = str(value or "").strip()
-                if recipe_id:
-                    owned_ids.append(recipe_id)
-
-    if owned_ids:
-        return list(dict.fromkeys(owned_ids))
-
-    recipe_id = _prompt_row_recipe_id(row)
-    return [recipe_id] if recipe_id else []
 
 
 def _warning_buckets(warnings: list[str]) -> list[str]:
-    buckets = {
-        _prompt_warning_bucket(_normalize_whitespace(message))
-        for message in warnings
-        if message.strip()
-    }
-    return sorted(buckets)
+    return _warning_buckets_impl(
+        warnings,
+        prompt_warning_bucket=_prompt_warning_bucket,
+        normalize_whitespace=_normalize_whitespace,
+    )
 
 
 def _count_list_entries(value: Any) -> int:
-    parsed = _parse_json_like(value)
-    if isinstance(parsed, list):
-        return len(parsed)
-    return 0
+    return _count_list_entries_impl(
+        value,
+        parse_json_like=_parse_json_like,
+    )
 
 
 def _blocks_from_request_payload(payload: dict[str, Any], key: str) -> list[dict[str, Any]]:
-    rows = payload.get(key)
-    if not isinstance(rows, list):
-        return []
-    return [row for row in rows if isinstance(row, dict)]
+    return _blocks_from_request_payload_impl(payload, key)
 
 
 def _block_id_from_row(block: dict[str, Any]) -> str | None:
-    for key in ("block_id", "stable_key"):
-        value = block.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    index_value = _coerce_int(block.get("index"))
-    if index_value is not None:
-        return f"index:{index_value}"
-    return None
+    return _block_id_from_row_impl(
+        block,
+        coerce_int=_coerce_int,
+    )
 
 
 def _build_intermediate_selected_blocks(
     row: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], int | None, int | None]:
-    request_payload = _parse_json_like(row.get("request_input_payload"))
-    request_payload = request_payload if isinstance(request_payload, dict) else {}
-    parsed_response = _parse_json_like(row.get("parsed_response"))
-    parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
-    blocks_candidate = _blocks_from_request_payload(request_payload, "blocks_candidate")
-    if not blocks_candidate:
-        return [], None, None
-
-    start = _coerce_int(parsed_response.get("start_block_index"))
-    end = _coerce_int(parsed_response.get("end_block_index"))
-    excluded_ids = {
-        str(value).strip()
-        for value in _coerce_str_list(parsed_response.get("excluded_block_ids"))
-        if str(value).strip()
-    }
-
-    selected: list[dict[str, Any]] = []
-    for fallback_index, block in enumerate(blocks_candidate):
-        block_index = _coerce_int(block.get("index"))
-        if block_index is None:
-            block_index = fallback_index
-        if start is not None and end is not None and not (start <= block_index <= end):
-            continue
-        block_id = _block_id_from_row(block)
-        if block_id and block_id in excluded_ids:
-            continue
-        selected.append(block)
-
-    if start is not None and end is not None and end >= start and not selected:
-        selected_count = end - start + 1
-    else:
-        selected_count = len(selected)
-    return selected, start, end
+    return _build_intermediate_selected_blocks_impl(
+        row,
+        parse_json_like=_parse_json_like,
+        coerce_int=_coerce_int,
+        coerce_str_list=_coerce_str_list,
+    )
 
 
 def _correction_input_blocks(row: dict[str, Any]) -> list[dict[str, Any]]:
-    request_payload = _parse_json_like(row.get("request_input_payload"))
-    request_payload = request_payload if isinstance(request_payload, dict) else {}
-    return _blocks_from_request_payload(request_payload, "blocks")
+    return _correction_input_blocks_impl(
+        row,
+        parse_json_like=_parse_json_like,
+    )
 
 
 def _final_recipe_step_count(parsed_response: dict[str, Any]) -> int:
-    draft_payload = _parse_json_like(parsed_response.get("draft_v1"))
-    if isinstance(draft_payload, dict):
-        steps = draft_payload.get("steps")
-        if isinstance(steps, list):
-            return len(steps)
-    steps = parsed_response.get("steps")
-    if isinstance(steps, list):
-        return len(steps)
-    return 0
+    return _final_recipe_step_count_impl(
+        parsed_response,
+        parse_json_like=_parse_json_like,
+    )
 
 
 def _mapping_count(value: Any) -> int:
-    parsed = _parse_json_like(value)
-    if isinstance(parsed, dict):
-        return len(parsed)
-    if isinstance(parsed, list):
-        return len(parsed)
-    return 0
+    return _mapping_count_impl(
+        value,
+        parse_json_like=_parse_json_like,
+    )
 
 
 def _to_json_excerpt(value: Any, *, excerpt_limit: int) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return _excerpt(_normalize_whitespace(value), max_len=excerpt_limit)
-    return _excerpt(
-        _normalize_whitespace(json.dumps(value, ensure_ascii=False, sort_keys=True)),
-        max_len=excerpt_limit,
+    return _to_json_excerpt_impl(
+        value,
+        excerpt_limit=excerpt_limit,
+        excerpt=_excerpt,
+        normalize_whitespace=_normalize_whitespace,
     )
 
 
 def _input_excerpt_for_prompt_row(row: dict[str, Any], *, excerpt_limit: int) -> str:
-    primary = _first_prompt_block_excerpt(row, excerpt_limit=excerpt_limit)
-    if primary:
-        return primary
-    request_payload = _parse_json_like(row.get("request_input_payload"))
-    request_payload = request_payload if isinstance(request_payload, dict) else {}
-    canonical_text = request_payload.get("canonical_text")
-    if isinstance(canonical_text, str) and canonical_text.strip():
-        return _excerpt(_normalize_whitespace(canonical_text), max_len=excerpt_limit)
-    for key in ("extracted_instructions", "extracted_ingredients"):
-        rows = request_payload.get(key)
-        if not isinstance(rows, list):
-            continue
-        if rows and isinstance(rows[0], dict):
-            text = str(rows[0].get("text") or rows[0].get("name") or "").strip()
-            if text:
-                return _excerpt(_normalize_whitespace(text), max_len=excerpt_limit)
-        if rows and isinstance(rows[0], str):
-            return _excerpt(_normalize_whitespace(str(rows[0])), max_len=excerpt_limit)
-    return ""
+    return _input_excerpt_for_prompt_row_impl(
+        row,
+        excerpt_limit=excerpt_limit,
+        first_prompt_block_excerpt=_first_prompt_block_excerpt,
+        parse_json_like=_parse_json_like,
+        excerpt=_excerpt,
+        normalize_whitespace=_normalize_whitespace,
+    )
 
 
 def _output_excerpt_for_prompt_row(row: dict[str, Any], *, excerpt_limit: int) -> str:
-    parsed_response = _parse_json_like(row.get("parsed_response"))
-    parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
-    warnings = _coerce_str_list(parsed_response.get("warnings"))
-    if warnings:
-        return _excerpt(_normalize_whitespace(warnings[0]), max_len=excerpt_limit)
-
-    stage_key = _prompt_row_stage_key(row)
-    if stage_key == "recipe_refine":
-        canonical_recipe = (
-            parsed_response.get("canonical_recipe")
-            if isinstance(parsed_response.get("canonical_recipe"), dict)
-            else {}
-        )
-        title = str(canonical_recipe.get("title") or "").strip()
-        if title:
-            return _excerpt(_normalize_whitespace(title), max_len=excerpt_limit)
-        if canonical_recipe:
-            return _to_json_excerpt(canonical_recipe, excerpt_limit=excerpt_limit)
-    if parsed_response:
-        return _to_json_excerpt(parsed_response, excerpt_limit=excerpt_limit)
-    return ""
+    return _output_excerpt_for_prompt_row_impl(
+        row,
+        excerpt_limit=excerpt_limit,
+        parse_json_like=_parse_json_like,
+        coerce_str_list=_coerce_str_list,
+        prompt_row_stage_key=_prompt_row_stage_key,
+        excerpt=_excerpt,
+        normalize_whitespace=_normalize_whitespace,
+    )
 
 
 def _recipe_short_title(
@@ -3222,29 +1720,12 @@ def _recipe_short_title(
     recipe_spans: list[dict[str, Any]],
     correction_row: dict[str, Any] | None,
 ) -> str:
-    parsed_response = (
-        _parse_json_like(correction_row.get("parsed_response"))
-        if isinstance(correction_row, dict)
-        else None
+    return _recipe_short_title_impl(
+        recipe_id=recipe_id,
+        recipe_spans=recipe_spans,
+        correction_row=correction_row,
+        parse_json_like=_parse_json_like,
     )
-    if isinstance(parsed_response, dict):
-        canonical_recipe = (
-            parsed_response.get("canonical_recipe")
-            if isinstance(parsed_response.get("canonical_recipe"), dict)
-            else {}
-        )
-        title = str(canonical_recipe.get("title") or "").strip()
-        if title:
-            return title
-    for span in recipe_spans:
-        if str(span.get("recipe_id") or "") != recipe_id:
-            continue
-        title = str(span.get("title") or "").strip()
-        if title:
-            return title
-    if ":" in recipe_id:
-        return recipe_id.rsplit(":", 1)[-1]
-    return recipe_id
 
 
 def _nearest_recipe_id_for_line_index(
@@ -3252,25 +1733,11 @@ def _nearest_recipe_id_for_line_index(
     line_index: int,
     recipe_spans: list[dict[str, Any]],
 ) -> str | None:
-    if not recipe_spans:
-        return None
-    ranked: list[tuple[int, int, int, str]] = []
-    for span in recipe_spans:
-        recipe_id = str(span.get("recipe_id") or "").strip()
-        if not recipe_id:
-            continue
-        start, end = _span_line_bounds(span)
-        if start is None or end is None:
-            continue
-        if start <= line_index <= end:
-            distance = 0
-        else:
-            distance = min(abs(line_index - start), abs(line_index - end))
-        ranked.append((distance, start, recipe_id.count(":"), recipe_id))
-    if not ranked:
-        return None
-    ranked.sort(key=lambda row: (row[0], row[1], row[2], row[3]))
-    return ranked[0][3]
+    return _nearest_recipe_id_for_line_index_impl(
+        line_index=line_index,
+        recipe_spans=recipe_spans,
+        span_line_bounds=_span_line_bounds,
+    )
 
 
 def _counter_to_sorted_dict(counter: Counter[str]) -> dict[str, int]:
@@ -3317,721 +1784,57 @@ def _build_pair_diagnostics(
     excerpt_limit: int,
     targeted_case_limit: int,
 ) -> PairDiagnostics:
-    codex_prompt_rows = _load_full_prompt_rows_for_run(codex_run)
-    recipe_spans = _normalize_recipe_spans_to_line_coordinates(
-        run_dir=Path(codex_run.run_dir),
-        recipe_spans=_build_recipe_spans_from_full_prompt_rows(codex_prompt_rows),
-    )
-
-    codex_view = _build_line_prediction_view(
-        run_dir=Path(codex_run.run_dir),
-        recipe_spans=recipe_spans,
-    )
-    baseline_view = _build_line_prediction_view(
-        run_dir=Path(baseline_run.run_dir),
-        recipe_spans=recipe_spans,
-    )
-
-    all_line_indices = sorted(
-        set(codex_view.gold_label_by_index.keys()) | set(baseline_view.gold_label_by_index.keys())
-    )
-    line_text_by_index = (
-        codex_view.line_text_by_index
-        if codex_view.line_text_by_index
-        else baseline_view.line_text_by_index
-    )
-
-    changed_line_rows: list[dict[str, Any]] = []
-    recipe_flip_counts: Counter[str] = Counter()
-
-    region_metrics: dict[str, dict[str, int]] = {
-        "inside_active_recipe_span": {
-            "line_total": 0,
-            "codex_correct": 0,
-            "baseline_correct": 0,
-        },
-        "outside_active_recipe_span": {
-            "line_total": 0,
-            "codex_correct": 0,
-            "baseline_correct": 0,
-        },
-    }
-    per_recipe_metrics: dict[str, dict[str, int]] = defaultdict(
-        lambda: {"line_total": 0, "codex_correct": 0, "baseline_correct": 0}
-    )
-
-    for line_index in all_line_indices:
-        gold_label = str(
-            codex_view.gold_label_by_index.get(
-                line_index,
-                baseline_view.gold_label_by_index.get(line_index, "OTHER"),
-            )
-        )
-        codex_pred = str(
-            codex_view.pred_label_by_index.get(
-                line_index,
-                codex_view.gold_label_by_index.get(line_index, gold_label),
-            )
-        )
-        baseline_pred = str(
-            baseline_view.pred_label_by_index.get(
-                line_index,
-                baseline_view.gold_label_by_index.get(line_index, gold_label),
-            )
-        )
-
-        recipe_id = codex_view.recipe_id_by_index.get(line_index)
-        span_region = codex_view.recipe_span_by_index.get(
-            line_index, "outside_active_recipe_span"
-        )
-        if span_region not in region_metrics:
-            span_region = "outside_active_recipe_span"
-        region_metrics[span_region]["line_total"] += 1
-        if codex_pred == gold_label:
-            region_metrics[span_region]["codex_correct"] += 1
-        if baseline_pred == gold_label:
-            region_metrics[span_region]["baseline_correct"] += 1
-
-        if recipe_id:
-            per_recipe_metrics[recipe_id]["line_total"] += 1
-            if codex_pred == gold_label:
-                per_recipe_metrics[recipe_id]["codex_correct"] += 1
-            if baseline_pred == gold_label:
-                per_recipe_metrics[recipe_id]["baseline_correct"] += 1
-
-        if codex_pred == baseline_pred:
-            continue
-
-        if recipe_id:
-            recipe_flip_counts[recipe_id] += 1
-
-        changed_line_rows.append(
-            {
-                "source_key": source_key,
-                "source_file": source_file,
-                "codex_run_id": codex_run.run_id,
-                "baseline_run_id": baseline_run.run_id,
-                "line_index": line_index,
-                "recipe_id": recipe_id,
-                "span_region": span_region,
-                "gold_label": gold_label,
-                "vanilla_pred": baseline_pred,
-                "codex_pred": codex_pred,
-                **_line_context(
-                    line_text_by_index=line_text_by_index,
-                    line_index=line_index,
-                    excerpt_limit=excerpt_limit,
-                ),
-            }
-        )
-
-    region_breakdown: list[dict[str, Any]] = []
-    for region_name, payload in region_metrics.items():
-        line_total = int(payload["line_total"])
-        codex_accuracy = _rate(int(payload["codex_correct"]), line_total)
-        baseline_accuracy = _rate(int(payload["baseline_correct"]), line_total)
-        region_breakdown.append(
-            {
-                "region": region_name,
-                "line_total": line_total,
-                "codex_correct": int(payload["codex_correct"]),
-                "baseline_correct": int(payload["baseline_correct"]),
-                "codex_accuracy": codex_accuracy,
-                "baseline_accuracy": baseline_accuracy,
-                "delta_codex_minus_baseline": _delta(codex_accuracy, baseline_accuracy),
-            }
-        )
-
-    per_recipe_breakdown = [
-        {
-            "recipe_id": recipe_id,
-            "line_total": int(payload["line_total"]),
-            "codex_correct": int(payload["codex_correct"]),
-            "baseline_correct": int(payload["baseline_correct"]),
-            "codex_accuracy": _rate(int(payload["codex_correct"]), int(payload["line_total"])),
-            "baseline_accuracy": _rate(
-                int(payload["baseline_correct"]), int(payload["line_total"])
-            ),
-            "delta_codex_minus_baseline": _delta(
-                _rate(int(payload["codex_correct"]), int(payload["line_total"])),
-                _rate(int(payload["baseline_correct"]), int(payload["line_total"])),
-            ),
-            "changed_lines_codex_vs_vanilla": int(recipe_flip_counts.get(recipe_id, 0)),
-        }
-        for recipe_id, payload in sorted(
-            per_recipe_metrics.items(),
-            key=lambda item: (
-                -int(recipe_flip_counts.get(item[0], 0)),
-                -int(item[1]["line_total"]),
-                item[0],
-            ),
-        )
-    ]
-
-    codex_confusion = _confusion_matrix_from_view(codex_view)
-    baseline_confusion = _confusion_matrix_from_view(baseline_view)
-    confusion_delta = _delta_confusion_matrix(
-        codex_confusion=codex_confusion,
-        baseline_confusion=baseline_confusion,
-    )
-
-    targeted_prompt_candidates: list[dict[str, Any]] = []
-    for row in codex_prompt_rows:
-        stage_key = _prompt_row_stage_key(row)
-        if stage_key not in LLM_STAGE_MAP:
-            continue
-        parsed_response = _parse_json_like(row.get("parsed_response"))
-        parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
-        warnings = _coerce_str_list(parsed_response.get("warnings"))
-        empty_mapping = False
-        if stage_key == "recipe_refine":
-            correction_outputs = _upload_bundle_recipe_correction_output_rows(parsed_response)
-            if correction_outputs:
-                warnings = []
-                empty_mapping = False
-                for output_row in correction_outputs:
-                    metrics = _upload_bundle_recipe_correction_metrics(output_row)
-                    warnings.extend(metrics["warnings"])
-                    empty_mapping = empty_mapping or bool(metrics["empty_mapping"])
-            else:
-                empty_mapping = (
-                    "ingredient_step_mapping" in parsed_response
-                    and _is_empty_mapping_value(parsed_response.get("ingredient_step_mapping"))
-                )
-        else:
-            empty_mapping = (
-                "ingredient_step_mapping" in parsed_response
-                and _is_empty_mapping_value(parsed_response.get("ingredient_step_mapping"))
-            )
-        recipe_id = str(row.get("recipe_id") or "").strip()
-        changed_lines_for_recipe = int(recipe_flip_counts.get(recipe_id, 0))
-        if not warnings and not empty_mapping and changed_lines_for_recipe <= 0:
-            continue
-
-        call_id = str(row.get("call_id") or "").strip()
-        targeted_prompt_candidates.append(
-            {
-                "source_key": source_key,
-                "source_file": source_file,
-                "codex_run_id": codex_run.run_id,
-                "baseline_run_id": baseline_run.run_id,
-                "stage_key": stage_key,
-                "stage_label": stage_label(stage_key),
-                "call_id": call_id,
-                "recipe_id": recipe_id or None,
-                "changed_lines_for_recipe": changed_lines_for_recipe,
-                "warning_count": len(warnings),
-                "warnings": warnings,
-                "empty_ingredient_step_mapping": empty_mapping,
-                "input_excerpt": _first_prompt_block_excerpt(
-                    row,
-                    excerpt_limit=excerpt_limit,
-                ),
-                "score": _prompt_case_score(
-                    stage_key=stage_key,
-                    warnings_count=len(warnings),
-                    empty_mapping=empty_mapping,
-                    changed_lines_for_recipe=changed_lines_for_recipe,
-                ),
-            }
-        )
-
-    targeted_prompt_candidates.sort(
-        key=lambda row: (
-            -int(row.get("score") or 0),
-            -int(row.get("changed_lines_for_recipe") or 0),
-            -int(row.get("warning_count") or 0),
-            str(row.get("stage_key") or ""),
-            str(row.get("call_id") or ""),
-        )
-    )
-
-    targeted_prompt_case_rows: list[dict[str, Any]] = []
-    seen_prompt_case_keys: set[tuple[str, str]] = set()
-    for row in targeted_prompt_candidates:
-        dedupe_key = (str(row.get("stage_key") or ""), str(row.get("call_id") or ""))
-        if dedupe_key in seen_prompt_case_keys:
-            continue
-        seen_prompt_case_keys.add(dedupe_key)
-        targeted_prompt_case_rows.append(
-            {
-                key: value
-                for key, value in row.items()
-                if key != "score"
-            }
-        )
-        if len(targeted_prompt_case_rows) >= targeted_case_limit:
-            break
-
-    stage_rows_by_recipe: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
-    for row in sorted(codex_prompt_rows, key=_prompt_row_identity_key):
-        stage_key = _prompt_row_stage_key(row)
-        if stage_key not in {
-            "recipe_build_intermediate",
-            "recipe_refine",
-            "recipe_build_final",
-        }:
-            continue
-        for recipe_id in _prompt_row_owned_recipe_ids(row):
-            if stage_key not in stage_rows_by_recipe[recipe_id]:
-                stage_rows_by_recipe[recipe_id][stage_key] = row
-
-    run_manifest_path = Path(codex_run.run_dir) / "run_manifest.json"
-    run_manifest = _load_json(run_manifest_path) if run_manifest_path.is_file() else {}
-    manifest_diagnostics_by_recipe = _load_llm_manifest_recipe_diagnostics(
-        run_dir=Path(codex_run.run_dir),
-        run_manifest=run_manifest,
-    )
-    preprocess_rows, preprocess_status = _build_preprocess_trace_failure_rows(
-        run_dir=Path(codex_run.run_dir),
-        run_manifest=run_manifest,
-        full_prompt_rows=codex_prompt_rows,
+    return _build_pair_diagnostics_impl(
+        source_key=source_key,
+        source_file=source_file,
+        codex_run=codex_run,
+        baseline_run=baseline_run,
         excerpt_limit=excerpt_limit,
-    )
-    outside_span_trace_rows: list[dict[str, Any]] = []
-    outside_span_wrong_counts: Counter[str] = Counter()
-    outside_span_trace_statuses_by_recipe: dict[str, Counter[str]] = defaultdict(Counter)
-    for row in preprocess_rows:
-        if str(row.get("span_region") or "") != "outside_active_recipe_span":
-            continue
-        line_index = _coerce_int(row.get("line_index"))
-        if line_index is None:
-            continue
-        recipe_id = str(row.get("recipe_id") or "").strip()
-        if not recipe_id:
-            inferred_recipe_id = _nearest_recipe_id_for_line_index(
-                line_index=line_index,
-                recipe_spans=recipe_spans,
-            )
-            recipe_id = inferred_recipe_id or "unknown_recipe"
-        trace_status = str(row.get("trace_status") or "")
-        warning_buckets = _coerce_str_list(row.get("warning_buckets"))
-        outside_span_trace_rows.append(
-            {
-                "source_key": source_key,
-                "source_file": source_file,
-                "codex_run_id": codex_run.run_id,
-                "baseline_run_id": baseline_run.run_id,
-                "call_id": row.get("call_id"),
-                "recipe_id": recipe_id,
-                "line_index": line_index,
-                "gold_label": row.get("gold_label"),
-                "pred_label": row.get("pred_label"),
-                "trace_status": trace_status,
-                "warning_buckets": warning_buckets,
-                "raw_block_stable_key": row.get("raw_block_stable_key"),
-                "raw_block_excerpt": row.get("raw_block_excerpt"),
-                "prompt_candidate_block_excerpt": row.get("prompt_candidate_block_excerpt"),
-            }
-        )
-        outside_span_wrong_counts[recipe_id] += 1
-        if trace_status:
-            outside_span_trace_statuses_by_recipe[recipe_id][trace_status] += 1
-
-    recipe_ids: set[str] = set(per_recipe_metrics.keys())
-    recipe_ids.update(stage_rows_by_recipe.keys())
-    recipe_ids.update(str(span.get("recipe_id") or "") for span in recipe_spans if span.get("recipe_id"))
-    recipe_ids.update(outside_span_wrong_counts.keys())
-    recipe_ids.update(manifest_diagnostics_by_recipe.keys())
-    recipe_ids.discard("")
-    recipe_triage_rows: list[dict[str, Any]] = []
-    for recipe_id in sorted(recipe_ids):
-        metrics = per_recipe_metrics.get(
-            recipe_id,
-            {"line_total": 0, "codex_correct": 0, "baseline_correct": 0},
-        )
-        line_total = int(metrics.get("line_total") or 0)
-        codex_correct = int(metrics.get("codex_correct") or 0)
-        baseline_correct = int(metrics.get("baseline_correct") or 0)
-        codex_accuracy = _rate(codex_correct, line_total)
-        baseline_accuracy = _rate(baseline_correct, line_total)
-        delta_codex_minus_baseline = _delta(codex_accuracy, baseline_accuracy)
-
-        build_intermediate_row = stage_rows_by_recipe.get(recipe_id, {}).get(
-            "recipe_build_intermediate"
-        )
-        correction_row = stage_rows_by_recipe.get(recipe_id, {}).get(
-            "recipe_refine"
-        )
-        build_final_row = stage_rows_by_recipe.get(recipe_id, {}).get(
-            "recipe_build_final"
-        )
-        manifest_diagnostics = manifest_diagnostics_by_recipe.get(recipe_id, {})
-        build_intermediate_blocks: list[dict[str, Any]] = []
-        build_intermediate_start_block_index: int | None = None
-        build_intermediate_end_block_index: int | None = None
-        build_intermediate_selected_block_count = 0
-        if isinstance(build_intermediate_row, dict):
-            (
-                build_intermediate_blocks,
-                build_intermediate_start_block_index,
-                build_intermediate_end_block_index,
-            ) = _build_intermediate_selected_blocks(
-                build_intermediate_row
-            )
-            build_intermediate_selected_block_count = len(build_intermediate_blocks)
-        correction_call_id = (
-            str(correction_row.get("call_id") or "") if isinstance(correction_row, dict) else ""
-        )
-        correction_input_payload = (
-            _parse_json_like(correction_row.get("request_input_payload"))
-            if isinstance(correction_row, dict)
-            else None
-        )
-        correction_input_payload = (
-            correction_input_payload
-            if isinstance(correction_input_payload, dict)
-            else {}
-        )
-        parsed_correction = (
-            _upload_bundle_recipe_correction_output_for_recipe(
-                correction_row.get("parsed_response"),
-                recipe_id=recipe_id,
-            )
-            if isinstance(correction_row, dict)
-            else {}
-        )
-        correction_input_block_count = int(
-            _coerce_int(manifest_diagnostics.get("correction_input_block_count"))
-            or _upload_bundle_recipe_correction_input_block_count(
-                correction_input_payload,
-                recipe_id=recipe_id,
-            )
-        )
-        correction_metrics = _upload_bundle_recipe_correction_metrics(parsed_correction)
-        correction_warnings = list(correction_metrics["warnings"])
-        correction_warning_count = int(
-            _coerce_int(manifest_diagnostics.get("correction_warning_count"))
-            or len(correction_warnings)
-        )
-        correction_warning_buckets = _warning_buckets(correction_warnings)
-        canonical_recipe = (
-            parsed_correction.get("canonical_recipe")
-            if isinstance(parsed_correction.get("canonical_recipe"), dict)
-            else {}
-        )
-        correction_ingredient_count = int(
-            _coerce_int(manifest_diagnostics.get("correction_ingredient_count"))
-            or int(correction_metrics["ingredient_count"])
-        )
-        correction_step_count = int(
-            _coerce_int(manifest_diagnostics.get("correction_step_count"))
-            or int(correction_metrics["step_count"])
-        )
-        correction_mapping_value = parsed_correction.get("ingredient_step_mapping")
-        correction_mapping_count = int(
-            _coerce_int(manifest_diagnostics.get("correction_mapping_count"))
-            or int(correction_metrics["mapping_count"])
-            or 0
-        )
-        correction_empty_mapping = bool(
-            manifest_diagnostics.get("correction_empty_mapping")
-        ) or _is_empty_mapping_value(correction_mapping_value)
-        correction_empty_output = bool(
-            manifest_diagnostics.get("correction_empty_output")
-        ) or bool(correction_metrics["empty_output"])
-        build_final_parsed = (
-            _parse_json_like(build_final_row.get("parsed_response"))
-            if isinstance(build_final_row, dict)
-            else None
-        )
-        build_final_parsed = (
-            build_final_parsed if isinstance(build_final_parsed, dict) else {}
-        )
-        final_recipe_step_count = _final_recipe_step_count(build_final_parsed)
-        final_recipe_mapping_count = _mapping_count(
-            build_final_parsed.get("ingredient_step_mapping")
-        )
-        final_recipe_empty_mapping = bool(build_final_row) and _is_empty_mapping_value(
-            build_final_parsed.get("ingredient_step_mapping")
-        )
-        final_recipe_warnings = _coerce_str_list(build_final_parsed.get("warnings"))
-        final_recipe_warning_count = len(final_recipe_warnings)
-        final_recipe_warning_buckets = _warning_buckets(final_recipe_warnings)
-
-        outside_span_status_counter = outside_span_trace_statuses_by_recipe.get(recipe_id, Counter())
-        outside_span_trace_status_top = ""
-        if outside_span_status_counter:
-            outside_span_trace_status_top = sorted(
-                outside_span_status_counter.items(),
-                key=lambda item: (-item[1], item[0]),
-            )[0][0]
-
-        recipe_pipeline_id = str(codex_run.llm_recipe_pipeline or "").strip()
-        recipe_stages = _upload_bundle_recipe_stages_for_row(
-            recipe_pipeline_id=recipe_pipeline_id,
-            correction_call_id=correction_call_id,
-        )
-        build_intermediate_status = str(
-            manifest_diagnostics.get("build_intermediate_status") or ""
-        )
-        correction_status = str(
-            manifest_diagnostics.get("correction_status") or ""
-        )
-        build_final_status = str(
-            manifest_diagnostics.get("build_final_status") or ""
-        )
-        final_mapping_status = str(
-            manifest_diagnostics.get("final_mapping_status") or ""
-        )
-        final_mapping_reason = str(
-            manifest_diagnostics.get("final_mapping_reason") or ""
-        )
-        structural_status = str(manifest_diagnostics.get("structural_status") or "")
-        structural_reason_codes = _coerce_str_list(
-            manifest_diagnostics.get("structural_reason_codes")
-        )
-        recipe_warning_count = int(
-            _coerce_int(manifest_diagnostics.get("recipe_warning_count")) or 0
-        )
-        recipe_error_count = int(
-            _coerce_int(manifest_diagnostics.get("recipe_error_count")) or 0
-        )
-
-        line_total_effective = (
-            line_total
-            if line_total > 0
-            else (correction_input_block_count or build_intermediate_selected_block_count)
-        )
-        short_title = _recipe_short_title(
-            recipe_id=recipe_id,
-            recipe_spans=recipe_spans,
-            correction_row=correction_row,
-        )
-        recipe_triage_rows.append(
-            {
-                "source_key": source_key,
-                "source_file": source_file,
-                "codex_run_id": codex_run.run_id,
-                "baseline_run_id": baseline_run.run_id,
-                "recipe_pipeline_id": recipe_pipeline_id,
-                "recipe_stages": recipe_stages,
-                "selection_hint_preprocess_status": preprocess_status,
-                "recipe_id": recipe_id,
-                "short_title": short_title,
-                "line_total": line_total_effective,
-                "changed_lines_codex_vs_baseline": int(recipe_flip_counts.get(recipe_id, 0)),
-                "codex_accuracy": codex_accuracy,
-                "baseline_accuracy": baseline_accuracy,
-                "delta_codex_minus_baseline": delta_codex_minus_baseline,
-                "correction_call_id": correction_call_id,
-                "correction_input_block_count": correction_input_block_count,
-                "correction_warning_count": correction_warning_count,
-                "correction_warning_buckets": correction_warning_buckets,
-                "correction_ingredient_count": correction_ingredient_count,
-                "correction_step_count": correction_step_count,
-                "correction_mapping_count": correction_mapping_count,
-                "correction_empty_mapping": correction_empty_mapping,
-                "correction_empty_output": correction_empty_output,
-                "build_intermediate_status": build_intermediate_status,
-                "correction_status": correction_status,
-                "build_final_status": build_final_status,
-                "final_mapping_status": final_mapping_status,
-                "final_mapping_reason": final_mapping_reason,
-                "structural_status": structural_status,
-                "structural_reason_codes": structural_reason_codes,
-                "recipe_warning_count": recipe_warning_count,
-                "recipe_error_count": recipe_error_count,
-                "build_intermediate_call_id": str(build_intermediate_row.get("call_id") or "")
-                if isinstance(build_intermediate_row, dict)
-                else "",
-                "correction_call_id": correction_call_id,
-                "build_final_call_id": str(build_final_row.get("call_id") or "")
-                if isinstance(build_final_row, dict)
-                else "",
-                "build_intermediate_start_block_index": build_intermediate_start_block_index,
-                "build_intermediate_end_block_index": build_intermediate_end_block_index,
-                "build_intermediate_selected_block_count": build_intermediate_selected_block_count,
-                "correction_input_block_count": correction_input_block_count,
-                "build_intermediate_missing_block_count": 0,
-                "build_intermediate_extra_block_count": 0,
-                "final_recipe_step_count": final_recipe_step_count,
-                "final_recipe_mapping_count": final_recipe_mapping_count,
-                "final_recipe_empty_mapping": final_recipe_empty_mapping,
-                "final_recipe_warning_count": final_recipe_warning_count,
-                "final_recipe_warning_buckets": final_recipe_warning_buckets,
-                "build_intermediate_clamped_block_loss_count": 0,
-                "build_intermediate_clamped_block_loss_ratio": None,
-                "correction_degradation_reasons": [],
-                "correction_degradation_severity": "",
-                "correction_promotion_policy": "",
-                "build_final_execution_mode": "",
-                "build_final_routing_reason": "",
-                "build_final_fallback_reason": "",
-                "transport_mismatch": _coerce_bool(
-                    manifest_diagnostics.get("transport_mismatch")
-                ),
-                "transport_mismatch_reasons": _coerce_str_list(
-                    manifest_diagnostics.get("transport_mismatch_reasons")
-                ),
-                "transport_effective_to_payload_coverage_ratio": _coerce_float(
-                    manifest_diagnostics.get("transport_effective_to_payload_coverage_ratio")
-                ),
-                "evidence_split_quantity_lines": int(
-                    _coerce_int(manifest_diagnostics.get("evidence_split_quantity_lines"))
-                    or 0
-                ),
-                "evidence_dropped_page_markers": int(
-                    _coerce_int(manifest_diagnostics.get("evidence_dropped_page_markers"))
-                    or 0
-                ),
-                "evidence_folded_page_markers": int(
-                    _coerce_int(manifest_diagnostics.get("evidence_folded_page_markers"))
-                    or 0
-                ),
-                "outside_span_wrong_line_count": int(outside_span_wrong_counts.get(recipe_id, 0)),
-                "outside_span_trace_status_top": outside_span_trace_status_top,
-                "raw_block_window_excerpt": _input_excerpt_for_prompt_row(
-                    correction_row,
-                    excerpt_limit=excerpt_limit,
-                )
-                if isinstance(correction_row, dict)
-                else "",
-            }
-        )
-
-    call_inventory_rows: list[dict[str, Any]] = []
-    for row in sorted(codex_prompt_rows, key=_prompt_row_identity_key):
-        stage_key = _prompt_row_stage_key(row)
-        if not _upload_bundle_call_inventory_stage_included(stage_key):
-            continue
-        parsed_response = _parse_json_like(row.get("parsed_response"))
-        parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
-        warnings = _coerce_str_list(parsed_response.get("warnings"))
-        warning_buckets = _warning_buckets(warnings)
-
-        input_block_count = 0
-        extracted_ingredient_count = 0
-        step_count = 0
-        mapping_count = 0
-        request_input_payload = _parse_json_like(row.get("request_input_payload"))
-        request_input_payload = (
-            request_input_payload if isinstance(request_input_payload, dict) else {}
-        )
-        if stage_key == "recipe_refine":
-            correction_outputs = _upload_bundle_recipe_correction_output_rows(parsed_response)
-            input_block_count = _upload_bundle_recipe_correction_input_block_count(
-                request_input_payload
-            )
-            if correction_outputs:
-                warnings = []
-                extracted_ingredient_count = 0
-                step_count = 0
-                mapping_count = 0
-                for output_row in correction_outputs:
-                    metrics = _upload_bundle_recipe_correction_metrics(output_row)
-                    warnings.extend(metrics["warnings"])
-                    extracted_ingredient_count += int(metrics["ingredient_count"])
-                    step_count += int(metrics["step_count"])
-                    mapping_count += int(metrics["mapping_count"])
-                warning_buckets = _warning_buckets(warnings)
-            else:
-                canonical_recipe = (
-                    parsed_response.get("canonical_recipe")
-                    if isinstance(parsed_response.get("canonical_recipe"), dict)
-                    else {}
-                )
-                extracted_ingredient_count = len(canonical_recipe.get("ingredients") or [])
-                step_count = len(canonical_recipe.get("steps") or [])
-                mapping_count = _mapping_count(parsed_response.get("ingredient_step_mapping"))
-        elif stage_key == "line_role":
-            row_payload = request_input_payload.get("rows")
-            input_block_count = len(row_payload) if isinstance(row_payload, list) else 0
-        elif stage_key == "recipe_build_final":
-            draft_payload = _parse_json_like(parsed_response.get("draft_v1"))
-            draft_payload = draft_payload if isinstance(draft_payload, dict) else {}
-            steps_payload = draft_payload.get("steps")
-            step_count = len(steps_payload) if isinstance(steps_payload, list) else 0
-            mapping_count = _mapping_count(parsed_response.get("ingredient_step_mapping"))
-
-        runtime_payload = _upload_bundle_extract_call_runtime(row)
-        observed_cost_usd = _coerce_float(runtime_payload.get("cost_usd"))
-        estimated_cost_usd = (
-            observed_cost_usd
-            if observed_cost_usd is not None
-            else _upload_bundle_estimate_call_cost_usd(
-                tokens_input=_coerce_int(runtime_payload.get("tokens_input")),
-                tokens_cached_input=_coerce_int(runtime_payload.get("tokens_cached_input")),
-                tokens_output=_coerce_int(runtime_payload.get("tokens_output")),
-            )
-        )
-
-        call_inventory_rows.append(
-            {
-                "run_id": codex_run.run_id,
-                "source_key": source_key,
-                "source_file": source_file,
-                "recipe_id": _prompt_row_recipe_id(row),
-                "stage_key": stage_key,
-                "stage_label": stage_label(stage_key),
-                "call_id": str(row.get("call_id") or ""),
-                "timestamp_utc": str(row.get("timestamp_utc") or ""),
-                "model": str(row.get("model") or ""),
-                "input_block_count": input_block_count,
-                "warning_count": len(warnings),
-                "warning_buckets": warning_buckets,
-                "extracted_ingredient_count": extracted_ingredient_count,
-                "extracted_instruction_count": step_count,
-                "step_count": step_count,
-                "mapping_count": mapping_count,
-                "input_excerpt": _input_excerpt_for_prompt_row(row, excerpt_limit=excerpt_limit),
-                "output_excerpt": _output_excerpt_for_prompt_row(row, excerpt_limit=excerpt_limit),
-                "duration_ms": _coerce_int(runtime_payload.get("duration_ms")),
-                "tokens_input": _coerce_int(runtime_payload.get("tokens_input")),
-                "tokens_cached_input": _coerce_int(
-                    runtime_payload.get("tokens_cached_input")
-                ),
-                "tokens_output": _coerce_int(runtime_payload.get("tokens_output")),
-                "tokens_reasoning": _coerce_int(runtime_payload.get("tokens_reasoning")),
-                "tokens_total": _coerce_int(runtime_payload.get("tokens_total")),
-                "cost_usd": observed_cost_usd,
-                "estimated_cost_usd": estimated_cost_usd,
-                "cost_source": (
-                    "observed_telemetry"
-                    if observed_cost_usd is not None
-                    else (
-                        "estimated_from_tokens_default_pricing"
-                        if estimated_cost_usd is not None
-                        else None
-                    )
-                ),
-                "retry_attempt": _coerce_int(runtime_payload.get("attempt_index")),
-                "runtime_status": runtime_payload.get("status"),
-                "_stage_rank": _upload_bundle_call_inventory_stage_rank(stage_key),
-            }
-        )
-    call_inventory_rows.sort(
-        key=lambda row: (
-            str(row.get("recipe_id") or ""),
-            int(row.get("_stage_rank") or 99),
-            str(row.get("call_id") or ""),
-            str(row.get("timestamp_utc") or ""),
-        )
-    )
-    for row in call_inventory_rows:
-        row.pop("_stage_rank", None)
-
-    pair_breakdown = {
-        "source_key": source_key,
-        "source_file": source_file,
-        "codex_run_id": codex_run.run_id,
-        "baseline_run_id": baseline_run.run_id,
-        "recipe_span_count": len(recipe_spans),
-        "changed_lines_total": len(changed_line_rows),
-        "region_breakdown": region_breakdown,
-        "per_recipe_breakdown": per_recipe_breakdown,
-    }
-
-    return PairDiagnostics(
-        changed_line_rows=changed_line_rows,
-        pair_breakdown=pair_breakdown,
-        confusion_matrix_codex=codex_confusion,
-        confusion_matrix_baseline=baseline_confusion,
-        confusion_delta_codex_minus_baseline=confusion_delta,
-        targeted_prompt_case_rows=targeted_prompt_case_rows,
-        recipe_triage_rows=recipe_triage_rows,
-        call_inventory_rows=call_inventory_rows,
-        outside_span_trace_rows=outside_span_trace_rows,
+        targeted_case_limit=targeted_case_limit,
+        pair_diagnostics_cls=PairDiagnostics,
+        llm_stage_map=LLM_STAGE_MAP,
+        load_full_prompt_rows_for_run=_load_full_prompt_rows_for_run,
+        normalize_recipe_spans_to_line_coordinates=_normalize_recipe_spans_to_line_coordinates,
+        build_recipe_spans_from_full_prompt_rows=_build_recipe_spans_from_full_prompt_rows,
+        build_line_prediction_view=_build_line_prediction_view,
+        line_context=_line_context,
+        rate=_rate,
+        delta=_delta,
+        confusion_matrix_from_view=_confusion_matrix_from_view,
+        delta_confusion_matrix=_delta_confusion_matrix,
+        prompt_row_stage_key=_prompt_row_stage_key,
+        parse_json_like=_parse_json_like,
+        coerce_str_list=_coerce_str_list,
+        upload_bundle_recipe_correction_output_rows=_upload_bundle_recipe_correction_output_rows,
+        upload_bundle_recipe_correction_metrics=_upload_bundle_recipe_correction_metrics,
+        is_empty_mapping_value=_is_empty_mapping_value,
+        first_prompt_block_excerpt=_first_prompt_block_excerpt,
+        prompt_case_score=_prompt_case_score,
+        prompt_row_identity_key=_prompt_row_identity_key,
+        prompt_row_owned_recipe_ids=_prompt_row_owned_recipe_ids,
+        load_json=_load_json,
+        load_llm_manifest_recipe_diagnostics=_load_llm_manifest_recipe_diagnostics,
+        build_preprocess_trace_failure_rows=_build_preprocess_trace_failure_rows,
+        coerce_int=_coerce_int,
+        nearest_recipe_id_for_line_index=_nearest_recipe_id_for_line_index,
+        build_intermediate_selected_blocks=_build_intermediate_selected_blocks,
+        upload_bundle_recipe_stages_for_row=_upload_bundle_recipe_stages_for_row,
+        upload_bundle_recipe_correction_output_for_recipe=_upload_bundle_recipe_correction_output_for_recipe,
+        upload_bundle_recipe_correction_input_block_count=_upload_bundle_recipe_correction_input_block_count,
+        warning_buckets=_warning_buckets,
+        final_recipe_step_count=_final_recipe_step_count,
+        mapping_count=_mapping_count,
+        coerce_bool=_coerce_bool,
+        coerce_float=_coerce_float,
+        recipe_short_title=_recipe_short_title,
+        input_excerpt_for_prompt_row=_input_excerpt_for_prompt_row,
+        upload_bundle_call_inventory_stage_included=_upload_bundle_call_inventory_stage_included,
+        upload_bundle_extract_call_runtime=_upload_bundle_extract_call_runtime,
+        upload_bundle_estimate_call_cost_usd=_upload_bundle_estimate_call_cost_usd,
+        upload_bundle_call_inventory_stage_rank=_upload_bundle_call_inventory_stage_rank,
+        prompt_row_recipe_id=_prompt_row_recipe_id,
+        output_excerpt_for_prompt_row=_output_excerpt_for_prompt_row,
+        stage_label=stage_label,
     )
 
 
@@ -4049,144 +1852,14 @@ def _build_comparison_summary(
     list[dict[str, Any]],
     list[dict[str, Any]],
 ]:
-    by_source: dict[str, list[RunRecord]] = defaultdict(list)
-    for record in records:
-        by_source[record.source_key].append(record)
-
-    pairs: list[dict[str, Any]] = []
-    unpaired_codex: list[dict[str, Any]] = []
-    unpaired_baseline: list[dict[str, Any]] = []
-    changed_line_rows: list[dict[str, Any]] = []
-    pair_breakdown_rows: list[dict[str, Any]] = []
-    targeted_prompt_case_rows: list[dict[str, Any]] = []
-    recipe_triage_rows: list[dict[str, Any]] = []
-    call_inventory_rows: list[dict[str, Any]] = []
-    outside_span_trace_rows: list[dict[str, Any]] = []
-
-    for source_key in sorted(by_source.keys()):
-        runs = by_source[source_key]
-        codex_runs = [run for run in runs if run.codex_enabled]
-        baseline_runs = [run for run in runs if not run.codex_enabled]
-
-        if codex_runs and baseline_runs:
-            for codex_run in sorted(
-                codex_runs,
-                key=lambda run: (run.run_timestamp or datetime.min, run.run_id),
-                reverse=True,
-            ):
-                baseline = _nearest_baseline(codex_run, baseline_runs)
-                pair_diagnostics = _build_pair_diagnostics(
-                    source_key=source_key,
-                    source_file=codex_run.source_file or baseline.source_file,
-                    codex_run=codex_run,
-                    baseline_run=baseline,
-                    excerpt_limit=excerpt_limit,
-                    targeted_case_limit=targeted_prompt_case_limit,
-                )
-                changed_line_rows.extend(pair_diagnostics.changed_line_rows)
-                pair_breakdown_rows.append(pair_diagnostics.pair_breakdown)
-                targeted_prompt_case_rows.extend(pair_diagnostics.targeted_prompt_case_rows)
-                recipe_triage_rows.extend(pair_diagnostics.recipe_triage_rows)
-                call_inventory_rows.extend(pair_diagnostics.call_inventory_rows)
-                outside_span_trace_rows.extend(pair_diagnostics.outside_span_trace_rows)
-                pairs.append(
-                    {
-                        "source_key": source_key,
-                        "source_file": codex_run.source_file or baseline.source_file,
-                        "codex_run": {
-                            "run_id": codex_run.run_id,
-                            "output_subdir": codex_run.output_subdir,
-                            "llm_recipe_pipeline": codex_run.llm_recipe_pipeline,
-                            "atomic_block_splitter": codex_run.atomic_block_splitter,
-                            "line_role_pipeline": codex_run.line_role_pipeline,
-                            "overall_line_accuracy": codex_run.metric_overall_line_accuracy,
-                            "macro_f1_excluding_other": codex_run.metric_macro_f1_excluding_other,
-                            "practical_f1": codex_run.metric_practical_f1,
-                            "worst_label_recall": codex_run.worst_label_recall,
-                        },
-                        "baseline_run": {
-                            "run_id": baseline.run_id,
-                            "output_subdir": baseline.output_subdir,
-                            "llm_recipe_pipeline": baseline.llm_recipe_pipeline,
-                            "atomic_block_splitter": baseline.atomic_block_splitter,
-                            "line_role_pipeline": baseline.line_role_pipeline,
-                            "overall_line_accuracy": baseline.metric_overall_line_accuracy,
-                            "macro_f1_excluding_other": baseline.metric_macro_f1_excluding_other,
-                            "practical_f1": baseline.metric_practical_f1,
-                            "worst_label_recall": baseline.worst_label_recall,
-                        },
-                        "delta_codex_minus_baseline": {
-                            "overall_line_accuracy": _delta(
-                                codex_run.metric_overall_line_accuracy,
-                                baseline.metric_overall_line_accuracy,
-                            ),
-                            "macro_f1_excluding_other": _delta(
-                                codex_run.metric_macro_f1_excluding_other,
-                                baseline.metric_macro_f1_excluding_other,
-                            ),
-                            "practical_f1": _delta(
-                                codex_run.metric_practical_f1,
-                                baseline.metric_practical_f1,
-                            ),
-                        },
-                        "run_config_differences": _config_differences(
-                            codex_run.config_snapshot,
-                            baseline.config_snapshot,
-                        ),
-                        "changed_line_count": len(pair_diagnostics.changed_line_rows),
-                        "confusion_matrix": {
-                            "codex": pair_diagnostics.confusion_matrix_codex,
-                            "baseline": pair_diagnostics.confusion_matrix_baseline,
-                            "delta_codex_minus_baseline": pair_diagnostics.confusion_delta_codex_minus_baseline,
-                        },
-                    }
-                )
-            continue
-
-        if codex_runs:
-            for codex_run in codex_runs:
-                unpaired_codex.append(
-                    {
-                        "source_key": source_key,
-                        "source_file": codex_run.source_file,
-                        "run_id": codex_run.run_id,
-                        "output_subdir": codex_run.output_subdir,
-                        "llm_recipe_pipeline": codex_run.llm_recipe_pipeline,
-                        "atomic_block_splitter": codex_run.atomic_block_splitter,
-                        "line_role_pipeline": codex_run.line_role_pipeline,
-                    }
-                )
-        if baseline_runs:
-            for baseline in baseline_runs:
-                unpaired_baseline.append(
-                    {
-                        "source_key": source_key,
-                        "source_file": baseline.source_file,
-                        "run_id": baseline.run_id,
-                        "output_subdir": baseline.output_subdir,
-                        "llm_recipe_pipeline": baseline.llm_recipe_pipeline,
-                        "atomic_block_splitter": baseline.atomic_block_splitter,
-                        "line_role_pipeline": baseline.line_role_pipeline,
-                    }
-                )
-
-    summary = {
-        "pairing_rule": (
-            "Within each source_key group, each codex-enabled run is paired with the "
-            "nearest baseline (llm_recipe_pipeline=off/none/empty) by timestamp."
-        ),
-        "pairs": pairs,
-        "unpaired_codex_runs": unpaired_codex,
-        "unpaired_baseline_runs": unpaired_baseline,
-    }
-    return (
-        summary,
-        changed_line_rows,
-        pair_breakdown_rows,
-        targeted_prompt_case_rows,
-        recipe_triage_rows,
-        call_inventory_rows,
-        outside_span_trace_rows,
+    return _build_comparison_summary_impl(
+        records=records,
+        excerpt_limit=excerpt_limit,
+        targeted_prompt_case_limit=targeted_prompt_case_limit,
+        build_pair_diagnostics=_build_pair_diagnostics,
+        nearest_baseline=_nearest_baseline,
+        delta=_delta,
+        config_differences=_config_differences,
     )
 
 
@@ -4195,34 +1868,10 @@ def _select_targeted_prompt_cases(
     rows: list[dict[str, Any]],
     limit: int,
 ) -> list[dict[str, Any]]:
-    if limit <= 0:
-        return []
-    sorted_rows = sorted(
-        rows,
-        key=lambda row: (
-            -int(row.get("changed_lines_for_recipe") or 0),
-            -int(row.get("warning_count") or 0),
-            -int(bool(row.get("empty_ingredient_step_mapping"))),
-            str(row.get("stage_key") or ""),
-            str(row.get("call_id") or ""),
-        ),
+    return _select_targeted_prompt_cases_impl(
+        rows=rows,
+        limit=limit,
     )
-    selected: list[dict[str, Any]] = []
-    seen_keys: set[tuple[str, str, str, str]] = set()
-    for row in sorted_rows:
-        dedupe_key = (
-            str(row.get("source_key") or ""),
-            str(row.get("codex_run_id") or ""),
-            str(row.get("stage_key") or ""),
-            str(row.get("call_id") or ""),
-        )
-        if dedupe_key in seen_keys:
-            continue
-        seen_keys.add(dedupe_key)
-        selected.append(row)
-        if len(selected) >= limit:
-            break
-    return selected
 
 
 def _write_targeted_prompt_cases_markdown(
@@ -4230,84 +1879,21 @@ def _write_targeted_prompt_cases_markdown(
     output_path: Path,
     rows: list[dict[str, Any]],
 ) -> None:
-    lines = [
-        "# Targeted Prompt Cases",
-        "",
-        "Deterministic high-signal prompt cases selected from codex runs.",
-        "Selection preference: higher changed-line impact, then warning-heavy/empty-mapping cases.",
-        "",
-    ]
-    if not rows:
-        lines.append("No targeted prompt cases were selected.")
-        lines.append("")
-        output_path.write_text("\n".join(lines), encoding="utf-8")
-        return
-
-    for index, row in enumerate(rows, start=1):
-        warnings = row.get("warnings")
-        warning_rows = warnings if isinstance(warnings, list) else []
-        warning_summary = (
-            "; ".join(_excerpt(str(item), max_len=220) for item in warning_rows[:3])
-            if warning_rows
-            else "none"
-        )
-        lines.extend(
-            [
-                f"## Case {index}",
-                f"- source_key: `{row.get('source_key')}`",
-                f"- codex_run_id: `{row.get('codex_run_id')}`",
-                f"- baseline_run_id: `{row.get('baseline_run_id')}`",
-                f"- stage/call: `{row.get('stage_key')}` / `{row.get('call_id')}`",
-                f"- recipe_id: `{row.get('recipe_id')}`",
-                f"- changed_lines_for_recipe: {row.get('changed_lines_for_recipe')}",
-                f"- warning_count: {row.get('warning_count')}",
-                (
-                    "- empty_ingredient_step_mapping: true"
-                    if bool(row.get("empty_ingredient_step_mapping"))
-                    else "- empty_ingredient_step_mapping: false"
-                ),
-                f"- warning_summary: {warning_summary}",
-                f"- input_excerpt: {_excerpt(str(row.get('input_excerpt') or ''), max_len=320)}",
-                "",
-            ]
-        )
-
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    _write_targeted_prompt_cases_markdown_impl(
+        output_path=output_path,
+        rows=rows,
+        excerpt=_excerpt,
+    )
 
 
 def _aggregate_region_accuracy(
     pair_breakdown_rows: list[dict[str, Any]],
 ) -> tuple[float | None, float | None, float | None]:
-    totals: dict[str, dict[str, int]] = {
-        "inside_active_recipe_span": {"line_total": 0, "codex_correct": 0},
-        "outside_active_recipe_span": {"line_total": 0, "codex_correct": 0},
-    }
-    for pair_row in pair_breakdown_rows:
-        region_rows = pair_row.get("region_breakdown")
-        if not isinstance(region_rows, list):
-            continue
-        for region_row in region_rows:
-            if not isinstance(region_row, dict):
-                continue
-            region = str(region_row.get("region") or "")
-            if region not in totals:
-                continue
-            totals[region]["line_total"] += int(_coerce_int(region_row.get("line_total")) or 0)
-            totals[region]["codex_correct"] += int(_coerce_int(region_row.get("codex_correct")) or 0)
-
-    inside_accuracy = _rate(
-        totals["inside_active_recipe_span"]["codex_correct"],
-        totals["inside_active_recipe_span"]["line_total"],
+    return _aggregate_region_accuracy_impl(
+        pair_breakdown_rows,
+        coerce_int=_coerce_int,
+        rate=_rate,
     )
-    outside_accuracy = _rate(
-        totals["outside_active_recipe_span"]["codex_correct"],
-        totals["outside_active_recipe_span"]["line_total"],
-    )
-    if inside_accuracy is None or outside_accuracy is None:
-        gap = None
-    else:
-        gap = inside_accuracy - outside_accuracy
-    return inside_accuracy, outside_accuracy, gap
 
 
 def _aggregate_confusion_deltas(
@@ -4315,41 +1901,11 @@ def _aggregate_confusion_deltas(
     *,
     top_k: int = 8,
 ) -> list[dict[str, Any]]:
-    pairs = comparison_summary.get("pairs")
-    if not isinstance(pairs, list):
-        return []
-    counter: Counter[tuple[str, str]] = Counter()
-    for pair in pairs:
-        if not isinstance(pair, dict):
-            continue
-        confusion = pair.get("confusion_matrix")
-        if not isinstance(confusion, dict):
-            continue
-        delta_matrix = confusion.get("delta_codex_minus_baseline")
-        if not isinstance(delta_matrix, dict):
-            continue
-        for gold_label, pred_counts in delta_matrix.items():
-            if not isinstance(gold_label, str) or not isinstance(pred_counts, dict):
-                continue
-            for pred_label, count_raw in pred_counts.items():
-                if not isinstance(pred_label, str):
-                    continue
-                count = _coerce_int(count_raw)
-                if count is None or count == 0:
-                    continue
-                counter[(gold_label, pred_label)] += count
-    rows = [
-        {"gold_label": gold_label, "pred_label": pred_label, "delta_count": count}
-        for (gold_label, pred_label), count in counter.items()
-    ]
-    rows.sort(
-        key=lambda row: (
-            -abs(int(row.get("delta_count") or 0)),
-            str(row.get("gold_label") or ""),
-            str(row.get("pred_label") or ""),
-        )
+    return _aggregate_confusion_deltas_impl(
+        comparison_summary,
+        coerce_int=_coerce_int,
+        top_k=top_k,
     )
-    return rows[:top_k]
 
 
 def _build_warning_and_trace_summary(
@@ -4358,179 +1914,19 @@ def _build_warning_and_trace_summary(
     recipe_triage_rows: list[dict[str, Any]],
     outside_span_trace_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    warnings_by_stage: Counter[str] = Counter()
-    warning_buckets: Counter[str] = Counter()
-    for row in call_inventory_rows:
-        stage_key = str(row.get("stage_key") or "")
-        warning_count = int(_coerce_int(row.get("warning_count")) or 0)
-        warnings_by_stage[stage_key] += warning_count
-        for bucket in _coerce_str_list(row.get("warning_buckets")):
-            warning_buckets[bucket] += 1
-
-    outside_span_trace_status_counts: Counter[str] = Counter()
-    outside_span_warning_bucket_counts: Counter[str] = Counter()
-    for row in outside_span_trace_rows:
-        trace_status = str(row.get("trace_status") or "")
-        if trace_status:
-            outside_span_trace_status_counts[trace_status] += 1
-        for bucket in _coerce_str_list(row.get("warning_buckets")):
-            outside_span_warning_bucket_counts[bucket] += 1
-
-    correction_empty_mapping_count = sum(
-        1 for row in recipe_triage_rows if bool(row.get("correction_empty_mapping"))
+    return _build_warning_and_trace_summary_impl(
+        call_inventory_rows=call_inventory_rows,
+        recipe_triage_rows=recipe_triage_rows,
+        outside_span_trace_rows=outside_span_trace_rows,
+        coerce_int=_coerce_int,
+        coerce_str_list=_coerce_str_list,
+        upload_bundle_status_is_problem=_upload_bundle_status_is_problem,
+        counter_to_sorted_dict=_counter_to_sorted_dict,
     )
-    correction_empty_output_count = sum(
-        1 for row in recipe_triage_rows if bool(row.get("correction_empty_output"))
-    )
-    correction_empty_mapping_with_nonempty_output_count = sum(
-        1
-        for row in recipe_triage_rows
-        if bool(row.get("correction_empty_mapping")) and not bool(row.get("correction_empty_output"))
-    )
-    final_recipe_empty_mapping_count = sum(
-        1 for row in recipe_triage_rows if bool(row.get("final_recipe_empty_mapping"))
-    )
-    recipe_warning_recipe_count = sum(
-        1
-        for row in recipe_triage_rows
-        if int(_coerce_int(row.get("recipe_warning_count")) or 0) > 0
-    )
-    structural_problem_recipe_count = sum(
-        1
-        for row in recipe_triage_rows
-        if str(row.get("structural_status") or "").strip().lower()
-        not in {"", "ok", "none"}
-    )
-    transport_mismatch_recipe_count = sum(
-        1 for row in recipe_triage_rows if bool(row.get("transport_mismatch"))
-    )
-    build_intermediate_clamped_loss_recipe_count = sum(
-        1
-        for row in recipe_triage_rows
-        if int(_coerce_int(row.get("build_intermediate_clamped_block_loss_count")) or 0) > 0
-    )
-    correction_degraded_recipe_count = sum(
-        1
-        for row in recipe_triage_rows
-        if _coerce_str_list(row.get("correction_degradation_reasons"))
-        or _upload_bundle_status_is_problem(row.get("correction_status"))
-    )
-    build_final_fallback_recipe_count = sum(
-        1
-        for row in recipe_triage_rows
-        if str(row.get("build_final_fallback_reason") or "").strip()
-        or _upload_bundle_status_is_problem(row.get("build_final_status"))
-    )
-
-    build_intermediate_status_counts: Counter[str] = Counter()
-    correction_status_counts: Counter[str] = Counter()
-    build_final_status_counts: Counter[str] = Counter()
-    final_mapping_status_counts: Counter[str] = Counter()
-    structural_status_counts: Counter[str] = Counter()
-    correction_degradation_severity_counts: Counter[str] = Counter()
-    build_final_execution_mode_counts: Counter[str] = Counter()
-    for row in recipe_triage_rows:
-        build_intermediate_status = (
-            str(row.get("build_intermediate_status") or "").strip()
-            or "missing"
-        )
-        raw_correction_status = str(row.get("correction_status") or "").strip()
-        if raw_correction_status:
-            correction_status = raw_correction_status
-        elif bool(row.get("correction_empty_output")) and (
-            bool(row.get("correction_call_id"))
-            or int(_coerce_int(row.get("correction_input_block_count")) or 0) > 0
-        ):
-            correction_status = "empty_output_without_manifest_status"
-        elif (
-            bool(row.get("correction_call_id"))
-            or int(_coerce_int(row.get("correction_input_block_count")) or 0) > 0
-            or int(_coerce_int(row.get("correction_ingredient_count")) or 0) > 0
-            or int(_coerce_int(row.get("correction_step_count")) or 0) > 0
-            or int(_coerce_int(row.get("correction_mapping_count")) or 0) > 0
-        ):
-            correction_status = "nonempty_output_without_manifest_status"
-        else:
-            correction_status = "missing"
-        build_final_status = (
-            str(row.get("build_final_status") or "").strip()
-            or "missing"
-        )
-        final_mapping_status = (
-            str(row.get("final_mapping_status") or "").strip() or "missing"
-        )
-        structural_status = str(row.get("structural_status") or "").strip() or "missing"
-        build_intermediate_status_counts[build_intermediate_status] += 1
-        correction_status_counts[correction_status] += 1
-        build_final_status_counts[build_final_status] += 1
-        final_mapping_status_counts[final_mapping_status] += 1
-        structural_status_counts[structural_status] += 1
-
-        correction_degradation_severity = str(
-            row.get("correction_degradation_severity") or ""
-        ).strip()
-        if correction_degradation_severity:
-            correction_degradation_severity_counts[correction_degradation_severity] += 1
-        build_final_execution_mode = str(row.get("build_final_execution_mode") or "").strip()
-        if build_final_execution_mode:
-            build_final_execution_mode_counts[build_final_execution_mode] += 1
-
-    return {
-        "warnings_by_stage": _counter_to_sorted_dict(warnings_by_stage),
-        "warning_buckets": _counter_to_sorted_dict(warning_buckets),
-        "correction_empty_mapping_count": correction_empty_mapping_count,
-        "correction_empty_mapping_note": (
-            "Counts recipes where the correction mapping object was empty. "
-            "This does not imply the correction payload itself was empty."
-        ),
-        "correction_empty_output_count": correction_empty_output_count,
-        "correction_empty_mapping_with_nonempty_output_count": (
-            correction_empty_mapping_with_nonempty_output_count
-        ),
-        "final_recipe_empty_mapping_count": final_recipe_empty_mapping_count,
-        "recipe_warning_recipe_count": recipe_warning_recipe_count,
-        "structural_problem_recipe_count": structural_problem_recipe_count,
-        "transport_mismatch_recipe_count": transport_mismatch_recipe_count,
-        "build_intermediate_clamped_loss_recipe_count": build_intermediate_clamped_loss_recipe_count,
-        "correction_degraded_recipe_count": correction_degraded_recipe_count,
-        "build_final_fallback_recipe_count": build_final_fallback_recipe_count,
-        "recipe_stage_status_counts": {
-            "recipe_build_intermediate": _counter_to_sorted_dict(
-                build_intermediate_status_counts
-            ),
-            "recipe_refine": _counter_to_sorted_dict(
-                correction_status_counts
-            ),
-            "recipe_build_final": _counter_to_sorted_dict(build_final_status_counts),
-        },
-        "correction_degradation_severity_counts": _counter_to_sorted_dict(
-            correction_degradation_severity_counts
-        ),
-        "build_final_execution_mode_counts": _counter_to_sorted_dict(
-            build_final_execution_mode_counts
-        ),
-        "final_mapping_status_counts": _counter_to_sorted_dict(
-            final_mapping_status_counts
-        ),
-        "structural_status_counts": _counter_to_sorted_dict(
-            structural_status_counts
-        ),
-        "outside_span_wrong_line_count": len(outside_span_trace_rows),
-        "outside_span_trace_status_counts": _counter_to_sorted_dict(
-            outside_span_trace_status_counts
-        ),
-        "outside_span_warning_bucket_counts": _counter_to_sorted_dict(
-            outside_span_warning_bucket_counts
-        ),
-    }
 
 
 def _recipe_row_key(row: dict[str, Any]) -> tuple[str, str, str]:
-    return (
-        str(row.get("source_key") or ""),
-        str(row.get("codex_run_id") or ""),
-        str(row.get("recipe_id") or ""),
-    )
+    return _recipe_row_key_impl(row)
 
 
 def _sort_recipe_rows_for_metric(
@@ -4538,235 +1934,49 @@ def _sort_recipe_rows_for_metric(
     *,
     metric_key: str,
 ) -> list[dict[str, Any]]:
-    return sorted(
+    return _sort_recipe_rows_for_metric_impl(
         rows,
-        key=lambda row: (
-            -int(_coerce_int(row.get(metric_key)) or 0),
-            -abs(_float_or_zero(row.get("delta_codex_minus_baseline"))),
-            str(row.get("recipe_id") or ""),
-        ),
+        metric_key=metric_key,
+        coerce_int=_coerce_int,
+        float_or_zero=_float_or_zero,
     )
 
 
 def _select_starter_pack_recipe_cases(
     recipe_triage_rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    def _block_loss_count(row: dict[str, Any]) -> int:
-        return int(
-            _coerce_int(
-                row.get("build_intermediate_missing_block_count")
-                if row.get("build_intermediate_missing_block_count") is not None
-                else row.get("build_intermediate_clamped_block_loss_count")
-            )
-            or 0
-        )
-
-    def _empty_mapping(row: dict[str, Any]) -> bool:
-        return bool(
-            row.get("final_recipe_empty_mapping") or row.get("correction_empty_mapping")
-        )
-
-    def _upstream_input_count(row: dict[str, Any]) -> int:
-        return int(
-            _coerce_int(
-                row.get("build_intermediate_selected_block_count")
-                if row.get("build_intermediate_selected_block_count") is not None
-                else row.get("correction_input_block_count")
-            )
-            or 0
-        )
-
-    def _warning_count(row: dict[str, Any]) -> int:
-        return int(_coerce_int(row.get("correction_warning_count")) or 0)
-
-    def _instruction_count(row: dict[str, Any]) -> int:
-        return int(_coerce_int(row.get("correction_step_count")) or 0)
-
-    selected_by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
-    ordered_keys: list[tuple[str, str, str]] = []
-
-    def reason_count(reason: str) -> int:
-        return sum(
-            1
-            for entry in ordered_keys
-            if reason in str(selected_by_key[entry].get("selection_reason") or "")
-        )
-
-    def add_rows(rows: list[dict[str, Any]], *, limit: int, reason: str) -> None:
-        for row in rows:
-            key = _recipe_row_key(row)
-            if key not in selected_by_key:
-                selected_by_key[key] = dict(row)
-                selected_by_key[key]["selection_reason"] = reason
-                ordered_keys.append(key)
-            else:
-                existing = str(selected_by_key[key].get("selection_reason") or "")
-                if reason not in existing.split(", "):
-                    selected_by_key[key]["selection_reason"] = (
-                        f"{existing}, {reason}" if existing else reason
-                    )
-            if len(ordered_keys) >= 10:
-                return
-            if reason_count(reason) >= limit:
-                return
-
-    top_changed = _sort_recipe_rows_for_metric(
+    return _select_starter_pack_recipe_cases_impl(
         recipe_triage_rows,
-        metric_key="changed_lines_codex_vs_baseline",
+        coerce_int=_coerce_int,
+        float_or_zero=_float_or_zero,
+        selection_policy=STARTER_PACK_SELECTION_POLICY,
     )
-    add_rows(
-        top_changed,
-        limit=STARTER_PACK_SELECTION_POLICY["top_changed_lines"],
-        reason="top_changed_lines",
-    )
-
-    top_warning_burden = sorted(
-        recipe_triage_rows,
-        key=lambda row: (
-            -_block_loss_count(row),
-            -abs(_float_or_zero(row.get("delta_codex_minus_baseline"))),
-            -int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0),
-            str(row.get("recipe_id") or ""),
-        ),
-    )
-    top_warning_burden = [row for row in top_warning_burden if _block_loss_count(row) > 0]
-    add_rows(
-        top_warning_burden,
-        limit=STARTER_PACK_SELECTION_POLICY["top_block_loss"],
-        reason="top_block_loss",
-    )
-
-    empty_mapping_candidates = [
-        row
-        for row in recipe_triage_rows
-        if _empty_mapping(row)
-        and (
-            _upstream_input_count(row) >= 8
-            or _warning_count(row) >= 2
-            or _instruction_count(row) == 0
-        )
-    ]
-    empty_mapping_candidates.sort(
-        key=lambda row: (
-            -abs(_float_or_zero(row.get("delta_codex_minus_baseline"))),
-            -int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0),
-            -_upstream_input_count(row),
-            str(row.get("recipe_id") or ""),
-        )
-    )
-    add_rows(
-        empty_mapping_candidates,
-        limit=STARTER_PACK_SELECTION_POLICY["top_empty_mapping"],
-        reason="top_empty_mapping_upstream_evidence",
-    )
-
-    outside_candidates = _sort_recipe_rows_for_metric(
-        recipe_triage_rows,
-        metric_key="outside_span_wrong_line_count",
-    )
-    outside_candidates = [
-        row for row in outside_candidates if int(_coerce_int(row.get("outside_span_wrong_line_count")) or 0) > 0
-    ]
-    add_rows(
-        outside_candidates,
-        limit=STARTER_PACK_SELECTION_POLICY["outside_span_case"],
-        reason="outside_span_contamination",
-    )
-
-    healthy_controls = [
-        row
-        for row in recipe_triage_rows
-        if _warning_count(row) == 0
-        and not _empty_mapping(row)
-    ]
-    healthy_controls.sort(
-        key=lambda row: (
-            -_float_or_zero(row.get("codex_accuracy")),
-            str(row.get("recipe_id") or ""),
-        )
-    )
-    add_rows(
-        healthy_controls,
-        limit=STARTER_PACK_SELECTION_POLICY["healthy_control"],
-        reason="healthy_control",
-    )
-
-    if len(ordered_keys) < 6:
-        for row in top_changed:
-            key = _recipe_row_key(row)
-            if key in selected_by_key:
-                continue
-            selected_by_key[key] = dict(row)
-            selected_by_key[key]["selection_reason"] = "highest_remaining_signal"
-            ordered_keys.append(key)
-            if len(ordered_keys) >= min(10, len(recipe_triage_rows)):
-                break
-            if len(ordered_keys) >= 6:
-                break
-
-    return [selected_by_key[key] for key in ordered_keys[:10]]
 
 
 def _group_changed_lines_by_recipe(
     changed_line_rows: list[dict[str, Any]],
 ) -> dict[tuple[str, str, str], list[dict[str, Any]]]:
-    grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
-    for row in changed_line_rows:
-        recipe_id = str(row.get("recipe_id") or "").strip()
-        if not recipe_id:
-            continue
-        key = (
-            str(row.get("source_key") or ""),
-            str(row.get("codex_run_id") or ""),
-            recipe_id,
-        )
-        grouped[key].append(row)
-    for key in grouped:
-        grouped[key].sort(
-            key=lambda row: (
-                int(_coerce_int(row.get("line_index")) or 0),
-                str(row.get("gold_label") or ""),
-            )
-        )
-    return grouped
+    return _group_changed_lines_by_recipe_impl(
+        changed_line_rows,
+        coerce_int=_coerce_int,
+    )
 
 
 def _bridge_anomaly_summary(row: dict[str, Any]) -> str:
-    chunks = [
-        "current_recipe_pipeline=single_correction",
-        f"correction_warnings={int(_coerce_int(row.get('correction_warning_count')) or 0)}",
-        f"correction_empty_mapping={_serialize_bool(bool(row.get('correction_empty_mapping')))}",
-    ]
-    final_mapping_status = str(row.get("final_mapping_status") or "").strip()
-    if final_mapping_status:
-        chunks.append(f"final_mapping_status={final_mapping_status}")
-    if str(row.get("final_mapping_reason") or "").strip():
-        chunks.append("final_mapping_reason=yes")
-    structural_status = str(row.get("structural_status") or "").strip()
-    if structural_status:
-        chunks.append(f"structural_status={structural_status}")
-    outside_count = int(_coerce_int(row.get("outside_span_wrong_line_count")) or 0)
-    if outside_count > 0:
-        chunks.append(f"outside_span_wrong_lines={outside_count}")
-    return ", ".join(chunks)
+    return _bridge_anomaly_summary_impl(
+        row,
+        coerce_int=_coerce_int,
+        serialize_bool=_serialize_bool,
+    )
 
 
 def _warning_summary_for_recipe(row: dict[str, Any]) -> str:
-    chunks: list[str] = []
-    correction_warning_count = int(_coerce_int(row.get("correction_warning_count")) or 0)
-    if correction_warning_count > 0:
-        chunks.append(
-            "recipe_refine"
-            f"({correction_warning_count}): "
-            f"{_serialize_pipe_list(_coerce_str_list(row.get('correction_warning_buckets')))}"
-        )
-    final_mapping_status = str(row.get("final_mapping_status") or "").strip()
-    if final_mapping_status:
-        chunks.append(f"recipe_build_final_mapping: {final_mapping_status}")
-    structural_status = str(row.get("structural_status") or "").strip()
-    if structural_status:
-        chunks.append(f"structural_status: {structural_status}")
-    return "; ".join(chunks) if chunks else "none"
+    return _warning_summary_for_recipe_impl(
+        row,
+        coerce_int=_coerce_int,
+        serialize_pipe_list=_serialize_pipe_list,
+        coerce_str_list=_coerce_str_list,
+    )
 
 
 def _build_selected_recipe_packets(
@@ -4775,324 +1985,29 @@ def _build_selected_recipe_packets(
     changed_line_rows: list[dict[str, Any]],
     default_recipe_stages: list[dict[str, str]] | None = None,
 ) -> list[dict[str, Any]]:
-    grouped_changed_lines = _group_changed_lines_by_recipe(changed_line_rows)
-    packets: list[dict[str, Any]] = []
-    for row in selected_recipe_rows:
-        key = _recipe_row_key(row)
-        changed_rows = grouped_changed_lines.get(key, [])
-        changed_examples = []
-        for changed_row in changed_rows[:8]:
-            changed_examples.append(
-                {
-                    "line_index": int(_coerce_int(changed_row.get("line_index")) or 0),
-                    "gold_label": str(changed_row.get("gold_label") or ""),
-                    "baseline_pred": str(changed_row.get("vanilla_pred") or ""),
-                    "codex_pred": str(changed_row.get("codex_pred") or ""),
-                    "current_line": str(changed_row.get("current_line") or ""),
-                    "previous_line": str(changed_row.get("previous_line") or ""),
-                    "next_line": str(changed_row.get("next_line") or ""),
-                }
-            )
-
-        intermediate_summary = {
-            "call_id": str(row.get("build_intermediate_call_id") or ""),
-            "status": str(row.get("build_intermediate_status") or ""),
-            "input_block_count": int(
-                _coerce_int(row.get("correction_input_block_count")) or 0
-            ),
-            "deterministic_stage": True,
-            "clamped_block_loss_count": int(
-                _coerce_int(row.get("build_intermediate_clamped_block_loss_count")) or 0
-            ),
-            "clamped_block_loss_ratio": _coerce_float(
-                row.get("build_intermediate_clamped_block_loss_ratio")
-            ),
-        }
-        correction_summary = {
-            "call_id": str(row.get("correction_call_id") or ""),
-            "status": str(row.get("correction_status") or ""),
-            "input_block_count": int(
-                _coerce_int(row.get("correction_input_block_count")) or 0
-            ),
-            "warning_count": int(_coerce_int(row.get("correction_warning_count")) or 0),
-            "warning_buckets": _coerce_str_list(row.get("correction_warning_buckets")),
-            "ingredient_count": int(
-                _coerce_int(row.get("correction_ingredient_count")) or 0
-            ),
-            "step_count": int(_coerce_int(row.get("correction_step_count")) or 0),
-            "mapping_count": int(_coerce_int(row.get("correction_mapping_count")) or 0),
-            "empty_mapping": bool(row.get("correction_empty_mapping")),
-            "degradation_reasons": _coerce_str_list(row.get("correction_degradation_reasons")),
-            "degradation_severity": str(row.get("correction_degradation_severity") or ""),
-            "promotion_policy": str(row.get("correction_promotion_policy") or ""),
-        }
-        final_summary = {
-            "call_id": str(row.get("build_final_call_id") or ""),
-            "status": str(row.get("build_final_status") or ""),
-            "mapping_status": str(row.get("final_mapping_status") or ""),
-            "mapping_reason": str(row.get("final_mapping_reason") or ""),
-            "structural_status": str(row.get("structural_status") or ""),
-            "structural_reason_codes": _coerce_str_list(
-                row.get("structural_reason_codes")
-            ),
-            "execution_mode": str(row.get("build_final_execution_mode") or ""),
-            "routing_reason": str(row.get("build_final_routing_reason") or ""),
-            "fallback_reason": str(row.get("build_final_fallback_reason") or ""),
-        }
-        recipe_quality_summary = {
-            "warning_count": int(_coerce_int(row.get("recipe_warning_count")) or 0),
-            "error_count": int(_coerce_int(row.get("recipe_error_count")) or 0),
-        }
-        transport_summary: dict[str, Any] = {}
-        evidence_normalization_summary = {
-            "split_quantity_lines": int(
-                _coerce_int(row.get("evidence_split_quantity_lines")) or 0
-            ),
-            "dropped_page_markers": int(
-                _coerce_int(row.get("evidence_dropped_page_markers")) or 0
-            ),
-            "folded_page_markers": int(
-                _coerce_int(row.get("evidence_folded_page_markers")) or 0
-            ),
-        }
-        if not any(
-            _diagnostic_value_has_signal(value)
-            for value in evidence_normalization_summary.values()
-        ):
-            evidence_normalization_summary = {}
-        recipe_stages = row.get("recipe_stages")
-        recipe_stages = recipe_stages if isinstance(recipe_stages, list) else []
-        if not recipe_stages:
-            recipe_stages = list(default_recipe_stages or [])
-        recipe_stage_summaries: list[dict[str, Any]] = []
-        for recipe_stage in recipe_stages:
-            if not isinstance(recipe_stage, dict):
-                continue
-            stage_key = str(recipe_stage.get("stage_key") or "").strip()
-            stage_label = str(recipe_stage.get("stage_label") or stage_key).strip()
-            if stage_key == "recipe_build_intermediate":
-                recipe_stage_summaries.append(
-                    {
-                        "stage_key": stage_key,
-                        "stage_label": stage_label,
-                        **intermediate_summary,
-                    }
-                )
-                continue
-            if stage_key == "recipe_refine":
-                recipe_stage_summaries.append(
-                    {
-                        "stage_key": stage_key,
-                        "stage_label": stage_label,
-                        **correction_summary,
-                    }
-                )
-                continue
-            if stage_key == "recipe_build_final":
-                recipe_stage_summaries.append(
-                    {
-                        "stage_key": stage_key,
-                        "stage_label": stage_label,
-                        **final_summary,
-                    }
-                )
-                continue
-        packets.append(
-            {
-                "selection_reason": str(row.get("selection_reason") or ""),
-                "source_key": str(row.get("source_key") or ""),
-                "codex_run_id": str(row.get("codex_run_id") or row.get("run_id") or ""),
-                "baseline_run_id": str(row.get("baseline_run_id") or ""),
-                "recipe_pipeline_id": str(row.get("recipe_pipeline_id") or ""),
-                "recipe_stages": recipe_stage_summaries,
-                "recipe_id": str(row.get("recipe_id") or ""),
-                "short_title": str(row.get("short_title") or ""),
-                "delta_codex_minus_baseline": _coerce_float(
-                    row.get("delta_codex_minus_baseline")
-                ),
-                "changed_lines_codex_vs_baseline": int(
-                    _coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0
-                ),
-                "bridge_anomaly_summary": _bridge_anomaly_summary(row),
-                "warning_summary": _warning_summary_for_recipe(row),
-                "build_intermediate_summary": intermediate_summary,
-                "correction_summary": correction_summary,
-                "build_final_summary": final_summary,
-                "recipe_quality_summary": recipe_quality_summary,
-                "transport_summary": transport_summary,
-                "evidence_normalization_summary": evidence_normalization_summary,
-                "changed_line_examples": changed_examples,
-                "raw_block_window_excerpt": str(row.get("raw_block_window_excerpt") or ""),
-            }
-        )
-    return packets
+    return _build_selected_recipe_packets_impl(
+        selected_recipe_rows=selected_recipe_rows,
+        changed_line_rows=changed_line_rows,
+        default_recipe_stages=default_recipe_stages,
+        coerce_int=_coerce_int,
+        coerce_float=_coerce_float,
+        coerce_str_list=_coerce_str_list,
+        diagnostic_value_has_signal=_diagnostic_value_has_signal,
+        bridge_anomaly_summary=_bridge_anomaly_summary,
+        warning_summary_for_recipe=_warning_summary_for_recipe,
+    )
 
 
 def _render_starter_pack_casebook(packets: list[dict[str, Any]]) -> str:
-    lines = [
-        "# Starter Pack Casebook",
-        "",
-        "Deterministic selected cases for first-pass benchmark and bridge diagnosis.",
-        "",
-    ]
-    if not packets:
-        lines.append("No recipe cases were selected.")
-        lines.append("")
-        return "\n".join(lines)
-
-    for index, packet in enumerate(packets, start=1):
-        recipe_pipeline_id = str(packet.get("recipe_pipeline_id") or "").strip()
-        recipe_stages = packet.get("recipe_stages")
-        recipe_stages = recipe_stages if isinstance(recipe_stages, list) else []
-        recipe_stage_labels = [
-            str(stage.get("stage_label") or stage.get("stage_key") or "").strip()
-            for stage in recipe_stages
-            if isinstance(stage, dict)
-        ]
-        lines.extend(
-            [
-                f"## Case {index}: {packet.get('recipe_id')}",
-                f"- selection_reason: {packet.get('selection_reason')}",
-                f"- short_title: {packet.get('short_title')}",
-                (
-                    "- changed_lines_codex_vs_baseline: "
-                    f"{packet.get('changed_lines_codex_vs_baseline')}"
-                ),
-                f"- bridge_anomaly_summary: {packet.get('bridge_anomaly_summary')}",
-                f"- warning_summary: {packet.get('warning_summary')}",
-                *(
-                    [f"- recipe_pipeline_id: {recipe_pipeline_id}"]
-                    if recipe_pipeline_id
-                    else []
-                ),
-                *(
-                    [f"- recipe_stages: {', '.join(recipe_stage_labels)}"]
-                    if recipe_stage_labels
-                    else []
-                ),
-                "",
-                "### Stage Excerpts",
-                (
-                    "- recipe_build_intermediate: "
-                    f"status={packet.get('build_intermediate_summary', {}).get('status')} "
-                    "deterministic_stage=yes "
-                    f"input_block_count={packet.get('build_intermediate_summary', {}).get('input_block_count')}"
-                ),
-                (
-                    "- recipe_quality: "
-                    f"warnings={packet.get('recipe_quality_summary', {}).get('warning_count')} "
-                    f"errors={packet.get('recipe_quality_summary', {}).get('error_count')}"
-                ),
-                "",
-            ]
-        )
-        for recipe_stage in recipe_stages:
-            if not isinstance(recipe_stage, dict):
-                continue
-            stage_label = str(recipe_stage.get("stage_label") or recipe_stage.get("stage_key") or "")
-            stage_key = str(recipe_stage.get("stage_key") or "")
-            if stage_key == "recipe_build_intermediate":
-                lines.extend(
-                    [
-                        (
-                            f"- {stage_label}: "
-                            f"status={recipe_stage.get('status')} "
-                            "deterministic_stage=yes"
-                        ),
-                    ]
-                )
-                continue
-            if stage_key == "recipe_refine":
-                lines.extend(
-                    [
-                        (
-                            f"- {stage_label}: "
-                            f"call_id={recipe_stage.get('call_id')} "
-                            f"status={recipe_stage.get('status')} "
-                            f"input_block_count={recipe_stage.get('input_block_count')} "
-                            f"warning_count={recipe_stage.get('warning_count')} "
-                            f"ingredient_count={recipe_stage.get('ingredient_count')} "
-                            f"step_count={recipe_stage.get('step_count')} "
-                            f"mapping_count={recipe_stage.get('mapping_count')} "
-                            f"empty_mapping={recipe_stage.get('empty_mapping')}"
-                        ),
-                    ]
-                )
-                continue
-            lines.extend(
-                [
-                    (
-                        f"- {stage_label}: "
-                        f"status={recipe_stage.get('status')} "
-                        f"mapping_status={recipe_stage.get('mapping_status')} "
-                        f"structural_status={recipe_stage.get('structural_status')} "
-                        "mapping_reason="
-                        f"{'yes' if str(recipe_stage.get('mapping_reason') or '').strip() else 'no'}"
-                    ),
-                ]
-            )
-        lines.append("")
-        raw_excerpt = str(packet.get("raw_block_window_excerpt") or "").strip()
-        if raw_excerpt:
-            lines.extend(
-                [
-                    "### Raw Block Window Excerpt",
-                    "",
-                    raw_excerpt,
-                    "",
-                ]
-            )
-
-        changed_examples = packet.get("changed_line_examples")
-        changed_rows = changed_examples if isinstance(changed_examples, list) else []
-        lines.append("### Changed Canonical Lines")
-        lines.append("")
-        if not changed_rows:
-            lines.append("No changed canonical lines recorded for this recipe in this pair.")
-            lines.append("")
-            continue
-        for changed_row in changed_rows[:8]:
-            if not isinstance(changed_row, dict):
-                continue
-            lines.append(
-                (
-                    f"- line {int(_coerce_int(changed_row.get('line_index')) or 0)} | "
-                    f"gold={changed_row.get('gold_label')} | "
-                    f"baseline={changed_row.get('baseline_pred')} | "
-                    f"codex={changed_row.get('codex_pred')} | "
-                    f"text={_excerpt(str(changed_row.get('current_line') or ''), max_len=260)}"
-                )
-            )
-        lines.append("")
-    return "\n".join(lines)
+    return _render_starter_pack_casebook_impl(
+        packets,
+        coerce_int=_coerce_int,
+        excerpt=_excerpt,
+    )
 
 
 def _render_starter_pack_label_policy() -> str:
-    lines = [
-        "# Label Policy",
-        "",
-        "## Policy Notes",
-        "",
-        "- Treat labels as canonical line-space classes from benchmark evaluation artifacts.",
-        "- Prefer recipe-local interpretations (`RECIPE_NOTES`) over broad `KNOWLEDGE` when context is inside an active recipe.",
-        "- Keep benchmark adjudication deterministic: compare codex vs baseline using the same canonical text and line indices.",
-        "",
-        "## Known Structural Label Conventions",
-        "",
-        "- `RECIPE_TITLE`: canonical recipe name line.",
-        "- `RECIPE_VARIANT`: explicit variant/alternative version wording.",
-        "- `INGREDIENT_LINE`: ingredient inventory line.",
-        "- `INSTRUCTION_LINE`: imperative cooking action line.",
-        "- `HOWTO_SECTION`: section header-style line that introduces grouped instructions or ingredients.",
-        "",
-        "## How to Read False Positives/False Negatives",
-        "",
-        "- False positive: prediction label is present but does not match the gold line label.",
-        "- False negative: gold label line was not predicted as that label.",
-        "- Use changed-line context (`previous_line`, `current_line`, `next_line`) before escalating to full prompt/archive artifacts.",
-        "",
-    ]
-    return "\n".join(lines)
+    return _render_starter_pack_label_policy_impl()
 
 
 def _write_starter_pack_readme(
@@ -5100,56 +2015,29 @@ def _write_starter_pack_readme(
     output_path: Path,
     comparison_summary: dict[str, Any],
 ) -> None:
-    pair_count = len(comparison_summary.get("pairs") or [])
-    lines = [
-        "# Starter Pack v1",
-        "",
-        "## Source and Pairing",
-        "",
-        (
-            "Codex runs are paired against nearest-timestamp baseline runs within each source key. "
-            f"Pair count: {pair_count}."
-        ),
-        "",
-        "## Benchmark Contract",
-        "",
-        "Canonical line-space scoring compares codex and baseline labels against the same gold canonical lines.",
-        "",
-        "## Label Ontology Cheat Sheet",
-        "",
-        "Common labels: `RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`, `RECIPE_NOTES`, `OTHER`.",
-        "",
-        "## Starter Pack Inventory",
-        "",
-        "- `00_run_overview.md`",
-        f"- `{STARTER_PACK_TRIAGE_FILE_NAME}`",
-        f"- `{STARTER_PACK_TRIAGE_PACKET_FILE_NAME}`",
-        f"- `{STARTER_PACK_CALL_INVENTORY_FILE_NAME}`",
-        f"- `{STARTER_PACK_CHANGED_LINES_FILE_NAME}`",
-        f"- `{STARTER_PACK_WARNING_TRACE_SUMMARY_FILE_NAME}`",
-        f"- `{STARTER_PACK_BRIDGE_SUMMARY_FILE_NAME}`",
-        f"- `{STARTER_PACK_SELECTED_PACKETS_FILE_NAME}`",
-        f"- `{STARTER_PACK_CASEBOOK_FILE_NAME}`",
-        f"- `{STARTER_PACK_OUTSIDE_TRACE_FILE_NAME}` (conditional)",
-        f"- `{STARTER_PACK_LABEL_POLICY_FILE_NAME}`",
-        f"- `{STARTER_PACK_MANIFEST_FILE_NAME}`",
-        f"- `{STARTER_PACK_COMPARISON_MIRROR_FILE_NAME}`",
-        f"- `{STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME}`",
-        f"- `{STARTER_PACK_NET_ERROR_BLAME_FILE_NAME}`",
-        f"- `{STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME}`",
-        f"- `{STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME}`",
-        f"- `{STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME}`",
-        "",
-        "## Follow-up Packet Rules",
-        "",
-        "Use this starter pack for first-pass triage. Request heavy artifacts only for selected cases.",
-        "",
-        "## Generated At",
-        "",
-        _timestamp_now(),
-        "",
-    ]
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    _write_starter_pack_readme_impl(
+        output_path=output_path,
+        comparison_summary=comparison_summary,
+        starter_pack_dir_name=STARTER_PACK_DIR_NAME,
+        starter_pack_triage_file_name=STARTER_PACK_TRIAGE_FILE_NAME,
+        starter_pack_triage_packet_file_name=STARTER_PACK_TRIAGE_PACKET_FILE_NAME,
+        starter_pack_call_inventory_file_name=STARTER_PACK_CALL_INVENTORY_FILE_NAME,
+        starter_pack_changed_lines_file_name=STARTER_PACK_CHANGED_LINES_FILE_NAME,
+        starter_pack_warning_trace_summary_file_name=STARTER_PACK_WARNING_TRACE_SUMMARY_FILE_NAME,
+        starter_pack_bridge_summary_file_name=STARTER_PACK_BRIDGE_SUMMARY_FILE_NAME,
+        starter_pack_selected_packets_file_name=STARTER_PACK_SELECTED_PACKETS_FILE_NAME,
+        starter_pack_casebook_file_name=STARTER_PACK_CASEBOOK_FILE_NAME,
+        starter_pack_outside_trace_file_name=STARTER_PACK_OUTSIDE_TRACE_FILE_NAME,
+        starter_pack_label_policy_file_name=STARTER_PACK_LABEL_POLICY_FILE_NAME,
+        starter_pack_manifest_file_name=STARTER_PACK_MANIFEST_FILE_NAME,
+        starter_pack_comparison_mirror_file_name=STARTER_PACK_COMPARISON_MIRROR_FILE_NAME,
+        starter_pack_breakdown_mirror_file_name=STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME,
+        starter_pack_net_error_blame_file_name=STARTER_PACK_NET_ERROR_BLAME_FILE_NAME,
+        starter_pack_config_version_metadata_file_name=STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME,
+        starter_pack_explicit_escalation_changed_lines_file_name=STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME,
+        starter_pack_baseline_trace_parity_file_name=STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME,
+        timestamp_now=_timestamp_now,
+    )
 
 
 def _write_starter_pack_v1(
@@ -5164,413 +2052,71 @@ def _write_starter_pack_v1(
     outside_span_trace_rows: list[dict[str, Any]],
     sample_limit: int,
 ) -> dict[str, Any]:
-    starter_pack_dir = output_dir / STARTER_PACK_DIR_NAME
-    starter_pack_dir.mkdir(parents=True, exist_ok=True)
-
-    _write_starter_pack_readme(
-        output_path=starter_pack_dir / STARTER_PACK_README_FILE_NAME,
-        comparison_summary=comparison_summary,
-    )
-
-    sorted_recipe_triage_rows = sorted(
-        recipe_triage_rows,
-        key=lambda row: (
-            -int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0),
-            -abs(_float_or_zero(row.get("delta_codex_minus_baseline"))),
-            str(row.get("recipe_id") or ""),
-            str(row.get("source_key") or ""),
-            str(row.get("codex_run_id") or ""),
-        ),
-    )
-    serialized_triage_rows = [
-        _starter_pack_serialize_recipe_triage_row(row)
-        for row in sorted_recipe_triage_rows
-    ]
-    _write_jsonl(starter_pack_dir / STARTER_PACK_TRIAGE_FILE_NAME, serialized_triage_rows)
-    triage_packet_rows = _upload_bundle_build_triage_packet_rows(sorted_recipe_triage_rows)
-    _write_jsonl(starter_pack_dir / STARTER_PACK_TRIAGE_PACKET_FILE_NAME, triage_packet_rows)
-
-    sorted_call_inventory_rows = sorted(
-        call_inventory_rows,
-        key=lambda row: (
-            str(row.get("run_id") or ""),
-            str(row.get("recipe_id") or ""),
-            str(row.get("stage_key") or ""),
-            str(row.get("call_id") or ""),
-        ),
-    )
-    _write_jsonl(starter_pack_dir / STARTER_PACK_CALL_INVENTORY_FILE_NAME, sorted_call_inventory_rows)
-
-    starter_changed_rows: list[dict[str, Any]] = []
-    for row in changed_line_rows:
-        starter_changed_rows.append(
-            {
-                "recipe_id": str(row.get("recipe_id") or ""),
-                "span_region": str(row.get("span_region") or ""),
-                "line_index": int(_coerce_int(row.get("line_index")) or 0),
-                "gold_label": str(row.get("gold_label") or ""),
-                "baseline_pred": str(row.get("vanilla_pred") or ""),
-                "codex_pred": str(row.get("codex_pred") or ""),
-                "previous_line": str(row.get("previous_line") or ""),
-                "current_line": str(row.get("current_line") or ""),
-                "next_line": str(row.get("next_line") or ""),
-            }
-        )
-    _write_jsonl(starter_pack_dir / STARTER_PACK_CHANGED_LINES_FILE_NAME, starter_changed_rows)
-
-    warning_trace_summary = _build_warning_and_trace_summary(
-        call_inventory_rows=sorted_call_inventory_rows,
-        recipe_triage_rows=sorted_recipe_triage_rows,
-        outside_span_trace_rows=outside_span_trace_rows,
-    )
-    _write_json(starter_pack_dir / STARTER_PACK_WARNING_TRACE_SUMMARY_FILE_NAME, warning_trace_summary)
-
-    bridge_summary_rows = [
-        {
-            "source_key": str(row.get("source_key") or ""),
-            "source_file": str(row.get("source_file") or ""),
-            "codex_run_id": str(row.get("codex_run_id") or ""),
-            "baseline_run_id": str(row.get("baseline_run_id") or ""),
-            "recipe_id": str(row.get("recipe_id") or ""),
-            "correction_call_id": str(row.get("correction_call_id") or ""),
-            "correction_input_block_count": int(
-                _coerce_int(row.get("correction_input_block_count")) or 0
-            ),
-            "correction_warning_count": int(
-                _coerce_int(row.get("correction_warning_count")) or 0
-            ),
-            "correction_warning_buckets": _coerce_str_list(
-                row.get("correction_warning_buckets")
-            ),
-            "correction_ingredient_count": int(
-                _coerce_int(row.get("correction_ingredient_count")) or 0
-            ),
-            "correction_step_count": int(
-                _coerce_int(row.get("correction_step_count")) or 0
-            ),
-            "correction_mapping_count": int(
-                _coerce_int(row.get("correction_mapping_count")) or 0
-            ),
-            "correction_empty_mapping": bool(row.get("correction_empty_mapping")),
-            "build_intermediate_status": str(row.get("build_intermediate_status") or ""),
-            "correction_status": str(row.get("correction_status") or ""),
-            "build_final_status": str(row.get("build_final_status") or ""),
-            "final_mapping_status": str(row.get("final_mapping_status") or ""),
-            "final_mapping_reason": str(row.get("final_mapping_reason") or ""),
-            "structural_status": str(row.get("structural_status") or ""),
-            "structural_reason_codes": _coerce_str_list(row.get("structural_reason_codes")),
-            "recipe_warning_count": int(_coerce_int(row.get("recipe_warning_count")) or 0),
-            "recipe_error_count": int(_coerce_int(row.get("recipe_error_count")) or 0),
-            "outside_span_wrong_line_count": int(
-                _coerce_int(row.get("outside_span_wrong_line_count")) or 0
-            ),
-            "outside_span_trace_status_top": str(row.get("outside_span_trace_status_top") or ""),
-        }
-        for row in sorted_recipe_triage_rows
-    ]
-    _write_jsonl(starter_pack_dir / STARTER_PACK_BRIDGE_SUMMARY_FILE_NAME, bridge_summary_rows)
-
-    selected_recipe_rows = _select_starter_pack_recipe_cases(sorted_recipe_triage_rows)
-    default_recipe_stages = _upload_bundle_recipe_stages_for_row(
-        recipe_pipeline_id="codex-recipe-shard-v1",
-        correction_call_id=None,
-    )
-    selected_packets = _build_selected_recipe_packets(
-        selected_recipe_rows=selected_recipe_rows,
-        changed_line_rows=changed_line_rows,
-        default_recipe_stages=default_recipe_stages,
-    )
-    _write_jsonl(starter_pack_dir / STARTER_PACK_SELECTED_PACKETS_FILE_NAME, selected_packets)
-    (starter_pack_dir / STARTER_PACK_CASEBOOK_FILE_NAME).write_text(
-        _render_starter_pack_casebook(selected_packets),
-        encoding="utf-8",
-    )
-
-    inside_accuracy, outside_accuracy, outside_span_accuracy_gap = _aggregate_region_accuracy(
-        pair_breakdown_rows
-    )
-    outside_span_wrong_line_count = len(outside_span_trace_rows)
-    include_outside_span_trace = (
-        outside_span_wrong_line_count >= STARTER_PACK_OUTSIDE_WRONG_LINE_THRESHOLD
-        or (
-            outside_span_accuracy_gap is not None
-            and outside_span_accuracy_gap >= STARTER_PACK_OUTSIDE_ACCURACY_GAP_THRESHOLD
-        )
-    )
-    outside_span_manifest: dict[str, Any]
-    if include_outside_span_trace:
-        sorted_outside_rows = sorted(
-            outside_span_trace_rows,
-            key=lambda row: (
-                str(row.get("recipe_id") or ""),
-                int(_coerce_int(row.get("line_index")) or 0),
-                str(row.get("call_id") or ""),
-            ),
-        )
-        sampled_outside_rows = (
-            _sample_rows_evenly(sorted_outside_rows, sample_limit)
-            if sample_limit > 0
-            else sorted_outside_rows
-        )
-        outside_rows_out = [
-            {
-                "call_id": str(row.get("call_id") or ""),
-                "recipe_id": str(row.get("recipe_id") or ""),
-                "line_index": int(_coerce_int(row.get("line_index")) or 0),
-                "gold_label": str(row.get("gold_label") or ""),
-                "pred_label": str(row.get("pred_label") or ""),
-                "trace_status": str(row.get("trace_status") or ""),
-                "warning_buckets": _coerce_str_list(row.get("warning_buckets")),
-                "raw_block_stable_key": row.get("raw_block_stable_key"),
-                "raw_block_excerpt": str(row.get("raw_block_excerpt") or ""),
-                "prompt_candidate_block_excerpt": str(
-                    row.get("prompt_candidate_block_excerpt") or ""
-                ),
-            }
-            for row in sampled_outside_rows
-        ]
-        _write_jsonl(starter_pack_dir / STARTER_PACK_OUTSIDE_TRACE_FILE_NAME, outside_rows_out)
-        outside_span_manifest = {
-            "included": True,
-            "path": f"{STARTER_PACK_DIR_NAME}/{STARTER_PACK_OUTSIDE_TRACE_FILE_NAME}",
-            "rows": len(outside_rows_out),
-            "source_rows": outside_span_wrong_line_count,
-        }
-    else:
-        outside_span_manifest = {
-            "included": False,
-            "path": None,
-            "rows": 0,
-            "source_rows": outside_span_wrong_line_count,
-            "omitted_reason": (
-                "outside_span thresholds not met: "
-                f"outside_span_wrong_line_count={outside_span_wrong_line_count} "
-                f"(threshold={STARTER_PACK_OUTSIDE_WRONG_LINE_THRESHOLD}), "
-                f"outside_span_accuracy_gap="
-                f"{_serialize_float(outside_span_accuracy_gap) if outside_span_accuracy_gap is not None else 'n/a'} "
-                f"(threshold={STARTER_PACK_OUTSIDE_ACCURACY_GAP_THRESHOLD:.2f})."
-            ),
-        }
-
-    top_confusion_deltas = _aggregate_confusion_deltas(comparison_summary)
-    warning_lines = warning_trace_summary["warnings_by_stage"]
-    bucket_lines = warning_trace_summary["warning_buckets"]
-    pairs = [
-        pair
-        for pair in (comparison_summary.get("pairs") or [])
-        if isinstance(pair, dict)
-    ]
-    codex_overall_accuracy_avg = _average_float(
-        [
-            _coerce_float(pair.get("codex_run", {}).get("overall_line_accuracy"))
-            for pair in pairs
-            if isinstance(pair.get("codex_run"), dict)
-        ]
-    )
-    codex_macro_f1_avg = _average_float(
-        [
-            _coerce_float(pair.get("codex_run", {}).get("macro_f1_excluding_other"))
-            for pair in pairs
-            if isinstance(pair.get("codex_run"), dict)
-        ]
-    )
-    run_overview_lines = [
-        "# Starter Pack Run Overview",
-        "",
-        f"- pair_count: {len(pairs)}",
-        f"- codex_overall_line_accuracy_avg: {_serialize_float(codex_overall_accuracy_avg)}",
-        f"- codex_macro_f1_excluding_other_avg: {_serialize_float(codex_macro_f1_avg)}",
-        f"- inside_span_accuracy: {_serialize_float(inside_accuracy)}",
-        f"- outside_span_accuracy: {_serialize_float(outside_accuracy)}",
-        f"- inside_vs_outside_accuracy_gap: {_serialize_float(outside_span_accuracy_gap)}",
-        (
-            "- warning_counts_by_stage: "
-            + ", ".join(f"{key}={value}" for key, value in warning_lines.items())
-            if warning_lines
-            else "- warning_counts_by_stage: none"
-        ),
-        (
-            "- warning_bucket_counts: "
-            + ", ".join(f"{key}={value}" for key, value in bucket_lines.items())
-            if bucket_lines
-            else "- warning_bucket_counts: none"
-        ),
-        (
-            "- correction_empty_mapping_count: "
-            f"{warning_trace_summary.get('correction_empty_mapping_count')}"
-        ),
-        (
-            "- correction_empty_output_count: "
-            f"{warning_trace_summary.get('correction_empty_output_count')}"
-        ),
-        (
-            "- correction_empty_mapping_with_nonempty_output_count: "
-            f"{warning_trace_summary.get('correction_empty_mapping_with_nonempty_output_count')}"
-        ),
-        (
-            "- recipe_warning_recipe_count: "
-            f"{warning_trace_summary.get('recipe_warning_recipe_count')}"
-        ),
-        (
-            "- structural_problem_recipe_count: "
-            f"{warning_trace_summary.get('structural_problem_recipe_count')}"
-        ),
-        (
-            "- final_mapping_status_counts: "
-            f"{json.dumps(warning_trace_summary.get('final_mapping_status_counts') or {}, sort_keys=True)}"
-        ),
-        (
-            "- recipe_stage_status_counts: "
-            f"{json.dumps(warning_trace_summary.get('recipe_stage_status_counts') or {}, sort_keys=True)}"
-        ),
-        (
-            "- top_confusion_deltas: "
-            + (
-                ", ".join(
-                    f"{row['gold_label']}->{row['pred_label']} ({row['delta_count']:+d})"
-                    for row in top_confusion_deltas
-                )
-                if top_confusion_deltas
-                else "none"
-            )
-        ),
-        "",
-    ]
-    (starter_pack_dir / STARTER_PACK_LABEL_POLICY_FILE_NAME).write_text(
-        _render_starter_pack_label_policy(),
-        encoding="utf-8",
-    )
-
-    _write_json(starter_pack_dir / STARTER_PACK_COMPARISON_MIRROR_FILE_NAME, comparison_summary)
-    _write_json(
-        starter_pack_dir / STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME,
-        per_recipe_breakdown_payload,
-    )
-    comparison_pairs = [
-        pair
-        for pair in (comparison_summary.get("pairs") or [])
-        if isinstance(pair, dict)
-    ]
-    starter_pack_run_rows = _starter_pack_collect_run_rows_from_pairs(comparison_pairs)
-    starter_pack_run_dir_by_id = _starter_pack_build_run_dir_by_id(
+    return _write_starter_pack_v1_impl(
         output_dir=output_dir,
-        run_rows=starter_pack_run_rows,
-    )
-    recipe_pipeline_context = build_recipe_pipeline_topology(
-        run_rows=starter_pack_run_rows,
-        comparison_pairs=comparison_pairs,
-        recipe_triage_rows=sorted_recipe_triage_rows,
-    )
-    (
-        explicit_escalation_changed_lines_summary,
-        explicit_escalation_changed_lines_rows,
-    ) = _upload_bundle_build_explicit_escalation_changed_lines_packet(
-        source_root=output_dir,
-        run_dir_by_id=starter_pack_run_dir_by_id,
+        comparison_summary=comparison_summary,
         changed_line_rows=changed_line_rows,
-    )
-    _write_jsonl(
-        starter_pack_dir / STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME,
-        explicit_escalation_changed_lines_rows,
-    )
-    net_error_blame_summary = _upload_bundle_build_net_error_blame_summary(
-        changed_line_rows=changed_line_rows,
-        recipe_triage_rows=sorted_recipe_triage_rows,
-        comparison_pairs=comparison_pairs,
-        recipe_pipeline_context=recipe_pipeline_context,
-        explicit_escalation_rows=explicit_escalation_changed_lines_rows,
-    )
-    _write_json(
-        starter_pack_dir / STARTER_PACK_NET_ERROR_BLAME_FILE_NAME,
-        net_error_blame_summary,
-    )
-    config_version_metadata = _upload_bundle_build_config_version_metadata(
-        source_root=output_dir,
-        run_rows=starter_pack_run_rows,
-        comparison_pairs=comparison_pairs,
-        run_dir_by_id=starter_pack_run_dir_by_id,
-    )
-    _write_json(
-        starter_pack_dir / STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME,
-        config_version_metadata,
-    )
-    baseline_trace_parity = _starter_pack_build_baseline_trace_parity_cues(
-        comparison_pairs=comparison_pairs,
-        run_rows=starter_pack_run_rows,
-        run_dir_by_id=starter_pack_run_dir_by_id,
-    )
-    _write_json(
-        starter_pack_dir / STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME,
-        baseline_trace_parity,
-    )
-    pair_comparability = config_version_metadata.get("pair_comparability")
-    pair_comparability = (
-        pair_comparability if isinstance(pair_comparability, dict) else {}
-    )
-    run_overview_lines.extend(
-        [
-            "- config_compatible_pair_ratio: "
-            + _serialize_float(
-                _coerce_float(pair_comparability.get("config_compatible_pair_ratio"))
-            ),
-            "- net_error_delta_lines: "
-            + str(int(_coerce_int(net_error_blame_summary.get("net_error_delta_lines")) or 0)),
-            "- explicit_escalation_changed_lines: "
-            + str(
-                int(
-                    _coerce_int(
-                        explicit_escalation_changed_lines_summary.get("row_count")
-                    )
-                    or 0
-                )
-            ),
-            "- baseline_trace_fully_ready_pairs: "
-            + str(int(_coerce_int(baseline_trace_parity.get("fully_ready_pairs")) or 0)),
-            "",
-        ]
-    )
-    (starter_pack_dir / "00_run_overview.md").write_text(
-        "\n".join(run_overview_lines),
-        encoding="utf-8",
-    )
-
-    starter_pack_manifest = {
-        "starter_pack_version": "v1",
-        "selection_policy": dict(STARTER_PACK_SELECTION_POLICY),
-        "outside_span_inclusion_policy": {
-            "wrong_line_count_threshold": STARTER_PACK_OUTSIDE_WRONG_LINE_THRESHOLD,
-            "accuracy_gap_threshold": STARTER_PACK_OUTSIDE_ACCURACY_GAP_THRESHOLD,
-        },
-        "heavy_artifacts_omitted_by_default": list(
+        pair_breakdown_rows=pair_breakdown_rows,
+        per_recipe_breakdown_payload=per_recipe_breakdown_payload,
+        recipe_triage_rows=recipe_triage_rows,
+        call_inventory_rows=call_inventory_rows,
+        outside_span_trace_rows=outside_span_trace_rows,
+        sample_limit=sample_limit,
+        starter_pack_dir_name=STARTER_PACK_DIR_NAME,
+        starter_pack_readme_file_name=STARTER_PACK_README_FILE_NAME,
+        starter_pack_triage_file_name=STARTER_PACK_TRIAGE_FILE_NAME,
+        starter_pack_triage_packet_file_name=STARTER_PACK_TRIAGE_PACKET_FILE_NAME,
+        starter_pack_call_inventory_file_name=STARTER_PACK_CALL_INVENTORY_FILE_NAME,
+        starter_pack_changed_lines_file_name=STARTER_PACK_CHANGED_LINES_FILE_NAME,
+        starter_pack_warning_trace_summary_file_name=STARTER_PACK_WARNING_TRACE_SUMMARY_FILE_NAME,
+        starter_pack_bridge_summary_file_name=STARTER_PACK_BRIDGE_SUMMARY_FILE_NAME,
+        starter_pack_selected_packets_file_name=STARTER_PACK_SELECTED_PACKETS_FILE_NAME,
+        starter_pack_casebook_file_name=STARTER_PACK_CASEBOOK_FILE_NAME,
+        starter_pack_outside_trace_file_name=STARTER_PACK_OUTSIDE_TRACE_FILE_NAME,
+        starter_pack_label_policy_file_name=STARTER_PACK_LABEL_POLICY_FILE_NAME,
+        starter_pack_manifest_file_name=STARTER_PACK_MANIFEST_FILE_NAME,
+        starter_pack_comparison_mirror_file_name=STARTER_PACK_COMPARISON_MIRROR_FILE_NAME,
+        starter_pack_breakdown_mirror_file_name=STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME,
+        starter_pack_net_error_blame_file_name=STARTER_PACK_NET_ERROR_BLAME_FILE_NAME,
+        starter_pack_config_version_metadata_file_name=STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME,
+        starter_pack_explicit_escalation_changed_lines_file_name=STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME,
+        starter_pack_baseline_trace_parity_file_name=STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME,
+        starter_pack_selection_policy=STARTER_PACK_SELECTION_POLICY,
+        starter_pack_outside_wrong_line_threshold=STARTER_PACK_OUTSIDE_WRONG_LINE_THRESHOLD,
+        starter_pack_outside_accuracy_gap_threshold=STARTER_PACK_OUTSIDE_ACCURACY_GAP_THRESHOLD,
+        starter_pack_heavy_artifacts_omitted_by_default=list(
             STARTER_PACK_HEAVY_ARTIFACTS_OMITTED_BY_DEFAULT
         ),
-        "outside_span_trace_sample": outside_span_manifest,
-        "triage_packet": {
-            "schema_version": UPLOAD_BUNDLE_TRIAGE_PACKET_SCHEMA_VERSION,
-            "row_count": len(triage_packet_rows),
-        },
-        "net_error_blame_summary_file": STARTER_PACK_NET_ERROR_BLAME_FILE_NAME,
-        "config_version_metadata_file": STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME,
-        "explicit_escalation_changed_lines": {
-            "summary": explicit_escalation_changed_lines_summary,
-            "file": STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME,
-            "row_count": len(explicit_escalation_changed_lines_rows),
-        },
-        "baseline_trace_parity_file": STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME,
-        "generated_at": _timestamp_now(),
-    }
-    _write_json(starter_pack_dir / STARTER_PACK_MANIFEST_FILE_NAME, starter_pack_manifest)
-
-    included_files = sorted(
-        f"{STARTER_PACK_DIR_NAME}/{path.name}"
-        for path in starter_pack_dir.iterdir()
-        if path.is_file()
+        upload_bundle_triage_packet_schema_version=UPLOAD_BUNDLE_TRIAGE_PACKET_SCHEMA_VERSION,
+        write_starter_pack_readme=_write_starter_pack_readme,
+        write_json=_write_json,
+        write_jsonl=_write_jsonl,
+        starter_pack_serialize_recipe_triage_row=_starter_pack_serialize_recipe_triage_row,
+        upload_bundle_build_triage_packet_rows=_upload_bundle_build_triage_packet_rows,
+        build_warning_and_trace_summary=_build_warning_and_trace_summary,
+        select_starter_pack_recipe_cases=_select_starter_pack_recipe_cases,
+        upload_bundle_recipe_stages_for_row=_upload_bundle_recipe_stages_for_row,
+        build_selected_recipe_packets=_build_selected_recipe_packets,
+        render_starter_pack_casebook=_render_starter_pack_casebook,
+        aggregate_region_accuracy=_aggregate_region_accuracy,
+        aggregate_confusion_deltas=_aggregate_confusion_deltas,
+        render_starter_pack_label_policy=_render_starter_pack_label_policy,
+        starter_pack_collect_run_rows_from_pairs=_starter_pack_collect_run_rows_from_pairs,
+        starter_pack_build_run_dir_by_id=_starter_pack_build_run_dir_by_id,
+        build_recipe_pipeline_topology=build_recipe_pipeline_topology,
+        upload_bundle_build_explicit_escalation_changed_lines_packet=_upload_bundle_build_explicit_escalation_changed_lines_packet,
+        upload_bundle_build_net_error_blame_summary=_upload_bundle_build_net_error_blame_summary,
+        upload_bundle_build_config_version_metadata=_upload_bundle_build_config_version_metadata,
+        starter_pack_build_baseline_trace_parity_cues=_starter_pack_build_baseline_trace_parity_cues,
+        coerce_int=_coerce_int,
+        coerce_float=_coerce_float,
+        coerce_str_list=_coerce_str_list,
+        float_or_zero=_float_or_zero,
+        average_float=_average_float,
+        serialize_float=_serialize_float,
+        sample_rows_evenly=_sample_rows_evenly,
+        timestamp_now=_timestamp_now,
     )
-    return {
-        "path": STARTER_PACK_DIR_NAME,
-        "included_files": included_files,
-        "manifest": starter_pack_manifest,
-    }
 
 
 def _write_readme(
@@ -5584,81 +2130,29 @@ def _write_readme(
     project_context_digest_lines: list[str],
     flattened: bool,
 ) -> None:
-    lines: list[str] = []
-    lines.append("# Benchmark Need-To-Know Package")
-    lines.append("")
-    lines.append(f"Generated: {_timestamp_now()}")
-    lines.append(f"Source folder: `{input_dir}`")
-    lines.append(f"Run count: {len(records)}")
-    lines.append(f"Sample limit per JSONL artifact: {sample_limit}")
-    lines.append(f"Excerpt char limit for sampled text fields: {excerpt_limit}")
-    if prompt_pairs_per_category <= 0:
-        lines.append(
-            "Codex Exec sampled prompt log: convenience file keeps all calls from "
-            "`full_prompt_log.jsonl` when available (legacy text-log copy fallback)."
-        )
-    else:
-        lines.append(
-            "Codex Exec sampled prompt log: convenience-only sampled calls per stage "
-            f"(max {prompt_pairs_per_category}, sampled from full_prompt_log.jsonl when available)"
-        )
-    lines.append(
-        "Codex Exec full prompt log: `full_prompt_log.jsonl` copied as complete machine-readable call rows (no sampling/truncation)."
+    _write_readme_impl(
+        output_dir=output_dir,
+        input_dir=input_dir,
+        records=records,
+        sample_limit=sample_limit,
+        excerpt_limit=excerpt_limit,
+        prompt_pairs_per_category=prompt_pairs_per_category,
+        project_context_digest_lines=project_context_digest_lines,
+        flattened=flattened,
+        timestamp_now=_timestamp_now,
+        full_prompt_log_file_name=FULL_PROMPT_LOG_FILE_NAME,
+        line_level_sampled_jsonl_inputs=LINE_LEVEL_SAMPLED_JSONL_INPUTS,
+        wrong_label_full_context_file_name=WRONG_LABEL_FULL_CONTEXT_FILE_NAME,
+        preprocess_trace_failures_file_name=PREPROCESS_TRACE_FAILURES_FILE_NAME,
+        prompt_log_file_name=PROMPT_LOG_FILE_NAME,
+        prompt_warning_aggregate_file_name=PROMPT_WARNING_AGGREGATE_FILE_NAME,
+        projection_trace_file_name=PROJECTION_TRACE_FILE_NAME,
+        changed_lines_file_name=CHANGED_LINES_FILE_NAME,
+        per_recipe_breakdown_file_name=PER_RECIPE_BREAKDOWN_FILE_NAME,
+        targeted_prompt_cases_file_name=TARGETED_PROMPT_CASES_FILE_NAME,
+        label_policy_notes_file_name=LABEL_POLICY_NOTES_FILE_NAME,
+        starter_pack_dir_name=STARTER_PACK_DIR_NAME,
     )
-    lines.append("")
-    lines.append("Each run folder includes:")
-    lines.append("- `need_to_know_summary.json`")
-    lines.append("- `eval_report.md` (if present in source run)")
-    lines.append(f"- `{FULL_PROMPT_LOG_FILE_NAME}` (required for codex-enabled runs)")
-    for _, output_name in LINE_LEVEL_SAMPLED_JSONL_INPUTS:
-        lines.append(f"- `{output_name}`")
-    lines.append(f"- `{WRONG_LABEL_FULL_CONTEXT_FILE_NAME}` (when wrong-label rows exist)")
-    lines.append(
-        f"- `{PREPROCESS_TRACE_FAILURES_FILE_NAME}` "
-        "(codex runs with failures and available prediction/context artifacts)"
-    )
-    lines.append(f"- `{PROMPT_LOG_FILE_NAME}` (optional convenience-only)")
-    lines.append(f"- `{PROMPT_WARNING_AGGREGATE_FILE_NAME}` (codex runs when full log is available)")
-    lines.append(f"- `{PROJECTION_TRACE_FILE_NAME}` (codex runs when full log is available)")
-    lines.append(
-        "- `unmatched_pred_blocks.jsonl` is reported as counts-only by default; "
-        "alignment debug samples are emitted only when alignment quality is weak."
-    )
-    lines.append("")
-    lines.append("Root files:")
-    lines.append("- `run_index.json`")
-    lines.append("- `comparison_summary.json`")
-    lines.append(f"- `{CHANGED_LINES_FILE_NAME}`")
-    lines.append(f"- `{PER_RECIPE_BREAKDOWN_FILE_NAME}`")
-    lines.append(f"- `{TARGETED_PROMPT_CASES_FILE_NAME}`")
-    lines.append(f"- `{LABEL_POLICY_NOTES_FILE_NAME}`")
-    lines.append("- `process_manifest.json`")
-    lines.append(f"- `{STARTER_PACK_DIR_NAME}/` (deterministic blended first-look starter pack)")
-    if flattened:
-        lines.append("")
-        lines.append(
-            "Flattened markdown output is written to sibling folder "
-            f"`{output_dir.name}_md`."
-        )
-    lines.append("")
-    lines.append("## Project Context Digest")
-    lines.append("")
-    lines.extend(project_context_digest_lines)
-    lines.append("")
-    lines.append("Run index:")
-    for record in sorted(records, key=lambda row: row.run_id):
-        lines.append(
-            "- "
-            f"`{record.output_subdir}` | source={record.source_file or 'unknown'} "
-            f"| llm_recipe_pipeline={record.llm_recipe_pipeline} "
-            f"| atomic_block_splitter={record.atomic_block_splitter} "
-            f"| line_role_pipeline={record.line_role_pipeline} "
-            f"| overall_line_accuracy={record.metric_overall_line_accuracy}"
-        )
-    lines.append("")
-
-    readme_path = output_dir / "README.md"
-    readme_path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def _flatten_output(
@@ -5667,112 +2161,33 @@ def _flatten_output(
     output_dir: Path,
     flatten_script: Path,
 ) -> Path:
-    script_path = (repo_root / flatten_script).resolve() if not flatten_script.is_absolute() else flatten_script
-    if not script_path.is_file():
-        raise FileNotFoundError(f"Flatten script not found: {script_path}")
-
-    subprocess.run(
-        ["bash", str(script_path), str(output_dir)],
-        cwd=repo_root,
-        check=True,
+    return _flatten_output_impl(
+        repo_root=repo_root,
+        output_dir=output_dir,
+        flatten_script=flatten_script,
+        root_metadata_files=ROOT_METADATA_FILES,
+        starter_pack_dir_name=STARTER_PACK_DIR_NAME,
+        aggregated_root_summary_md=AGGREGATED_ROOT_SUMMARY_MD,
+        changed_lines_file_name=CHANGED_LINES_FILE_NAME,
+        per_recipe_breakdown_file_name=PER_RECIPE_BREAKDOWN_FILE_NAME,
+        targeted_prompt_cases_file_name=TARGETED_PROMPT_CASES_FILE_NAME,
+        label_policy_notes_file_name=LABEL_POLICY_NOTES_FILE_NAME,
+        load_json=_load_json,
+        jsonl_row_count=_jsonl_row_count,
     )
-
-    md_output_dir = output_dir.parent / f"{output_dir.name}_md"
-    md_output_dir.mkdir(parents=True, exist_ok=True)
-    for file_name in ROOT_METADATA_FILES:
-        source = output_dir / file_name
-        if source.is_file():
-            shutil.copy2(source, md_output_dir / file_name)
-    starter_pack_source = output_dir / STARTER_PACK_DIR_NAME
-    if starter_pack_source.is_dir():
-        shutil.copytree(
-            starter_pack_source,
-            md_output_dir / STARTER_PACK_DIR_NAME,
-            dirs_exist_ok=True,
-        )
-
-    _write_root_summary_markdown(md_output_dir)
-    return md_output_dir
 
 
 def _write_root_summary_markdown(output_dir: Path) -> Path:
-    readme_path = output_dir / "README.md"
-    run_index_path = output_dir / "run_index.json"
-    comparison_summary_path = output_dir / "comparison_summary.json"
-    changed_lines_path = output_dir / CHANGED_LINES_FILE_NAME
-    per_recipe_breakdown_path = output_dir / PER_RECIPE_BREAKDOWN_FILE_NAME
-    targeted_prompt_cases_path = output_dir / TARGETED_PROMPT_CASES_FILE_NAME
-    label_policy_notes_path = output_dir / LABEL_POLICY_NOTES_FILE_NAME
-    process_manifest_path = output_dir / "process_manifest.json"
-
-    sections: list[str] = []
-    sections.append("# Benchmark Need-To-Know Package (Flattened)")
-    sections.append("")
-
-    if readme_path.is_file():
-        sections.append("## README")
-        sections.append(readme_path.read_text(encoding="utf-8").rstrip())
-        sections.append("")
-
-    if run_index_path.is_file():
-        sections.append("## run_index.json")
-        sections.append("```json")
-        sections.append(json.dumps(_load_json(run_index_path), indent=2, sort_keys=True))
-        sections.append("```")
-        sections.append("")
-
-    if comparison_summary_path.is_file():
-        sections.append("## comparison_summary.json")
-        sections.append("```json")
-        sections.append(
-            json.dumps(_load_json(comparison_summary_path), indent=2, sort_keys=True)
-        )
-        sections.append("```")
-        sections.append("")
-
-    if changed_lines_path.is_file():
-        sections.append(f"## {CHANGED_LINES_FILE_NAME}")
-        sections.append(
-            f"Rows: {_jsonl_row_count(changed_lines_path)} (see file for full details)."
-        )
-        sections.append("")
-
-    if per_recipe_breakdown_path.is_file():
-        sections.append(f"## {PER_RECIPE_BREAKDOWN_FILE_NAME}")
-        sections.append("```json")
-        sections.append(
-            json.dumps(_load_json(per_recipe_breakdown_path), indent=2, sort_keys=True)
-        )
-        sections.append("```")
-        sections.append("")
-
-    if targeted_prompt_cases_path.is_file():
-        sections.append(f"## {TARGETED_PROMPT_CASES_FILE_NAME}")
-        sections.append(targeted_prompt_cases_path.read_text(encoding="utf-8").rstrip())
-        sections.append("")
-
-    if label_policy_notes_path.is_file():
-        sections.append(f"## {LABEL_POLICY_NOTES_FILE_NAME}")
-        sections.append(label_policy_notes_path.read_text(encoding="utf-8").rstrip())
-        sections.append("")
-
-    if process_manifest_path.is_file():
-        sections.append("## process_manifest.json")
-        sections.append("```json")
-        sections.append(
-            json.dumps(_load_json(process_manifest_path), indent=2, sort_keys=True)
-        )
-        sections.append("```")
-        sections.append("")
-
-    output_path = output_dir / AGGREGATED_ROOT_SUMMARY_MD
-    output_path.write_text("\n".join(sections).rstrip() + "\n", encoding="utf-8")
-
-    for source_path in (readme_path, run_index_path, comparison_summary_path, process_manifest_path):
-        if source_path.is_file():
-            source_path.unlink()
-
-    return output_path
+    return _write_root_summary_markdown_impl(
+        output_dir,
+        aggregated_root_summary_md=AGGREGATED_ROOT_SUMMARY_MD,
+        changed_lines_file_name=CHANGED_LINES_FILE_NAME,
+        per_recipe_breakdown_file_name=PER_RECIPE_BREAKDOWN_FILE_NAME,
+        targeted_prompt_cases_file_name=TARGETED_PROMPT_CASES_FILE_NAME,
+        label_policy_notes_file_name=LABEL_POLICY_NOTES_FILE_NAME,
+        load_json=_load_json,
+        jsonl_row_count=_jsonl_row_count,
+    )
 
 
 def _upload_bundle_content_type(path: Path) -> str:
@@ -14961,77 +11376,17 @@ def build_upload_bundle_for_existing_output(
 
 def write_flattened_summary_for_existing_runs(*, output_dir: Path) -> Path:
     """Write a flattened benchmark summary for in-place single-book sessions."""
-
-    output_root = output_dir.resolve()
-    comparison_json_path = output_root / "codex_vs_vanilla_comparison.json"
-    starter_pack_dir = output_root / STARTER_PACK_DIR_NAME
-    starter_readme_path = starter_pack_dir / STARTER_PACK_README_FILE_NAME
-    starter_manifest_path = starter_pack_dir / STARTER_PACK_MANIFEST_FILE_NAME
-    starter_comparison_path = starter_pack_dir / STARTER_PACK_COMPARISON_MIRROR_FILE_NAME
-    starter_breakdown_path = starter_pack_dir / STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME
-    single_book_summary_path = output_root / "single_book_summary.md"
-
-    sections: list[str] = [
-        "# Benchmark Need-To-Know Package (Flattened)",
-        "",
-        f"- Generated at: `{_timestamp_now()}`",
-        f"- Session root: `{output_root}`",
-        "",
-    ]
-
-    if single_book_summary_path.is_file():
-        sections.append("## single_book_summary.md")
-        sections.append(single_book_summary_path.read_text(encoding="utf-8").rstrip())
-        sections.append("")
-
-    if comparison_json_path.is_file():
-        sections.append("## codex_vs_vanilla_comparison.json")
-        sections.append("```json")
-        sections.append(
-            json.dumps(_load_json(comparison_json_path), indent=2, sort_keys=True)
-        )
-        sections.append("```")
-        sections.append("")
-
-    if starter_readme_path.is_file():
-        sections.append(f"## {STARTER_PACK_DIR_NAME}/{STARTER_PACK_README_FILE_NAME}")
-        sections.append(starter_readme_path.read_text(encoding="utf-8").rstrip())
-        sections.append("")
-
-    if starter_manifest_path.is_file():
-        sections.append(f"## {STARTER_PACK_DIR_NAME}/{STARTER_PACK_MANIFEST_FILE_NAME}")
-        sections.append("```json")
-        sections.append(
-            json.dumps(_load_json(starter_manifest_path), indent=2, sort_keys=True)
-        )
-        sections.append("```")
-        sections.append("")
-
-    if starter_comparison_path.is_file():
-        sections.append(
-            f"## {STARTER_PACK_DIR_NAME}/{STARTER_PACK_COMPARISON_MIRROR_FILE_NAME}"
-        )
-        sections.append("```json")
-        sections.append(
-            json.dumps(_load_json(starter_comparison_path), indent=2, sort_keys=True)
-        )
-        sections.append("```")
-        sections.append("")
-
-    if starter_breakdown_path.is_file():
-        sections.append(
-            f"## {STARTER_PACK_DIR_NAME}/{STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME}"
-        )
-        sections.append("```json")
-        sections.append(
-            json.dumps(_load_json(starter_breakdown_path), indent=2, sort_keys=True)
-        )
-        sections.append("```")
-        sections.append("")
-
-    output_path = output_root / AGGREGATED_ROOT_SUMMARY_MD
-    output_path.write_text("\n".join(sections).rstrip() + "\n", encoding="utf-8")
-    return output_path
+    return write_flattened_summary_for_existing_runs_impl(
+        output_dir=output_dir,
+        timestamp_now=_timestamp_now,
+        aggregated_root_summary_md=AGGREGATED_ROOT_SUMMARY_MD,
+        starter_pack_dir_name=STARTER_PACK_DIR_NAME,
+        starter_pack_readme_file_name=STARTER_PACK_README_FILE_NAME,
+        starter_pack_manifest_file_name=STARTER_PACK_MANIFEST_FILE_NAME,
+        starter_pack_comparison_mirror_file_name=STARTER_PACK_COMPARISON_MIRROR_FILE_NAME,
+        starter_pack_breakdown_mirror_file_name=STARTER_PACK_BREAKDOWN_MIRROR_FILE_NAME,
+        load_json=_load_json,
+    )
 
 
 def build_starter_pack_for_existing_runs(
