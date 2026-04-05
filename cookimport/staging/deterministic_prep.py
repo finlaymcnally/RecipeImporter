@@ -17,6 +17,7 @@ from cookimport.config.run_settings_adapters import (
 from cookimport.config.run_settings_contracts import summarize_run_config_payload
 from cookimport.core.models import ConversionResult, SourceBlock, SourceSupport
 from cookimport.core.reporting import compute_file_hash
+from cookimport.core.slug import slugify_name
 from cookimport.core.source_model import normalize_source_blocks, normalize_source_support
 from cookimport.llm.prompt_preview import write_prompt_preview_for_existing_run
 from cookimport.parsing.label_source_of_truth import (
@@ -132,6 +133,31 @@ def _single_path(paths: Sequence[Path]) -> Path:
     return existing[0]
 
 
+def _workbook_slug_candidates(processed_run_root: Path, workbook_slug: str) -> tuple[Path, ...]:
+    return (
+        processed_run_root / "raw" / "source" / workbook_slug,
+        processed_run_root / "label_refine" / workbook_slug,
+        processed_run_root / "label_deterministic" / workbook_slug,
+        processed_run_root / "recipe_boundary" / workbook_slug,
+        processed_run_root / "recipe_authority" / workbook_slug,
+        processed_run_root / ".bench" / workbook_slug,
+    )
+
+
+def _resolve_cached_workbook_slug(processed_run_root: Path, workbook_slug: str) -> str:
+    candidate = str(workbook_slug or "").strip()
+    if not candidate:
+        return candidate
+    if any(path.exists() for path in _workbook_slug_candidates(processed_run_root, candidate)):
+        return candidate
+    normalized = slugify_name(candidate)
+    if normalized != candidate and any(
+        path.exists() for path in _workbook_slug_candidates(processed_run_root, normalized)
+    ):
+        return normalized
+    return candidate
+
+
 def _preview_manifest_key(selected_settings: RunSettings) -> str:
     return build_preview_cache_key(selected_settings)
 
@@ -203,11 +229,15 @@ def _bundle_result_from_manifest(
     ).strip()
     timing_payload = _coerce_dict(manifest.get("timing"))
     book_cache_root_raw = str(manifest.get("book_cache_root") or "").strip()
+    workbook_slug = _resolve_cached_workbook_slug(
+        processed_run_root,
+        str(manifest.get("workbook_slug") or "").strip(),
+    )
     return DeterministicPrepBundleResult(
         prep_key=str(manifest.get("prep_key") or "").strip(),
         source_file=Path(str(manifest.get("source_file") or "")).expanduser(),
         source_hash=str(manifest.get("source_hash") or "").strip(),
-        workbook_slug=str(manifest.get("workbook_slug") or "").strip(),
+        workbook_slug=workbook_slug,
         importer_name=str(manifest.get("importer_name") or "").strip(),
         artifact_root=manifest_path.parent,
         manifest_path=manifest_path,
@@ -423,7 +453,9 @@ def resolve_or_build_deterministic_prep_bundle(
             ),
             "source_file": str(source_file),
             "source_hash": source_hash,
-            "workbook_slug": str(prediction_result.get("book_id") or source_file.stem),
+            "workbook_slug": slugify_name(
+                str(prediction_result.get("book_id") or source_file.stem)
+            ),
             "importer_name": str(prediction_result.get("importer_name") or "").strip(),
             "artifact_root": str(artifact_root),
             "book_cache_root": str(resolved_book_cache_root),
@@ -500,6 +532,32 @@ def _load_archive_blocks(processed_run_root: Path) -> list[dict[str, Any]]:
     if not archive_blocks:
         raise ValueError(f"No usable archive blocks found in {full_text_path}")
     return archive_blocks
+
+
+def _normalize_authoritative_labeled_line_row(
+    row: Mapping[str, Any],
+) -> AuthoritativeLabeledLine:
+    deterministic_label = row.get("deterministic_label")
+    if deterministic_label is None:
+        deterministic_label = row.get("label")
+    final_label = row.get("final_label")
+    if final_label is None:
+        final_label = row.get("label") or deterministic_label
+    return AuthoritativeLabeledLine.model_validate(
+        {
+            "source_block_id": row.get("source_block_id"),
+            "source_block_index": row.get("source_block_index"),
+            "atomic_index": row.get("atomic_index"),
+            "text": row.get("text"),
+            "within_recipe_span_hint": row.get("within_recipe_span_hint"),
+            "deterministic_label": deterministic_label,
+            "final_label": final_label,
+            "decided_by": row.get("decided_by"),
+            "reason_tags": row.get("reason_tags") or [],
+            "escalation_reasons": row.get("escalation_reasons") or [],
+            "exclusion_reason": row.get("exclusion_reason"),
+        }
+    )
 
 
 def _block_rows_for_indices(
@@ -675,7 +733,7 @@ def load_recipe_boundary_result_from_deterministic_prep_bundle(
             processed_run_root / "label_deterministic" / workbook_slug / "labeled_lines.jsonl"
         )
     labeled_lines = [
-        AuthoritativeLabeledLine.model_validate(row)
+        _normalize_authoritative_labeled_line_row(row)
         for row in _read_jsonl_dicts(labeled_lines_path)
     ]
     block_labels_payload = _read_json(

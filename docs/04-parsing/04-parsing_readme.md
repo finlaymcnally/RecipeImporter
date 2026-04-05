@@ -660,7 +660,7 @@ Under a run output folder:
 
 ## Practical Change Workflow (Recommended)
 
-1. If progress stalls or repeats, read `docs/04-parsing/04-parsing_log.md` first.
+1. If progress stalls or repeats, stop and re-check the current contract and tests before widening the search.
 2. For step linking, inspect `debug=True` output (`candidates`, `assignments`, group/all-ingredients annotations).
 3. Verify with focused tests:
    - `tests/parsing/test_step_ingredient_linking.py`

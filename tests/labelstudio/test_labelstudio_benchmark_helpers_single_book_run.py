@@ -341,6 +341,144 @@ def test_deterministic_prep_key_uses_source_hash_not_path(tmp_path: Path) -> Non
     assert key_a == key_b
 
 
+def test_load_deterministic_prep_bundle_normalizes_legacy_manifest_workbook_slug(
+    tmp_path: Path,
+) -> None:
+    import cookimport.staging.deterministic_prep as deterministic_prep
+
+    artifact_root = tmp_path / "prep-cache" / "entry"
+    processed_run_root = artifact_root / "processed-output" / "2026-04-04_22.27.40"
+    normalized_slug = "saltfatacidheatcutdown"
+    legacy_slug = "saltfatacidheatCUTDOWN"
+    (processed_run_root / "raw" / "source" / normalized_slug).mkdir(parents=True, exist_ok=True)
+    conversion_result_path = artifact_root / "conversion_result.json"
+    conversion_result_path.parent.mkdir(parents=True, exist_ok=True)
+    conversion_result_path.write_text("{}", encoding="utf-8")
+    manifest_path = artifact_root / "deterministic_prep_bundle_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "deterministic_prep_bundle.v2",
+                "prep_key": "prep-key",
+                "source_file": str(tmp_path / "SaltFat.epub"),
+                "source_hash": "hash-123",
+                "workbook_slug": legacy_slug,
+                "importer_name": "epub",
+                "processed_run_root": str(processed_run_root),
+                "prediction_run_root": str(artifact_root / "prediction-run"),
+                "conversion_result_path": str(conversion_result_path),
+                "timing": {},
+                "deterministic_settings": {},
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = deterministic_prep.load_deterministic_prep_bundle(manifest_path)
+
+    assert bundle.workbook_slug == normalized_slug
+
+
+def test_resolve_or_build_deterministic_prep_bundle_writes_slugified_workbook_slug(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import cookimport.staging.deterministic_prep as deterministic_prep
+
+    source_file = tmp_path / "SaltFat.epub"
+    source_file.write_text("book", encoding="utf-8")
+    run_settings = cli.RunSettings.from_dict(
+        {
+            "epub_extractor": "unstructured",
+            "multi_recipe_splitter": "rules_v1",
+        },
+        warn_context="test deterministic prep manifest workbook slug",
+    )
+    artifact_root = tmp_path / "book-cache"
+    processed_run_root = (
+        artifact_root
+        / "deterministic-prep"
+        / deterministic_prep.compute_file_hash(source_file)
+        / deterministic_prep.build_deterministic_prep_key(
+            source_file=source_file,
+            source_hash=deterministic_prep.compute_file_hash(source_file),
+            run_settings=run_settings,
+        )
+        / "processed-output"
+        / "2026-04-04_22.27.40"
+    )
+
+    import cookimport.labelstudio.ingest_flows.prediction_run as prediction_run
+
+    def _fake_generate_pred_run_artifacts(**_kwargs: object) -> dict[str, object]:
+        processed_run_root.mkdir(parents=True, exist_ok=True)
+        return {
+            "processed_run_root": processed_run_root,
+            "conversion_result": {},
+            "book_id": "Salt Fat Acid Heat CUTDOWN",
+            "importer_name": "epub",
+            "run_root": processed_run_root.parent.parent / "prediction-run",
+            "book_cache": {},
+            "timing": {},
+        }
+
+    monkeypatch.setattr(
+        prediction_run,
+        "generate_pred_run_artifacts",
+        _fake_generate_pred_run_artifacts,
+    )
+
+    bundle = deterministic_prep.resolve_or_build_deterministic_prep_bundle(
+        source_file=source_file,
+        run_settings=run_settings,
+        processed_output_root=tmp_path / "ignored",
+        book_cache_root=artifact_root,
+    )
+
+    assert bundle.workbook_slug == "salt_fat_acid_heat_cutdown"
+    manifest = json.loads(bundle.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["workbook_slug"] == "salt_fat_acid_heat_cutdown"
+
+
+def test_normalize_authoritative_labeled_line_row_accepts_stage_artifact_shapes() -> None:
+    import cookimport.staging.deterministic_prep as deterministic_prep
+
+    deterministic_row = deterministic_prep._normalize_authoritative_labeled_line_row(
+        {
+            "source_block_id": "b1",
+            "source_block_index": 1,
+            "atomic_index": 1,
+            "text": "det row",
+            "label": "NONRECIPE_CANDIDATE",
+            "final_label": "NONRECIPE_EXCLUDE",
+            "decided_by": "fallback",
+            "reason_tags": ["x"],
+            "escalation_reasons": ["y"],
+        }
+    )
+    refined_row = deterministic_prep._normalize_authoritative_labeled_line_row(
+        {
+            "source_block_id": "b2",
+            "source_block_index": 2,
+            "atomic_index": 2,
+            "text": "refined row",
+            "deterministic_label": "NONRECIPE_CANDIDATE",
+            "label": "NONRECIPE_EXCLUDE",
+            "decided_by": "codex",
+            "reason_tags": ["a"],
+            "escalation_reasons": ["b"],
+        }
+    )
+
+    assert deterministic_row.deterministic_label == "NONRECIPE_CANDIDATE"
+    assert deterministic_row.final_label == "NONRECIPE_EXCLUDE"
+    assert refined_row.deterministic_label == "NONRECIPE_CANDIDATE"
+    assert refined_row.final_label == "NONRECIPE_EXCLUDE"
+
+
 def test_interactive_single_book_benchmark_reuses_prediction_artifacts_across_runs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

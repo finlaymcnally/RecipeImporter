@@ -17,7 +17,7 @@ This is intentionally more technical than a product summary. It is meant to answ
 - which modules own which responsibilities
 - where a proposed feature should attach if it is meant to fit the current codebase instead of an older design
 
-If you only need a lightweight overview, this file is overkill. If you want to propose changes that line up with the current code rather than stale historical mental models, this is the right file.
+If you only need a lightweight overview, this file is overkill. If you want to propose changes that line up with the current code, this is the right file.
 
 This document is intended to stand alone. Assume the reader gets this file and nothing else.
 
@@ -40,7 +40,7 @@ It is weaker on:
 - individual function signatures
 - low-level helper details
 - every single run setting
-- long historical rationale
+- long rationale
 
 When you design new features from this document, bias toward:
 
@@ -163,7 +163,7 @@ The five explicit stage-owned runtime steps are:
 
 This five-stage model is the real runtime center of the product.
 
-Older pass-slot or numbered-stage language may still exist in historical docs, fixtures, or compatibility readers, but it is not the right model for new work.
+Do not use pass-slot or numbered-stage language for new work.
 
 ## Source conversion and importers
 
@@ -989,9 +989,9 @@ The repo has improved ownership splits, but some understanding still bottlenecks
 
 That means proposals that improve boundary clarity, smaller owner modules, or cleaner contract surfaces can still be valuable if they preserve current semantics.
 
-### 3. Read-side compatibility remains a tax
+### 3. Current readers should stay manifest-first
 
-Some tooling still has to tolerate historical outputs or narrow compatibility paths.
+Current tooling should use manifest and stage-observability pointers instead of path inference.
 
 That means new work should usually move toward:
 

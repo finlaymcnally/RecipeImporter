@@ -58,7 +58,7 @@ Architecture priorities:
 - recipe-ID reassignment logic lives in `cookimport/staging/pdf_jobs.py`.
 - stage import session now builds the label-first authority seam before drafting: `label_deterministic`, optional `label_refine`, and `recipe_boundary` artifacts are written under the stage run root and drive downstream stage block predictions.
 - when label-first regrouping yields zero recipes, the run explains that outcome through `recipe_boundary/<workbook_slug>/recipe_spans.json` and `span_decisions.json`; stage-backed flows no longer compare against importer recipe candidates.
-- The legacy numbered non-recipe lane now runs through explicit `nonrecipe-route` and `nonrecipe-finalize` runtime results; final authority lives on the stage runtime objects and published non-recipe artifacts rather than on `ConversionResult`.
+- The old numbered non-recipe lane was replaced by explicit `nonrecipe-route` and `nonrecipe-finalize` runtime results; final authority lives on the stage runtime objects and published non-recipe artifacts rather than on `ConversionResult`.
 
 ### Optional Label Studio lane
 - `cookimport/labelstudio/ingest_flows/prediction_run.py` and `cookimport/labelstudio/ingest_flows/upload.py` can:
@@ -74,7 +74,7 @@ Architecture priorities:
 
 - label-first grouped spans and normalized block labels are the recipe/non-recipe authority boundary for stage-backed flows.
 - `recipe-refine` may improve recipe content, but it may only shrink recipe ownership through explicit divestment recorded on the recipe ownership contract.
-- The legacy numbered nickname now refers to the outside-recipe routing seam, not one mixed semantic classifier.
+- The outside-recipe routing seam is explicit and no longer mixed with final outside-recipe authority.
 - `nonrecipe-route` only honors blocks that the recipe ownership contract marks as available to nonrecipe, then packages surviving outside-recipe rows into one category-neutral candidate queue.
 - obvious-junk exclusions become final `other` immediately; `nonrecipe-finalize` is the only live semantic owner of candidate outside-recipe `knowledge` versus `other`.
 - recipe-local evidence and final non-recipe `KNOWLEDGE` are no longer an overlap-tolerant merge case. If both appear on the same block, runtime raises an invariant violation.
@@ -100,11 +100,11 @@ Architecture priorities:
 - Phase 2 moved stage-backed flows to label-first authority. `label_deterministic`, optional `label_refine`, and `recipe_boundary` are written before drafting, and rejected or empty recipe-boundary outcomes are explained directly through span artifacts instead of importer-comparison diagnostics.
 - Phase 3 collapsed the recipe LLM surface into deterministic build -> one correction/link stage -> deterministic final rebuild. The later shard-runtime cutover changed the execution plumbing and public pipeline id, but it did not change that authority shape.
 - Phase 4 split the old numbered non-recipe story into a routing seam plus a final-authority seam. The live run-level contract is now split across `08_nonrecipe_route.json`, `08_nonrecipe_exclusions.jsonl`, `09_nonrecipe_authority.json`, and `09_nonrecipe_finalize_status.json`, and optional knowledge extraction/refinement is scoped to the `nonrecipe-route` candidate queue instead of whole-residue mining.
-- These phases were destructive migrations, not dual-backbone rollouts. Historical ids and pass-slot names may still appear in logs, plans, or archived fixtures, but new writes should stay on semantic stage rows and current manifests only.
+- These phases were destructive migrations, not dual-backbone rollouts. New writes stay on semantic stage rows and current manifests only.
 
 ### Known current debt
 
-- historical benchmark/follow-up input handling should stay archival only. Active readers and reviewer-facing summaries should stay on semantic stage rows plus current manifests and audits.
+- benchmark and follow-up readers should stay on semantic stage rows plus current manifests and audits.
 - repo navigation is better than average because the docs tree and fast tests are strong, but architecture understanding still bottlenecks through a few very large coordinators plus cross-package dependencies (`cli`, `labelstudio`, `parsing`, `llm`, `staging`)
 - `cookimport/staging/import_session.py` is still the main shared post-merge runtime seam, but stage and Label Studio keep separate execution/merge callers above it; safe refactors still need both top-level call sites checked
 
@@ -381,7 +381,7 @@ When you need the shortest accurate mental model, describe the repo this way:
 - When several same-day ExecPlans overlap, keep one active parent/architecture plan, mark superseded plans explicitly, and treat already-landed transport plans as implementation history rather than parallel sources of truth.
 - Repo-hygiene convention after the 2026-03-16 purge:
   - current operator-facing docs should describe only the current architecture
-  - compatibility readers should stay narrow and read-side only
+  - read-side helpers should stay narrow and current-contract-first
   - removed runtimes, deleted test domains, and archival migration docs should not stay alive in normal browse paths just to preserve history
 
 ## Change Checklist (safe architecture edits)
