@@ -12,7 +12,7 @@ globals().update({
 
 
 class TestBenchmarkSemantics:
-    def test_legacy_rundir_codex_exec_rows_stay_official_codex_exec(self):
+    def test_path_only_rundir_codex_exec_rows_no_longer_recover_codex_variant(self):
         record = {
             "run_dir": (
                 "/tmp/golden/benchmark-vs-golden/2026-03-03_13.07.22/"
@@ -27,9 +27,9 @@ class TestBenchmarkSemantics:
                 "line_role_pipeline": "off",
             },
         }
-        assert ai_assistance_profile_for_record(record) == "full_stack"
-        assert benchmark_variant_for_record(record) == "codex-exec"
-        assert is_official_golden_benchmark_record(record) is True
+        assert ai_assistance_profile_for_record(record) == "recipe_only"
+        assert benchmark_variant_for_record(record) == "recipe_only"
+        assert is_official_golden_benchmark_record(record) is False
 
     def test_js_init_skips_removed_control_setup(self, tmp_path):
         render_dashboard(tmp_path / "dash", DashboardData())
@@ -250,14 +250,20 @@ class TestBenchmarkSemantics:
                 "run_timestamp": "2026-03-04T10:43:28",
                 "artifact_dir": "data/output/labelstudio-benchmark/profeedback-2026-03-04_10.41.51-foodlab-02-det",
                 "benchmark_variant": "other",
-                "run_config": {},
+                "run_config": {
+                    "llm_recipe_pipeline": "off",
+                    "line_role_pipeline": "off",
+                },
                 "strict_accuracy": 0.41,
             },
             {
                 "run_timestamp": "2026-03-04T10:50:28",
                 "artifact_dir": "data/output/labelstudio-benchmark/profeedback-2026-03-04_10.41.51-foodlab-03-codex-line",
                 "benchmark_variant": "other",
-                "run_config": {},
+                "run_config": {
+                    "llm_recipe_pipeline": "codex-recipe-shard-v1",
+                    "line_role_pipeline": "off",
+                },
                 "strict_accuracy": 0.63,
             },
         ]

@@ -198,13 +198,6 @@ _JS_COMPARE_CONTROL = """\
     );
   }
 
-  function benchmarkVariantFromPathOrPipeline(record) {
-    const path = benchmarkArtifactPath(record);
-    if (path.includes("/codex-exec/") || path.endsWith("/codex-exec")) return "codex-exec";
-    if (path.includes("/vanilla/") || path.endsWith("/vanilla")) return "vanilla";
-    return null;
-  }
-
   function aiAssistanceProfileForRecord(record) {
     const explicit = cleanConfigValue(record && record.ai_assistance_profile);
     if (explicit) {
@@ -213,44 +206,25 @@ _JS_COMPARE_CONTROL = """\
         return explicitKey;
       }
     }
-    const pipelineOrPathVariant = benchmarkVariantFromPathOrPipeline(record);
-    const path = benchmarkArtifactPath(record);
-    const isOfficialPairedBenchmark =
-      path.includes("/benchmark-vs-golden/") &&
-      (
-        path.includes("/single-book-benchmark/") ||
-        path.includes("/single-profile-benchmark/")
-      );
     const recipePipeline = runConfigValue(record, ["llm_recipe_pipeline", "llm_pipeline"]);
     const lineRolePipeline = runConfigValue(record, ["line_role_pipeline"]);
-    const recipeOn = recipePipeline && String(recipePipeline).toLowerCase() !== "off";
-    const lineRoleOn = lineRolePipeline && String(lineRolePipeline).toLowerCase() !== "off";
-    if (recipeOn && lineRoleOn) return "full_stack";
-    if (
-      isOfficialPairedBenchmark &&
-      pipelineOrPathVariant === "codex-exec" &&
-      recipeOn &&
-      !lineRoleOn
-    ) {
-      return "full_stack";
-    }
-    if (recipeOn) return "recipe_only";
-    if (lineRoleOn) return "line_role_only";
-    if (
-      isOfficialPairedBenchmark &&
-      pipelineOrPathVariant === "vanilla" &&
-      (!recipePipeline || String(recipePipeline).toLowerCase() === "off") &&
-      !lineRoleOn
-    ) {
-      return "deterministic";
-    }
-    if (recipePipeline || lineRolePipeline) return "deterministic";
-    if (isOfficialPairedBenchmark && pipelineOrPathVariant === "codex-exec") {
-      return "full_stack";
-    }
-    if (isOfficialPairedBenchmark && pipelineOrPathVariant === "vanilla") {
-      return "deterministic";
-    }
+    const knowledgePipeline = runConfigValue(record, ["llm_knowledge_pipeline"]);
+    const recipePipelineKey = recipePipeline == null ? "" : String(recipePipeline).toLowerCase();
+    const lineRolePipelineKey = lineRolePipeline == null ? "" : String(lineRolePipeline).toLowerCase();
+    const knowledgePipelineKey = knowledgePipeline == null ? "" : String(knowledgePipeline).toLowerCase();
+    const recipeCodexEnabled = Boolean(recipePipelineKey && recipePipelineKey !== "off");
+    const knowledgeCodexEnabled = Boolean(knowledgePipelineKey && knowledgePipelineKey !== "off");
+    const lineRoleCodexEnabled = Boolean(
+      lineRolePipelineKey &&
+      lineRolePipelineKey !== "off" &&
+      lineRolePipelineKey !== "deterministic-route-v2"
+    );
+    const hasAnyPipelineSetting =
+      recipePipeline != null || lineRolePipeline != null || knowledgePipeline != null;
+    if ((recipeCodexEnabled || knowledgeCodexEnabled) && lineRoleCodexEnabled) return "full_stack";
+    if (recipeCodexEnabled || knowledgeCodexEnabled) return "recipe_only";
+    if (lineRoleCodexEnabled) return "line_role_only";
+    if (hasAnyPipelineSetting) return "deterministic";
     if (rawAiModelForRecord(record) || rawAiEffortForRecord(record)) return "full_stack";
     return "other";
   }
@@ -273,22 +247,7 @@ _JS_COMPARE_CONTROL = """\
         return explicitKey;
       }
     }
-    const pipelineOrPathVariant = benchmarkVariantFromPathOrPipeline(record);
-    const profile = aiAssistanceProfileForRecord(record);
-    const path = benchmarkArtifactPath(record);
-    const isOfficialPairedBenchmark =
-      path.includes("/benchmark-vs-golden/") &&
-      (
-        path.includes("/single-book-benchmark/") ||
-        path.includes("/single-profile-benchmark/")
-      );
-    if (isOfficialPairedBenchmark && pipelineOrPathVariant === "vanilla" && profile === "deterministic") {
-      return "vanilla";
-    }
-    if (isOfficialPairedBenchmark && pipelineOrPathVariant === "codex-exec" && profile === "full_stack") {
-      return "codex-exec";
-    }
-    return profile;
+    return aiAssistanceProfileForRecord(record);
   }
 
   function benchmarkTrendVariantForRecord(record) {
@@ -302,16 +261,6 @@ _JS_COMPARE_CONTROL = """\
       rawVariant === "full_stack"
     ) {
       return "codex-exec";
-    }
-
-    const path = benchmarkArtifactPath(record).toLowerCase();
-    if (/(^|[\\/_-])codex(?:farm)?([\\/_-]|$)/.test(path)) return "codex-exec";
-    if (
-      path.includes("baseline-off") ||
-      /(^|[\\/_-])vanilla([\\/_-]|$)/.test(path) ||
-      /(^|[\\/_-])det(?:erministic)?([\\/_-]|$)/.test(path)
-    ) {
-      return "vanilla";
     }
 
     const recipePipeline = runConfigValue(record, ["llm_recipe_pipeline", "llm_pipeline"]);

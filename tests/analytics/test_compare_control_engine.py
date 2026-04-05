@@ -247,17 +247,17 @@ def test_benchmark_semantics_distinguish_official_and_hybrid_rows() -> None:
         },
     }
 
-    assert engine.benchmark_variant_for_record(deterministic_official) == "vanilla"
+    assert engine.benchmark_variant_for_record(deterministic_official) == "deterministic"
     assert engine.ai_assistance_profile_for_record(deterministic_official) == "deterministic"
     assert engine.ai_effort_label_for_record(deterministic_official) == "AI off"
     assert engine.previous_runs_field_value(deterministic_official, "ai_effort") == "AI off"
-    assert engine.benchmark_variant_for_record(deterministic_line_role_official) == "vanilla"
+    assert engine.benchmark_variant_for_record(deterministic_line_role_official) == "deterministic"
     assert (
         engine.ai_assistance_profile_for_record(deterministic_line_role_official)
         == "deterministic"
     )
 
-    assert engine.benchmark_variant_for_record(full_stack_official) == "codex-exec"
+    assert engine.benchmark_variant_for_record(full_stack_official) == "full_stack"
     assert engine.ai_assistance_profile_for_record(full_stack_official) == "full_stack"
     assert engine.previous_runs_field_value(full_stack_official, "ai_assistance_profile") == (
         "Full-stack AI"

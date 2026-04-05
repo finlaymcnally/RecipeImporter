@@ -29,6 +29,24 @@ def _load_cutdown_module():
 def _write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
+    if path.name != "prompt_budget_summary.json":
+        return
+    if path.parent.name == "prediction-run":
+        run_dir = path.parent.parent
+        run_manifest_path = run_dir / "run_manifest.json"
+        if run_manifest_path.is_file():
+            _set_run_artifact(run_dir, "prompt_budget_summary_json", "prediction-run/prompt_budget_summary.json")
+            _set_run_artifact(run_dir, "actual_costs_json", "prediction-run/prompt_budget_summary.json")
+        pred_manifest_path = path.parent / "manifest.json"
+        if pred_manifest_path.is_file():
+            pred_manifest = _read_json(pred_manifest_path)
+            pred_manifest["prompt_budget_summary_path"] = "prompt_budget_summary.json"
+            _write_json(pred_manifest_path, pred_manifest)
+        return
+    run_manifest_path = path.parent / "run_manifest.json"
+    if run_manifest_path.is_file():
+        _set_run_artifact(path.parent, "prompt_budget_summary_json", "prompt_budget_summary.json")
+        _set_run_artifact(path.parent, "actual_costs_json", "prompt_budget_summary.json")
 
 
 def _resolve_bundle_file(path: Path) -> Path:
@@ -119,7 +137,7 @@ def _set_pred_run_artifact(run_dir: Path, pred_run_value: str) -> None:
     artifacts = payload.get("artifacts")
     if not isinstance(artifacts, dict):
         artifacts = {}
-    artifacts["pred_run_dir"] = pred_run_value
+    artifacts["artifact_root_dir"] = pred_run_value
     payload["artifacts"] = artifacts
     _write_json(run_manifest_path, payload)
 
@@ -143,6 +161,9 @@ def _write_prediction_run(
 ) -> Path:
     prediction_run = run_dir / "prediction-run"
     prediction_run.mkdir(parents=True, exist_ok=True)
+    run_manifest_path = run_dir / "run_manifest.json"
+    if run_manifest_path.is_file():
+        _set_pred_run_artifact(run_dir, "prediction-run")
     if with_extracted_archive:
         _write_json(
             prediction_run / "extracted_archive.json",

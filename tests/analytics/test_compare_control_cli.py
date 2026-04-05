@@ -17,6 +17,7 @@ def _sample_records() -> list[dict[str, object]]:
         {
             "run_timestamp": "2026-03-03_23.00.00",
             "artifact_dir": f"{base}/codex-exec",
+            "benchmark_variant": "codex-exec",
             "strict_accuracy": 0.82,
             "source_file": "book.epub",
             "run_config": {
@@ -29,6 +30,7 @@ def _sample_records() -> list[dict[str, object]]:
         {
             "run_timestamp": "2026-03-03_23.00.00",
             "artifact_dir": f"{base}/vanilla",
+            "benchmark_variant": "vanilla",
             "strict_accuracy": 0.74,
             "source_file": "book.epub",
             "run_config": {

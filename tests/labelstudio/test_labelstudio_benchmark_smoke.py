@@ -557,3 +557,159 @@ def test_interactive_benchmark_single_book_codex_shaped_simulated_runtime(
     summary_text = summary_paths[0].read_text(encoding="utf-8")
     assert "### `vanilla`" in summary_text
     assert "### `codex-exec`" in summary_text
+
+
+def _run_real_vanilla_single_book_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    tmp_path: Path,
+    run_count: int,
+) -> dict[str, object]:
+    import cookimport.staging.deterministic_prep as deterministic_prep
+
+    monkeypatch.setenv("COOKIMPORT_BOOK_CACHE_ROOT", str(tmp_path / ".book-cache"))
+
+    source_file = tmp_path / "book.txt"
+    source_file.write_text("Toast\n\n1 slice bread\nToast the bread.\n", encoding="utf-8")
+    gold_root = tmp_path / "golden" / "book" / "exports"
+    gold_root.mkdir(parents=True, exist_ok=True)
+    gold_spans = gold_root / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    canonical_text_path = gold_root / "canonical_text.txt"
+    canonical_text_path.write_text("Toast\n1 slice bread\nToast the bread.\n", encoding="utf-8")
+    canonical_span_labels_path = gold_root / "canonical_span_labels.jsonl"
+    canonical_span_labels_path.write_text("{}\n", encoding="utf-8")
+
+    _patch_cli_attr(
+        monkeypatch,
+        "ensure_canonical_gold_artifacts",
+        lambda *, export_root: {
+            "canonical_text_path": canonical_text_path,
+            "canonical_span_labels_path": canonical_span_labels_path,
+        },
+    )
+    monkeypatch.setattr(
+        bench_artifacts,
+        "evaluate_canonical_text",
+        lambda **kwargs: _simulated_canonical_eval_report(eval_output_dir=kwargs["out_dir"]),
+    )
+    monkeypatch.setattr(bench_artifacts, "format_canonical_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(
+        "cookimport.analytics.perf_report.append_benchmark_csv",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def _fake_build_codex_farm_prompt_response_log(
+        *,
+        pred_run: Path,
+        eval_output_dir: Path,
+        repo_root: Path,
+    ) -> Path:
+        del pred_run, repo_root
+        log_path = eval_output_dir / "codex_farm_prompt_response_log.md"
+        log_path.write_text("# prompt log\n", encoding="utf-8")
+        return log_path
+
+    monkeypatch.setattr(
+        "cookimport.cli_commands.labelstudio.llm_prompt_artifacts.build_codex_farm_prompt_response_log",
+        _fake_build_codex_farm_prompt_response_log,
+    )
+
+    original_resolve = deterministic_prep.resolve_or_build_deterministic_prep_bundle
+    cache_hits: list[bool] = []
+
+    def _tracking_resolve(**kwargs):
+        bundle = original_resolve(**kwargs)
+        cache_hits.append(bool(bundle.cache_hit))
+        return bundle
+
+    _patch_cli_attr(
+        monkeypatch,
+        "resolve_or_build_deterministic_prep_bundle",
+        _tracking_resolve,
+    )
+
+    publisher, publication_capture = _make_lightweight_single_book_publisher()
+    selected_benchmark_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "off",
+            "line_role_pipeline": "off",
+            "atomic_block_splitter": "off",
+        },
+        warn_context="real offline vanilla single-book smoke",
+    )
+
+    completed_results: list[bool] = []
+    benchmark_eval_outputs: list[Path] = []
+    for run_index in range(run_count):
+        benchmark_eval_output = tmp_path / "golden" / "benchmark-vs-golden" / (
+            f"2026-04-04_23.20.0{run_index}"
+        )
+        benchmark_eval_outputs.append(benchmark_eval_output)
+        completed = bench_single_book._interactive_single_book_benchmark(
+            selected_benchmark_settings=selected_benchmark_settings,
+            benchmark_eval_output=benchmark_eval_output,
+            processed_output_root=tmp_path / "processed-output",
+            write_markdown=True,
+            write_label_studio_tasks=False,
+            preselected_gold_spans=gold_spans,
+            preselected_source_file=source_file,
+            publisher=publisher,
+        )
+        completed_results.append(completed)
+
+    return {
+        "cache_hits": cache_hits,
+        "completed_results": completed_results,
+        "benchmark_eval_outputs": benchmark_eval_outputs,
+        "publication_capture": publication_capture,
+    }
+
+
+def test_interactive_single_book_vanilla_real_runtime_smoke(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_real_vanilla_single_book_runtime(
+        monkeypatch,
+        tmp_path=tmp_path,
+        run_count=1,
+    )
+
+    benchmark_eval_output = fixture["benchmark_eval_outputs"][0]
+    session_root = benchmark_eval_output / "single-book-benchmark" / "book"
+    variant_root = session_root / "vanilla"
+    run_manifest = json.loads((variant_root / "run_manifest.json").read_text(encoding="utf-8"))
+    summary_text = (session_root / "single_book_summary.md").read_text(encoding="utf-8")
+
+    assert fixture["completed_results"] == [True]
+    assert fixture["cache_hits"] == [False]
+    assert run_manifest["run_kind"] == "labelstudio_benchmark"
+    assert run_manifest["run_config"]["llm_recipe_pipeline"] == "off"
+    assert (variant_root / "eval_report.json").exists()
+    assert (variant_root / "codex_farm_prompt_response_log.md").exists()
+    assert "- Status: `ok`" in summary_text
+    assert "### `vanilla`" in summary_text
+
+
+def test_interactive_single_book_vanilla_real_runtime_hits_deterministic_prep_cache_on_rerun(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fixture = _run_real_vanilla_single_book_runtime(
+        monkeypatch,
+        tmp_path=tmp_path,
+        run_count=2,
+    )
+
+    second_benchmark_eval_output = fixture["benchmark_eval_outputs"][1]
+    second_variant_root = (
+        second_benchmark_eval_output / "single-book-benchmark" / "book" / "vanilla"
+    )
+    second_run_manifest = json.loads(
+        (second_variant_root / "run_manifest.json").read_text(encoding="utf-8")
+    )
+
+    assert fixture["completed_results"] == [True, True]
+    assert fixture["cache_hits"] == [False, True]
+    assert second_run_manifest["run_config"]["llm_recipe_pipeline"] == "off"

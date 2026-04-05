@@ -10,33 +10,6 @@ _MAPPING_KEYS = frozenset({"i", "s"})
 _TAG_KEYS = frozenset({"c", "l", "f"})
 _VALID_STATUSES = frozenset({"repaired", "fragmentary", "not_a_recipe"})
 _PLACEHOLDER_MARKER = "__EDIT_ME__"
-_LEGACY_KEY_SUGGESTIONS = {
-    "bundle_version": "v",
-    "shard_id": "sid",
-    "results": "r",
-    "recipes": "r",
-    "recipe_id": "rid",
-    "repair_status": "st",
-    "status_reason": "sr",
-    "canonical_recipe": "cr",
-    "ingredient_step_mapping": "m",
-    "ingredient_step_mapping_reason": "mr",
-    "divested_block_indices": "db",
-    "selected_tags": "g",
-    "warnings": "w",
-    "not_a_recipe": "st=not_a_recipe",
-    "fragmentary": "st=fragmentary",
-    "notes": "sr or w",
-    "title": "cr.t",
-    "ingredients": "cr.i",
-    "steps": "cr.s",
-    "description": "cr.d",
-    "recipeYield": "cr.y",
-    "recipe_yield": "cr.y",
-    "category": "c",
-    "label": "l",
-    "confidence": "f",
-}
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
@@ -189,24 +162,14 @@ def build_recipe_worker_scaffold(*, task_row: Mapping[str, Any]) -> dict[str, An
 def _compact_key_errors(payload: Mapping[str, Any]) -> list[str]:
     errors: list[str] = []
     for key in sorted(str(name) for name in payload.keys() if str(name) not in _TOP_LEVEL_KEYS):
-        suggestion = _LEGACY_KEY_SUGGESTIONS.get(key)
-        if suggestion:
-            errors.append(f"root legacy key `{key}` is invalid; use `{suggestion}`")
-        else:
-            errors.append(f"root unexpected key `{key}` is not permitted")
+        errors.append(f"root unexpected key `{key}` is not permitted")
     rows = payload.get("r")
     if isinstance(rows, list):
         for row_index, row in enumerate(rows):
             if not isinstance(row, Mapping):
                 continue
             for key in sorted(str(name) for name in row.keys() if str(name) not in _RESULT_KEYS):
-                suggestion = _LEGACY_KEY_SUGGESTIONS.get(key)
-                if suggestion:
-                    errors.append(
-                        f"r[{row_index}] legacy key `{key}` is invalid; use `{suggestion}`"
-                    )
-                else:
-                    errors.append(f"r[{row_index}] unexpected key `{key}` is not permitted")
+                errors.append(f"r[{row_index}] unexpected key `{key}` is not permitted")
             canonical_recipe = row.get("cr")
             if isinstance(canonical_recipe, Mapping):
                 for key in sorted(

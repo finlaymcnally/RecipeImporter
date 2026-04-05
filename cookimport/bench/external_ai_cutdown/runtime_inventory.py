@@ -181,8 +181,8 @@ def _upload_bundle_token_share_fields(*, by_stage: dict[str, dict[str, root.Any]
         fields[share_key] = round(float(stage_tokens) / float(total_tokens), 4)
     return fields
 
-def _upload_bundle_load_prompt_budget_summary(*, run_dir: root.Path, pred_run_dir: root.Path | None, pred_manifest: dict[str, root.Any]) -> dict[str, root.Any] | None:
-    candidate = root._resolve_prompt_budget_summary_path(run_dir=run_dir, pred_run_dir=pred_run_dir, pred_manifest=pred_manifest)
+def _upload_bundle_load_prompt_budget_summary(*, run_dir: root.Path, run_manifest: dict[str, root.Any], pred_run_dir: root.Path | None, pred_manifest: dict[str, root.Any]) -> dict[str, root.Any] | None:
+    candidate = root._resolve_prompt_budget_summary_path(run_dir=run_dir, run_manifest=run_manifest, pred_run_dir=pred_run_dir, pred_manifest=pred_manifest)
     if isinstance(candidate, root.Path):
         if not candidate.is_file():
             return None
@@ -202,7 +202,7 @@ def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(*, run_
         pred_run_dir = root._resolve_prediction_run_dir(run_dir, run_manifest)
         pred_manifest_path = pred_run_dir / 'manifest.json' if pred_run_dir is not None else None
         pred_manifest = root._upload_bundle_load_json_object(pred_manifest_path) if isinstance(pred_manifest_path, root.Path) and pred_manifest_path.is_file() else {}
-        prompt_budget_summary = root._upload_bundle_load_prompt_budget_summary(run_dir=run_dir, pred_run_dir=pred_run_dir, pred_manifest=pred_manifest)
+        prompt_budget_summary = root._upload_bundle_load_prompt_budget_summary(run_dir=run_dir, run_manifest=run_manifest, pred_run_dir=pred_run_dir, pred_manifest=pred_manifest)
         if isinstance(prompt_budget_summary, dict):
             by_stage_payload = prompt_budget_summary.get('by_stage')
             if isinstance(by_stage_payload, dict) and by_stage_payload:

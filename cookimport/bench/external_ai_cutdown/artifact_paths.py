@@ -216,15 +216,12 @@ def _resolve_knowledge_prompt_path(
 def _resolve_prediction_run_dir(run_dir: Path, run_manifest: dict[str, Any]) -> Path | None:
     artifacts = run_manifest.get("artifacts")
     if isinstance(artifacts, dict):
-        pred_run_raw = artifacts.get("pred_run_dir")
+        pred_run_raw = artifacts.get("artifact_root_dir")
         if isinstance(pred_run_raw, str) and pred_run_raw.strip():
             pred_candidate = Path(pred_run_raw.strip())
             pred_path = pred_candidate if pred_candidate.is_absolute() else run_dir / pred_candidate
             if pred_path.exists() and pred_path.is_dir():
                 return pred_path
-    fallback = run_dir / "prediction-run"
-    if fallback.exists() and fallback.is_dir():
-        return fallback
     return None
 
 

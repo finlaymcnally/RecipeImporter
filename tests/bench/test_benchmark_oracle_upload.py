@@ -196,7 +196,7 @@ def test_build_oracle_benchmark_prompt_marks_test_helpers_clearly(
 def test_resolve_oracle_benchmark_model_uses_test_lane_for_helper_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("ORACLE_TEST_MODEL", INSTANT_MODEL)
+    monkeypatch.setenv("ORACLE_INSTANT_MODEL", INSTANT_MODEL)
     monkeypatch.setenv(oracle_upload.ORACLE_TEST_HELPER_ENV, "1")
 
     assert oracle_upload.resolve_oracle_benchmark_model() == INSTANT_LANE
@@ -336,7 +336,7 @@ def test_run_oracle_benchmark_upload_helper_mode_uses_test_model(
         tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
     target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
-    monkeypatch.setenv("ORACLE_TEST_MODEL", INSTANT_MODEL)
+    monkeypatch.setenv("ORACLE_INSTANT_MODEL", INSTANT_MODEL)
     monkeypatch.setenv(oracle_upload.ORACLE_TEST_HELPER_ENV, "1")
     monkeypatch.setenv(oracle_upload.ORACLE_TEST_HELPER_LABEL_ENV, "pytest helper")
 

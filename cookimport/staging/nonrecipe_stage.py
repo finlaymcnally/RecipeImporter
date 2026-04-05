@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
+from cookimport.parsing.canonical_line_roles.contracts import RECIPE_LOCAL_LINE_ROLE_LABELS
 from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel
 
 from .nonrecipe_authority import (
@@ -26,18 +27,45 @@ from .nonrecipe_authority_contract import (
 from .nonrecipe_finalize_status import build_nonrecipe_finalize_status_result
 from .nonrecipe_routing import build_nonrecipe_routing_result
 from .nonrecipe_seed import (
-    count_nonrecipe_reason_values,
     build_nonrecipe_seed_result,
+    count_nonrecipe_reason_values,
+    normalize_nonrecipe_route_label,
     prepare_nonrecipe_full_blocks_by_index,
     preview_nonrecipe_text,
     require_nonrecipe_final_category,
     require_nonrecipe_route_label,
-    normalize_nonrecipe_route_label,
 )
 from .recipe_ownership import (
     RecipeOwnershipInvariantError,
     RecipeOwnershipResult,
 )
+
+_DIVESTED_RECIPE_LOCAL_ROUTE_LABELS = frozenset(RECIPE_LOCAL_LINE_ROLE_LABELS)
+
+
+def _resolve_available_nonrecipe_route_label(
+    *,
+    block_index: int,
+    block_label: AuthoritativeBlockLabel,
+    divested_block_indices: set[int],
+    warnings: list[str],
+) -> str:
+    raw_label = getattr(block_label, "final_label", None)
+    normalized_label = str(raw_label or "").strip().upper()
+    if (
+        int(block_index) in divested_block_indices
+        and normalized_label in _DIVESTED_RECIPE_LOCAL_ROUTE_LABELS
+    ):
+        warnings.append(
+            "block "
+            f"{block_index}: divested recipe-local label '{normalized_label}' "
+            "normalized to NONRECIPE_CANDIDATE for nonrecipe routing"
+        )
+        return "candidate"
+    return require_nonrecipe_route_label(
+        raw_label,
+        block_index=block_index,
+    )
 
 
 def _default_nonrecipe_refinement_report(
@@ -84,12 +112,12 @@ def build_nonrecipe_stage_result(
     del overrides
 
     full_blocks_by_index = prepare_nonrecipe_full_blocks_by_index(full_blocks)
-    labels_by_index = {
-        int(row.source_block_index): row
-        for row in final_block_labels
-    }
+    labels_by_index = {int(row.source_block_index): row for row in final_block_labels}
     owned_block_indices = set(recipe_ownership_result.owned_block_indices)
-    available_to_nonrecipe = list(recipe_ownership_result.available_to_nonrecipe_block_indices)
+    divested_block_indices = set(recipe_ownership_result.divested_block_indices)
+    available_to_nonrecipe = list(
+        recipe_ownership_result.available_to_nonrecipe_block_indices
+    )
 
     route_by_index: dict[int, str] = {}
     exclusion_reason_by_block: dict[int, str] = {}
@@ -121,9 +149,11 @@ def build_nonrecipe_stage_result(
             raise ValueError(
                 f"Missing final block label for non-recipe block {block_index}."
             )
-        route = require_nonrecipe_route_label(
-            getattr(block_label, "final_label", None),
+        route = _resolve_available_nonrecipe_route_label(
             block_index=block_index,
+            block_label=block_label,
+            divested_block_indices=divested_block_indices,
+            warnings=warnings,
         )
         route_by_index[block_index] = route
         exclusion_reason = str(
@@ -310,20 +340,11 @@ def _normalize_nonrecipe_final_category(raw_label: str | None) -> tuple[str, str
 
 
 __all__ = [
-    "NonRecipeAuthorityContract",
-    "NonRecipeAuthorityResult",
-    "NonRecipeCandidateStatusResult",
-    "NonRecipeRoutingResult",
-    "NonRecipeScoringView",
-    "NonRecipeSeedResult",
-    "NonRecipeSpan",
-    "NonRecipeStageResult",
-    "block_rows_for_nonrecipe_authority",
-    "block_rows_for_nonrecipe_candidate_queue",
-    "block_rows_for_nonrecipe_late_outputs",
-    "block_rows_for_nonrecipe_span",
-    "block_rows_for_nonrecipe_stage",
-    "build_nonrecipe_authority_contract",
-    "build_nonrecipe_stage_result",
+    "NonRecipeAuthorityContract", "NonRecipeAuthorityResult", "NonRecipeCandidateStatusResult",
+    "NonRecipeRoutingResult", "NonRecipeScoringView", "NonRecipeSeedResult",
+    "NonRecipeSpan", "NonRecipeStageResult", "block_rows_for_nonrecipe_authority",
+    "block_rows_for_nonrecipe_candidate_queue", "block_rows_for_nonrecipe_late_outputs",
+    "block_rows_for_nonrecipe_span", "block_rows_for_nonrecipe_stage",
+    "build_nonrecipe_authority_contract", "build_nonrecipe_stage_result",
     "refine_nonrecipe_stage_result",
 ]

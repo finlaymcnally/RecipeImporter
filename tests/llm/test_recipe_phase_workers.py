@@ -251,7 +251,7 @@ def _build_recipe_shard_output(payload: dict[str, object] | None) -> dict[str, o
     return _build_recipe_workspace_output(payload)
 
 
-def _build_legacy_recipe_workspace_output(payload: dict[str, object] | None) -> dict[str, object]:
+def _build_old_recipe_workspace_output(payload: dict[str, object] | None) -> dict[str, object]:
     shard_payload = dict(payload or {})
     recipe_payload = dict((shard_payload.get("r") or [{}])[0])
     return {
@@ -261,7 +261,7 @@ def _build_legacy_recipe_workspace_output(payload: dict[str, object] | None) -> 
                 "recipe_id": recipe_payload.get("rid"),
                 "not_a_recipe": False,
                 "fragmentary": False,
-                "notes": "legacy worker contract",
+                "notes": "old worker contract",
             }
         ],
     }
@@ -1265,7 +1265,7 @@ def test_recipe_taskfile_worker_with_valid_files_and_no_final_message_stays_vali
     assert telemetry["summary"]["taskfile_session_count"] == 1
 
 
-def test_recipe_workspace_validation_rejects_legacy_results_shape() -> None:
+def test_recipe_workspace_validation_rejects_unexpected_results_shape() -> None:
     shard = recipe_module.ShardManifestEntryV1(  # noqa: SLF001
         shard_id="recipe-shard-0000-r0000-r0000.task-001",
         owned_ids=("urn:recipe:test:toast",),
@@ -1283,14 +1283,13 @@ def test_recipe_workspace_validation_rejects_legacy_results_shape() -> None:
 
     payload, validation_errors, validation_metadata, proposal_status = recipe_module._evaluate_recipe_response(  # noqa: SLF001
         shard=shard,
-        response_text=json.dumps(_build_legacy_recipe_workspace_output(shard.input_payload)),
+        response_text=json.dumps(_build_old_recipe_workspace_output(shard.input_payload)),
     )
 
     assert payload is None
     assert proposal_status == "invalid"
     assert validation_metadata["contract"] == "recipe.correction.compact.v1"
-    assert any("legacy key `results`" in error for error in validation_errors)
-    assert any("use `r`" in error for error in validation_errors)
+    assert any("unexpected key `results`" in error for error in validation_errors)
 
 
 def test_recipe_workspace_promotion_preserves_fragmentary_and_not_a_recipe_outputs(

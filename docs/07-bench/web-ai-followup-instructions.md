@@ -156,7 +156,6 @@ Input knobs:
 - `--include-case-id <case_id>` repeated
 - `--include-recipe-id <recipe_id>` repeated
 - `--include-line-range <source_key>:<start>:<end>` repeated
-- legacy `--include-line-range <source_key>:<start>-<end>` is also accepted
 - `--include-knowledge-source-key <source_key or bundle-local knowledge key>` repeated
 - `--include-knowledge-output-subdir <exact output_subdir from the bundle or request-template>` repeated
 

@@ -108,6 +108,34 @@ def test_nonrecipe_stage_groups_contiguous_candidate_and_excluded_routes() -> No
     ]
 
 
+def test_nonrecipe_stage_normalizes_divested_recipe_local_labels_to_candidates() -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "Recipe title"},
+        {"index": 1, "block_id": "b1", "text": "Serving note now outside recipe"},
+        {"index": 2, "block_id": "b2", "text": "Front matter"},
+    ]
+    result = build_nonrecipe_stage_result(
+        full_blocks=full_blocks,
+        final_block_labels=[
+            _block_label(0, "RECIPE_TITLE"),
+            _block_label(1, "RECIPE_NOTES"),
+            _block_label(2, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
+        ],
+        recipe_ownership_result=_ownership_result(
+            full_blocks=full_blocks,
+            owned_block_indices=[0],
+            divested_block_indices=[1],
+        ),
+    )
+
+    assert result.seed.seed_route_by_index == {1: "candidate", 2: "exclude"}
+    assert result.routing.candidate_block_indices == [1]
+    assert result.routing.excluded_block_indices == [2]
+    assert result.routing.warnings == [
+        "block 1: divested recipe-local label 'RECIPE_NOTES' normalized to NONRECIPE_CANDIDATE for nonrecipe routing"
+    ]
+
+
 def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path) -> None:
     full_blocks = [
         {"index": 0, "block_id": "b0", "text": "Intro"},

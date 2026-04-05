@@ -326,12 +326,8 @@ _RECIPE_COMPACT_RESULT_KEYS = frozenset({'v', 'rid', 'st', 'sr', 'cr', 'm', 'mr'
 _RECIPE_COMPACT_CANONICAL_KEYS = frozenset({'t', 'i', 's', 'd', 'y'})
 _RECIPE_COMPACT_MAPPING_KEYS = frozenset({'i', 's'})
 _RECIPE_COMPACT_TAG_KEYS = frozenset({'c', 'l', 'f'})
-_RECIPE_LEGACY_KEY_SUGGESTIONS = {'bundle_version': 'v', 'shard_id': 'sid', 'results': 'r', 'recipes': 'r', 'recipe_id': 'rid', 'repair_status': 'st', 'status_reason': 'sr', 'canonical_recipe': 'cr', 'ingredient_step_mapping': 'm', 'ingredient_step_mapping_reason': 'mr', 'divested_block_indices': 'db', 'selected_tags': 'g', 'warnings': 'w', 'not_a_recipe': 'st=not_a_recipe', 'fragmentary': 'st=fragmentary', 'notes': 'sr or w', 'title': 'cr.t', 'ingredients': 'cr.i', 'steps': 'cr.s', 'description': 'cr.d', 'recipeYield': 'cr.y', 'recipe_yield': 'cr.y', 'category': 'c', 'label': 'l', 'confidence': 'f'}
 
 def _recipe_compact_contract_error(*, path: str, key: str) -> str:
-    suggestion = _RECIPE_LEGACY_KEY_SUGGESTIONS.get(key)
-    if suggestion:
-        return f'invalid_shard_output:{path} legacy key `{key}` is invalid for recipe workspace output; use `{suggestion}`'
     return f'invalid_shard_output:{path} unexpected key `{key}` is not permitted'
 
 def _validate_recipe_compact_output_keys(payload: Mapping[str, Any]) -> tuple[str, ...]:

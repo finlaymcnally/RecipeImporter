@@ -208,6 +208,33 @@ def _build_run_settings(
 
 
 def _build_valid_recipe_task_output(task_payload: dict[str, object]) -> dict[str, object]:
+    if (
+        str(task_payload.get("stage_key") or "").strip() == "recipe_refine"
+        and task_payload.get("recipe_id") is not None
+    ):
+        recipe_hint = dict(task_payload.get("hint") or {})
+        ingredients = list(recipe_hint.get("ingredients") or [])
+        steps = list(recipe_hint.get("steps") or [])
+        mapping_reason = (
+            "not_needed_single_step" if len(steps) <= 1 else "unclear_alignment"
+        )
+        return {
+            "status": "repaired",
+            "status_reason": None,
+            "canonical_recipe": {
+                "title": recipe_hint.get("title"),
+                "ingredients": ingredients,
+                "steps": steps,
+                "description": None,
+                "recipe_yield": None,
+            },
+            "ingredient_step_mapping": [],
+            "ingredient_step_mapping_reason": mapping_reason,
+            "divested_block_indices": [],
+            "selected_tags": [],
+            "warnings": [],
+        }
+
     recipe_row = task_payload["r"][0]
     return {
         "v": "1",

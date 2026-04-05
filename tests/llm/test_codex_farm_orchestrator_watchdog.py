@@ -213,35 +213,30 @@ def _run_retryable_watchdog_fixture(tmp_path: Path) -> dict[str, object]:
             )
 
     runner = _RetryingWatchdogRunner(
-        output_builder=lambda payload: {
-            "v": "1",
-            "sid": payload.get("sid") if payload is not None else None,
-            "r": [
-                {
-                    "v": "1",
-                    "rid": payload["authoritative_input"]["r"][0]["rid"]
-                    if payload and payload.get("retry_mode") == "recipe_watchdog"
-                    else payload["r"][0]["rid"],
-                    "st": "repaired",
-                    "sr": None,
-                    "cr": {
-                        "t": "Toast",
-                        "i": ["1 slice bread", "1 tablespoon butter"],
-                        "s": [
-                            "Toast the bread until golden.",
-                            "Spread with butter and serve hot.",
-                        ],
-                        "d": None,
-                        "y": None,
-                    },
-                    "m": [],
-                    "mr": "retry_pass",
-                    "db": [],
-                    "g": [],
-                    "w": [],
-                }
-            ],
-        }
+        output_builder=lambda payload: (
+            {
+                "status": "repaired",
+                "status_reason": None,
+                "canonical_recipe": {
+                    "title": dict((payload or {}).get("hint") or {}).get("title"),
+                    "ingredients": list(
+                        dict((payload or {}).get("hint") or {}).get("ingredients") or []
+                    ),
+                    "steps": list(
+                        dict((payload or {}).get("hint") or {}).get("steps") or []
+                    ),
+                    "description": None,
+                    "recipe_yield": None,
+                },
+                "ingredient_step_mapping": [],
+                "ingredient_step_mapping_reason": "retry_pass",
+                "divested_block_indices": [],
+                "selected_tags": [],
+                "warnings": [],
+            }
+            if str((payload or {}).get("stage_key") or "").strip() == "recipe_refine"
+            else {}
+        )
     )
 
     apply_result = run_codex_farm_recipe_pipeline(
@@ -407,35 +402,30 @@ def _run_packed_watchdog_retry_fixture(tmp_path: Path) -> dict[str, object]:
             )
 
     runner = _PackedRetryRunner(
-        output_builder=lambda payload: {
-            "v": "1",
-            "sid": payload.get("sid") if payload is not None else None,
-            "r": [
-                {
-                    "v": "1",
-                    "rid": recipe_payload["rid"],
-                    "st": "repaired",
-                    "sr": None,
-                    "cr": {
-                        "t": recipe_payload.get("h", {}).get("n") or recipe_payload["rid"],
-                        "i": recipe_payload.get("h", {}).get("i", []),
-                        "s": recipe_payload.get("h", {}).get("s", []),
-                        "d": None,
-                        "y": None,
-                    },
-                    "m": [],
-                    "mr": "packed_retry_pass",
-                    "db": [],
-                    "g": [],
-                    "w": [],
-                }
-                for recipe_payload in (
-                    payload["authoritative_input"]["r"]
-                    if payload and payload.get("retry_mode") == "recipe_watchdog"
-                    else payload.get("r", [])
-                )
-            ],
-        }
+        output_builder=lambda payload: (
+            {
+                "status": "repaired",
+                "status_reason": None,
+                "canonical_recipe": {
+                    "title": dict((payload or {}).get("hint") or {}).get("title"),
+                    "ingredients": list(
+                        dict((payload or {}).get("hint") or {}).get("ingredients") or []
+                    ),
+                    "steps": list(
+                        dict((payload or {}).get("hint") or {}).get("steps") or []
+                    ),
+                    "description": None,
+                    "recipe_yield": None,
+                },
+                "ingredient_step_mapping": [],
+                "ingredient_step_mapping_reason": "packed_retry_pass",
+                "divested_block_indices": [],
+                "selected_tags": [],
+                "warnings": [],
+            }
+            if str((payload or {}).get("stage_key") or "").strip() == "recipe_refine"
+            else {}
+        )
     )
 
     apply_result = run_codex_farm_recipe_pipeline(

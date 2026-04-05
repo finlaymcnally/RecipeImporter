@@ -313,16 +313,6 @@ def _parse_line_range_selector(text: str) -> tuple[str, int, int]:
         if source_key and start is not None and end is not None:
             return source_key, start, end
 
-    if len(parts) >= 2:
-        source_key = ":".join(parts[:-1]).strip()
-        start_end = parts[-1].strip()
-        if source_key and "-" in start_end:
-            start_text, end_text = start_end.split("-", 1)
-            start = _coerce_int(start_text)
-            end = _coerce_int(end_text)
-            if start is not None and end is not None:
-                return source_key, start, end
-
     raise ValueError(f"Invalid --include-line-range value: {raw}")
 
 
@@ -512,12 +502,6 @@ class RunContext:
         )
         if prompt_budget_manifest_path is not None:
             prompt_budget_candidates.append(prompt_budget_manifest_path)
-        prompt_budget_candidates.extend(
-            [
-                self.run_dir / "prediction-run" / "prompt_budget_summary.json",
-                self.run_dir / "prompt_budget_summary.json",
-            ]
-        )
         for label, candidates in (
             ("prompt_samples_md", [prompts_dir / "prompt_type_samples_from_full_prompt_log.md"]),
             ("prompt_knowledge_txt", [knowledge_prompt_task] if isinstance(knowledge_prompt_task, Path) else []),

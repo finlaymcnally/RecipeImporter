@@ -220,11 +220,11 @@
     if (!path) return false;
     if (!path.includes("/benchmark-vs-golden/")) return false;
     if (!path.includes("/single-book-benchmark/")) return false;
-    const pathVariant = benchmarkVariantFromPathOrPipeline(record);
+    const variant = benchmarkVariantForRecord(record);
     const profile = aiAssistanceProfileForRecord(record);
     return (
-      (pathVariant === "vanilla" && profile === "deterministic") ||
-      (pathVariant === "codex-exec" && profile === "full_stack")
+      (variant === "vanilla" && profile === "deterministic") ||
+      (variant === "codex-exec" && profile === "full_stack")
     );
   }
 

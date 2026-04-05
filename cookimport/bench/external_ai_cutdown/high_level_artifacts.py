@@ -40,7 +40,6 @@ GROUP_UPLOAD_BUNDLE_RUN_PRIORITY_FILES: tuple[tuple[str, bool], ...] = (
     ("run_manifest.json", True),
     ("eval_report.json", False),
     ("need_to_know_summary.json", False),
-    ("prediction-run/prompt_budget_summary.json", False),
 )
 GROUP_UPLOAD_BUNDLE_RUN_CONTEXT_FILES: tuple[str, ...] = (
     "prompts/prompt_request_response_log.txt",
@@ -74,19 +73,25 @@ def _upload_bundle_load_json_object(path: Path) -> dict[str, Any]:
 def _resolve_prompt_budget_summary_path(
     *,
     run_dir: Path,
+    run_manifest: dict[str, Any],
     pred_run_dir: Path | None,
     pred_manifest: dict[str, Any],
 ) -> Path | None:
     candidates: list[Path] = []
+    manifest_artifacts = run_manifest.get("artifacts")
+    if isinstance(manifest_artifacts, dict):
+        for key in ("prompt_budget_summary_json", "actual_costs_json"):
+            manifest_path = str(manifest_artifacts.get(key) or "").strip()
+            if not manifest_path:
+                continue
+            candidate = Path(manifest_path)
+            candidates.append(candidate if candidate.is_absolute() else run_dir / candidate)
     manifest_path = str(pred_manifest.get("prompt_budget_summary_path") or "").strip()
     if manifest_path:
         candidate = Path(manifest_path)
         if not candidate.is_absolute() and pred_run_dir is not None:
             candidate = pred_run_dir / candidate
         candidates.append(candidate)
-    candidates.append(run_dir / "prompt_budget_summary.json")
-    if pred_run_dir is not None:
-        candidates.append(pred_run_dir / "prompt_budget_summary.json")
     seen: set[Path] = set()
     for candidate in candidates:
         resolved = candidate.resolve(strict=False)
@@ -182,6 +187,7 @@ def _upload_bundle_select_high_level_artifact_paths(
         )
         prompt_budget_summary_path = _resolve_prompt_budget_summary_path(
             run_dir=run_dir,
+            run_manifest=run_manifest_payload,
             pred_run_dir=pred_run_dir,
             pred_manifest=pred_manifest,
         )
@@ -938,11 +944,13 @@ def _upload_bundle_derived_run_artifact_path_impl(
 def _upload_bundle_load_prompt_budget_summary_impl(
     *,
     run_dir: Path,
+    run_manifest: dict[str, Any],
     pred_run_dir: Path | None,
     pred_manifest: dict[str, Any],
 ) -> dict[str, Any]:
     prompt_budget_summary_path = _resolve_prompt_budget_summary_path(
         run_dir=run_dir,
+        run_manifest=run_manifest,
         pred_run_dir=pred_run_dir,
         pred_manifest=pred_manifest,
     )
@@ -1026,6 +1034,7 @@ def _upload_bundle_build_knowledge_summary_impl(
 
         prompt_budget_summary = _upload_bundle_load_prompt_budget_summary_impl(
             run_dir=run_dir,
+            run_manifest=run_manifest,
             pred_run_dir=pred_run_dir,
             pred_manifest=pred_manifest,
         )
@@ -1064,6 +1073,7 @@ def _upload_bundle_build_knowledge_summary_impl(
         )
         prompt_budget_path = _resolve_prompt_budget_summary_path(
             run_dir=run_dir,
+            run_manifest=run_manifest,
             pred_run_dir=pred_run_dir,
             pred_manifest=pred_manifest,
         )

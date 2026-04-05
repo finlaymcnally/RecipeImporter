@@ -8,8 +8,8 @@ Start points:
   - `codex_exec_types.py` now owns the shared direct-exec protocol/live-snapshot/watchdog contract dataclasses that `codex_exec_runner.py` re-exports.
   - `codex_exec_workspace.py` owns direct-exec workspace preparation and mirror-manifest shaping. It now resolves the small runner-owned hook surface explicitly instead of inheriting the runner namespace wholesale.
   - `codex_exec_telemetry.py` owns direct-exec event parsing, token-usage/status summarization, live-activity/watchdog summaries, and final-message assessment.
-  - `codex_exec_taskfile_policy.py` owns taskfile/single-file workspace command parsing plus boundary/drift policy classification; `codex_exec_runner.py` re-exports the historical policy helpers and limits.
-  - `codex_exec_command_builder.py` owns `codex exec` argv construction plus Linux taskfile fs-cage command assembly; `codex_exec_runner.py` keeps thin wrappers so the historical monkeypatch/import surface stays stable.
+  - `codex_exec_taskfile_policy.py` owns taskfile/single-file workspace command parsing plus boundary/drift policy classification; `codex_exec_runner.py` re-exports the current policy helpers and limits.
+  - `codex_exec_command_builder.py` owns `codex exec` argv construction plus Linux taskfile fs-cage command assembly; `codex_exec_runner.py` keeps thin wrappers so the current monkeypatch/import surface stays stable.
 - `codex_farm_runner.py` is the `codex-farm process` runner seam.
 - `prompt_preview.py`, `prompt_artifacts.py`, and `prompt_budget.py` own prompt/cost inspection surfaces.
   - `prompt_artifacts.py` is now a thin public facade over `prompt_artifacts_discovery.py`, `prompt_artifacts_loader.py`, and `prompt_artifacts_activity.py`.

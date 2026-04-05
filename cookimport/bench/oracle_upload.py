@@ -39,30 +39,9 @@ _ORACLE_MODEL_SELECTOR_ALIASES = {
     "deep-review": ORACLE_MODEL_LANE_THINKING,
     "deep_review": ORACLE_MODEL_LANE_THINKING,
 }
-ORACLE_TEST_MODEL = os.environ.get(
-    "ORACLE_INSTANT_MODEL",
-    os.environ.get(
-        "ORACLE_TEST_MODEL",
-        os.environ.get(
-            "ORACLE_FAST_MODEL",
-            os.environ.get("ORACLE_FAST_SMOKE_MODEL", "gpt-5.3"),
-        ),
-    ),
-)
-ORACLE_DEFAULT_MODEL = os.environ.get(
-    "ORACLE_PRO_MODEL",
-    os.environ.get(
-        "ORACLE_GENUINE_MODEL",
-        os.environ.get(
-            "ORACLE_REVIEW_MODEL",
-            os.environ.get("ORACLE_DEEP_REVIEW_MODEL", "gpt-5-pro"),
-        ),
-    ),
-)
-ORACLE_THINKING_MODEL = os.environ.get(
-    "ORACLE_THINKING_MODEL",
-    os.environ.get("ORACLE_DEEP_REVIEW_MODEL", ""),
-)
+ORACLE_INSTANT_DEFAULT_MODEL = os.environ.get("ORACLE_INSTANT_MODEL", "gpt-5.3")
+ORACLE_PRO_DEFAULT_MODEL = os.environ.get("ORACLE_PRO_MODEL", "gpt-5-pro")
+ORACLE_THINKING_DEFAULT_MODEL = os.environ.get("ORACLE_THINKING_MODEL", "")
 ORACLE_INLINE_FILE_SIZE_LIMIT_BYTES = 1_000_000
 ORACLE_BROWSER_SHARD_TARGET_BYTES = resolve_oracle_browser_shard_target_bytes()
 ORACLE_BROWSER_REUSE_WAIT = "5m"
@@ -100,11 +79,6 @@ BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES = (
 BENCHMARK_UPLOAD_BUNDLE_REVIEW_DIR_NAMES = (
     ORACLE_REVIEW_PROFILE_QUALITY,
     ORACLE_REVIEW_PROFILE_TOKEN,
-)
-LEGACY_BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES = (
-    "upload_bundle_overview.md",
-    "upload_bundle_index.json",
-    "upload_bundle_payload.jsonl",
 )
 ORACLE_UPLOAD_RUNS_DIR_NAME = ".oracle_upload_runs"
 ORACLE_UPLOAD_LOG_FILE_NAME = "oracle_upload.log"
@@ -492,35 +466,19 @@ def oracle_test_helper_enabled(*, env: Mapping[str, str] | None = None) -> bool:
     return _env_truthy(str(source_env.get(ORACLE_TEST_HELPER_ENV) or ""))
 
 
-def _resolve_oracle_test_model(*, env: Mapping[str, str] | None = None) -> str:
+def _resolve_oracle_instant_model(*, env: Mapping[str, str] | None = None) -> str:
     source_env = env if env is not None else os.environ
-    return str(
-        source_env.get("ORACLE_INSTANT_MODEL")
-        or source_env.get("ORACLE_TEST_MODEL")
-        or source_env.get("ORACLE_FAST_MODEL")
-        or source_env.get("ORACLE_FAST_SMOKE_MODEL")
-        or ORACLE_TEST_MODEL
-    ).strip()
+    return str(source_env.get("ORACLE_INSTANT_MODEL") or ORACLE_INSTANT_DEFAULT_MODEL).strip()
 
 
-def _resolve_oracle_genuine_model(*, env: Mapping[str, str] | None = None) -> str:
+def _resolve_oracle_pro_model(*, env: Mapping[str, str] | None = None) -> str:
     source_env = env if env is not None else os.environ
-    return str(
-        source_env.get("ORACLE_PRO_MODEL")
-        or source_env.get("ORACLE_GENUINE_MODEL")
-        or source_env.get("ORACLE_REVIEW_MODEL")
-        or source_env.get("ORACLE_DEEP_REVIEW_MODEL")
-        or ORACLE_DEFAULT_MODEL
-    ).strip()
+    return str(source_env.get("ORACLE_PRO_MODEL") or ORACLE_PRO_DEFAULT_MODEL).strip()
 
 
 def _resolve_oracle_thinking_model(*, env: Mapping[str, str] | None = None) -> str:
     source_env = env if env is not None else os.environ
-    return str(
-        source_env.get("ORACLE_THINKING_MODEL")
-        or source_env.get("ORACLE_DEEP_REVIEW_MODEL")
-        or ORACLE_THINKING_MODEL
-    ).strip()
+    return str(source_env.get("ORACLE_THINKING_MODEL") or ORACLE_THINKING_DEFAULT_MODEL).strip()
 
 
 def normalize_oracle_model_selector(model: str | None) -> str:
@@ -552,9 +510,9 @@ def normalize_oracle_browser_model(
     if not cleaned:
         return ""
     if cleaned == ORACLE_MODEL_LANE_INSTANT:
-        return _resolve_oracle_test_model(env=env)
+        return _resolve_oracle_instant_model(env=env)
     if cleaned == ORACLE_MODEL_LANE_PRO:
-        return _resolve_oracle_genuine_model(env=env)
+        return _resolve_oracle_pro_model(env=env)
     if cleaned == ORACLE_MODEL_LANE_THINKING:
         resolved = _resolve_oracle_thinking_model(env=env)
         if resolved:

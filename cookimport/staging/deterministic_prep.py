@@ -18,7 +18,11 @@ from cookimport.config.run_settings_contracts import summarize_run_config_payloa
 from cookimport.core.models import ConversionResult, SourceBlock, SourceSupport
 from cookimport.core.reporting import compute_file_hash
 from cookimport.core.slug import slugify_name
-from cookimport.core.source_model import normalize_source_blocks, normalize_source_support
+from cookimport.core.source_model import (
+    normalize_source_blocks,
+    normalize_source_support,
+    source_blocks_to_rows,
+)
 from cookimport.llm.prompt_preview import write_prompt_preview_for_existing_run
 from cookimport.parsing.label_source_of_truth import (
     AuthoritativeBlockLabel,
@@ -720,10 +724,14 @@ def load_recipe_boundary_result_from_deterministic_prep_bundle(
     )
     processed_run_root = prep_bundle.processed_run_root
     workbook_slug = prep_bundle.workbook_slug
-    archive_blocks = _load_archive_blocks(processed_run_root)
     source_blocks, source_support = _load_source_model_artifacts(
         processed_run_root=processed_run_root,
         workbook_slug=workbook_slug,
+    )
+    archive_blocks = (
+        source_blocks_to_rows(source_blocks)
+        if source_blocks
+        else _load_archive_blocks(processed_run_root)
     )
     labeled_lines_path = (
         processed_run_root / "label_refine" / workbook_slug / "labeled_lines.jsonl"

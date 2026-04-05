@@ -65,6 +65,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Honest top-level re-export for the shared stage-session entrypoint/result types.
 - `cookimport/staging/deterministic_prep.py`
   - Shared deterministic prep bundle owner for benchmark and stage reuse. It builds or reloads repo-level shared cache entries under `.cache/cookimport/book-cache/deterministic-prep/<source_hash>/<prep_key>/`, writes a human-readable manifest plus serialized deterministic `ConversionResult`, and can reconstruct a cached `RecipeBoundaryResult` for later execution.
+  - Cached boundary reload now rebuilds archive block rows from the saved source model (`raw/source/<workbook_slug>/source_blocks.jsonl`, mirrored in `conversion_result.sourceBlocks`) and uses importer raw `full_text.json` only as fallback; merged split-book ownership must stay aligned to source-model coordinates, not arbitrary raw importer offsets.
   - Stage runs now check that shared cache before doing fresh source-job work, resume directly from cached recipe-boundary state on a hit, and persist a new deterministic prep bundle back into the shared cache after a cold stage run completes.
   - Its shard-recommendation helper now forwards prompt-preview survivability KPIs back to interactive benchmark planning, including per-step average token pressure and a small book-level deterministic summary derived from the cached boundary result.
 - `cookimport/staging/import_session_contracts.py`
@@ -179,6 +180,7 @@ Stage-block `KNOWLEDGE` label contract:
 - `08_nonrecipe_route.json` is the deterministic `nonrecipe-route` artifact. It keeps candidate/exclude routing, exclusion reasons, block ids, and previews, but it does not publish final semantic category guesses.
 - `08_nonrecipe_route.json` may contain only blocks that were unowned at boundary time or explicitly divested later; recipe-owned blocks are forbidden input, not just low-priority output.
 - The nonrecipe router consumes authoritative block labels, not repair heuristics: `NONRECIPE_CANDIDATE` feeds the knowledge queue, `NONRECIPE_EXCLUDE` becomes immediate final `other`, and malformed authoritative labels are hard errors.
+- One explicit divestment bridge remains active at that seam: if recipe refine divests a block that still carries a recipe-local authoritative label such as `RECIPE_NOTES`, the nonrecipe router normalizes it to `NONRECIPE_CANDIDATE` so the block can re-enter outside-recipe review instead of failing contract validation.
 - `build_nonrecipe_authority_result(...)` now hard-enforces that excluded block indices stay final `other` even if a later refine/projection map tries to leak them back into final `knowledge`.
 - `09_nonrecipe_authority.json` is the only final-truth artifact for outside-recipe `knowledge` versus `other`. It contains only authoritative spans, categories, and block indices.
 - `09_nonrecipe_knowledge_groups.json` is the explicit promoted-group artifact for packet-reviewed related ideas. It is reviewer/debug context, not the category-authority file.

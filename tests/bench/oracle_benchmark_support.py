@@ -75,7 +75,7 @@ def build_minimal_upload_bundle(
             },
         }
         if include_knowledge and output_subdir == knowledge_output_subdir:
-            run_manifest_payload["artifacts"] = {"pred_run_dir": "prediction-run"}
+            run_manifest_payload["artifacts"] = {"artifact_root_dir": "prediction-run"}
         _write_json(
             run_dir / "run_manifest.json",
             run_manifest_payload,
@@ -160,6 +160,19 @@ def build_minimal_upload_bundle(
                 "by_stage": {"knowledge": {"call_count": 1, "tokens_total": 1234}},
             },
         )
+        run_manifest_payload = json.loads(
+            (run_dir / "run_manifest.json").read_text(encoding="utf-8")
+        )
+        artifacts = (
+            run_manifest_payload.get("artifacts")
+            if isinstance(run_manifest_payload.get("artifacts"), dict)
+            else {}
+        )
+        artifacts["artifact_root_dir"] = "prediction-run"
+        artifacts["prompt_budget_summary_json"] = "prediction-run/prompt_budget_summary.json"
+        artifacts["actual_costs_json"] = "prediction-run/prompt_budget_summary.json"
+        run_manifest_payload["artifacts"] = artifacts
+        _write_json(run_dir / "run_manifest.json", run_manifest_payload)
 
         knowledge_manifest_path = raw_llm_dir / "knowledge_manifest.json"
         _write_json(

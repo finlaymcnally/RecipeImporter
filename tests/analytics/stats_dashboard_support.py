@@ -1382,20 +1382,19 @@ const lineRoleOnlyEffortRecord = {
     line_role_pipeline: "codex-line-role-route-v2",
   },
 };
-const legacyCodexfarmRecord = {
+const pathOnlyCodexRecord = {
   strict_accuracy: 0.54,
   artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-book-benchmark/my-book/codex-exec",
   run_config: {
     llm_recipe_pipeline: "codex-recipe-shard-v1",
-    codex_farm_model: "gpt-5.1-codex-mini",
   },
 };
-const legacyVanillaRecord = {
+const pathOnlyVanillaRecord = {
   strict_accuracy: 0.54,
   artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-book-benchmark/my-book/vanilla",
   run_config: {},
 };
-const legacyRunDirCodexfarmRecord = {
+const pathOnlyRunDirCodexRecord = {
   strict_accuracy: 0.54,
   run_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-book-benchmark/my-book/codex-exec",
   report_path: "/tmp/output/2026-03-03_13.00.00/single-book-benchmark/my-book/codex-exec/2026-03-03_13.08.47/report.json",
@@ -1404,7 +1403,7 @@ const legacyRunDirCodexfarmRecord = {
     line_role_pipeline: "off",
   },
 };
-const legacyRunDirVanillaRecord = {
+const pathOnlyRunDirVanillaRecord = {
   strict_accuracy: 0.54,
   run_dir: "/tmp/golden/benchmark-vs-golden/2026-03-03_13.00.00/single-book-benchmark/my-book/vanilla",
   report_path: "/tmp/output/2026-03-03_13.00.00/single-book-benchmark/my-book/vanilla/2026-03-03_13.07.43/report.json",
@@ -1452,18 +1451,18 @@ const payload = {
   line_role_only_profile_label: String(
     hooks.aiAssistanceProfileLabelForRecord(lineRoleOnlyEffortRecord) || ""
   ),
-  legacy_codex_exec_profile: String(hooks.aiAssistanceProfileForRecord(legacyCodexfarmRecord) || ""),
-  legacy_codex_exec_variant: String(hooks.benchmarkVariantForRecord(legacyCodexfarmRecord) || ""),
-  legacy_codex_exec_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(legacyCodexfarmRecord)),
-  legacy_vanilla_profile: String(hooks.aiAssistanceProfileForRecord(legacyVanillaRecord) || ""),
-  legacy_vanilla_variant: String(hooks.benchmarkVariantForRecord(legacyVanillaRecord) || ""),
-  legacy_vanilla_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(legacyVanillaRecord)),
-  legacy_rundir_codex_exec_profile: String(hooks.aiAssistanceProfileForRecord(legacyRunDirCodexfarmRecord) || ""),
-  legacy_rundir_codex_exec_variant: String(hooks.benchmarkVariantForRecord(legacyRunDirCodexfarmRecord) || ""),
-  legacy_rundir_codex_exec_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(legacyRunDirCodexfarmRecord)),
-  legacy_rundir_vanilla_profile: String(hooks.aiAssistanceProfileForRecord(legacyRunDirVanillaRecord) || ""),
-  legacy_rundir_vanilla_variant: String(hooks.benchmarkVariantForRecord(legacyRunDirVanillaRecord) || ""),
-  legacy_rundir_vanilla_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(legacyRunDirVanillaRecord)),
+  path_only_codex_profile: String(hooks.aiAssistanceProfileForRecord(pathOnlyCodexRecord) || ""),
+  path_only_codex_variant: String(hooks.benchmarkVariantForRecord(pathOnlyCodexRecord) || ""),
+  path_only_codex_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(pathOnlyCodexRecord)),
+  path_only_vanilla_profile: String(hooks.aiAssistanceProfileForRecord(pathOnlyVanillaRecord) || ""),
+  path_only_vanilla_variant: String(hooks.benchmarkVariantForRecord(pathOnlyVanillaRecord) || ""),
+  path_only_vanilla_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(pathOnlyVanillaRecord)),
+  path_only_rundir_codex_profile: String(hooks.aiAssistanceProfileForRecord(pathOnlyRunDirCodexRecord) || ""),
+  path_only_rundir_codex_variant: String(hooks.benchmarkVariantForRecord(pathOnlyRunDirCodexRecord) || ""),
+  path_only_rundir_codex_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(pathOnlyRunDirCodexRecord)),
+  path_only_rundir_vanilla_profile: String(hooks.aiAssistanceProfileForRecord(pathOnlyRunDirVanillaRecord) || ""),
+  path_only_rundir_vanilla_variant: String(hooks.benchmarkVariantForRecord(pathOnlyRunDirVanillaRecord) || ""),
+  path_only_rundir_vanilla_official: Boolean(hooks.isOfficialGoldenBenchmarkRecord(pathOnlyRunDirVanillaRecord)),
   unknown_effort_label: String(hooks.aiEffortLabelForRecord(unknownEffortRecord) || ""),
 };
 process.stdout.write(JSON.stringify(payload));
@@ -1555,6 +1554,7 @@ const olderSingleProfileRecord = {
 };
 const explicitVanillaRecord = {
   run_timestamp: "2026-03-06T00.40.00",
+  benchmark_variant: "vanilla",
   artifact_dir: "/tmp/golden/benchmark-vs-golden/2026-03-06_00.40.00/single-profile-benchmark/mybook/2026-03-06_00.40.00/vanilla",
   run_config: {
     llm_recipe_pipeline: "off",

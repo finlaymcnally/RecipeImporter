@@ -124,7 +124,7 @@ def test_build_recipe_worker_scaffold_fail_closed_when_hint_is_incomplete() -> N
     ]
 
 
-def test_validate_recipe_worker_draft_rejects_legacy_keys_and_wrong_owned_ids() -> None:
+def test_validate_recipe_worker_draft_rejects_unexpected_keys_and_wrong_owned_ids() -> None:
     payload = {
         "v": "1",
         "sid": "recipe-shard-0000-r0000-r0001.task-001",
@@ -153,8 +153,8 @@ def test_validate_recipe_worker_draft_rejects_legacy_keys_and_wrong_owned_ids() 
 
     errors = validate_recipe_worker_draft(task_row=_build_task_row(), payload=payload)
 
-    assert any("root legacy key `results`" in error for error in errors)
-    assert any("legacy key `recipe_id`" in error for error in errors)
+    assert any("root unexpected key `results`" in error for error in errors)
+    assert any("r[0] unexpected key `recipe_id`" in error for error in errors)
     assert any("missing owned recipe ids: urn:recipe:test:toast" in error for error in errors)
     assert any("unexpected recipe ids:" in error for error in errors)
 

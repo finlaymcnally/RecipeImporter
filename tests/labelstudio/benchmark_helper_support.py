@@ -73,13 +73,10 @@ def _patch_cli_attr(
 @pytest.fixture(autouse=True)
 def _force_helper_oracle_test_lane(monkeypatch: pytest.MonkeyPatch) -> None:
     test_model = (
-        os.environ.get("ORACLE_TEST_MODEL")
-        or os.environ.get("ORACLE_INSTANT_MODEL")
-        or os.environ.get("ORACLE_FAST_MODEL")
-        or os.environ.get("ORACLE_FAST_SMOKE_MODEL")
+        os.environ.get("ORACLE_INSTANT_MODEL")
         or "gpt-5.3"
     )
-    monkeypatch.setenv("ORACLE_TEST_MODEL", test_model)
+    monkeypatch.setenv("ORACLE_INSTANT_MODEL", test_model)
     monkeypatch.setenv("COOKIMPORT_ORACLE_TEST_HELPER", "1")
     monkeypatch.setenv(
         "COOKIMPORT_ORACLE_TEST_HELPER_LABEL",

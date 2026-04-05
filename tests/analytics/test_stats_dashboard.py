@@ -584,10 +584,11 @@ class TestRenderer:
         assert "function aiEffortLabelForRecord(record)" in js
         assert "function aiAssistanceProfileForRecord(record)" in js
         assert "function aiAssistanceProfileLabelForRecord(record)" in js
-        assert "function benchmarkVariantFromPathOrPipeline(record)" in js
         assert "function rawAiModelForRecord(record)" in js
         assert "function rawAiEffortForRecord(record)" in js
-        assert 'const pipelineOrPathVariant = benchmarkVariantFromPathOrPipeline(record);' in js
+        assert 'const knowledgePipeline = runConfigValue(record, ["llm_knowledge_pipeline"]);' in js
+        assert 'const recipePipelineKey = recipePipeline == null ? "" : String(recipePipeline).toLowerCase();' in js
+        assert "const hasAnyPipelineSetting =" in js
         assert 'if (aiAssistanceProfileForRecord(record) === "deterministic") return null;' in js
         assert "function previousRunsAllTokenUseDisplay(row)" in js
         assert "function previousRunsAllTokenUseTitle(row)" in js
@@ -719,9 +720,9 @@ class TestRenderer:
         assert "function isOfficialGoldenBenchmarkRecord(record)" in js
         assert 'if (!path.includes("/benchmark-vs-golden/")) return false;' in js
         assert 'if (!path.includes("/single-book-benchmark/")) return false;' in js
-        assert 'const pathVariant = benchmarkVariantFromPathOrPipeline(record);' in js
-        assert '(pathVariant === "vanilla" && profile === "deterministic")' in js
-        assert '(pathVariant === "codex-exec" && profile === "full_stack")' in js
+        assert 'const variant = benchmarkVariantForRecord(record);' in js
+        assert '(variant === "vanilla" && profile === "deterministic")' in js
+        assert '(variant === "codex-exec" && profile === "full_stack")' in js
         assert 'const clearBtn = document.getElementById("previous-runs-clear-filters");' in js
         assert 'const clearAllBtn = document.getElementById("previous-runs-clear-all-filters");' in js
         assert "function clearAllPreviousRunsFilters()" in js
@@ -907,6 +908,7 @@ class TestRenderer:
         records = [
             {
                 "run_timestamp": "2026-03-04T08:12:01",
+                "benchmark_variant": "vanilla",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
                     "2026-03-04_08.00.00/single-book-benchmark/book_a/2026-03-04_08.12.01/vanilla"
@@ -922,6 +924,7 @@ class TestRenderer:
             },
             {
                 "run_timestamp": "2026-03-04T08:11:01",
+                "benchmark_variant": "codex-exec",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
                     "2026-03-04_08.00.00/single-book-benchmark/book_b/2026-03-04_08.11.01/codex-exec"
@@ -939,6 +942,7 @@ class TestRenderer:
             },
             {
                 "run_timestamp": "2026-03-04T08:10:01",
+                "benchmark_variant": "codex-exec",
                 "artifact_dir": (
                     "/tmp/golden/benchmark-vs-golden/seaandsmokecutdown/"
                     "2026-03-04_08.00.00/single-book-benchmark/book_c/2026-03-04_08.10.01/codex-exec"
@@ -1012,18 +1016,18 @@ class TestRenderer:
         assert result["vanilla_path_ai_off_effort_label"] == "AI off"
         assert result["line_role_only_effort_label"] == "Line-role only"
         assert result["line_role_only_profile_label"] == "Line-role only"
-        assert result["legacy_codex_exec_profile"] == "full_stack"
-        assert result["legacy_codex_exec_variant"] == "codex-exec"
-        assert result["legacy_codex_exec_official"] is True
-        assert result["legacy_vanilla_profile"] == "deterministic"
-        assert result["legacy_vanilla_variant"] == "vanilla"
-        assert result["legacy_vanilla_official"] is True
-        assert result["legacy_rundir_codex_exec_profile"] == "full_stack"
-        assert result["legacy_rundir_codex_exec_variant"] == "codex-exec"
-        assert result["legacy_rundir_codex_exec_official"] is True
-        assert result["legacy_rundir_vanilla_profile"] == "deterministic"
-        assert result["legacy_rundir_vanilla_variant"] == "vanilla"
-        assert result["legacy_rundir_vanilla_official"] is True
+        assert result["path_only_codex_profile"] == "recipe_only"
+        assert result["path_only_codex_variant"] == "recipe_only"
+        assert result["path_only_codex_official"] is False
+        assert result["path_only_vanilla_profile"] == "other"
+        assert result["path_only_vanilla_variant"] == "other"
+        assert result["path_only_vanilla_official"] is False
+        assert result["path_only_rundir_codex_profile"] == "recipe_only"
+        assert result["path_only_rundir_codex_variant"] == "recipe_only"
+        assert result["path_only_rundir_codex_official"] is False
+        assert result["path_only_rundir_vanilla_profile"] == "other"
+        assert result["path_only_rundir_vanilla_variant"] == "other"
+        assert result["path_only_rundir_vanilla_official"] is False
         assert result["unknown_effort_label"] == "Unknown"
 
     def test_per_label_full_stack_single_profile_uses_codex_exec_baseline(self, tmp_path):

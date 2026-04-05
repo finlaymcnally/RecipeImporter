@@ -111,15 +111,6 @@ def explicit_variant_for_record(record: Any) -> str | None:
     return _CANONICAL_VARIANT_BY_NORMALIZED_KEY.get(lowered)
 
 
-def artifact_variant_for_record(record: Any) -> str | None:
-    path = _benchmark_path(record)
-    if "/codex-exec/" in path or path.endswith("/codex-exec"):
-        return "codex-exec"
-    if "/vanilla/" in path or path.endswith("/vanilla"):
-        return "vanilla"
-    return None
-
-
 def ai_assistance_profile_for_record(record: Any) -> str:
     explicit = (
         _clean_config_value(_record_value(record, "ai_assistance_profile"))
@@ -141,26 +132,8 @@ def ai_assistance_profile_for_record(record: Any) -> str:
     if knowledge_pipeline is not None:
         surface_payload["llm_knowledge_pipeline"] = knowledge_pipeline
     surface = classify_codex_surfaces(surface_payload)
-    artifact_variant = artifact_variant_for_record(record)
-    official_paired = is_official_paired_benchmark_record(record)
-    recipe_on = recipe_pipeline is not None and recipe_pipeline.lower() != "off"
-    line_role_on = line_role_pipeline is not None and line_role_pipeline.lower() != "off"
-    if official_paired and artifact_variant == "codex-exec" and recipe_on and not line_role_on:
-        return "full_stack"
-    if (
-        official_paired
-        and artifact_variant == "vanilla"
-        and not recipe_on
-        and not line_role_on
-    ):
-        return "deterministic"
     if surface.ai_assistance_profile != "other":
         return surface.ai_assistance_profile
-    if official_paired and artifact_variant == "codex-exec":
-        return "full_stack"
-    if official_paired and artifact_variant == "vanilla":
-        return "deterministic"
-
     if run_config_value(
         record,
         (
@@ -186,7 +159,13 @@ def ai_assistance_profile_label_for_record(record: Any) -> str:
 
 def is_official_golden_benchmark_record(record: Any) -> bool:
     path = _benchmark_path(record)
-    return "/benchmark-vs-golden/" in path and "/single-book-benchmark/" in path
+    if "/benchmark-vs-golden/" not in path or "/single-book-benchmark/" not in path:
+        return False
+    variant = benchmark_variant_for_record(record)
+    profile = ai_assistance_profile_for_record(record)
+    return (variant == "vanilla" and profile == "deterministic") or (
+        variant == "codex-exec" and profile == "full_stack"
+    )
 
 
 def is_official_paired_benchmark_record(record: Any) -> bool:
@@ -201,18 +180,4 @@ def benchmark_variant_for_record(record: Any) -> str:
     if explicit is not None:
         return explicit
 
-    profile = ai_assistance_profile_for_record(record)
-    artifact_variant = artifact_variant_for_record(record)
-    if (
-        is_official_paired_benchmark_record(record)
-        and artifact_variant == "vanilla"
-        and profile == "deterministic"
-    ):
-        return "vanilla"
-    if (
-        is_official_paired_benchmark_record(record)
-        and artifact_variant == "codex-exec"
-        and profile == "full_stack"
-    ):
-        return "codex-exec"
-    return profile
+    return ai_assistance_profile_for_record(record)
