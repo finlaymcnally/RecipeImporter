@@ -10,7 +10,7 @@ The docs list script (`docs/docs-list.ts`) prints a summary of every markdown fi
 
 Do not run `docs:list` directly in the shell. In this repo `docs:list` is an npm script name declared in `package.json`, not a standalone executable on `PATH`.
 
-It now also enforces a plans-folder policy: any non-`.md` file under `docs/plans/` causes `docs:list` to exit non-zero and print the violating paths.
+It lists current docs under `docs/` and validates their front matter.
 
 `docs/build-docs-summary.sh` now runs this script and writes its raw output at the very top of each generated `*-docs-summary.md` file, but omits `plans/`, `tasks/`, and `understandings/` entries there and also skips embedding files under those folders.
 

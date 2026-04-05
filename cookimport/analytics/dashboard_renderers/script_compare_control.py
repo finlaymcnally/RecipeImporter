@@ -1794,6 +1794,12 @@ _JS_COMPARE_CONTROL = """\
   }
 
   function compareControlSourceRecords() {
+    if (typeof currentPreviousRunsFilterResult === "function") {
+      const filterResult = currentPreviousRunsFilterResult();
+      if (filterResult && Array.isArray(filterResult.records)) {
+        return filterResult.records;
+      }
+    }
     return filteredBenchmarks();
   }
 

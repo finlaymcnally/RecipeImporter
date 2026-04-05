@@ -783,7 +783,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         )
         typer.echo(f"candidate run roots: {result.total_run_roots}")
         typer.echo(f"candidate output run roots: {result.total_output_run_roots}")
-        if prune_book_cache or result.total_book_cache_entries or result.pruned_legacy_cache_dirs:
+        if prune_book_cache or result.total_book_cache_entries:
             typer.echo(f"candidate book-cache entries: {result.total_book_cache_entries}")
         typer.echo(f"full keep (policy): {result.policy_kept_run_roots}")
         if result.pinned_kept_run_roots:
@@ -813,8 +813,6 @@ def register(app: typer.Typer) -> dict[str, object]:
         typer.echo(f"estimated reclaim: {' '.join(reclaim_parts)}")
         if result.pruned_book_cache_entries:
             typer.echo(f"pruned book-cache entries: {result.pruned_book_cache_entries}")
-        if result.pruned_legacy_cache_dirs:
-            typer.echo(f"pruned legacy cache dirs: {result.pruned_legacy_cache_dirs}")
         typer.echo(f"history rows scanned: {result.history_rows_scanned}")
         typer.echo(f"history rows updated: {result.history_rows_updated}")
         typer.echo(f"history rows pruned: {result.history_rows_pruned}")

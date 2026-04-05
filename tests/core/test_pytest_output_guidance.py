@@ -58,7 +58,7 @@ def test_failure_hints_prefer_compact_scoped_rerun(monkeypatch) -> None:
 
     tests_conftest._emit_failure_hints(_Reporter())
 
-    assert "log: docs/02-cli/02-cli_log.md" in lines
+    assert not any(line.startswith("log: docs/") for line in lines)
     assert "rerun: pytest tests/cli/test_cli_limits.py::test_cli_help" in lines
     assert any(
         line.startswith("deep-debug: after a scoped compact rerun")

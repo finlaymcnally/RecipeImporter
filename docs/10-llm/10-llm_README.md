@@ -370,7 +370,7 @@ Prompt/debug artifacts:
 - preview-only runs may not have `var/run_assets/<run_id>/`; in that case prompt reconstruction falls back to pipeline metadata in `llm_pipelines/`
 - preview reconstruction is intentionally preview-only. Do not add a fake execution path into the live orchestrators just to make prompt previews work.
 - prompt artifacts are stage-named now (`stage_key`, `stage_label`, `stage_artifact_stem`) and emit stage-named files such as `prompt_nonrecipe_finalize.txt`
-- active knowledge-stage follow-up/debug surfaces should use semantic `knowledge` selectors and audit names. Older numbered stage labels belong only to archived local readers.
+- active knowledge-stage follow-up/debug surfaces should use semantic `knowledge` selectors and audit names only.
 
 Run-level observability note:
 - `stage_observability.json` at the run root is the canonical stage index. The recipe and knowledge manifests above are stage-local detail, not a second naming system.
@@ -420,7 +420,6 @@ Structured output contract:
 
 ## Related docs
 
-- `docs/10-llm/10-llm_log.md`
 
 ## Recent Durable Notes
 

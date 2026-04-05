@@ -9,8 +9,6 @@ read_when:
 # Architecture Readme
 
 This is the source of truth for current architecture behavior under `docs/01-architecture`.
-For architecture versions, build/fix-attempt history, and anti-loop notes, read `docs/01-architecture/01-architecture_log.md`.
-
 Code verification references:
 - `pyproject.toml`
 - `cookimport/cli.py`

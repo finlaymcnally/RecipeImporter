@@ -221,7 +221,6 @@ def run_benchmark_gc(
 
     book_cache_entries: list[_BookCacheEntry] = []
     pruned_book_cache_entries: list[_BookCacheEntry] = []
-    legacy_cache_dirs: list[Path] = []
     resolved_book_cache_root = resolve_book_cache_root(book_cache_root)
     if prune_book_cache:
         book_cache_entries = _collect_book_cache_entries(resolved_book_cache_root)
@@ -231,13 +230,9 @@ def run_benchmark_gc(
             max_age_days=book_cache_max_age_days,
             max_bytes=book_cache_max_bytes,
         )
-        legacy_cache_dirs = _collect_legacy_cache_dirs(
-            golden_root=golden_root,
-            output_root=output_root,
-        )
     reclaimed_book_cache_bytes = sum(
         entry.size_bytes for entry in pruned_book_cache_entries
-    ) + sum(_directory_size(path) for path in legacy_cache_dirs)
+    )
 
     if not dry_run:
         for run in confirmed_pruned:
@@ -268,12 +263,6 @@ def run_benchmark_gc(
                     entry.path.unlink()
             except OSError as exc:
                 warnings.append(f"Failed to remove {entry.path}: {exc}")
-        for legacy_cache_dir in legacy_cache_dirs:
-            try:
-                shutil.rmtree(legacy_cache_dir)
-            except OSError as exc:
-                warnings.append(f"Failed to remove {legacy_cache_dir}: {exc}")
-
     return BenchmarkGcResult(
         dry_run=dry_run,
         keep_full_runs=keep_full_runs,
@@ -309,7 +298,7 @@ def run_benchmark_gc(
         total_book_cache_entries=len(book_cache_entries),
         pruned_book_cache_entries=len(pruned_book_cache_entries),
         reclaimed_book_cache_bytes=reclaimed_book_cache_bytes,
-        pruned_legacy_cache_dirs=len(legacy_cache_dirs),
+        pruned_legacy_cache_dirs=0,
         warnings=tuple(warnings),
     )
 
@@ -370,21 +359,6 @@ def _select_book_cache_entries_to_prune(
     elif max_age_days is None:
         kept_paths = {entry.path for entry in entries}
     return [entry for entry in entries if entry.path not in kept_paths]
-
-
-def _collect_legacy_cache_dirs(*, golden_root: Path, output_root: Path) -> list[Path]:
-    seen: set[Path] = set()
-    collected: list[Path] = []
-    for root in (golden_root, output_root):
-        if not root.exists() or not root.is_dir():
-            continue
-        for pattern in ("**/.deterministic-prep-cache", "**/.split-cache"):
-            for path in root.glob(pattern):
-                if not path.is_dir() or path in seen:
-                    continue
-                seen.add(path)
-                collected.append(path)
-    return collected
 
 
 def _collect_benchmark_run_roots(

@@ -1,543 +1,325 @@
 ---
-summary: "Plain-English walkthrough for humans of what cookimport does, how it works, and where AI fits."
+summary: "Plain-English walkthrough for humans of the program"
 read_when:
   - Coding agents, DO NOT READ
-  - This is the simple human-friendly explanation of the program
-  - When someone wants to understand the project without code or pipeline jargon
+  - This is a simple explaination for simple humans.
 ---
 
-# Plain-English Explanation of `cookimport`
+# A-to-Z
 
-This document is for a normal human who wants to understand what this project does without reading code and without getting buried in technical language.
+This is the current plain-English story of how a cookbook moves through the program from start to finish.
 
-If `docs/AI_context.md` is the "serious architecture handoff for another AI," this file is the "tell me what this thing actually is and why it is built this way" version.
+This document is written from the intended product perspective: the normal "fully on" workflow is the Codex-backed one. The deterministic-only or "vanilla" path still matters, but mostly as a zero-token baseline, a fallback path, a debugging reference, and a benchmark comparison surface.
 
-## Short version
+So when this doc talks about what the program "does," read that as "what the program is trying to do in its real end-state workflow," not "the cheapest possible run with every AI-assisted stage turned off."
 
-`cookimport` is a tool for taking messy cookbook-like sources and turning them into clean, structured recipe data plus useful evidence about how that data was produced.
+A note to AI editors: keep this as a plain-language product walkthrough. Artifact names are fine when they help explain the product, but constant file-by-file references make this harder to read.
 
-It can work with things like:
+## Start of a run
 
-- PDFs
-- EPUBs
-- spreadsheets
-- Word docs
-- markdown/text files
-- Paprika exports
-- RecipeSage exports
-- some web/schema-style sources
+Every `cookimport stage` run starts by creating a new timestamped output folder and locking in the important behavior choices for that run.
 
-The project is not just trying to "scrape recipes."
+In the product's intended "real" workflow, that usually means turning on the Codex-backed review passes and deciding how aggressively to shard them. The safe/off defaults mostly exist so the repo can support zero-token testing, benchmarking, debugging, and explicit execution consent.
 
-It is trying to do something stricter:
+The most important settings at the start of a run are:
 
-1. read a source in a reliable way
-2. break it into a clean internal representation
-3. decide what is recipe material and what is not
-4. turn recipe material into structured recipe outputs
-5. keep enough evidence and artifacts around that a human or another tool can check what happened later
+- `workers`: the overall process parallelism cap for the run
+- `pdf_split_workers`: how many worker slots one split PDF is allowed to use
+- `epub_split_workers`: how many worker slots one split EPUB is allowed to use
+- `pdf_pages_per_job`: how many PDF pages go into one split source-conversion job
+- `epub_spine_items_per_job`: how many EPUB spine items go into one split source-conversion job
+- `epub_extractor`: which EPUB extraction engine to use
+- `pdf_ocr_policy`: whether PDF OCR is off, automatic, or forced on
+- `line_role_pipeline`: whether Codex reviews and corrects line/block labels before recipe grouping
+- `llm_recipe_pipeline`: whether Codex runs the recipe-refine stage after recipe boundaries are accepted
+- `llm_knowledge_pipeline`: whether Codex runs non-recipe finalize on the surviving outside-recipe candidate queue
+- `codex_exec_style`: whether line-role and non-recipe finalize use editable `task.json` workers or inline JSON prompts
+- `codex_farm_model`: an explicit model override for enabled Codex-backed stages
+- `codex_farm_reasoning_effort`: an explicit reasoning override for enabled Codex-backed stages
+- `recipe_prompt_target_count`: the requested shard count for recipe-refine workers
+- `line_role_prompt_target_count`: the requested shard count for line-role workers
+- `knowledge_prompt_target_count`: the requested shard count for non-recipe finalize workers
+- `ingredient_text_fix_backend`, `ingredient_pre_normalize_mode`, `ingredient_packaging_mode`, `ingredient_parser_backend`, `ingredient_unit_canonicalizer`, and `ingredient_missing_unit_policy`: the main ingredient-parsing behavior knobs
+- `write_markdown`: whether the run writes human-readable markdown sidecars such as `sections.md`, `tables.md`, and `chunks.md`
 
-That last part matters a lot. This project cares about provenance, reviewability, and clean boundaries between deterministic logic and AI judgment.
+If a Codex-backed stage is enabled, explicit model overrides win. Otherwise the run uses discovered config or pipeline defaults. The product does not invent a fake hard-coded model id just because the UI could not discover one.
 
-## What the project is really for
+Then the importer registry looks at each input file and picks the importer that best matches that source type.
 
-Imagine you have a cookbook, export, or recipe collection that is messy, inconsistent, and hard to work with.
+## What importers are really doing
 
-Maybe:
+Importers read the source and preserve as much useful structure as they can for the shared stage pipeline.
 
-- recipes are mixed with intros, stories, tips, and reference material
-- formatting changes from page to page
-- one source type behaves very differently from another
-- some things are obviously recipes and some things are not
-- some parts are easy for normal code to understand and some parts need fuzzier judgment
+There are three practical importer shapes in the current repo.
 
-`cookimport` exists to turn that mess into something structured and reusable.
+Some importers are record-first. These are used when the source already has a meaningful row-like or record-like structure, so preserving that structure is more honest than pretending the file started as free-flowing prose.
 
-The outputs can then be used for things like:
+Current record-first importers are:
 
-- importing recipes into another system
-- reviewing recipe extraction quality
-- generating tasks for human labeling or correction
-- running benchmarks to compare methods
-- producing analytics and debugging artifacts
+- Excel
+- text / markdown / DOCX
 
-So the project is not just a "converter."
+In plain English, these importers start from things like rows, paragraphs, fields, or small document units and try to keep those units intact as they build canonical source blocks.
 
-It is closer to a careful processing pipeline with strong bookkeeping.
+That does not mean they avoid blocks. They still end up producing canonical source blocks. The difference is that the importer trusts the source's small native units first, then turns those units into blocks.
 
-## The most important idea in the whole repo
+Excel is the clearest example: a worksheet row is already a meaningful source unit, so the importer preserves row identity instead of pretending the sheet was one continuous document stream.
 
-The biggest thing to understand is this:
+Text and markdown are similar in a simpler way: the importer mostly trusts line-level or small-section structure that already exists in the file.
 
-The project has moved away from the old idea of "whatever the importer says is truth."
+DOCX sits in this bucket in the current repo for practical implementation reasons. The current DOCX path mostly treats the file as extracted paragraphs or table rows. It does not try to recover a rich whole-document flow the way the EPUB importer does.
 
-Instead, it now works more like this:
+Some importers are block-first. These are used when the source is really a document stream, not a clean record set, so the importer's job is to recover one ordered archive of document blocks as faithfully as possible.
 
-- importers gather source material
-- a shared central pipeline makes the important meaning decisions
-- the final outputs and evidence come from that shared pipeline
-
-That means the importer is not supposed to be the final boss.
-
-The importer helps turn a source into a standard internal form.
-After that, the shared processing pipeline is what decides what counts as recipe content, what counts as non-recipe content, and what the final outputs should look like.
-
-If you understand that one idea, the rest of the design makes much more sense.
-
-## What kinds of sources it can handle
-
-The tool supports several families of inputs.
-
-### Book-like files
-
-These are the big, messy sources where structure is often implied rather than explicit.
-
-Examples:
+Current block-first importers are:
 
 - PDF
 - EPUB
 
-These are especially important because they often need splitting, merging, and more careful processing.
+In plain English, these importers start from things like pages, spine items, paragraphs, headings, and extracted fragments, then turn that document flow into one ordered stream of canonical source blocks.
 
-### Text-like sources
+This is why EPUB is grouped with PDF instead of with DOCX. Even though EPUB is technically a packaged HTML-like format, the repo treats it as a flowing document with spine order, extracted HTML structure, and block ordering that must be recovered first.
 
-These are sources that are already fairly text-friendly.
+So the practical distinction is not "does this source eventually become blocks?" They all do. The distinction is "what does the importer believe the truthful source unit is before canonicalization?"
 
-Examples:
+Some importers are structured-export-first. These are used when the source is already an exported recipe-oriented format with named fields or explicit recipe objects.
 
-- markdown
-- plain text
-- DOCX
+Current structured-export-first importers are:
 
-### Record-like sources
+- Paprika
+- RecipeSage
+- webschema
 
-These are more structured from the start.
+These importers preserve that exported structure as much as they can, but they still hand off to the shared stage pipeline instead of claiming final recipe authority on their own.
 
-Examples:
+So the choice is not a runtime "mode switch" where the same importer decides to be block-first one day and record-first the next. It is a design choice based on the shape of the source:
 
-- spreadsheets
-- exported recipe collections
+- if the source is naturally row-like or field-like, preserve records
+- if the source is naturally one flowing document, preserve ordered blocks
+- if the source is already a structured recipe export, preserve the recipe objects and fields as long as possible
 
-### Already somewhat structured recipe sources
+For that reason, the current DOCX treatment is partly a product choice and partly an implementation choice. If the repo later grows a much richer DOCX document-structure importer, it could make sense to describe DOCX differently. Right now the current implementation is closer to text-like source-unit preservation than to EPUB-style document-flow recovery.
 
-Examples:
+The important rule is that all of them converge on the same kind of bundle:
 
-- Paprika exports
-- RecipeSage exports
-- some schema/web inputs
-
-These are usually easier in some ways, but they still need to pass through the same shared truth-making pipeline if they are going through the main stage flow.
-
-## What happens when you process a source
-
-At a high level, the tool does not jump straight from "input file" to "final recipes."
-
-It moves through a set of steps.
-
-## Step 1: pick the right importer
-
-The tool first asks:
-
-"What kind of source is this, and which importer is best suited to read it?"
-
-Different importers know how to deal with different source types.
-
-But the importer's job is mainly to normalize the source, not to declare final recipe truth.
-
-That is a very important distinction.
-
-## Step 2: turn the source into a standard internal form
-
-Once the right importer is chosen, the source gets converted into a common internal representation.
-
-You can think of this as:
-
-"Take all these weird source types and get them into one house style so the rest of the pipeline can reason about them consistently."
-
-That internal form includes things like:
-
-- source blocks
-- supporting evidence
+- canonical source blocks
+- optional source-support proposals
 - raw artifacts
-- reports about what was found
+- a report
 
-This is the stage where the tool becomes less about "what kind of file was this?" and more about "what content is actually here?"
+Those source-support proposals are hints, not authority. For example, the text importer can still suggest candidate recipe regions, but those are truthful source coordinates for later review, not final recipe decisions.
 
-## Step 3: run the shared semantic pipeline
+For normal stage-backed flows, importers are source normalizers. They do not publish final recipe truth or final non-recipe truth.
 
-This is the center of the system.
+## Split jobs and merge
 
-The current main flow has five named stages:
+Large PDFs may be split by page range. Large EPUBs may be split by spine range.
 
-1. extract
-2. recipe-boundary
-3. recipe-refine
-4. nonrecipe-route
-5. nonrecipe-finalize
+The split covers the early source-conversion work. After that, the run returns to one shared semantic pipeline.
 
-Those names are more important than old historical stage nicknames.
+Each job converts only its assigned range and returns a partial source model plus raw extraction artifacts. If any job fails, the run stops before the shared semantic session for that source and keeps the temporary job artifacts for debugging.
 
-Here is what they mean in human language.
+If all jobs succeed, the program merges them back together in source order. It rebases block indexes, merges support data, rebuilds the whole-book text view, moves raw artifacts into the normal run tree, and only then runs one shared semantic session on the merged whole-book result.
 
-### Extract
+That rule matters: for split sources, semantic authority is decided once on the merged book.
 
-Get the source material into the main working bundle the rest of the system will use.
+## The real center of the pipeline
 
-This is where the project says:
+After conversion and any split-job merge, the book goes through one shared five-stage runtime:
 
-"Here is the book or source as the shared pipeline will see it."
+- `extract`
+- `recipe-boundary`
+- `recipe-refine`
+- `nonrecipe-route`
+- `nonrecipe-finalize`
 
-### Recipe boundary
+That five-stage runtime is the real center of the product. Importer output enters it as a source bundle, and those five stages decide what the final authority will be.
 
-Figure out what parts of the source actually belong to recipes.
+## `extract`
 
-This is not the same as fully understanding every recipe yet.
-It is more about deciding which blocks of material belong inside recipe ownership and which do not.
+`extract` rebuilds the importer result into one shared internal book shape that the later stages all understand.
 
-### Recipe refine
+This is where the program establishes:
 
-Take the material that belongs to recipes and produce better recipe-level meaning from it.
+- one canonical ordered block archive
+- one atomic line view for line-role decisions
+- normalized source-support data
+- shared book-level context for later recipe and non-recipe work
 
-This can include AI help when enabled, but the repo still validates and shapes the final result carefully.
+The point is simple: every later stage reasons over the same internal coordinates and the same shared book structure.
 
-### Nonrecipe route
+## `recipe-boundary`
 
-Look at the material that is outside recipes and decide what should even be considered for further non-recipe handling.
+`recipe-boundary` is where recipe ownership becomes authoritative.
 
-Some things are obvious junk.
-Some things are obviously not useful.
-Some things are possible knowledge or supporting material worth keeping.
+This stage is label-first.
 
-This stage is about routing that outside-recipe material sensibly.
+It starts with `label_deterministic`, which creates the deterministic line and block labels. That pass answers practical questions like:
 
-### Nonrecipe finalize
+- is this line title-like
+- is this line an ingredient line
+- is this line an instruction line
+- is this line note-like
+- does this line belong inside a recipe or outside it
+- if it is outside, should it stay alive for later non-recipe review
 
-Make the final call about the outside-recipe material that survived routing.
+That deterministic pass still matters even in the intended Codex-backed workflow. It gives the run a reproducible baseline, a bounded review surface, and a clear artifact trail for later validation.
 
-This is where the system decides what is meaningful knowledge and what is just "other."
+In the intended AI-first path, `label_refine` then reviews those labels in bounded worker sessions. The exact worker transport can vary, but repo code still owns shard planning, validation, repair, and final acceptance. There is no hidden live-path fallback where repo code silently swaps invalid worker output back to deterministic rows and pretends nothing happened.
 
-## Why the recipe and non-recipe split matters
+After labeling, `recipe-boundary` groups the accepted recipe lines into candidate spans and decides which of those spans count as real recipes.
 
-Cookbook-like sources do not contain only recipes.
+An accepted recipe span now needs both:
 
-They also contain:
+- a title anchor
+- real body proof such as ingredients, instructions, or yield/time structure
 
-- introductions
-- headnotes
-- memoir-ish writing
-- kitchen advice
-- reference sections
-- nutrition notes
-- sidebars
-- obvious junk
-- layout leftovers
+That rule exists because cookbook sources are full of recipe-shaped material such as tables of contents, sidebars, shopping lists, and index fragments.
 
-A weak recipe importer often smashes all of that together and hopes for the best.
+So `recipe-boundary` is both a grouping stage and a rejection stage. It accepts real recipe spans and rejects pseudo-recipes before they can turn into final recipes later.
 
-This project does not want to do that.
+If the stage accepts zero recipes, that zero is the answer. There is no separate importer recipe count that gets the last word. The debugging surface is the span artifacts themselves: `recipe_spans.json` shows what was accepted, and `span_decisions.json` shows both accepted spans and rejected pseudo-recipes with reasons.
 
-It wants a clean answer to questions like:
+By the end of `recipe-boundary`, the run knows:
 
-- which blocks belong to a recipe?
-- which blocks are useful but outside the recipe?
-- which blocks are neither and should be ignored?
+- which spans are real recipes
+- which blocks belong to those recipes
+- which lines stay outside recipes
+- which normalized labels drive the later stages
 
-That separation is one of the things that makes the repo feel more serious than a one-shot converter.
+This is also where the run creates the recipe block-ownership contract that later stages must obey.
 
-## Where AI fits in
+## `recipe-refine`
 
-AI is part of the project, but it is not supposed to own everything.
+Once accepted recipe spans exist, `recipe-refine` turns each one into an actual recipe object.
 
-The repo has a strong philosophy here.
+`recipe-boundary` decides ownership. `recipe-refine` decides recipe shape.
 
-### Deterministic code should own:
+This stage handles the common recipe business logic:
 
-- file and path handling
-- IDs
-- normalization
-- validation
-- artifact writing
-- report generation
-- final packaging
-- making sure boundaries stay clean
+- title normalization
+- ingredient parsing
+- instruction parsing
+- step segmentation
+- yield and time extraction
+- temperature extraction
+- ingredient-to-step linking
+- note handling
+- variant handling
+- tag handling
 
-### AI should own the fuzzy semantic judgment parts
+This is the stage where the main recipe Codex pass runs. The public recipe pipeline is `codex-recipe-shard-v1`.
 
-Things like:
+That Codex pass is a refinement layer inside already-accepted recipe boundaries.
 
-- tricky line-role decisions
-- recipe refinement/correction
-- deciding whether some outside-recipe material is meaningful knowledge or just other material
-- freeform labeling suggestions
+Recipe Codex outcomes are explicit now. A valid task result can be:
 
-In simple terms:
+- `repaired`
+- `fragmentary`
+- `not_a_recipe`
 
-The normal code should package evidence and enforce rules.
-The AI should make the fuzzy calls.
+Only `repaired` promotes into final recipe authority. `fragmentary` and `not_a_recipe` remain visible in runtime artifacts as non-promoted outcomes.
 
-What the repo explicitly does not want is normal deterministic code pretending it is smart enough to silently "fix" ambiguous meaning on its own.
+One important current rule is that `recipe-refine` cannot silently change block ownership just by changing recipe text or provenance. If it wants to give a block back, it must do that explicitly through divestment. Only blocks that were never recipe-owned, or were later explicitly divested, may enter the non-recipe lane.
 
-That is considered dangerous here.
+After the Codex pass, repo code still validates the result, normalizes it, builds authoritative recipe payloads, builds intermediate `schema.org Recipe JSON`, and then builds the final `cookbook3` output. Even in the AI-first workflow, deterministic repo code still owns the final write path.
 
-## So is this an AI-first project?
+## `nonrecipe-route`
 
-Not exactly.
+After recipe ownership is settled, everything that is still outside recipe ownership moves into `nonrecipe-route`.
 
-It is better to think of it as:
+This stage handles routing and bookkeeping for outside-recipe material.
 
-- deterministic first in structure
-- optional AI for hard semantic judgments
-- deterministic validation and writing at the end
+Its job is to:
 
-That is different from a project that just throws a whole file at an LLM and trusts whatever comes back.
+- exclude rows that the upstream line-label stage already marked as obvious junk
+- keep worthwhile survivors alive for later review
+- record why each row survived or was excluded
 
-This repo is trying to preserve clean boundaries between:
+Some rows become final right here. The line-label stage can already mark outside-recipe rows with exclusion reasons such as navigation, front matter, publishing junk, endorsements, copyright/legal text, publisher promos, or page furniture. `nonrecipe-route` does not invent those calls on its own. It honors them and excludes those rows immediately as final `other`.
 
-- gathering evidence
-- making semantic judgments
-- validating those judgments
-- writing durable outputs
+Surviving outside-recipe text then moves into one category-neutral candidate queue for the later knowledge stage, where the harder semantic judgment happens.
 
-## What gets written out
+By the end of `nonrecipe-route`, the run has:
 
-One of the major goals of the project is not just "produce results."
+- final obvious-junk exclusions
+- one candidate queue of surviving outside-recipe rows
+- routing metadata that explains why rows survived or were excluded
 
-It is also "leave behind enough useful artifacts that someone can inspect what happened."
+This is why the run writes separate routing and final-authority artifacts.
 
-Depending on the run and settings, outputs can include things like:
+## `nonrecipe-finalize`
 
-- final recipe drafts
-- intermediate recipe outputs
-- sections and chunks
-- raw source artifacts
-- manifests
+`nonrecipe-finalize` is the final semantic owner of reviewable outside-recipe material.
+
+In the intended product workflow, this stage is on. The off path still exists so the repo can do deterministic baselines, zero-token rehearsals, and fallback behavior when needed.
+
+The public knowledge pipeline is `codex-knowledge-candidate-v2`.
+
+Before the model sees anything, repo code partitions the surviving candidate queue into ordered candidate shards and assigns those shards to workers. Repo code owns shard sizing, ordering, block ownership, validation, and promotion back into the final stage result.
+
+The worker-facing transport can vary by run settings. In some runs the worker edits repo-written `task.json` files. In others the worker answers inline JSON prompts. That implementation detail can change, but the authority boundary does not: repo code still decides which blocks are eligible, validates the returned structure, and only promotes accepted answers.
+
+The semantic review is still split into two jobs:
+
+- classification decides, block by block, whether each candidate row is final `knowledge` or final `other`
+- grouping runs only on rows already kept as `knowledge` and groups related rows under topic labels
+
+So the model decides:
+
+- which reviewed rows are real `knowledge`
+- which reviewed rows are just `other`
+- which kept `knowledge` rows belong together as one related idea group
+
+The reviewed results are then validated and promoted back into the stage-owned authority model.
+
+This is the place where the system makes its final semantic claim about outside-recipe prose:
+
+- this passage is real cooking knowledge
+- this passage is just other outside-recipe material
+- this passage was excluded earlier and never came back into play
+
+In artifact terms:
+
+- `08_nonrecipe_route.json` is the deterministic routing view
+- `09_nonrecipe_authority.json` is the final machine-readable truth
+- `09_nonrecipe_knowledge_groups.json` records the promoted model-authored related-idea groups
+- `09_nonrecipe_finalize_status.json` explains what was reviewed, skipped, changed, or left unresolved
+
+If reviewer-facing knowledge output is written, `knowledge.md` is the readable rendering of those promoted authority decisions and groups.
+
+If this stage is disabled or falls back, the run still keeps the routing and status artifacts and can still build deterministic late outputs from the surviving outside-recipe block list. That is the backup path, not the main product story.
+
+## Late outputs
+
+Once recipe and outside-recipe authority are settled, the program can safely build the downstream artifacts that depend on them.
+
+That includes:
+
+- authoritative recipe payloads
+- intermediate `schema.org Recipe JSON`
+- final `cookbook3` drafts
+- sections
+- tables
+- deterministic chunks when non-recipe finalize is off
+- reviewer-facing knowledge artifacts when non-recipe finalize runs
+- raw artifacts
 - reports
-- benchmark inputs and results
-- Label Studio tasks or exports
-- AI runtime artifacts
-- analytics history
+- benchmark-facing `stage_block_predictions.json`
+- run manifest, summary, and observability files
 
-So a run is not just one final JSON file.
+Sections come from the finalized recipe side.
 
-It is more like a timestamped folder of outputs and evidence.
+Tables follow the late-output outside-recipe block list. They are always extracted for stage-backed flows.
 
-## Why the timestamped folders matter
+Deterministic chunks are the fallback late-output lane when non-recipe finalize is off or falls back. In the intended AI-backed workflow, the run writes reviewed knowledge artifacts instead of `chunks/` files.
 
-The project writes runs into timestamped folders so different runs stay separate and inspectable.
+If non-recipe finalize produced reviewed outside-recipe authority, that late-output list is the authoritative outside-recipe rows.
 
-That helps with things like:
+If non-recipe finalize is off or falls back, that late-output list is instead the surviving candidate queue from `nonrecipe-route`, so the run can still build useful deterministic tables and chunks without pretending that unreviewed rows are final truth.
 
-- comparing runs
-- benchmarking changes
-- keeping provenance straight
-- avoiding confusion about which artifacts came from which execution
+`stage_block_predictions.json` matters because it is the run's block-level benchmark evidence after the real authority decisions have already happened.
 
-This project cares a lot about reproducibility and auditability, so the run folder structure is part of the design, not an afterthought.
+It also follows the stricter current ownership rule: recipe-owned blocks and final non-recipe `knowledge` are not supposed to overlap. If the runtime ever sees both on the same block, that is treated as a bug or invariant violation, not as a normal merge case where one side quietly wins.
 
-## Why split jobs and merge behavior exist
-
-Some inputs, especially big PDFs and EPUBs, are too awkward or too large to handle as one giant undifferentiated chunk.
-
-So the project can split work into source jobs and then merge those jobs back together before the main shared semantic pipeline makes final decisions.
-
-This matters because:
-
-- it helps with large inputs
-- it helps with source ranges
-- it keeps processing manageable
-- it still preserves one shared truth-making pass later
-
-That last point is the key.
-
-Splitting does not mean each piece gets to invent its own final truth forever.
-The split pieces come back together so the shared semantic pipeline can decide meaning on the merged whole.
-
-## What Label Studio is doing here
-
-Label Studio support exists because sometimes you want human labeling, human review, or benchmark-style evaluation around the processing pipeline.
-
-In practice, this means the project can:
-
-- generate tasks for labeling
-- upload tasks when that is explicitly intended
-- export or compare reviewed results
-- reuse stage-backed truth for benchmark flows
-
-The important design idea is that Label Studio flows are supposed to reuse the same underlying truth model, not create a completely separate competing one.
-
-## What benchmarks are for
-
-The benchmark side of the repo exists so the author can compare methods, measure changes, and inspect quality over time.
-
-This is not just a "does it run?" repo.
-
-It is also a:
-
-- how good is this result?
-- what got better?
-- what got worse?
-- which method should I trust more?
-
-kind of repo.
-
-That is why there is so much emphasis on artifacts, evidence, manifests, follow-up bundles, and evaluation surfaces.
-
-## Why there are so many artifacts
-
-From the outside, the repo can look artifact-heavy.
-
-That is intentional.
-
-A project like this becomes much easier to trust when it leaves behind:
-
-- what input it saw
-- what it thought the source blocks were
-- what got classified as recipe
-- what stayed outside recipe
-- what final outputs were written
-- what the AI did
-- what got promoted
-- what got rejected
-
-Without those artifacts, it becomes much harder to debug, benchmark, or review.
-
-## What the final outputs are supposed to be
-
-There are two important user-facing ideas here:
-
-### Intermediate recipe outputs
-
-These are roughly described as:
-
-`schema.org Recipe JSON`
-
-### Final recipe outputs
-
-These are roughly described as:
-
-`cookbook3`
-
-Internally you may still see names like `RecipeDraftV1`, but the human-facing idea is:
-
-- intermediate recipe structure
-- final cookbook-ready structure
-
-## What "truth" means in this project
-
-One reason this repo can feel complicated is that it cares a lot about where truth is decided.
-
-Here is the simple version.
-
-### Importers are not supposed to be final truth
-
-They help turn a source into the standard internal form.
-
-### The shared stage pipeline is the main truth-making system
-
-This is where recipe ownership, recipe meaning, and non-recipe meaning get decided.
-
-### Artifacts and manifests are important records of that truth
-
-They are what downstream tools and reviewers should trust first when there is disagreement.
-
-That is why the repo is so careful about boundaries.
-
-If every stage started quietly inventing its own private truth, the whole pipeline would become much harder to trust.
-
-## A good mental model for the whole thing
-
-If you are trying to explain this project to someone in one paragraph, this is a decent version:
-
-`cookimport` is a local processing pipeline for cookbook-like sources. It reads many source types, normalizes them into a shared internal form, runs one central multi-stage pipeline to decide what is recipe material and what is not, optionally uses AI for the ambiguous semantic parts, and writes both structured outputs and lots of supporting artifacts so the results can be reviewed, benchmarked, and reused.
-
-## What the project is not
-
-It is not mainly:
-
-- a simple one-file converter
-- a pure scraper
-- a giant prompt wrapped in a CLI
-- a system where importers make all the important decisions
-- a system where AI is trusted without validation
-
-Those are all useful contrasts, because they explain why the project has the shape it has.
-
-## Why the project feels "serious"
-
-The repo is trying to be careful in a few specific ways:
-
-- it separates source reading from final semantic judgment
-- it separates recipe from non-recipe material
-- it keeps deterministic and AI responsibilities distinct
-- it writes lots of evidence and artifacts
-- it supports review and benchmark flows instead of only happy-path conversion
-- it tries to keep truth centralized rather than duplicated
-
-That combination gives the project a different feel from a quick script or a one-shot AI importer.
-
-## A normal-human walkthrough of one run
-
-Here is a simple mental picture of what happens.
-
-### You give the tool a source
-
-For example:
-
-- a cookbook PDF
-- an EPUB
-- a recipe export file
-
-### The tool picks the right importer
-
-It figures out how to read that source.
-
-### The source gets normalized
-
-The source is converted into a standard internal shape the rest of the system can understand.
-
-### The main processing pipeline takes over
-
-It works through the current shared stages:
-
-- extract
-- recipe-boundary
-- recipe-refine
-- nonrecipe-route
-- nonrecipe-finalize
-
-### Optional AI help may be used
-
-If enabled, AI helps with the fuzzy semantic calls.
-
-### Deterministic code validates and writes outputs
-
-The repo code makes sure the outputs are well-formed and writes the final files plus all the supporting artifacts.
-
-### You end up with a timestamped run folder
-
-Inside that folder are the main outputs and the evidence needed to inspect what happened.
-
-## Why a plain-English doc like this exists
-
-The repo has very detailed technical docs, and those are useful.
-
-But sometimes you do not want:
-
-- file paths
-- type names
-- internal package boundaries
-- every little runtime contract
-
-Sometimes you just want to know:
-
-- what is this thing?
-- what is it trying to do?
-- where does AI fit?
-- why are there so many steps?
-- why so many artifacts?
-
-That is what this document is for.
-
-## The one-sentence takeaway
-
-`cookimport` is a careful recipe-import pipeline that turns messy cookbook sources into structured outputs by combining deterministic evidence-handling, optional AI judgment for ambiguous meaning, and a lot of artifact-writing so the whole process stays reviewable and trustworthy.
+So the end of the run is: let the AI-assisted stages make the fuzzy semantic calls, let deterministic repo code validate and package those decisions, write recipe authority, write non-recipe authority, write the downstream artifacts built from those decisions, and write enough observability to explain the run later.

@@ -3,14 +3,12 @@ summary: "Code-verified parsing reference focused on current behavior, contracts
 read_when:
   - When changing ingredient parsing, instruction metadata extraction, step-ingredient linking, or EPUB recipe segmentation
   - When changing chunk/highlight extraction, knowledge chunking, or chunk lane mapping
-  - When reconciling parsing docs against code/tests (use `04-parsing_log.md` for historical attempts)
+  - When reconciling parsing docs against code/tests
 ---
 
 # Parsing: Consolidated System Reference
 
 This file is the source of truth for current parsing behavior.
-
-Historical architecture versions, builds, and fix attempts now live in `docs/04-parsing/04-parsing_log.md`.
 
 ## What This Covers
 
@@ -22,11 +20,6 @@ Historical architecture versions, builds, and fix attempts now live in `docs/04-
 - Knowledge chunk generation, lane assignment, and highlight extraction
 - Output artifacts and where they are written
 - Current limitations / sharp edges
-
-## History and Prior Attempts
-
-- Architecture versions, build notes, and fix attempts: `docs/04-parsing/04-parsing_log.md`
-- If debugging starts looping, check the log first before trying a new approach.
 
 ## Where The Parsing Code Lives
 

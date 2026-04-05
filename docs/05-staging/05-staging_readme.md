@@ -3,14 +3,12 @@ summary: "Code-verified staging/output reference focused on current behavior, co
 read_when:
   - When changing output paths, filenames, IDs, or report artifacts
   - When modifying draft-v1 conversion or Cookbook staging contract invariants
-  - When debugging split-job merge output ordering/raw artifacts (use 05-staging_log.md for historical attempts)
+  - When debugging split-job merge output ordering/raw artifacts
 ---
 
 # 05 Staging: System Reference
 
 This file is the source of truth for current staging behavior.
-
-Historical architecture versions, builds, and fix attempts live in `docs/05-staging/05-staging_log.md`.
 
 ## Why This Exists
 
@@ -24,11 +22,6 @@ Staging is the boundary between importer/parsing internals and persisted artifac
 - Split-job merge behavior for PDF/EPUB inputs
 - Current limitations and regression-sensitive paths
 - Tests that should stay green when touching staging
-
-## History and Prior Attempts
-
-- Architecture versions, build notes, and fix attempts: `docs/05-staging/05-staging_log.md`
-- If debugging starts looping, check the log first before trying a new approach.
 
 ## Where Staging Logic Lives
 

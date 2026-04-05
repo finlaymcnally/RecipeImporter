@@ -10,8 +10,6 @@ read_when:
 
 This is the source of truth for current ingestion behavior in `docs/03-ingestion`.
 
-Historical anti-loop notes live in `docs/03-ingestion/03-ingestion_log.md`.
-
 ## Scope
 
 Ingestion is source-first now.

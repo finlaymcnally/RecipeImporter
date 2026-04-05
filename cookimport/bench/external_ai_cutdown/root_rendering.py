@@ -58,7 +58,7 @@ def _write_readme(
     if prompt_pairs_per_category <= 0:
         lines.append(
             "Codex Exec sampled prompt log: convenience file keeps all calls from "
-            "`full_prompt_log.jsonl` when available (legacy text-log copy fallback)."
+            "`full_prompt_log.jsonl` when available."
         )
     else:
         lines.append(

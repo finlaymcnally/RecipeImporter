@@ -9,8 +9,6 @@ read_when:
 
 Tags are part of the main recipe-correction path and are normalized before staging writers run.
 
-Use `docs/09-tagging/09-tagging_log.md` for the retained build/fix history and anti-loop notes for this surface.
-
 Current code path:
 
 - `cookimport/llm/recipe_tagging_guide.py`

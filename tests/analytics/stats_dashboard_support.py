@@ -475,6 +475,13 @@ def _run_compare_control_chart_harness(js_path: Path) -> dict[str, object]:
     harness = r"""
 const fs = require("fs");
 const jsPath = process.argv[1];
+globalThis.window = globalThis;
+globalThis.document = {
+  getElementById: () => null,
+  querySelectorAll: () => [],
+  addEventListener: () => {},
+  removeEventListener: () => {},
+};
 let js = fs.readFileSync(jsPath, "utf8");
 const bootNeedle = '  try {\n    const inlineData = loadInlineData();';
 const initNeedle = '  function init() {';
@@ -491,6 +498,34 @@ js = js.replace(/\n\}\)\(\);\s*$/, `
     compareControlRecordsForState,
     buildCompareControlChartDefinition,
     buildCombinedCompareControlChartDefinition,
+    compareControlSourceRecords,
+    setDataForHarness: function(records) {
+      DATA = {
+        stage_records: [],
+        benchmark_records: Array.isArray(records) ? records : [],
+      };
+      previousRunsFilterResultCache = null;
+    },
+    setPreviousRunsFieldOptionsForHarness: function(fields) {
+      previousRunsFieldOptions = Array.isArray(fields) ? fields : [];
+      previousRunsFilterResultCache = null;
+    },
+    setPreviousRunsColumnFiltersForHarness: function(filters) {
+      previousRunsColumnFilters = filters && typeof filters === "object"
+        ? filters
+        : Object.create(null);
+      previousRunsFilterResultCache = null;
+    },
+    setPreviousRunsQuickFiltersForHarness: function(filters) {
+      const nextFilters = filters && typeof filters === "object"
+        ? filters
+        : {};
+      previousRunsQuickFilters = {
+        exclude_ai_tests: Boolean(nextFilters.exclude_ai_tests),
+        official_full_golden_only: Boolean(nextFilters.official_full_golden_only),
+      };
+      previousRunsFilterResultCache = null;
+    },
     setCombinedAxisModeForHarness: function(mode) {
       compareControlCombinedAxisMode = normalizeCompareControlCombinedAxisMode(mode);
     },
@@ -729,6 +764,17 @@ const combinedMixedChart = hooks.buildCombinedCompareControlChartDefinition(
   categoricalChart
 );
 
+hooks.setDataForHarness(records.map(record => ({ ...record, run_category: "benchmark_eval" })));
+hooks.setPreviousRunsFieldOptionsForHarness(["source_file_basename"]);
+hooks.setPreviousRunsQuickFiltersForHarness({
+  exclude_ai_tests: false,
+  official_full_golden_only: false,
+});
+hooks.setPreviousRunsColumnFiltersForHarness({
+  source_file_basename: [{ operator: "eq", value: "book_a.epub" }],
+});
+const filteredSourceRecords = hooks.compareControlSourceRecords();
+
 const combinedSingleSeries = Array.isArray(combinedSingleChart.series) ? combinedSingleChart.series : [];
 const combinedDualSeries = Array.isArray(combinedDualChart.series) ? combinedDualChart.series : [];
 const combinedDualSecondarySeries = combinedDualSeries.filter(
@@ -817,6 +863,12 @@ const payload = {
     ? combinedMixedChart.series.length
     : 0,
   combined_mixed_empty_reason: String(combinedMixedChart.empty_reason || ""),
+  filtered_source_record_count: Array.isArray(filteredSourceRecords)
+    ? filteredSourceRecords.length
+    : 0,
+  filtered_source_labels: Array.isArray(filteredSourceRecords)
+    ? filteredSourceRecords.map(record => String(record.source_file || ""))
+    : [],
 };
 process.stdout.write(JSON.stringify(payload));
 """

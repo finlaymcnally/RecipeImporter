@@ -559,7 +559,7 @@ def test_benchmark_gc_collects_hyphen_suffixed_labelstudio_run_dirs(
     assert new_run.exists()
 
 
-def test_benchmark_gc_can_prune_shared_book_cache_and_legacy_cache_dirs(
+def test_benchmark_gc_can_prune_shared_book_cache(
     tmp_path: Path,
 ) -> None:
     book_cache_root = tmp_path / "book-cache"
@@ -572,10 +572,6 @@ def test_benchmark_gc_can_prune_shared_book_cache_and_legacy_cache_dirs(
     preview_entry = book_cache_root / "preview" / "hash-a" / "prep-a" / "preview-a.json"
     preview_entry.parent.mkdir(parents=True, exist_ok=True)
     preview_entry.write_text("{}", encoding="utf-8")
-    legacy_cache_dir = tmp_path / "output" / ".deterministic-prep-cache"
-    legacy_cache_dir.mkdir(parents=True, exist_ok=True)
-    (legacy_cache_dir / "legacy.json").write_text("{}", encoding="utf-8")
-
     result = run_benchmark_gc(
         golden_root=tmp_path / "golden",
         output_root=tmp_path / "output",
@@ -591,11 +587,10 @@ def test_benchmark_gc_can_prune_shared_book_cache_and_legacy_cache_dirs(
 
     assert result.total_book_cache_entries == 3
     assert result.pruned_book_cache_entries == 3
-    assert result.pruned_legacy_cache_dirs == 1
+    assert result.pruned_legacy_cache_dirs == 0
     assert not conversion_entry.exists()
     assert not prep_entry.exists()
     assert not preview_entry.exists()
-    assert not legacy_cache_dir.exists()
 
 
 def test_bench_gc_cli_reports_book_cache_summary(tmp_path: Path) -> None:

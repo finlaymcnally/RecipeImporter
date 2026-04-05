@@ -298,17 +298,7 @@ _SMOKE_FILES = {
     "test_webschema_importer.py",
 }
 
-_LOG_HINTS = {
-    "analytics": "docs/08-analytics/08-analytics_log.md",
-    "bench": "docs/07-bench/07-bench_log.md",
-    "cli": "docs/02-cli/02-cli_log.md",
-    "core": "docs/01-architecture/01-architecture_log.md",
-    "ingestion": "docs/03-ingestion/03-ingestion_log.md",
-    "labelstudio": "docs/06-label-studio/06-label-studio_log.md",
-    "llm": "docs/10-llm/10-llm_log.md",
-    "parsing": "docs/04-parsing/04-parsing_log.md",
-    "staging": "docs/05-staging/05-staging_log.md",
-}
+_LOG_HINTS: dict[str, str] = {}
 
 _FAILED_MARKERS: set[str] = set()
 _FAILED_NODEIDS: list[str] = []
@@ -471,7 +461,9 @@ def _emit_failure_hints(terminalreporter) -> None:
     hinted_markers = _FAILED_MARKERS or {"core"}
     terminalreporter.write_line("")
     for marker_name in sorted(hinted_markers):
-        terminalreporter.write_line(f"log: {_LOG_HINTS[marker_name]}")
+        hint = _LOG_HINTS.get(marker_name)
+        if hint:
+            terminalreporter.write_line(f"log: {hint}")
     if _FAILED_NODEIDS:
         terminalreporter.write_line(f"rerun: pytest {shlex.quote(_FAILED_NODEIDS[0])}")
     terminalreporter.write_line(

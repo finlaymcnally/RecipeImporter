@@ -9,8 +9,6 @@ read_when:
 
 This file is the source of truth for the current test-suite structure and pytest behavior.
 
-Use `docs/12-testing/12-testing_log.md` for durable history and verification notes.
-
 ## Scope
 
 This section covers:

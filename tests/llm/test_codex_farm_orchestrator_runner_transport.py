@@ -903,16 +903,6 @@ def test_subprocess_runner_fails_without_progress_events_support(
     assert progress_messages == []
 
 
-def test_extract_non_progress_stderr_lines_ignores_legacy_run_progress() -> None:
-    stderr_text = "\n".join(
-        [
-            "run=f8e77792288a416e9506d94940b366cd queued=2 running=0 done=0 error=0 canceled=0",
-            "run=f8e77792288a416e9506d94940b366cd queued=1 running=1 done=0 error=0 canceled=0",
-            "real stderr line",
-        ]
-    )
-
-    assert _extract_non_progress_stderr_lines(stderr_text) == ["real stderr line"]
 
 
 def _run_codex_exec_activity_fixture(

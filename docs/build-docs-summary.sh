@@ -9,8 +9,7 @@
 #   The generated file starts with the raw output of docs/docs-list.ts.
 #   Only .md and .txt files are included in the generated summary.
 #   Sources include docs/ and llm_pipelines/prompts/ (if that folder exists).
-#   Files ending with "_log.md" are skipped.
-#   Files under docs/plans/, docs/tasks/, and docs/understandings/ are skipped.
+#   Historical log/plan/task folders are no longer part of the docs tree.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -92,9 +91,6 @@ EOF
     fi
 
     # Skip architecture/build/fix-attempt log docs.
-    if [[ "$file" == *"_log.md" ]]; then
-      continue
-    fi
 
     ext="${file##*.}"
     ext_lower="$(printf "%s" "$ext" | tr '[:upper:]' '[:lower:]')"

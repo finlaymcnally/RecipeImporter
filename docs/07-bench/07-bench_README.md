@@ -9,7 +9,6 @@ read_when:
 # Bench Section Reference
 
 This file is the current, code-verified benchmark contract.
-Retained active history lives in `docs/07-bench/07-bench_log.md`.
 QualitySuite operator notes live in `docs/07-bench/qualitysuite-agent-sop.md`.
 
 ## 1. Scope
@@ -131,6 +130,7 @@ Current behavior notes:
 - Single-book interactive benchmark now resolves the concrete gold/source pair before the Codex shard-planning page opens, so the operator sees the actual selected target while editing block-labelling / recipe / knowledge shard counts on one screen.
 - The single-book shard-planning screen now also shows deterministic prep KPIs pulled from the shared prep bundle, but the text stays short enough for the interactive list: a brief prepared-book summary at the top and per-row notes for the limiting factor plus average prompt size, average session size, and average work units per shard. This is preview-only operator context; the minimum-safe shard recommendation remains the enforcing guardrail.
 - prediction-run manifests now surface `book_cache` telemetry for the shared conversion and deterministic-prep layers, including the shared cache root, content-addressed conversion key, hit/miss state, and timing. `bench gc` can now optionally prune that shared cache root by age or retained bytes and sweep obvious legacy local cache folders.
+- interactive single-book and single-profile benchmark reruns now also sit on one stable prediction-reuse cache under `<interactive processed output root>/.prediction_reuse_cache/` by default (or `COOKIMPORT_ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT` when set). When the same source path and benchmark prediction identity repeat, those interactive paths can copy prior prediction artifacts into the new timestamped run root instead of rerunning the full prediction stage.
 
 Interactive benchmark modes are still active and remain offline canonical-text workflows:
 
@@ -143,6 +143,7 @@ Current interactive contracts:
 - `single_book` writes one session root under `data/golden/benchmark-vs-golden/<timestamp>/single-book-benchmark/<source_slug>/`
 - when Codex-backed recipe extraction is selected, paired runs are written under sibling `vanilla/` and `codex-exec/` roots in that session
 - paired benchmark variants now share the same selected `atomic_block_splitter`; benchmark helpers no longer hardcode `off` for `vanilla` and `atomic-v1` for `codex-exec`
+- warm reruns of the same interactive single-book target can now reuse finished prediction artifacts across sessions before comparison/report publication runs
 - benchmark prediction/import runs now resolve the same hidden runtime defaults as stage for EPUB segmentation, knowledge grouping caps, and workspace completion grace; support-only benchmark constants such as split-cache wait/poll, single-profile scheduler policy, and Oracle upload shard/poll budgets now live behind shared resolver helpers instead of scattered literals
 - paired success can emit:
   - `codex_vs_vanilla_comparison.json`
@@ -163,6 +164,7 @@ Current interactive contracts:
 - recipe, knowledge, and line-role benchmark progress now all share the same story shape: visible work-unit counter, separate worker-session summary, separate repo follow-up/finalization summary, and worker rows that represent real worker sessions rather than repo cleanup
 - single-profile matched-book runs write under `.../single-profile-benchmark/`
 - multi-book single-profile runs also emit one top-level group `upload_bundle_v1/`
+- warm reruns of the same interactive single-profile target can now reuse finished prediction artifacts across sessions on a per-book/per-variant basis before comparison/report publication runs
 - interactive single-book writes its session bundle, auto-starts Oracle in the background, and returns immediately without blocking benchmark wrap-up
 - multi-book single-profile writes the top-level group bundle and leaves Oracle upload as a separate manual step
 - repo pytest runs now fail closed on heavyweight publication side effects (`upload_bundle_v1`, starter-pack export, dashboard refresh, background Oracle launch) unless a test explicitly opts in.
@@ -366,7 +368,6 @@ Current bundle rules:
 - new cutdown and starter-pack outputs should write semantic `stage_key` values only. If archived prompt logs still carry `pass*` labels, normalize them in the read helper instead of synthesizing `pass*` fields back into current output
 - knowledge extraction must surface explicitly through bundle analysis/index fields instead of being implied by generic prompt artifacts
 - high-level multi-book bundles are intentionally size-capped first-look packets; heavier raw prompt dumps remain local for follow-up
-- follow-up tooling may still accept historical local filenames when auditing archived bundles, but those are archived-reader inputs only and should not be reintroduced into new reviewer-facing bundle fields
 - sparse bundles are valid first-class inputs:
   - request-template generation should choose a real bundle-local case when one exists
     It now prefers a negative-delta recipe case, otherwise an outside-span window, otherwise the strongest remaining recipe-signal case.
@@ -474,7 +475,6 @@ Primary benchmark modules:
 
 ## 8. See Also
 
-- `docs/07-bench/07-bench_log.md`
 - `docs/07-bench/qualitysuite-agent-sop.md`
 - `docs/07-bench/web-ai-followup-instructions.md`
 - `cookimport/bench/README.md`

@@ -1714,8 +1714,6 @@ and make sure the new behavior uses stable manifest/CSV/artifact contracts rathe
 
 ## Historical note
 
-Some archived docs, fixtures, or local-only readers may still use older naming. Treat that as history input, not as the live architecture.
-
 For new design work, stay on the current contract:
 
 - stage-owned truth, not importer-owned truth

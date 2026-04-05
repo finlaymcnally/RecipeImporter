@@ -17,7 +17,7 @@ from cookimport.cli_support.bench import (
 )
 
 # Snapshot the fully initialized root support namespace so these moved
-# flow/progress helpers can keep their historical unqualified references.
+# flow/progress helpers can keep their unqualified references.
 globals().update(
     {
         name: value

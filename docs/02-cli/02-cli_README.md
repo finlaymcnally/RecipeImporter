@@ -423,6 +423,7 @@ Interactive benchmark now has a mode submenu before execution:
    - prediction generation now inherits shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`; split-gated jobs default to `4`; explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` overrides both,
    - source slug is derived from the selected source filename stem (slugified),
    - for paired codex+vanilla runs, split conversion is cached once and reused across variants (default cache root: `.../single-book-benchmark/<source_slug>/.split-cache`),
+   - repeated interactive single-book reruns now also reuse finished prediction artifacts across sessions from `<interactive output_dir>/.prediction_reuse_cache/` by default (or `COOKIMPORT_ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT` when set), so a warm rerun can skip the full prediction stage and just materialize the prior variant outputs into the new timestamped session root,
    - single-book split-cache controls are available on `labelstudio-benchmark`: `--single-book-split-cache-mode`, `--single-book-split-cache-dir`, `--single-book-split-cache-force`,
    - for codex-enabled paired runs, writes comparison artifacts only when both variant runs succeed:
      - `single-book-benchmark/<source_slug>/codex_vs_vanilla_comparison.json` (always)
@@ -469,6 +470,7 @@ Interactive benchmark now has a mode submenu before execution:
    - concurrent single-profile runs downscale per-book `workers`, `pdf_split_workers`, and `epub_split_workers` to 80% of the chosen run-settings values,
    - concurrent single-profile runs enforce one shared split conversion slot (`split conversion slots=1`) across the selected books,
    - concurrent single-profile runs now use one shared spinner dashboard for the whole batch; inner per-book benchmark runs suppress their own spinners and stream progress into shared per-book queue/task lines,
+   - repeated interactive single-profile reruns now reuse finished per-book prediction artifacts from the same stable prediction-reuse cache used by single-book mode before launching a fresh prediction stage,
    - codex-farm subprocess failures that expose `stderr_summary=` are condensed before display in the interactive single-profile summary so precheck/auth/quota failures show the real precheck message instead of raw `out_dir=...` exception details,
    - continues when an individual source fails and prints a failure summary at the end,
    - writes eval artifacts under `data/golden/benchmark-vs-golden/<timestamp>/single-profile-benchmark/<index_source_slug>/` (paired runs nest under `/vanilla` and `/codex-exec`),
@@ -1249,11 +1251,6 @@ Precedence notes:
   - recipe and line-role use the chosen count as a literal shard-count override
   - knowledge still records the chosen count but may exceed it when hard bundle safety caps win
 
-
-## CLI History Log
-
-Historical architecture/build/fix-attempt notes were moved to `docs/02-cli/02-cli_log.md`.
-Use that file to check prior attempts before retrying a fix path.
 
 ## Related Docs
 

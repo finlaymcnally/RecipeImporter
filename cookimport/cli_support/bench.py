@@ -6,7 +6,7 @@ import sys
 runtime = sys.modules["cookimport.cli_support"]
 
 # Snapshot the already-initialized root support namespace so the moved
-# benchmark helpers can keep their historical unqualified references.
+# benchmark helpers can keep their unqualified references.
 globals().update(
     {
         name: value

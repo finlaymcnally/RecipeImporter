@@ -137,7 +137,7 @@ pytest tests/parsing/test_step_ingredient_linking_semantic.py
 Default output is intentionally compact, and this is enforced in `tests/conftest.py`
 even if someone passes `-o addopts=''` by hand.
 
-On failures, pytest prints short hints to matching `docs/*_log.md` files.
+On failures, pytest should stay concise and point back to the failing node or test file.
 First rerun the one failing file or nodeid in normal compact mode:
 
 ```bash

@@ -21,7 +21,6 @@ If this conflicts with root `AGENTS.md`, this file wins for `tests/`.
   - `tests/analytics`, `tests/bench`, `tests/cli`, `tests/core`, `tests/ingestion`, `tests/labelstudio`, `tests/llm`, `tests/parsing`, `tests/staging`
 - Shared fixture/docs path resolution now goes through `tests/paths.py` so nested folders do not break file lookups.
 - Failures now emit minimal pointer lines only:
-  - `log: docs/<domain>/<domain>_log.md`
   - optional verbose rerun command
 - A short run guide lives in `tests/README.md`.
 
@@ -73,7 +72,7 @@ If this conflicts with root `AGENTS.md`, this file wins for `tests/`.
   - Do not add decorative or verbose terminal output in tests.
   - Avoid `print(...)` in normal test paths.
   - Keep assertion text short; do not dump large payloads in failures.
-  - Put deep debugging detail in matching `docs/*_log.md`, not test stdout.
+  - Keep deep debugging detail in the failing test or focused notes, not noisy broad stdout.
   - Do not set `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` for routine loops; use it only after a compact rerun of one explicit file/nodeid still needs more detail.
 - Keep runs scoped:
   - Prefer marker/file-targeted runs over full-suite runs.

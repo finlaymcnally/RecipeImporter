@@ -45,8 +45,6 @@ Label-first runtime seam used by benchmark/import flows:
 - `cookimport/staging/import_session_contracts.py` (shared public result dataclass/types for the session flows)
 - `cookimport/staging/import_session_flows/` (shared stage-session runtime ownership)
 
-Use `docs/06-label-studio/06-label-studio_log.md` only for compact historical context when a fix starts looping.
-
 ## 1) Current Scope and Commands
 
 ### 1.1 Scope boundary

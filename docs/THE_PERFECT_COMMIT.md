@@ -38,21 +38,8 @@ For each non-trivial task, produce exactly one “perfect commit” (or a small 
 4. **Update docs conditionally**: update docs/comments **only** where the change creates a gap between docs and reality
 5. **Package**: short commit message + task file link; keep your “main” state green (run your standard checks)
 
-**Task spec (“task file”) is the contract**
-If a task doesn’t exist, create a lightweight task spec **file** in `docs/tasks/`:
-
-**Naming convention**
-* `YYYY-MM-DD_HH.MM.SS - short-title.md`
-  * Example: `2026-01-21_14.30.22 - add save slot ui.md`
-
-Task file must include:
-
-* Problem statement (1–3 lines)
-* Acceptance criteria
-* Verification steps (commands/steps)
-* Evidence (test output or before/after)
-* Constraints/gotchas + brief decision (approach + why)
-* Rollback / compensation plan (only if the change is risky or spans multiple systems)
+**Task spec is the contract**
+If a task needs a written contract, keep it with the working change context instead of creating a permanent repo-history task file.
 
 **Guardrails**
 
@@ -86,7 +73,7 @@ It is defined by **outputs**, not effort:
 * **Be atomic.** Apply the commit and you get a coherent, verified state; revert it and you’re back to a coherent, verified state.
 * **Keep your baseline green.** If it’s on your main line of work, it must pass your standard checks.
 * **Prove causality.** New/updated tests must **fail on the baseline** and **pass with the change**.
-* **Anchor to a task file.** Link the `docs/13-tasks/...` file that states what “done” means and how to verify it.
+* **Anchor to a task spec.** State what “done” means and how to verify it in the working change context.
 * **No scope creep.** If you find adjacent work, open a follow-up task.
 
 ### Never
@@ -328,4 +315,3 @@ Agents don’t need a diary; you need a contract and proof you can trust later.
 * [ ] Standard checks pass; baseline stays green
 * [ ] Commit message is short + links the task file
 ```
-

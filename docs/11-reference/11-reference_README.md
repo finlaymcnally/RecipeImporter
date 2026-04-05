@@ -9,8 +9,6 @@ read_when:
 # Reference Section
 
 This folder holds static contract references and inventory snapshots used to reason about pipeline outputs.
-For versions/build/fix-attempt history and anti-loop notes, read `docs/11-reference/11-reference_log.md`.
-
 ## Artifact Inventory
 
 1. `docs/11-reference/2026-02-10_recipe-database-field-inventory.md`

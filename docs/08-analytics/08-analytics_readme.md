@@ -3,14 +3,12 @@ summary: "Current analytics reference: artifact contracts, command behavior, cav
 read_when:
   - When changing performance reporting, CSV history writes, or stats-dashboard behavior
   - When debugging missing or inconsistent analytics artifacts under data/output or data/golden
-  - When updating current analytics behavior; read `08-analytics_log.md` for prior attempts/history
+  - When updating current analytics behavior
 ---
 
 # 08 Analytics README
 
 Current, code-verified analytics contract for this repo.
-
-This README documents active behavior only. Historical notes that still matter for active code paths live in `docs/08-analytics/08-analytics_log.md`.
 
 ## 1) What analytics currently includes
 
@@ -194,6 +192,9 @@ Collector behavior (`collect_dashboard_data`):
 - Support `discover`, `raw`, `controlled`, field catalog, subset-patch, and insights-style workflows.
 - `run_timestamp` is treated as a time axis for compare/control numeric charts, so timestamp-vs-metric views plot one point per run instead of averaging timestamp buckets.
 
+Dashboard Compare & Control:
+- Uses the active `Previous Runs` quick filters and column filters as its source subset before running compare/control analysis, so saved dashboard state can reopen one-book or otherwise filtered charts directly.
+
 `cookimport compare-control dashboard-state`:
 - Reads or updates the live Compare & Control state stored in `assets/dashboard_ui_state.json`.
 - Can target Set 1 or Set 2, plus dual-set layout options.
@@ -342,4 +343,4 @@ Current page behavior:
 9. `cookimport/cli_commands/compare_control.py`
 10. Refresh wiring in `cookimport/cli_support/dashboard.py`
 11. Analytics tests under `tests/analytics/` plus related CLI/benchmark tests
-12. This README plus `08-analytics_log.md` and the short notes under `cookimport/analytics/` when dashboard behavior changes
+12. This README plus the short notes under `cookimport/analytics/` when dashboard behavior changes

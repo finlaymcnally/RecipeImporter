@@ -246,6 +246,7 @@ class TestRenderer:
         assert "function renderCompareControlDynamicChartForSet(records, totalRows, config)" in js
         assert "shouldAutoActivateCompareControlChart(state, compareInfo)" in js
         assert "function renderCompareControlSection()" in js
+        assert "const filterResult = currentPreviousRunsFilterResult();" in js
         assert "if (!compareControlChartActivatedForSet(key)) {" in js
         assert "Use Compare & Control selections above to generate this chart." in js
         assert "window.Highcharts.chart(hostId, chartOptions);" in js
@@ -337,6 +338,18 @@ class TestRenderer:
         assert result["controlled_B"] == pytest.approx(0.65, abs=1e-9)
         assert result["raw_A"] > result["raw_B"]
         assert result["controlled_B"] > result["controlled_A"]
+
+    def test_compare_control_uses_filtered_previous_runs_subset(self, tmp_path):
+        dash_dir = tmp_path / "dash"
+        render_dashboard(dash_dir, DashboardData())
+        js_path = dash_dir / "assets" / "dashboard.js"
+        result = _run_compare_control_chart_harness(js_path)
+        assert result["filtered_source_record_count"] == 3
+        assert result["filtered_source_labels"] == [
+            "/tmp/book_a.epub",
+            "/tmp/book_a.epub",
+            "/tmp/book_a.epub",
+        ]
 
     def test_compare_control_subset_stays_local_and_does_not_write_table_filters(
         self, tmp_path
