@@ -53,6 +53,7 @@ Architecture priorities:
 - shared source-job planning lives in `cookimport/staging/job_planning.py`.
 - `cookimport/staging/pipeline_runtime.py` now makes the post-import semantic session explicit as five stage-owned runtime steps: `extract`, `recipe-boundary`, `recipe-refine`, `nonrecipe-route`, and `nonrecipe-finalize`.
 - `cookimport/staging/import_session.py` remains the composition root, but it now threads stage-owned results instead of treating `ConversionResult` as the only post-import carrier.
+- `cookimport/staging/deterministic_prep.py` is the shared per-book cache seam for benchmark and stage reuse. It owns the deterministic prep manifest contract under the repo-level shared cache root (`.cache/cookimport/book-cache/` by default), can reconstruct cached recipe-boundary state so later execution can resume below source conversion and label-first prep, and can persist stage-run deterministic artifacts back into that shared cache after a cold run.
 - `recipe-boundary` now builds one explicit recipe block-ownership contract, and later stages read `recipe_authority/<workbook_slug>/recipe_block_ownership.json` instead of re-deriving recipe-owned blocks from recipe provenance or raw spans.
 - `cookimport/staging/nonrecipe_stage.py` and `cookimport/staging/stage_block_predictions.py` are now thin public seams. The owned logic lives under `nonrecipe_authority_contract.py`, `nonrecipe_seed.py`, `nonrecipe_routing.py`, `nonrecipe_authority.py`, `nonrecipe_finalize_status.py`, `recipe_block_evidence.py`, `knowledge_block_evidence.py`, and `block_label_resolution.py`.
 - output-writing primitives live in `cookimport/staging/writer.py`.
@@ -105,8 +106,7 @@ Architecture priorities:
 
 ### Known current debt
 
-- historical benchmark/follow-up read-side normalization should stay narrow (`knowledge_manifest.json`, archived prompt sample paths), but new outputs and reviewer-facing summaries should stay on semantic stage rows plus current manifests/audits.
-- the heaviest remaining read-side compatibility seam is `scripts/benchmark_cutdown_for_external_ai.py`; it should stay semantic-stage-first and should not re-teach old numbered-stage topology to new reviewer bundles
+- historical benchmark/follow-up input handling should stay archival only. Active readers and reviewer-facing summaries should stay on semantic stage rows plus current manifests and audits.
 - repo navigation is better than average because the docs tree and fast tests are strong, but architecture understanding still bottlenecks through a few very large coordinators plus cross-package dependencies (`cli`, `labelstudio`, `parsing`, `llm`, `staging`)
 - `cookimport/staging/import_session.py` is still the main shared post-merge runtime seam, but stage and Label Studio keep separate execution/merge callers above it; safe refactors still need both top-level call sites checked
 

@@ -131,6 +131,36 @@ def test_previous_runs_field_value_resolves_derived_fields() -> None:
     )
 
 
+def test_build_field_catalog_marks_run_timestamp_as_numeric_time_axis() -> None:
+    catalog = engine.build_field_catalog(
+        [
+            {
+                "run_timestamp": "2026-03-04T10:00:00",
+                "strict_accuracy": 0.6,
+                "tokens_input": 1000,
+                "tokens_cached_input": 100,
+                "tokens_output": 80,
+                "tokens_total": 1080,
+            },
+            {
+                "run_timestamp": "2026-03-04_10.05.00",
+                "strict_accuracy": 0.7,
+                "tokens_input": 1200,
+                "tokens_cached_input": 120,
+                "tokens_output": 90,
+                "tokens_total": 1290,
+            },
+        ]
+    )
+
+    run_timestamp = catalog["by_field"]["run_timestamp"]
+    assert run_timestamp["numeric"] is True
+    assert run_timestamp["time_like"] is True
+    assert run_timestamp["numeric_min"] is not None
+    assert run_timestamp["numeric_max"] is not None
+    assert run_timestamp["numeric_max"] > run_timestamp["numeric_min"]
+
+
 def test_ai_model_label_system_error_for_runtime_failure() -> None:
     record = {
         "artifact_dir": (

@@ -59,6 +59,7 @@ from cookimport.bench.external_ai_cutdown.artifact_paths import (
     _resolve_processed_output_run_dir as _resolve_processed_output_run_dir_impl,
     _resolve_prompt_log_path as _resolve_prompt_log_path_impl,
     _resolve_prompt_type_samples_path as _resolve_prompt_type_samples_path_impl,
+    _resolve_recipe_manifest_path as _resolve_recipe_manifest_path_impl,
 )
 from cookimport.bench.external_ai_cutdown.comparison_diagnostics import (
     _aggregate_confusion_deltas as _aggregate_confusion_deltas_impl,
@@ -1238,30 +1239,12 @@ def _load_llm_manifest_recipe_diagnostics(
     run_manifest: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     candidate_paths: list[Path] = []
-    artifacts = run_manifest.get("artifacts")
-    if isinstance(artifacts, dict):
-        recipe_manifest_raw = str(artifacts.get("recipe_manifest_json") or "").strip()
-        if recipe_manifest_raw:
-            recipe_manifest_path = Path(recipe_manifest_raw)
-            candidate_paths.append(
-                recipe_manifest_path
-                if recipe_manifest_path.is_absolute()
-                else run_dir / recipe_manifest_path
-            )
-
-    pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
-    processed_output_dir = _resolve_processed_output_run_dir(run_dir, run_manifest)
-    raw_llm_dirs: list[Path] = []
-    for stage_root in (pred_run_dir, processed_output_dir):
-        if not isinstance(stage_root, Path):
-            continue
-        raw_llm_dir = stage_root / "raw" / "llm"
-        if raw_llm_dir.is_dir():
-            raw_llm_dirs.append(raw_llm_dir)
-            candidate_paths.extend(sorted(raw_llm_dir.glob("*/recipe_manifest.json")))
-            direct_raw_llm_manifest = raw_llm_dir / "recipe_manifest.json"
-            if direct_raw_llm_manifest.is_file():
-                candidate_paths.append(direct_raw_llm_manifest)
+    recipe_manifest_path = _resolve_recipe_manifest_path_impl(
+        run_dir=run_dir,
+        run_manifest=run_manifest,
+    )
+    if recipe_manifest_path is not None:
+        candidate_paths.append(recipe_manifest_path)
 
     diagnostics_by_recipe: dict[str, dict[str, Any]] = {}
     seen_paths: set[Path] = set()

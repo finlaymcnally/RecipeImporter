@@ -805,6 +805,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                             return _build_single_book_interactive_shard_recommendations(
                                 source_file=single_book_source,
                                 selected_settings=selected_settings,
+                                processed_output_root=output_folder,
                             )
                         except Exception as exc:  # noqa: BLE001
                             typer.secho(

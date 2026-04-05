@@ -114,6 +114,25 @@ def _force_helper_oracle_test_lane(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _stub_deterministic_prep_bundle_for_helper_tests(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    prep_bundle = SimpleNamespace(
+        manifest_path=tmp_path / "prep-cache" / "bundle.json",
+        prep_key="test-prep-bundle",
+        cache_hit=True,
+    )
+    prep_bundle.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    prep_bundle.manifest_path.write_text("{}", encoding="utf-8")
+    _patch_cli_attr(
+        monkeypatch,
+        "resolve_or_build_deterministic_prep_bundle",
+        lambda **_kwargs: prep_bundle,
+    )
+
+
 def _write_fake_benchmark_upload_bundle(output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     for file_name in cli.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES:

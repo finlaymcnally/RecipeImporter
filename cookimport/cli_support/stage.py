@@ -38,7 +38,12 @@ from cookimport.runs import (
     write_run_manifest,
     write_stage_observability_report,
 )
-from cookimport.staging.import_session import execute_stage_import_session_from_result
+from cookimport.staging.import_session import (
+    execute_stage_import_session_from_recipe_boundary_result,
+    execute_stage_import_session_from_result,
+    load_recipe_boundary_result_from_deterministic_prep_bundle,
+    persist_deterministic_prep_bundle_from_stage_run,
+)
 from cookimport.staging.output_names import (
     NONRECIPE_AUTHORITY_FILE_NAME,
     NONRECIPE_EXCLUSIONS_FILE_NAME,
@@ -949,6 +954,75 @@ def _build_split_full_blocks(
     return merged, job_offsets, job_block_counts
 
 
+def _run_stage_from_deterministic_prep_bundle(
+    *,
+    file_path: Path,
+    prep_bundle: Any,
+    out: Path,
+    mapping_config: MappingConfig | None,
+    limit: int | None,
+    run_dt: dt.datetime,
+    run_config: dict[str, Any] | None = None,
+    run_config_hash: str | None = None,
+    run_config_summary: str | None = None,
+    write_markdown: bool = True,
+    status_callback: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    stage_start = time.monotonic()
+    output_stats = OutputStats(out)
+    stage_stats = TimingStats()
+
+    def _report_status(message: str) -> None:
+        if status_callback is None:
+            return
+        try:
+            status_callback(message)
+        except Exception:
+            return
+
+    recipe_boundary_result = load_recipe_boundary_result_from_deterministic_prep_bundle(
+        prep_bundle
+    )
+    run_settings = RunSettings.from_dict(
+        project_run_config_payload(run_config, contract=RUN_SETTING_CONTRACT_FULL),
+        warn_context="cached stage run config",
+    )
+    _report_status(format_phase_counter("cache", 1, 3, label="Loading deterministic prep..."))
+    session = execute_stage_import_session_from_recipe_boundary_result(
+        recipe_boundary_result=recipe_boundary_result,
+        source_file=file_path,
+        run_root=out,
+        run_dt=run_dt,
+        importer_name=recipe_boundary_result.extracted_bundle.importer_name,
+        run_settings=run_settings,
+        run_config=run_config,
+        run_config_hash=run_config_hash,
+        run_config_summary=run_config_summary,
+        mapping_config=mapping_config,
+        write_markdown=write_markdown,
+        progress_callback=_report_status,
+        timing_stats=stage_stats,
+        output_stats=output_stats,
+        recipe_limit=limit,
+        recipe_limit_label=limit,
+    )
+    report = session.conversion_result.report
+    if output_stats.file_counts:
+        report.output_stats = output_stats.to_report()
+    stage_stats.checkpoints["book_cache_hit"] = 1.0
+    stage_stats.total_seconds = max(0.0, time.monotonic() - stage_start)
+    report.timing = stage_stats.to_dict()
+    _report_status(format_phase_counter("cache", 2, 3, label="Writing report..."))
+    write_report(report, out, file_path.stem)
+    _report_status(format_phase_counter("cache", 3, 3, label="Cache reuse done"))
+    return {
+        "file": file_path.name,
+        "status": "success",
+        "recipes": len(session.conversion_result.recipes),
+        "duration": stage_stats.total_seconds,
+    }
+
+
 def _merge_source_jobs(
     file_path: Path,
     job_results: list[dict[str, Any]],
@@ -1118,6 +1192,22 @@ def _merge_source_jobs(
     if output_stats.file_counts:
         report.output_stats = output_stats.to_report()
     report.timing = merge_stats.to_dict()
+    if session.recipe_boundary_result is not None:
+        try:
+            persist_deterministic_prep_bundle_from_stage_run(
+                source_file=file_path,
+                run_settings=run_settings,
+                stage_run_root=out,
+                recipe_boundary_result=session.recipe_boundary_result,
+                importer_name=resolved_importer_name,
+                timing=merge_stats.to_dict(),
+                processed_report_path=out / f"{file_path.stem}.excel_import_report.json",
+                stage_block_predictions_path=session.stage_block_predictions_path,
+            )
+        except Exception as exc:  # noqa: BLE001
+            report.warnings.append(
+                f"Failed to persist deterministic prep bundle for {file_path.name}: {exc}"
+            )
     _report_phase("Writing report...")
     write_report(report, out, file_path.stem)
     _report_phase("Merge done")

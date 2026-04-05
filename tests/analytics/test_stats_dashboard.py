@@ -414,6 +414,14 @@ class TestRenderer:
         assert result["numeric_first_compare_value"] == pytest.approx(990)
         assert result["numeric_first_outcome_value"] == pytest.approx(0.60)
         assert result["numeric_first_split_label"] == "book_a.epub"
+        assert result["time_chart_type"] == "scatter"
+        assert result["time_series_count"] == 2
+        assert result["time_point_total"] == 6
+        assert result["time_title"] == "All Token Use over Timestamp"
+        assert result["time_x_axis_type"] == "datetime"
+        assert result["time_first_compare_value"] == "2026-03-04T10:00:00"
+        assert result["time_first_x_is_number"] is True
+        assert result["time_first_outcome_value"] == pytest.approx(990)
         assert result["categorical_chart_type"] == "bar"
         assert result["categorical_series_count"] == 2
         assert result["categorical_title"] == "Average Strict Accuracy by Importer"

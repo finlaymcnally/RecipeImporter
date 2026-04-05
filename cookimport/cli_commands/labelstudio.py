@@ -1662,6 +1662,11 @@ def register(app: typer.Typer) -> dict[str, object]:
             "--single-book-split-cache-force/--no-single-book-split-cache-force",
             help="Force rebuild of single-book split cache entry for this run.",
         )] = False,
+        deterministic_prep_manifest_path: Annotated[Path | None, typer.Option(
+            "--deterministic-prep-manifest-path",
+            hidden=True,
+            help="Internal: shared deterministic prep bundle manifest for prompt planning and benchmark reuse.",
+        )] = None,
         alignment_cache_dir: Annotated[Path | None, typer.Option(
             "--alignment-cache-dir",
             help="Internal: optional canonical alignment cache directory for benchmark runs.",
@@ -2214,6 +2219,9 @@ def register(app: typer.Typer) -> dict[str, object]:
                                     single_book_split_cache_force=(
                                         single_book_split_cache_force
                                     ),
+                                    deterministic_prep_manifest_path=(
+                                        deterministic_prep_manifest_path
+                                    ),
                                     scheduler_event_callback=scheduler_event_callback,
                                     progress_callback=callback,
                                     run_manifest_kind="bench_pred_run",
@@ -2353,6 +2361,9 @@ def register(app: typer.Typer) -> dict[str, object]:
                                 ),
                                 single_book_split_cache_force=(
                                     single_book_split_cache_force
+                                ),
+                                deterministic_prep_manifest_path=(
+                                    deterministic_prep_manifest_path
                                 ),
                                 scheduler_event_callback=scheduler_event_callback,
                                 auto_project_name_on_scope_mismatch=True,

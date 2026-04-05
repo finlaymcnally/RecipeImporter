@@ -20,6 +20,8 @@ def test_single_book_module_binds_cross_owner_helpers() -> None:
     )
     assert callable(bench_single_book._normalize_single_book_split_cache_mode)
     assert callable(bench_single_book._build_single_book_split_cache_key)
+    assert callable(bench_single_book.resolve_or_build_deterministic_prep_bundle)
+    assert callable(bench_single_book.build_shard_recommendations_from_prep_bundle)
 
 
 def test_build_single_book_interactive_shard_recommendations_reads_preview_phase_plans(
@@ -28,6 +30,7 @@ def test_build_single_book_interactive_shard_recommendations_reads_preview_phase
 ) -> None:
     source_file = tmp_path / "book.epub"
     source_file.write_text("book", encoding="utf-8")
+    processed_output_root = tmp_path / "output"
     selected_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
@@ -39,64 +42,56 @@ def test_build_single_book_interactive_shard_recommendations_reads_preview_phase
         },
         warn_context="test single-book shard recommendations",
     )
-    captured_prediction_kwargs: dict[str, object] = {}
-    captured_preview_kwargs: dict[str, object] = {}
-    processed_run_root = tmp_path / "processed-run"
-    processed_run_root.mkdir(parents=True, exist_ok=True)
-    preview_manifest_path = tmp_path / "preview" / "prompt_preview_manifest.json"
-    preview_manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    preview_manifest_path.write_text(
-        json.dumps(
-            {
-                "phase_plans": {
-                    "line_role": {
-                        "minimum_safe_shard_count": 4,
-                        "binding_limit": "input",
-                    },
-                    "recipe_refine": {
-                        "minimum_safe_shard_count": 3,
-                        "binding_limit": "session_peak",
-                    },
-                    "nonrecipe_finalize": {
-                        "minimum_safe_shard_count": 2,
-                        "binding_limit": "output",
-                    },
-                }
+    captured_bundle_kwargs: dict[str, object] = {}
+    captured_recommendation_kwargs: dict[str, object] = {}
+    prep_bundle = SimpleNamespace(
+        manifest_path=tmp_path / "bundle" / "manifest.json",
+        prep_key="prep-key-123",
+    )
+    _patch_cli_attr(
+        monkeypatch,
+        "resolve_or_build_deterministic_prep_bundle",
+        lambda **kwargs: (
+            captured_bundle_kwargs.update(kwargs) or prep_bundle
+        ),
+    )
+    _patch_cli_attr(
+        monkeypatch,
+        "build_shard_recommendations_from_prep_bundle",
+        lambda **kwargs: (
+            captured_recommendation_kwargs.update(kwargs)
+            or {
+                "line_role": {
+                    "minimum_safe_shard_count": 4,
+                    "binding_limit": "input",
+                },
+                "recipe": {
+                    "minimum_safe_shard_count": 3,
+                    "binding_limit": "session_peak",
+                },
+                "knowledge": {
+                    "minimum_safe_shard_count": 2,
+                    "binding_limit": "output",
+                },
             }
-        ),
-        encoding="utf-8",
-    )
-
-    _patch_cli_attr(
-        monkeypatch,
-        "generate_pred_run_artifacts",
-        lambda **kwargs: (
-            captured_prediction_kwargs.update(kwargs)
-            or {"processed_run_root": str(processed_run_root)}
-        ),
-    )
-    _patch_cli_attr(
-        monkeypatch,
-        "write_prompt_preview_for_existing_run",
-        lambda **kwargs: (
-            captured_preview_kwargs.update(kwargs) or preview_manifest_path
         ),
     )
 
     recommendations = bench_single_book._build_single_book_interactive_shard_recommendations(
         source_file=source_file,
         selected_settings=selected_settings,
+        processed_output_root=processed_output_root,
     )
 
-    assert captured_prediction_kwargs["path"] == source_file
-    assert captured_prediction_kwargs["allow_codex"] is False
-    assert captured_prediction_kwargs["llm_recipe_pipeline"] == "off"
-    assert captured_prediction_kwargs["line_role_pipeline"] == "off"
-    assert captured_prediction_kwargs["llm_knowledge_pipeline"] == "off"
-    assert captured_preview_kwargs["run_path"] == processed_run_root
-    assert captured_preview_kwargs["llm_recipe_pipeline"] == "codex-recipe-shard-v1"
-    assert captured_preview_kwargs["line_role_pipeline"] == "codex-line-role-route-v2"
-    assert captured_preview_kwargs["llm_knowledge_pipeline"] == "codex-knowledge-candidate-v2"
+    baseline_settings = captured_bundle_kwargs["run_settings"]
+    assert isinstance(baseline_settings, cli.RunSettings)
+    assert baseline_settings.llm_recipe_pipeline.value == "off"
+    assert baseline_settings.line_role_pipeline.value == "off"
+    assert baseline_settings.llm_knowledge_pipeline.value == "off"
+    assert captured_bundle_kwargs["source_file"] == source_file
+    assert captured_bundle_kwargs["processed_output_root"] == processed_output_root
+    assert captured_recommendation_kwargs["prep_bundle"] is prep_bundle
+    assert captured_recommendation_kwargs["selected_settings"] == selected_settings
     assert recommendations == {
         "line_role": {
             "minimum_safe_shard_count": 4,
@@ -111,6 +106,376 @@ def test_build_single_book_interactive_shard_recommendations_reads_preview_phase
             "binding_limit": "output",
         },
     }
+
+
+def test_build_shard_recommendations_from_prep_bundle_exposes_context_and_book_kpis(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import cookimport.staging.deterministic_prep as deterministic_prep
+    from cookimport.staging.book_cache import preview_cache_manifest_path
+
+    artifact_root = tmp_path / "prep-cache" / "prep-key-123"
+    book_cache_root = tmp_path / "book-cache"
+    selected_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+            "recipe_prompt_target_count": 5,
+            "line_role_prompt_target_count": 5,
+            "knowledge_prompt_target_count": 5,
+        },
+        warn_context="test deterministic prep shard recommendation KPIs",
+    )
+    preview_manifest_path = preview_cache_manifest_path(
+        book_cache_root=book_cache_root,
+        source_hash="hash-123",
+        prep_key="prep-key-123",
+        selected_settings=selected_settings,
+    )
+    preview_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    preview_manifest_path.write_text(
+        json.dumps(
+            {
+                "phase_plans": {
+                    "line_role": {
+                        "shard_count": 5,
+                        "owned_id_count": 1245,
+                        "owned_ids_per_shard": {"avg": 249.0},
+                        "minimum_safe_shard_count": 4,
+                        "binding_limit": "input",
+                        "survivability": {
+                            "current_shard_count": 5,
+                            "totals": {
+                                "estimated_input_tokens": 290_000,
+                                "estimated_output_tokens": 42_000,
+                                "estimated_followup_tokens": 21_000,
+                                "estimated_peak_session_tokens": 353_000,
+                                "owned_unit_count": 1245,
+                            },
+                            "worst_shard": {
+                                "estimated_peak_session_tokens": 82_000,
+                            },
+                        },
+                    },
+                    "recipe_refine": {
+                        "shard_count": 5,
+                        "owned_id_count": 27,
+                        "owned_ids_per_shard": {"avg": 5.4},
+                        "minimum_safe_shard_count": 3,
+                        "binding_limit": "session_peak",
+                        "survivability": {
+                            "current_shard_count": 5,
+                            "totals": {
+                                "estimated_input_tokens": 210_000,
+                                "estimated_output_tokens": 55_000,
+                                "estimated_followup_tokens": 19_000,
+                                "estimated_peak_session_tokens": 284_000,
+                                "owned_unit_count": 27,
+                            },
+                            "worst_shard": {
+                                "estimated_peak_session_tokens": 71_000,
+                            },
+                        },
+                    },
+                    "nonrecipe_finalize": {
+                        "shard_count": 5,
+                        "owned_id_count": 38,
+                        "owned_ids_per_shard": {"avg": 7.6},
+                        "minimum_safe_shard_count": 2,
+                        "binding_limit": "output",
+                        "survivability": {
+                            "current_shard_count": 5,
+                            "totals": {
+                                "estimated_input_tokens": 165_000,
+                                "estimated_output_tokens": 61_000,
+                                "estimated_followup_tokens": 61_000,
+                                "estimated_peak_session_tokens": 287_000,
+                                "owned_unit_count": 38,
+                            },
+                            "worst_shard": {
+                                "estimated_peak_session_tokens": 74_000,
+                            },
+                        },
+                    },
+                }
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        deterministic_prep,
+        "load_recipe_boundary_result_from_deterministic_prep_bundle",
+        lambda _prep_bundle: SimpleNamespace(
+            extracted_bundle=SimpleNamespace(archive_blocks=[{}] * 312),
+            label_first_result=SimpleNamespace(
+                labeled_lines=[{}] * 1245,
+                recipe_spans=[{}] * 27,
+            ),
+            recipe_owned_blocks=[{}] * 188,
+            outside_recipe_blocks=[{}] * 124,
+        ),
+    )
+    prep_bundle = deterministic_prep.DeterministicPrepBundleResult(
+        prep_key="prep-key-123",
+        source_file=tmp_path / "book.epub",
+        source_hash="hash-123",
+        workbook_slug="book",
+        importer_name="epub",
+        artifact_root=artifact_root,
+        manifest_path=artifact_root / "deterministic_prep_bundle_manifest.json",
+        processed_run_root=artifact_root / "processed-output" / "book",
+        prediction_run_root=artifact_root / "prediction-run",
+        conversion_result_path=artifact_root / "conversion_result.json",
+        processed_report_path=None,
+        stage_block_predictions_path=None,
+        cache_hit=True,
+        timing={},
+        deterministic_settings={},
+        book_cache_root=book_cache_root,
+    )
+
+    recommendations = deterministic_prep.build_shard_recommendations_from_prep_bundle(
+        prep_bundle=prep_bundle,
+        selected_settings=selected_settings,
+    )
+
+    assert recommendations["line_role"]["avg_input_tokens_per_shard"] == 58_000
+    assert recommendations["line_role"]["avg_peak_session_tokens_per_shard"] == 70_600
+    assert recommendations["line_role"]["owned_units_per_shard_avg"] == 249.0
+    assert recommendations["line_role"]["owned_unit_label"] == "lines"
+    assert recommendations["recipe"]["owned_units_per_shard_avg"] == 5.4
+    assert recommendations["recipe"]["owned_unit_label"] == "recipes"
+    assert recommendations["knowledge"]["avg_peak_session_tokens_per_shard"] == 57_400
+    assert recommendations["knowledge"]["owned_unit_label"] == "packets"
+    assert recommendations["__book_summary__"] == {
+        "block_count": 312,
+        "line_count": 1245,
+        "recipe_guess_count": 27,
+        "recipe_owned_block_count": 188,
+        "outside_recipe_block_count": 124,
+        "knowledge_packet_count": 38,
+    }
+
+
+def test_deterministic_prep_key_ignores_llm_only_settings(tmp_path: Path) -> None:
+    from cookimport.staging.import_session import build_deterministic_prep_key
+
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("book", encoding="utf-8")
+    shared_payload = {
+        "epub_extractor": "unstructured",
+        "multi_recipe_splitter": "rules_v1",
+        "pdf_ocr_policy": "off",
+    }
+    baseline = cli.RunSettings.from_dict(
+        {
+            **shared_payload,
+            "llm_recipe_pipeline": "off",
+            "codex_farm_model": "gpt-5.4",
+            "codex_farm_reasoning_effort": "high",
+            "recipe_prompt_target_count": 4,
+        },
+        warn_context="test deterministic prep key baseline",
+    )
+    llm_only_changed = cli.RunSettings.from_dict(
+        {
+            **shared_payload,
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
+            "codex_farm_model": "gpt-5.3-codex-spark",
+            "codex_farm_reasoning_effort": "low",
+            "recipe_prompt_target_count": 12,
+            "knowledge_prompt_target_count": 9,
+        },
+        warn_context="test deterministic prep key llm-only changes",
+    )
+
+    baseline_key = build_deterministic_prep_key(
+        source_file=source_file,
+        source_hash="hash-123",
+        run_settings=baseline,
+    )
+    llm_only_changed_key = build_deterministic_prep_key(
+        source_file=source_file,
+        source_hash="hash-123",
+        run_settings=llm_only_changed,
+    )
+
+    assert baseline_key == llm_only_changed_key
+
+
+def test_deterministic_prep_key_uses_source_hash_not_path(tmp_path: Path) -> None:
+    from cookimport.core.reporting import compute_file_hash
+    from cookimport.staging.import_session import build_deterministic_prep_key
+
+    source_a = tmp_path / "book-a.epub"
+    source_b = tmp_path / "nested" / "book-b.epub"
+    source_b.parent.mkdir(parents=True, exist_ok=True)
+    source_a.write_text("same book bytes", encoding="utf-8")
+    source_b.write_text("same book bytes", encoding="utf-8")
+    source_hash = compute_file_hash(source_a)
+    settings = cli.RunSettings.from_dict(
+        {
+            "epub_extractor": "unstructured",
+            "multi_recipe_splitter": "rules_v1",
+        },
+        warn_context="test deterministic prep content-addressed key",
+    )
+
+    key_a = build_deterministic_prep_key(
+        source_file=source_a,
+        source_hash=source_hash,
+        run_settings=settings,
+    )
+    key_b = build_deterministic_prep_key(
+        source_file=source_b,
+        source_hash=source_hash,
+        run_settings=settings,
+    )
+
+    assert key_a == key_b
+
+
+def test_interactive_single_book_benchmark_reuses_prediction_artifacts_across_runs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("book", encoding="utf-8")
+    gold = tmp_path / "gold" / "exports" / "freeform_span_labels.jsonl"
+    gold.parent.mkdir(parents=True, exist_ok=True)
+    gold.write_text("{}\n", encoding="utf-8")
+    processed_output_root = tmp_path / "processed"
+    selected_settings = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "off"},
+        warn_context="test single-book prediction reuse",
+    )
+    prep_bundle = SimpleNamespace(
+        manifest_path=tmp_path / "prep-cache" / "bundle.json",
+        prep_key="test-prep-bundle",
+        cache_hit=True,
+    )
+    prep_bundle.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    prep_bundle.manifest_path.write_text("{}", encoding="utf-8")
+    _patch_cli_attr(
+        monkeypatch,
+        "resolve_or_build_deterministic_prep_bundle",
+        lambda **_kwargs: prep_bundle,
+    )
+    publisher, publication_capture = _make_lightweight_single_book_publisher()
+
+    benchmark_calls: list[Path] = []
+
+    def _fake_labelstudio_benchmark(**kwargs: object) -> None:
+        eval_output_dir = Path(kwargs["eval_output_dir"])
+        processed_output_dir = Path(kwargs["processed_output_dir"])
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        processed_output_dir.mkdir(parents=True, exist_ok=True)
+        (eval_output_dir / "prediction-records.jsonl").write_text("{}\n", encoding="utf-8")
+        (eval_output_dir / "run_manifest.json").write_text(
+            json.dumps(
+                {
+                    "source": {"path": str(kwargs["source_file"])},
+                    "run_config": {},
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (processed_output_dir / "processed-marker.txt").write_text(
+            "processed",
+            encoding="utf-8",
+        )
+        benchmark_calls.append(eval_output_dir)
+
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", _fake_labelstudio_benchmark)
+
+    first_output = tmp_path / "golden" / "2026-04-04_23.10.00"
+    second_output = tmp_path / "golden" / "2026-04-04_23.11.00"
+    first_completed = bench_single_book._interactive_single_book_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=first_output,
+        processed_output_root=processed_output_root,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+        preselected_gold_spans=gold,
+        preselected_source_file=source,
+        publisher=publisher,
+    )
+    second_completed = bench_single_book._interactive_single_book_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=second_output,
+        processed_output_root=processed_output_root,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+        preselected_gold_spans=gold,
+        preselected_source_file=source,
+        publisher=publisher,
+    )
+
+    assert first_completed is True
+    assert second_completed is True
+    assert len(benchmark_calls) == 1
+    second_eval_dir = second_output / "single-book-benchmark" / "book" / "vanilla"
+    second_processed_dir = (
+        processed_output_root / second_output.name / "single-book-benchmark" / "book" / "vanilla"
+    )
+    assert (second_eval_dir / "prediction-records.jsonl").exists()
+    assert (second_processed_dir / "processed-marker.txt").exists()
+    assert publication_capture["results"]
+
+
+def test_preview_cache_key_ignores_model_only_changes(tmp_path: Path) -> None:
+    from cookimport.staging.deterministic_prep import _preview_manifest_key
+
+    del tmp_path
+    baseline = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+            "recipe_prompt_target_count": 5,
+            "line_role_prompt_target_count": 5,
+            "knowledge_prompt_target_count": 5,
+            "codex_farm_model": "gpt-5.4",
+            "codex_farm_reasoning_effort": "high",
+        },
+        warn_context="test preview cache baseline",
+    )
+    model_only_changed = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+            "recipe_prompt_target_count": 5,
+            "line_role_prompt_target_count": 5,
+            "knowledge_prompt_target_count": 5,
+            "codex_farm_model": "gpt-5.3-codex-spark",
+            "codex_farm_reasoning_effort": "low",
+        },
+        warn_context="test preview cache model-only changes",
+    )
+    prompt_target_changed = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+            "recipe_prompt_target_count": 7,
+            "line_role_prompt_target_count": 5,
+            "knowledge_prompt_target_count": 5,
+        },
+        warn_context="test preview cache planning changes",
+    )
+
+    assert _preview_manifest_key(baseline) == _preview_manifest_key(model_only_changed)
+    assert _preview_manifest_key(baseline) != _preview_manifest_key(prompt_target_changed)
 
 
 def _run_single_book_codex_enabled_fixture(
@@ -131,11 +496,22 @@ def _run_single_book_codex_enabled_fixture(
     )
     golden_root = tmp_path / "golden"
     processed_output_root = tmp_path / "output"
-    source_path = str(tmp_path / "book.epub")
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("book", encoding="utf-8")
+    source_path = str(source_file)
+    gold_spans = golden_root / "fixture" / "exports" / "freeform_span_labels.jsonl"
+    gold_spans.parent.mkdir(parents=True, exist_ok=True)
+    gold_spans.write_text("{}\n", encoding="utf-8")
     publisher, publication_capture = _make_lightweight_single_book_publisher()
 
     benchmark_calls: list[dict[str, object]] = []
     refresh_calls: list[dict[str, object]] = []
+    prep_bundle_calls: list[dict[str, object]] = []
+    prep_bundle = SimpleNamespace(
+        manifest_path=tmp_path / "prep-cache" / "bundle.json",
+        prep_key="prep-key-123",
+        cache_hit=False,
+    )
 
     def fake_labelstudio_benchmark(**kwargs):
         benchmark_calls.append(kwargs)
@@ -176,6 +552,11 @@ def _run_single_book_codex_enabled_fixture(
         )
 
     _patch_cli_attr(monkeypatch, "labelstudio_benchmark", fake_labelstudio_benchmark)
+    _patch_cli_attr(
+        monkeypatch,
+        "resolve_or_build_deterministic_prep_bundle",
+        lambda **kwargs: prep_bundle_calls.append(dict(kwargs)) or prep_bundle,
+    )
     _patch_cli_attr(monkeypatch, "_refresh_dashboard_after_history_write",
         lambda **kwargs: refresh_calls.append(kwargs),
     )
@@ -185,12 +566,16 @@ def _run_single_book_codex_enabled_fixture(
         benchmark_eval_output=benchmark_eval_output,
         processed_output_root=processed_output_root,
         golden_root=golden_root,
+        preselected_gold_spans=gold_spans,
+        preselected_source_file=source_file,
         publisher=publisher,
     )
     return {
         "completed": completed,
         "benchmark_calls": benchmark_calls,
         "refresh_calls": refresh_calls,
+        "prep_bundle_calls": prep_bundle_calls,
+        "prep_bundle": prep_bundle,
         "benchmark_eval_output": benchmark_eval_output,
         "processed_output_root": processed_output_root,
         "publication_capture": publication_capture,
@@ -204,10 +589,13 @@ def test_interactive_single_book_codex_enabled_runs_only_codex_exec(
     fixture = _run_single_book_codex_enabled_fixture(monkeypatch, tmp_path)
     completed = fixture["completed"]
     benchmark_calls = fixture["benchmark_calls"]
+    prep_bundle_calls = fixture["prep_bundle_calls"]
+    prep_bundle = fixture["prep_bundle"]
     benchmark_eval_output = fixture["benchmark_eval_output"]
     processed_output_root = fixture["processed_output_root"]
 
     assert completed is True
+    assert len(prep_bundle_calls) == 1
     assert len(benchmark_calls) == 2
     assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
         "off",
@@ -229,18 +617,24 @@ def test_interactive_single_book_codex_enabled_runs_only_codex_exec(
         "auto",
         "auto",
     ]
+    assert [call["deterministic_prep_manifest_path"] for call in benchmark_calls] == [
+        prep_bundle.manifest_path,
+        prep_bundle.manifest_path,
+    ]
     assert [call["eval_output_dir"] for call in benchmark_calls] == [
-        benchmark_eval_output / "single-book-benchmark" / "vanilla",
-        benchmark_eval_output / "single-book-benchmark" / "codex-exec",
+        benchmark_eval_output / "single-book-benchmark" / "book" / "vanilla",
+        benchmark_eval_output / "single-book-benchmark" / "book" / "codex-exec",
     ]
     assert [call["processed_output_dir"] for call in benchmark_calls] == [
         processed_output_root
         / benchmark_eval_output.name
         / "single-book-benchmark"
+        / "book"
         / "vanilla",
         processed_output_root
         / benchmark_eval_output.name
         / "single-book-benchmark"
+        / "book"
         / "codex-exec",
     ]
 
@@ -257,11 +651,13 @@ def test_interactive_single_book_codex_enabled_writes_comparison_and_refreshes_d
     comparison_json = (
         benchmark_eval_output
         / "single-book-benchmark"
+        / "book"
         / "codex_vs_vanilla_comparison.json"
     )
     comparison_md = (
         benchmark_eval_output
         / "single-book-benchmark"
+        / "book"
         / "codex_vs_vanilla_comparison.md"
     )
     assert comparison_json.exists()

@@ -538,6 +538,33 @@ const numericFirstPoint = (
   numericSeries[0].data.length
 ) ? numericSeries[0].data[0] : null;
 
+const timeState = hooks.normalizeCompareControlStateForCatalog(
+  {
+    outcome_field: "all_token_use",
+    compare_field: "run_timestamp",
+    split_field: "source_label",
+    view_mode: "raw",
+  },
+  catalog
+);
+const timeChart = hooks.buildCompareControlChartDefinition({
+  records,
+  total_rows: records.length,
+  state: timeState,
+  catalog,
+  compare_info: catalog.by_field[timeState.compare_field],
+});
+const timeSeries = Array.isArray(timeChart.series) ? timeChart.series : [];
+const timePointTotal = timeSeries.reduce(
+  (total, series) => total + (Array.isArray(series.data) ? series.data.length : 0),
+  0
+);
+const timeFirstPoint = (
+  timeSeries.length &&
+  Array.isArray(timeSeries[0].data) &&
+  timeSeries[0].data.length
+) ? timeSeries[0].data[0] : null;
+
 const categoricalState = hooks.normalizeCompareControlStateForCatalog(
   {
     outcome_field: "strict_accuracy",
@@ -729,6 +756,18 @@ const payload = {
     numericFirstPoint.custom &&
     String(numericFirstPoint.custom.splitLabel || "")
   ) || "",
+  time_chart_type: String(timeChart.chart_type || ""),
+  time_series_count: timeSeries.length,
+  time_point_total: timePointTotal,
+  time_title: String(timeChart.chart_title || ""),
+  time_x_axis_type: String((timeChart.x_axis && timeChart.x_axis.type) || ""),
+  time_first_compare_value: (
+    timeFirstPoint &&
+    timeFirstPoint.custom &&
+    String(timeFirstPoint.custom.compareValue || "")
+  ) || "",
+  time_first_x_is_number: Boolean(timeFirstPoint && Number.isFinite(Number(timeFirstPoint.x))),
+  time_first_outcome_value: timeFirstPoint ? Number(timeFirstPoint.y) : null,
   categorical_series_count: categoricalSeries.length,
   categorical_chart_type: String(categoricalChart.chart_type || ""),
   categorical_title: String(categoricalChart.chart_title || ""),

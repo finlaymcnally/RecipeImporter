@@ -130,6 +130,7 @@ from cookimport.parsing.label_source_of_truth import (
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 from cookimport.parsing.tables import ExtractedTable
 from cookimport.plugins import registry
+from cookimport.paths import resolve_book_cache_root
 from cookimport.runs import (
     RECIPE_MANIFEST_FILE_NAME,
     RunManifest,
@@ -138,7 +139,23 @@ from cookimport.runs import (
     stage_artifact_stem,
     write_stage_observability_report,
 )
-from cookimport.staging.import_session import execute_stage_import_session_from_result
+from cookimport.staging.book_cache import (
+    CONVERSION_CACHE_SCHEMA_VERSION,
+    acquire_entry_lock,
+    build_conversion_cache_key,
+    conversion_cache_entry_path,
+    entry_lock_path,
+    load_json_dict_or_none,
+    release_entry_lock,
+    wait_for_entry,
+    write_json_atomic,
+)
+from cookimport.staging.import_session import (
+    execute_stage_import_session_from_recipe_boundary_result,
+    execute_stage_import_session_from_result,
+    load_deterministic_prep_bundle,
+    load_recipe_boundary_result_from_deterministic_prep_bundle,
+)
 from cookimport.staging.job_planning import JobSpec, plan_source_job
 from cookimport.staging.nonrecipe_stage import (
     NonRecipeStageResult,
@@ -291,10 +308,12 @@ def generate_pred_run_artifacts(
     split_phase_slots: int | None = None,
     split_phase_gate_dir: Path | str | None = None,
     split_phase_status_label: str | None = None,
+    book_cache_root: Path | str | None = None,
     single_book_split_cache_mode: str = "off",
     single_book_split_cache_dir: Path | str | None = None,
     single_book_split_cache_key: str | None = None,
     single_book_split_cache_force: bool = False,
+    deterministic_prep_manifest_path: Path | str | None = None,
     prelabel: bool = False,
     prelabel_provider: str = "codex-farm",
     codex_cmd: str | None = None,
@@ -546,6 +565,112 @@ def generate_pred_run_artifacts(
             ocr_batch_size=run_settings.ocr_batch_size,
         )
     file_hash = compute_file_hash(path)
+    resolved_book_cache_root = resolve_book_cache_root(book_cache_root)
+    deterministic_prep_bundle = (
+        load_deterministic_prep_bundle(deterministic_prep_manifest_path)
+        if deterministic_prep_manifest_path is not None
+        else None
+    )
+    prep_bundle_boundary_result = None
+    deterministic_prep_bundle_summary: dict[str, Any] | None = None
+    if deterministic_prep_bundle is not None:
+        if deterministic_prep_bundle.source_file != path.expanduser():
+            raise ValueError(
+                "Deterministic prep bundle source mismatch: "
+                f"{deterministic_prep_bundle.source_file} != {path}"
+            )
+        if deterministic_prep_bundle.source_hash != file_hash:
+            raise ValueError(
+                "Deterministic prep bundle source hash mismatch for "
+                f"{path}: {deterministic_prep_bundle.source_hash} != {file_hash}"
+            )
+        deterministic_prep_bundle_summary = {
+            "enabled": True,
+            "prep_key": deterministic_prep_bundle.prep_key,
+            "manifest_path": str(deterministic_prep_bundle.manifest_path),
+            "artifact_root": str(deterministic_prep_bundle.artifact_root),
+            "processed_run_root": str(deterministic_prep_bundle.processed_run_root),
+            "cache_hit": bool(deterministic_prep_bundle.cache_hit),
+            "timing": dict(deterministic_prep_bundle.timing),
+        }
+    shared_conversion_cache_key = build_conversion_cache_key(
+        source_file=path,
+        source_hash=file_hash,
+        pipeline=pipeline,
+        run_settings=run_settings,
+    )
+    shared_conversion_cache_path = conversion_cache_entry_path(
+        book_cache_root=resolved_book_cache_root,
+        source_hash=file_hash,
+        conversion_key=shared_conversion_cache_key,
+    )
+    shared_conversion_cache_lock_path = entry_lock_path(shared_conversion_cache_path)
+    shared_conversion_cache_lock_acquired = False
+    shared_conversion_cache_hit = False
+    shared_conversion_cache_payload: dict[str, Any] | None = None
+
+    def _load_shared_conversion_cache_payload() -> dict[str, Any] | None:
+        payload = load_json_dict_or_none(shared_conversion_cache_path)
+        if not isinstance(payload, dict):
+            return None
+        if (
+            str(payload.get("schema_version") or "").strip()
+            != CONVERSION_CACHE_SCHEMA_VERSION
+        ):
+            return None
+        if (
+            str(payload.get("conversion_cache_key") or "").strip()
+            != shared_conversion_cache_key
+        ):
+            return None
+        if not isinstance(payload.get("conversion_result"), dict):
+            return None
+        return payload
+
+    if deterministic_prep_bundle is None:
+        cached_payload = _load_shared_conversion_cache_payload()
+        if cached_payload is None:
+            shared_conversion_cache_lock_acquired = acquire_entry_lock(
+                shared_conversion_cache_lock_path
+            )
+            if shared_conversion_cache_lock_acquired:
+                cached_payload = _load_shared_conversion_cache_payload()
+            else:
+                cached_payload = wait_for_entry(
+                    load_entry=_load_shared_conversion_cache_payload,
+                    lock_path=shared_conversion_cache_lock_path,
+                )
+        if cached_payload is not None:
+            try:
+                result = ConversionResult.model_validate(
+                    cached_payload.get("conversion_result")
+                )
+            except Exception:  # noqa: BLE001
+                cached_payload = None
+            else:
+                shared_conversion_cache_hit = True
+                shared_conversion_cache_payload = cached_payload
+                conversion_seconds = max(
+                    0.0,
+                    _safe_float(cached_payload.get("conversion_seconds")) or 0.0,
+                )
+                split_wait_seconds = max(
+                    0.0,
+                    _safe_float(cached_payload.get("split_wait_seconds")) or 0.0,
+                )
+                split_convert_seconds = max(
+                    0.0,
+                    _safe_float(cached_payload.get("split_convert_seconds")) or 0.0,
+                )
+                _notify("Reusing shared book-cache conversion payload.")
+                _notify_scheduler_event_callback(
+                    scheduler_event_callback,
+                    event="book_cache_conversion_reused",
+                    conversion_cache_key=shared_conversion_cache_key,
+                )
+        if shared_conversion_cache_lock_acquired:
+            release_entry_lock(shared_conversion_cache_lock_path)
+            shared_conversion_cache_lock_acquired = False
     selected_single_book_split_cache_mode = _normalize_single_book_split_cache_mode(
         single_book_split_cache_mode
     )
@@ -567,7 +692,7 @@ def generate_pred_run_artifacts(
     single_book_split_cache_lock_path: Path | None = None
     single_book_split_cache_lock_acquired = False
     single_book_split_cache_payload: dict[str, Any] | None = None
-    if single_book_split_cache_enabled:
+    if not shared_conversion_cache_hit and single_book_split_cache_enabled:
         single_book_split_cache_entry_path = _single_book_split_cache_entry_path(
             cache_root=selected_single_book_split_cache_dir,
             split_cache_key=selected_single_book_split_cache_key or "",
@@ -626,7 +751,25 @@ def generate_pred_run_artifacts(
                         )
                         single_book_split_cache_lock_acquired = False
 
-    if not single_book_split_cache_hit:
+    if deterministic_prep_bundle is not None:
+        prep_bundle_boundary_result = (
+            load_recipe_boundary_result_from_deterministic_prep_bundle(
+                deterministic_prep_bundle
+            )
+        )
+        result = prep_bundle_boundary_result.conversion_result
+        conversion_seconds = max(
+            0.0,
+            _safe_float(deterministic_prep_bundle.timing.get("conversion_seconds"))
+            or conversion_seconds,
+        )
+        _notify("Reusing deterministic prep bundle conversion payload.")
+        _notify_scheduler_event_callback(
+            scheduler_event_callback,
+            event="prep_bundle_reused",
+            prep_key=deterministic_prep_bundle.prep_key,
+        )
+    elif not shared_conversion_cache_hit and not single_book_split_cache_hit:
         conversion_started = time.monotonic()
         try:
             with _temporary_epub_runtime_env(
@@ -859,6 +1002,34 @@ def generate_pred_run_artifacts(
                         )
             conversion_seconds = max(0.0, time.monotonic() - conversion_started)
 
+            if not shared_conversion_cache_hit:
+                if not shared_conversion_cache_lock_acquired:
+                    shared_conversion_cache_lock_acquired = acquire_entry_lock(
+                        shared_conversion_cache_lock_path
+                    )
+                if shared_conversion_cache_lock_acquired:
+                    cache_write_payload = {
+                        "schema_version": CONVERSION_CACHE_SCHEMA_VERSION,
+                        "conversion_cache_key": shared_conversion_cache_key,
+                        "created_at": dt.datetime.now(tz=dt.timezone.utc).isoformat(
+                            timespec="milliseconds"
+                        ),
+                        "source_file": str(path),
+                        "source_hash": file_hash,
+                        "book_cache_root": str(resolved_book_cache_root),
+                        "run_config_hash": run_config_hash,
+                        "run_config_summary": run_config_summary,
+                        "conversion_seconds": conversion_seconds,
+                        "split_wait_seconds": split_wait_seconds,
+                        "split_convert_seconds": split_convert_seconds,
+                        "conversion_result": result.model_dump(
+                            mode="json",
+                            by_alias=True,
+                        ),
+                    }
+                    write_json_atomic(shared_conversion_cache_path, cache_write_payload)
+                    shared_conversion_cache_payload = cache_write_payload
+
             if (
                 single_book_split_cache_enabled
                 and single_book_split_cache_entry_path is not None
@@ -897,6 +1068,9 @@ def generate_pred_run_artifacts(
                     )
                     single_book_split_cache_payload = cache_write_payload
         finally:
+            if shared_conversion_cache_lock_acquired:
+                release_entry_lock(shared_conversion_cache_lock_path)
+                shared_conversion_cache_lock_acquired = False
             if (
                 single_book_split_cache_lock_acquired
                 and single_book_split_cache_lock_path is not None
@@ -905,6 +1079,12 @@ def generate_pred_run_artifacts(
                     single_book_split_cache_lock_path
                 )
                 single_book_split_cache_lock_acquired = False
+    elif shared_conversion_cache_payload is not None:
+        conversion_seconds = max(
+            0.0,
+            _safe_float(shared_conversion_cache_payload.get("conversion_seconds"))
+            or conversion_seconds,
+        )
     elif single_book_split_cache_payload is not None:
         conversion_seconds = max(
             0.0,
@@ -932,7 +1112,10 @@ def generate_pred_run_artifacts(
     authoritative_label_result: LabelFirstStageResult | None = None
     nonrecipe_stage_result: NonRecipeStageResult | None = None
     authority_contract = None
-    if processed_output_root is None:
+    if prep_bundle_boundary_result is not None:
+        authoritative_label_result = prep_bundle_boundary_result.label_first_result
+        result = prep_bundle_boundary_result.conversion_result
+    elif processed_output_root is None:
         authoritative_label_result = build_label_first_stage_result(
             conversion_result=result,
             source_file=path,
@@ -1098,23 +1281,32 @@ def generate_pred_run_artifacts(
         processed_output_started = time.monotonic()
         processed_run_root = processed_output_root / timestamp
         processed_run_root.mkdir(parents=True, exist_ok=True)
-        stage_session = execute_stage_import_session_from_result(
-            result=result,
-            source_file=path,
-            run_root=processed_run_root,
-            run_dt=run_dt,
-            importer_name=importer.name,
-            run_settings=run_settings,
-            run_config=run_config,
-            run_config_hash=run_config_hash,
-            run_config_summary=run_config_summary,
-            mapping_config=run_mapping,
-            write_markdown=write_markdown,
-            progress_callback=_notify,
-            count_diagnostics_path=(
+        stage_session_kwargs = {
+            "source_file": path,
+            "run_root": processed_run_root,
+            "run_dt": run_dt,
+            "importer_name": importer.name,
+            "run_settings": run_settings,
+            "run_config": run_config,
+            "run_config_hash": run_config_hash,
+            "run_config_summary": run_config_summary,
+            "mapping_config": run_mapping,
+            "write_markdown": write_markdown,
+            "progress_callback": _notify,
+            "count_diagnostics_path": (
                 processed_run_root / f"{path.stem}.report_totals_mismatch_diagnostics.json"
             ),
-        )
+        }
+        if prep_bundle_boundary_result is not None:
+            stage_session = execute_stage_import_session_from_recipe_boundary_result(
+                recipe_boundary_result=prep_bundle_boundary_result,
+                **stage_session_kwargs,
+            )
+        else:
+            stage_session = execute_stage_import_session_from_result(
+                result=result,
+                **stage_session_kwargs,
+            )
         result = stage_session.conversion_result
         authoritative_label_result = stage_session.label_first_result
         nonrecipe_stage_result = stage_session.nonrecipe_stage_result
@@ -1792,6 +1984,27 @@ def generate_pred_run_artifacts(
                 or None
             ),
         }
+    book_cache_summary: dict[str, Any] = {
+        "root": str(resolved_book_cache_root),
+        "source_hash": file_hash,
+        "conversion": {
+            "key": shared_conversion_cache_key,
+            "entry_path": str(shared_conversion_cache_path),
+            "hit": bool(shared_conversion_cache_hit),
+            "created_at": (
+                str((shared_conversion_cache_payload or {}).get("created_at") or "").strip()
+                or None
+            ),
+            "conversion_seconds": conversion_seconds,
+            "split_wait_seconds": split_wait_seconds,
+            "split_convert_seconds": split_convert_seconds,
+        },
+    }
+    if deterministic_prep_bundle_summary is not None:
+        deterministic_prep_bundle_summary["processed_output_write_seconds"] = (
+            processed_output_write_seconds
+        )
+        book_cache_summary["deterministic_prep"] = deterministic_prep_bundle_summary
 
     manifest = {
         "pipeline": importer.name,
@@ -1866,8 +2079,11 @@ def generate_pred_run_artifacts(
             str(prelabel_prompt_log_path) if prelabel_prompt_log_path is not None else None
         ),
     }
+    manifest["book_cache"] = book_cache_summary
     if single_book_split_cache_summary is not None:
         manifest["single_book_split_cache"] = single_book_split_cache_summary
+    if deterministic_prep_bundle_summary is not None:
+        manifest["deterministic_prep_bundle"] = deterministic_prep_bundle_summary
 
     prompt_budget_summary_path: Path | None = None
     prompt_budget_summary = build_prediction_run_prompt_budget_summary(
@@ -2057,9 +2273,14 @@ def generate_pred_run_artifacts(
     )
 
     run_manifest_run_config = dict(run_config)
+    run_manifest_run_config["book_cache"] = book_cache_summary
     if single_book_split_cache_summary is not None:
         run_manifest_run_config["single_book_split_cache"] = (
             single_book_split_cache_summary
+        )
+    if deterministic_prep_bundle_summary is not None:
+        run_manifest_run_config["deterministic_prep_bundle"] = (
+            deterministic_prep_bundle_summary
         )
 
     run_manifest_payload = RunManifest(
@@ -2119,10 +2340,13 @@ def generate_pred_run_artifacts(
         "run_config": run_config,
         "run_config_hash": run_config_hash,
         "run_config_summary": run_config_summary,
+        "book_cache": book_cache_summary,
         "single_book_split_cache": single_book_split_cache_summary,
+        "deterministic_prep_bundle": deterministic_prep_bundle_summary,
         "llm_codex_farm": llm_report,
         "book_id": book_id,
         "file_hash": file_hash,
+        "conversion_result": result.model_dump(mode="json", by_alias=True),
         "segment_focus_blocks": resolved_segment_focus_blocks,
         "segment_overlap_requested": segment_overlap,
         "segment_overlap_effective": effective_segment_overlap,

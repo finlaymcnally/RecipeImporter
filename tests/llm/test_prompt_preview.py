@@ -756,6 +756,134 @@ def test_prompt_preview_rebuilds_recipe_prompt_and_input_payload(tmp_path: Path)
     assert recipe_input_payload["ids"] == ["urn:recipe:test:r0"]
 
 
+def test_prompt_preview_recipe_falls_back_to_recipe_spans_when_draft_location_missing(
+    tmp_path: Path,
+) -> None:
+    run_dir = _build_existing_run(tmp_path)
+    draft_path = run_dir / "intermediate drafts" / "fixturebook" / "r0.jsonld"
+    draft_payload = json.loads(draft_path.read_text(encoding="utf-8"))
+    draft_payload["recipeimport:provenance"] = {"source_hash": "fixture-source-hash"}
+    _write_json(draft_path, draft_payload)
+
+    out_dir = tmp_path / "preview"
+    manifest_path = write_prompt_preview_for_existing_run(
+        run_path=run_dir,
+        out_dir=out_dir,
+        repo_root=REPO_ROOT,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["counts"]["recipe_interaction_count"] == 1
+    recipe_phase = manifest["phase_plans"]["recipe_refine"]
+    assert recipe_phase["shard_count"] == 1
+    assert recipe_phase["shards"][0]["owned_ids"] == ["urn:recipe:test:r0"]
+    rows = [
+        json.loads(line)
+        for line in (out_dir / "prompts" / "full_prompt_log.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    ]
+    assert any(row["stage_key"] == "recipe_refine" for row in rows)
+
+
+def test_prompt_preview_recipe_respects_requested_shard_count(tmp_path: Path) -> None:
+    run_dir = _build_existing_run(tmp_path)
+    workbook_slug = "fixturebook"
+    source_hash = "fixture-source-hash"
+    _write_json(
+        run_dir / "intermediate drafts" / workbook_slug / "r1.jsonld",
+        {
+            "@context": ["https://schema.org"],
+            "@id": "urn:recipe:test:r1",
+            "identifier": "urn:recipe:test:r1",
+            "name": "Second Recipe",
+            "recipeIngredient": ["2 cups water"],
+            "recipeInstructions": ["Boil."],
+            "recipeimport:provenance": {
+                "source_hash": source_hash,
+                "location": {
+                    "start_block": 2,
+                    "end_block": 3,
+                    "recipe_span_id": "recipe_span_1",
+                },
+            },
+        },
+    )
+    _write_json(
+        run_dir / "recipe_boundary" / workbook_slug / "recipe_spans.json",
+        {
+            "schema_version": "recipe_boundary.v1",
+            "workbook_slug": workbook_slug,
+            "recipe_spans": [
+                {
+                    "span_id": "recipe_span_0",
+                    "start_block_index": 0,
+                    "end_block_index": 1,
+                    "block_indices": [0, 1],
+                    "source_block_ids": ["block:0", "block:1"],
+                    "start_atomic_index": 0,
+                    "end_atomic_index": 1,
+                    "atomic_indices": [0, 1],
+                    "title_block_index": 0,
+                    "title_atomic_index": 0,
+                    "warnings": [],
+                    "escalation_reasons": [],
+                    "decision_notes": [],
+                },
+                {
+                    "span_id": "recipe_span_1",
+                    "start_block_index": 2,
+                    "end_block_index": 3,
+                    "block_indices": [2, 3],
+                    "source_block_ids": ["block:2", "block:3"],
+                    "start_atomic_index": 2,
+                    "end_atomic_index": 3,
+                    "atomic_indices": [2, 3],
+                    "title_block_index": 2,
+                    "title_atomic_index": 2,
+                    "warnings": [],
+                    "escalation_reasons": [],
+                    "decision_notes": [],
+                },
+            ],
+        },
+    )
+
+    out_dir = tmp_path / "preview"
+    manifest_path = write_prompt_preview_for_existing_run(
+        run_path=run_dir,
+        out_dir=out_dir,
+        repo_root=REPO_ROOT,
+        line_role_pipeline="off",
+        llm_knowledge_pipeline="off",
+        recipe_prompt_target_count=1,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["counts"]["recipe_interaction_count"] == 1
+    recipe_phase = manifest["phase_plans"]["recipe_refine"]
+    assert recipe_phase["shard_count"] == 1
+    assert recipe_phase["owned_id_count"] == 2
+    assert recipe_phase["shards"][0]["owned_ids"] == [
+        "urn:recipe:test:r0",
+        "urn:recipe:test:r1",
+    ]
+    rows = [
+        json.loads(line)
+        for line in (out_dir / "prompts" / "full_prompt_log.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    ]
+    recipe_rows = [row for row in rows if row["stage_key"] == "recipe_refine"]
+    assert len(recipe_rows) == 1
+    assert recipe_rows[0]["runtime_owned_ids"] == [
+        "urn:recipe:test:r0",
+        "urn:recipe:test:r1",
+    ]
+
+
 def test_prompt_preview_rebuilds_knowledge_and_line_role_prompts(tmp_path: Path) -> None:
     fixture = _run_prompt_preview_fixture(tmp_path)
     out_dir = fixture["out_dir"]

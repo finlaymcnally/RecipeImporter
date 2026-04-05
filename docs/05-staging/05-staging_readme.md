@@ -70,10 +70,14 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Shared helper surface used by `ingest_flows/` and mirrored back through the public ingest facade for tests.
 - `cookimport/staging/import_session.py`
   - Honest top-level re-export for the shared stage-session entrypoint/result types.
+- `cookimport/staging/deterministic_prep.py`
+  - Shared deterministic prep bundle owner for benchmark and stage reuse. It builds or reloads repo-level shared cache entries under `.cache/cookimport/book-cache/deterministic-prep/<source_hash>/<prep_key>/`, writes a human-readable manifest plus serialized deterministic `ConversionResult`, and can reconstruct a cached `RecipeBoundaryResult` for later execution.
+  - Stage runs now check that shared cache before doing fresh source-job work, resume directly from cached recipe-boundary state on a hit, and persist a new deterministic prep bundle back into the shared cache after a cold stage run completes.
+  - Its shard-recommendation helper now forwards prompt-preview survivability KPIs back to interactive benchmark planning, including per-step average token pressure and a small book-level deterministic summary derived from the cached boundary result.
 - `cookimport/staging/import_session_contracts.py`
   - Shared public result dataclass/types used by `import_session_flows/` and the public session facade.
 - `cookimport/staging/import_session_flows/`
-  - `output_stage.py` owns the active shared stage-session implementation, but it now reads late outputs from the canonical non-recipe authority contract instead of re-deciding that boundary inline. `authority.py` owns label-first artifact writes, and the sibling modules keep the stage-session responsibilities split by concern.
+  - `output_stage.py` owns the active shared stage-session implementation, but it now reads late outputs from the canonical non-recipe authority contract instead of re-deciding that boundary inline. It also exposes a boundary-resume entrypoint so benchmark callers can restart from a cached deterministic recipe-boundary result instead of rerunning label-first prep. `authority.py` owns label-first artifact writes, and the sibling modules keep the stage-session responsibilities split by concern.
 
 Progress telemetry note:
 

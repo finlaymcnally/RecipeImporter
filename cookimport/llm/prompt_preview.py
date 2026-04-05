@@ -560,13 +560,34 @@ def _build_recipe_preview_rows(
     full_blocks_by_index = {
         int(block["index"]): block for block in context.full_blocks if isinstance(block, dict)
     }
+    ordered_recipe_spans = sorted(
+        context.recipe_spans,
+        key=lambda span: (
+            int(span.start_block_index),
+            int(span.end_block_index),
+            str(span.span_id),
+        ),
+    )
+    recipe_span_by_id = {
+        str(span.span_id): span
+        for span in ordered_recipe_spans
+        if str(span.span_id).strip()
+    }
     recipe_inputs: list[dict[str, Any]] = []
 
     for recipe_index, draft in enumerate(context.recipe_drafts):
         provenance = _coerce_dict(draft.get("recipeimport:provenance"))
         location = _coerce_dict(provenance.get("location"))
+        span_id = str(location.get("recipe_span_id") or "").strip()
+        span = recipe_span_by_id.get(span_id)
+        if span is None and recipe_index < len(ordered_recipe_spans):
+            span = ordered_recipe_spans[recipe_index]
         start_block = _coerce_int(location.get("start_block"))
         end_block = _coerce_int(location.get("end_block"))
+        if start_block is None and span is not None:
+            start_block = int(span.start_block_index)
+        if end_block is None and span is not None:
+            end_block = int(span.end_block_index)
         if start_block is None or end_block is None:
             continue
         included_blocks = [
@@ -634,8 +655,16 @@ def _build_recipe_shard_preview_rows(
     recipe_inputs: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    del prompt_target_count
-    shard_groups: list[list[Mapping[str, Any]]] = [[row] for row in recipe_inputs]
+    requested_shard_count = resolve_shard_count(
+        total_items=len(recipe_inputs),
+        prompt_target_count=prompt_target_count,
+        items_per_shard=None,
+        default_items_per_shard=1,
+    )
+    shard_groups = partition_contiguous_items(
+        recipe_inputs,
+        shard_count=requested_shard_count,
+    )
     for index, shard_rows in enumerate(shard_groups, start=1):
         if not shard_rows:
             continue
@@ -1338,9 +1367,14 @@ def _assign_preview_workers(*, requested_worker_count: int, shard_count: int) ->
 def _preview_owned_ids_for_row(*, stage_key: str, row: Mapping[str, Any]) -> list[str]:
     payload = _coerce_dict(row.get("request_input_payload"))
     if stage_key == "recipe_refine":
-        owned_recipe_ids = payload.get("owned_recipe_ids")
-        if isinstance(owned_recipe_ids, list):
-            return [str(item).strip() for item in owned_recipe_ids if str(item).strip()]
+        for key in ("owned_recipe_ids", "ids"):
+            owned_recipe_ids = payload.get(key)
+            if isinstance(owned_recipe_ids, list):
+                normalized = [
+                    str(item).strip() for item in owned_recipe_ids if str(item).strip()
+                ]
+                if normalized:
+                    return normalized
     if stage_key == "nonrecipe_finalize":
         return knowledge_input_packet_ids(payload)
     if stage_key == "line_role" or stage_key.startswith("line_role_"):

@@ -154,6 +154,20 @@ def test_interactive_single_profile_all_matched_benchmark_runs_each_target_once(
 
     benchmark_calls: list[dict[str, object]] = []
     publisher, publication_capture = _make_lightweight_single_profile_publisher()
+    _patch_cli_attr(
+        monkeypatch,
+        "_run_prediction_with_reuse",
+        lambda **kwargs: (
+            kwargs["execute_prediction"]()
+            or {
+                "prediction_result_source": "executed",
+                "prediction_reuse_scope": "executed",
+                "prediction_reuse_key": "test-key",
+                "prediction_reuse_cache_path": str(tmp_path / ".prediction_reuse_cache" / "test-key.json"),
+                "prediction_reuse_copy_seconds": 0.0,
+            }
+        ),
+    )
     _patch_cli_attr(monkeypatch, "labelstudio_benchmark",
         lambda **kwargs: benchmark_calls.append(kwargs),
     )
@@ -381,8 +395,19 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codex_ex
     )
 
     benchmark_calls: list[dict[str, object]] = []
+    prep_bundle_calls: list[dict[str, object]] = []
+    prep_bundle = SimpleNamespace(
+        manifest_path=tmp_path / "prep-cache" / "bundle.json",
+        prep_key="prep-key-123",
+        cache_hit=False,
+    )
     _patch_cli_attr(monkeypatch, "labelstudio_benchmark",
         lambda **kwargs: benchmark_calls.append(kwargs),
+    )
+    _patch_cli_attr(
+        monkeypatch,
+        "resolve_or_build_deterministic_prep_bundle",
+        lambda **kwargs: prep_bundle_calls.append(dict(kwargs)) or prep_bundle,
     )
 
     _patch_cli_attr(monkeypatch, "_write_benchmark_upload_bundle",
@@ -398,6 +423,7 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codex_ex
     )
 
     assert completed is True
+    assert len(prep_bundle_calls) == 1
     assert len(benchmark_calls) == 2
     assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
         "off",
@@ -455,6 +481,10 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codex_ex
         / "single-profile-benchmark"
         / "01_book_a"
         / "codex-exec",
+    ]
+    assert [call["deterministic_prep_manifest_path"] for call in benchmark_calls] == [
+        prep_bundle.manifest_path,
+        prep_bundle.manifest_path,
     ]
 
 
@@ -971,3 +1001,99 @@ def test_interactive_single_profile_formats_codex_exec_precheck_failure_for_disp
     assert "codex execution precheck failed before `process`" in failure_messages[0]
     assert "usage limit for GPT-5.3-Codex-Spark" in failure_messages[0]
     assert "out_dir=/tmp/recipe_correction/out" not in failure_messages[0]
+
+
+def test_interactive_single_profile_reuses_prediction_artifacts_across_runs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "Book A.epub"
+    source.write_text("a", encoding="utf-8")
+    gold = tmp_path / "gold-a" / "exports" / "freeform_span_labels.jsonl"
+    gold.parent.mkdir(parents=True, exist_ok=True)
+    gold.write_text("{}\n", encoding="utf-8")
+    target = cli.AllMethodTarget(
+        gold_spans_path=gold,
+        source_file=source,
+        source_file_name=source.name,
+        gold_display="gold-a",
+    )
+    _patch_cli_attr(monkeypatch, "_resolve_all_method_targets", lambda _output_dir: ([target], []))
+    _patch_cli_attr(monkeypatch, "_prompt_confirm", lambda *_args, **_kwargs: True)
+    prep_bundle = SimpleNamespace(
+        manifest_path=tmp_path / "prep-cache" / "bundle.json",
+        prep_key="test-prep-bundle",
+        cache_hit=True,
+    )
+    prep_bundle.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    prep_bundle.manifest_path.write_text("{}", encoding="utf-8")
+    _patch_cli_attr(
+        monkeypatch,
+        "resolve_or_build_deterministic_prep_bundle",
+        lambda **_kwargs: prep_bundle,
+    )
+
+    selected_settings = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "off"},
+        warn_context="test single-profile prediction reuse",
+    )
+    processed_output_root = tmp_path / "processed"
+    publisher, publication_capture = _make_lightweight_single_profile_publisher()
+
+    benchmark_calls: list[Path] = []
+
+    def _fake_labelstudio_benchmark(**kwargs: object) -> None:
+        eval_output_dir = Path(kwargs["eval_output_dir"])
+        processed_output_dir = Path(kwargs["processed_output_dir"])
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        processed_output_dir.mkdir(parents=True, exist_ok=True)
+        (eval_output_dir / "prediction-records.jsonl").write_text("{}\n", encoding="utf-8")
+        (eval_output_dir / "run_manifest.json").write_text(
+            json.dumps(
+                {
+                    "source": {"path": str(kwargs["source_file"])},
+                    "run_config": {},
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (processed_output_dir / "processed-marker.txt").write_text(
+            "processed",
+            encoding="utf-8",
+        )
+        benchmark_calls.append(eval_output_dir)
+
+    _patch_cli_attr(monkeypatch, "labelstudio_benchmark", _fake_labelstudio_benchmark)
+
+    first_output = tmp_path / "golden" / "2026-04-04_23.20.00"
+    second_output = tmp_path / "golden" / "2026-04-04_23.21.00"
+    first_completed = cli._interactive_single_profile_all_matched_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=first_output,
+        processed_output_root=processed_output_root,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+        publisher=publisher,
+    )
+    second_completed = cli._interactive_single_profile_all_matched_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=second_output,
+        processed_output_root=processed_output_root,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+        publisher=publisher,
+    )
+
+    assert first_completed is True
+    assert second_completed is True
+    assert len(benchmark_calls) == 1
+    second_eval_dir = second_output / "single-profile-benchmark" / "01_book_a"
+    second_processed_dir = (
+        processed_output_root / second_output.name / "single-profile-benchmark" / "01_book_a"
+    )
+    assert (second_eval_dir / "prediction-records.jsonl").exists()
+    assert (second_processed_dir / "processed-marker.txt").exists()
+    assert publication_capture["results"]

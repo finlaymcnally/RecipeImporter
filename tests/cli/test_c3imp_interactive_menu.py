@@ -941,17 +941,40 @@ def test_choose_run_settings_uses_target_context_recommendation_builder_for_shar
                     )
                 )
                 or {
+                    "__book_summary__": {
+                        "block_count": 312,
+                        "line_count": 1245,
+                        "recipe_guess_count": 27,
+                        "recipe_owned_block_count": 188,
+                        "outside_recipe_block_count": 124,
+                        "knowledge_packet_count": 38,
+                    },
                     "line_role": {
                         "minimum_safe_shard_count": 4,
                         "binding_limit": "input",
+                        "avg_input_tokens_per_shard": 58_000,
+                        "avg_peak_session_tokens_per_shard": 70_600,
+                        "worst_peak_session_tokens": 82_000,
+                        "owned_units_per_shard_avg": 249.0,
+                        "owned_unit_label": "lines",
                     },
                     "recipe": {
                         "minimum_safe_shard_count": 3,
                         "binding_limit": "session_peak",
+                        "avg_input_tokens_per_shard": 42_000,
+                        "avg_peak_session_tokens_per_shard": 56_800,
+                        "worst_peak_session_tokens": 71_000,
+                        "owned_units_per_shard_avg": 5.4,
+                        "owned_unit_label": "recipes",
                     },
                     "knowledge": {
                         "minimum_safe_shard_count": 2,
                         "binding_limit": "output",
+                        "avg_input_tokens_per_shard": 33_000,
+                        "avg_peak_session_tokens_per_shard": 57_400,
+                        "worst_peak_session_tokens": 74_000,
+                        "owned_units_per_shard_avg": 7.6,
+                        "owned_unit_label": "packets",
                     },
                 }
             ),
@@ -973,12 +996,57 @@ def test_choose_run_settings_uses_target_context_recommendation_builder_for_shar
         "session_peak",
         "output",
     ]
+    assert [int(row["avg_input_tokens_per_shard"]) for row in captured_rows] == [
+        58_000,
+        42_000,
+        33_000,
+    ]
+    assert [float(row["owned_units_per_shard_avg"]) for row in captured_rows] == [
+        249.0,
+        5.4,
+        7.6,
+    ]
     assert "Target: book.epub" in captured_summary_lines
+    assert any("Prepared: 312 blocks, 1,245 lines, 27 recipe guesses" in line for line in captured_summary_lines)
+    assert "Leftover for knowledge: 124 outside-recipe blocks, 38 knowledge packets" in captured_summary_lines
+    assert "Each row shows: main limit | avg prompt size | avg session size | avg work per shard" in captured_summary_lines
+    assert "Rows with min -- are not verified yet. Treat those shard counts as untrusted." not in captured_summary_lines
     assert not any("Exact survivability estimates appear" in line for line in captured_summary_lines)
     assert selected.line_role_prompt_target_count == 4
     assert selected.recipe_prompt_target_count == 3
     assert selected.knowledge_prompt_target_count == 2
     assert selected.codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
+
+
+def test_binding_limit_and_kpi_labels_are_plain_english() -> None:
+    assert run_settings_flow._binding_limit_label("input") == "prompt"
+    assert run_settings_flow._binding_limit_label("session_peak") == "session"
+    assert (
+        run_settings_flow._render_shard_plan_kpi_summary(
+            {
+                "avg_input_tokens_per_shard": 21_400,
+                "avg_peak_session_tokens_per_shard": 26_200,
+                "owned_units_per_shard_avg": 294.2,
+                "owned_unit_label": "lines",
+            }
+        )
+        == "~21k prompt | ~26k session | ~294 lines/sh"
+    )
+
+
+def test_shard_plan_summary_warns_when_some_rows_are_unverified() -> None:
+    lines = run_settings_flow._build_codex_shard_plan_summary_lines(
+        target_context={
+            "title": "Target: book.epub",
+            "recommendations_by_step": {},
+        },
+        rows=[
+            {"minimum_safe_shard_count": 4},
+            {"minimum_safe_shard_count": None},
+        ],
+    )
+
+    assert "Rows with min -- are not verified yet. Treat those shard counts as untrusted." in lines
 
 
 def test_choose_interactive_codex_surfaces_line_role_only_prompts_only_for_line_role_target() -> None:

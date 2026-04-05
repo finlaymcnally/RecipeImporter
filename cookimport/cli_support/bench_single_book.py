@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import inspect
 import importlib
 import sys
-import tempfile
 
-from cookimport.labelstudio.ingest_flows.prediction_run import (
-    generate_pred_run_artifacts,
+from cookimport.staging.import_session import (
+    build_shard_recommendations_from_prep_bundle,
+    resolve_or_build_deterministic_prep_bundle,
 )
-from cookimport.llm.prompt_preview import write_prompt_preview_for_existing_run
 
 from .command_resolution import resolve_registered_command
 from .bench_all_method import (
@@ -19,7 +17,11 @@ from .bench_all_method import (
     _resolve_benchmark_gold_and_source,
 )
 from .bench_cache import (
+    _build_all_method_prediction_reuse_key,
+    _build_all_method_split_convert_input_key,
     _build_single_book_split_cache_key,
+    _resolve_interactive_prediction_reuse_cache_dir,
+    _run_prediction_with_reuse,
     _normalize_single_book_split_cache_mode,
 )
 
@@ -44,29 +46,6 @@ def _resolve_artifact_path(base_dir: Path, value: Any) -> Path | None:
     return bench_compare._resolve_artifact_path(base_dir, value)
 
 
-_GENERATE_PRED_RUN_ARTIFACTS_PARAMETER_NAMES = frozenset(
-    inspect.signature(generate_pred_run_artifacts).parameters
-)
-_INTERACTIVE_PREVIEW_EXPLICIT_PREDICTION_KWARG_NAMES = frozenset(
-    {
-        "path",
-        "pipeline",
-        "segment_blocks",
-        "segment_overlap",
-        "allow_codex",
-        "write_markdown",
-        "write_label_studio_tasks",
-        "run_root_override",
-        "mirror_stage_artifacts_into_run_root",
-    }
-)
-_INTERACTIVE_PREVIEW_STAGE_TO_STEP_ID = {
-    "line_role": "line_role",
-    "recipe_refine": "recipe",
-    "nonrecipe_finalize": "knowledge",
-}
-
-
 def _interactive_single_book_preview_baseline_settings(
     selected_settings: RunSettings,
 ) -> RunSettings:
@@ -85,107 +64,20 @@ def _build_single_book_interactive_shard_recommendations(
     *,
     source_file: Path,
     selected_settings: RunSettings,
+    processed_output_root: Path,
 ) -> dict[str, dict[str, Any]]:
     preview_baseline_settings = _interactive_single_book_preview_baseline_settings(
         selected_settings
     )
-    with tempfile.TemporaryDirectory(
-        prefix="cookimport-single-book-shard-preview-"
-    ) as temp_dir:
-        temp_root = Path(temp_dir)
-        processed_output_root = temp_root / "processed-output"
-        processed_output_root.mkdir(parents=True, exist_ok=True)
-        benchmark_kwargs = build_benchmark_call_kwargs_from_run_settings(
-            preview_baseline_settings,
-            output_dir=temp_root / "prediction-output",
-            eval_output_dir=temp_root / "eval-output",
-            eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
-            no_upload=True,
-            write_markdown=False,
-            write_label_studio_tasks=False,
-            processed_output_dir=processed_output_root,
-        )
-        prediction_kwargs = {
-            key: value
-            for key, value in benchmark_kwargs.items()
-            if key in _GENERATE_PRED_RUN_ARTIFACTS_PARAMETER_NAMES
-            and key not in _INTERACTIVE_PREVIEW_EXPLICIT_PREDICTION_KWARG_NAMES
-        }
-        prediction_kwargs["processed_output_root"] = processed_output_root
-        prediction_result = generate_pred_run_artifacts(
-            path=source_file,
-            pipeline="auto",
-            segment_blocks=40,
-            segment_overlap=5,
-            allow_codex=False,
-            write_markdown=False,
-            write_label_studio_tasks=False,
-            run_root_override=temp_root / "prediction-run",
-            mirror_stage_artifacts_into_run_root=False,
-            **prediction_kwargs,
-        )
-        processed_run_root_raw = prediction_result.get("processed_run_root")
-        if processed_run_root_raw is None:
-            return {}
-        processed_run_root = Path(str(processed_run_root_raw)).expanduser()
-        preview_manifest_path = write_prompt_preview_for_existing_run(
-            run_path=processed_run_root,
-            out_dir=temp_root / "prompt-preview",
-            repo_root=REPO_ROOT,
-            llm_recipe_pipeline=selected_settings.llm_recipe_pipeline.value,
-            llm_knowledge_pipeline=selected_settings.llm_knowledge_pipeline.value,
-            line_role_pipeline=selected_settings.line_role_pipeline.value,
-            codex_farm_root=selected_settings.codex_farm_root,
-            codex_farm_cmd=selected_settings.codex_farm_cmd,
-            codex_farm_model=selected_settings.codex_farm_model,
-            codex_farm_reasoning_effort=(
-                selected_settings.codex_farm_reasoning_effort.value
-                if selected_settings.codex_farm_reasoning_effort is not None
-                else None
-            ),
-            codex_farm_context_blocks=selected_settings.codex_farm_context_blocks,
-            codex_farm_knowledge_context_blocks=(
-                selected_settings.codex_farm_knowledge_context_blocks
-            ),
-            atomic_block_splitter=selected_settings.atomic_block_splitter.value,
-            recipe_worker_count=selected_settings.recipe_worker_count,
-            recipe_prompt_target_count=selected_settings.recipe_prompt_target_count,
-            knowledge_prompt_target_count=(
-                selected_settings.knowledge_prompt_target_count
-            ),
-            knowledge_packet_input_char_budget=(
-                selected_settings.knowledge_packet_input_char_budget
-            ),
-            knowledge_packet_output_char_budget=(
-                selected_settings.knowledge_packet_output_char_budget
-            ),
-            knowledge_worker_count=selected_settings.knowledge_worker_count,
-            line_role_worker_count=selected_settings.line_role_worker_count,
-            line_role_prompt_target_count=(
-                selected_settings.line_role_prompt_target_count
-            ),
-            line_role_shard_target_lines=selected_settings.line_role_shard_target_lines,
-        )
-        preview_manifest = _load_json_dict(preview_manifest_path) or {}
-    phase_plans = preview_manifest.get("phase_plans")
-    if not isinstance(phase_plans, dict):
-        return {}
-    recommendations_by_step: dict[str, dict[str, Any]] = {}
-    for stage_key, step_id in _INTERACTIVE_PREVIEW_STAGE_TO_STEP_ID.items():
-        phase_plan = phase_plans.get(stage_key)
-        if not isinstance(phase_plan, dict):
-            continue
-        minimum_safe_shard_count = phase_plan.get("minimum_safe_shard_count")
-        binding_limit = str(phase_plan.get("binding_limit") or "").strip() or None
-        recommendations_by_step[step_id] = {
-            "minimum_safe_shard_count": (
-                int(minimum_safe_shard_count)
-                if minimum_safe_shard_count is not None
-                else None
-            ),
-            "binding_limit": binding_limit,
-        }
-    return recommendations_by_step
+    prep_bundle = resolve_or_build_deterministic_prep_bundle(
+        source_file=source_file,
+        run_settings=preview_baseline_settings,
+        processed_output_root=processed_output_root,
+    )
+    return build_shard_recommendations_from_prep_bundle(
+        prep_bundle=prep_bundle,
+        selected_settings=selected_settings,
+    )
 
 
 def _write_single_book_summary_markdown(
@@ -494,6 +386,7 @@ def _interactive_single_book_benchmark(
     split_cache_key: str | None = None
     split_cache_root: Path | None = None
     split_cache_source_hash: str | None = None
+    deterministic_prep_bundle = None
     if len(variants) > 1 and selected_split_cache_mode != "off":
         split_cache_root = _resolve_single_book_split_cache_root(
             session_root=session_root,
@@ -525,6 +418,23 @@ def _interactive_single_book_benchmark(
             ),
             fg=typer.colors.BRIGHT_BLACK,
         )
+    if selected_source is not None:
+        deterministic_prep_bundle = resolve_or_build_deterministic_prep_bundle(
+            source_file=selected_source,
+            run_settings=variants[0][1],
+            processed_output_root=processed_output_root,
+        )
+        typer.secho(
+            (
+                "Deterministic prep bundle: "
+                f"{deterministic_prep_bundle.prep_key[:12]}..."
+                f" ({'hit' if deterministic_prep_bundle.cache_hit else 'built'})"
+            ),
+            fg=typer.colors.BRIGHT_BLACK,
+        )
+    prediction_reuse_cache_dir = _resolve_interactive_prediction_reuse_cache_dir(
+        processed_output_root=processed_output_root,
+    )
 
     variant_results: dict[str, dict[str, Any]] = {}
     for index, (variant_slug, variant_settings) in enumerate(variants, start=1):
@@ -564,12 +474,51 @@ def _interactive_single_book_benchmark(
                     ),
                 }
             )
+        if deterministic_prep_bundle is not None:
+            variant_kwargs["deterministic_prep_manifest_path"] = (
+                deterministic_prep_bundle.manifest_path
+            )
         try:
-            with _benchmark_progress_overrides(
-                suppress_dashboard_refresh=True,
-                suppress_output_prune=True,
-            ):
-                _labelstudio_benchmark_command()(**variant_kwargs)
+            def _execute_prediction() -> None:
+                with _benchmark_progress_overrides(
+                    suppress_dashboard_refresh=True,
+                    suppress_output_prune=True,
+                ):
+                    _labelstudio_benchmark_command()(**variant_kwargs)
+
+            prediction_reuse_summary: dict[str, Any] | None = None
+            if selected_source is not None:
+                prediction_reuse_summary = _run_prediction_with_reuse(
+                    cache_dir=prediction_reuse_cache_dir,
+                    prediction_reuse_key=_build_all_method_prediction_reuse_key(
+                        source_file=selected_source,
+                        run_settings=variant_settings,
+                    ),
+                    prediction_split_convert_input_key=(
+                        _build_all_method_split_convert_input_key(
+                            source_file=selected_source,
+                            run_settings=variant_settings,
+                        )
+                    ),
+                    source_file=selected_source,
+                    target_eval_output_dir=variant_eval_output,
+                    target_processed_output_dir=variant_processed_output,
+                    config_dir_name=variant_slug,
+                    execute_prediction=_execute_prediction,
+                )
+                if str(
+                    prediction_reuse_summary.get("prediction_result_source") or ""
+                ).startswith("reused_"):
+                    typer.secho(
+                        (
+                            f"Single-book {variant_slug}: "
+                            f"{prediction_reuse_summary['prediction_result_source']} "
+                            f"({prediction_reuse_summary['prediction_reuse_key'][:12]}...)"
+                        ),
+                        fg=typer.colors.BRIGHT_BLACK,
+                    )
+            else:
+                _execute_prediction()
             source_file = _load_single_book_source_path(variant_eval_output)
             split_cache_metadata = _load_single_book_split_cache_metadata(
                 variant_eval_output
@@ -581,6 +530,7 @@ def _interactive_single_book_benchmark(
                 "processed_output_dir": variant_processed_output,
                 "source_file": source_file,
                 "single_book_split_cache": split_cache_metadata,
+                "prediction_reuse": prediction_reuse_summary,
             }
         except typer.Exit as exc:
             exit_code = int(getattr(exc, "exit_code", 1))

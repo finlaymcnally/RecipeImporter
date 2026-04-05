@@ -726,8 +726,8 @@ _JS_COMPARE_CONTROL = """\
     }
     const strata = Object.create(null);
     records.forEach(record => {
-      const outcome = maybeNumber(previousRunsFieldValue(record, outcomeField));
-      const compare = maybeNumber(previousRunsFieldValue(record, compareField));
+      const outcome = compareControlNumericValue(record, outcomeField);
+      const compare = compareControlNumericValue(record, compareField);
       if (outcome == null || compare == null) return;
       const stratumKey = hold
         .map(fieldName => analysisComparableValue(previousRunsFieldValue(record, fieldName)))
@@ -798,6 +798,10 @@ _JS_COMPARE_CONTROL = """\
   function buildCompareControlNumericScatterSeries(records, state, catalog) {
     const compareLabel = compareControlChartFieldLabel(state.compare_field);
     const outcomeLabel = compareControlChartFieldLabel(state.outcome_field);
+    const compareInfo = catalog && catalog.by_field
+      ? catalog.by_field[state.compare_field]
+      : null;
+    const isTimeAxis = Boolean(compareInfo && compareInfo.time_like);
     const series = [];
     const segments = compareControlChartSegments(records, state, catalog);
     segments.forEach((segment, index) => {
@@ -816,7 +820,8 @@ _JS_COMPARE_CONTROL = """\
       if (!pairs.length) return;
       series.push({
         name: segment.label,
-        type: "scatter",
+        type: isTimeAxis ? "line" : "scatter",
+        lineWidth: isTimeAxis ? 1.8 : undefined,
         marker: {
           enabled: true,
           radius: 3,
@@ -829,7 +834,7 @@ _JS_COMPARE_CONTROL = """\
           custom: {
             compareLabel,
             outcomeLabel,
-            compareValue: pair.x,
+            compareValue: previousRunsFieldValue(pair.record, state.compare_field),
             outcomeValue: pair.y,
             splitLabel: segment.label,
             ...compareControlScatterPointCustomForRecord(pair.record),
@@ -1051,6 +1056,7 @@ _JS_COMPARE_CONTROL = """\
     const compareInfo = (context && context.compare_info) || catalog.by_field[state.compare_field];
     const compareLabel = compareControlChartFieldLabel(state.compare_field);
     const outcomeLabel = compareControlChartFieldLabel(state.outcome_field);
+    const isTimeAxis = Boolean(compareInfo && compareInfo.time_like);
 
     if (!records.length) {
       const selectedGroups = uniqueStringList(state.selected_groups)
@@ -1115,10 +1121,13 @@ _JS_COMPARE_CONTROL = """\
       const series = buildCompareControlNumericScatterSeries(records, state, catalog);
       return {
         chart_type: "scatter",
-        chart_title: outcomeLabel + " vs " + compareLabel,
+        chart_title: isTimeAxis
+          ? outcomeLabel + " over " + compareLabel
+          : outcomeLabel + " vs " + compareLabel,
         chart_subtitle: compareControlChartModeSummary(state),
         x_axis: {
           title: { text: compareLabel },
+          type: isTimeAxis ? "datetime" : undefined,
         },
         y_axis: {
           title: { text: outcomeLabel },
@@ -1127,7 +1136,11 @@ _JS_COMPARE_CONTROL = """\
         empty_reason: (
           state.view_mode === "controlled"
             ? "No comparable numeric rows remained after hold-constant controls."
-            : "No numeric rows had both compare and outcome values."
+            : (
+              isTimeAxis
+                ? "No runs had both timestamp and outcome values."
+                : "No numeric rows had both compare and outcome values."
+            )
         ),
         total_rows: totalRows,
       };

@@ -686,6 +686,10 @@ def test_interactive_benchmark_single_book_target_context_exposes_shard_recommen
         "_build_single_book_interactive_shard_recommendations",
         lambda **kwargs: (
             choose_capture.setdefault("recommendation_source_file", kwargs["source_file"]),
+            choose_capture.setdefault(
+                "recommendation_processed_output_root",
+                kwargs["processed_output_root"],
+            ),
             {
                 "recipe": {
                     "minimum_safe_shard_count": 3,
@@ -718,6 +722,7 @@ def test_interactive_benchmark_single_book_target_context_exposes_shard_recommen
 
     assert choose_capture["interactive_codex_target_context"]["title"] == f"Target: {resolved_source.name}"
     assert choose_capture["recommendation_source_file"] == resolved_source
+    assert choose_capture["recommendation_processed_output_root"] == configured_output
     assert choose_capture["recommendations_by_step"] == {
         "recipe": {
             "minimum_safe_shard_count": 3,

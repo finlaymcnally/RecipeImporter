@@ -604,6 +604,40 @@ def _format_shard_budget_value(token_count: int) -> str:
     return str(token_count)
 
 
+def _binding_limit_label(binding_limit: str | None) -> str:
+    normalized = str(binding_limit or "").strip().lower()
+    return {
+        "input": "prompt",
+        "output": "output",
+        "session_peak": "session",
+        "owned_units": "work",
+    }.get(normalized, normalized or "limit")
+
+
+def _render_shard_plan_kpi_summary(recommendation_payload: Mapping[str, Any]) -> str:
+    bits: list[str] = []
+    avg_input_tokens_per_shard = recommendation_payload.get(
+        "avg_input_tokens_per_shard"
+    )
+    if avg_input_tokens_per_shard is not None:
+        bits.append(
+            f"~{_format_shard_budget_value(int(avg_input_tokens_per_shard))} prompt"
+        )
+    avg_peak_session_tokens_per_shard = recommendation_payload.get(
+        "avg_peak_session_tokens_per_shard"
+    )
+    if avg_peak_session_tokens_per_shard is not None:
+        bits.append(
+            f"~{_format_shard_budget_value(int(avg_peak_session_tokens_per_shard))} session"
+        )
+    owned_units_per_shard_avg = recommendation_payload.get("owned_units_per_shard_avg")
+    owned_unit_label = str(recommendation_payload.get("owned_unit_label") or "").strip()
+    if owned_units_per_shard_avg is not None and owned_unit_label:
+        rounded_units = int(round(float(owned_units_per_shard_avg)))
+        bits.append(f"~{rounded_units} {owned_unit_label}/sh")
+    return " | ".join(bits)
+
+
 def _build_codex_shard_plan_rows(
     *,
     selected_settings: RunSettings,
@@ -637,6 +671,7 @@ def _build_codex_shard_plan_rows(
         stage_budget = default_stage_survivability_budget(
             _CODEX_SURFACE_STAGE_KEYS.get(step_id, step_id)
         )
+        kpi_summary = _render_shard_plan_kpi_summary(recommendation_payload)
         rows.append(
             {
                 "step_id": step_id,
@@ -651,6 +686,20 @@ def _build_codex_shard_plan_rows(
                     else None
                 ),
                 "binding_limit": binding_limit,
+                "avg_input_tokens_per_shard": recommendation_payload.get(
+                    "avg_input_tokens_per_shard"
+                ),
+                "avg_peak_session_tokens_per_shard": recommendation_payload.get(
+                    "avg_peak_session_tokens_per_shard"
+                ),
+                "worst_peak_session_tokens": recommendation_payload.get(
+                    "worst_peak_session_tokens"
+                ),
+                "owned_units_per_shard_avg": recommendation_payload.get(
+                    "owned_units_per_shard_avg"
+                ),
+                "owned_unit_label": recommendation_payload.get("owned_unit_label"),
+                "kpi_summary": kpi_summary,
                 "budget_summary": (
                     f"in {_format_shard_budget_value(stage_budget.max_input_tokens)} / "
                     f"out {_format_shard_budget_value(stage_budget.max_output_tokens)} / "
@@ -682,9 +731,65 @@ def _build_codex_shard_plan_summary_lines(
             text = str(line or "").strip()
             if text:
                 lines.append(text)
+    recommendations_by_step = (
+        target_context.get("recommendations_by_step")
+        if isinstance(target_context, Mapping)
+        else None
+    )
+    book_summary = (
+        recommendations_by_step.get("__book_summary__")
+        if isinstance(recommendations_by_step, Mapping)
+        and isinstance(recommendations_by_step.get("__book_summary__"), Mapping)
+        else None
+    )
+    if isinstance(book_summary, Mapping):
+        block_count = book_summary.get("block_count")
+        line_count = book_summary.get("line_count")
+        recipe_guess_count = book_summary.get("recipe_guess_count")
+        outside_recipe_block_count = book_summary.get("outside_recipe_block_count")
+        knowledge_packet_count = book_summary.get("knowledge_packet_count")
+        lines.append(
+            "Prepared: "
+            + ", ".join(
+                bit
+                for bit in (
+                    (
+                        f"{int(block_count):,} blocks"
+                        if block_count is not None
+                        else ""
+                    ),
+                    (
+                        f"{int(line_count):,} lines"
+                        if line_count is not None
+                        else ""
+                    ),
+                    (
+                        f"{int(recipe_guess_count):,} recipe guesses"
+                        if recipe_guess_count is not None
+                        else ""
+                    ),
+                )
+                if bit
+            )
+        )
+        extra_bits: list[str] = []
+        if outside_recipe_block_count is not None:
+            extra_bits.append(f"{int(outside_recipe_block_count):,} outside-recipe blocks")
+        if knowledge_packet_count is not None:
+            extra_bits.append(f"{int(knowledge_packet_count):,} knowledge packets")
+        if extra_bits:
+            lines.append("Leftover for knowledge: " + ", ".join(extra_bits))
+    lines.append("Each row shows: main limit | avg prompt size | avg session size | avg work per shard")
     has_recommendations = any(
         row.get("minimum_safe_shard_count") is not None for row in rows
     )
+    has_unknown_rows = any(
+        row.get("minimum_safe_shard_count") is None for row in rows
+    )
+    if has_unknown_rows:
+        lines.append(
+            "Rows with min -- are not verified yet. Treat those shard counts as untrusted."
+        )
     if not has_recommendations:
         lines.append(
             "Exact survivability estimates appear after deterministic planning. "
@@ -796,28 +901,27 @@ def _prompt_codex_shard_plan_menu(
             count_value = int(row.get("current_count") or 1)
             minimum_safe = row.get("minimum_safe_shard_count")
             binding_limit = str(row.get("binding_limit") or "").strip()
+            kpi_summary = str(row.get("kpi_summary") or "").strip()
             budget_summary = str(row.get("budget_summary") or "").strip()
             label_class = "class:highlighted" if is_current else "class:text"
             count_class = "class:highlighted" if is_current else "class:selected"
             if minimum_safe is not None:
                 recommended_text = f"min {int(minimum_safe)}"
                 if count_value < int(minimum_safe):
-                    note_text = (
-                        f"unsafe: {binding_limit}"
-                        if binding_limit
-                        else "unsafe"
-                    )
+                    note_text = f"too low for {_binding_limit_label(binding_limit)}"
                     note_class = "class:answer"
                 else:
-                    note_text = (
-                        f"safe: {binding_limit}"
-                        if binding_limit
-                        else "safe"
-                    )
+                    note_text = f"ok on {_binding_limit_label(binding_limit)}"
                     note_class = "class:selected"
+                if kpi_summary:
+                    note_text = f"{note_text} | {kpi_summary}"
             else:
                 recommended_text = "min --"
-                note_text = budget_summary
+                note_text = (
+                    f"no exact estimate | {kpi_summary}"
+                    if kpi_summary and budget_summary
+                    else (kpi_summary or budget_summary or "no exact estimate")
+                )
                 note_class = "class:text"
             count_text = f"[{count_value:>3}]"
             if is_current:

@@ -2,7 +2,7 @@
 summary: "Onboarding file for web-based AI chatbots that can't see the code"
 read_when:
   - AI Coding agents, DO NOT READ
-  - This is for providing to web-based AI's who can not see the codebase.
+  - This is for providing to web-based AI's who can not see the codebase. THEY ONLY GET THIS FILE AND NOTHING ELSE.
 ---
 
 # AI Context: `cookimport` (code-verified on 2026-04-02)
@@ -1712,17 +1712,17 @@ Attach it to:
 
 and make sure the new behavior uses stable manifest/CSV/artifact contracts rather than scraping ad hoc file layouts.
 
-## What old ideas to treat as historical noise
+## Historical note
 
-The codebase has gone through significant refactors. When designing new work, treat these as outdated or at least secondary:
+Some archived docs, fixtures, or local-only readers may still use older naming. Treat that as history input, not as the live architecture.
 
-- importer-era recipe counts as the main truth source
-- numbered pass-slot mental models
-- mixed recipe/nonrecipe classifier stories that blur route and finalize
-- old compatibility seams that guess artifact paths instead of reading manifests
-- “LLM as advisory diff against deterministic baseline” as the universal runtime contract
+For new design work, stay on the current contract:
 
-Some old artifacts and readers still exist for compatibility or history, but they should not become the template for new design.
+- stage-owned truth, not importer-owned truth
+- semantic stage names, not numbered pass-slot topology
+- explicit route/finalize split for outside-recipe work
+- manifest and stage-observability pointers, not guessed artifact paths
+- validated accepted LLM outputs as live semantic authority on the active path, not universal advisory diffs against deterministic baseline
 
 ## What a good proposed feature sounds like
 

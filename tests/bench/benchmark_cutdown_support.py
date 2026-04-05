@@ -180,6 +180,23 @@ def _write_prediction_run(
                 "recipes": llm_manifest_recipes,
             },
         )
+        _write_json(
+            prediction_run / "stage_observability.json",
+            {
+                "schema_version": "stage_observability.v1",
+                "stages": [
+                    {
+                        "stage_key": "recipe_refine",
+                        "workbooks": [
+                            {
+                                "workbook_slug": "fixture-slug",
+                                "manifest_path": "raw/llm/fixture-slug/recipe_manifest.json",
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
     return prediction_run
 
 
@@ -385,6 +402,33 @@ def _write_processed_output_knowledge_artifacts(
                 "outputs_parsed": knowledge_call_count,
                 "snippets_written": knowledge_call_count * 2,
             },
+        },
+    )
+    _write_json(
+        processed_output_root / "stage_observability.json",
+        {
+            "schema_version": "stage_observability.v1",
+            "stages": [
+                {
+                    "stage_key": "nonrecipe_finalize",
+                    "workbooks": [
+                        {
+                            "workbook_slug": workbook_slug,
+                            "manifest_path": (
+                                f"raw/llm/{workbook_slug}/knowledge_manifest.json"
+                            ),
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    _write_json(
+        processed_output_root / "run_manifest.json",
+        {
+            "artifacts": {
+                "stage_observability_json": "stage_observability.json",
+            }
         },
     )
     _set_run_artifact(run_dir, "processed_output_run_dir", str(processed_output_root))

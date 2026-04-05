@@ -9,7 +9,7 @@ import shutil
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from cookimport.bench.prediction_records import read_prediction_records
 from cookimport.cli_support import (
@@ -702,6 +702,170 @@ def _resolve_all_method_prediction_reuse_cache_dir(*, root_output_dir: Path) -> 
     if env_override:
         return Path(env_override).expanduser()
     return root_output_dir / ".prediction_reuse_cache"
+
+
+def _resolve_interactive_prediction_reuse_cache_dir(
+    *,
+    processed_output_root: Path,
+) -> Path:
+    env_override = str(
+        os.getenv(ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT_ENV, "") or ""
+    ).strip()
+    if env_override:
+        return Path(env_override).expanduser()
+    return processed_output_root.expanduser() / ".prediction_reuse_cache"
+
+
+def _prediction_reuse_lock_path(cache_path: Path) -> Path:
+    return cache_path.with_suffix(
+        f"{cache_path.suffix}{ALL_METHOD_PREDICTION_REUSE_LOCK_SUFFIX}"
+    )
+
+
+def _materialize_prediction_reuse_cache_entry(
+    *,
+    cache_entry: dict[str, Any] | None,
+    target_eval_output_dir: Path,
+    target_processed_output_dir: Path,
+) -> tuple[str, str, float] | None:
+    if not isinstance(cache_entry, dict):
+        return None
+    source_eval_raw = str(cache_entry.get("source_eval_output_dir") or "").strip()
+    source_processed_raw = str(
+        cache_entry.get("source_processed_output_dir") or ""
+    ).strip()
+    source_scratch_raw = str(
+        cache_entry.get("source_scratch_output_dir") or ""
+    ).strip()
+    source_eval_output_dir = (
+        Path(source_eval_raw).expanduser() if source_eval_raw else None
+    )
+    source_processed_output_dir = (
+        Path(source_processed_raw).expanduser() if source_processed_raw else None
+    )
+    source_scratch_output_dir = (
+        Path(source_scratch_raw).expanduser() if source_scratch_raw else None
+    )
+    copy_seconds = _copy_all_method_prediction_artifacts_for_reuse(
+        source_config_dir=str(cache_entry.get("config_dir") or "").strip(),
+        target_config_dir=target_eval_output_dir.name,
+        root_output_dir=target_eval_output_dir.parent,
+        scratch_root=target_eval_output_dir.parent / ".prediction_reuse_scratch",
+        processed_output_root=target_processed_output_dir.parent,
+        source_eval_output_dir=source_eval_output_dir,
+        source_scratch_output_dir=source_scratch_output_dir,
+        source_processed_output_dir=source_processed_output_dir,
+    )
+    if copy_seconds is None:
+        return None
+    reuse_scope = (
+        "cross_run"
+        if source_eval_output_dir is not None
+        and not _path_is_within_root(source_eval_output_dir, target_eval_output_dir.parent)
+        else "in_run"
+    )
+    prediction_result_source = (
+        "reused_cross_run" if reuse_scope == "cross_run" else "reused_in_run"
+    )
+    return prediction_result_source, reuse_scope, copy_seconds
+
+
+def _run_prediction_with_reuse(
+    *,
+    cache_dir: Path,
+    prediction_reuse_key: str,
+    prediction_split_convert_input_key: str | None,
+    source_file: Path,
+    target_eval_output_dir: Path,
+    target_processed_output_dir: Path,
+    config_dir_name: str,
+    execute_prediction: Callable[[], None],
+) -> dict[str, Any]:
+    resolved_cache_dir = cache_dir.expanduser()
+    cache_path = _all_method_prediction_reuse_cache_entry_path(
+        cache_dir=resolved_cache_dir,
+        prediction_reuse_key=prediction_reuse_key,
+    )
+    lock_path = _prediction_reuse_lock_path(cache_path)
+    lock_acquired = False
+    prediction_result_source = "executed"
+    prediction_reuse_scope = "executed"
+    reuse_copy_seconds = 0.0
+    cache_write_required = False
+
+    def _try_materialize(
+        cache_entry: dict[str, Any] | None,
+    ) -> bool:
+        nonlocal prediction_result_source
+        nonlocal prediction_reuse_scope
+        nonlocal reuse_copy_seconds
+        materialized = _materialize_prediction_reuse_cache_entry(
+            cache_entry=cache_entry,
+            target_eval_output_dir=target_eval_output_dir,
+            target_processed_output_dir=target_processed_output_dir,
+        )
+        if materialized is None:
+            return False
+        (
+            prediction_result_source,
+            prediction_reuse_scope,
+            reuse_copy_seconds,
+        ) = materialized
+        return True
+
+    try:
+        cache_entry = _load_all_method_prediction_reuse_cache_entry(
+            cache_path=cache_path,
+            expected_key=prediction_reuse_key,
+        )
+        if not _try_materialize(cache_entry):
+            lock_acquired = _acquire_all_method_prediction_reuse_lock(lock_path)
+            if lock_acquired:
+                cache_entry = _load_all_method_prediction_reuse_cache_entry(
+                    cache_path=cache_path,
+                    expected_key=prediction_reuse_key,
+                )
+                if not _try_materialize(cache_entry):
+                    execute_prediction()
+                    cache_write_required = True
+            else:
+                waited_entry = _wait_for_all_method_prediction_reuse_cache_entry(
+                    cache_path=cache_path,
+                    expected_key=prediction_reuse_key,
+                    lock_path=lock_path,
+                )
+                if not _try_materialize(waited_entry):
+                    execute_prediction()
+        if prediction_result_source == "executed" and cache_write_required:
+            cache_payload = {
+                "schema_version": ALL_METHOD_PREDICTION_REUSE_CACHE_SCHEMA_VERSION,
+                "created_at": dt.datetime.now(tz=dt.timezone.utc).isoformat(
+                    timespec="milliseconds"
+                ),
+                "prediction_reuse_key": prediction_reuse_key,
+                "prediction_split_convert_input_key": (
+                    str(prediction_split_convert_input_key or "").strip() or None
+                ),
+                "source_file": str(source_file),
+                "config_dir": config_dir_name,
+                "source_eval_output_dir": str(target_eval_output_dir),
+                "source_processed_output_dir": str(target_processed_output_dir),
+            }
+            _write_all_method_prediction_reuse_cache_entry(
+                cache_path=cache_path,
+                payload=cache_payload,
+            )
+    finally:
+        if lock_acquired:
+            _release_all_method_prediction_reuse_lock(lock_path)
+
+    return {
+        "prediction_result_source": prediction_result_source,
+        "prediction_reuse_scope": prediction_reuse_scope,
+        "prediction_reuse_key": prediction_reuse_key,
+        "prediction_reuse_cache_path": str(cache_path),
+        "prediction_reuse_copy_seconds": reuse_copy_seconds,
+    }
 
 
 def _load_all_method_eval_signature_cache_entry(

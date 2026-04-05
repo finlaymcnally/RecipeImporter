@@ -192,6 +192,7 @@ Collector behavior (`collect_dashboard_data`):
 `cookimport compare-control run` and `cookimport compare-control agent`:
 - Use the same benchmark-record model and field catalog as dashboard compare/control analysis.
 - Support `discover`, `raw`, `controlled`, field catalog, subset-patch, and insights-style workflows.
+- `run_timestamp` is treated as a time axis for compare/control numeric charts, so timestamp-vs-metric views plot one point per run instead of averaging timestamp buckets.
 
 `cookimport compare-control dashboard-state`:
 - Reads or updates the live Compare & Control state stored in `assets/dashboard_ui_state.json`.

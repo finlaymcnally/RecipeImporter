@@ -63,28 +63,8 @@ def execute_stage_import_session_from_result(
     recipe_limit: int | None = None,
     recipe_limit_label: int | None = None,
 ) -> StageImportSessionResult:
-    runtime = _runtime()
-    stats = timing_stats or TimingStats()
-    workbook_slug = slugify_name(source_file.stem)
-    parsing_overrides = (
-        mapping_config.parsing_overrides
-        if mapping_config is not None and mapping_config.parsing_overrides
-        else None
-    )
-
-    authoritative_recipe_payloads_by_recipe_id: dict[str, Any] = {}
-    llm_report: dict[str, Any] = {"enabled": False, "pipeline": "off"}
-    label_first_result: LabelFirstStageResult | None = None
-    label_artifact_paths: dict[str, Path] | None = None
-    source_artifact_paths: dict[str, Path] | None = None
-    nonrecipe_stage_result: NonRecipeStageResult | None = None
     live_llm_allowed = bool((run_config or {}).get("codex_execution_live_llm_allowed"))
-    extracted_book_bundle: ExtractedBookBundle | None = None
-    recipe_boundary_result: RecipeBoundaryResult | None = None
-    recipe_refine_result: RecipeRefineResult | None = None
-    nonrecipe_route_result: NonrecipeRouteResult | None = None
-    nonrecipe_finalize_result: NonrecipeFinalizeResult | None = None
-
+    stats = timing_stats or TimingStats()
     extracted_book_bundle = build_extracted_book_bundle(
         result=result,
         source_file=source_file,
@@ -100,14 +80,75 @@ def execute_stage_import_session_from_result(
         task_total=4,
     )
     with measure(stats, "label_source_of_truth_seconds"):
-        recipe_boundary_result = runtime.run_recipe_boundary_stage(
+        recipe_boundary_result = _runtime().run_recipe_boundary_stage(
             extracted_bundle=extracted_book_bundle,
             run_settings=run_settings,
             artifact_root=run_root,
             live_llm_allowed=live_llm_allowed,
             progress_callback=progress_callback,
         )
-    label_first_result = recipe_boundary_result.label_first_result
+    return execute_stage_import_session_from_recipe_boundary_result(
+        recipe_boundary_result=recipe_boundary_result,
+        source_file=source_file,
+        run_root=run_root,
+        run_dt=run_dt,
+        importer_name=importer_name,
+        run_settings=run_settings,
+        run_config=run_config,
+        run_config_hash=run_config_hash,
+        run_config_summary=run_config_summary,
+        mapping_config=mapping_config,
+        write_markdown=write_markdown,
+        progress_callback=progress_callback,
+        timing_stats=stats,
+        write_raw_artifacts_enabled=write_raw_artifacts_enabled,
+        count_diagnostics_path=count_diagnostics_path,
+        output_stats=output_stats,
+        recipe_limit=recipe_limit,
+        recipe_limit_label=recipe_limit_label,
+    )
+
+
+def execute_stage_import_session_from_recipe_boundary_result(
+    *,
+    recipe_boundary_result: RecipeBoundaryResult,
+    source_file: Path,
+    run_root: Path,
+    run_dt: dt.datetime,
+    importer_name: str,
+    run_settings: RunSettings,
+    run_config: dict[str, Any] | None,
+    run_config_hash: str | None,
+    run_config_summary: str | None,
+    mapping_config: MappingConfig | None = None,
+    write_markdown: bool = True,
+    progress_callback: Callable[[str], None] | None = None,
+    timing_stats: TimingStats | None = None,
+    write_raw_artifacts_enabled: bool = True,
+    count_diagnostics_path: Path | None = None,
+    output_stats: OutputStats | None = None,
+    recipe_limit: int | None = None,
+    recipe_limit_label: int | None = None,
+) -> StageImportSessionResult:
+    runtime = _runtime()
+    stats = timing_stats or TimingStats()
+    workbook_slug = slugify_name(source_file.stem)
+    parsing_overrides = (
+        mapping_config.parsing_overrides
+        if mapping_config is not None and mapping_config.parsing_overrides
+        else None
+    )
+
+    authoritative_recipe_payloads_by_recipe_id: dict[str, Any] = {}
+    llm_report: dict[str, Any] = {"enabled": False, "pipeline": "off"}
+    label_first_result: LabelFirstStageResult | None = recipe_boundary_result.label_first_result
+    label_artifact_paths: dict[str, Path] | None = None
+    source_artifact_paths: dict[str, Path] | None = None
+    nonrecipe_stage_result: NonRecipeStageResult | None = None
+    extracted_book_bundle: ExtractedBookBundle | None = recipe_boundary_result.extracted_bundle
+    recipe_refine_result: RecipeRefineResult | None = None
+    nonrecipe_route_result: NonrecipeRouteResult | None = None
+    nonrecipe_finalize_result: NonrecipeFinalizeResult | None = None
     result = recipe_boundary_result.conversion_result
     label_artifact_paths = _write_label_first_artifacts(
         run_root=run_root,

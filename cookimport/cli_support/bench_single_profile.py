@@ -3,6 +3,14 @@ from __future__ import annotations
 import sys
 
 from cookimport.config.runtime_support import resolve_single_profile_scheduler_policy
+from cookimport.staging.import_session import resolve_or_build_deterministic_prep_bundle
+
+from .bench_cache import (
+    _build_all_method_prediction_reuse_key,
+    _build_all_method_split_convert_input_key,
+    _resolve_interactive_prediction_reuse_cache_dir,
+    _run_prediction_with_reuse,
+)
 from .command_resolution import resolve_registered_command
 
 runtime = sys.modules["cookimport.cli_support.bench"]
@@ -930,6 +938,9 @@ def _interactive_single_profile_all_matched_benchmark(
         variant_call_defaults[variant_slug]["allow_codex"] = codex_surfaces_enabled(
             variant_settings.to_run_config_dict()
         )
+    prediction_reuse_cache_dir = _resolve_interactive_prediction_reuse_cache_dir(
+        processed_output_root=processed_output_root,
+    )
 
     failures: list[tuple[AllMethodTarget, str]] = []
     total_targets = len(targets)
@@ -1007,6 +1018,12 @@ def _interactive_single_profile_all_matched_benchmark(
         variant_eval_outputs: dict[str, Path] = {}
         variant_errors: list[str] = []
         source_file_for_comparison: str | None = None
+        deterministic_prep_bundle = resolve_or_build_deterministic_prep_bundle(
+            source_file=target.source_file,
+            run_settings=variants[0][1],
+            processed_output_root=processed_output_root,
+            progress_callback=update_progress,
+        )
         if single_profile_dashboard is not None:
             single_profile_dashboard.start_source(source_index)
             _emit_single_profile_dashboard(
@@ -1043,6 +1060,9 @@ def _interactive_single_profile_all_matched_benchmark(
                     "source_file": target.source_file,
                     "eval_output_dir": variant_eval_output,
                     "processed_output_dir": variant_processed_output,
+                    "deterministic_prep_manifest_path": (
+                        deterministic_prep_bundle.manifest_path
+                    ),
                 }
             )
             if scaled_worker_overrides:
@@ -1088,25 +1108,56 @@ def _interactive_single_profile_all_matched_benchmark(
                 )
 
             try:
-                with _benchmark_split_phase_overrides(
-                    split_phase_slots=split_phase_slots,
-                    split_phase_gate_dir=split_phase_gate_dir,
-                    split_phase_status_label=split_status_label,
-                ):
-                    with _benchmark_progress_overrides(
-                        progress_callback=(
-                            _variant_progress if single_profile_dashboard is not None else None
-                        ),
-                        suppress_summary=single_profile_dashboard is not None,
-                        suppress_spinner=single_profile_dashboard is not None,
-                        suppress_dashboard_refresh=single_profile_dashboard is not None,
-                        live_status_slots=(
-                            None
-                            if single_profile_dashboard is not None
-                            else (2 if max_parallel_targets > 1 else None)
-                        ),
+                def _execute_prediction() -> None:
+                    with _benchmark_split_phase_overrides(
+                        split_phase_slots=split_phase_slots,
+                        split_phase_gate_dir=split_phase_gate_dir,
+                        split_phase_status_label=split_status_label,
                     ):
-                        _labelstudio_benchmark_command()(**variant_kwargs)
+                        with _benchmark_progress_overrides(
+                            progress_callback=(
+                                _variant_progress
+                                if single_profile_dashboard is not None
+                                else None
+                            ),
+                            suppress_summary=single_profile_dashboard is not None,
+                            suppress_spinner=single_profile_dashboard is not None,
+                            suppress_dashboard_refresh=single_profile_dashboard is not None,
+                            live_status_slots=(
+                                None
+                                if single_profile_dashboard is not None
+                                else (2 if max_parallel_targets > 1 else None)
+                            ),
+                        ):
+                            _labelstudio_benchmark_command()(**variant_kwargs)
+
+                prediction_reuse_summary = _run_prediction_with_reuse(
+                    cache_dir=prediction_reuse_cache_dir,
+                    prediction_reuse_key=_build_all_method_prediction_reuse_key(
+                        source_file=target.source_file,
+                        run_settings=_variant_settings,
+                    ),
+                    prediction_split_convert_input_key=(
+                        _build_all_method_split_convert_input_key(
+                            source_file=target.source_file,
+                            run_settings=_variant_settings,
+                        )
+                    ),
+                    source_file=target.source_file,
+                    target_eval_output_dir=variant_eval_output,
+                    target_processed_output_dir=variant_processed_output,
+                    config_dir_name=f"{target_slug}_{variant_slug}",
+                    execute_prediction=_execute_prediction,
+                )
+                if str(
+                    prediction_reuse_summary.get("prediction_result_source") or ""
+                ).startswith("reused_"):
+                    _variant_progress(
+                        (
+                            f"Reusing cached prediction artifacts "
+                            f"({prediction_reuse_summary['prediction_reuse_key'][:12]}...)"
+                        )
+                    )
                 variant_eval_outputs[variant_slug] = variant_eval_output
                 source_file = _load_single_book_source_path(variant_eval_output)
                 if source_file and not source_file_for_comparison:

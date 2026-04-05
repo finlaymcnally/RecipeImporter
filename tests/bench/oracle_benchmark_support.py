@@ -67,15 +67,18 @@ def build_minimal_upload_bundle(
     run_diagnostics: list[dict[str, Any]] = []
     for output_subdir, codex_enabled in output_subdirs:
         run_dir = root / output_subdir
+        run_manifest_payload: dict[str, Any] = {
+            "run_id": output_subdir,
+            "source_file": source_file,
+            "run_config": {
+                "llm_recipe_pipeline": "codex-recipe-shard-v1" if codex_enabled else "off",
+            },
+        }
+        if include_knowledge and output_subdir == knowledge_output_subdir:
+            run_manifest_payload["artifacts"] = {"pred_run_dir": "prediction-run"}
         _write_json(
             run_dir / "run_manifest.json",
-            {
-                "run_id": output_subdir,
-                "source_file": source_file,
-                "run_config": {
-                    "llm_recipe_pipeline": "codex-recipe-shard-v1" if codex_enabled else "off",
-                },
-            },
+            run_manifest_payload,
         )
         _write_json(
             run_dir / "eval_report.json",
@@ -162,6 +165,20 @@ def build_minimal_upload_bundle(
         _write_json(
             knowledge_manifest_path,
             {"pipeline_id": "recipe.knowledge.compact.v1"},
+        )
+        _write_json(
+            prediction_run_dir / "manifest.json",
+            {
+                "llm_codex_farm": {
+                    "knowledge": {
+                        "pipeline": "codex-knowledge-candidate-v2",
+                        "pipeline_id": "recipe.knowledge.compact.v1",
+                        "paths": {
+                            "manifest_path": str(knowledge_manifest_path),
+                        },
+                    }
+                }
+            },
         )
 
         payload_rows.extend(

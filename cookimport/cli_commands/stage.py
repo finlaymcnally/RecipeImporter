@@ -19,6 +19,8 @@ from cookimport.cli_support import (
     ProgressDashboardCore,
     RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
     REPO_ROOT,
+    RUN_SETTING_CONTRACT_FULL,
+    RunSettings,
     SpinnerColumn,
     TextColumn,
     _ProcessingTimeseriesWriter,
@@ -95,6 +97,7 @@ from cookimport.cli_support import (
     rich_escape,
     shutdown_executor,
     subprocess,
+    project_run_config_payload,
     summarize_run_config_payload,
     sys,
     threading,
@@ -1028,11 +1031,34 @@ def register(app: typer.Typer) -> dict[str, object]:
         run_config_summary = _render_run_config_summary(run_config)
 
         from cookimport.cli_worker import execute_source_job
+        from cookimport.cli_support.stage import _run_stage_from_deterministic_prep_bundle
+        from cookimport.staging.import_session import (
+            load_existing_deterministic_prep_bundle,
+        )
         progress_queue = None
         progress_queue_manager = None
-    
+
+        cached_stage_bundles: dict[Path, Any] = {}
+        uncached_files: list[Path] = []
+        for file_path in files_to_process:
+            file_run_settings = RunSettings.from_dict(
+                project_run_config_payload(
+                    _run_config_for_file(file_path),
+                    contract=RUN_SETTING_CONTRACT_FULL,
+                ),
+                warn_context="stage cache check",
+            )
+            prep_bundle = load_existing_deterministic_prep_bundle(
+                source_file=file_path,
+                run_settings=file_run_settings,
+            )
+            if prep_bundle is not None:
+                cached_stage_bundles[file_path] = prep_bundle
+            else:
+                uncached_files.append(file_path)
+
         job_specs = plan_source_jobs(
-            files_to_process,
+            uncached_files,
             pdf_pages_per_job=pdf_pages_per_job,
             epub_spine_items_per_job=epub_spine_items_per_job,
             pdf_split_workers=pdf_split_workers,
@@ -1040,7 +1066,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             epub_extractor=selected_epub_extractor,
             epub_extractor_by_file=effective_epub_extractors,
         )
-        total_jobs = len(job_specs)
+        total_jobs = len(job_specs) + len(cached_stage_bundles)
         expected_jobs: dict[Path, int] = {}
         for job in job_specs:
             if job.file_path not in expected_jobs:
@@ -1514,6 +1540,64 @@ def register(app: typer.Typer) -> dict[str, object]:
                     )
             _emit_stage_progress_snapshot(force=True)
             _write_stage_timeseries(event="job_completed", force=True)
+
+        for cached_file, prep_bundle in cached_stage_bundles.items():
+            _set_stage_active_file(cached_file.name)
+            _set_worker_status(
+                "MainProcess",
+                cached_file.name,
+                "Reusing deterministic prep bundle...",
+            )
+            _emit_stage_message(
+                (
+                    f"Reusing deterministic prep bundle for {cached_file.name} "
+                    f"({prep_bundle.prep_key[:12]}...)"
+                ),
+                fg=typer.colors.CYAN,
+            )
+            try:
+                merged = _run_stage_from_deterministic_prep_bundle(
+                    file_path=cached_file,
+                    prep_bundle=prep_bundle,
+                    out=out,
+                    mapping_config=base_mapping,
+                    limit=limit,
+                    run_dt=run_dt,
+                    run_config=_run_config_for_file(cached_file),
+                    run_config_hash=_run_config_hash_for_file(cached_file),
+                    run_config_summary=_run_config_summary_for_file(cached_file),
+                    write_markdown=write_markdown,
+                    status_callback=lambda message, _file=cached_file: _set_worker_status(
+                        "MainProcess",
+                        _file.name,
+                        message,
+                    ),
+                )
+                imported += 1
+                _emit_stage_message(
+                    f"[green]✔ {merged['file']}: {merged['recipes']} recipes, cache reuse ({merged['duration']:.2f}s)[/green]",
+                    fg=typer.colors.GREEN,
+                )
+            except Exception as exc:
+                errors.append(f"{cached_file.name}: {exc}")
+                _emit_stage_message(
+                    f"[red]✘ Error {cached_file.name}: {exc}[/red]",
+                    fg=typer.colors.RED,
+                )
+                _write_error_report(
+                    out,
+                    cached_file,
+                    run_dt,
+                    [str(exc)],
+                    importer_name=None,
+                    run_config=_run_config_for_file(cached_file),
+                    run_config_hash=_run_config_hash_for_file(cached_file),
+                    run_config_summary=_run_config_summary_for_file(cached_file),
+                )
+            finally:
+                progress_bar.update(overall_task, advance=1)
+                _emit_stage_progress_snapshot(force=True)
+                _write_stage_timeseries(event="cache_reused", force=True)
 
         stage_worker_request_root = out / ".stage_worker_requests"
         stage_worker_request_root.mkdir(parents=True, exist_ok=True)

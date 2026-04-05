@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -12,6 +13,8 @@ GOLDEN_PULLED_FROM_LABELSTUDIO_ROOT = GOLDEN_ROOT / "pulled-from-labelstudio"
 GOLDEN_BENCHMARK_ROOT = GOLDEN_ROOT / "benchmark-vs-golden"
 HISTORY_ROOT = REPO_ROOT / ".history"
 HISTORY_FILENAME = "performance_history.csv"
+BOOK_CACHE_ROOT_ENV = "COOKIMPORT_BOOK_CACHE_ROOT"
+BOOK_CACHE_ROOT = REPO_ROOT / ".cache" / "cookimport" / "book-cache"
 
 
 def history_root_for_output(output_root: Path) -> Path:
@@ -31,3 +34,12 @@ def history_root_for_output(output_root: Path) -> Path:
 
 def history_csv_for_output(output_root: Path) -> Path:
     return history_root_for_output(output_root) / HISTORY_FILENAME
+
+
+def resolve_book_cache_root(root: Path | str | None = None) -> Path:
+    if root is not None:
+        return Path(root).expanduser()
+    env_override = str(os.getenv(BOOK_CACHE_ROOT_ENV, "") or "").strip()
+    if env_override:
+        return Path(env_override).expanduser()
+    return BOOK_CACHE_ROOT

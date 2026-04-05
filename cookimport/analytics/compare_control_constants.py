@@ -55,7 +55,6 @@ COMPARE_CONTROL_FIELD_SKIP = {
     "artifact_dir_basename",
     "run_dir",
     "report_path",
-    "run_timestamp",
     "run_config_summary",
     "run_config_hash",
     "per_label_json",

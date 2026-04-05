@@ -512,3 +512,12 @@ def _force_writable_codex_home(
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
     monkeypatch.setenv("COOKIMPORT_CODEX_FARM_CODEX_HOME", str(codex_home))
     monkeypatch.setenv("CODEX_FARM_CODEX_HOME_RECIPE", str(codex_home))
+
+
+@pytest.fixture(autouse=True)
+def _isolate_book_cache_root(
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    book_cache_root = tmp_path_factory.mktemp("book-cache")
+    monkeypatch.setenv("COOKIMPORT_BOOK_CACHE_ROOT", str(book_cache_root))

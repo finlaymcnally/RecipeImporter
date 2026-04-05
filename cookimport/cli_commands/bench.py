@@ -718,6 +718,28 @@ def register(app: typer.Typer) -> dict[str, object]:
                 "output roots under `--output-root/<run_id>/` when confirmed by CSV history."
             ),
         ),
+        prune_book_cache: bool = typer.Option(
+            False,
+            "--prune-book-cache/--keep-book-cache",
+            help="Also prune the shared per-book cache root and known legacy local cache folders.",
+        ),
+        book_cache_root: Path | None = typer.Option(
+            None,
+            "--book-cache-root",
+            help="Override the shared per-book cache root for bench gc.",
+        ),
+        book_cache_max_age_days: int = typer.Option(
+            30,
+            "--book-cache-max-age-days",
+            min=0,
+            help="When pruning the shared book cache, keep entries newer than this many days.",
+        ),
+        book_cache_max_bytes: int | None = typer.Option(
+            None,
+            "--book-cache-max-bytes",
+            min=0,
+            help="When pruning the shared book cache, keep at most this many bytes of the newest entries.",
+        ),
         dry_run: bool = typer.Option(
             True,
             "--dry-run/--apply",
@@ -738,6 +760,10 @@ def register(app: typer.Typer) -> dict[str, object]:
             keep_labelstudio_runs=keep_labelstudio_runs,
             wipe_output_runs=wipe_output_runs,
             prune_benchmark_processed_outputs=prune_benchmark_processed_outputs,
+            prune_book_cache=prune_book_cache,
+            book_cache_root=book_cache_root,
+            book_cache_max_age_days=book_cache_max_age_days,
+            book_cache_max_bytes=book_cache_max_bytes,
         )
 
         mode = "Dry Run" if result.dry_run else "Apply"
@@ -750,10 +776,15 @@ def register(app: typer.Typer) -> dict[str, object]:
             f"include_labelstudio_benchmark={str(result.include_labelstudio_benchmark).lower()} "
             f"keep_labelstudio_runs={result.keep_labelstudio_runs} "
             f"wipe_output_runs={str(result.wipe_output_runs).lower()} "
-            f"prune_benchmark_processed_outputs={str(result.prune_benchmark_processed_outputs).lower()}"
+            f"prune_benchmark_processed_outputs={str(result.prune_benchmark_processed_outputs).lower()} "
+            f"prune_book_cache={str(prune_book_cache).lower()} "
+            f"book_cache_max_age_days={book_cache_max_age_days} "
+            f"book_cache_max_bytes={book_cache_max_bytes if book_cache_max_bytes is not None else 'none'}"
         )
         typer.echo(f"candidate run roots: {result.total_run_roots}")
         typer.echo(f"candidate output run roots: {result.total_output_run_roots}")
+        if prune_book_cache or result.total_book_cache_entries or result.pruned_legacy_cache_dirs:
+            typer.echo(f"candidate book-cache entries: {result.total_book_cache_entries}")
         typer.echo(f"full keep (policy): {result.policy_kept_run_roots}")
         if result.pinned_kept_run_roots:
             typer.echo(f"pinned keep (sentinel): {result.pinned_kept_run_roots}")
@@ -775,7 +806,15 @@ def register(app: typer.Typer) -> dict[str, object]:
             reclaim_parts.append(
                 f"+ processed_outputs={_format_size_compact(result.reclaimed_processed_output_bytes)}"
             )
+        if result.reclaimed_book_cache_bytes:
+            reclaim_parts.append(
+                f"+ book_cache={_format_size_compact(result.reclaimed_book_cache_bytes)}"
+            )
         typer.echo(f"estimated reclaim: {' '.join(reclaim_parts)}")
+        if result.pruned_book_cache_entries:
+            typer.echo(f"pruned book-cache entries: {result.pruned_book_cache_entries}")
+        if result.pruned_legacy_cache_dirs:
+            typer.echo(f"pruned legacy cache dirs: {result.pruned_legacy_cache_dirs}")
         typer.echo(f"history rows scanned: {result.history_rows_scanned}")
         typer.echo(f"history rows updated: {result.history_rows_updated}")
         typer.echo(f"history rows pruned: {result.history_rows_pruned}")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from datetime import datetime
 from typing import Any
 
 from . import benchmark_semantics
@@ -310,6 +311,30 @@ def maybe_number(value: Any) -> float | None:
     return parsed if math.isfinite(parsed) else None
 
 
+def _timestamp_to_number(value: Any) -> float | None:
+    text = str("" if value is None else value).strip()
+    if not text:
+        return None
+    normalized = re.sub(
+        r"^(\d{4}-\d{2}-\d{2})_(\d{2})[.:](\d{2})[.:](\d{2})$",
+        r"\1T\2:\3:\4",
+        text,
+    )
+    try:
+        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.timestamp()
+
+
+def compare_control_numeric_value(record: dict[str, Any], field_path: str) -> float | None:
+    field = str(field_path or "").strip()
+    raw_value = previous_runs_field_value(record, field)
+    if field == "run_timestamp":
+        return _timestamp_to_number(raw_value)
+    return maybe_number(raw_value)
+
+
 def normalize_rule_value(value: Any) -> str:
     if value is None:
         return ""
@@ -593,7 +618,7 @@ def build_compare_control_field_catalog(
                 }
             value_counts[comparable_key]["count"] += 1
             non_empty += 1
-            numeric_value = maybe_number(raw_value)
+            numeric_value = compare_control_numeric_value(record, key)
             if numeric_value is not None:
                 numeric_count += 1
                 numeric_values.append(numeric_value)
@@ -614,6 +639,7 @@ def build_compare_control_field_catalog(
             "field": key,
             "label": analysis_field_label(key),
             "numeric": numeric,
+            "time_like": key == "run_timestamp" and numeric,
             "non_empty_count": non_empty,
             "distinct_count": distinct_count,
             "categories": [] if numeric else categories[:120],

@@ -105,19 +105,28 @@ def _load_jsonl_rows(path: Path) -> list[dict[str, Any]]:
 
 def _resolve_stage_run_dir(run_dir: Path) -> Path:
     candidate = run_dir.resolve(strict=False)
-    if (candidate / "raw" / "llm").is_dir() or (candidate / "line-role-pipeline").is_dir():
-        return candidate
     manifest_payload = _load_json_object(candidate / "run_manifest.json") or {}
     artifacts = manifest_payload.get("artifacts")
-    if not isinstance(artifacts, dict):
+    if isinstance(artifacts, dict):
+        for key in ("stage_run_dir", "processed_output_run_dir"):
+            raw = str(artifacts.get(key) or "").strip()
+            if not raw:
+                continue
+            resolved = Path(raw).expanduser().resolve(strict=False)
+            if (resolved / "run_manifest.json").is_file() or (
+                resolved / "stage_observability.json"
+            ).is_file():
+                return resolved
+        stage_observability_raw = str(artifacts.get("stage_observability_json") or "").strip()
+        if stage_observability_raw:
+            report_path = Path(stage_observability_raw)
+            report_path = report_path if report_path.is_absolute() else candidate / report_path
+            if report_path.is_file():
+                return report_path.parent
+    if (candidate / "run_manifest.json").is_file() or (candidate / "stage_observability.json").is_file():
         return candidate
-    for key in ("stage_run_dir", "processed_output_run_dir"):
-        raw = str(artifacts.get(key) or "").strip()
-        if not raw:
-            continue
-        resolved = Path(raw).expanduser().resolve(strict=False)
-        if (resolved / "raw" / "llm").is_dir() or (resolved / "line-role-pipeline").is_dir():
-            return resolved
+    if (candidate / "raw" / "llm").is_dir() or (candidate / "line-role-pipeline").is_dir():
+        return candidate
     return candidate
 
 

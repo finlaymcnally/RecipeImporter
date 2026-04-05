@@ -9,7 +9,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from cookimport.paths import history_csv_for_output
+from cookimport.paths import history_csv_for_output, resolve_book_cache_root
 
 _BENCHMARK_CATEGORIES = {"benchmark_eval", "benchmark_prediction"}
 _TIMESTAMP_DIR_RE = re.compile(
@@ -48,7 +48,11 @@ class BenchmarkGcResult:
     history_rows_updated: int
     history_rows_pruned: int
     history_backup_path: str | None
-    warnings: tuple[str, ...]
+    total_book_cache_entries: int = 0
+    pruned_book_cache_entries: int = 0
+    reclaimed_book_cache_bytes: int = 0
+    pruned_legacy_cache_dirs: int = 0
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass
@@ -58,6 +62,14 @@ class _BenchmarkRunRoot:
     run_started: dt.datetime
     path: Path
     size_bytes: int | None = None
+
+
+@dataclass
+class _BookCacheEntry:
+    kind: str
+    path: Path
+    size_bytes: int
+    mtime: float
 
 
 def run_benchmark_gc(
@@ -72,6 +84,10 @@ def run_benchmark_gc(
     keep_labelstudio_runs: int = 5,
     wipe_output_runs: bool = True,
     prune_benchmark_processed_outputs: bool = False,
+    prune_book_cache: bool = False,
+    book_cache_root: Path | None = None,
+    book_cache_max_age_days: int | None = None,
+    book_cache_max_bytes: int | None = None,
 ) -> BenchmarkGcResult:
     if keep_full_runs < 0:
         raise ValueError("keep_full_runs must be >= 0")
@@ -79,6 +95,10 @@ def run_benchmark_gc(
         raise ValueError("keep_full_days must be >= 0")
     if keep_labelstudio_runs < 0:
         raise ValueError("keep_labelstudio_runs must be >= 0")
+    if book_cache_max_age_days is not None and book_cache_max_age_days < 0:
+        raise ValueError("book_cache_max_age_days must be >= 0")
+    if book_cache_max_bytes is not None and book_cache_max_bytes < 0:
+        raise ValueError("book_cache_max_bytes must be >= 0")
 
     benchmark_runs = _collect_benchmark_run_roots(golden_root)
     keep_paths, pinned_kept = _resolve_keep_paths(
@@ -199,6 +219,26 @@ def run_benchmark_gc(
     for processed_root in confirmed_processed_output_roots:
         reclaimed_processed_output_bytes += _directory_size(processed_root)
 
+    book_cache_entries: list[_BookCacheEntry] = []
+    pruned_book_cache_entries: list[_BookCacheEntry] = []
+    legacy_cache_dirs: list[Path] = []
+    resolved_book_cache_root = resolve_book_cache_root(book_cache_root)
+    if prune_book_cache:
+        book_cache_entries = _collect_book_cache_entries(resolved_book_cache_root)
+        pruned_book_cache_entries = _select_book_cache_entries_to_prune(
+            book_cache_entries,
+            now=dt.datetime.now(),
+            max_age_days=book_cache_max_age_days,
+            max_bytes=book_cache_max_bytes,
+        )
+        legacy_cache_dirs = _collect_legacy_cache_dirs(
+            golden_root=golden_root,
+            output_root=output_root,
+        )
+    reclaimed_book_cache_bytes = sum(
+        entry.size_bytes for entry in pruned_book_cache_entries
+    ) + sum(_directory_size(path) for path in legacy_cache_dirs)
+
     if not dry_run:
         for run in confirmed_pruned:
             try:
@@ -220,6 +260,19 @@ def run_benchmark_gc(
                 shutil.rmtree(processed_root)
             except OSError as exc:
                 warnings.append(f"Failed to remove {processed_root}: {exc}")
+        for entry in pruned_book_cache_entries:
+            try:
+                if entry.path.is_dir():
+                    shutil.rmtree(entry.path)
+                else:
+                    entry.path.unlink()
+            except OSError as exc:
+                warnings.append(f"Failed to remove {entry.path}: {exc}")
+        for legacy_cache_dir in legacy_cache_dirs:
+            try:
+                shutil.rmtree(legacy_cache_dir)
+            except OSError as exc:
+                warnings.append(f"Failed to remove {legacy_cache_dir}: {exc}")
 
     return BenchmarkGcResult(
         dry_run=dry_run,
@@ -253,8 +306,85 @@ def run_benchmark_gc(
         history_rows_updated=history_rows_updated,
         history_rows_pruned=history_rows_pruned,
         history_backup_path=history_backup_path,
+        total_book_cache_entries=len(book_cache_entries),
+        pruned_book_cache_entries=len(pruned_book_cache_entries),
+        reclaimed_book_cache_bytes=reclaimed_book_cache_bytes,
+        pruned_legacy_cache_dirs=len(legacy_cache_dirs),
         warnings=tuple(warnings),
     )
+
+
+def _collect_book_cache_entries(book_cache_root: Path) -> list[_BookCacheEntry]:
+    if not book_cache_root.exists() or not book_cache_root.is_dir():
+        return []
+    entries: list[_BookCacheEntry] = []
+    patterns = (
+        ("conversion", "conversion/*/*.json"),
+        ("deterministic_prep", "deterministic-prep/*/*"),
+        ("preview", "preview/*/*/*.json"),
+    )
+    for kind, pattern in patterns:
+        for path in book_cache_root.glob(pattern):
+            if not path.exists():
+                continue
+            if kind == "deterministic_prep" and not path.is_dir():
+                continue
+            if kind != "deterministic_prep" and not path.is_file():
+                continue
+            entries.append(
+                _BookCacheEntry(
+                    kind=kind,
+                    path=path,
+                    size_bytes=_directory_size(path),
+                    mtime=path.stat().st_mtime,
+                )
+            )
+    return entries
+
+
+def _select_book_cache_entries_to_prune(
+    entries: list[_BookCacheEntry],
+    *,
+    now: dt.datetime,
+    max_age_days: int | None,
+    max_bytes: int | None,
+) -> list[_BookCacheEntry]:
+    if not entries:
+        return []
+    kept_paths: set[Path] = set()
+    if max_age_days is not None:
+        cutoff_ts = now.timestamp() - (max_age_days * 86400)
+        for entry in entries:
+            if entry.mtime >= cutoff_ts:
+                kept_paths.add(entry.path)
+    if max_bytes is not None:
+        retained_bytes = sum(
+            entry.size_bytes for entry in entries if entry.path in kept_paths
+        )
+        for entry in sorted(entries, key=lambda item: item.mtime, reverse=True):
+            if entry.path in kept_paths:
+                continue
+            if retained_bytes + entry.size_bytes <= max_bytes:
+                kept_paths.add(entry.path)
+                retained_bytes += entry.size_bytes
+    elif max_age_days is None:
+        kept_paths = {entry.path for entry in entries}
+    return [entry for entry in entries if entry.path not in kept_paths]
+
+
+def _collect_legacy_cache_dirs(*, golden_root: Path, output_root: Path) -> list[Path]:
+    seen: set[Path] = set()
+    collected: list[Path] = []
+    for root in (golden_root, output_root):
+        if not root.exists() or not root.is_dir():
+            continue
+        for pattern in ("**/.deterministic-prep-cache", "**/.split-cache"):
+            for path in root.glob(pattern):
+                if not path.is_dir() or path in seen:
+                    continue
+                seen.add(path)
+                collected.append(path)
+    return collected
 
 
 def _collect_benchmark_run_roots(
@@ -404,6 +534,11 @@ def _parse_run_timestamp(name: str) -> tuple[str, dt.datetime] | None:
 
 
 def _directory_size(path: Path) -> int:
+    if path.is_file():
+        try:
+            return path.stat().st_size
+        except OSError:
+            return 0
     total = 0
     for child in path.rglob("*"):
         try:

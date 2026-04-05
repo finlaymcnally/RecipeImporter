@@ -917,6 +917,67 @@ def test_build_upload_bundle_discovers_current_single_book_knowledge_layout(
     assert codex_diag["preprocess_trace_failures_status"] == "written"
 
 
+def test_build_upload_bundle_does_not_guess_processed_output_knowledge_manifest_path(
+    tmp_path: Path,
+) -> None:
+    module = _load_cutdown_module()
+    session_root = tmp_path / "single-book-benchmark" / "book_a"
+    run_id = "codex-exec"
+
+    _make_run_record(
+        module,
+        run_root=session_root,
+        run_id=run_id,
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        line_role_pipeline="codex-line-role-route-v2",
+        wrong_label_rows=[{"line_index": 1, "pred_label": "RECIPE_NOTES"}],
+        full_prompt_rows=_prompt_rows_for_starter_pack_fixture(),
+    )
+
+    run_dir = session_root / run_id
+    _write_knowledge_artifacts(
+        run_dir,
+        workbook_slug="fixture-slug",
+        knowledge_call_count=4,
+        prompt_budget_at_run_root=True,
+        include_prediction_run_files=False,
+    )
+    processed_output_root = tmp_path / "processed-output" / run_id
+    _write_json(
+        processed_output_root / "raw" / "llm" / "fixture-slug" / "knowledge_manifest.json",
+        {
+            "pipeline_id": "recipe.knowledge.compact.v1",
+            "counts": {
+                "shards_written": 4,
+                "outputs_parsed": 4,
+                "snippets_written": 8,
+            },
+        },
+    )
+    _set_run_artifact(run_dir, "processed_output_run_dir", str(processed_output_root))
+
+    bundle_dir = session_root / "upload_bundle_v1"
+    module.build_upload_bundle_for_existing_output(
+        source_dir=session_root,
+        output_dir=bundle_dir,
+        overwrite=True,
+        prune_output_dir=False,
+    )
+
+    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    knowledge_summary = index_payload["analysis"]["knowledge"]
+    row = next(row for row in knowledge_summary["rows"] if str(row.get("run_id") or "") == run_id)
+    assert row["knowledge_manifest_status"] == "missing"
+    assert row["knowledge_manifest_in_bundle"] is False
+
+    locator_row = next(
+        item
+        for item in index_payload["navigation"]["row_locators"]["knowledge_by_run"]
+        if str(item.get("run_id") or "") == run_id
+    )
+    assert locator_row["knowledge_manifest_json"] is None
+
+
 def test_resolve_knowledge_prompt_path_supports_dynamic_stage_file_names(
     tmp_path: Path,
 ) -> None:

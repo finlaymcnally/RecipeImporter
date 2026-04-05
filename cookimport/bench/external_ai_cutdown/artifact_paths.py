@@ -18,6 +18,75 @@ def _first_existing_file(candidate_paths: list[Path]) -> Path | None:
     return None
 
 
+def _manifest_artifact_path(
+    *,
+    run_dir: Path,
+    run_manifest: dict[str, Any],
+    artifact_keys: tuple[str, ...],
+) -> Path | None:
+    artifacts = run_manifest.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return None
+    for key in artifact_keys:
+        artifact_raw = artifacts.get(key)
+        if not isinstance(artifact_raw, str) or not artifact_raw.strip():
+            continue
+        candidate = Path(artifact_raw.strip())
+        candidate = candidate if candidate.is_absolute() else run_dir / candidate
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _load_stage_observability_payload(
+    *,
+    run_dir: Path,
+    run_manifest: dict[str, Any],
+) -> dict[str, Any]:
+    report_path = _manifest_artifact_path(
+        run_dir=run_dir,
+        run_manifest=run_manifest,
+        artifact_keys=("stage_observability_json",),
+    )
+    if report_path is None:
+        return {}
+    try:
+        payload = _load_json(report_path)
+    except Exception:  # noqa: BLE001
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _resolve_stage_observability_manifest_paths(
+    *,
+    run_dir: Path,
+    run_manifest: dict[str, Any],
+    stage_key: str,
+) -> list[Path]:
+    payload = _load_stage_observability_payload(run_dir=run_dir, run_manifest=run_manifest)
+    stages = payload.get("stages")
+    if not isinstance(stages, list):
+        return []
+    rows: list[Path] = []
+    for stage in stages:
+        if not isinstance(stage, dict):
+            continue
+        if str(stage.get("stage_key") or "").strip() != stage_key:
+            continue
+        workbooks = stage.get("workbooks")
+        if not isinstance(workbooks, list):
+            continue
+        for workbook in workbooks:
+            if not isinstance(workbook, dict):
+                continue
+            manifest_raw = str(workbook.get("manifest_path") or "").strip()
+            if not manifest_raw:
+                continue
+            manifest_path = Path(manifest_raw)
+            rows.append(manifest_path if manifest_path.is_absolute() else run_dir / manifest_path)
+    return rows
+
+
 def _iter_prompt_category_manifest_paths(prompts_dir: Path) -> list[Path]:
     manifest_path = prompts_dir / "prompt_category_logs_manifest.txt"
     if not manifest_path.is_file():
@@ -215,6 +284,14 @@ def _resolve_knowledge_manifest_path(
     knowledge_manifest_file_name: str,
 ) -> Path | None:
     candidate_paths: list[Path] = []
+    manifest_artifact_path = _manifest_artifact_path(
+        run_dir=run_dir,
+        run_manifest=run_manifest,
+        artifact_keys=("knowledge_manifest_json",),
+    )
+    if manifest_artifact_path is not None:
+        candidate_paths.append(manifest_artifact_path)
+
     pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
     if pred_run_dir is not None:
         pred_manifest_path = pred_run_dir / "manifest.json"
@@ -244,20 +321,101 @@ def _resolve_knowledge_manifest_path(
                 manifest_path if manifest_path.is_absolute() else pred_run_dir / manifest_path
             )
 
-        raw_llm_dir = pred_run_dir / "raw" / "llm"
-        if raw_llm_dir.is_dir():
-            candidate_paths.extend(
-                sorted(raw_llm_dir.glob(f"*/{knowledge_manifest_file_name}"))
+    processed_output_dir = _resolve_processed_output_run_dir(run_dir, run_manifest)
+    if processed_output_dir is not None:
+        candidate_paths.extend(
+            _resolve_stage_observability_manifest_paths(
+                run_dir=processed_output_dir,
+                run_manifest=_load_json(processed_output_dir / "run_manifest.json")
+                if (processed_output_dir / "run_manifest.json").is_file()
+                else {
+                    "artifacts": {"stage_observability_json": "stage_observability.json"},
+                },
+                stage_key="nonrecipe_finalize",
             )
-            candidate_paths.append(raw_llm_dir / knowledge_manifest_file_name)
+        )
+    candidate_paths.extend(
+        _resolve_stage_observability_manifest_paths(
+            run_dir=run_dir,
+            run_manifest=run_manifest,
+            stage_key="nonrecipe_finalize",
+        )
+    )
+
+    return _first_existing_file(candidate_paths)
+
+
+def _resolve_recipe_manifest_path(
+    *,
+    run_dir: Path,
+    run_manifest: dict[str, Any],
+) -> Path | None:
+    candidate_paths: list[Path] = []
+    manifest_artifact_path = _manifest_artifact_path(
+        run_dir=run_dir,
+        run_manifest=run_manifest,
+        artifact_keys=("recipe_manifest_json",),
+    )
+    if manifest_artifact_path is not None:
+        candidate_paths.append(manifest_artifact_path)
+
+    candidate_paths.extend(
+        _resolve_stage_observability_manifest_paths(
+            run_dir=run_dir,
+            run_manifest=run_manifest,
+            stage_key="recipe_refine",
+        )
+    )
+    candidate_paths.extend(
+        _resolve_stage_observability_manifest_paths(
+            run_dir=run_dir,
+            run_manifest=run_manifest,
+            stage_key="recipe_build_final",
+        )
+    )
 
     processed_output_dir = _resolve_processed_output_run_dir(run_dir, run_manifest)
     if processed_output_dir is not None:
-        processed_raw_llm_dir = processed_output_dir / "raw" / "llm"
-        if processed_raw_llm_dir.is_dir():
-            candidate_paths.extend(
-                sorted(processed_raw_llm_dir.glob(f"*/{knowledge_manifest_file_name}"))
+        processed_manifest = (
+            _load_json(processed_output_dir / "run_manifest.json")
+            if (processed_output_dir / "run_manifest.json").is_file()
+            else {"artifacts": {"stage_observability_json": "stage_observability.json"}}
+        )
+        candidate_paths.extend(
+            _resolve_stage_observability_manifest_paths(
+                run_dir=processed_output_dir,
+                run_manifest=processed_manifest if isinstance(processed_manifest, dict) else {},
+                stage_key="recipe_refine",
             )
-            candidate_paths.append(processed_raw_llm_dir / knowledge_manifest_file_name)
+        )
+        candidate_paths.extend(
+            _resolve_stage_observability_manifest_paths(
+                run_dir=processed_output_dir,
+                run_manifest=processed_manifest if isinstance(processed_manifest, dict) else {},
+                stage_key="recipe_build_final",
+            )
+        )
+
+    pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
+    if pred_run_dir is not None:
+        pred_manifest = (
+            _load_json(pred_run_dir / "run_manifest.json")
+            if (pred_run_dir / "run_manifest.json").is_file()
+            else {"artifacts": {"stage_observability_json": "stage_observability.json"}}
+        )
+        candidate_paths.extend(
+            _resolve_stage_observability_manifest_paths(
+                run_dir=pred_run_dir,
+                run_manifest=pred_manifest if isinstance(pred_manifest, dict) else {},
+                stage_key="recipe_refine",
+            )
+        )
+        candidate_paths.extend(
+            _resolve_stage_observability_manifest_paths(
+                run_dir=pred_run_dir,
+                run_manifest=pred_manifest if isinstance(pred_manifest, dict) else {},
+                stage_key="recipe_build_final",
+            )
+        )
 
     return _first_existing_file(candidate_paths)

@@ -1295,6 +1295,16 @@
     return Number(fieldInfo.non_empty_count || 0);
   }
 
+  function compareControlNumericValue(record, fieldName) {
+    const key = String(fieldName || "").trim();
+    const rawValue = previousRunsFieldValue(record, key);
+    if (key === "run_timestamp") {
+      const parsed = parseTs(rawValue);
+      return parsed ? parsed.getTime() : null;
+    }
+    return maybeNumber(rawValue);
+  }
+
   function buildCompareControlFieldCatalog(records) {
     const byField = Object.create(null);
     const orderedFields = [];
@@ -1321,7 +1331,7 @@
         }
         valueCounts[comparableKey].count += 1;
         nonEmpty += 1;
-        const numeric = maybeNumber(rawValue);
+        const numeric = compareControlNumericValue(record, key);
         if (numeric != null) {
           numericCount += 1;
           numericValues.push(numeric);
@@ -1338,6 +1348,7 @@
         field: key,
         label: compareControlFieldLabel(key),
         numeric,
+        time_like: key === "run_timestamp" && numeric,
         non_empty_count: nonEmpty,
         distinct_count: distinctCount,
         categories: numeric ? [] : categories.slice(0, 120),
@@ -1447,8 +1458,8 @@
   function compareControlPairs(records, outcomeField, compareField) {
     const pairs = [];
     records.forEach(record => {
-      const outcome = maybeNumber(previousRunsFieldValue(record, outcomeField));
-      const compare = maybeNumber(previousRunsFieldValue(record, compareField));
+      const outcome = compareControlNumericValue(record, outcomeField);
+      const compare = compareControlNumericValue(record, compareField);
       if (outcome == null || compare == null) return;
       pairs.push({ x: compare, y: outcome, record });
     });
@@ -3506,4 +3517,3 @@
     // Keep Per-Label Breakdown content-sized and clear previously persisted drag widths.
     clearDashboardTableColumnWidths("per-label-table");
   }
-

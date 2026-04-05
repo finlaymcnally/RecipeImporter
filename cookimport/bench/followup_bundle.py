@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from cookimport.bench.external_ai_cutdown.artifact_paths import (
+    _resolve_knowledge_manifest_path as _resolve_knowledge_manifest_path_impl,
+    _resolve_recipe_manifest_path as _resolve_recipe_manifest_path_impl,
+)
 from cookimport.bench.oracle_upload import (
     BENCHMARK_UPLOAD_BUNDLE_INDEX_FILE_NAME,
     BENCHMARK_UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
@@ -209,6 +213,26 @@ def _slug_token(value: str) -> str:
 def _knowledge_case_id(source_key: str, output_subdir: str) -> str:
     variant = Path(output_subdir).name
     return f"knowledge_{_slug_token(source_key)}_{_slug_token(variant)}"
+
+
+def _manifest_artifact_path(
+    *,
+    run_dir: Path,
+    run_manifest: dict[str, Any],
+    artifact_keys: tuple[str, ...],
+) -> Path | None:
+    artifacts = run_manifest.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return None
+    for key in artifact_keys:
+        raw_value = artifacts.get(key)
+        if not isinstance(raw_value, str) or not raw_value.strip():
+            continue
+        candidate = Path(raw_value.strip())
+        candidate = candidate if candidate.is_absolute() else run_dir / candidate
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _source_key_from_output_subdir(output_subdir: str) -> str:
@@ -457,18 +481,12 @@ class RunContext:
     def raw_llm_dir(self) -> Path | None:
         if self._raw_llm_dir is ...:
             resolved: Path | None = None
-            for candidate_root in (
-                self.run_dir / "raw" / "llm",
-                self.run_dir / "prediction-run" / "raw" / "llm",
-            ):
-                if not candidate_root.is_dir():
-                    continue
-                for child in sorted(candidate_root.iterdir()):
-                    if child.is_dir():
-                        resolved = child
-                        break
-                if resolved is not None:
-                    break
+            recipe_manifest_path = _resolve_recipe_manifest_path_impl(
+                run_dir=self.run_dir,
+                run_manifest=self.run_manifest,
+            )
+            if recipe_manifest_path is not None:
+                resolved = recipe_manifest_path.parent
             self._raw_llm_dir = resolved
         return self._raw_llm_dir
 
@@ -486,10 +504,20 @@ class RunContext:
         resolved: dict[str, str] = {}
         prompts_dir = self.run_dir / "prompts"
         knowledge_prompt_task = _resolve_knowledge_prompt_task_path(prompts_dir)
-        prompt_budget_candidates = [
-            self.run_dir / "prediction-run" / "prompt_budget_summary.json",
-            self.run_dir / "prompt_budget_summary.json",
-        ]
+        prompt_budget_candidates: list[Path] = []
+        prompt_budget_manifest_path = _manifest_artifact_path(
+            run_dir=self.run_dir,
+            run_manifest=self.run_manifest,
+            artifact_keys=("prompt_budget_summary_json", "actual_costs_json"),
+        )
+        if prompt_budget_manifest_path is not None:
+            prompt_budget_candidates.append(prompt_budget_manifest_path)
+        prompt_budget_candidates.extend(
+            [
+                self.run_dir / "prediction-run" / "prompt_budget_summary.json",
+                self.run_dir / "prompt_budget_summary.json",
+            ]
+        )
         for label, candidates in (
             ("prompt_samples_md", [prompts_dir / "prompt_type_samples_from_full_prompt_log.md"]),
             ("prompt_knowledge_txt", [knowledge_prompt_task] if isinstance(knowledge_prompt_task, Path) else []),
@@ -499,10 +527,13 @@ class RunContext:
                 if isinstance(path, Path) and path.is_file():
                     resolved[label] = str(path)
                     break
-        if self.raw_llm_dir is not None:
-            manifest_path = self.raw_llm_dir / "knowledge_manifest.json"
-            if manifest_path.is_file():
-                resolved["knowledge_manifest_json"] = str(manifest_path)
+        manifest_path = _resolve_knowledge_manifest_path_impl(
+            run_dir=self.run_dir,
+            run_manifest=self.run_manifest,
+            knowledge_manifest_file_name="knowledge_manifest.json",
+        )
+        if manifest_path is not None:
+            resolved["knowledge_manifest_json"] = str(manifest_path)
         return resolved
 
 
