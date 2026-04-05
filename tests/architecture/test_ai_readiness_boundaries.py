@@ -150,14 +150,13 @@ def test_second_wave_owner_roots_stay_small_and_explicit() -> None:
     assert '("policy", "planning", "validation", "runtime")' in line_role_text
     assert len(line_role_text.splitlines()) <= 500
 
-    assert "from .planning import CodexFarmNonrecipeFinalizeResult" in knowledge_text
-    assert "from .recovery import _preflight_knowledge_shard" in knowledge_text
-    assert "from .runtime import run_codex_farm_nonrecipe_finalize" in knowledge_text
+    assert '__all__ = [' in knowledge_text
+    assert 'if name == "CodexFarmNonrecipeFinalizeResult":' in knowledge_text
+    assert 'from .runtime import run_codex_farm_nonrecipe_finalize' in knowledge_text
     assert len(knowledge_text.splitlines()) <= 40
 
-    assert "from . import planning as _planning_module" in recipe_stage_text
-    assert "from . import runtime as _runtime_module" in recipe_stage_text
-    assert "from . import validation as _validation_module" in recipe_stage_text
+    assert 'def __getattr__(name: str) -> Any:' in recipe_stage_text
+    assert 'import_module("cookimport.llm.recipe_stage_shared")' in recipe_stage_text
     assert len(recipe_stage_text.splitlines()) <= 80
 
     assert "build_nonrecipe_authority_contract" in nonrecipe_text
