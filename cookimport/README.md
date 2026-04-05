@@ -16,8 +16,7 @@ RecipeCandidate supports optional schema.org Recipe fields like `image`,
 `recipeCategory`, `datePublished`, `creditText`, `isBasedOn`, `comment`, and
 `aggregateRating`, plus `recipeInstructions` as strings or HowToStep objects.
 
-Run `cookimport inspect <workbook> --write-mapping` to print layout guesses and
-write a mapping stub under `data/output/mappings/`. Run `cookimport stage <folder>`
+Run `cookimport inspect <workbook>` to print layout guesses. Run `cookimport stage <folder>`
 to scan a folder and write schema.org Recipe JSON under
 `data/output/<timestamp>/intermediate drafts/` and cookbook3 under
 `data/output/<timestamp>/final drafts/`, plus sections/chunks/tables under the

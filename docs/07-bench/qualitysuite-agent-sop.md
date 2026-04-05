@@ -20,7 +20,6 @@ Active command flow:
 4. `cookimport bench quality-compare`
 
 Retired/disabled paths (historical artifacts only):
-- `cookimport bench quality-lightweight-series`
 - removed tournament workflow / old Phase A/B/B+ script path
 
 Use this file as the only QualitySuite agent doc. Historical notes below exist only so older artifacts are interpreted correctly.
@@ -143,7 +142,6 @@ Use this when you want lightweight EPUB+PDF coverage without historical tourname
 
 ## 9. Historical Context For Older Artifacts
 
-- `cookimport bench quality-lightweight-series` is retired/disabled and exits immediately.
 - The former tournament workflow has been removed from the repo.
 - Older runs under `data/golden/bench/quality/tournaments/` are still readable, but the current replacement path is:
   1. `cookimport bench quality-run`

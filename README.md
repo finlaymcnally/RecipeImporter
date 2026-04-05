@@ -339,16 +339,10 @@ Rule of thumb:
 
 ## Handy Extras
 
-### Inspect a workbook and write a mapping stub
+### Inspect a workbook
 
 ```bash
-cookimport inspect data/input/your-workbook.xlsx --write-mapping
-```
-
-That writes a stub under:
-
-```text
-data/output/mappings/
+cookimport inspect data/input/your-workbook.xlsx
 ```
 
 ### EPUB debugging

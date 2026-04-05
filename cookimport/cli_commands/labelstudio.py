@@ -162,7 +162,6 @@ from cookimport.cli_support import (
     run_labelstudio_export,
     run_labelstudio_import,
     run_pipelined,
-    save_mapping_config,
     shutil,
     summarize_knowledge_stage_artifacts,
     time,
@@ -205,12 +204,6 @@ def register(app: typer.Typer) -> dict[str, object]:
     @app.command()
     def inspect(
         path: Path = typer.Argument(..., help="Workbook file to inspect."),
-        out: Path = typer.Option(DEFAULT_OUTPUT, "--out", help="Output folder."),
-        write_mapping: bool = typer.Option(
-            False,
-            "--write-mapping",
-            help="Write a mapping stub alongside staged outputs.",
-        ),
     ) -> None:
         """Inspect a single workbook and print layout guesses."""
         if not path.exists():
@@ -228,10 +221,6 @@ def register(app: typer.Typer) -> dict[str, object]:
             confidence = sheet.confidence if sheet.confidence is not None else 0.0
             note = " (low confidence)" if sheet.low_confidence else ""
             typer.echo(f"- {sheet.name}: {layout} header_row={header_row} score={confidence:.2f}{note}")
-        if write_mapping and inspection.mapping_stub is not None:
-            mapping_path = out / "mappings" / f"{path.stem}.mapping.yaml"
-            save_mapping_config(mapping_path, inspection.mapping_stub)
-            typer.secho(f"Wrote mapping stub to {mapping_path}", fg=typer.colors.GREEN)
 
     @app.command("labelstudio-import")
     def labelstudio_import(

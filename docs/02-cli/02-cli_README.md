@@ -518,10 +518,9 @@ Top-level command groups:
 - `cookimport benchmark-csv-backfill`
 - `cookimport stats-dashboard`
 - `cookimport compare-control <run|agent|discovery-preferences|dashboard-state>`
-- `cookimport bench <oracle-upload|oracle-followup|speed-discover|speed-run|speed-compare|gc|pin|unpin|quality-discover|quality-run|quality-lightweight-series|quality-leaderboard|quality-compare|eval-stage>`
+- `cookimport bench <oracle-upload|oracle-followup|speed-discover|speed-run|speed-compare|gc|pin|unpin|quality-discover|quality-run|quality-leaderboard|quality-compare|eval-stage>`
 
 `cookimport bench oracle-upload <session root or upload_bundle_v1>` reuses an existing benchmark bundle without rerunning the benchmark. It now launches both Oracle review lanes by default and accepts `--profile quality|token|all` for replay control. `--mode dry-run` is the low-cost validation path; when the payload file is too large for Oracle's inline dry-run, the command falls back to a local preview and tells you to use browser mode for the real upload.
-`cookimport bench quality-lightweight-series` still exists only as a disabled shim and exits immediately; use `bench quality-run` and `bench quality-compare` instead.
 
 Every command supports `--help`.
 
@@ -689,11 +688,6 @@ Inspects importer layout guesses for one file.
 Arguments:
 
 - `PATH` (required): file to inspect.
-
-Options:
-
-- `--out PATH` (default `data/output`): where mapping stubs are written if enabled.
-- `--write-mapping` (default `false`): writes `mappings/<stem>.mapping.yaml`.
 
 ### `cookimport perf-report`
 

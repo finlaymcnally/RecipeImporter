@@ -4,6 +4,11 @@ Offline benchmark orchestration code lives in this folder.
 Durable benchmark scoring/scheduler/output contracts live in `cookimport/bench/CONVENTIONS.md`.
 Agent quick-start for QualitySuite in this folder lives in `cookimport/bench/AGENTS.md`.
 
+Change map:
+- For benchmark helper routing or all-method orchestration, start in `cookimport/cli_support/bench.py` and its owner modules, read `docs/07-bench/07-bench_README.md` first, and run the focused helper pytest files before the broader bench domain suite.
+- For external-AI cutdown work, start in `scripts/benchmark_cutdown_for_external_ai.py` plus `cookimport/bench/external_ai_cutdown/`, then run the focused `tests/bench/test_benchmark_cutdown_for_external_ai*.py` slice.
+- Benchmark-helper tests still patch `cookimport.cli` and `cookimport.cli_support.bench` on purpose because those facades are the stable import seam shared across CLI and helper flows. Treat that broad patch surface as intentional unless you are replacing it with a clearly smaller named seam.
+
 Current scoring contract:
 - Predictions come from stage evidence manifests (`stage_block_predictions.json`), not pipeline chunk tasks.
 - Gold can include multiple labels per block; eval accepts any matching gold label and logs multi-label diagnostics to `gold_conflicts.jsonl`.
@@ -33,7 +38,6 @@ Current scoring contract:
   - `quality_suite.py` (`bench quality-discover` defaults to curated CUTDOWN target IDs: `saltfatacidheatcutdown`, `thefoodlabcutdown`, `seaandsmokecutdown`, `dinnerfor2cutdown`, `roastchickenandotherstoriescutdown`; falls back to representative stratified selection when unavailable, and retries filename matching when importer-scored discovery is empty)
   - `qualitysuite/runtime.py` + `qualitysuite/worker_cli.py` (`bench quality-run` supports adaptive parallel experiment execution with persistent canonical/eval + prediction-reuse caches under `data/golden/bench/quality/.cache`; race mode auto-falls back to exhaustive when finalists cannot prune the current variant set; gentle output-write pacing is enabled by default to reduce WSL disk I/O spikes and can be disabled via `--io-pace-every-writes 0` or `--io-pace-sleep-ms 0`)
   - `quality_compare.py` (`bench quality-compare` baseline-vs-candidate quality gating)
-  - the retired `bench quality-lightweight-series` implementation module has been removed; the CLI command remains only as a disabled shim for old scripts/operator muscle memory
 - Benchmark retention/GC tooling lives in `artifact_gc.py` and is surfaced via `cookimport bench gc` (dry-run by default, `--apply` for destructive pruning; quality/speed roots under `data/golden/bench/*` still require durable CSV confirmation; label-studio benchmark roots under `data/golden/benchmark-vs-golden/*` now keep the newest five by default; timestamped run roots directly under `data/output/*` are wiped by default while non-run folders such as `history/dashboard` are preserved; any run root containing `.gc_keep*`/`.keep`/`.pinned` is never pruned; GC never rewrites/prunes `performance_history.csv`).
 - `labelstudio-benchmark` auto-prunes only transient benchmark slop (excluded gate/gated/smoke/test/debug/quick/probe/sample/trial/regression suffix runs and `/bench/`-scoped benchmark artifacts), and keeps normal interactive run outputs; matching processed-output roots are pruned only for excluded runs.
 - Interactive `C3imp` menu sessions force prune suppression for benchmark evals; interactive outputs are retained unless you run an explicit cleanup command later.

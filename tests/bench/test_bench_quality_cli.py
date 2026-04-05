@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tests.bench.test_bench as _base
+from typer.testing import CliRunner
 
 # Reuse shared imports/helpers from the base bench test module.
 globals().update({
@@ -11,6 +12,8 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
+
+runner = CliRunner()
 
 def test_bench_quality_discover_writes_suite(tmp_path: Path) -> None:
     input_root = tmp_path / "input"
@@ -332,67 +335,11 @@ def test_bench_quality_run_rejects_codex_farm_model_override(
     assert "--codex-farm-model" in failures[0]
 
 
-def test_bench_quality_lightweight_series_is_disabled(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    failures: list[str] = []
+def test_bench_help_omits_removed_quality_lightweight_series_command() -> None:
+    result = runner.invoke(cli.app, ["bench", "--help"], env={"COLUMNS": "240"})
 
-    def _fake_fail(message: str) -> None:
-        failures.append(message)
-        raise typer.Exit(1)
-
-    _patch_bench_cli_attr(monkeypatch, "_fail", _fake_fail)
-
-    gold_root = tmp_path / "gold"
-    input_root = tmp_path / "input"
-    experiments_file = tmp_path / "experiments.json"
-    thresholds_file = tmp_path / "thresholds.json"
-    profile_file = tmp_path / "profile.json"
-
-    with pytest.raises(typer.Exit) as excinfo:
-        cli.bench_quality_lightweight_series(
-            gold_root=gold_root,
-            input_root=input_root,
-            profile_file=profile_file,
-            experiments_file=experiments_file,
-            thresholds_file=thresholds_file,
-            out_dir=tmp_path / "lightweight",
-            max_parallel_experiments=3,
-            require_process_workers=True,
-        )
-
-    assert excinfo.value.exit_code == 1
-    assert failures
-    assert failures[0] == cli.QUALITY_LIGHTWEIGHT_SERIES_DISABLED_MESSAGE
-
-
-def test_bench_quality_lightweight_series_disabled_before_resume_validation(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    failures: list[str] = []
-
-    def _fake_fail(message: str) -> None:
-        failures.append(message)
-        raise typer.Exit(1)
-
-    _patch_bench_cli_attr(monkeypatch, "_fail", _fake_fail)
-
-    with pytest.raises(typer.Exit) as excinfo:
-        cli.bench_quality_lightweight_series(
-            gold_root=tmp_path / "gold",
-            input_root=tmp_path / "input",
-            profile_file=tmp_path / "profile.json",
-            experiments_file=tmp_path / "experiments.json",
-            thresholds_file=tmp_path / "thresholds.json",
-            out_dir=tmp_path / "lightweight",
-            resume_series_dir=tmp_path / "missing-series-dir",
-        )
-
-    assert excinfo.value.exit_code == 1
-    assert failures
-    assert failures[0] == cli.QUALITY_LIGHTWEIGHT_SERIES_DISABLED_MESSAGE
+    assert result.exit_code == 0
+    assert "quality-lightweight-series" not in result.stdout
 
 
 def test_bench_quality_compare_fail_on_regression_exits(

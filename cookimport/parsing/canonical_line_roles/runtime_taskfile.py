@@ -56,7 +56,6 @@ def _build_line_role_task_file(
                     "owned_id": str(atomic_index),
                     "evidence": {
                         "atomic_index": atomic_index,
-                        "block_id": debug_row.get("block_id"),
                         "text": text,
                     },
                     "answer": {},

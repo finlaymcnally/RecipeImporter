@@ -2,6 +2,10 @@
 
 Repo-local wrappers and diagnostics live here. Keep unrelated stack helpers out of this folder.
 
+Change map:
+- If you are changing `test-suite.sh`, read `docs/12-testing/12-testing_README.md` first and prove the change with the narrowest wrapper invocation that exercises the contract.
+- If you are changing `benchmark_cutdown_for_external_ai.py`, start in the wrapper plus `cookimport/bench/external_ai_cutdown/`, read `cookimport/bench/README.md` and `docs/07-bench/07-bench_README.md`, and run the focused cutdown pytest slice before any broad bench run.
+
 - `test-suite.sh`: standardized test runners for common agent loops.
   - `./scripts/test-suite.sh smoke`
   - `./scripts/test-suite.sh fast`

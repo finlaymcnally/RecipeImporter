@@ -96,7 +96,6 @@ Important current constraints:
   - `seaandsmokecutdown`
   - `dinnerfor2cutdown`
   - `roastchickenandotherstoriescutdown`
-- `bench quality-lightweight-series` remains only as a disabled stub. It exits immediately and is not an active workflow.
 - `bench gc` now has a split retention policy: quality/speed roots still require durable CSV confirmation, Label Studio benchmark roots under `data/golden/benchmark-vs-golden/*` keep only the newest five by default, and timestamped `data/output/<run_id>/` roots are wiped by default while preserving non-run folders such as `data/output/history/dashboard`.
 
 ### 2.2 `cookimport labelstudio-benchmark`

@@ -299,24 +299,6 @@ DEFAULT_BENCH_QUALITY_ROOT = DEFAULT_GOLDEN / "bench" / "quality"
 DEFAULT_BENCH_QUALITY_SUITES = DEFAULT_BENCH_QUALITY_ROOT / "suites"
 DEFAULT_BENCH_QUALITY_RUNS = DEFAULT_BENCH_QUALITY_ROOT / "runs"
 DEFAULT_BENCH_QUALITY_COMPARISONS = DEFAULT_BENCH_QUALITY_ROOT / "comparisons"
-DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_SERIES = (
-    DEFAULT_BENCH_QUALITY_ROOT / "lightweight_series"
-)
-DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_PROFILE = (
-    DEFAULT_BENCH_QUALITY_ROOT
-    / "lightweight_profiles"
-    / "2026-03-02_00.36.30_qualitysuite-lightweight-main-effects-qualityfirst-pruned-v1.json"
-)
-DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_EXPERIMENTS = (
-    DEFAULT_BENCH_QUALITY_ROOT
-    / "experiments"
-    / "2026-03-02_00.36.30_qualitysuite-top-tier-tournament-full-candidates-qualityfirst-pruned.json"
-)
-DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_THRESHOLDS = (
-    DEFAULT_BENCH_QUALITY_ROOT
-    / "thresholds"
-    / "2026-02-28_16.24.30_qualitysuite-top-tier-gates-fast-nosweeps.json"
-)
 DEFAULT_CONFIG_PATH = REPO_ROOT / "cookimport.json"
 BACK_ACTION = "__back__"
 DEFAULT_PRELABEL_TIMEOUT_SECONDS = 600
@@ -370,12 +352,6 @@ LINE_ROLE_GATED_OTHER_KNOWLEDGE_DROP_MIN = 0.30
 LINE_ROLE_GATED_MIN_RECIPE_NOTES_RECALL = 0.40
 LINE_ROLE_GATED_MIN_RECIPE_VARIANT_RECALL = 0.40
 LINE_ROLE_GATED_MIN_INGREDIENT_RECALL = 0.35
-QUALITY_LIGHTWEIGHT_SERIES_DISABLED_MESSAGE = (
-    "bench quality-lightweight-series is disabled. "
-    "Tournament/lightweight-series workflows were retired due to extreme "
-    "runtime and disk usage. Use `bench quality-run` + `bench quality-compare` "
-    "for quality iteration."
-)
 ALL_METHOD_EPUB_EXTRACTORS_DEFAULT = (
     "unstructured",
     "beautifulsoup",

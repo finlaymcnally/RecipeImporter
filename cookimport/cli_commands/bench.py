@@ -6,10 +6,6 @@ from cookimport.cli_support import (
     Annotated,
     Any,
     DEFAULT_BENCH_QUALITY_COMPARISONS,
-    DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_EXPERIMENTS,
-    DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_PROFILE,
-    DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_SERIES,
-    DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_THRESHOLDS,
     DEFAULT_BENCH_QUALITY_RUNS,
     DEFAULT_BENCH_QUALITY_SUITES,
     DEFAULT_BENCH_SPEED_COMPARISONS,
@@ -20,7 +16,6 @@ from cookimport.cli_support import (
     DEFAULT_INPUT,
     DEFAULT_OUTPUT,
     Path,
-    QUALITY_LIGHTWEIGHT_SERIES_DISABLED_MESSAGE,
     REPO_ROOT,
     RUN_SETTING_CONTRACT_FULL,
     RunSettings,
@@ -1332,66 +1327,6 @@ def register(app: typer.Typer) -> dict[str, object]:
                     fg=typer.colors.YELLOW,
                 )
 
-    @app.command("quality-lightweight-series")
-    def bench_quality_lightweight_series(
-        gold_root: Path = typer.Option(
-            DEFAULT_GOLDEN_PULLED_FROM_LABELSTUDIO,
-            "--gold-root",
-            help="Root folder containing pulled gold export folders.",
-        ),
-        input_root: Path = typer.Option(
-            DEFAULT_INPUT,
-            "--input-root",
-            help="Root folder containing source files used for import runs.",
-        ),
-        profile_file: Path = typer.Option(
-            DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_PROFILE,
-            "--profile-file",
-            help="Versioned lightweight-series profile JSON.",
-        ),
-        experiments_file: Path = typer.Option(
-            DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_EXPERIMENTS,
-            "--experiments-file",
-            help="Experiments JSON used to resolve candidate patches.",
-        ),
-        thresholds_file: Path = typer.Option(
-            DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_THRESHOLDS,
-            "--thresholds-file",
-            help="Thresholds JSON used for seed/fold contracts.",
-        ),
-        out_dir: Path = typer.Option(
-            DEFAULT_BENCH_QUALITY_LIGHTWEIGHT_SERIES,
-            "--out-dir",
-            help="Output directory for timestamped lightweight series runs.",
-        ),
-        resume_series_dir: Path | None = typer.Option(
-            None,
-            "--resume-series-dir",
-            help=(
-                "Resume an existing lightweight series directory. Existing fold artifacts "
-                "are reused when compatible."
-            ),
-        ),
-        max_parallel_experiments: int | None = typer.Option(
-            None,
-            "--max-parallel-experiments",
-            help=(
-                "Maximum number of quality experiments executed concurrently inside each fold. "
-                "When omitted, quality-run auto mode is used."
-            ),
-        ),
-        require_process_workers: bool = typer.Option(
-            False,
-            "--require-process-workers/--allow-worker-fallback",
-            help=(
-                "Fail fast when process-based all-method config workers are unavailable "
-                "instead of degrading to fallback worker backends."
-            ),
-        ),
-    ) -> None:
-        """Run the lightweight main-effects-first QualitySuite series."""
-        _fail(QUALITY_LIGHTWEIGHT_SERIES_DISABLED_MESSAGE)
-
     @app.command("quality-compare")
     def bench_quality_compare(
         baseline: Path = typer.Option(
@@ -1925,7 +1860,6 @@ def register(app: typer.Typer) -> dict[str, object]:
         "bench_unpin": bench_unpin,
         "bench_quality_discover": bench_quality_discover,
         "bench_quality_run": bench_quality_run,
-        "bench_quality_lightweight_series": bench_quality_lightweight_series,
         "bench_quality_compare": bench_quality_compare,
         "bench_quality_leaderboard": bench_quality_leaderboard,
         "bench_eval_stage": bench_eval_stage,

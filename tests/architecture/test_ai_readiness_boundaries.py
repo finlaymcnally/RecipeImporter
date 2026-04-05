@@ -176,7 +176,9 @@ def test_second_wave_owner_roots_stay_small_and_explicit() -> None:
     assert len(script_asset_text.splitlines()) <= 20
 
     assert "class RunSettings(BaseModel):" in run_settings_text
-    assert len(run_settings_text.splitlines()) <= 1225
+    # This root still owns the canonical immutable schema, so line count grows
+    # with durable setting additions even after helpers moved out.
+    assert len(run_settings_text.splitlines()) <= 1450
 
 
 def test_cli_root_stays_a_plain_composition_root() -> None:

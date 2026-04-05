@@ -11,6 +11,14 @@ the signals needed to answer:
 
 It discovers benchmark run directories under an input root by looking for
 folders that contain both `eval_report.json` and `run_manifest.json`.
+
+Ownership note:
+- this root remains the CLI/orchestration surface for the cutdown package
+- owner modules under `cookimport/bench/external_ai_cutdown/` now hold the
+  reusable helper families
+- the largest logic still intentionally left here is the late-stage reporting
+  and packaging layer: scorecards, ablations, chapter/page breakdowns, top
+  regression packets, and final package assembly in `main()`
 """
 
 from __future__ import annotations
@@ -93,6 +101,33 @@ from cookimport.bench.external_ai_cutdown.io import (
     _write_json,
     _write_jsonl,
     _write_jsonl_sample,
+)
+from cookimport.bench.external_ai_cutdown.high_level_artifacts import (
+    GROUP_UPLOAD_BUNDLE_MIN_ARTIFACT_BUDGET_BYTES,
+    GROUP_UPLOAD_BUNDLE_ROOT_ARTIFACT_BUDGET_SHARE,
+    GROUP_UPLOAD_BUNDLE_ROOT_PRIORITY_FILES,
+    GROUP_UPLOAD_BUNDLE_RUN_CONTEXT_FILES,
+    GROUP_UPLOAD_BUNDLE_RUN_PRIORITY_FILES,
+    _json_dump_bytes_impl,
+    _json_size_bytes_impl,
+    _resolve_prompt_budget_summary_path,
+    _upload_bundle_load_json_object,
+    _upload_bundle_build_group_high_level_packet_impl,
+    _upload_bundle_build_knowledge_summary_impl,
+    _upload_bundle_category_impl,
+    _upload_bundle_content_type_impl,
+    _upload_bundle_derived_run_artifact_path_impl,
+    _upload_bundle_high_level_final_reserve_bytes_impl,
+    _upload_bundle_high_level_trim_priority_impl,
+    _upload_bundle_load_csv_rows_impl,
+    _upload_bundle_load_recipe_triage_rows_impl,
+    _upload_bundle_optional_artifact_status_impl,
+    _upload_bundle_parse_csv_text_impl,
+    _upload_bundle_parse_jsonl_text_impl,
+    _upload_bundle_payload_row_line_bytes_impl,
+    _upload_bundle_relative_path_within_root_impl,
+    _upload_bundle_select_high_level_artifact_paths,
+    _upload_bundle_trim_high_level_payload_rows_impl,
 )
 from cookimport.bench.external_ai_cutdown.line_projection import (
     _build_line_prediction_view as _build_line_prediction_view_impl,
@@ -216,8 +251,6 @@ ALIGNMENT_HEALTHY_COVERAGE_MIN = 0.98
 ALIGNMENT_HEALTHY_MATCH_RATIO_MIN = 0.98
 GROUP_UPLOAD_BUNDLE_TARGET_BYTES = 30 * 1024 * 1024
 GROUP_UPLOAD_BUNDLE_RESERVED_BYTES = 3 * 1024 * 1024
-GROUP_UPLOAD_BUNDLE_ROOT_ARTIFACT_BUDGET_SHARE = 0.8
-GROUP_UPLOAD_BUNDLE_MIN_ARTIFACT_BUDGET_BYTES = 4 * 1024 * 1024
 GROUP_UPLOAD_BUNDLE_GROUP_PACKET_FILE_NAME = "group_high_level_packet.json"
 GROUP_UPLOAD_BUNDLE_MIN_WRONG_LINE_SAMPLES_PER_RUN = 1
 GROUP_UPLOAD_BUNDLE_MAX_WRONG_LINE_SAMPLES_PER_RUN = 240
@@ -266,27 +299,6 @@ ROOT_METADATA_FILES = (
     "per_recipe_or_per_span_breakdown.json",
     "targeted_prompt_cases.md",
     "label_policy_adjudication_notes.md",
-)
-GROUP_UPLOAD_BUNDLE_ROOT_PRIORITY_FILES = (
-    "run_index.json",
-    "comparison_summary.json",
-    "process_manifest.json",
-    "README.md",
-    "changed_lines.codex_vs_vanilla.jsonl",
-    "per_recipe_or_per_span_breakdown.json",
-    "targeted_prompt_cases.md",
-    "label_policy_adjudication_notes.md",
-)
-GROUP_UPLOAD_BUNDLE_RUN_PRIORITY_FILES: tuple[tuple[str, bool], ...] = (
-    ("run_manifest.json", True),
-    ("eval_report.json", False),
-    ("need_to_know_summary.json", False),
-    ("prediction-run/prompt_budget_summary.json", False),
-)
-GROUP_UPLOAD_BUNDLE_RUN_CONTEXT_FILES: tuple[str, ...] = (
-    "prompts/prompt_request_response_log.txt",
-    "prediction-run/extracted_archive.json",
-    "prediction-run/line-role-pipeline/extracted_archive.json",
 )
 UPLOAD_BUNDLE_OVERVIEW_FILE_NAME = "overview.md"
 UPLOAD_BUNDLE_INDEX_FILE_NAME = "index.json"
@@ -2191,113 +2203,42 @@ def _write_root_summary_markdown(output_dir: Path) -> Path:
 
 
 def _upload_bundle_content_type(path: Path) -> str:
-    name = path.name.lower()
-    suffix = path.suffix.lower()
-    if name.endswith(".jsonl.gz"):
-        return "jsonl_gzip"
-    if suffix == ".json":
-        return "json"
-    if suffix == ".jsonl":
-        return "jsonl"
-    if suffix == ".md":
-        return "markdown"
-    if suffix == ".txt":
-        return "text"
-    if suffix == ".csv":
-        return "csv"
-    if suffix == ".gz":
-        return "gzip"
-    return "binary"
+    return _upload_bundle_content_type_impl(path)
 
 
 def _upload_bundle_parse_jsonl_text(text: str) -> list[Any]:
-    rows: list[Any] = []
-    for line_number, raw_line in enumerate(text.splitlines(), start=1):
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            rows.append(
-                {
-                    "_parse_error": "invalid_json",
-                    "_line_number": line_number,
-                    "_raw_line": raw_line,
-                }
-            )
-    return rows
+    return _upload_bundle_parse_jsonl_text_impl(text)
 
 
 def _upload_bundle_parse_csv_text(text: str) -> dict[str, Any]:
-    reader = csv.DictReader(io.StringIO(text))
-    rows = [dict(row) for row in reader]
-    return {
-        "fieldnames": list(reader.fieldnames or []),
-        "rows": rows,
-    }
+    return _upload_bundle_parse_csv_text_impl(text)
 
 
 def _upload_bundle_category(
     relative_path: str,
     run_output_dirs: set[str],
 ) -> tuple[str, str | None]:
-    parts = relative_path.split("/")
-    if not parts:
-        return ("other", None)
-    first = parts[0]
-    if first == STARTER_PACK_DIR_NAME:
-        return ("starter_pack", None)
-    if first in run_output_dirs:
-        return ("run_artifact", first)
-    if len(parts) == 1:
-        return ("root_artifact", None)
-    return ("other", None)
-
-
-def _upload_bundle_load_csv_rows(path: Path) -> list[dict[str, Any]]:
-    if not path.is_file():
-        return []
-    try:
-        text = path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return []
-    rows: list[dict[str, Any]] = []
-    try:
-        reader = csv.DictReader(io.StringIO(text))
-        for row in reader:
-            if isinstance(row, dict):
-                rows.append(dict(row))
-    except csv.Error:
-        return []
-    return rows
-
-
-def _upload_bundle_load_recipe_triage_rows(starter_pack_dir: Path) -> list[dict[str, Any]]:
-    jsonl_rows = _iter_jsonl(starter_pack_dir / STARTER_PACK_TRIAGE_FILE_NAME)
-    if jsonl_rows:
-        return [row for row in jsonl_rows if isinstance(row, dict)]
-    return _upload_bundle_load_csv_rows(
-        starter_pack_dir / STARTER_PACK_TRIAGE_LEGACY_CSV_FILE_NAME
+    return _upload_bundle_category_impl(
+        relative_path,
+        run_output_dirs,
+        starter_pack_dir_name=STARTER_PACK_DIR_NAME,
     )
 
 
-def _upload_bundle_load_json_object(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        return {}
-    try:
-        return _load_json(path)
-    except Exception:  # noqa: BLE001
-        return {}
+def _upload_bundle_load_csv_rows(path: Path) -> list[dict[str, Any]]:
+    return _upload_bundle_load_csv_rows_impl(path)
+
+
+def _upload_bundle_load_recipe_triage_rows(starter_pack_dir: Path) -> list[dict[str, Any]]:
+    return _upload_bundle_load_recipe_triage_rows_impl(
+        starter_pack_dir,
+        starter_pack_triage_file_name=STARTER_PACK_TRIAGE_FILE_NAME,
+        starter_pack_triage_legacy_csv_file_name=STARTER_PACK_TRIAGE_LEGACY_CSV_FILE_NAME,
+    )
 
 
 def _json_size_bytes(value: Any) -> int:
-    try:
-        return len(json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8"))
-    except Exception:  # noqa: BLE001
-        return 0
+    return _json_size_bytes_impl(value)
 
 
 def _json_dump_bytes(
@@ -2306,116 +2247,44 @@ def _json_dump_bytes(
     indent: int | None = None,
     sort_keys: bool = False,
 ) -> bytes:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        indent=indent,
-        sort_keys=sort_keys,
-    ).encode("utf-8")
+    return _json_dump_bytes_impl(value, indent=indent, sort_keys=sort_keys)
 
 
 def _upload_bundle_payload_row_line_bytes(payload_row: dict[str, Any]) -> int:
-    return len(_json_dump_bytes(payload_row)) + 1
-
-
-def _resolve_prompt_budget_summary_path(
-    *,
-    run_dir: Path,
-    pred_run_dir: Path | None,
-    pred_manifest: dict[str, Any],
-) -> Path | None:
-    candidates: list[Path] = []
-    manifest_path = str(pred_manifest.get("prompt_budget_summary_path") or "").strip()
-    if manifest_path:
-        candidate = Path(manifest_path)
-        if not candidate.is_absolute() and pred_run_dir is not None:
-            candidate = pred_run_dir / candidate
-        candidates.append(candidate)
-    candidates.append(run_dir / "prompt_budget_summary.json")
-    if pred_run_dir is not None:
-        candidates.append(pred_run_dir / "prompt_budget_summary.json")
-    seen: set[Path] = set()
-    for candidate in candidates:
-        resolved = candidate.resolve(strict=False)
-        if resolved in seen or not candidate.is_file():
-            continue
-        seen.add(resolved)
-        payload = _upload_bundle_load_json_object(candidate)
-        if isinstance(payload.get("by_stage"), dict):
-            return candidate
-    return None
+    return _upload_bundle_payload_row_line_bytes_impl(payload_row)
 
 
 def _upload_bundle_high_level_final_reserve_bytes(target_bundle_size_bytes: int) -> int:
-    target_bytes = max(int(target_bundle_size_bytes), 1)
-    reserve_bytes = max(
-        int(target_bytes * GROUP_UPLOAD_BUNDLE_FINAL_RESERVE_SHARE),
-        GROUP_UPLOAD_BUNDLE_FINAL_RESERVE_MIN_BYTES,
+    return _upload_bundle_high_level_final_reserve_bytes_impl(
+        target_bundle_size_bytes,
+        final_reserve_share=GROUP_UPLOAD_BUNDLE_FINAL_RESERVE_SHARE,
+        final_reserve_min_bytes=GROUP_UPLOAD_BUNDLE_FINAL_RESERVE_MIN_BYTES,
     )
-    return min(reserve_bytes, max(target_bytes - 1, 0))
 
 
 def _upload_bundle_high_level_trim_priority(path: str) -> tuple[int, str] | None:
-    normalized = str(path or "").strip().lower()
-    if not normalized:
-        return None
-    direct_suffixes = (
-        (
-            (
-                FULL_PROMPT_LOG_FILE_NAME,
-                WRONG_LABEL_FULL_CONTEXT_FILE_NAME,
-                PREPROCESS_TRACE_FAILURES_FILE_NAME,
-                PROMPT_REQUEST_RESPONSE_LOG_NAME,
-                "recipe_manifest.json",
-            ),
-            0,
+    return _upload_bundle_high_level_trim_priority_impl(
+        path,
+        prompt_request_response_log_name=PROMPT_REQUEST_RESPONSE_LOG_NAME,
+        targeted_prompt_cases_file_name=TARGETED_PROMPT_CASES_FILE_NAME,
+        label_policy_notes_file_name=LABEL_POLICY_NOTES_FILE_NAME,
+        starter_pack_casebook_file_name=STARTER_PACK_CASEBOOK_FILE_NAME,
+        starter_pack_selected_packets_file_name=STARTER_PACK_SELECTED_PACKETS_FILE_NAME,
+        starter_pack_bridge_summary_file_name=STARTER_PACK_BRIDGE_SUMMARY_FILE_NAME,
+        starter_pack_explicit_escalation_changed_lines_file_name=(
+            STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME
         ),
-        (
-            (
-                TARGETED_PROMPT_CASES_FILE_NAME,
-                LABEL_POLICY_NOTES_FILE_NAME,
-                STARTER_PACK_CASEBOOK_FILE_NAME,
-                STARTER_PACK_SELECTED_PACKETS_FILE_NAME,
-                STARTER_PACK_BRIDGE_SUMMARY_FILE_NAME,
-            ),
-            1,
+        starter_pack_baseline_trace_parity_file_name=(
+            STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME
         ),
-        (
-            (
-                STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME,
-                "explicit_escalation_changed_lines.packet.jsonl",
-                STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME,
-                "baseline_trace_parity.json",
-                STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME,
-                "config_version_metadata.json",
-                STARTER_PACK_NET_ERROR_BLAME_FILE_NAME,
-                "net_error_blame_summary.json",
-                PROMPT_TYPE_SAMPLES_FILE_NAME,
-                KNOWLEDGE_MANIFEST_FILE_NAME,
-                CHANGED_LINES_FILE_NAME.rsplit("/", 1)[-1],
-                "prediction-run/extracted_archive.json",
-                "prediction-run/line-role-pipeline/extracted_archive.json",
-                "extracted_archive.json",
-            ),
-            2,
+        starter_pack_config_version_metadata_file_name=(
+            STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME
         ),
-        (
-            (
-                "need_to_know_summary.json",
-                "eval_report.json",
-                "prompt_budget_summary.json",
-            ),
-            3,
-        ),
+        starter_pack_net_error_blame_file_name=STARTER_PACK_NET_ERROR_BLAME_FILE_NAME,
+        changed_lines_file_name=CHANGED_LINES_FILE_NAME,
+        upload_bundle_derived_dir_name=UPLOAD_BUNDLE_DERIVED_DIR_NAME,
+        starter_pack_dir_name=STARTER_PACK_DIR_NAME,
     )
-    for suffixes, priority in direct_suffixes:
-        if normalized.endswith(suffixes):
-            return (priority, "final_size_trim")
-    if f"/{UPLOAD_BUNDLE_DERIVED_DIR_NAME}/{STARTER_PACK_DIR_NAME}/" in normalized:
-        return (1, "final_size_trim")
-    if f"/{STARTER_PACK_DIR_NAME}/" in normalized:
-        return (2, "final_size_trim")
-    return None
 
 
 def _upload_bundle_trim_high_level_payload_rows(
@@ -2424,341 +2293,30 @@ def _upload_bundle_trim_high_level_payload_rows(
     target_payload_bytes: int,
     preserve_paths: set[str],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    current_payload_bytes = sum(
-        _upload_bundle_payload_row_line_bytes(row)
-        for row in payload_rows
-        if isinstance(row, dict)
-    )
-    omitted_rows: list[dict[str, Any]] = []
-    if current_payload_bytes <= max(int(target_payload_bytes), 0):
-        return payload_rows, {
-            "target_payload_bytes": max(int(target_payload_bytes), 0),
-            "final_payload_bytes": current_payload_bytes,
-            "omitted_artifact_count": 0,
-            "omitted_bytes_estimate": 0,
-            "omitted_artifacts": [],
-        }
-
-    candidate_rows: list[tuple[int, str, int, int]] = []
-    for index, row in enumerate(payload_rows):
-        if not isinstance(row, dict):
-            continue
-        path = str(row.get("path") or "").strip()
-        if not path or path in preserve_paths:
-            continue
-        priority = _upload_bundle_high_level_trim_priority(path)
-        if priority is None:
-            continue
-        candidate_rows.append(
-            (
-                int(priority[0]),
-                path,
-                _upload_bundle_payload_row_line_bytes(row),
-                index,
-            )
-        )
-
-    candidate_rows.sort(
-        key=lambda item: (
-            int(item[0]),
-            -int(item[2]),
-            str(item[1]),
-        )
-    )
-
-    dropped_paths: set[str] = set()
-    omitted_bytes_estimate = 0
-    for priority, path, estimated_payload_bytes, _index in candidate_rows:
-        if current_payload_bytes <= target_payload_bytes:
-            break
-        dropped_paths.add(path)
-        current_payload_bytes -= estimated_payload_bytes
-        omitted_bytes_estimate += estimated_payload_bytes
-        omitted_rows.append(
-            {
-                "path": path,
-                "reason": "final_size_trim",
-                "trim_priority": priority,
-                "estimated_payload_bytes": estimated_payload_bytes,
-            }
-        )
-
-    if not dropped_paths:
-        return payload_rows, {
-            "target_payload_bytes": max(int(target_payload_bytes), 0),
-            "final_payload_bytes": current_payload_bytes,
-            "omitted_artifact_count": 0,
-            "omitted_bytes_estimate": 0,
-            "omitted_artifacts": [],
-        }
-
-    trimmed_rows = [
-        row
-        for row in payload_rows
-        if isinstance(row, dict) and str(row.get("path") or "").strip() not in dropped_paths
-    ]
-    return trimmed_rows, {
-        "target_payload_bytes": max(int(target_payload_bytes), 0),
-        "final_payload_bytes": sum(
-            _upload_bundle_payload_row_line_bytes(row) for row in trimmed_rows
+    return _upload_bundle_trim_high_level_payload_rows_impl(
+        payload_rows=payload_rows,
+        target_payload_bytes=target_payload_bytes,
+        preserve_paths=preserve_paths,
+        prompt_request_response_log_name=PROMPT_REQUEST_RESPONSE_LOG_NAME,
+        targeted_prompt_cases_file_name=TARGETED_PROMPT_CASES_FILE_NAME,
+        label_policy_notes_file_name=LABEL_POLICY_NOTES_FILE_NAME,
+        starter_pack_casebook_file_name=STARTER_PACK_CASEBOOK_FILE_NAME,
+        starter_pack_selected_packets_file_name=STARTER_PACK_SELECTED_PACKETS_FILE_NAME,
+        starter_pack_bridge_summary_file_name=STARTER_PACK_BRIDGE_SUMMARY_FILE_NAME,
+        starter_pack_explicit_escalation_changed_lines_file_name=(
+            STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME
         ),
-        "omitted_artifact_count": len(omitted_rows),
-        "omitted_bytes_estimate": omitted_bytes_estimate,
-        "omitted_artifacts": omitted_rows,
-    }
-
-
-def _upload_bundle_select_high_level_artifact_paths(
-    *,
-    source_root: Path,
-    discovered_run_dirs: list[Path],
-    target_bundle_size_bytes: int,
-) -> tuple[list[Path], dict[str, Any]]:
-    target_bytes = max(int(target_bundle_size_bytes), 1)
-    minimum_budget_bytes = min(GROUP_UPLOAD_BUNDLE_MIN_ARTIFACT_BUDGET_BYTES, target_bytes)
-    artifact_budget_bytes = max(
-        int(target_bytes * GROUP_UPLOAD_BUNDLE_ROOT_ARTIFACT_BUDGET_SHARE),
-        minimum_budget_bytes,
+        starter_pack_baseline_trace_parity_file_name=(
+            STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME
+        ),
+        starter_pack_config_version_metadata_file_name=(
+            STARTER_PACK_CONFIG_VERSION_METADATA_FILE_NAME
+        ),
+        starter_pack_net_error_blame_file_name=STARTER_PACK_NET_ERROR_BLAME_FILE_NAME,
+        changed_lines_file_name=CHANGED_LINES_FILE_NAME,
+        upload_bundle_derived_dir_name=UPLOAD_BUNDLE_DERIVED_DIR_NAME,
+        starter_pack_dir_name=STARTER_PACK_DIR_NAME,
     )
-    artifact_budget_bytes = min(artifact_budget_bytes, target_bytes)
-    selected: list[Path] = []
-    selected_set: set[Path] = set()
-    selected_bytes = 0
-
-    def _path_size(path: Path) -> int:
-        try:
-            return int(path.stat().st_size)
-        except OSError:
-            return 0
-
-    def _append_if_allowed(path: Path, *, required: bool) -> bool:
-        nonlocal selected_bytes
-        if path in selected_set or not path.is_file():
-            return False
-        path_bytes = _path_size(path)
-        if not required and selected_bytes + path_bytes > artifact_budget_bytes:
-            return False
-        selected.append(path)
-        selected_set.add(path)
-        selected_bytes += path_bytes
-        return True
-
-    for relative_path in GROUP_UPLOAD_BUNDLE_ROOT_PRIORITY_FILES:
-        _append_if_allowed(source_root / relative_path, required=False)
-
-    included_run_rows: list[dict[str, Any]] = []
-    policy_omitted_artifacts: list[dict[str, Any]] = []
-
-    def _record_policy_omission(path: Path, *, reason: str) -> None:
-        try:
-            relative_path = str(path.relative_to(source_root).as_posix())
-        except ValueError:
-            relative_path = str(path)
-        policy_omitted_artifacts.append(
-            {
-                "path": relative_path,
-                "reason": reason,
-                "source_bytes": _path_size(path),
-            }
-        )
-
-    for run_dir in discovered_run_dirs:
-        run_rel = ""
-        try:
-            run_rel = str(run_dir.relative_to(source_root).as_posix())
-        except ValueError:
-            run_rel = run_dir.name
-        included_files: list[str] = []
-        omitted_files: list[dict[str, Any]] = []
-        run_manifest_payload = _upload_bundle_load_json_object(run_dir / "run_manifest.json")
-        for file_name, required in GROUP_UPLOAD_BUNDLE_RUN_PRIORITY_FILES:
-            candidate = run_dir / file_name
-            if _append_if_allowed(candidate, required=required):
-                included_files.append(file_name)
-            elif candidate.is_file():
-                omitted_files.append(
-                    {
-                        "path": file_name,
-                        "reason": "artifact_budget_exceeded",
-                        "source_bytes": _path_size(candidate),
-                    }
-                )
-        pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest_payload)
-        pred_manifest = (
-            _upload_bundle_load_json_object(pred_run_dir / "manifest.json")
-            if pred_run_dir is not None
-            else {}
-        )
-        prompt_budget_summary_path = _resolve_prompt_budget_summary_path(
-            run_dir=run_dir,
-            pred_run_dir=pred_run_dir,
-            pred_manifest=pred_manifest,
-        )
-        if prompt_budget_summary_path is not None:
-            if _append_if_allowed(prompt_budget_summary_path, required=False):
-                try:
-                    included_files.append(
-                        str(prompt_budget_summary_path.relative_to(run_dir).as_posix())
-                    )
-                except ValueError:
-                    included_files.append(str(prompt_budget_summary_path))
-            else:
-                try:
-                    omitted_path = str(prompt_budget_summary_path.relative_to(run_dir).as_posix())
-                except ValueError:
-                    omitted_path = str(prompt_budget_summary_path)
-                omitted_files.append(
-                    {
-                        "path": omitted_path,
-                        "reason": "artifact_budget_exceeded",
-                        "source_bytes": _path_size(prompt_budget_summary_path),
-                    }
-                )
-        prompt_type_samples_path = _resolve_prompt_type_samples_path(
-            run_dir,
-            run_manifest_payload,
-        )
-        if prompt_type_samples_path is not None:
-            try:
-                prompt_type_samples_path.relative_to(source_root)
-            except ValueError:
-                prompt_type_samples_path = None
-        if prompt_type_samples_path is not None:
-            if _append_if_allowed(prompt_type_samples_path, required=False):
-                try:
-                    included_files.append(
-                        str(prompt_type_samples_path.relative_to(run_dir).as_posix())
-                    )
-                except ValueError:
-                    included_files.append(str(prompt_type_samples_path))
-            else:
-                try:
-                    omitted_path = str(prompt_type_samples_path.relative_to(run_dir).as_posix())
-                except ValueError:
-                    omitted_path = str(prompt_type_samples_path)
-                omitted_files.append(
-                    {
-                        "path": omitted_path,
-                        "reason": "artifact_budget_exceeded",
-                        "source_bytes": _path_size(prompt_type_samples_path),
-                    }
-                )
-        knowledge_manifest_path = _resolve_knowledge_manifest_path(
-            run_dir,
-            run_manifest_payload,
-        )
-        if knowledge_manifest_path is not None:
-            try:
-                knowledge_manifest_path.relative_to(source_root)
-            except ValueError:
-                knowledge_manifest_path = None
-        if knowledge_manifest_path is not None:
-            if _append_if_allowed(knowledge_manifest_path, required=False):
-                try:
-                    included_files.append(
-                        str(knowledge_manifest_path.relative_to(run_dir).as_posix())
-                    )
-                except ValueError:
-                    included_files.append(str(knowledge_manifest_path))
-            else:
-                try:
-                    omitted_path = str(knowledge_manifest_path.relative_to(run_dir).as_posix())
-                except ValueError:
-                    omitted_path = str(knowledge_manifest_path)
-                omitted_files.append(
-                    {
-                        "path": omitted_path,
-                        "reason": "artifact_budget_exceeded",
-                        "source_bytes": _path_size(knowledge_manifest_path),
-                    }
-                )
-        for relative_path in GROUP_UPLOAD_BUNDLE_RUN_CONTEXT_FILES:
-            candidate = run_dir / relative_path
-            if _append_if_allowed(candidate, required=False):
-                included_files.append(relative_path)
-            elif candidate.is_file():
-                omitted_files.append(
-                    {
-                        "path": relative_path,
-                        "reason": "artifact_budget_exceeded",
-                        "source_bytes": _path_size(candidate),
-                    }
-                )
-        # Keep full prompt logs in high-level bundles (deprioritized in navigation).
-        full_prompt_log_path = _resolve_full_prompt_log_path(run_dir, run_manifest_payload)
-        if full_prompt_log_path is not None and full_prompt_log_path.is_file():
-            try:
-                full_prompt_log_path.relative_to(source_root)
-            except ValueError:
-                full_prompt_log_path = None
-        if full_prompt_log_path is not None:
-            try:
-                omitted_path = str(full_prompt_log_path.relative_to(run_dir).as_posix())
-            except ValueError:
-                omitted_path = str(full_prompt_log_path)
-            omitted_files.append(
-                {
-                    "path": omitted_path,
-                    "reason": "followup_only_heavy_prompt_log",
-                    "source_bytes": _path_size(full_prompt_log_path),
-                }
-            )
-            _record_policy_omission(
-                full_prompt_log_path,
-                reason="followup_only_heavy_prompt_log",
-            )
-        knowledge_prompt_path = _resolve_knowledge_prompt_path(run_dir)
-        if knowledge_prompt_path is not None and knowledge_prompt_path.is_file():
-            try:
-                omitted_path = str(knowledge_prompt_path.relative_to(run_dir).as_posix())
-            except ValueError:
-                omitted_path = str(knowledge_prompt_path)
-            omitted_files.append(
-                {
-                    "path": omitted_path,
-                    "reason": "followup_only_heavy_prompt_context",
-                    "source_bytes": _path_size(knowledge_prompt_path),
-                }
-            )
-            _record_policy_omission(
-                knowledge_prompt_path,
-                reason="followup_only_heavy_prompt_context",
-            )
-        for heavy_name, omission_reason in (
-            (WRONG_LABEL_FULL_CONTEXT_FILE_NAME, "followup_only_full_context_trace"),
-            (PREPROCESS_TRACE_FAILURES_FILE_NAME, "followup_only_full_context_trace"),
-        ):
-            heavy_path = run_dir / heavy_name
-            if not heavy_path.is_file():
-                continue
-            omitted_files.append(
-                {
-                    "path": heavy_name,
-                    "reason": omission_reason,
-                    "source_bytes": _path_size(heavy_path),
-                }
-            )
-            _record_policy_omission(heavy_path, reason=omission_reason)
-        included_run_rows.append(
-            {
-                "run_dir": run_rel,
-                "included_files": included_files,
-                "omitted_files": omitted_files,
-            }
-        )
-
-    metadata = {
-        "mode": "high_level_only",
-        "target_bundle_size_bytes": target_bytes,
-        "artifact_budget_bytes": artifact_budget_bytes,
-        "selected_artifact_count": len(selected),
-        "selected_artifact_bytes": selected_bytes,
-        "discovered_run_count": len(discovered_run_dirs),
-        "per_run_included_files": included_run_rows,
-        "policy_omitted_artifacts": policy_omitted_artifacts,
-        "policy_omitted_artifact_count": len(policy_omitted_artifacts),
-    }
-    return selected, metadata
 
 
 def _upload_bundle_build_group_high_level_packet(
@@ -2771,183 +2329,27 @@ def _upload_bundle_build_group_high_level_packet(
     payload_bytes_before_packet: int,
     artifact_selection: dict[str, Any],
 ) -> dict[str, Any]:
-    run_row_by_id: dict[str, dict[str, Any]] = {}
-    run_row_by_subdir: dict[str, dict[str, Any]] = {}
-    for row in run_rows:
-        if not isinstance(row, dict):
-            continue
-        run_id = str(row.get("run_id") or "").strip()
-        if run_id:
-            run_row_by_id.setdefault(run_id, row)
-        output_subdir = str(row.get("output_subdir") or "").strip()
-        if output_subdir:
-            run_row_by_subdir.setdefault(output_subdir, row)
-
-    run_diag_by_id: dict[str, dict[str, Any]] = {}
-    run_diag_by_subdir: dict[str, dict[str, Any]] = {}
-    for row in run_diagnostics:
-        if not isinstance(row, dict):
-            continue
-        run_id = str(row.get("run_id") or "").strip()
-        if run_id:
-            run_diag_by_id.setdefault(run_id, row)
-        output_subdir = str(row.get("output_subdir") or "").strip()
-        if output_subdir:
-            run_diag_by_subdir.setdefault(output_subdir, row)
-
-    run_payloads: list[dict[str, Any]] = []
-    run_count = len(discovered_run_dirs)
-    target_bytes = max(int(target_bundle_size_bytes), 1)
-    reserved_bytes = min(
-        max(GROUP_UPLOAD_BUNDLE_RESERVED_BYTES, target_bytes // 8),
-        max(target_bytes // 2, 1),
+    return _upload_bundle_build_group_high_level_packet_impl(
+        source_root=source_root,
+        discovered_run_dirs=discovered_run_dirs,
+        run_rows=run_rows,
+        run_diagnostics=run_diagnostics,
+        target_bundle_size_bytes=target_bundle_size_bytes,
+        payload_bytes_before_packet=payload_bytes_before_packet,
+        artifact_selection=artifact_selection,
+        group_upload_bundle_reserved_bytes=GROUP_UPLOAD_BUNDLE_RESERVED_BYTES,
+        group_upload_bundle_min_wrong_line_samples_per_run=(
+            GROUP_UPLOAD_BUNDLE_MIN_WRONG_LINE_SAMPLES_PER_RUN
+        ),
+        group_upload_bundle_max_wrong_line_samples_per_run=(
+            GROUP_UPLOAD_BUNDLE_MAX_WRONG_LINE_SAMPLES_PER_RUN
+        ),
+        timestamp_now=_timestamp_now,
     )
-    budget_for_samples = max(target_bytes - int(payload_bytes_before_packet) - reserved_bytes, 0)
-    per_run_sample_budget_bytes = (
-        max(budget_for_samples // run_count, 0) if run_count > 0 else 0
-    )
-
-    sampled_wrong_line_rows_total = 0
-    sampled_wrong_line_bytes_total = 0
-    runs_with_sampled_rows = 0
-
-    for run_dir in discovered_run_dirs:
-        run_manifest = _upload_bundle_load_json_object(run_dir / "run_manifest.json")
-        eval_report = _upload_bundle_load_json_object(run_dir / "eval_report.json")
-        run_id = str(run_manifest.get("run_id") or run_dir.name).strip() or run_dir.name
-        try:
-            output_subdir = str(run_dir.relative_to(source_root).as_posix())
-        except ValueError:
-            output_subdir = run_dir.name
-
-        run_row = run_row_by_id.get(run_id) or run_row_by_subdir.get(output_subdir) or {}
-        run_diag = run_diag_by_id.get(run_id) or run_diag_by_subdir.get(output_subdir) or {}
-        source_payload = (
-            run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
-        )
-        source_path = source_payload.get("path") if isinstance(source_payload, dict) else None
-        source_file = source_path if isinstance(source_path, str) else None
-
-        wrong_line_candidates: list[dict[str, Any]] = []
-        wrong_line_rows = _iter_jsonl(run_dir / "wrong_label_lines.jsonl")
-        for row in wrong_line_rows:
-            if not isinstance(row, dict):
-                continue
-            line_index = _coerce_int(row.get("line_index"))
-            if line_index is None:
-                continue
-            text_value = ""
-            for key in ("current_line", "line_text", "text"):
-                candidate_text = row.get(key)
-                if isinstance(candidate_text, str) and candidate_text.strip():
-                    text_value = candidate_text.strip()
-                    break
-            wrong_line_candidates.append(
-                {
-                    "line_index": int(line_index),
-                    "recipe_id": str(row.get("recipe_id") or ""),
-                    "gold_label": str(row.get("gold_label") or ""),
-                    "pred_label": str(row.get("pred_label") or ""),
-                    "line_excerpt": _excerpt(text_value, max_len=160),
-                }
-            )
-
-        wrong_line_samples: list[dict[str, Any]] = []
-        if wrong_line_candidates and per_run_sample_budget_bytes > 0:
-            probe_rows = wrong_line_candidates[: min(12, len(wrong_line_candidates))]
-            average_row_bytes = max(
-                int(sum(_json_size_bytes(item) for item in probe_rows) / max(len(probe_rows), 1)),
-                1,
-            )
-            max_rows_by_budget = max(per_run_sample_budget_bytes // average_row_bytes, 0)
-            max_rows = min(
-                len(wrong_line_candidates),
-                GROUP_UPLOAD_BUNDLE_MAX_WRONG_LINE_SAMPLES_PER_RUN,
-            )
-            if max_rows_by_budget > 0:
-                max_rows = min(max_rows, int(max_rows_by_budget))
-            if max_rows <= 0:
-                max_rows = min(
-                    GROUP_UPLOAD_BUNDLE_MIN_WRONG_LINE_SAMPLES_PER_RUN,
-                    len(wrong_line_candidates),
-                )
-            wrong_line_samples = _sample_rows_evenly(wrong_line_candidates, max_rows)
-            while (
-                len(wrong_line_samples) > 1
-                and _json_size_bytes(wrong_line_samples) > per_run_sample_budget_bytes
-            ):
-                wrong_line_samples = wrong_line_samples[:-1]
-
-        sampled_wrong_line_rows_total += len(wrong_line_samples)
-        sampled_wrong_line_bytes_total += _json_size_bytes(wrong_line_samples)
-        if wrong_line_samples:
-            runs_with_sampled_rows += 1
-
-        run_payloads.append(
-            {
-                "run_id": run_id,
-                "output_subdir": output_subdir,
-                "source_file": _source_file_name(source_file),
-                "llm_recipe_pipeline": str(
-                    run_row.get("llm_recipe_pipeline")
-                    or ((run_manifest.get("run_config") or {}).get("llm_recipe_pipeline"))
-                    or "unknown"
-                ),
-                "line_role_pipeline": str(
-                    run_row.get("line_role_pipeline")
-                    or ((run_manifest.get("run_config") or {}).get("line_role_pipeline"))
-                    or "off"
-                ),
-                "overall_line_accuracy": _coerce_float(
-                    run_row.get("overall_line_accuracy")
-                    if isinstance(run_row, dict)
-                    else eval_report.get("overall_line_accuracy")
-                ),
-                "macro_f1_excluding_other": _coerce_float(
-                    run_row.get("macro_f1_excluding_other")
-                    if isinstance(run_row, dict)
-                    else eval_report.get("macro_f1_excluding_other")
-                ),
-                "practical_f1": _coerce_float(
-                    run_row.get("practical_f1")
-                    if isinstance(run_row, dict)
-                    else eval_report.get("practical_f1")
-                ),
-                "full_prompt_log_status": str(
-                    run_diag.get("full_prompt_log_status")
-                    if isinstance(run_diag, dict)
-                    else run_row.get("full_prompt_log_status")
-                    or "unknown"
-                ),
-                "wrong_line_total": len(wrong_line_rows),
-                "sampled_wrong_line_count": len(wrong_line_samples),
-                "sampled_wrong_lines": wrong_line_samples,
-            }
-        )
-
-    return {
-        "schema_version": "upload_bundle_group_high_level.v1",
-        "generated_at": _timestamp_now(),
-        "source_root": str(source_root),
-        "run_count": run_count,
-        "target_bundle_size_bytes": target_bytes,
-        "target_bundle_size_mb": round(target_bytes / (1024 * 1024), 3),
-        "payload_bytes_before_group_packet": int(payload_bytes_before_packet),
-        "reserved_bytes_for_index_overview": reserved_bytes,
-        "budget_for_group_samples_bytes": budget_for_samples,
-        "per_run_sample_budget_bytes": per_run_sample_budget_bytes,
-        "artifact_selection": artifact_selection,
-        "runs_with_sampled_rows": runs_with_sampled_rows,
-        "sampled_wrong_line_rows_total": sampled_wrong_line_rows_total,
-        "sampled_wrong_line_bytes_total": sampled_wrong_line_bytes_total,
-        "runs": run_payloads,
-    }
 
 
 def _upload_bundle_optional_artifact_status(*, path: Path | None, enabled: bool) -> str:
-    if isinstance(path, Path) and path.is_file():
-        return "written"
-    return "missing" if enabled else "not_applicable"
+    return _upload_bundle_optional_artifact_status_impl(path=path, enabled=enabled)
 
 
 def _upload_bundle_relative_path_within_root(
@@ -2955,18 +2357,18 @@ def _upload_bundle_relative_path_within_root(
     source_root: Path,
     candidate: Path | None,
 ) -> str | None:
-    if not isinstance(candidate, Path):
-        return None
-    try:
-        return str(candidate.resolve().relative_to(source_root).as_posix())
-    except Exception:  # noqa: BLE001
-        return None
+    return _upload_bundle_relative_path_within_root_impl(
+        source_root=source_root,
+        candidate=candidate,
+    )
 
 
 def _upload_bundle_derived_run_artifact_path(*, output_subdir: str, file_name: str) -> str:
-    normalized_subdir = str(output_subdir or "").strip().strip("/")
-    normalized_subdir = normalized_subdir or "unknown_run"
-    return f"{UPLOAD_BUNDLE_DERIVED_DIR_NAME}/runs/{normalized_subdir}/{file_name}"
+    return _upload_bundle_derived_run_artifact_path_impl(
+        output_subdir=output_subdir,
+        file_name=file_name,
+        upload_bundle_derived_dir_name=UPLOAD_BUNDLE_DERIVED_DIR_NAME,
+    )
 
 
 def _upload_bundle_build_knowledge_summary(
@@ -2974,201 +2376,11 @@ def _upload_bundle_build_knowledge_summary(
     source_root: Path,
     discovered_run_dirs: list[Path],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    rows: list[dict[str, Any]] = []
-    locator_rows: list[dict[str, Any]] = []
-    enabled_run_count = 0
-    runs_with_prompt_samples = 0
-    runs_with_knowledge_manifest = 0
-    total_knowledge_call_count = 0
-    shards_written_total = 0
-    outputs_parsed_total = 0
-    snippets_written_total = 0
-
-    for run_dir in discovered_run_dirs:
-        run_manifest = _upload_bundle_load_json_object(run_dir / "run_manifest.json")
-        run_id = str(run_manifest.get("run_id") or run_dir.name).strip() or run_dir.name
-        try:
-            output_subdir = str(run_dir.resolve().relative_to(source_root).as_posix())
-        except Exception:  # noqa: BLE001
-            output_subdir = run_dir.name
-
-        run_config = run_manifest.get("run_config")
-        run_config = run_config if isinstance(run_config, dict) else {}
-        prediction_run_config = run_config.get("prediction_run_config")
-        prediction_run_config = (
-            prediction_run_config if isinstance(prediction_run_config, dict) else {}
-        )
-        llm_knowledge_pipeline = str(
-            prediction_run_config.get("llm_knowledge_pipeline")
-            or run_config.get("llm_knowledge_pipeline")
-            or ""
-        ).strip()
-
-        pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
-        pred_manifest = (
-            _upload_bundle_load_json_object(pred_run_dir / "manifest.json")
-            if pred_run_dir is not None
-            else {}
-        )
-        processed_output_dir = _resolve_processed_output_run_dir(run_dir, run_manifest)
-        knowledge_outputs: dict[str, Any] = {}
-        if processed_output_dir is not None:
-            for candidate in (
-                processed_output_dir / "09_knowledge_outputs.json",
-                processed_output_dir / "09_nonrecipe_finalize_status.json",
-            ):
-                if not candidate.is_file():
-                    continue
-                knowledge_outputs = _upload_bundle_load_json_object(candidate)
-                break
-        llm_payload = (
-            pred_manifest.get("llm_codex_farm") if isinstance(pred_manifest, dict) else {}
-        )
-        llm_payload = llm_payload if isinstance(llm_payload, dict) else {}
-        knowledge_payload = llm_payload.get("knowledge")
-        knowledge_payload = knowledge_payload if isinstance(knowledge_payload, dict) else {}
-        manifest_knowledge_counts = (
-            knowledge_payload.get("counts")
-            if isinstance(knowledge_payload.get("counts"), dict)
-            else {}
-        )
-        outputs_knowledge_counts = (
-            knowledge_outputs.get("counts")
-            if isinstance(knowledge_outputs.get("counts"), dict)
-            else {}
-        )
-        knowledge_counts = (
-            manifest_knowledge_counts if manifest_knowledge_counts else outputs_knowledge_counts
-        )
-
-        prompt_budget_summary = _upload_bundle_load_prompt_budget_summary(
-            run_dir=run_dir,
-            pred_run_dir=pred_run_dir,
-            pred_manifest=pred_manifest,
-        )
-        prompt_budget_by_stage = (
-            prompt_budget_summary.get("by_stage")
-            if isinstance(prompt_budget_summary, dict)
-            else {}
-        )
-        prompt_budget_by_stage = (
-            prompt_budget_by_stage if isinstance(prompt_budget_by_stage, dict) else {}
-        )
-        knowledge_budget = (
-            prompt_budget_by_stage.get("knowledge")
-            if isinstance(prompt_budget_by_stage.get("knowledge"), dict)
-            else {}
-        )
-        knowledge_call_count = _coerce_int(knowledge_budget.get("call_count"))
-        knowledge_token_total = _coerce_int(knowledge_budget.get("tokens_total"))
-
-        prompt_samples_path = _resolve_prompt_type_samples_path(run_dir, run_manifest)
-        knowledge_prompt_path = _resolve_knowledge_prompt_path(run_dir)
-        knowledge_manifest_path = _resolve_knowledge_manifest_path(run_dir, run_manifest)
-        prompt_budget_path = _resolve_prompt_budget_summary_path(
-            run_dir=run_dir,
-            pred_run_dir=pred_run_dir,
-            pred_manifest=pred_manifest,
-        )
-        knowledge_manifest_locator_path = _upload_bundle_relative_path_within_root(
-            source_root=source_root,
-            candidate=knowledge_manifest_path,
-        )
-        knowledge_manifest_source_path: Path | None = None
-        if knowledge_manifest_locator_path is None and isinstance(knowledge_manifest_path, Path):
-            knowledge_manifest_locator_path = _upload_bundle_derived_run_artifact_path(
-                output_subdir=output_subdir,
-                file_name=KNOWLEDGE_MANIFEST_FILE_NAME,
-            )
-            knowledge_manifest_source_path = knowledge_manifest_path
-
-        knowledge_enabled = bool(
-            _coerce_bool(knowledge_payload.get("enabled"))
-            or _coerce_bool(knowledge_outputs.get("enabled"))
-        )
-        enabled = bool(
-            knowledge_enabled
-            or (knowledge_call_count is not None and knowledge_call_count > 0)
-            or isinstance(knowledge_manifest_path, Path)
-            or llm_knowledge_pipeline not in {"", "off", "none"}
-        )
-
-        if enabled:
-            enabled_run_count += 1
-        if isinstance(prompt_samples_path, Path) and prompt_samples_path.is_file():
-            runs_with_prompt_samples += 1
-        if isinstance(knowledge_manifest_path, Path) and knowledge_manifest_path.is_file():
-            runs_with_knowledge_manifest += 1
-        total_knowledge_call_count += int(knowledge_call_count or 0)
-        shards_written_total += int(_coerce_int(knowledge_counts.get("shards_written")) or 0)
-        outputs_parsed_total += int(_coerce_int(knowledge_counts.get("outputs_parsed")) or 0)
-        snippets_written_total += int(_coerce_int(knowledge_counts.get("snippets_written")) or 0)
-
-        rows.append(
-            {
-                "run_id": run_id,
-                "output_subdir": output_subdir,
-                "enabled": enabled,
-                "llm_knowledge_pipeline": llm_knowledge_pipeline or "off",
-                "pipeline": str(knowledge_payload.get("pipeline") or "").strip(),
-                "pipeline_id": str(knowledge_payload.get("pipeline_id") or "").strip(),
-                "knowledge_call_count": int(knowledge_call_count or 0),
-                "knowledge_token_total": int(knowledge_token_total or 0),
-                "shards_written": int(_coerce_int(knowledge_counts.get("shards_written")) or 0),
-                "outputs_parsed": int(_coerce_int(knowledge_counts.get("outputs_parsed")) or 0),
-                "snippets_written": int(_coerce_int(knowledge_counts.get("snippets_written")) or 0),
-                "prompt_samples_status": _upload_bundle_optional_artifact_status(
-                    path=prompt_samples_path,
-                    enabled=enabled,
-                ),
-                "prompt_knowledge_status": _upload_bundle_optional_artifact_status(
-                    path=knowledge_prompt_path,
-                    enabled=enabled,
-                ),
-                "knowledge_manifest_status": _upload_bundle_optional_artifact_status(
-                    path=knowledge_manifest_path,
-                    enabled=enabled,
-                ),
-                "prompt_budget_summary_status": _upload_bundle_optional_artifact_status(
-                    path=prompt_budget_path,
-                    enabled=enabled,
-                ),
-            }
-        )
-        locator_rows.append(
-            {
-                "run_id": run_id,
-                "output_subdir": output_subdir,
-                "prompt_samples_path": _upload_bundle_relative_path_within_root(
-                    source_root=source_root,
-                    candidate=prompt_samples_path,
-                ),
-                "prompt_knowledge_path": _upload_bundle_relative_path_within_root(
-                    source_root=source_root,
-                    candidate=knowledge_prompt_path,
-                ),
-                "prompt_budget_summary_path": _upload_bundle_relative_path_within_root(
-                    source_root=source_root,
-                    candidate=prompt_budget_path,
-                ),
-                "knowledge_manifest_path": knowledge_manifest_locator_path,
-                "knowledge_manifest_source_path": knowledge_manifest_source_path,
-            }
-        )
-
-    summary = {
-        "schema_version": "upload_bundle_knowledge.v1",
-        "run_count": len(rows),
-        "enabled_run_count": enabled_run_count,
-        "runs_with_prompt_samples": runs_with_prompt_samples,
-        "runs_with_knowledge_manifest": runs_with_knowledge_manifest,
-        "total_knowledge_call_count": total_knowledge_call_count,
-        "shards_written_total": shards_written_total,
-        "outputs_parsed_total": outputs_parsed_total,
-        "snippets_written_total": snippets_written_total,
-        "rows": rows,
-    }
-    return summary, locator_rows
+    return _upload_bundle_build_knowledge_summary_impl(
+        source_root=source_root,
+        discovered_run_dirs=discovered_run_dirs,
+        upload_bundle_derived_dir_name=UPLOAD_BUNDLE_DERIVED_DIR_NAME,
+    )
 
 
 def _upload_bundle_existing_output_adapter_helpers() -> ExistingOutputAdapterHelpers:
@@ -3204,785 +2416,83 @@ def _upload_bundle_build_source_model(*, source_root: Path) -> UploadBundleSourc
     )
 
 
-def _upload_bundle_collect_confusion_delta_counts(
-    comparison_pairs: list[dict[str, Any]],
-) -> Counter[tuple[str, str]]:
-    counter: Counter[tuple[str, str]] = Counter()
-    for pair in comparison_pairs:
-        if not isinstance(pair, dict):
-            continue
-        confusion_payload = pair.get("confusion_matrix")
-        if not isinstance(confusion_payload, dict):
-            continue
-        delta_matrix = confusion_payload.get("delta_codex_minus_baseline")
-        if not isinstance(delta_matrix, dict):
-            continue
-        for gold_label, pred_counts in delta_matrix.items():
-            if not isinstance(gold_label, str) or not isinstance(pred_counts, dict):
-                continue
-            for pred_label, count_raw in pred_counts.items():
-                if not isinstance(pred_label, str):
-                    continue
-                count = _coerce_int(count_raw)
-                if count is None or count == 0:
-                    continue
-                counter[(gold_label, pred_label)] += count
-    return counter
+from cookimport.bench.external_ai_cutdown.stage_reports import (
+    _upload_bundle_blocks_from_evidence_rows as _upload_bundle_blocks_from_evidence_rows_impl,
+    _upload_bundle_build_per_label_metrics as _upload_bundle_build_per_label_metrics_impl,
+    _upload_bundle_collect_confusion_delta_counts as _upload_bundle_collect_confusion_delta_counts_impl,
+    _upload_bundle_collect_stage_per_label_metrics as _upload_bundle_collect_stage_per_label_metrics_impl,
+    _upload_bundle_collect_stage_reports_for_run as _upload_bundle_collect_stage_reports_for_run_impl,
+    _upload_bundle_collect_text_matches as _upload_bundle_collect_text_matches_impl,
+    _upload_bundle_extract_text_values as _upload_bundle_extract_text_values_impl,
+    _upload_bundle_load_gold_line_labels_from_eval_report as _upload_bundle_load_gold_line_labels_from_eval_report_impl,
+    _upload_bundle_load_run_per_label_metrics as _upload_bundle_load_run_per_label_metrics_impl,
+    _upload_bundle_normalize_match_text as _upload_bundle_normalize_match_text_impl,
+    _upload_bundle_pick_title_block as _upload_bundle_pick_title_block_impl,
+    _upload_bundle_project_correction_recipe_labels as _upload_bundle_project_correction_recipe_labels_impl,
+    _upload_bundle_project_final_recipe_labels as _upload_bundle_project_final_recipe_labels_impl,
+    _upload_bundle_resolve_gold_spans_path as _upload_bundle_resolve_gold_spans_path_impl,
+    _upload_bundle_resolve_manifest_path as _upload_bundle_resolve_manifest_path_impl,
+)
 
 
-def _upload_bundle_load_run_per_label_metrics(run_dir: Path) -> dict[str, dict[str, Any]]:
-    eval_report_path = run_dir / "eval_report.json"
-    if not eval_report_path.is_file():
-        return {}
-    try:
-        eval_report = _load_json(eval_report_path)
-    except Exception:  # noqa: BLE001
-        return {}
-    per_label = eval_report.get("per_label")
-    if not isinstance(per_label, dict):
-        return {}
-    output: dict[str, dict[str, Any]] = {}
-    for label, row in per_label.items():
-        if not isinstance(label, str) or not isinstance(row, dict):
-            continue
-        output[label] = {
-            "precision": _coerce_float(row.get("precision")),
-            "recall": _coerce_float(row.get("recall")),
-            "f1": _coerce_float(row.get("f1")),
-            "gold_total": _coerce_int(row.get("gold_total")),
-            "pred_total": _coerce_int(row.get("pred_total")),
-        }
-    return output
+def _upload_bundle_collect_confusion_delta_counts(*args, **kwargs):
+    return _upload_bundle_collect_confusion_delta_counts_impl(*args, **kwargs)
 
 
-def _upload_bundle_resolve_manifest_path(
-    *,
-    run_dir: Path,
-    value: Any,
-) -> Path | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    candidate = Path(value.strip())
-    resolved = candidate if candidate.is_absolute() else run_dir / candidate
-    if resolved.exists() and resolved.is_file():
-        return resolved
-    return None
+def _upload_bundle_load_run_per_label_metrics(*args, **kwargs):
+    return _upload_bundle_load_run_per_label_metrics_impl(*args, **kwargs)
 
 
-def _upload_bundle_resolve_gold_spans_path(
-    *,
-    run_dir: Path,
-    run_manifest: dict[str, Any],
-) -> Path | None:
-    artifacts = run_manifest.get("artifacts")
-    if isinstance(artifacts, dict):
-        from_artifacts = _upload_bundle_resolve_manifest_path(
-            run_dir=run_dir,
-            value=artifacts.get("gold_spans_jsonl"),
-        )
-        if from_artifacts is not None:
-            return from_artifacts
-    run_config = run_manifest.get("run_config")
-    if isinstance(run_config, dict):
-        from_run_config = _upload_bundle_resolve_manifest_path(
-            run_dir=run_dir,
-            value=run_config.get("gold_spans"),
-        )
-        if from_run_config is not None:
-            return from_run_config
-    eval_report_path = run_dir / "eval_report.json"
-    if eval_report_path.is_file():
-        eval_report = _upload_bundle_load_json_object(eval_report_path)
-        canonical = eval_report.get("canonical") if isinstance(eval_report, dict) else None
-        if isinstance(canonical, dict):
-            from_eval_report = _upload_bundle_resolve_manifest_path(
-                run_dir=run_dir,
-                value=canonical.get("canonical_span_labels_path"),
-            )
-            if from_eval_report is not None:
-                return from_eval_report
-        from_eval_report = _upload_bundle_resolve_manifest_path(
-            run_dir=run_dir,
-            value=eval_report.get("gold_spans_path") if isinstance(eval_report, dict) else None,
-        )
-        if from_eval_report is not None:
-            return from_eval_report
-    return None
+def _upload_bundle_resolve_manifest_path(*args, **kwargs):
+    return _upload_bundle_resolve_manifest_path_impl(*args, **kwargs)
 
 
-def _upload_bundle_load_gold_line_labels_from_eval_report(
-    run_dir: Path,
-) -> dict[int, set[str]]:
-    eval_report_path = run_dir / "eval_report.json"
-    if not eval_report_path.is_file():
-        return {}
-    eval_report = _upload_bundle_load_json_object(eval_report_path)
-    canonical = eval_report.get("canonical") if isinstance(eval_report, dict) else None
-    if not isinstance(canonical, dict):
-        return {}
-
-    canonical_text_path_raw = canonical.get("canonical_text_path")
-    canonical_spans_path_raw = canonical.get("canonical_span_labels_path")
-    if not isinstance(canonical_text_path_raw, str) or not isinstance(canonical_spans_path_raw, str):
-        return {}
-
-    canonical_text_path = Path(canonical_text_path_raw)
-    canonical_spans_path = Path(canonical_spans_path_raw)
-    if not canonical_text_path.is_file() or not canonical_spans_path.is_file():
-        return {}
-
-    try:
-        canonical_text = canonical_text_path.read_text(encoding="utf-8")
-    except OSError:
-        return {}
-
-    lines = _build_canonical_lines(canonical_text)
-    spans = _load_gold_spans(canonical_spans_path)
-    labels_by_line = _line_gold_labels(lines=lines, spans=spans)
-    output: dict[int, set[str]] = {}
-    for raw_index, labels in labels_by_line.items():
-        index = _coerce_int(raw_index)
-        if index is None:
-            continue
-        if isinstance(labels, (list, tuple, set)):
-            resolved_labels = {
-                str(label).strip()
-                for label in labels
-                if str(label).strip()
-            }
-        else:
-            resolved_labels = {str(labels).strip()} if str(labels).strip() else set()
-        if not resolved_labels:
-            resolved_labels = {"OTHER"}
-        output[int(index)] = resolved_labels
-    return output
+def _upload_bundle_resolve_gold_spans_path(*args, **kwargs):
+    return _upload_bundle_resolve_gold_spans_path_impl(*args, **kwargs)
 
 
-def _upload_bundle_normalize_match_text(value: Any) -> str:
-    return " ".join(str(value or "").strip().lower().split())
+def _upload_bundle_load_gold_line_labels_from_eval_report(*args, **kwargs):
+    return _upload_bundle_load_gold_line_labels_from_eval_report_impl(*args, **kwargs)
 
 
-def _upload_bundle_extract_text_values(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    rows: list[str] = []
-    for item in value:
-        if isinstance(item, str):
-            text = item.strip()
-            if text:
-                rows.append(text)
-            continue
-        if not isinstance(item, dict):
-            continue
-        for key in ("text", "name", "value", "raw", "label"):
-            text = str(item.get(key) or "").strip()
-            if text:
-                rows.append(text)
-                break
-    return rows
+def _upload_bundle_normalize_match_text(*args, **kwargs):
+    return _upload_bundle_normalize_match_text_impl(*args, **kwargs)
 
 
-def _upload_bundle_blocks_from_evidence_rows(value: Any) -> tuple[dict[int, str], list[int]]:
-    if not isinstance(value, list):
-        return {}, []
-    blocks_by_index: dict[int, str] = {}
-    ordered_indices: list[int] = []
-    for row in value:
-        index: int | None = None
-        text = ""
-        if isinstance(row, (list, tuple)) and len(row) >= 2:
-            index = _coerce_int(row[0])
-            text = str(row[1] or "")
-        elif isinstance(row, dict):
-            index = _coerce_int(row.get("index"))
-            text = str(row.get("text") or "")
-        if index is None or index < 0:
-            continue
-        blocks_by_index[int(index)] = text
-        ordered_indices.append(int(index))
-    return blocks_by_index, sorted(set(ordered_indices))
+def _upload_bundle_extract_text_values(*args, **kwargs):
+    return _upload_bundle_extract_text_values_impl(*args, **kwargs)
 
 
-def _upload_bundle_collect_text_matches(
-    *,
-    targets: list[str],
-    blocks_by_index: dict[int, str],
-) -> set[int]:
-    normalized_targets = [
-        _upload_bundle_normalize_match_text(value)
-        for value in targets
-        if _upload_bundle_normalize_match_text(value)
-    ]
-    if not normalized_targets:
-        return set()
-    matched: set[int] = set()
-    for index, block_text in blocks_by_index.items():
-        normalized_block = _upload_bundle_normalize_match_text(block_text)
-        if not normalized_block:
-            continue
-        for target in normalized_targets:
-            if len(target) < 4:
-                continue
-            if target in normalized_block or (
-                len(normalized_block) >= 20 and normalized_block in target
-            ):
-                matched.add(int(index))
-                break
-    return matched
+def _upload_bundle_blocks_from_evidence_rows(*args, **kwargs):
+    return _upload_bundle_blocks_from_evidence_rows_impl(*args, **kwargs)
 
 
-def _upload_bundle_pick_title_block(
-    *,
-    title: str,
-    candidate_indices: list[int],
-    blocks_by_index: dict[int, str],
-) -> int | None:
-    normalized_title = _upload_bundle_normalize_match_text(title)
-    if not normalized_title:
-        return candidate_indices[0] if candidate_indices else None
-    for index in candidate_indices:
-        normalized_block = _upload_bundle_normalize_match_text(blocks_by_index.get(index))
-        if not normalized_block:
-            continue
-        if normalized_title in normalized_block or normalized_block in normalized_title:
-            return int(index)
-    return candidate_indices[0] if candidate_indices else None
+def _upload_bundle_collect_text_matches(*args, **kwargs):
+    return _upload_bundle_collect_text_matches_impl(*args, **kwargs)
 
 
-def _upload_bundle_project_correction_recipe_labels(
-    *,
-    correction_input: dict[str, Any],
-    correction_output: dict[str, Any],
-) -> dict[int, str]:
-    blocks_by_index, ordered_indices = _upload_bundle_blocks_from_evidence_rows(
-        correction_input.get("evidence_rows")
-    )
-    if not blocks_by_index:
-        return {}
-    canonical_recipe = correction_output.get("canonical_recipe")
-    if not isinstance(canonical_recipe, dict):
-        canonical_recipe = {}
-
-    ingredient_indices = _upload_bundle_collect_text_matches(
-        targets=_upload_bundle_extract_text_values(canonical_recipe.get("ingredients")),
-        blocks_by_index=blocks_by_index,
-    )
-    instruction_indices = _upload_bundle_collect_text_matches(
-        targets=_upload_bundle_extract_text_values(canonical_recipe.get("steps")),
-        blocks_by_index=blocks_by_index,
-    )
-    notes_indices = _upload_bundle_collect_text_matches(
-        targets=[
-            str(canonical_recipe.get("description") or ""),
-        ],
-        blocks_by_index=blocks_by_index,
-    )
-
-    labels_by_index: dict[int, str] = {}
-    for index in ingredient_indices:
-        labels_by_index[int(index)] = "INGREDIENT_LINE"
-    for index in instruction_indices:
-        labels_by_index[int(index)] = "INSTRUCTION_LINE"
-    for index in notes_indices:
-        labels_by_index.setdefault(int(index), "RECIPE_NOTES")
-
-    title_index = _upload_bundle_pick_title_block(
-        title=str(canonical_recipe.get("title") or ""),
-        candidate_indices=ordered_indices,
-        blocks_by_index=blocks_by_index,
-    )
-    if title_index is not None:
-        labels_by_index[int(title_index)] = "RECIPE_TITLE"
-
-    yield_values = [
-        str(canonical_recipe.get("recipe_yield") or ""),
-    ]
-    normalized_yields = [
-        _upload_bundle_normalize_match_text(value)
-        for value in yield_values
-        if _upload_bundle_normalize_match_text(value)
-    ]
-    time_values: list[str] = []
-    normalized_times = [
-        _upload_bundle_normalize_match_text(value)
-        for value in time_values
-        if _upload_bundle_normalize_match_text(value)
-    ]
-    for index in ordered_indices:
-        block_text = blocks_by_index.get(index, "")
-        normalized_block = _upload_bundle_normalize_match_text(block_text)
-        if not normalized_block:
-            continue
-        if (
-            _UPLOAD_BUNDLE_YIELD_LINE_RE.search(block_text)
-            and (
-                not normalized_yields
-                or any(value in normalized_block for value in normalized_yields)
-            )
-        ):
-            labels_by_index[index] = "YIELD_LINE"
-            continue
-        if _UPLOAD_BUNDLE_TIME_LINE_RE.search(block_text) or _UPLOAD_BUNDLE_TIME_VALUE_RE.search(
-            block_text
-        ):
-            if not normalized_times or any(value in normalized_block for value in normalized_times):
-                labels_by_index.setdefault(index, "TIME_LINE")
-
-    return labels_by_index
+def _upload_bundle_pick_title_block(*args, **kwargs):
+    return _upload_bundle_pick_title_block_impl(*args, **kwargs)
 
 
-def _upload_bundle_project_final_recipe_labels(
-    *,
-    correction_input: dict[str, Any],
-    correction_output: dict[str, Any] | None,
-    final_output: dict[str, Any] | None,
-) -> dict[int, str]:
-    blocks_by_index, ordered_indices = _upload_bundle_blocks_from_evidence_rows(
-        correction_input.get("evidence_rows")
-    )
-    if not blocks_by_index:
-        return {}
-
-    labels_by_index: dict[int, str] = {}
-    title_value = ""
-    ingredient_targets: list[str] = []
-    instruction_targets: list[str] = []
-
-    if isinstance(final_output, dict):
-        draft_payload = final_output.get("draft_v1")
-        if isinstance(draft_payload, dict):
-            recipe_payload = draft_payload.get("recipe")
-            if isinstance(recipe_payload, dict):
-                title_value = str(recipe_payload.get("title") or "")
-            steps_payload = draft_payload.get("steps")
-            if isinstance(steps_payload, list):
-                for step_row in steps_payload:
-                    if not isinstance(step_row, dict):
-                        continue
-                    instruction_text = str(step_row.get("instruction") or "").strip()
-                    if instruction_text:
-                        instruction_targets.append(instruction_text)
-                    ingredient_lines = step_row.get("ingredient_lines")
-                    ingredient_targets.extend(
-                        _upload_bundle_extract_text_values(ingredient_lines)
-                    )
-
-    if not title_value and isinstance(correction_output, dict):
-        canonical_recipe = correction_output.get("canonical_recipe")
-        if isinstance(canonical_recipe, dict):
-            title_value = str(canonical_recipe.get("title") or "")
-        if not ingredient_targets:
-            ingredient_targets = _upload_bundle_extract_text_values(
-                canonical_recipe.get("ingredients") if isinstance(canonical_recipe, dict) else None
-            )
-        if not instruction_targets:
-            instruction_targets = _upload_bundle_extract_text_values(
-                canonical_recipe.get("steps") if isinstance(canonical_recipe, dict) else None
-            )
-
-    for index in _upload_bundle_collect_text_matches(
-        targets=ingredient_targets,
-        blocks_by_index=blocks_by_index,
-    ):
-        labels_by_index[int(index)] = "INGREDIENT_LINE"
-    for index in _upload_bundle_collect_text_matches(
-        targets=instruction_targets,
-        blocks_by_index=blocks_by_index,
-    ):
-        labels_by_index[int(index)] = "INSTRUCTION_LINE"
-
-    title_index = _upload_bundle_pick_title_block(
-        title=title_value,
-        candidate_indices=ordered_indices,
-        blocks_by_index=blocks_by_index,
-    )
-    if title_index is not None:
-        labels_by_index[int(title_index)] = "RECIPE_TITLE"
-
-    return labels_by_index
+def _upload_bundle_project_correction_recipe_labels(*args, **kwargs):
+    return _upload_bundle_project_correction_recipe_labels_impl(*args, **kwargs)
 
 
-def _upload_bundle_collect_stage_reports_for_run(
-    *,
-    run_dir: Path,
-    gold_cache: dict[Path, dict[int, set[str]]],
-) -> dict[str, dict[str, Any]]:
-    run_manifest_path = run_dir / "run_manifest.json"
-    if not run_manifest_path.is_file():
-        return {}
-    run_manifest = _upload_bundle_load_json_object(run_manifest_path)
-    if not run_manifest:
-        return {}
-    pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
-    if pred_run_dir is None:
-        return {}
-    gold_spans_path = _upload_bundle_resolve_gold_spans_path(
-        run_dir=run_dir,
-        run_manifest=run_manifest,
-    )
-    if gold_spans_path is None:
-        return {}
-    gold_labels = gold_cache.get(gold_spans_path)
-    if gold_labels is None:
-        try:
-            gold_labels = load_gold_block_labels(
-                gold_spans_path,
-                require_exhaustive=False,
-            )
-        except Exception:  # noqa: BLE001
-            gold_labels = _upload_bundle_load_gold_line_labels_from_eval_report(run_dir)
-            if not gold_labels:
-                return {}
-        gold_cache[gold_spans_path] = gold_labels
-    if not gold_labels:
-        return {}
-    gold_indices = sorted(int(index) for index in gold_labels.keys())
-    default_prediction = {index: "OTHER" for index in gold_indices}
-
-    raw_llm_dir = pred_run_dir / "raw" / "llm"
-    llm_run_dirs = sorted(path for path in raw_llm_dir.glob("*") if path.is_dir())
-    if not llm_run_dirs and raw_llm_dir.is_dir():
-        llm_run_dirs = [raw_llm_dir]
-    if not llm_run_dirs:
-        return {}
-
-    correction_inputs: dict[str, dict[str, Any]] = {}
-    correction_outputs: dict[str, dict[str, Any]] = {}
-    final_outputs: dict[str, dict[str, Any]] = {}
-    for llm_run_dir in llm_run_dirs:
-        correction_in_dir = (
-            llm_run_dir / stage_artifact_stem("recipe_refine") / "in"
-        )
-        correction_out_dir = (
-            llm_run_dir / stage_artifact_stem("recipe_refine") / "out"
-        )
-        final_out_dir = llm_run_dir / stage_artifact_stem("recipe_build_final") / "out"
-
-        for path in sorted(correction_in_dir.glob("*.json")):
-            payload = _upload_bundle_load_json_object(path)
-            recipe_id = str(payload.get("recipe_id") or "").strip()
-            if recipe_id:
-                correction_inputs[recipe_id] = payload
-        for path in sorted(correction_out_dir.glob("*.json")):
-            payload = _upload_bundle_load_json_object(path)
-            recipe_id = str(payload.get("recipe_id") or "").strip()
-            if recipe_id:
-                correction_outputs[recipe_id] = payload
-        for path in sorted(final_out_dir.glob("*.json")):
-            payload = _upload_bundle_load_json_object(path)
-            recipe_id = str(payload.get("recipe_id") or "").strip()
-            if recipe_id:
-                final_outputs[recipe_id] = payload
-
-    reports: dict[str, dict[str, Any]] = {}
-
-    correction_prediction = dict(default_prediction)
-    correction_label_hits = 0
-    for recipe_id, correction_output in correction_outputs.items():
-        correction_input = correction_inputs.get(recipe_id)
-        if not isinstance(correction_input, dict):
-            continue
-        projected_labels = _upload_bundle_project_correction_recipe_labels(
-            correction_input=correction_input,
-            correction_output=correction_output,
-        )
-        if not projected_labels:
-            continue
-        for index, label in projected_labels.items():
-            if index not in correction_prediction:
-                continue
-            correction_prediction[index] = str(label)
-            if str(label) != "OTHER":
-                correction_label_hits += 1
-    if correction_label_hits > 0:
-        try:
-            reports["recipe_refine"] = compute_block_metrics(
-                gold_labels,
-                correction_prediction,
-            )
-        except Exception:  # noqa: BLE001
-            reports["recipe_refine"] = {}
-
-    final_prediction = dict(default_prediction)
-    final_label_hits = 0
-    recipe_ids = sorted(
-        set(correction_inputs.keys()) | set(correction_outputs.keys()) | set(final_outputs.keys())
-    )
-    for recipe_id in recipe_ids:
-        correction_input = correction_inputs.get(recipe_id)
-        if not isinstance(correction_input, dict):
-            continue
-        projected_labels = _upload_bundle_project_final_recipe_labels(
-            correction_input=correction_input,
-            correction_output=correction_outputs.get(recipe_id),
-            final_output=final_outputs.get(recipe_id),
-        )
-        if not projected_labels:
-            continue
-        for index, label in projected_labels.items():
-            if index not in final_prediction:
-                continue
-            final_prediction[index] = str(label)
-            if str(label) != "OTHER":
-                final_label_hits += 1
-    if final_label_hits > 0:
-        try:
-            reports["recipe_build_final"] = compute_block_metrics(
-                gold_labels,
-                final_prediction,
-            )
-        except Exception:  # noqa: BLE001
-            reports["recipe_build_final"] = {}
-
-    return reports
+def _upload_bundle_project_final_recipe_labels(*args, **kwargs):
+    return _upload_bundle_project_final_recipe_labels_impl(*args, **kwargs)
 
 
-def _upload_bundle_collect_stage_per_label_metrics(
-    *,
-    comparison_pairs: list[dict[str, Any]],
-    run_dir_by_id: dict[str, Path],
-) -> dict[str, Any]:
-    codex_run_ids: set[str] = set()
-    for pair in comparison_pairs:
-        if not isinstance(pair, dict):
-            continue
-        codex_run = pair.get("codex_run")
-        if not isinstance(codex_run, dict):
-            continue
-        run_id = str(codex_run.get("run_id") or "").strip()
-        if run_id:
-            codex_run_ids.add(run_id)
-
-    gold_cache: dict[Path, dict[int, set[str]]] = {}
-    reports_by_run: dict[str, dict[str, dict[str, Any]]] = {}
-    for run_id in sorted(codex_run_ids):
-        run_dir = run_dir_by_id.get(run_id)
-        if run_dir is None:
-            reports_by_run[run_id] = {}
-            continue
-        reports_by_run[run_id] = _upload_bundle_collect_stage_reports_for_run(
-            run_dir=run_dir,
-            gold_cache=gold_cache,
-        )
-
-    output: dict[str, Any] = {}
-    for stage_key in ("recipe_refine", "recipe_build_final"):
-        labels_agg: dict[str, dict[str, Any]] = {}
-        runs_scored = 0
-        for run_id in sorted(codex_run_ids):
-            report = (reports_by_run.get(run_id) or {}).get(stage_key)
-            if not isinstance(report, dict):
-                continue
-            per_label = report.get("per_label")
-            if not isinstance(per_label, dict):
-                continue
-            runs_scored += 1
-            for label, row in per_label.items():
-                if not isinstance(label, str) or not isinstance(row, dict):
-                    continue
-                agg_row = labels_agg.setdefault(
-                    label,
-                    {
-                        "label": label,
-                        "_precision": [],
-                        "_recall": [],
-                        "_f1": [],
-                        "gold_total_sum": 0,
-                        "pred_total_sum": 0,
-                    },
-                )
-                agg_row["_precision"].append(_coerce_float(row.get("precision")))
-                agg_row["_recall"].append(_coerce_float(row.get("recall")))
-                agg_row["_f1"].append(_coerce_float(row.get("f1")))
-                agg_row["gold_total_sum"] = int(agg_row["gold_total_sum"]) + int(
-                    _coerce_int(row.get("gold_total")) or 0
-                )
-                agg_row["pred_total_sum"] = int(agg_row["pred_total_sum"]) + int(
-                    _coerce_int(row.get("pred_total")) or 0
-                )
-
-        labels_rows: dict[str, dict[str, Any]] = {}
-        for label, row in labels_agg.items():
-            labels_rows[label] = {
-                "label": label,
-                "precision_avg": _average_float(row["_precision"]),
-                "recall_avg": _average_float(row["_recall"]),
-                "f1_avg": _average_float(row["_f1"]),
-                "gold_total_sum": int(row["gold_total_sum"]),
-                "pred_total_sum": int(row["pred_total_sum"]),
-                "runs_scored": int(runs_scored),
-            }
-        output[stage_key] = {
-            "available": runs_scored > 0,
-            "runs_scored": int(runs_scored),
-            "labels": labels_rows,
-            "unavailable_reason": (
-                ""
-                if runs_scored > 0
-                else (
-                    f"{stage_key} stage outputs could not be projected/scored from discovered "
-                    "prediction-run codex artifacts"
-                )
-            ),
-        }
-    return output
+def _upload_bundle_collect_stage_reports_for_run(*args, **kwargs):
+    return _upload_bundle_collect_stage_reports_for_run_impl(*args, **kwargs)
 
 
-def _upload_bundle_build_per_label_metrics(
-    *,
-    comparison_pairs: list[dict[str, Any]],
-    run_dir_by_id: dict[str, Path],
-) -> list[dict[str, Any]]:
-    confusion_counter = _upload_bundle_collect_confusion_delta_counts(comparison_pairs)
-    per_run_cache: dict[str, dict[str, dict[str, Any]]] = {}
+def _upload_bundle_collect_stage_per_label_metrics(*args, **kwargs):
+    return _upload_bundle_collect_stage_per_label_metrics_impl(*args, **kwargs)
 
-    def _metrics_for_run(run_id: str) -> dict[str, dict[str, Any]]:
-        if run_id in per_run_cache:
-            return per_run_cache[run_id]
-        run_dir = run_dir_by_id.get(run_id)
-        if run_dir is None:
-            per_run_cache[run_id] = {}
-            return {}
-        metrics = _upload_bundle_load_run_per_label_metrics(run_dir)
-        per_run_cache[run_id] = metrics
-        return metrics
 
-    aggregated: dict[str, dict[str, Any]] = {}
-    for pair in comparison_pairs:
-        if not isinstance(pair, dict):
-            continue
-        codex_run = pair.get("codex_run")
-        baseline_run = pair.get("baseline_run")
-        codex_run_id = (
-            str(codex_run.get("run_id") or "")
-            if isinstance(codex_run, dict)
-            else ""
-        )
-        baseline_run_id = (
-            str(baseline_run.get("run_id") or "")
-            if isinstance(baseline_run, dict)
-            else ""
-        )
-        codex_metrics = _metrics_for_run(codex_run_id)
-        baseline_metrics = _metrics_for_run(baseline_run_id)
-        labels = sorted(set(codex_metrics.keys()) | set(baseline_metrics.keys()))
-        for label in labels:
-            row = aggregated.setdefault(
-                label,
-                {
-                    "label": label,
-                    "pair_count_with_metrics": 0,
-                    "_codex_precision": [],
-                    "_baseline_precision": [],
-                    "_delta_precision": [],
-                    "_codex_recall": [],
-                    "_baseline_recall": [],
-                    "_delta_recall": [],
-                    "_codex_f1": [],
-                    "_baseline_f1": [],
-                    "_delta_f1": [],
-                    "gold_total_sum": 0,
-                    "pred_total_sum": 0,
-                },
-            )
-            codex_row = codex_metrics.get(label, {})
-            baseline_row = baseline_metrics.get(label, {})
-
-            codex_precision = _coerce_float(codex_row.get("precision"))
-            baseline_precision = _coerce_float(baseline_row.get("precision"))
-            codex_recall = _coerce_float(codex_row.get("recall"))
-            baseline_recall = _coerce_float(baseline_row.get("recall"))
-            codex_f1 = _coerce_float(codex_row.get("f1"))
-            baseline_f1 = _coerce_float(baseline_row.get("f1"))
-            if (
-                codex_precision is not None
-                or baseline_precision is not None
-                or codex_recall is not None
-                or baseline_recall is not None
-                or codex_f1 is not None
-                or baseline_f1 is not None
-            ):
-                row["pair_count_with_metrics"] = int(row["pair_count_with_metrics"]) + 1
-
-            row["_codex_precision"].append(codex_precision)
-            row["_baseline_precision"].append(baseline_precision)
-            row["_delta_precision"].append(_delta(codex_precision, baseline_precision))
-            row["_codex_recall"].append(codex_recall)
-            row["_baseline_recall"].append(baseline_recall)
-            row["_delta_recall"].append(_delta(codex_recall, baseline_recall))
-            row["_codex_f1"].append(codex_f1)
-            row["_baseline_f1"].append(baseline_f1)
-            row["_delta_f1"].append(_delta(codex_f1, baseline_f1))
-            row["gold_total_sum"] = int(row["gold_total_sum"]) + int(
-                _coerce_int(codex_row.get("gold_total"))
-                or _coerce_int(baseline_row.get("gold_total"))
-                or 0
-            )
-            row["pred_total_sum"] = int(row["pred_total_sum"]) + int(
-                _coerce_int(codex_row.get("pred_total"))
-                or _coerce_int(baseline_row.get("pred_total"))
-                or 0
-            )
-
-    output_rows: list[dict[str, Any]] = []
-    labels_all = sorted(set(aggregated.keys()))
-    for label in labels_all:
-        row = aggregated[label]
-        outbound = [
-            {"pred_label": pred_label, "delta_count": count}
-            for (gold_label, pred_label), count in confusion_counter.items()
-            if gold_label == label
-        ]
-        inbound = [
-            {"gold_label": gold_label, "delta_count": count}
-            for (gold_label, pred_label), count in confusion_counter.items()
-            if pred_label == label
-        ]
-        outbound.sort(
-            key=lambda item: (
-                -abs(int(item["delta_count"])),
-                str(item["pred_label"]),
-            )
-        )
-        inbound.sort(
-            key=lambda item: (
-                -abs(int(item["delta_count"])),
-                str(item["gold_label"]),
-            )
-        )
-        output_rows.append(
-            {
-                "label": label,
-                "pair_count_with_metrics": int(row["pair_count_with_metrics"]),
-                "gold_total_sum": int(row["gold_total_sum"]),
-                "pred_total_sum": int(row["pred_total_sum"]),
-                "codex_precision_avg": _average_float(row["_codex_precision"]),
-                "baseline_precision_avg": _average_float(row["_baseline_precision"]),
-                "delta_precision_avg": _average_float(row["_delta_precision"]),
-                "codex_recall_avg": _average_float(row["_codex_recall"]),
-                "baseline_recall_avg": _average_float(row["_baseline_recall"]),
-                "delta_recall_avg": _average_float(row["_delta_recall"]),
-                "codex_f1_avg": _average_float(row["_codex_f1"]),
-                "baseline_f1_avg": _average_float(row["_baseline_f1"]),
-                "delta_f1_avg": _average_float(row["_delta_f1"]),
-                "confusion_delta_outbound_total": sum(
-                    int(item["delta_count"]) for item in outbound
-                ),
-                "confusion_delta_inbound_total": sum(
-                    int(item["delta_count"]) for item in inbound
-                ),
-                "top_confusion_outbound": outbound[:5],
-                "top_confusion_inbound": inbound[:5],
-            }
-        )
-    output_rows.sort(
-        key=lambda row: (
-            -abs(_float_or_zero(row.get("delta_f1_avg"))),
-            -abs(_float_or_zero(row.get("delta_recall_avg"))),
-            str(row.get("label") or ""),
-        )
-    )
-    return output_rows
+def _upload_bundle_build_per_label_metrics(*args, **kwargs):
+    return _upload_bundle_build_per_label_metrics_impl(*args, **kwargs)
 
 
 def _upload_bundle_parse_validation_error(reason: str) -> str | None:
@@ -4249,1853 +2759,150 @@ def _upload_bundle_build_failure_ledger(
     }
 
 
-def _upload_bundle_nested_numeric(
-    payload: Any,
-    paths: tuple[tuple[str, ...], ...],
-    *,
-    integer: bool = False,
-) -> int | float | None:
-    for path in paths:
-        current: Any = payload
-        for key in path:
-            if not isinstance(current, dict):
-                current = None
-                break
-            current = current.get(key)
-        if integer:
-            value = _coerce_int(current)
-            if value is not None:
-                return value
-        else:
-            value = _coerce_float(current)
-            if value is not None:
-                return value
-    return None
-
-
-def _upload_bundle_call_inventory_stage_included(stage_key: str | None) -> bool:
-    normalized = str(stage_key or "").strip()
-    return bool(normalized) and (
-        normalized == "line_role" or normalized in LLM_STAGE_MAP
-    )
-
-
-def _upload_bundle_call_inventory_stage_rank(stage_key: str | None) -> int:
-    normalized = str(stage_key or "").strip()
-    if normalized == "line_role":
-        return -1
-    return int(LLM_STAGE_MAP.get(normalized, {}).get("sort_order") or 99)
-
-
-def _upload_bundle_extract_call_runtime(row: dict[str, Any]) -> dict[str, Any]:
-    request_telemetry = row.get("request_telemetry")
-    request_telemetry = request_telemetry if isinstance(request_telemetry, dict) else {}
-    usage_payload = request_telemetry.get("usage_json")
-    usage_payload = usage_payload if isinstance(usage_payload, dict) else {}
-
-    duration_ms = _upload_bundle_nested_numeric(
-        request_telemetry,
-        (
-            ("duration_ms",),
-            ("duration",),
-        ),
-        integer=True,
-    )
-    tokens_input = _upload_bundle_nested_numeric(
-        request_telemetry,
-        (("tokens_input",),),
-        integer=True,
-    )
-    if tokens_input is None:
-        tokens_input = _upload_bundle_nested_numeric(
-            usage_payload,
-            (("input_tokens",), ("prompt_tokens",), ("tokens_input",)),
-            integer=True,
-        )
-    tokens_cached_input = _upload_bundle_nested_numeric(
-        request_telemetry,
-        (("tokens_cached_input",),),
-        integer=True,
-    )
-    if tokens_cached_input is None:
-        tokens_cached_input = _upload_bundle_nested_numeric(
-            usage_payload,
-            (("cached_input_tokens",),),
-            integer=True,
-        )
-    tokens_output = _upload_bundle_nested_numeric(
-        request_telemetry,
-        (("tokens_output",),),
-        integer=True,
-    )
-    if tokens_output is None:
-        tokens_output = _upload_bundle_nested_numeric(
-            usage_payload,
-            (("output_tokens",), ("completion_tokens",), ("tokens_output",)),
-            integer=True,
-        )
-    tokens_reasoning = _upload_bundle_nested_numeric(
-        request_telemetry,
-        (("tokens_reasoning",),),
-        integer=True,
-    )
-    if tokens_reasoning is None:
-        tokens_reasoning = _upload_bundle_nested_numeric(
-            usage_payload,
-            (
-                ("output_tokens_reasoning",),
-                ("output_tokens_details", "reasoning_tokens"),
-                ("completion_tokens_details", "reasoning_tokens"),
-            ),
-            integer=True,
-        )
-    tokens_total = _upload_bundle_nested_numeric(
-        request_telemetry,
-        (("tokens_total",),),
-        integer=True,
-    )
-    if tokens_total is None:
-        tokens_total = _upload_bundle_nested_numeric(
-            usage_payload,
-            (
-                ("total_tokens",),
-                ("tokens_total",),
-            ),
-            integer=True,
-        )
-    if tokens_total is None and (tokens_input is not None or tokens_output is not None):
-        tokens_total = int(tokens_input or 0) + int(tokens_output or 0)
-
-    cost_usd = _upload_bundle_nested_numeric(
-        usage_payload,
-        (
-            ("cost_usd",),
-            ("total_cost_usd",),
-            ("estimated_cost_usd",),
-            ("estimated_cost",),
-            ("cost", "total_usd"),
-            ("cost", "usd"),
-        ),
-    )
-    if cost_usd is None:
-        cost_usd = _upload_bundle_nested_numeric(
-            request_telemetry,
-            (
-                ("cost_usd",),
-                ("total_cost_usd",),
-                ("estimated_cost_usd",),
-                ("estimated_cost",),
-                ("cost",),
-            ),
-        )
-
-    return {
-        "duration_ms": duration_ms,
-        "tokens_input": tokens_input,
-        "tokens_cached_input": tokens_cached_input,
-        "tokens_output": tokens_output,
-        "tokens_reasoning": tokens_reasoning,
-        "tokens_total": tokens_total,
-        "cost_usd": cost_usd,
-        "attempt_index": _coerce_int(request_telemetry.get("attempt_index")),
-        "status": str(request_telemetry.get("status") or "").strip() or None,
-    }
-
-
-def _upload_bundle_estimate_call_cost_usd(
-    *,
-    tokens_input: int | None,
-    tokens_cached_input: int | None,
-    tokens_output: int | None,
-) -> float | None:
-    if tokens_input is None and tokens_output is None:
-        return None
-    input_tokens = int(tokens_input or 0)
-    cached_tokens = int(tokens_cached_input or 0)
-    if cached_tokens < 0:
-        cached_tokens = 0
-    if cached_tokens > input_tokens:
-        cached_tokens = input_tokens
-    uncached_tokens = max(input_tokens - cached_tokens, 0)
-    output_tokens = int(tokens_output or 0)
-    pricing = UPLOAD_BUNDLE_ESTIMATED_COST_DEFAULT_PRICING
-    total_cost = (
-        (uncached_tokens / 1_000_000.0) * float(pricing["input_per_1m"])
-        + (cached_tokens / 1_000_000.0) * float(pricing["cached_input_per_1m"])
-        + (output_tokens / 1_000_000.0) * float(pricing["output_per_1m"])
-    )
-    return round(total_cost, 8)
-
-
-def _upload_bundle_iter_unique_run_dirs(
-    *,
-    run_dirs: list[Path] | None = None,
-    run_dir_by_id: dict[str, Path] | None = None,
-) -> list[Path]:
-    candidates: list[Path] = []
-    if isinstance(run_dirs, list):
-        candidates.extend([item for item in run_dirs if isinstance(item, Path)])
-    if isinstance(run_dir_by_id, dict):
-        candidates.extend([item for item in run_dir_by_id.values() if isinstance(item, Path)])
-    unique: list[Path] = []
-    seen: set[str] = set()
-    for run_dir in candidates:
-        key = str(run_dir.resolve())
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(run_dir)
-    return unique
-
-
-def _upload_bundle_normalize_runtime_stage_key(stage_key: str | None) -> str:
-    rendered = str(stage_key or "").strip()
-    if rendered == "recipe_correction":
-        return "recipe_refine"
-    if rendered == "knowledge":
-        return "nonrecipe_finalize"
-    return rendered
-
-
-def _upload_bundle_collect_call_runtime_map(
-    *,
-    run_dirs: list[Path] | None = None,
-    run_dir_by_id: dict[str, Path] | None = None,
-) -> dict[tuple[str, str, str, str, str], dict[str, Any]]:
-    runtime_by_key: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
-    for run_dir in _upload_bundle_iter_unique_run_dirs(
-        run_dirs=run_dirs,
-        run_dir_by_id=run_dir_by_id,
-    ):
-        run_manifest_path = run_dir / "run_manifest.json"
-        if not run_manifest_path.is_file():
-            continue
-        run_manifest = _upload_bundle_load_json_object(run_manifest_path)
-        manifest_run_id = str(run_manifest.get("run_id") or run_dir.name).strip() or run_dir.name
-        source_payload = (
-            run_manifest.get("source") if isinstance(run_manifest.get("source"), dict) else {}
-        )
-        source_path = source_payload.get("path") if isinstance(source_payload, dict) else None
-        source_hash = source_payload.get("source_hash") if isinstance(source_payload, dict) else None
-        source_file = _source_file_name(source_path if isinstance(source_path, str) else None)
-        source_key = _source_key(
-            source_hash if isinstance(source_hash, str) else None,
-            source_file,
-        )
-        full_prompt_path = _resolve_full_prompt_log_path(run_dir, run_manifest)
-        if full_prompt_path is None or not full_prompt_path.is_file():
-            continue
-        for prompt_row in _iter_jsonl(full_prompt_path):
-            stage_key = _prompt_row_stage_key(prompt_row)
-            call_id = str(prompt_row.get("call_id") or "").strip()
-            recipe_id = _prompt_row_recipe_id(prompt_row)
-            if (
-                not _upload_bundle_call_inventory_stage_included(stage_key)
-                or not call_id
-            ):
-                continue
-            row_run_id = str(prompt_row.get("run_id") or manifest_run_id).strip() or manifest_run_id
-            key = (
-                source_key,
-                row_run_id,
-                recipe_id,
-                stage_key,
-                call_id,
-            )
-            runtime_payload = _upload_bundle_extract_call_runtime(prompt_row)
-            existing = runtime_by_key.get(key)
-            if existing is None:
-                runtime_by_key[key] = runtime_payload
-                continue
-            existing_attempt = _coerce_int(existing.get("attempt_index")) or -1
-            next_attempt = _coerce_int(runtime_payload.get("attempt_index")) or -1
-            if next_attempt >= existing_attempt:
-                runtime_by_key[key] = runtime_payload
-    return runtime_by_key
-
-
-def _upload_bundle_telemetry_call_count(summary: dict[str, Any]) -> int | None:
-    call_count = _coerce_int(summary.get("call_count"))
-    if call_count is not None:
-        return max(int(call_count), 0)
-    status_counts = summary.get("status_counts")
-    if isinstance(status_counts, dict):
-        raw_values = [_coerce_int(value) for value in status_counts.values()]
-        if any(value is not None for value in raw_values):
-            return int(sum(int(value or 0) for value in raw_values))
-    matched_rows = _coerce_int(summary.get("matched_rows"))
-    if matched_rows is not None:
-        return max(int(matched_rows), 0)
-    return None
-
-
-def _upload_bundle_token_share_fields(
-    *,
-    by_stage: dict[str, dict[str, Any]],
-    total_tokens: int | None,
-) -> dict[str, float | None]:
-    fields: dict[str, float | None] = {}
-    for stage_key in sorted(by_stage, key=_prompt_category_sort_key):
-        share_key = f"{stage_key}_token_share"
-        stage_payload = by_stage.get(stage_key)
-        stage_payload = stage_payload if isinstance(stage_payload, dict) else {}
-        stage_tokens = _coerce_int(stage_payload.get("total_tokens"))
-        if (
-            total_tokens is None
-            or total_tokens <= 0
-            or stage_tokens is None
-            or stage_tokens < 0
-        ):
-            fields[share_key] = None
-            continue
-        fields[share_key] = round(float(stage_tokens) / float(total_tokens), 4)
-    return fields
-
-
-def _upload_bundle_load_prompt_budget_summary(
-    *,
-    run_dir: Path,
-    pred_run_dir: Path | None,
-    pred_manifest: dict[str, Any],
-) -> dict[str, Any] | None:
-    candidate = _resolve_prompt_budget_summary_path(
-        run_dir=run_dir,
-        pred_run_dir=pred_run_dir,
-        pred_manifest=pred_manifest,
-    )
-    if isinstance(candidate, Path):
-        if not candidate.is_file():
-            return None
-        payload = _upload_bundle_load_json_object(candidate)
-        if isinstance(payload.get("by_stage"), dict):
-            return payload
-    return None
-
-
-def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
-    *,
-    run_dirs: list[Path] | None = None,
-    run_dir_by_id: dict[str, Path] | None = None,
-) -> dict[str, Any] | None:
-    aggregate_by_stage: dict[str, dict[str, Any]] = {}
-    used_prompt_budget_summary = False
-    for run_dir in _upload_bundle_iter_unique_run_dirs(
-        run_dirs=run_dirs,
-        run_dir_by_id=run_dir_by_id,
-    ):
-        run_manifest_path = run_dir / "run_manifest.json"
-        if not run_manifest_path.is_file():
-            continue
-        run_manifest = _upload_bundle_load_json_object(run_manifest_path)
-        pred_run_dir = _resolve_prediction_run_dir(run_dir, run_manifest)
-        pred_manifest_path = pred_run_dir / "manifest.json" if pred_run_dir is not None else None
-        pred_manifest = (
-            _upload_bundle_load_json_object(pred_manifest_path)
-            if isinstance(pred_manifest_path, Path) and pred_manifest_path.is_file()
-            else {}
-        )
-        prompt_budget_summary = _upload_bundle_load_prompt_budget_summary(
-            run_dir=run_dir,
-            pred_run_dir=pred_run_dir,
-            pred_manifest=pred_manifest,
-        )
-        if isinstance(prompt_budget_summary, dict):
-            by_stage_payload = prompt_budget_summary.get("by_stage")
-            if isinstance(by_stage_payload, dict) and by_stage_payload:
-                used_prompt_budget_summary = True
-                for pass_name, pass_payload in sorted(by_stage_payload.items()):
-                    if not isinstance(pass_payload, dict):
-                        continue
-                    normalized_stage_key = _upload_bundle_normalize_runtime_stage_key(pass_name)
-                    bucket = aggregate_by_stage.setdefault(
-                        normalized_stage_key,
-                        {
-                            "call_count": 0,
-                            "calls_known": False,
-                            "duration_total_ms": 0,
-                            "duration_known": False,
-                            "tokens_total": 0,
-                            "tokens_known": False,
-                        },
-                    )
-                    call_count = _coerce_int(pass_payload.get("call_count"))
-                    if call_count is not None:
-                        bucket["call_count"] += max(int(call_count), 0)
-                        bucket["calls_known"] = True
-                    duration_total_ms = _coerce_int(pass_payload.get("duration_total_ms"))
-                    if duration_total_ms is not None:
-                        bucket["duration_total_ms"] += max(int(duration_total_ms), 0)
-                        bucket["duration_known"] = True
-                    tokens_total = _coerce_int(pass_payload.get("tokens_total"))
-                    if tokens_total is not None:
-                        bucket["tokens_total"] += max(int(tokens_total), 0)
-                        bucket["tokens_known"] = True
-                continue
-        if pred_run_dir is None or not isinstance(pred_manifest_path, Path) or not pred_manifest_path.is_file():
-            continue
-        llm_payload = (
-            pred_manifest.get("llm_codex_farm") if isinstance(pred_manifest, dict) else {}
-        )
-        llm_payload = llm_payload if isinstance(llm_payload, dict) else {}
-        knowledge_payload = llm_payload.get("knowledge")
-        knowledge_payload = knowledge_payload if isinstance(knowledge_payload, dict) else {}
-        process_runs = llm_payload.get("process_runs")
-        process_runs = process_runs if isinstance(process_runs, dict) else {}
-        process_payload_by_stage = {
-            "recipe_correction": (
-                process_runs.get("recipe_correction")
-                or process_runs.get("recipe_refine")
-            ),
-            "nonrecipe_finalize": (
-                process_runs.get("nonrecipe_finalize")
-                or (
-                    knowledge_payload.get("process_run")
-                    if isinstance(knowledge_payload.get("process_run"), dict)
-                    else None
-                )
-            ),
-        }
-        for stage_key, pass_payload in process_payload_by_stage.items():
-            pass_payload = pass_payload if isinstance(pass_payload, dict) else {}
-            telemetry_report = pass_payload.get("telemetry_report")
-            telemetry_report = telemetry_report if isinstance(telemetry_report, dict) else {}
-            summary = telemetry_report.get("summary")
-            if not isinstance(summary, dict):
-                continue
-            normalized_stage_key = _upload_bundle_normalize_runtime_stage_key(stage_key)
-            bucket = aggregate_by_stage.setdefault(
-                normalized_stage_key,
-                {
-                    "call_count": 0,
-                    "calls_known": False,
-                    "duration_total_ms": 0,
-                    "duration_known": False,
-                    "tokens_total": 0,
-                    "tokens_known": False,
-                },
-            )
-            call_count = _upload_bundle_telemetry_call_count(summary)
-            if call_count is not None:
-                bucket["call_count"] += max(int(call_count), 0)
-                bucket["calls_known"] = True
-            duration_total_ms = _coerce_int(summary.get("duration_total_ms"))
-            if duration_total_ms is None:
-                duration_avg_ms = _coerce_float(summary.get("duration_avg_ms"))
-                if (
-                    duration_avg_ms is not None
-                    and call_count is not None
-                    and int(call_count) > 0
-                ):
-                    duration_total_ms = int(round(float(duration_avg_ms) * int(call_count)))
-            if duration_total_ms is not None:
-                bucket["duration_total_ms"] += max(int(duration_total_ms), 0)
-                bucket["duration_known"] = True
-            tokens_total = _coerce_int(summary.get("tokens_total"))
-            if tokens_total is not None:
-                bucket["tokens_total"] += max(int(tokens_total), 0)
-                bucket["tokens_known"] = True
-
-    if not aggregate_by_stage:
-        return None
-
-    by_stage: dict[str, dict[str, Any]] = {}
-    for pass_name in sorted(aggregate_by_stage.keys()):
-        bucket = aggregate_by_stage.get(pass_name)
-        if not isinstance(bucket, dict):
-            continue
-        call_count = int(bucket.get("call_count") or 0)
-        calls_known = bool(bucket.get("calls_known"))
-        duration_known = bool(bucket.get("duration_known"))
-        tokens_known = bool(bucket.get("tokens_known"))
-        duration_total_ms = (
-            int(bucket.get("duration_total_ms") or 0) if duration_known else None
-        )
-        by_stage[pass_name] = {
-            "call_count": call_count if calls_known else 0,
-            "calls_with_runtime": call_count if calls_known and duration_known else 0,
-            "calls_with_cost": 0,
-            "calls_with_estimated_cost": 0,
-            "avg_duration_ms": (
-                round(float(duration_total_ms) / float(call_count), 3)
-                if duration_total_ms is not None and calls_known and call_count > 0
-                else None
-            ),
-            "total_tokens": int(bucket.get("tokens_total") or 0) if tokens_known else None,
-            "total_cost_usd": None,
-            "total_estimated_cost_usd": None,
-            "cost_coverage_ratio": 0.0,
-            "estimated_cost_coverage_ratio": 0.0,
-        }
-
-    total_calls = int(sum(int(payload.get("call_count") or 0) for payload in by_stage.values()))
-    total_calls_with_runtime = int(
-        sum(int(payload.get("calls_with_runtime") or 0) for payload in by_stage.values())
-    )
-    duration_totals = [
-        int(bucket.get("duration_total_ms") or 0)
-        for bucket in aggregate_by_stage.values()
-        if bool(bucket.get("duration_known"))
-    ]
-    total_duration_ms = int(sum(duration_totals)) if duration_totals else None
-    token_totals = [
-        _coerce_int(payload.get("total_tokens"))
-        for payload in by_stage.values()
-        if _coerce_int(payload.get("total_tokens")) is not None
-    ]
-    total_tokens = int(sum(token_totals)) if token_totals else None
-    summary = {
-        "call_count": total_calls,
-        "calls_with_runtime": total_calls_with_runtime,
-        "calls_with_cost": 0,
-        "calls_with_estimated_cost": 0,
-        "total_duration_ms": total_duration_ms,
-        "avg_duration_ms": (
-            round(float(total_duration_ms) / float(total_calls_with_runtime), 3)
-            if total_duration_ms is not None and total_calls_with_runtime > 0
-            else None
-        ),
-        "total_tokens": total_tokens,
-        "total_cost_usd": None,
-        "total_estimated_cost_usd": None,
-        "cost_coverage_ratio": 0.0,
-        "estimated_cost_coverage_ratio": 0.0,
-        "cost_signal": {
-            "available": False,
-            "calls_with_cost": 0,
-            "coverage_ratio": 0.0,
-            "unavailable_reason": (
-                "prediction-run telemetry summaries do not expose per-call observed cost fields"
-            ),
-        },
-        "estimated_cost_signal": {
-            "available": False,
-            "calls_with_estimated_cost": 0,
-            "coverage_ratio": 0.0,
-            "method": "",
-            "pricing_used": dict(UPLOAD_BUNDLE_ESTIMATED_COST_DEFAULT_PRICING),
-                "note": (
-                "No per-call token telemetry available; aggregate stage totals cannot be "
-                "reliably cost-estimated per call."
-            ),
-        },
-        "by_stage": by_stage,
-        "runtime_source": (
-            "prediction_run_prompt_budget_summary"
-            if used_prompt_budget_summary
-            else "prediction_run_manifest_telemetry"
-        ),
-    }
-    summary.update(
-        _upload_bundle_token_share_fields(by_stage=by_stage, total_tokens=total_tokens)
-    )
-    return {
-        "summary": summary,
-        "by_source": [],
-        "top_slowest_calls": [],
-        "top_token_calls": [],
-        "top_cost_calls": [],
-        "top_estimated_cost_calls": [],
-    }
-
-
-def _upload_bundle_runtime_inventory_needs_fallback(
-    *,
-    row_summary: dict[str, Any],
-    fallback_summary: dict[str, Any],
-) -> bool:
-    row_calls_with_runtime = int(_coerce_int(row_summary.get("calls_with_runtime")) or 0)
-    fallback_calls_with_runtime = int(
-        _coerce_int(fallback_summary.get("calls_with_runtime")) or 0
-    )
-    if fallback_calls_with_runtime > row_calls_with_runtime:
-        return True
-    row_total_tokens = _coerce_int(row_summary.get("total_tokens"))
-    fallback_total_tokens = _coerce_int(fallback_summary.get("total_tokens"))
-    if row_total_tokens is None and fallback_total_tokens is not None:
-        return True
-    row_stage_count = len(row_summary.get("by_stage") or {})
-    fallback_stage_count = len(fallback_summary.get("by_stage") or {})
-    if fallback_stage_count > row_stage_count:
-        return True
-    row_call_count = int(_coerce_int(row_summary.get("call_count")) or 0)
-    fallback_call_count = int(_coerce_int(fallback_summary.get("call_count")) or 0)
-    if fallback_call_count > row_call_count and (
-        fallback_total_tokens is not None or fallback_calls_with_runtime > 0
-    ):
-        return True
-    row_by_stage = row_summary.get("by_stage")
-    row_by_stage = row_by_stage if isinstance(row_by_stage, dict) else {}
-    fallback_by_stage = fallback_summary.get("by_stage")
-    fallback_by_stage = (
-        fallback_by_stage if isinstance(fallback_by_stage, dict) else {}
-    )
-    for stage_key, fallback_stage in fallback_by_stage.items():
-        if not isinstance(fallback_stage, dict):
-            continue
-        row_stage = row_by_stage.get(stage_key)
-        row_stage = row_stage if isinstance(row_stage, dict) else {}
-        row_stage_call_count = int(_coerce_int(row_stage.get("call_count")) or 0)
-        fallback_stage_call_count = int(
-            _coerce_int(fallback_stage.get("call_count")) or 0
-        )
-        row_stage_runtime = int(
-            _coerce_int(row_stage.get("calls_with_runtime")) or 0
-        )
-        fallback_stage_runtime = int(
-            _coerce_int(fallback_stage.get("calls_with_runtime")) or 0
-        )
-        row_stage_tokens = _coerce_int(row_stage.get("total_tokens"))
-        fallback_stage_tokens = _coerce_int(fallback_stage.get("total_tokens"))
-        if fallback_stage_runtime > row_stage_runtime:
-            return True
-        if row_stage_tokens is None and fallback_stage_tokens is not None:
-            return True
-        if (
-            fallback_stage_tokens is not None
-            and row_stage_tokens is not None
-            and fallback_stage_tokens > row_stage_tokens
-            and fallback_stage_call_count >= row_stage_call_count
-        ):
-            return True
-    return False
-
-
-def _upload_bundle_stage_total_duration_ms(stage_payload: dict[str, Any]) -> int | None:
-    calls_with_runtime = int(_coerce_int(stage_payload.get("calls_with_runtime")) or 0)
-    avg_duration_ms = _coerce_float(stage_payload.get("avg_duration_ms"))
-    if calls_with_runtime <= 0 or avg_duration_ms is None:
-        return None
-    return int(round(avg_duration_ms * float(calls_with_runtime)))
-
-
-def _upload_bundle_merge_runtime_stage_summary(
-    *,
-    row_stage: dict[str, Any],
-    fallback_stage: dict[str, Any],
-) -> dict[str, Any]:
-    merged: dict[str, Any] = {}
-    row_call_count = int(_coerce_int(row_stage.get("call_count")) or 0)
-    fallback_call_count = int(_coerce_int(fallback_stage.get("call_count")) or 0)
-    row_calls_with_runtime = int(
-        _coerce_int(row_stage.get("calls_with_runtime")) or 0
-    )
-    fallback_calls_with_runtime = int(
-        _coerce_int(fallback_stage.get("calls_with_runtime")) or 0
-    )
-    row_total_tokens = _coerce_int(row_stage.get("total_tokens"))
-    fallback_total_tokens = _coerce_int(fallback_stage.get("total_tokens"))
-    row_total_duration_ms = _upload_bundle_stage_total_duration_ms(row_stage)
-    fallback_total_duration_ms = _upload_bundle_stage_total_duration_ms(fallback_stage)
-
-    merged["call_count"] = max(row_call_count, fallback_call_count)
-    merged["calls_with_runtime"] = max(
-        row_calls_with_runtime,
-        fallback_calls_with_runtime,
-    )
-    merged["calls_with_cost"] = int(_coerce_int(row_stage.get("calls_with_cost")) or 0)
-    merged["calls_with_estimated_cost"] = int(
-        _coerce_int(row_stage.get("calls_with_estimated_cost")) or 0
-    )
-    if fallback_total_tokens is not None and (
-        row_total_tokens is None or fallback_total_tokens > row_total_tokens
-    ):
-        merged["total_tokens"] = fallback_total_tokens
-    else:
-        merged["total_tokens"] = row_total_tokens
-
-    merged_total_duration_ms: int | None
-    if fallback_total_duration_ms is not None and (
-        row_total_duration_ms is None or fallback_total_duration_ms > row_total_duration_ms
-    ):
-        merged_total_duration_ms = fallback_total_duration_ms
-    else:
-        merged_total_duration_ms = row_total_duration_ms
-    merged["avg_duration_ms"] = (
-        round(float(merged_total_duration_ms) / float(merged["calls_with_runtime"]), 3)
-        if merged_total_duration_ms is not None and merged["calls_with_runtime"] > 0
-        else None
-    )
-
-    row_total_cost = _coerce_float(row_stage.get("total_cost_usd"))
-    fallback_total_cost = _coerce_float(fallback_stage.get("total_cost_usd"))
-    merged["total_cost_usd"] = (
-        row_total_cost if row_total_cost is not None else fallback_total_cost
-    )
-    row_total_estimated_cost = _coerce_float(row_stage.get("total_estimated_cost_usd"))
-    fallback_total_estimated_cost = _coerce_float(
-        fallback_stage.get("total_estimated_cost_usd")
-    )
-    merged["total_estimated_cost_usd"] = (
-        row_total_estimated_cost
-        if row_total_estimated_cost is not None
-        else fallback_total_estimated_cost
-    )
-    merged["cost_coverage_ratio"] = (
-        round(merged["calls_with_cost"] / merged["call_count"], 6)
-        if merged["call_count"] > 0
-        else 0.0
-    )
-    merged["estimated_cost_coverage_ratio"] = (
-        round(merged["calls_with_estimated_cost"] / merged["call_count"], 6)
-        if merged["call_count"] > 0
-        else 0.0
-    )
-    return merged
-
-
-def _upload_bundle_merge_runtime_inventory_with_fallback(
-    *,
-    row_inventory: dict[str, Any],
-    fallback_inventory: dict[str, Any],
-) -> dict[str, Any]:
-    merged = dict(fallback_inventory)
-    row_summary = row_inventory.get("summary")
-    row_summary = row_summary if isinstance(row_summary, dict) else {}
-    fallback_summary = fallback_inventory.get("summary")
-    fallback_summary = fallback_summary if isinstance(fallback_summary, dict) else {}
-    row_by_stage = row_summary.get("by_stage")
-    row_by_stage = row_by_stage if isinstance(row_by_stage, dict) else {}
-    fallback_by_stage = fallback_summary.get("by_stage")
-    fallback_by_stage = fallback_by_stage if isinstance(fallback_by_stage, dict) else {}
-    merged_by_stage: dict[str, dict[str, Any]] = {}
-    stage_keys = (
-        sorted(fallback_by_stage, key=_prompt_category_sort_key)
-        if fallback_by_stage
-        else sorted(row_by_stage, key=_prompt_category_sort_key)
-    )
-    for stage_key in stage_keys:
-        row_stage = row_by_stage.get(stage_key)
-        row_stage = row_stage if isinstance(row_stage, dict) else {}
-        fallback_stage = fallback_by_stage.get(stage_key)
-        fallback_stage = fallback_stage if isinstance(fallback_stage, dict) else {}
-        merged_by_stage[stage_key] = _upload_bundle_merge_runtime_stage_summary(
-            row_stage=row_stage,
-            fallback_stage=fallback_stage,
-        )
-    merged_summary = dict(fallback_summary)
-    merged_summary["by_stage"] = merged_by_stage
-    merged_summary["call_count"] = int(
-        sum(int(payload.get("call_count") or 0) for payload in merged_by_stage.values())
-    )
-    merged_summary["calls_with_runtime"] = int(
-        sum(
-            int(payload.get("calls_with_runtime") or 0)
-            for payload in merged_by_stage.values()
-        )
-    )
-    merged_summary["calls_with_cost"] = int(
-        sum(int(payload.get("calls_with_cost") or 0) for payload in merged_by_stage.values())
-    )
-    merged_summary["calls_with_estimated_cost"] = int(
-        sum(
-            int(payload.get("calls_with_estimated_cost") or 0)
-            for payload in merged_by_stage.values()
-        )
-    )
-    duration_totals = [
-        stage_total
-        for payload in merged_by_stage.values()
-        for stage_total in [_upload_bundle_stage_total_duration_ms(payload)]
-        if stage_total is not None
-    ]
-    merged_summary["total_duration_ms"] = (
-        int(sum(duration_totals)) if duration_totals else None
-    )
-    merged_summary["avg_duration_ms"] = (
-        round(
-            float(merged_summary["total_duration_ms"])
-            / float(merged_summary["calls_with_runtime"]),
-            3,
-        )
-        if merged_summary["total_duration_ms"] is not None
-        and merged_summary["calls_with_runtime"] > 0
-        else None
-    )
-    token_totals = [
-        _coerce_int(payload.get("total_tokens"))
-        for payload in merged_by_stage.values()
-        if _coerce_int(payload.get("total_tokens")) is not None
-    ]
-    merged_summary["total_tokens"] = int(sum(token_totals)) if token_totals else None
-    cost_totals = [
-        _coerce_float(payload.get("total_cost_usd"))
-        for payload in merged_by_stage.values()
-        if _coerce_float(payload.get("total_cost_usd")) is not None
-    ]
-    merged_summary["total_cost_usd"] = (
-        round(float(sum(cost_totals)), 8) if cost_totals else None
-    )
-    estimated_cost_totals = [
-        _coerce_float(payload.get("total_estimated_cost_usd"))
-        for payload in merged_by_stage.values()
-        if _coerce_float(payload.get("total_estimated_cost_usd")) is not None
-    ]
-    merged_summary["total_estimated_cost_usd"] = (
-        round(float(sum(estimated_cost_totals)), 8)
-        if estimated_cost_totals
-        else None
-    )
-    merged_summary["cost_coverage_ratio"] = (
-        round(merged_summary["calls_with_cost"] / merged_summary["call_count"], 6)
-        if merged_summary["call_count"] > 0
-        else 0.0
-    )
-    merged_summary["estimated_cost_coverage_ratio"] = (
-        round(
-            merged_summary["calls_with_estimated_cost"] / merged_summary["call_count"],
-            6,
-        )
-        if merged_summary["call_count"] > 0
-        else 0.0
-    )
-    merged_summary["cost_signal"] = (
-        dict(row_summary.get("cost_signal"))
-        if isinstance(row_summary.get("cost_signal"), dict)
-        else dict(fallback_summary.get("cost_signal") or {})
-    )
-    merged_summary["estimated_cost_signal"] = (
-        dict(row_summary.get("estimated_cost_signal"))
-        if isinstance(row_summary.get("estimated_cost_signal"), dict)
-        else dict(fallback_summary.get("estimated_cost_signal") or {})
-    )
-    merged_summary["cost_signal"]["available"] = merged_summary["calls_with_cost"] > 0
-    merged_summary["cost_signal"]["calls_with_cost"] = merged_summary["calls_with_cost"]
-    merged_summary["cost_signal"]["coverage_ratio"] = merged_summary["cost_coverage_ratio"]
-    if merged_summary["calls_with_cost"] > 0:
-        merged_summary["cost_signal"]["unavailable_reason"] = ""
-    merged_summary["estimated_cost_signal"]["available"] = (
-        merged_summary["calls_with_estimated_cost"] > 0
-    )
-    merged_summary["estimated_cost_signal"]["calls_with_estimated_cost"] = (
-        merged_summary["calls_with_estimated_cost"]
-    )
-    merged_summary["estimated_cost_signal"]["coverage_ratio"] = (
-        merged_summary["estimated_cost_coverage_ratio"]
-    )
-    fallback_runtime_source = str(fallback_summary.get("runtime_source") or "").strip()
-    merged_summary["runtime_source"] = (
-        f"call_inventory_rows_plus_{fallback_runtime_source}"
-        if fallback_runtime_source
-        else "call_inventory_rows_plus_fallback"
-    )
-    merged_summary.update(
-        _upload_bundle_token_share_fields(
-            by_stage=merged_by_stage,
-            total_tokens=_coerce_int(merged_summary.get("total_tokens")),
-        )
-    )
-    merged["summary"] = merged_summary
-    for key in (
-        "top_slowest_calls",
-        "top_token_calls",
-        "top_cost_calls",
-        "top_estimated_cost_calls",
-    ):
-        merged[key] = list(row_inventory.get(key) or [])
-    row_by_source = row_inventory.get("by_source")
-    if isinstance(row_by_source, list) and row_by_source:
-        merged["by_source"] = row_by_source
-    return merged
-
-
-def _upload_bundle_build_call_runtime_inventory(
-    *,
-    call_inventory_rows: list[dict[str, Any]],
-    run_dir_by_id: dict[str, Path],
-    run_dirs: list[Path] | None = None,
-) -> dict[str, Any]:
-    runtime_by_key = _upload_bundle_collect_call_runtime_map(
-        run_dirs=run_dirs,
-        run_dir_by_id=run_dir_by_id,
-    )
-    telemetry_fallback = _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(
-        run_dirs=run_dirs,
-        run_dir_by_id=run_dir_by_id,
-    )
-    enriched_rows: list[dict[str, Any]] = []
-    for row in call_inventory_rows:
-        source_key = str(row.get("source_key") or "").strip()
-        run_id = str(row.get("run_id") or "").strip()
-        recipe_id = str(row.get("recipe_id") or "").strip()
-        stage_key = _prompt_row_stage_key(row)
-        call_id = str(row.get("call_id") or "").strip()
-        runtime = runtime_by_key.get((source_key, run_id, recipe_id, stage_key, call_id))
-        if not isinstance(runtime, dict):
-            runtime = runtime_by_key.get(("", run_id, recipe_id, stage_key, call_id))
-        if not isinstance(runtime, dict):
-            runtime = {}
-            for runtime_key, runtime_payload in runtime_by_key.items():
-                if (
-                    not isinstance(runtime_key, tuple)
-                    or len(runtime_key) != 5
-                    or not isinstance(runtime_payload, dict)
-                ):
-                    continue
-                (
-                    _runtime_source_key,
-                    runtime_run_id,
-                    runtime_recipe_id,
-                    runtime_stage_key,
-                    runtime_call_id,
-                ) = runtime_key
-                if (
-                    str(runtime_run_id) == run_id
-                    and str(runtime_recipe_id) == recipe_id
-                    and str(runtime_stage_key) == stage_key
-                    and str(runtime_call_id) == call_id
-                ):
-                    runtime = runtime_payload
-                    break
-
-        observed_cost_usd = _coerce_float(runtime.get("cost_usd"))
-        estimated_cost_usd = (
-            observed_cost_usd
-            if observed_cost_usd is not None
-            else _upload_bundle_estimate_call_cost_usd(
-                tokens_input=_coerce_int(runtime.get("tokens_input")),
-                tokens_cached_input=_coerce_int(runtime.get("tokens_cached_input")),
-                tokens_output=_coerce_int(runtime.get("tokens_output")),
-            )
-        )
-        enriched_rows.append(
-            {
-                **row,
-                "duration_ms": _coerce_int(runtime.get("duration_ms")),
-                "tokens_input": _coerce_int(runtime.get("tokens_input")),
-                "tokens_cached_input": _coerce_int(runtime.get("tokens_cached_input")),
-                "tokens_output": _coerce_int(runtime.get("tokens_output")),
-                "tokens_reasoning": _coerce_int(runtime.get("tokens_reasoning")),
-                "tokens_total": _coerce_int(runtime.get("tokens_total")),
-                "cost_usd": observed_cost_usd,
-                "estimated_cost_usd": estimated_cost_usd,
-                "cost_source": (
-                    "observed_telemetry"
-                    if observed_cost_usd is not None
-                    else (
-                        "estimated_from_tokens_default_pricing"
-                        if estimated_cost_usd is not None
-                        else None
-                    )
-                ),
-                "retry_attempt": _coerce_int(runtime.get("attempt_index")),
-                "runtime_status": runtime.get("status"),
-            }
-        )
-
-    if not enriched_rows and telemetry_fallback is not None:
-        return telemetry_fallback
-
-    duration_values = [
-        _coerce_int(row.get("duration_ms"))
-        for row in enriched_rows
-        if _coerce_int(row.get("duration_ms")) is not None
-    ]
-    token_totals = [
-        _coerce_int(row.get("tokens_total"))
-        for row in enriched_rows
-        if _coerce_int(row.get("tokens_total")) is not None
-    ]
-    cost_values = [
-        _coerce_float(row.get("cost_usd"))
-        for row in enriched_rows
-        if _coerce_float(row.get("cost_usd")) is not None
-    ]
-    estimated_cost_values = [
-        _coerce_float(row.get("estimated_cost_usd"))
-        for row in enriched_rows
-        if _coerce_float(row.get("estimated_cost_usd")) is not None
-    ]
-    calls_with_cost = len(cost_values)
-    cost_coverage_ratio = (
-        round(calls_with_cost / len(enriched_rows), 6) if enriched_rows else 0.0
-    )
-    calls_with_estimated_cost = len(estimated_cost_values)
-    estimated_cost_coverage_ratio = (
-        round(calls_with_estimated_cost / len(enriched_rows), 6)
-        if enriched_rows
-        else 0.0
-    )
-    by_stage: dict[str, dict[str, Any]] = {}
-    stage_keys = sorted(
-        {
-            _prompt_row_stage_key(row)
-            for row in enriched_rows
-            if _prompt_row_stage_key(row)
-        },
-        key=_prompt_category_sort_key,
-    )
-    for stage_key in stage_keys:
-        stage_rows = [
-            row
-            for row in enriched_rows
-            if _prompt_row_stage_key(row) == stage_key
-        ]
-        stage_duration = [
-            _coerce_int(row.get("duration_ms"))
-            for row in stage_rows
-            if _coerce_int(row.get("duration_ms")) is not None
-        ]
-        stage_tokens = [
-            _coerce_int(row.get("tokens_total"))
-            for row in stage_rows
-            if _coerce_int(row.get("tokens_total")) is not None
-        ]
-        stage_cost = [
-            _coerce_float(row.get("cost_usd"))
-            for row in stage_rows
-            if _coerce_float(row.get("cost_usd")) is not None
-        ]
-        stage_estimated_cost = [
-            _coerce_float(row.get("estimated_cost_usd"))
-            for row in stage_rows
-            if _coerce_float(row.get("estimated_cost_usd")) is not None
-        ]
-        stage_calls_with_cost = len(stage_cost)
-        stage_calls_with_estimated_cost = len(stage_estimated_cost)
-        by_stage[stage_key] = {
-            "call_count": len(stage_rows),
-            "calls_with_runtime": len(stage_duration),
-            "calls_with_cost": stage_calls_with_cost,
-            "calls_with_estimated_cost": stage_calls_with_estimated_cost,
-            "avg_duration_ms": (
-                round(sum(stage_duration) / len(stage_duration), 3)
-                if stage_duration
-                else None
-            ),
-            "total_tokens": int(sum(stage_tokens)) if stage_tokens else None,
-            "total_cost_usd": (
-                round(float(sum(stage_cost)), 8) if stage_cost else None
-            ),
-            "total_estimated_cost_usd": (
-                round(float(sum(stage_estimated_cost)), 8)
-                if stage_estimated_cost
-                else None
-            ),
-            "cost_coverage_ratio": (
-                round(stage_calls_with_cost / len(stage_rows), 6) if stage_rows else 0.0
-            ),
-            "estimated_cost_coverage_ratio": (
-                round(stage_calls_with_estimated_cost / len(stage_rows), 6)
-                if stage_rows
-                else 0.0
-            ),
-        }
-
-    top_slowest = sorted(
-        [row for row in enriched_rows if _coerce_int(row.get("duration_ms")) is not None],
-        key=lambda row: (
-            -int(_coerce_int(row.get("duration_ms")) or 0),
-            str(row.get("run_id") or ""),
-            str(row.get("call_id") or ""),
-        ),
-    )[:12]
-    top_token = sorted(
-        [row for row in enriched_rows if _coerce_int(row.get("tokens_total")) is not None],
-        key=lambda row: (
-            -int(_coerce_int(row.get("tokens_total")) or 0),
-            str(row.get("run_id") or ""),
-            str(row.get("call_id") or ""),
-        ),
-    )[:12]
-    top_cost = sorted(
-        [row for row in enriched_rows if _coerce_float(row.get("cost_usd")) is not None],
-        key=lambda row: (
-            -float(_coerce_float(row.get("cost_usd")) or 0.0),
-            str(row.get("run_id") or ""),
-            str(row.get("call_id") or ""),
-        ),
-    )[:12]
-    top_estimated_cost = sorted(
-        [
-            row
-            for row in enriched_rows
-            if _coerce_float(row.get("estimated_cost_usd")) is not None
-        ],
-        key=lambda row: (
-            -float(_coerce_float(row.get("estimated_cost_usd")) or 0.0),
-            str(row.get("run_id") or ""),
-            str(row.get("call_id") or ""),
-        ),
-    )[:12]
-
-    total_tokens = int(sum(token_totals)) if token_totals else None
-    summary = {
-        "call_count": len(enriched_rows),
-        "calls_with_runtime": len(duration_values),
-        "calls_with_cost": calls_with_cost,
-        "calls_with_estimated_cost": calls_with_estimated_cost,
-        "total_duration_ms": int(sum(duration_values)) if duration_values else None,
-        "avg_duration_ms": (
-            round(sum(duration_values) / len(duration_values), 3)
-            if duration_values
-            else None
-        ),
-        "total_tokens": total_tokens,
-        "total_cost_usd": (
-            round(float(sum(cost_values)), 8) if cost_values else None
-        ),
-        "total_estimated_cost_usd": (
-            round(float(sum(estimated_cost_values)), 8)
-            if estimated_cost_values
-            else None
-        ),
-        "cost_coverage_ratio": cost_coverage_ratio,
-        "estimated_cost_coverage_ratio": estimated_cost_coverage_ratio,
-        "cost_signal": {
-            "available": calls_with_cost > 0,
-            "calls_with_cost": calls_with_cost,
-            "coverage_ratio": cost_coverage_ratio,
-            "unavailable_reason": (
-                ""
-                if calls_with_cost > 0
-                else (
-                    "request telemetry does not include recognized cost fields "
-                    "(cost_usd/total_cost_usd/estimated_cost_usd)"
-                )
-            ),
-        },
-        "estimated_cost_signal": {
-            "available": calls_with_estimated_cost > 0,
-            "calls_with_estimated_cost": calls_with_estimated_cost,
-            "coverage_ratio": estimated_cost_coverage_ratio,
-            "method": (
-                "observed_or_default_token_pricing_estimate"
-                if calls_with_estimated_cost > 0
-                else ""
-            ),
-            "pricing_used": dict(UPLOAD_BUNDLE_ESTIMATED_COST_DEFAULT_PRICING),
-            "note": (
-                "Estimated costs use default token pricing and are not billing truth."
-                if calls_with_estimated_cost > 0
-                else "No token-based estimate available because token telemetry is missing."
-            ),
-        },
-        "by_stage": by_stage,
-        "runtime_source": "call_inventory_rows",
-    }
-    summary.update(
-        _upload_bundle_token_share_fields(by_stage=by_stage, total_tokens=total_tokens)
-    )
-
-    by_source_buckets: dict[str, dict[str, Any]] = {}
-    for row in enriched_rows:
-        source_key = str(row.get("source_key") or "").strip()
-        source_file = str(row.get("source_file") or "").strip()
-        if not source_key:
-            source_key = source_file.lower() if source_file else "unknown_source"
-        bucket = by_source_buckets.setdefault(
-            source_key,
-            {
-                "source_key": source_key,
-                "source_file": source_file or None,
-                "call_count": 0,
-                "calls_with_runtime": 0,
-                "calls_with_cost": 0,
-                "calls_with_estimated_cost": 0,
-                "duration_total_ms": 0,
-                "duration_known": False,
-                "tokens_total": 0,
-                "tokens_known": False,
-                "cost_total_usd": 0.0,
-                "cost_known": False,
-                "estimated_cost_total_usd": 0.0,
-                "estimated_cost_known": False,
-                "by_stage": defaultdict(
-                    lambda: {
-                        "call_count": 0,
-                        "calls_with_runtime": 0,
-                        "calls_with_cost": 0,
-                        "calls_with_estimated_cost": 0,
-                        "duration_total_ms": 0,
-                        "duration_known": False,
-                        "tokens_total": 0,
-                        "tokens_known": False,
-                        "cost_total_usd": 0.0,
-                        "cost_known": False,
-                        "estimated_cost_total_usd": 0.0,
-                        "estimated_cost_known": False,
-                    }
-                ),
-            },
-        )
-        bucket["call_count"] += 1
-        stage_key = _prompt_row_stage_key(row) or "unknown"
-        stage_bucket = bucket["by_stage"][stage_key]
-        stage_bucket["call_count"] += 1
-
-        duration_ms = _coerce_int(row.get("duration_ms"))
-        if duration_ms is not None:
-            bucket["calls_with_runtime"] += 1
-            bucket["duration_total_ms"] += int(duration_ms)
-            bucket["duration_known"] = True
-            stage_bucket["calls_with_runtime"] += 1
-            stage_bucket["duration_total_ms"] += int(duration_ms)
-            stage_bucket["duration_known"] = True
-
-        tokens_total_row = _coerce_int(row.get("tokens_total"))
-        if tokens_total_row is not None:
-            bucket["tokens_total"] += int(tokens_total_row)
-            bucket["tokens_known"] = True
-            stage_bucket["tokens_total"] += int(tokens_total_row)
-            stage_bucket["tokens_known"] = True
-
-        cost_usd = _coerce_float(row.get("cost_usd"))
-        if cost_usd is not None:
-            bucket["calls_with_cost"] += 1
-            bucket["cost_total_usd"] += float(cost_usd)
-            bucket["cost_known"] = True
-            stage_bucket["calls_with_cost"] += 1
-            stage_bucket["cost_total_usd"] += float(cost_usd)
-            stage_bucket["cost_known"] = True
-
-        estimated_cost_usd_row = _coerce_float(row.get("estimated_cost_usd"))
-        if estimated_cost_usd_row is not None:
-            bucket["calls_with_estimated_cost"] += 1
-            bucket["estimated_cost_total_usd"] += float(estimated_cost_usd_row)
-            bucket["estimated_cost_known"] = True
-            stage_bucket["calls_with_estimated_cost"] += 1
-            stage_bucket["estimated_cost_total_usd"] += float(estimated_cost_usd_row)
-            stage_bucket["estimated_cost_known"] = True
-
-    by_source_rows: list[dict[str, Any]] = []
-    for source_key, bucket in by_source_buckets.items():
-        call_count = int(bucket.get("call_count") or 0)
-        calls_with_runtime = int(bucket.get("calls_with_runtime") or 0)
-        calls_with_cost = int(bucket.get("calls_with_cost") or 0)
-        calls_with_estimated_cost = int(bucket.get("calls_with_estimated_cost") or 0)
-        stage_rows: dict[str, Any] = {}
-        by_stage_payload = bucket.get("by_stage")
-        if isinstance(by_stage_payload, dict):
-            for stage_key in sorted(by_stage_payload.keys(), key=_prompt_category_sort_key):
-                stage_bucket = by_stage_payload.get(stage_key)
-                if not isinstance(stage_bucket, dict):
-                    continue
-                stage_call_count = int(stage_bucket.get("call_count") or 0)
-                stage_calls_with_runtime = int(stage_bucket.get("calls_with_runtime") or 0)
-                stage_rows[stage_key] = {
-                    "call_count": stage_call_count,
-                    "calls_with_runtime": stage_calls_with_runtime,
-                    "calls_with_cost": int(stage_bucket.get("calls_with_cost") or 0),
-                    "calls_with_estimated_cost": int(
-                        stage_bucket.get("calls_with_estimated_cost") or 0
-                    ),
-                    "total_duration_ms": (
-                        int(stage_bucket.get("duration_total_ms") or 0)
-                        if bool(stage_bucket.get("duration_known"))
-                        else None
-                    ),
-                    "avg_duration_ms": (
-                        round(
-                            float(int(stage_bucket.get("duration_total_ms") or 0))
-                            / float(stage_calls_with_runtime),
-                            3,
-                        )
-                        if bool(stage_bucket.get("duration_known"))
-                        and stage_calls_with_runtime > 0
-                        else None
-                    ),
-                    "total_tokens": (
-                        int(stage_bucket.get("tokens_total") or 0)
-                        if bool(stage_bucket.get("tokens_known"))
-                        else None
-                    ),
-                    "total_cost_usd": (
-                        round(float(stage_bucket.get("cost_total_usd") or 0.0), 8)
-                        if bool(stage_bucket.get("cost_known"))
-                        else None
-                    ),
-                    "total_estimated_cost_usd": (
-                        round(float(stage_bucket.get("estimated_cost_total_usd") or 0.0), 8)
-                        if bool(stage_bucket.get("estimated_cost_known"))
-                        else None
-                    ),
-                }
-        by_source_rows.append(
-            {
-                "source_key": source_key,
-                "source_file": bucket.get("source_file"),
-                "call_count": call_count,
-                "calls_with_runtime": calls_with_runtime,
-                "calls_with_cost": calls_with_cost,
-                "calls_with_estimated_cost": calls_with_estimated_cost,
-                "total_duration_ms": (
-                    int(bucket.get("duration_total_ms") or 0)
-                    if bool(bucket.get("duration_known"))
-                    else None
-                ),
-                "avg_duration_ms": (
-                    round(
-                        float(int(bucket.get("duration_total_ms") or 0))
-                        / float(calls_with_runtime),
-                        3,
-                    )
-                    if bool(bucket.get("duration_known")) and calls_with_runtime > 0
-                    else None
-                ),
-                "total_tokens": (
-                    int(bucket.get("tokens_total") or 0)
-                    if bool(bucket.get("tokens_known"))
-                    else None
-                ),
-                "total_cost_usd": (
-                    round(float(bucket.get("cost_total_usd") or 0.0), 8)
-                    if bool(bucket.get("cost_known"))
-                    else None
-                ),
-                "total_estimated_cost_usd": (
-                    round(float(bucket.get("estimated_cost_total_usd") or 0.0), 8)
-                    if bool(bucket.get("estimated_cost_known"))
-                    else None
-                ),
-                "cost_coverage_ratio": (
-                    round(calls_with_cost / call_count, 6) if call_count > 0 else 0.0
-                ),
-                "estimated_cost_coverage_ratio": (
-                    round(calls_with_estimated_cost / call_count, 6)
-                    if call_count > 0
-                    else 0.0
-                ),
-                "by_stage": stage_rows,
-            }
-        )
-    by_source_rows.sort(
-        key=lambda row: (
-            -_float_or_zero(row.get("total_estimated_cost_usd")),
-            -_float_or_zero(row.get("total_cost_usd")),
-            -int(_coerce_int(row.get("call_count")) or 0),
-            str(row.get("source_key") or ""),
-        )
-    )
-
-    row_inventory = {
-        "summary": summary,
-        "by_source": by_source_rows,
-        "top_slowest_calls": top_slowest,
-        "top_token_calls": top_token,
-        "top_cost_calls": top_cost,
-        "top_estimated_cost_calls": top_estimated_cost,
-    }
-    if telemetry_fallback is None:
-        return row_inventory
-    fallback_summary = (
-        telemetry_fallback.get("summary")
-        if isinstance(telemetry_fallback.get("summary"), dict)
-        else {}
-    )
-    if _upload_bundle_runtime_inventory_needs_fallback(
-        row_summary=summary,
-        fallback_summary=fallback_summary,
-    ):
-        return _upload_bundle_merge_runtime_inventory_with_fallback(
-            row_inventory=row_inventory,
-            fallback_inventory=telemetry_fallback,
-        )
-    return row_inventory
-
-
-def _upload_bundle_quantile(values: list[float], q: float) -> float | None:
-    if not values:
-        return None
-    if q <= 0:
-        return float(values[0])
-    if q >= 1:
-        return float(values[-1])
-    position = (len(values) - 1) * q
-    lower = int(position)
-    upper = min(lower + 1, len(values) - 1)
-    weight = position - lower
-    return float(values[lower] * (1.0 - weight) + values[upper] * weight)
-
-
-def _upload_bundle_build_line_role_escalation_summary(
-    *,
-    source_root: Path,
-    run_dir_by_id: dict[str, Path],
-    run_dirs: list[Path] | None = None,
-) -> dict[str, Any]:
-    file_paths: list[Path] = []
-    for run_dir in _upload_bundle_iter_unique_run_dirs(
-        run_dirs=run_dirs,
-        run_dir_by_id=run_dir_by_id,
-    ):
-        candidate = run_dir / "line-role-pipeline" / "line_role_predictions.jsonl"
-        if candidate.is_file():
-            file_paths.append(candidate)
-    if not file_paths:
-        return {
-            "available": False,
-            "line_role_prediction_files": [],
-            "reason": "line-role-pipeline/line_role_predictions.jsonl not found in discovered run roots",
-        }
-
-    decided_by_counts: Counter[str] = Counter()
-    label_counts: Counter[str] = Counter()
-    explicit_escalation_examples: list[dict[str, Any]] = []
-    explicit_escalation_by_label: Counter[str] = Counter()
-    explicit_escalation_by_decided_by: Counter[str] = Counter()
-    explicit_escalation_reason_counts: Counter[str] = Counter()
-    total_rows = 0
-
-    for path in sorted(file_paths):
-        for row in _iter_jsonl(path):
-            total_rows += 1
-            label = str(row.get("label") or "").strip().upper() or "OTHER"
-            decided_by = str(row.get("decided_by") or "").strip().lower() or "unknown"
-            escalation_reasons = _coerce_str_list(row.get("escalation_reasons"))
-            label_counts[label] += 1
-            decided_by_counts[decided_by] += 1
-            for reason in escalation_reasons:
-                explicit_escalation_reason_counts[reason] += 1
-            if escalation_reasons:
-                explicit_escalation_by_label[label] += 1
-                explicit_escalation_by_decided_by[decided_by] += 1
-                explicit_escalation_examples.append(
-                    {
-                        "run_id": str(row.get("run_id") or ""),
-                        "recipe_id": str(row.get("recipe_id") or ""),
-                        "line_index": _coerce_int(row.get("line_index")),
-                        "atomic_index": _coerce_int(row.get("atomic_index")),
-                        "label": label,
-                        "decided_by": decided_by,
-                        "escalation_reasons": escalation_reasons,
-                        "text_excerpt": _excerpt(
-                            str(row.get("text") or ""),
-                            max_len=220,
-                        ),
-                    }
-                )
-
-    explicit_escalation_examples.sort(
-        key=lambda row: (
-            str(row.get("recipe_id") or ""),
-            int(_coerce_int(row.get("line_index")) or 0),
-        )
-    )
-    relative_paths = [
-        str(path.relative_to(source_root).as_posix())
-        for path in sorted(file_paths)
-        if path.is_relative_to(source_root)
-    ]
-    return {
-        "available": True,
-        "line_role_prediction_files": relative_paths,
-        "row_count": total_rows,
-        "decided_by_counts": _counter_to_sorted_dict(decided_by_counts),
-        "label_counts": _counter_to_sorted_dict(label_counts),
-        "selective_escalation_signal": {
-            "explicit_escalation_row_count": int(sum(explicit_escalation_by_label.values())),
-            "explicit_escalation_ratio": (
-                round(sum(explicit_escalation_by_label.values()) / total_rows, 6)
-                if total_rows > 0
-                else 0.0
-            ),
-            "explicit_escalation_by_label": _counter_to_sorted_dict(
-                explicit_escalation_by_label
-            ),
-            "explicit_escalation_by_decided_by": _counter_to_sorted_dict(
-                explicit_escalation_by_decided_by
-            ),
-            "explicit_escalation_reasons": _counter_to_sorted_dict(
-                explicit_escalation_reason_counts
-            ),
-        },
-        "explicit_escalation_examples": explicit_escalation_examples[:24],
-    }
-
-
-def _upload_bundle_safe_run_subdir(value: str) -> str:
-    rendered = re.sub(r"[^0-9A-Za-z._-]+", "_", str(value or "").strip())
-    return rendered or "run"
-
-
-def _upload_bundle_derive_run_diagnostic_statuses(
-    *,
-    run_dir: Path,
-    run_id: str,
-    output_subdir: str,
-    append_virtual_payload_row: Any,
-) -> dict[str, str]:
-    statuses: dict[str, str] = {}
-    if not run_dir.is_dir():
-        return statuses
-
-    run_manifest_path = run_dir / "run_manifest.json"
-    if not run_manifest_path.is_file():
-        return statuses
-
-    try:
-        run_manifest = _load_json(run_manifest_path)
-    except Exception:  # noqa: BLE001
-        return statuses
-
-    run_config = run_manifest.get("run_config")
-    run_config = run_config if isinstance(run_config, dict) else {}
-    llm_recipe_pipeline = str(run_config.get("llm_recipe_pipeline") or "").strip().lower()
-    codex_enabled = llm_recipe_pipeline not in {"", "off", "none"}
-
-    full_prompt_rows: list[dict[str, Any]] = []
-    recipe_spans: list[dict[str, Any]] = []
-    full_prompt_log_path = _resolve_full_prompt_log_path(run_dir, run_manifest)
-    if full_prompt_log_path is not None and full_prompt_log_path.is_file():
-        full_prompt_rows = _iter_jsonl(full_prompt_log_path)
-        if full_prompt_rows:
-            recipe_spans = _build_recipe_spans_from_full_prompt_rows(full_prompt_rows)
-
-    derived_dir = (
-        f"{UPLOAD_BUNDLE_DERIVED_DIR_NAME}/runs/"
-        f"{_upload_bundle_safe_run_subdir(output_subdir or run_id)}"
-    )
-    wrong_context_name = WRONG_LABEL_FULL_CONTEXT_FILE_NAME.replace(".gz", "")
-    preprocess_name = PREPROCESS_TRACE_FAILURES_FILE_NAME.replace(".gz", "")
-
-    if codex_enabled:
-        if full_prompt_log_path is not None and full_prompt_log_path.is_file():
-            try:
-                prompt_warning_aggregate = _summarize_prompt_warning_aggregate(full_prompt_log_path)
-                append_virtual_payload_row(
-                    path=f"{derived_dir}/{PROMPT_WARNING_AGGREGATE_FILE_NAME}",
-                    content_type="json",
-                    content_json=prompt_warning_aggregate,
-                )
-                statuses[PROMPT_WARNING_AGGREGATE_FILE_NAME] = "written"
-            except Exception:  # noqa: BLE001
-                statuses[PROMPT_WARNING_AGGREGATE_FILE_NAME] = "derivation_error"
-
-            try:
-                line_view = _build_line_prediction_view(run_dir=run_dir, recipe_spans=recipe_spans)
-                projection_trace = _build_projection_trace(
-                    line_view=line_view,
-                    full_prompt_rows=full_prompt_rows,
-                )
-                projection_trace["recipe_span_count"] = len(recipe_spans)
-                projection_trace["recipe_spans"] = recipe_spans
-                append_virtual_payload_row(
-                    path=f"{derived_dir}/{PROJECTION_TRACE_FILE_NAME}",
-                    content_type="json",
-                    content_json=projection_trace,
-                )
-                statuses[PROJECTION_TRACE_FILE_NAME] = "written"
-            except Exception:  # noqa: BLE001
-                statuses[PROJECTION_TRACE_FILE_NAME] = "derivation_error"
-        else:
-            statuses[PROMPT_WARNING_AGGREGATE_FILE_NAME] = "missing_full_prompt_log"
-            statuses[PROJECTION_TRACE_FILE_NAME] = "missing_full_prompt_log"
-
-    wrong_label_total_rows = _jsonl_row_count(run_dir / "wrong_label_lines.jsonl")
-    if wrong_label_total_rows <= 0:
-        statuses[WRONG_LABEL_FULL_CONTEXT_FILE_NAME] = "not_applicable"
-        statuses[PREPROCESS_TRACE_FAILURES_FILE_NAME] = "not_applicable"
-        return statuses
-
-    try:
-        wrong_label_rows = _build_wrong_label_full_context_rows(
-            run_dir=run_dir,
-            recipe_spans=recipe_spans,
-            excerpt_limit=DEFAULT_EXCERPT_LIMIT,
-        )
-    except Exception:  # noqa: BLE001
-        wrong_label_rows = []
-
-    if wrong_label_rows:
-        append_virtual_payload_row(
-            path=f"{derived_dir}/{wrong_context_name}",
-            content_type="jsonl",
-            content_jsonl_rows=wrong_label_rows,
-        )
-        statuses[WRONG_LABEL_FULL_CONTEXT_FILE_NAME] = "written"
-    else:
-        statuses[WRONG_LABEL_FULL_CONTEXT_FILE_NAME] = "not_applicable"
-
-    if not codex_enabled:
-        statuses[PREPROCESS_TRACE_FAILURES_FILE_NAME] = "not_applicable"
-        return statuses
-
-    try:
-        preprocess_rows, preprocess_status = _build_preprocess_trace_failure_rows(
-            run_dir=run_dir,
-            run_manifest=run_manifest,
-            full_prompt_rows=full_prompt_rows,
-            excerpt_limit=DEFAULT_EXCERPT_LIMIT,
-        )
-    except Exception:  # noqa: BLE001
-        preprocess_rows = []
-        preprocess_status = "derivation_error"
-
-    if preprocess_status == "ready" and preprocess_rows:
-        append_virtual_payload_row(
-            path=f"{derived_dir}/{preprocess_name}",
-            content_type="jsonl",
-            content_jsonl_rows=preprocess_rows,
-        )
-        statuses[PREPROCESS_TRACE_FAILURES_FILE_NAME] = "written"
-    else:
-        statuses[PREPROCESS_TRACE_FAILURES_FILE_NAME] = (
-            preprocess_status if preprocess_status != "ready" else "not_applicable"
-        )
-    return statuses
-
-
-def _upload_bundle_matches_recipe_target(recipe_id: str, target: str) -> bool:
-    recipe_text = recipe_id.strip().lower()
-    target_text = target.strip().lower()
-    if not recipe_text or not target_text:
-        return False
-    if recipe_text == target_text:
-        return True
-    if recipe_text.endswith(f":{target_text}"):
-        return True
-    return recipe_text.endswith(target_text)
-
-
-def _upload_bundle_regression_casebook_signal_key(row: dict[str, Any]) -> tuple[int, int, int, int, str]:
-    return (
-        -int(_coerce_int(row.get("outside_span_wrong_line_count")) or 0),
-        -int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0),
-        -int(_coerce_int(row.get("recipe_error_count")) or 0),
-        -int(_coerce_int(row.get("recipe_warning_count")) or 0),
-        str(row.get("recipe_id") or ""),
-    )
-
-
-def _upload_bundle_build_regression_casebook(
-    *,
-    recipe_triage_rows: list[dict[str, Any]],
-    changed_line_rows: list[dict[str, Any]],
-) -> dict[str, Any]:
-    requested_targets = ["c6", "c9", "c12", "c3"]
-    selected_rows: list[dict[str, Any]] = []
-    selected_keys: set[tuple[str, str, str]] = set()
-
-    sorted_worst = sorted(
-        recipe_triage_rows,
-        key=lambda row: (
-            _float_or_zero(row.get("delta_codex_minus_baseline")),
-            -int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0),
-            str(row.get("recipe_id") or ""),
-        ),
-    )
-    negative_delta_rows = [
-        row
-        for row in sorted_worst
-        if (_coerce_float(row.get("delta_codex_minus_baseline")) or 0.0) < 0.0
-    ]
-    signal_rows = sorted(recipe_triage_rows, key=_upload_bundle_regression_casebook_signal_key)
-
-    for target in requested_targets:
-        for row in sorted_worst:
-            recipe_id = str(row.get("recipe_id") or "")
-            if not _upload_bundle_matches_recipe_target(recipe_id, target):
-                continue
-            key = _recipe_row_key(row)
-            if key in selected_keys:
-                continue
-            row_copy = dict(row)
-            row_copy["selection_reason"] = f"targeted_regression_id:{target}"
-            selected_rows.append(row_copy)
-            selected_keys.add(key)
-            break
-
-    fill_source = negative_delta_rows
-    fill_reason = "top_negative_delta_fill"
-    suggested_target_source = "top_negative_delta_recipes"
-    if not fill_source:
-        fill_source = signal_rows
-        fill_reason = "top_signal_fill"
-        suggested_target_source = "top_signal_recipes"
-
-    for row in fill_source:
-        key = _recipe_row_key(row)
-        if key in selected_keys:
-            continue
-        row_copy = dict(row)
-        row_copy["selection_reason"] = fill_reason
-        selected_rows.append(row_copy)
-        selected_keys.add(key)
-        if len(selected_rows) >= 10:
-            break
-    if len(selected_rows) < 10 and fill_reason != "top_signal_fill":
-        for row in signal_rows:
-            key = _recipe_row_key(row)
-            if key in selected_keys:
-                continue
-            row_copy = dict(row)
-            row_copy["selection_reason"] = "top_signal_fill"
-            selected_rows.append(row_copy)
-            selected_keys.add(key)
-            if len(selected_rows) >= 10:
-                break
-    selected_rows = selected_rows[:10]
-
-    packets = _build_selected_recipe_packets(
-        selected_recipe_rows=selected_rows,
-        changed_line_rows=changed_line_rows,
-        default_recipe_stages=_upload_bundle_recipe_stages_for_row(
-            recipe_pipeline_id="codex-recipe-shard-v1",
-            correction_call_id=None,
-        ),
-    )
-    found_targets = [
-        str(row.get("recipe_id") or "")
-        for row in selected_rows
-        if any(
-            _upload_bundle_matches_recipe_target(str(row.get("recipe_id") or ""), target)
-            for target in requested_targets
-        )
-    ]
-    missing_targets = [
-        target
-        for target in requested_targets
-        if not any(
-            _upload_bundle_matches_recipe_target(recipe_id, target)
-            for recipe_id in found_targets
-        )
-    ]
-    suggested_targets: list[str] = []
-    suggested_rows = fill_source if fill_reason == "top_signal_fill" else negative_delta_rows
-    if not suggested_rows:
-        suggested_rows = signal_rows
-        suggested_target_source = "top_signal_recipes"
-    for row in suggested_rows:
-        recipe_id = str(row.get("recipe_id") or "").strip()
-        if not recipe_id or recipe_id in suggested_targets:
-            continue
-        suggested_targets.append(recipe_id)
-        if len(suggested_targets) >= 4:
-            break
-    return {
-        "requested_targets": requested_targets,
-        "found_targets": found_targets,
-        "missing_targets": missing_targets,
-        "target_request_status": (
-            "all_found"
-            if requested_targets and not missing_targets
-            else ("partial" if found_targets else "none_found")
-        ),
-        "suggested_targets": suggested_targets,
-        "suggested_target_source": suggested_target_source,
-        "packet_count": len(packets),
-        "packets": packets,
-    }
-
-
-def _upload_bundle_changed_line_bucket(row: dict[str, Any]) -> str:
-    gold_label = str(row.get("gold_label") or "")
-    baseline_label = str(row.get("vanilla_pred") or row.get("baseline_pred") or "")
-    codex_label = str(row.get("codex_pred") or "")
-    baseline_correct = bool(gold_label) and baseline_label == gold_label
-    codex_correct = bool(gold_label) and codex_label == gold_label
-    if baseline_correct and not codex_correct:
-        return "new_error"
-    if not baseline_correct and codex_correct:
-        return "fixed_error"
-    if not baseline_correct and not codex_correct:
-        return "both_wrong_shift"
-    return "other_changed"
-
-
-def _upload_bundle_build_changed_line_stratified_sample(
-    changed_line_rows: list[dict[str, Any]],
-    *,
-    per_bucket_limit: int = 40,
-) -> dict[str, Any]:
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    confusion_counts: Counter[str] = Counter()
-    for row in changed_line_rows:
-        bucket = _upload_bundle_changed_line_bucket(row)
-        grouped[bucket].append(row)
-        gold_label = str(row.get("gold_label") or "")
-        codex_label = str(row.get("codex_pred") or "")
-        confusion_counts[f"{gold_label}->{codex_label}"] += 1
-
-    samples: dict[str, list[dict[str, Any]]] = {}
-    counts_by_bucket: dict[str, int] = {}
-    for bucket_name in sorted(grouped):
-        rows = sorted(
-            grouped[bucket_name],
-            key=lambda row: (
-                str(row.get("recipe_id") or ""),
-                int(_coerce_int(row.get("line_index")) or 0),
-                str(row.get("gold_label") or ""),
-            ),
-        )
-        counts_by_bucket[bucket_name] = len(rows)
-        sampled_rows: list[dict[str, Any]] = []
-        for row in rows[: max(per_bucket_limit, 0)]:
-            sampled_rows.append(
-                {
-                    "source_key": str(row.get("source_key") or ""),
-                    "codex_run_id": str(row.get("codex_run_id") or ""),
-                    "baseline_run_id": str(row.get("baseline_run_id") or ""),
-                    "recipe_id": str(row.get("recipe_id") or ""),
-                    "line_index": int(_coerce_int(row.get("line_index")) or 0),
-                    "span_region": str(row.get("span_region") or ""),
-                    "gold_label": str(row.get("gold_label") or ""),
-                    "baseline_pred": str(
-                        row.get("vanilla_pred") or row.get("baseline_pred") or ""
-                    ),
-                    "codex_pred": str(row.get("codex_pred") or ""),
-                    "current_line": str(row.get("current_line") or ""),
-                    "previous_line": str(row.get("previous_line") or ""),
-                    "next_line": str(row.get("next_line") or ""),
-                }
-            )
-        samples[bucket_name] = sampled_rows
-    return {
-        "total_rows": len(changed_line_rows),
-        "counts_by_bucket": counts_by_bucket,
-        "top_error_buckets": [
-            {"bucket": bucket, "count": count}
-            for bucket, count in confusion_counts.most_common(20)
-        ],
-        "samples_by_bucket": samples,
-    }
-
-
-def _upload_bundle_sort_recipe_triage_rows(
-    recipe_triage_rows: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    def _sort_key(row: dict[str, Any]) -> tuple[Any, ...]:
-        changed_lines = int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0)
-        outside_span_wrong_line_count = int(
-            _coerce_int(row.get("outside_span_wrong_line_count")) or 0
-        )
-        delta_abs = abs(_float_or_zero(row.get("delta_codex_minus_baseline")))
-        warning_count = (
-            int(_coerce_int(row.get("correction_warning_count")) or 0)
-            + int(_coerce_int(row.get("recipe_warning_count")) or 0)
-            + int(_coerce_int(row.get("final_recipe_warning_count")) or 0)
-        )
-        line_total = int(_coerce_int(row.get("line_total")) or 0)
-        empty_mapping_only = (
-            bool(row.get("final_recipe_empty_mapping") or row.get("correction_empty_mapping"))
-            and changed_lines <= 0
-            and outside_span_wrong_line_count <= 0
-            and delta_abs <= 0.0
-            and warning_count <= 0
-        )
-        has_turn1_signal = (
-            changed_lines > 0
-            or outside_span_wrong_line_count > 0
-            or delta_abs > 0.0
-            or warning_count > 0
-        )
-        return (
-            -int(has_turn1_signal),
-            int(empty_mapping_only),
-            -changed_lines,
-            -outside_span_wrong_line_count,
-            -delta_abs,
-            -warning_count,
-            -line_total,
-            str(row.get("recipe_id") or ""),
-            str(row.get("source_key") or ""),
-            str(row.get("codex_run_id") or ""),
-        )
-
-    return sorted(
-        [row for row in recipe_triage_rows if isinstance(row, dict)],
-        key=_sort_key,
-    )
+from cookimport.bench.external_ai_cutdown.runtime_inventory import (
+    _upload_bundle_build_call_runtime_inventory as _upload_bundle_build_call_runtime_inventory_impl,
+    _upload_bundle_build_call_runtime_inventory_from_prediction_manifest as _upload_bundle_build_call_runtime_inventory_from_prediction_manifest_impl,
+    _upload_bundle_build_line_role_escalation_summary as _upload_bundle_build_line_role_escalation_summary_impl,
+    _upload_bundle_call_inventory_stage_included as _upload_bundle_call_inventory_stage_included_impl,
+    _upload_bundle_call_inventory_stage_rank as _upload_bundle_call_inventory_stage_rank_impl,
+    _upload_bundle_collect_call_runtime_map as _upload_bundle_collect_call_runtime_map_impl,
+    _upload_bundle_estimate_call_cost_usd as _upload_bundle_estimate_call_cost_usd_impl,
+    _upload_bundle_extract_call_runtime as _upload_bundle_extract_call_runtime_impl,
+    _upload_bundle_iter_unique_run_dirs as _upload_bundle_iter_unique_run_dirs_impl,
+    _upload_bundle_load_prompt_budget_summary as _upload_bundle_load_prompt_budget_summary_impl,
+    _upload_bundle_merge_runtime_inventory_with_fallback as _upload_bundle_merge_runtime_inventory_with_fallback_impl,
+    _upload_bundle_merge_runtime_stage_summary as _upload_bundle_merge_runtime_stage_summary_impl,
+    _upload_bundle_nested_numeric as _upload_bundle_nested_numeric_impl,
+    _upload_bundle_normalize_runtime_stage_key as _upload_bundle_normalize_runtime_stage_key_impl,
+    _upload_bundle_quantile as _upload_bundle_quantile_impl,
+    _upload_bundle_runtime_inventory_needs_fallback as _upload_bundle_runtime_inventory_needs_fallback_impl,
+    _upload_bundle_stage_total_duration_ms as _upload_bundle_stage_total_duration_ms_impl,
+    _upload_bundle_telemetry_call_count as _upload_bundle_telemetry_call_count_impl,
+    _upload_bundle_token_share_fields as _upload_bundle_token_share_fields_impl,
+)
+
+
+def _upload_bundle_nested_numeric(*args, **kwargs):
+    return _upload_bundle_nested_numeric_impl(*args, **kwargs)
+
+
+def _upload_bundle_call_inventory_stage_included(*args, **kwargs):
+    return _upload_bundle_call_inventory_stage_included_impl(*args, **kwargs)
+
+
+def _upload_bundle_call_inventory_stage_rank(*args, **kwargs):
+    return _upload_bundle_call_inventory_stage_rank_impl(*args, **kwargs)
+
+
+def _upload_bundle_extract_call_runtime(*args, **kwargs):
+    return _upload_bundle_extract_call_runtime_impl(*args, **kwargs)
+
+
+def _upload_bundle_estimate_call_cost_usd(*args, **kwargs):
+    return _upload_bundle_estimate_call_cost_usd_impl(*args, **kwargs)
+
+
+def _upload_bundle_iter_unique_run_dirs(*args, **kwargs):
+    return _upload_bundle_iter_unique_run_dirs_impl(*args, **kwargs)
+
+
+def _upload_bundle_normalize_runtime_stage_key(*args, **kwargs):
+    return _upload_bundle_normalize_runtime_stage_key_impl(*args, **kwargs)
+
+
+def _upload_bundle_collect_call_runtime_map(*args, **kwargs):
+    return _upload_bundle_collect_call_runtime_map_impl(*args, **kwargs)
+
+
+def _upload_bundle_telemetry_call_count(*args, **kwargs):
+    return _upload_bundle_telemetry_call_count_impl(*args, **kwargs)
+
+
+def _upload_bundle_token_share_fields(*args, **kwargs):
+    return _upload_bundle_token_share_fields_impl(*args, **kwargs)
+
+
+def _upload_bundle_load_prompt_budget_summary(*args, **kwargs):
+    return _upload_bundle_load_prompt_budget_summary_impl(*args, **kwargs)
+
+
+def _upload_bundle_build_call_runtime_inventory_from_prediction_manifest(*args, **kwargs):
+    return _upload_bundle_build_call_runtime_inventory_from_prediction_manifest_impl(*args, **kwargs)
+
+
+def _upload_bundle_runtime_inventory_needs_fallback(*args, **kwargs):
+    return _upload_bundle_runtime_inventory_needs_fallback_impl(*args, **kwargs)
+
+
+def _upload_bundle_stage_total_duration_ms(*args, **kwargs):
+    return _upload_bundle_stage_total_duration_ms_impl(*args, **kwargs)
+
+
+def _upload_bundle_merge_runtime_stage_summary(*args, **kwargs):
+    return _upload_bundle_merge_runtime_stage_summary_impl(*args, **kwargs)
+
+
+def _upload_bundle_merge_runtime_inventory_with_fallback(*args, **kwargs):
+    return _upload_bundle_merge_runtime_inventory_with_fallback_impl(*args, **kwargs)
+
+
+def _upload_bundle_build_call_runtime_inventory(*args, **kwargs):
+    return _upload_bundle_build_call_runtime_inventory_impl(*args, **kwargs)
+
+
+def _upload_bundle_quantile(*args, **kwargs):
+    return _upload_bundle_quantile_impl(*args, **kwargs)
+
+
+def _upload_bundle_build_line_role_escalation_summary(*args, **kwargs):
+    return _upload_bundle_build_line_role_escalation_summary_impl(*args, **kwargs)
+
+
+from cookimport.bench.external_ai_cutdown.regression_sampling import (
+    _upload_bundle_build_changed_line_stratified_sample as _upload_bundle_build_changed_line_stratified_sample_impl,
+    _upload_bundle_build_regression_casebook as _upload_bundle_build_regression_casebook_impl,
+    _upload_bundle_build_triage_packet_rows as _upload_bundle_build_triage_packet_rows_impl,
+    _upload_bundle_changed_line_bucket as _upload_bundle_changed_line_bucket_impl,
+    _upload_bundle_derive_run_diagnostic_statuses as _upload_bundle_derive_run_diagnostic_statuses_impl,
+    _upload_bundle_matches_recipe_target as _upload_bundle_matches_recipe_target_impl,
+    _upload_bundle_regression_casebook_signal_key as _upload_bundle_regression_casebook_signal_key_impl,
+    _upload_bundle_safe_run_subdir as _upload_bundle_safe_run_subdir_impl,
+    _upload_bundle_select_triage_packet_sample_rows as _upload_bundle_select_triage_packet_sample_rows_impl,
+    _upload_bundle_sort_recipe_triage_rows as _upload_bundle_sort_recipe_triage_rows_impl,
+    _upload_bundle_triage_packet_row_has_signal as _upload_bundle_triage_packet_row_has_signal_impl,
+)
+
+
+def _upload_bundle_safe_run_subdir(*args, **kwargs):
+    return _upload_bundle_safe_run_subdir_impl(*args, **kwargs)
+
+
+def _upload_bundle_derive_run_diagnostic_statuses(*args, **kwargs):
+    return _upload_bundle_derive_run_diagnostic_statuses_impl(*args, **kwargs)
+
+
+def _upload_bundle_matches_recipe_target(*args, **kwargs):
+    return _upload_bundle_matches_recipe_target_impl(*args, **kwargs)
+
+
+def _upload_bundle_regression_casebook_signal_key(*args, **kwargs):
+    return _upload_bundle_regression_casebook_signal_key_impl(*args, **kwargs)
+
+
+def _upload_bundle_build_regression_casebook(*args, **kwargs):
+    return _upload_bundle_build_regression_casebook_impl(*args, **kwargs)
+
+
+def _upload_bundle_changed_line_bucket(*args, **kwargs):
+    return _upload_bundle_changed_line_bucket_impl(*args, **kwargs)
+
+
+def _upload_bundle_build_changed_line_stratified_sample(*args, **kwargs):
+    return _upload_bundle_build_changed_line_stratified_sample_impl(*args, **kwargs)
+
+
+def _upload_bundle_sort_recipe_triage_rows(*args, **kwargs):
+    return _upload_bundle_sort_recipe_triage_rows_impl(*args, **kwargs)
 
 
 def _starter_pack_serialize_recipe_triage_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -6406,113 +3213,16 @@ def _starter_pack_build_baseline_trace_parity_cues(
     }
 
 
-def _upload_bundle_build_triage_packet_rows(
-    recipe_triage_rows: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for rank, row in enumerate(
-        _upload_bundle_sort_recipe_triage_rows(recipe_triage_rows),
-        start=1,
-    ):
-        rows.append(
-            {
-                "schema_version": UPLOAD_BUNDLE_TRIAGE_PACKET_SCHEMA_VERSION,
-                "triage_rank": rank,
-                "source_key": str(row.get("source_key") or ""),
-                "codex_run_id": str(row.get("codex_run_id") or row.get("run_id") or ""),
-                "baseline_run_id": str(row.get("baseline_run_id") or ""),
-                "recipe_id": str(row.get("recipe_id") or ""),
-                "short_title": str(row.get("short_title") or ""),
-                "line_total": int(_coerce_int(row.get("line_total")) or 0),
-                "changed_lines_codex_vs_baseline": int(
-                    _coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0
-                ),
-                "baseline_accuracy": _coerce_float(row.get("baseline_accuracy")),
-                "codex_accuracy": _coerce_float(row.get("codex_accuracy")),
-                "delta_codex_minus_baseline": _coerce_float(
-                    row.get("delta_codex_minus_baseline")
-                ),
-                "build_intermediate_status": str(row.get("build_intermediate_status") or ""),
-                "correction_status": str(row.get("correction_status") or ""),
-                "build_final_status": str(row.get("build_final_status") or ""),
-                "correction_warning_count": int(
-                    _coerce_int(row.get("correction_warning_count")) or 0
-                ),
-                "final_recipe_warning_count": int(
-                    _coerce_int(row.get("final_recipe_warning_count")) or 0
-                ),
-                "final_recipe_empty_mapping": bool(row.get("final_recipe_empty_mapping")),
-                "build_final_execution_mode": str(row.get("build_final_execution_mode") or ""),
-                "build_final_routing_reason": str(row.get("build_final_routing_reason") or ""),
-                "build_final_fallback_reason": str(row.get("build_final_fallback_reason") or ""),
-                "transport_mismatch": bool(row.get("transport_mismatch")),
-            }
-        )
-    return rows
+def _upload_bundle_build_triage_packet_rows(*args, **kwargs):
+    return _upload_bundle_build_triage_packet_rows_impl(*args, **kwargs)
 
 
-def _upload_bundle_triage_packet_row_has_signal(row: dict[str, Any]) -> bool:
-    return bool(
-        int(_coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0) > 0
-        or int(_coerce_int(row.get("outside_span_wrong_line_count")) or 0) > 0
-        or _coerce_float(row.get("delta_codex_minus_baseline")) is not None
-        or int(_coerce_int(row.get("line_total")) or 0) > 0
-        or int(_coerce_int(row.get("correction_warning_count")) or 0) > 0
-        or int(_coerce_int(row.get("final_recipe_warning_count")) or 0) > 0
-    )
+def _upload_bundle_triage_packet_row_has_signal(*args, **kwargs):
+    return _upload_bundle_triage_packet_row_has_signal_impl(*args, **kwargs)
 
 
-def _upload_bundle_select_triage_packet_sample_rows(
-    triage_packet_rows: list[dict[str, Any]],
-    *,
-    pair_count: int = 0,
-    active_recipe_span_breakout: dict[str, Any] | None = None,
-    limit: int = 40,
-) -> tuple[list[dict[str, Any]], str]:
-    signal_rows = [
-        row
-        for row in triage_packet_rows
-        if isinstance(row, dict) and _upload_bundle_triage_packet_row_has_signal(row)
-    ]
-    if signal_rows:
-        return signal_rows[:limit], ""
-    active_recipe_span_breakout = (
-        active_recipe_span_breakout
-        if isinstance(active_recipe_span_breakout, dict)
-        else {}
-    )
-    if int(pair_count) <= 0:
-        recipe_span_count = int(
-            _coerce_int(active_recipe_span_breakout.get("recipe_span_count")) or 0
-        )
-        if recipe_span_count > 0:
-            return (
-                [],
-                (
-                    "No comparison pair was available, so recipe-local triage rows were not "
-                    "built. Recipe spans were discovered in the single run, so use "
-                    "`analysis.active_recipe_span_breakout`, "
-                    "`analysis.recipe_pipeline_context`, and "
-                    "`analysis.stage_observability_summary` first."
-                ),
-            )
-        return (
-            [],
-            (
-                "No comparison pair was available, so recipe-local triage rows were not "
-                "built. Use `analysis.recipe_pipeline_context`, "
-                "`analysis.stage_observability_summary`, and per-run summaries first."
-            ),
-        )
-    return (
-        [],
-        (
-            "No triage rows had recipe-local signal. This usually means active recipe spans "
-            "were not discovered, so use `analysis.turn1_summary`, "
-            "`analysis.active_recipe_span_breakout`, `analysis.top_confusion_deltas`, and "
-            "`analysis.changed_lines_stratified_sample` first."
-        ),
-    )
+def _upload_bundle_select_triage_packet_sample_rows(*args, **kwargs):
+    return _upload_bundle_select_triage_packet_sample_rows_impl(*args, **kwargs)
 
 
 def _upload_bundle_single_run_recipe_span_fallback(

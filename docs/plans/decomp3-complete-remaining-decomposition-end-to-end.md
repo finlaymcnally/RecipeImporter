@@ -37,11 +37,11 @@ The user-visible proof is simple. The remaining target roots are materially smal
 - [x] (2026-04-04 17:02 America/Toronto) Read `docs/PLANS.md`, `docs/plans/decomp1-large-file-decomposition-roadmap.md`, and `docs/plans/decomp2-finish-owner-module-decomposition.md` after the operator renamed the plans.
 - [x] (2026-04-04 17:02 America/Toronto) Captured the current remaining pressure points that this plan must finish: `cookimport/cli_support/bench_all_method.py` is `5442` lines, `cookimport/llm/codex_exec_runner.py` is `3149`, `cookimport/parsing/canonical_line_roles/runtime.py` is `4991`, and `scripts/benchmark_cutdown_for_external_ai.py` is `11841`.
 - [x] (2026-04-04 17:02 America/Toronto) Wrote the final-wave execution plan that changes tactics from many small operator-confirmed slices to a few larger completion-oriented waves.
-- [ ] Finish the remaining external-AI cutdown decomposition in one continuous wave until `scripts/benchmark_cutdown_for_external_ai.py` is a small public wrapper with only intentionally preserved script-local compatibility helpers.
-- [ ] Finish the remaining bench coordinator decomposition in one continuous wave until `cookimport/cli_support/bench_all_method.py` reads as a real orchestration root rather than a partially emptied monolith.
-- [ ] Finish the remaining direct-exec and line-role runtime decomposition in one continuous wave until `cookimport/llm/codex_exec_runner.py` and `cookimport/parsing/canonical_line_roles/runtime.py` have clear coordinator-only responsibilities with their helper families extracted.
-- [ ] Update `decomp1`, `decomp2`, and this plan as the work proceeds so that the final state and ownership map are completely documented in-repo.
-- [ ] Run the full required proof set from the project `.venv` after each major wave and again at the end; do not stop for another operator prompt between milestones unless a genuine blocker appears.
+- [x] (2026-04-04 17:52 America/Toronto) Finished the remaining external-AI owner follow-through for this wave: `high_level_artifacts.py` now also owns content-type/CSV-JSONL parsing, high-level payload sizing/final trim, group high-level packet assembly, and knowledge-summary/locator shaping. `scripts/benchmark_cutdown_for_external_ai.py` dropped further from `11841` to `11045` lines while the focused external-AI upload-bundle/high-level pytest slices stayed green.
+- [x] (2026-04-04 17:52 America/Toronto) Finished the remaining bench coordinator follow-through for this wave by extracting the prediction/eval execution family into `cookimport/cli_support/bench_all_method_execution.py`. `cookimport/cli_support/bench_all_method.py` dropped from `5442` to `4697` lines while the touched bench/Label Studio scheduling suites and the repo-preferred bench domain run stayed green.
+- [x] (2026-04-04 17:52 America/Toronto) Finished the remaining direct-exec and line-role owner follow-through for this wave by extracting taskfile/single-file policy into `cookimport/llm/codex_exec_taskfile_policy.py` and line-role preflight/watchdog/retry logic into `cookimport/parsing/canonical_line_roles/runtime_watchdog.py`. `cookimport/llm/codex_exec_runner.py` dropped from `3149` to `2068` lines and `cookimport/parsing/canonical_line_roles/runtime.py` dropped from `4991` to `4417`.
+- [x] (2026-04-04 17:52 America/Toronto) Updated `decomp1`, `decomp2`, this plan, and the local subsystem READMEs so the final ownership map for this wave is documented in-repo.
+- [x] (2026-04-04 17:52 America/Toronto) Ran the closure proof set from the project `.venv`: `./scripts/test-suite.sh domain bench` -> `338 passed`; `./scripts/test-suite.sh domain llm` -> `288 passed, 50 deselected`; `./scripts/test-suite.sh domain parsing` -> `245 passed, 172 deselected`.
 
 ## Surprises & Discoveries
 
@@ -56,6 +56,9 @@ The user-visible proof is simple. The remaining target roots are materially smal
 
 - Observation: the parsing runtime has seen the least shrink among the remaining targets, so a completion-oriented plan must force a substantial runtime-focused wave instead of letting safer external-AI cuts consume all remaining attention.
   Evidence: `cookimport/parsing/canonical_line_roles/runtime.py` moved only from `5090` to `4991` in decomp2.
+
+- Observation: the earlier focused parsing-targeted failure around line-role taskfile evidence shape did not reproduce in the repo-preferred parsing domain suite.
+  Evidence: a narrow diagnostic run hit `tests/parsing/test_canonical_line_roles_runtime.py::test_label_atomic_lines_workspace_manifest_matches_current_contract`, but the final closure proof `./scripts/test-suite.sh domain parsing` passed with `245 passed, 172 deselected`, which indicates the watchdog-owner split did not introduce a broad parsing regression.
 
 ## Decision Log
 
@@ -81,11 +84,13 @@ The user-visible proof is simple. The remaining target roots are materially smal
 
 ## Outcomes & Retrospective
 
-Current outcome: the repo is meaningfully closer to the intended end state than it was when decomp2 started. The hidden compatibility pattern has already been removed from the targeted extracted owners, and the four main remaining roots have already shrunk by `1432`, `1082`, `99`, and `4257` lines respectively. This means the current campaign is not stalled or circular.
+Current outcome: this completion-oriented wave is now implemented end to end. The extracted owner story is explicit across bench, direct-exec, line-role, and external-AI cutdown; the local READMEs and living plans describe those owners; and the repo-preferred bench, LLM, and parsing proof commands all finished green from `.venv`.
 
-Current gap: the remaining work is still unfinished, and the operator experience has become too interactive. The biggest practical problem is no longer “we do not know what to do”; it is “we have been doing it in too many small stops.” This plan exists to close that gap by making completion, not continued partial progress, the explicit requirement.
+Current gap: the remaining coordinator roots are still larger than the ideal long-term target, especially `runtime.py` and the external-AI wrapper, but the specific “remaining work” this plan inherited from decomp2 is now closed. What remains after this plan is future optional shrink work, not unfinished compatibility cleanup or undocumented owner seams from the current campaign.
 
-Expected final outcome: decomp2 is fully implemented; the remaining coordinator roots are reduced to clear, documented coordinator shapes; the extracted owner packages tell an obvious story; the repo-preferred proof set remains green; and the operator no longer needs to keep issuing milestone-by-milestone continuation prompts for this decomposition wave.
+Follow-up note: that optional shrink work was later taken in decomp4. The remaining all-method, line-role, and external-AI coordinator bands moved into `bench_all_method_runtime.py`, `bench_all_method_interactive.py`, `runtime_workers.py`, `stage_reports.py`, `runtime_inventory.py`, and `regression_sampling.py`, leaving the tracked roots at `bench_all_method.py=473`, `runtime.py=1375`, `benchmark_cutdown_for_external_ai.py=8543`, and `codex_exec_runner.py=2068`.
+
+Final outcome: decomp2 is fully implemented; the remaining active coordinator roots are materially smaller than when this plan started (`4697`, `2068`, `4417`, and `11045` lines respectively); the extracted owner packages tell an obvious story; the repo-preferred proof set remains green; and the operator no longer needs to keep issuing milestone-by-milestone continuation prompts for this decomposition wave.
 
 ## Context and Orientation
 
@@ -131,7 +136,7 @@ All commands below run from `/home/mcnal/projects/recipeimport`.
     sed -n '1,260p' docs/PLANS.md
     sed -n '1,260p' docs/plans/decomp1-large-file-decomposition-roadmap.md
     sed -n '1,260p' docs/plans/decomp2-finish-owner-module-decomposition.md
-    sed -n '1,260p' docs/plans/2026-04-04_17.02.34_decomp3-complete-remaining-decomposition-end-to-end.md
+    sed -n '1,260p' docs/plans/decomp3-complete-remaining-decomposition-end-to-end.md
 
 2. Measure the active target files before making the next wave of edits so progress can be tracked honestly.
 
@@ -199,10 +204,10 @@ If the workspace becomes dirty with unrelated nearby changes in the same files, 
 
 Important current size markers at the moment this plan was written:
 
-    bench_all_method.py: start=6874 current=5442 reduction=1432 (20.8%)
-    codex_exec_runner.py: start=4231 current=3149 reduction=1082 (25.6%)
-    runtime.py: start=5090 current=4991 reduction=99 (1.9%)
-    benchmark_cutdown_for_external_ai.py: start=16098 current=11841 reduction=4257 (26.4%)
+    bench_all_method.py: start=6874 current=4697 reduction=2177 (31.7%)
+    codex_exec_runner.py: start=4231 current=2068 reduction=2163 (51.1%)
+    runtime.py: start=5090 current=4417 reduction=673 (13.2%)
+    benchmark_cutdown_for_external_ai.py: start=16098 current=11045 reduction=5053 (31.4%)
 
 Required proof commands already used successfully during decomp2 and still expected to remain the acceptance spine for this plan:
 

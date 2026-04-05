@@ -17,3 +17,7 @@ Detailed run-settings contracts live in `cookimport/config/CONVENTIONS.md`.
 - `last_run_store.py` persists quality-suite winner settings under canonical `history_root_for_output(<output_dir>)/qualitysuite_winner_run_settings.json`.
   - Winner files are disposable cache for the current contract: loads read the canonical file shape only, and stale payloads are ignored instead of being migrated.
 - To add a new run knob: add one field on `RunSettings` with `ui_*` metadata, wire it into pipeline execution where needed, and keep tests in `tests/llm/test_run_settings.py` passing.
+
+Change map:
+- If you are changing canonical run knobs or validators, start in `run_settings.py`, read `cookimport/config/CONVENTIONS.md` first, and run `pytest tests/llm/test_run_settings.py tests/cli/test_run_settings_adapters.py tests/architecture/test_ai_readiness_boundaries.py -q`.
+- If you are changing operator/public versus raw/internal visibility, start in `run_settings_contracts.py` plus `run_settings_ui.py`; keep `run_settings.py` as the schema root instead of re-owning projection logic there.
