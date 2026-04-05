@@ -430,7 +430,7 @@ def test_recipe_boundary_from_labels_keeps_anchored_recipe_through_single_nonrec
         ),
     ]
 
-    spans, span_decisions, _normalized_blocks = recipe_boundary_from_labels(
+    spans, span_decisions, normalized_blocks = recipe_boundary_from_labels(
         block_labels,
         labeled_lines,
     )
@@ -438,3 +438,17 @@ def test_recipe_boundary_from_labels_keeps_anchored_recipe_through_single_nonrec
     assert len(spans) == 1
     assert spans[0].block_indices == [0, 1, 2, 3, 4, 5]
     assert [row.decision for row in span_decisions] == ["accepted_recipe_span"]
+    assert [row.final_label for row in normalized_blocks] == [
+        "RECIPE_TITLE",
+        "YIELD_LINE",
+        "INGREDIENT_LINE",
+        "RECIPE_NOTES",
+        "INGREDIENT_LINE",
+        "INSTRUCTION_LINE",
+    ]
+    assert normalized_blocks[3].decided_by == "fallback"
+    assert "accepted_recipe_span_nonrecipe_gap_to_notes" in normalized_blocks[3].reason_tags
+    assert (
+        "accepted_recipe_span_nonrecipe_gap_to_notes"
+        in normalized_blocks[3].escalation_reasons
+    )

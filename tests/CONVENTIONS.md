@@ -12,3 +12,4 @@ Durable test-suite conventions for files under `tests/`.
 - Path-sensitive tests should resolve shared roots via `tests/paths.py` (fixtures/docs examples) instead of `Path(__file__).parent`.
 - Keep expensive files in the shared `slow` set and a tiny sanity slice in `smoke` for low-token checks.
 - Failed runs should print `docs/*_log.md` hints from `tests/conftest.py` so debugging details live in docs, not noisy test output.
+- When a test fails during implementation work, classify it first: fix code for regressions, update tests plus owning docs for intentional contract changes, and relax or rewrite tests that were overspecified or stale.

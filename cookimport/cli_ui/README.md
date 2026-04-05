@@ -13,6 +13,7 @@ Interactive run-settings UI helpers.
   - `Continue` accepts the whole list at once
   - interactive `Import` shows recipe correction and non-recipe finalize
   - interactive benchmark modes show block labelling, recipe correction, and non-recipe finalize so the menu and prompt-target prompts match runtime stage order
+  - single-book benchmark mode now resolves the selected gold/source pair early enough to run a deterministic prompt-preview preflight before the shard-count menu, so the shard rows can surface minimum-safe recommendations for that concrete book
   - interactive all-method benchmark callers can reuse that same submenu with the benchmark surface set they actually support
   - unchecked recipe correction maps to `llm_recipe_pipeline=off`
   - unchecked block labelling maps to `line_role_pipeline=off` and `atomic_block_splitter=off`

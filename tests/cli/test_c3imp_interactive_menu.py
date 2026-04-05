@@ -889,6 +889,98 @@ def test_choose_run_settings_benchmark_prompts_codex_targets_in_runtime_stage_or
     assert selected.codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
 
 
+def test_choose_run_settings_uses_target_context_recommendation_builder_for_shard_plan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    global_defaults = cli.RunSettings.from_dict(
+        {"llm_recipe_pipeline": "codex-recipe-shard-v1"},
+        warn_context="test benchmark recommendation builder defaults",
+    )
+    monkeypatch.setattr(
+        run_settings_flow,
+        "load_qualitysuite_winner_run_settings",
+        lambda *_args, **_kwargs: None,
+    )
+    captured_rows: list[dict[str, object]] = []
+    captured_summary_lines: list[str] = []
+    builder_calls: list[tuple[tuple[str, ...], str]] = []
+
+    selected = run_settings_flow.choose_run_settings(
+        global_defaults=global_defaults,
+        output_dir=tmp_path,
+        menu_select=lambda message, *_args, **_kwargs: (
+            "codex-recipe-shard-v1"
+            if message == "Workflow for this run:"
+            else (
+                CODEX_EXEC_STYLE_TASKFILE_V1
+                if message == "Codex Exec style for this run:"
+                else pytest.fail(f"unexpected menu prompt: {message}")
+            )
+        ),
+        back_action=object(),
+        prompt_codex_surface_menu=lambda **_kwargs: {
+            "line_role": True,
+            "recipe": True,
+            "knowledge": True,
+        },
+        prompt_codex_shard_plan_menu=lambda **kwargs: (
+            captured_rows.extend(dict(row) for row in kwargs["rows"])
+            or captured_summary_lines.extend(list(kwargs["summary_lines"]))
+            or {"line_role": 4, "recipe": 3, "knowledge": 2}
+        ),
+        prompt_recipe_pipeline_menu=True,
+        prompt_benchmark_llm_surface_toggles=True,
+        interactive_codex_target_context={
+            "title": "Target: book.epub",
+            "recommendations_builder": lambda selected_settings, selected_step_ids: (
+                builder_calls.append(
+                    (
+                        tuple(selected_step_ids),
+                        selected_settings.llm_recipe_pipeline.value,
+                    )
+                )
+                or {
+                    "line_role": {
+                        "minimum_safe_shard_count": 4,
+                        "binding_limit": "input",
+                    },
+                    "recipe": {
+                        "minimum_safe_shard_count": 3,
+                        "binding_limit": "session_peak",
+                    },
+                    "knowledge": {
+                        "minimum_safe_shard_count": 2,
+                        "binding_limit": "output",
+                    },
+                }
+            ),
+        },
+    )
+
+    assert selected is not None
+    assert builder_calls == [
+        (("line_role", "recipe", "knowledge"), "codex-recipe-shard-v1")
+    ]
+    assert [str(row["step_id"]) for row in captured_rows] == [
+        "line_role",
+        "recipe",
+        "knowledge",
+    ]
+    assert [int(row["minimum_safe_shard_count"]) for row in captured_rows] == [4, 3, 2]
+    assert [str(row["binding_limit"]) for row in captured_rows] == [
+        "input",
+        "session_peak",
+        "output",
+    ]
+    assert "Target: book.epub" in captured_summary_lines
+    assert not any("Exact survivability estimates appear" in line for line in captured_summary_lines)
+    assert selected.line_role_prompt_target_count == 4
+    assert selected.recipe_prompt_target_count == 3
+    assert selected.knowledge_prompt_target_count == 2
+    assert selected.codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
+
+
 def test_choose_interactive_codex_surfaces_line_role_only_prompts_only_for_line_role_target() -> None:
     selected_settings = cli.RunSettings.from_dict(
         {

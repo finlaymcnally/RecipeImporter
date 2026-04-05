@@ -518,6 +518,11 @@ def _choose_interactive_codex_surfaces(
     )
     if prompt_codex_shard_plan_menu is None or not selected_step_ids:
         return selected_settings
+    target_context = _resolve_codex_prompt_target_context(
+        target_context=target_context,
+        selected_settings=selected_settings,
+        selected_step_ids=selected_step_ids,
+    )
     return _choose_interactive_codex_prompt_targets(
         selected_settings=selected_settings,
         prompt_codex_shard_plan_menu=prompt_codex_shard_plan_menu,
@@ -561,6 +566,34 @@ def _prompt_codex_prompt_target_count(
     except ValueError:
         return None
     return parsed if 1 <= parsed <= max_value else None
+
+
+def _resolve_codex_prompt_target_context(
+    *,
+    target_context: Mapping[str, Any] | None,
+    selected_settings: RunSettings,
+    selected_step_ids: Sequence[str],
+) -> Mapping[str, Any] | None:
+    if not isinstance(target_context, Mapping):
+        return target_context
+    recommendation_builder = target_context.get("recommendations_builder")
+    if not callable(recommendation_builder):
+        return target_context
+    recommendations_by_step: Mapping[str, Any] | None
+    try:
+        recommendations_by_step = recommendation_builder(
+            selected_settings,
+            tuple(selected_step_ids),
+        )
+    except Exception:  # noqa: BLE001
+        return target_context
+    if not isinstance(recommendations_by_step, Mapping):
+        return target_context
+    resolved_target_context = dict(target_context)
+    resolved_target_context["recommendations_by_step"] = dict(
+        recommendations_by_step
+    )
+    return resolved_target_context
 
 
 def _format_shard_budget_value(token_count: int) -> str:

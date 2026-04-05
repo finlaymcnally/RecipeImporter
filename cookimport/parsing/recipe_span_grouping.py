@@ -93,7 +93,7 @@ def recipe_boundary_from_labels(
             warning = "recipe_span_started_without_title"
         flush_pending(warning=warning)
 
-    normalized_blocks = _normalize_nonaccepted_recipe_local_block_labels(
+    normalized_blocks = _normalize_recipe_boundary_block_labels(
         ordered_blocks=ordered_blocks,
         accepted_spans=spans,
     )
@@ -244,7 +244,7 @@ def _decision_to_recipe_span(decision: RecipeSpanDecision) -> RecipeSpan:
     return RecipeSpan.model_validate(payload)
 
 
-def _normalize_nonaccepted_recipe_local_block_labels(
+def _normalize_recipe_boundary_block_labels(
     *,
     ordered_blocks: Sequence[AuthoritativeBlockLabel],
     accepted_spans: Sequence[RecipeSpan],
@@ -258,7 +258,29 @@ def _normalize_nonaccepted_recipe_local_block_labels(
     for block in ordered_blocks:
         block_index = int(block.source_block_index)
         label = str(block.final_label or "NONRECIPE_CANDIDATE")
-        if block_index in accepted_block_indices or label not in _RECIPE_LOCAL_LABELS:
+        if block_index in accepted_block_indices:
+            if label in _RECIPE_LOCAL_LABELS:
+                normalized_blocks.append(block)
+                continue
+            normalized_blocks.append(
+                block.model_copy(
+                    update={
+                        "final_label": "RECIPE_NOTES",
+                        "decided_by": "fallback",
+                        "reason_tags": [
+                            *list(block.reason_tags),
+                            "accepted_recipe_span_nonrecipe_gap_to_notes",
+                        ],
+                        "escalation_reasons": [
+                            *list(block.escalation_reasons),
+                            "accepted_recipe_span_nonrecipe_gap_to_notes",
+                        ],
+                        "exclusion_reason": None,
+                    }
+                )
+            )
+            continue
+        if label not in _RECIPE_LOCAL_LABELS:
             normalized_blocks.append(block)
             continue
         normalized_blocks.append(

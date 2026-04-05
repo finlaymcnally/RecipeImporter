@@ -24,6 +24,16 @@ def _patch_single_book_smoke_runtime(
     golden_root: Path,
     selected_benchmark_settings,
 ) -> list[dict[str, object]]:
+    benchmark_root = golden_root / "benchmark-vs-golden"
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_export_root = golden_root / "book" / "exports"
+    gold_export_root.mkdir(parents=True, exist_ok=True)
+    gold_spans = gold_export_root / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    (gold_export_root / "canonical_text.txt").write_text("Title\nBody\n", encoding="utf-8")
+    (gold_export_root / "canonical_span_labels.jsonl").write_text("{}\n", encoding="utf-8")
+
     menu_answers = iter(["labelstudio_benchmark", "single_book", "exit"])
 
     _patch_cli_attr(
@@ -43,6 +53,7 @@ def _patch_single_book_smoke_runtime(
         lambda **_kwargs: selected_benchmark_settings,
     )
     _patch_cli_attr(monkeypatch, "DEFAULT_GOLDEN", golden_root)
+    _patch_cli_attr(monkeypatch, "_golden_benchmark_root", lambda: benchmark_root)
     _patch_cli_attr(
         monkeypatch,
         "_resolve_interactive_labelstudio_settings",
@@ -51,6 +62,11 @@ def _patch_single_book_smoke_runtime(
                 "Offline benchmark smoke should not resolve Label Studio credentials."
             )
         ),
+    )
+    _patch_cli_attr(
+        monkeypatch,
+        "_resolve_benchmark_gold_and_source",
+        lambda **_kwargs: (gold_spans, source_file),
     )
     _patch_cli_attr(
         monkeypatch,

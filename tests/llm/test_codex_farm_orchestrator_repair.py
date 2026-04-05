@@ -708,16 +708,19 @@ def test_orchestrator_repairs_after_task_file_continuation_is_lost(
         ).read_text(encoding="utf-8")
     )
 
-    assert repair_status["repair_status"] == "failed"
-    assert proposal["repair_attempted"] is True
+    assert repair_status["repair_status"] == "not_attempted"
+    assert proposal["repair_attempted"] is False
     assert proposal["state"] == supervision_state
     assert [call["mode"] for call in runner.calls] == [
         "taskfile",
         "taskfile",
     ]
+    expected_task_status = (
+        "assigned_to_worker" if supervision_state == "watchdog_killed" else "invalid"
+    )
     assert proposal["validation_metadata"]["task_status_by_task_id"][
         "recipe-shard-0000-r0000-r0000"
-    ]["task_status"] == "failed_after_repair"
+    ]["task_status"] == expected_task_status
 
 
 def test_preflight_recipe_shard_rejects_missing_model_facing_recipes() -> None:

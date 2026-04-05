@@ -32,6 +32,9 @@ from cookimport.llm.codex_exec_runner import (
     CodexExecRunResult,
     FakeCodexExecRunner,
 )
+from cookimport.llm.recipe_same_session_handoff import (
+    advance_recipe_same_session_handoff,
+)
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 from cookimport.staging.draft_v1 import authoritative_recipe_semantics_to_draft_v1
 from cookimport.staging.job_planning import JobSpec
@@ -43,6 +46,7 @@ def _write_workspace_task_file_result(
     working_dir: Path,
     execution_working_dir: Path,
     payload: Mapping[str, object] | None = None,
+    advance_same_session: bool = True,
 ) -> bool:
     task_file_path = execution_working_dir / "task.json"
     if not task_file_path.exists():
@@ -59,6 +63,12 @@ def _write_workspace_task_file_result(
         execution_working_dir=execution_working_dir,
         relative_paths=("task.json",),
     )
+    state_path = working_dir / "_repo_control" / "recipe_same_session_state.json"
+    if advance_same_session and state_path.exists():
+        advance_recipe_same_session_handoff(
+            workspace_root=working_dir,
+            state_path=state_path,
+        )
     return True
 
 

@@ -217,6 +217,7 @@ Design intent:
 - Keep domain-folder layout, centralized marker routing, and low-noise pytest defaults as the baseline.
 - Keep expensive EPUB, OCR, browser, scheduler, and benchmark-helper paths isolated in explicit slow files instead of broadening routine slices.
 - Broad tests should assert durable contracts, not mutable product-policy snapshots.
+- When a test fails during feature, refactor, or repair work, classify it before editing: existing contract violated means fix the code; intentional contract change means update the test and the owning docs; overspecified or stale assertions mean relax or rewrite the test. Do not chase green without stating which case applies.
 - Broad routine runs should go through `./scripts/test-suite.sh` or the matching `make test-*` wrappers; raw broad `pytest` runs should stay a warned escape hatch, not the default path.
 - `COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1` is a scoped deep-debug tool for one explicit file or nodeid, not a broad-run mode switch.
 - Benchmark smoke should keep both boundaries: the real interactive single-book route with `labelstudio_benchmark(...)` stubbed, and the offline simulated whole-run single-book path with only leaf prediction/eval seams stubbed.

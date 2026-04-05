@@ -647,6 +647,86 @@ def test_interactive_benchmark_enables_per_surface_codex_toggle_prompt(
     assert len(helper_calls) == 1
 
 
+def test_interactive_benchmark_single_book_target_context_exposes_shard_recommendation_builder(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configured_output = tmp_path / "custom-output"
+    golden_root = tmp_path / "golden"
+    resolved_gold, resolved_source = _write_single_book_benchmark_target_fixture(tmp_path)
+    selected_benchmark_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+            "recipe_prompt_target_count": 5,
+            "line_role_prompt_target_count": 5,
+            "knowledge_prompt_target_count": 5,
+        },
+        warn_context="test interactive benchmark target context recommendation builder",
+    )
+    menu_answers = iter(["labelstudio_benchmark", "single_book", "exit"])
+    choose_capture: dict[str, object] = {}
+
+    _patch_cli_attr(monkeypatch, "_menu_select", lambda *_args, **_kwargs: next(menu_answers))
+    _patch_cli_attr(monkeypatch, "_list_importable_files", lambda *_: [])
+    _patch_cli_attr(
+        monkeypatch,
+        "_load_settings",
+        lambda: {"output_dir": str(configured_output), "epub_extractor": "beautifulsoup"},
+    )
+    _patch_cli_attr(monkeypatch, "DEFAULT_GOLDEN", golden_root)
+    _patch_cli_attr(
+        monkeypatch,
+        "_resolve_benchmark_gold_and_source",
+        lambda **_kwargs: (resolved_gold, resolved_source),
+    )
+    _patch_cli_attr(
+        monkeypatch,
+        "_build_single_book_interactive_shard_recommendations",
+        lambda **kwargs: (
+            choose_capture.setdefault("recommendation_source_file", kwargs["source_file"]),
+            {
+                "recipe": {
+                    "minimum_safe_shard_count": 3,
+                    "binding_limit": "session_peak",
+                }
+            }
+        )[-1],
+    )
+
+    def fake_choose_run_settings(**kwargs):
+        choose_capture.update(kwargs)
+        target_context = kwargs["interactive_codex_target_context"]
+        recommendation_builder = target_context["recommendations_builder"]
+        choose_capture["recommendations_by_step"] = recommendation_builder(
+            selected_benchmark_settings,
+            ("recipe", "line_role", "knowledge"),
+        )
+        return selected_benchmark_settings
+
+    _patch_cli_attr(monkeypatch, "choose_run_settings", fake_choose_run_settings)
+    _patch_cli_attr(monkeypatch, "_resolve_interactive_labelstudio_settings",
+        lambda _settings: (_ for _ in ()).throw(
+            AssertionError("Offline benchmark mode should not resolve Label Studio credentials.")
+        ),
+    )
+    helper_calls = _capture_interactive_single_book_helper(monkeypatch)
+
+    with pytest.raises(cli.typer.Exit):
+        cli._interactive_mode()
+
+    assert choose_capture["interactive_codex_target_context"]["title"] == f"Target: {resolved_source.name}"
+    assert choose_capture["recommendation_source_file"] == resolved_source
+    assert choose_capture["recommendations_by_step"] == {
+        "recipe": {
+            "minimum_safe_shard_count": 3,
+            "binding_limit": "session_peak",
+        }
+    }
+    assert len(helper_calls) == 1
+
+
 def test_interactive_benchmark_preset_skips_run_settings_and_passes_preselected_gold(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

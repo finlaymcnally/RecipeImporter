@@ -674,10 +674,7 @@ def test_orchestrator_rejects_complex_empty_mapping_without_reason_and_skips_pro
         ).read_text(encoding="utf-8")
     )
 
-    assert [call["mode"] for call in runner.calls] == [
-        "taskfile",
-        "taskfile",
-    ]
+    assert [call["mode"] for call in runner.calls] == ["taskfile"]
     assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
     assert proposal["payload"] is None
     assert proposal["repair_attempted"] is True
@@ -763,10 +760,7 @@ def test_orchestrator_rejects_multi_ingredient_single_step_empty_mapping_without
         ).read_text(encoding="utf-8")
     )
 
-    assert [call["mode"] for call in runner.calls] == [
-        "taskfile",
-        "taskfile",
-    ]
+    assert [call["mode"] for call in runner.calls] == ["taskfile"]
     assert proposal["payload"] is None
     assert proposal["repair_attempted"] is True
     assert manifest["counts"]["recipe_correction_error"] == 1

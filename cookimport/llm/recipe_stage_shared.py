@@ -1010,14 +1010,17 @@ def _run_recipe_taskfile_assignment_v1(*, run_root: Path, assignment: WorkerAssi
             first_pass_payloads, first_pass_errors, _previous_answers_by_unit_id, _feedback_by_unit_id = _evaluate_recipe_task_file_answers(original_task_file=original_task_file, edited_task_file_path=task_file_path, runnable_tasks=runnable_tasks)
             task_payloads_by_task_id.update(first_pass_payloads)
             for task in runnable_tasks:
+                task_status_payload = task_status_by_task_id.setdefault(task.task_id, {})
+                prior_repair_attempted = bool(task_status_payload.get('repair_attempted'))
+                prior_repair_status = str(task_status_payload.get('repair_status') or '').strip()
                 if task.task_id in first_pass_payloads:
                     _write_recipe_task_payload(output_path=worker_root / _recipe_task_result_path(task), payload=first_pass_payloads[task.task_id])
                     task_validation_errors_by_task_id[task.task_id] = ()
-                    task_status_by_task_id.setdefault(task.task_id, {}).update({'task_status': 'validated', 'repair_attempted': False, 'repair_status': 'not_needed', 'validation_errors': []})
+                    task_status_payload.update({'task_status': str(task_status_payload.get('task_status') or ('validated_after_repair' if prior_repair_attempted else 'validated')).strip() or ('validated_after_repair' if prior_repair_attempted else 'validated'), 'repair_attempted': prior_repair_attempted, 'repair_status': prior_repair_status or ('repaired' if prior_repair_attempted else 'not_needed'), 'validation_errors': []})
                 else:
                     failed_validation_errors = list(first_pass_errors.get(task.task_id) or ())
                     task_validation_errors_by_task_id[task.task_id] = tuple(failed_validation_errors)
-                    task_status_by_task_id.setdefault(task.task_id, {}).update({'task_status': 'invalid', 'repair_attempted': False, 'repair_status': 'not_attempted', 'validation_errors': failed_validation_errors})
+                    task_status_payload.update({'task_status': str(task_status_payload.get('task_status') or ('failed_after_repair' if prior_repair_attempted else 'invalid')).strip() or ('failed_after_repair' if prior_repair_attempted else 'invalid'), 'repair_attempted': prior_repair_attempted, 'repair_status': prior_repair_status or ('failed' if prior_repair_attempted else 'not_attempted'), 'validation_errors': failed_validation_errors})
         if fresh_worker_replacement_count > 0:
             recovered_task_count = sum((1 for task in runnable_tasks if task.task_id in task_payloads_by_task_id))
             fresh_worker_replacement_status = 'recovered' if recovered_task_count > 0 or bool(same_session_state_payload.get('completed')) else 'exhausted'

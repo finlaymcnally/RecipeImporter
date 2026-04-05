@@ -8,6 +8,9 @@ from cookimport.cli_support.labelstudio_benchmark_artifacts import (
     benchmark_selective_retry_manifest_summary as _benchmark_selective_retry_manifest_summary,
     prune_benchmark_outputs as _prune_benchmark_outputs,
 )
+from cookimport.cli_support.bench_artifacts import (
+    _coerce_int as _benchmark_coerce_int,
+)
 from cookimport.cli_support.labelstudio_benchmark_recovery import (
     finalize_interrupted_benchmark_run as _finalize_interrupted_benchmark_run,
     find_interrupted_knowledge_stage_root as _find_interrupted_knowledge_stage_root,
@@ -187,6 +190,15 @@ def _p95_int(values: list[int]) -> int:
 
 def _has_multiple_quantity_tokens(text: str) -> bool:
     return len(_QUANTITY_TOKEN_RE.findall(text)) >= 2
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _write_jsonl_rows(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -3505,7 +3517,9 @@ def register(app: typer.Typer) -> dict[str, object]:
                 )
             recipe_counts = report.get("recipe_counts")
             if isinstance(recipe_counts, dict):
-                predicted_recipe_count = _coerce_int(recipe_counts.get("predicted_recipe_count"))
+                predicted_recipe_count = _benchmark_coerce_int(
+                    recipe_counts.get("predicted_recipe_count")
+                )
                 if predicted_recipe_count is not None:
                     typer.secho(
                         f"Predicted recipes from import: {predicted_recipe_count}",

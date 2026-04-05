@@ -693,6 +693,64 @@ def test_labelstudio_benchmark_manifest_omits_removed_mode_fields(
     )
     assert "execution_mode" not in run_manifest["run_config"]
 
+
+def test_labelstudio_benchmark_prints_predicted_recipe_count_without_name_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("dummy", encoding="utf-8")
+    gold_spans = tmp_path / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+    prediction_run = tmp_path / "pred-run"
+    _write_benchmark_prediction_run_fixture(
+        prediction_run=prediction_run,
+        source_file=source_file,
+        extracted_rows=[{"index": 0, "text": "Sample title"}],
+        block_labels={"0": "RECIPE_TITLE"},
+    )
+    _patch_cli_attr(
+        monkeypatch,
+        "generate_pred_run_artifacts",
+        lambda **_kwargs: {
+            "run_root": prediction_run,
+            "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
+            "processed_report_path": "",
+            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "extracted_archive_path": prediction_run / "extracted_archive.json",
+            "timing": {"prediction_seconds": 2.0},
+        },
+    )
+    _install_noop_benchmark_eval_mocks(monkeypatch)
+    _patch_cli_attr(
+        monkeypatch,
+        "evaluate_stage_blocks",
+        lambda **_kwargs: {
+            "report": {
+                **_empty_stage_block_eval_result()["report"],
+                "recipe_counts": {"predicted_recipe_count": "7"},
+            },
+            "missed_gold": [],
+            "false_positive_preds": [],
+        },
+    )
+    captured_lines: list[str] = []
+    monkeypatch.setattr(
+        cli.typer,
+        "secho",
+        lambda message, **_kwargs: captured_lines.append(str(message)),
+    )
+
+    cli.labelstudio_benchmark(
+        gold_spans=gold_spans,
+        source_file=source_file,
+        output_dir=tmp_path / "golden",
+        processed_output_dir=tmp_path / "output",
+        eval_output_dir=tmp_path / "eval-print-summary",
+        no_upload=True,
+    )
+
+    assert "Predicted recipes from import: 7" in captured_lines
+
 def _run_offline_prediction_stage_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

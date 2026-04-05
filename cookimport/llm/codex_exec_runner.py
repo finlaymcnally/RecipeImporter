@@ -899,6 +899,129 @@ class FakeCodexExecRunner:
         edited["units"] = edited_units
         return edited
 
+    @staticmethod
+    def _build_recipe_task_answer_request(
+        *,
+        stage_key: str,
+        evidence: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        hint_payload = dict(evidence.get("hint") or {})
+        return {
+            "stage_key": stage_key,
+            "recipe_id": str(evidence.get("recipe_id") or "recipe"),
+            "hint": {
+                "title": hint_payload.get("title"),
+                "ingredients": list(hint_payload.get("ingredients") or []),
+                "steps": list(hint_payload.get("steps") or []),
+            },
+            "source_text": str(evidence.get("source_text") or ""),
+            "source_rows": list(evidence.get("source_rows") or []),
+        }
+
+    @classmethod
+    def _build_legacy_recipe_task_output_request(
+        cls,
+        *,
+        stage_key: str,
+        evidence: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        answer_request = cls._build_recipe_task_answer_request(
+            stage_key=stage_key,
+            evidence=evidence,
+        )
+        hint_payload = dict(answer_request.get("hint") or {})
+        return {
+            "v": "1",
+            "sid": str(evidence.get("recipe_id") or "recipe-task"),
+            "r": [
+                {
+                    "rid": answer_request["recipe_id"],
+                    "h": {
+                        "n": hint_payload.get("title"),
+                        "i": list(hint_payload.get("ingredients") or []),
+                        "s": list(hint_payload.get("steps") or []),
+                    },
+                    "ev": list(answer_request.get("source_rows") or []),
+                    "txt": answer_request.get("source_text"),
+                }
+            ],
+        }
+
+    @staticmethod
+    def _normalize_recipe_task_answer_payload(
+        payload: Mapping[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if not isinstance(payload, Mapping):
+            return None
+        if any(
+            key in payload
+            for key in (
+                "status",
+                "canonical_recipe",
+                "ingredient_step_mapping",
+                "ingredient_step_mapping_reason",
+                "divested_block_indices",
+                "selected_tags",
+                "warnings",
+            )
+        ):
+            return dict(payload)
+        rows = payload.get("r")
+        if not isinstance(rows, list) or not rows:
+            return None
+        row = rows[0]
+        if not isinstance(row, Mapping):
+            return None
+        canonical_recipe = row.get("cr")
+        canonical_recipe_answer = None
+        if isinstance(canonical_recipe, Mapping):
+            canonical_recipe_answer = {
+                "title": canonical_recipe.get("t"),
+                "ingredients": list(canonical_recipe.get("i") or []),
+                "steps": list(canonical_recipe.get("s") or []),
+                "description": canonical_recipe.get("d"),
+                "recipe_yield": canonical_recipe.get("y"),
+            }
+        ingredient_step_mapping: list[dict[str, Any]] = []
+        for mapping_row in row.get("m") or []:
+            if not isinstance(mapping_row, Mapping):
+                continue
+            ingredient_indexes: list[int] = []
+            ingredient_index = mapping_row.get("i")
+            if ingredient_index is not None and str(ingredient_index).strip():
+                ingredient_indexes.append(int(ingredient_index))
+            step_indexes = [
+                int(value)
+                for value in (mapping_row.get("s") or [])
+                if str(value).strip()
+            ]
+            ingredient_step_mapping.append(
+                {
+                    "ingredient_indexes": ingredient_indexes,
+                    "step_indexes": step_indexes,
+                }
+            )
+        return {
+            "status": str(row.get("st") or "").strip(),
+            "status_reason": row.get("sr"),
+            "canonical_recipe": canonical_recipe_answer,
+            "ingredient_step_mapping": ingredient_step_mapping,
+            "ingredient_step_mapping_reason": row.get("mr"),
+            "divested_block_indices": [
+                int(value) for value in (row.get("db") or []) if str(value).strip()
+            ],
+            "selected_tags": [
+                str(tag.get("l") or "").strip()
+                for tag in (row.get("g") or [])
+                if isinstance(tag, Mapping) and str(tag.get("l") or "").strip()
+            ],
+            "warnings": [
+                str(value).strip()
+                for value in (row.get("w") or [])
+                if str(value).strip()
+            ],
+        }
+
     def _build_workspace_task_unit_answer(
         self,
         *,
@@ -906,21 +1029,30 @@ class FakeCodexExecRunner:
         evidence: Mapping[str, Any],
     ) -> dict[str, Any]:
         if stage_key == "recipe_refine":
-            hint_payload = dict(evidence.get("hint") or {})
-            direct_output = self.output_builder(
-                {
-                    "stage_key": stage_key,
-                    "recipe_id": str(evidence.get("recipe_id") or "recipe"),
-                    "hint": {
-                        "title": hint_payload.get("title"),
-                        "ingredients": list(hint_payload.get("ingredients") or []),
-                        "steps": list(hint_payload.get("steps") or []),
-                    },
-                    "source_text": str(evidence.get("source_text") or ""),
-                    "source_rows": list(evidence.get("source_rows") or []),
-                }
-            )
-            return dict(direct_output) if isinstance(direct_output, Mapping) else {}
+            direct_output: Mapping[str, Any] | None = None
+            try:
+                direct_output = self.output_builder(
+                    self._build_recipe_task_answer_request(
+                        stage_key=stage_key,
+                        evidence=evidence,
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                direct_output = None
+            normalized_output = self._normalize_recipe_task_answer_payload(direct_output)
+            if normalized_output is not None:
+                return normalized_output
+            try:
+                direct_output = self.output_builder(
+                    self._build_legacy_recipe_task_output_request(
+                        stage_key=stage_key,
+                        evidence=evidence,
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                direct_output = None
+            normalized_output = self._normalize_recipe_task_answer_payload(direct_output)
+            return normalized_output or {}
         if stage_key in {"nonrecipe_finalize", "nonrecipe_classify"}:
             block_index = int(evidence.get("block_index") or 0)
             direct_output = self.output_builder(

@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Sequence
 
 from .command_resolution import resolve_registered_command
+from .bench_single_book import (
+    _build_single_book_interactive_shard_recommendations,
+)
 
 runtime = sys.modules["cookimport.cli_support"]
 from cookimport.cli_support.bench import (
@@ -113,6 +117,7 @@ def _build_single_book_benchmark_codex_target_context(
     gold_spans: Path,
     source_file: Path,
     golden_root: Path,
+    recommendations_builder: object | None = None,
 ) -> dict[str, object]:
     source_size = _format_interactive_target_size(source_file)
     summary_lines = [
@@ -121,10 +126,13 @@ def _build_single_book_benchmark_codex_target_context(
     ]
     if source_size:
         summary_lines.append(f"Source size: {source_size}")
-    return {
+    context: dict[str, object] = {
         "title": f"Target: {source_file.name}",
         "summary_lines": summary_lines,
     }
+    if recommendations_builder is not None:
+        context["recommendations_builder"] = recommendations_builder
+    return context
 
 def _interactive_mode(*, limit: int | None = None) -> None:
     """Run the interactive guided flow."""
@@ -777,6 +785,39 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                     if resolved_single_book_inputs is None:
                         typer.secho("Benchmark cancelled.", fg=typer.colors.YELLOW)
                         continue
+
+                single_book_recommendations_builder = None
+                if resolved_single_book_inputs is not None:
+                    single_book_source = resolved_single_book_inputs[1]
+
+                    def _recommendations_builder(
+                        selected_settings: RunSettings,
+                        _selected_step_ids: Sequence[str],
+                    ) -> dict[str, dict[str, object]]:
+                        typer.secho(
+                            (
+                                "Preparing deterministic shard survivability "
+                                f"suggestions for {single_book_source.name}..."
+                            ),
+                            fg=typer.colors.CYAN,
+                        )
+                        try:
+                            return _build_single_book_interactive_shard_recommendations(
+                                source_file=single_book_source,
+                                selected_settings=selected_settings,
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            typer.secho(
+                                (
+                                    "Interactive shard survivability preview unavailable; "
+                                    f"using generic guidance instead: {exc}"
+                                ),
+                                fg=typer.colors.YELLOW,
+                            )
+                            return {}
+
+                    single_book_recommendations_builder = _recommendations_builder
+
                 selected_benchmark_settings = choose_run_settings(
                     global_defaults=benchmark_defaults,
                     output_dir=output_folder,
@@ -792,6 +833,9 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                             gold_spans=resolved_single_book_inputs[0],
                             source_file=resolved_single_book_inputs[1],
                             golden_root=DEFAULT_GOLDEN,
+                            recommendations_builder=(
+                                single_book_recommendations_builder
+                            ),
                         )
                         if resolved_single_book_inputs is not None
                         else None

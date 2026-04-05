@@ -22,6 +22,97 @@ def test_single_book_module_binds_cross_owner_helpers() -> None:
     assert callable(bench_single_book._build_single_book_split_cache_key)
 
 
+def test_build_single_book_interactive_shard_recommendations_reads_preview_phase_plans(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_file = tmp_path / "book.epub"
+    source_file.write_text("book", encoding="utf-8")
+    selected_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+            "recipe_prompt_target_count": 5,
+            "line_role_prompt_target_count": 5,
+            "knowledge_prompt_target_count": 5,
+        },
+        warn_context="test single-book shard recommendations",
+    )
+    captured_prediction_kwargs: dict[str, object] = {}
+    captured_preview_kwargs: dict[str, object] = {}
+    processed_run_root = tmp_path / "processed-run"
+    processed_run_root.mkdir(parents=True, exist_ok=True)
+    preview_manifest_path = tmp_path / "preview" / "prompt_preview_manifest.json"
+    preview_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    preview_manifest_path.write_text(
+        json.dumps(
+            {
+                "phase_plans": {
+                    "line_role": {
+                        "minimum_safe_shard_count": 4,
+                        "binding_limit": "input",
+                    },
+                    "recipe_refine": {
+                        "minimum_safe_shard_count": 3,
+                        "binding_limit": "session_peak",
+                    },
+                    "nonrecipe_finalize": {
+                        "minimum_safe_shard_count": 2,
+                        "binding_limit": "output",
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _patch_cli_attr(
+        monkeypatch,
+        "generate_pred_run_artifacts",
+        lambda **kwargs: (
+            captured_prediction_kwargs.update(kwargs)
+            or {"processed_run_root": str(processed_run_root)}
+        ),
+    )
+    _patch_cli_attr(
+        monkeypatch,
+        "write_prompt_preview_for_existing_run",
+        lambda **kwargs: (
+            captured_preview_kwargs.update(kwargs) or preview_manifest_path
+        ),
+    )
+
+    recommendations = bench_single_book._build_single_book_interactive_shard_recommendations(
+        source_file=source_file,
+        selected_settings=selected_settings,
+    )
+
+    assert captured_prediction_kwargs["path"] == source_file
+    assert captured_prediction_kwargs["allow_codex"] is False
+    assert captured_prediction_kwargs["llm_recipe_pipeline"] == "off"
+    assert captured_prediction_kwargs["line_role_pipeline"] == "off"
+    assert captured_prediction_kwargs["llm_knowledge_pipeline"] == "off"
+    assert captured_preview_kwargs["run_path"] == processed_run_root
+    assert captured_preview_kwargs["llm_recipe_pipeline"] == "codex-recipe-shard-v1"
+    assert captured_preview_kwargs["line_role_pipeline"] == "codex-line-role-route-v2"
+    assert captured_preview_kwargs["llm_knowledge_pipeline"] == "codex-knowledge-candidate-v2"
+    assert recommendations == {
+        "line_role": {
+            "minimum_safe_shard_count": 4,
+            "binding_limit": "input",
+        },
+        "recipe": {
+            "minimum_safe_shard_count": 3,
+            "binding_limit": "session_peak",
+        },
+        "knowledge": {
+            "minimum_safe_shard_count": 2,
+            "binding_limit": "output",
+        },
+    }
+
+
 def _run_single_book_codex_enabled_fixture(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

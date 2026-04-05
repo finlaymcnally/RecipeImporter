@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+import inspect
 import importlib
 import sys
+import tempfile
+
+from cookimport.labelstudio.ingest_flows.prediction_run import (
+    generate_pred_run_artifacts,
+)
+from cookimport.llm.prompt_preview import write_prompt_preview_for_existing_run
 
 from .command_resolution import resolve_registered_command
 from .bench_all_method import (
@@ -35,6 +42,151 @@ def _labelstudio_benchmark_command():
 def _resolve_artifact_path(base_dir: Path, value: Any) -> Path | None:
     bench_compare = importlib.import_module("cookimport.cli_support.bench_compare")
     return bench_compare._resolve_artifact_path(base_dir, value)
+
+
+_GENERATE_PRED_RUN_ARTIFACTS_PARAMETER_NAMES = frozenset(
+    inspect.signature(generate_pred_run_artifacts).parameters
+)
+_INTERACTIVE_PREVIEW_EXPLICIT_PREDICTION_KWARG_NAMES = frozenset(
+    {
+        "path",
+        "pipeline",
+        "segment_blocks",
+        "segment_overlap",
+        "allow_codex",
+        "write_markdown",
+        "write_label_studio_tasks",
+        "run_root_override",
+        "mirror_stage_artifacts_into_run_root",
+    }
+)
+_INTERACTIVE_PREVIEW_STAGE_TO_STEP_ID = {
+    "line_role": "line_role",
+    "recipe_refine": "recipe",
+    "nonrecipe_finalize": "knowledge",
+}
+
+
+def _interactive_single_book_preview_baseline_settings(
+    selected_settings: RunSettings,
+) -> RunSettings:
+    run_config = project_run_config_payload(
+        selected_settings.to_run_config_dict(),
+        contract=RUN_SETTING_CONTRACT_FULL,
+    )
+    baseline_payload = _all_method_apply_baseline_contract(run_config)
+    return RunSettings.from_dict(
+        baseline_payload,
+        warn_context="interactive single-book shard preview baseline",
+    )
+
+
+def _build_single_book_interactive_shard_recommendations(
+    *,
+    source_file: Path,
+    selected_settings: RunSettings,
+) -> dict[str, dict[str, Any]]:
+    preview_baseline_settings = _interactive_single_book_preview_baseline_settings(
+        selected_settings
+    )
+    with tempfile.TemporaryDirectory(
+        prefix="cookimport-single-book-shard-preview-"
+    ) as temp_dir:
+        temp_root = Path(temp_dir)
+        processed_output_root = temp_root / "processed-output"
+        processed_output_root.mkdir(parents=True, exist_ok=True)
+        benchmark_kwargs = build_benchmark_call_kwargs_from_run_settings(
+            preview_baseline_settings,
+            output_dir=temp_root / "prediction-output",
+            eval_output_dir=temp_root / "eval-output",
+            eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+            no_upload=True,
+            write_markdown=False,
+            write_label_studio_tasks=False,
+            processed_output_dir=processed_output_root,
+        )
+        prediction_kwargs = {
+            key: value
+            for key, value in benchmark_kwargs.items()
+            if key in _GENERATE_PRED_RUN_ARTIFACTS_PARAMETER_NAMES
+            and key not in _INTERACTIVE_PREVIEW_EXPLICIT_PREDICTION_KWARG_NAMES
+        }
+        prediction_kwargs["processed_output_root"] = processed_output_root
+        prediction_result = generate_pred_run_artifacts(
+            path=source_file,
+            pipeline="auto",
+            segment_blocks=40,
+            segment_overlap=5,
+            allow_codex=False,
+            write_markdown=False,
+            write_label_studio_tasks=False,
+            run_root_override=temp_root / "prediction-run",
+            mirror_stage_artifacts_into_run_root=False,
+            **prediction_kwargs,
+        )
+        processed_run_root_raw = prediction_result.get("processed_run_root")
+        if processed_run_root_raw is None:
+            return {}
+        processed_run_root = Path(str(processed_run_root_raw)).expanduser()
+        preview_manifest_path = write_prompt_preview_for_existing_run(
+            run_path=processed_run_root,
+            out_dir=temp_root / "prompt-preview",
+            repo_root=REPO_ROOT,
+            llm_recipe_pipeline=selected_settings.llm_recipe_pipeline.value,
+            llm_knowledge_pipeline=selected_settings.llm_knowledge_pipeline.value,
+            line_role_pipeline=selected_settings.line_role_pipeline.value,
+            codex_farm_root=selected_settings.codex_farm_root,
+            codex_farm_cmd=selected_settings.codex_farm_cmd,
+            codex_farm_model=selected_settings.codex_farm_model,
+            codex_farm_reasoning_effort=(
+                selected_settings.codex_farm_reasoning_effort.value
+                if selected_settings.codex_farm_reasoning_effort is not None
+                else None
+            ),
+            codex_farm_context_blocks=selected_settings.codex_farm_context_blocks,
+            codex_farm_knowledge_context_blocks=(
+                selected_settings.codex_farm_knowledge_context_blocks
+            ),
+            atomic_block_splitter=selected_settings.atomic_block_splitter.value,
+            recipe_worker_count=selected_settings.recipe_worker_count,
+            recipe_prompt_target_count=selected_settings.recipe_prompt_target_count,
+            knowledge_prompt_target_count=(
+                selected_settings.knowledge_prompt_target_count
+            ),
+            knowledge_packet_input_char_budget=(
+                selected_settings.knowledge_packet_input_char_budget
+            ),
+            knowledge_packet_output_char_budget=(
+                selected_settings.knowledge_packet_output_char_budget
+            ),
+            knowledge_worker_count=selected_settings.knowledge_worker_count,
+            line_role_worker_count=selected_settings.line_role_worker_count,
+            line_role_prompt_target_count=(
+                selected_settings.line_role_prompt_target_count
+            ),
+            line_role_shard_target_lines=selected_settings.line_role_shard_target_lines,
+        )
+        preview_manifest = _load_json_dict(preview_manifest_path) or {}
+    phase_plans = preview_manifest.get("phase_plans")
+    if not isinstance(phase_plans, dict):
+        return {}
+    recommendations_by_step: dict[str, dict[str, Any]] = {}
+    for stage_key, step_id in _INTERACTIVE_PREVIEW_STAGE_TO_STEP_ID.items():
+        phase_plan = phase_plans.get(stage_key)
+        if not isinstance(phase_plan, dict):
+            continue
+        minimum_safe_shard_count = phase_plan.get("minimum_safe_shard_count")
+        binding_limit = str(phase_plan.get("binding_limit") or "").strip() or None
+        recommendations_by_step[step_id] = {
+            "minimum_safe_shard_count": (
+                int(minimum_safe_shard_count)
+                if minimum_safe_shard_count is not None
+                else None
+            ),
+            "binding_limit": binding_limit,
+        }
+    return recommendations_by_step
+
 
 def _write_single_book_summary_markdown(
     *,

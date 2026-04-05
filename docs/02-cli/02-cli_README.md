@@ -176,6 +176,7 @@ Interactive `Import` and benchmark runs (`single_book` + matched-books) ask:
   - unchecked non-recipe finalize maps to `llm_knowledge_pipeline=off`
 - after that shared Codex surface toggle menu, interactive flows now open one shard-planning page for all enabled Codex-backed tasks in that run
   - import shows the selected source file above the page; single-book benchmark now resolves the concrete gold/source pair first and shows that target above the page before run settings continue
+  - single-book benchmark now also runs a deterministic local preflight for that selected source before opening the shard-planning page, so the row notes can show minimum-safe shard suggestions for line-role, recipe, and knowledge instead of only the generic deferred-estimate warning
   - benchmark and all-method Codex rows stay in runtime stage order: block-labelling, then recipe correction, then non-recipe finalize
   - the page edits `line_role_prompt_target_count`, `recipe_prompt_target_count`, and `knowledge_prompt_target_count` in one screen instead of three separate typed prompts
   - the row note shows the current stage survivability budget now and can show target-specific minimum-safe recommendations when that context is available; live planning still fails closed later if the requested shard count is unsafe

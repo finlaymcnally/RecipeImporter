@@ -81,3 +81,7 @@ If this conflicts with root `AGENTS.md`, this file wins for `tests/`.
 - Keep fixtures lean:
   - Use the smallest fixture content needed to prove behavior.
   - Avoid large/generated artifacts unless behavior requires them.
+- Keep authority clear when tests fail:
+  - Classify the failure before editing anything: `regression`, `intentional contract change`, or `overspecified/stale test`.
+  - Fix production code for regressions. Update tests plus the owning docs for intentional contract changes. Relax or rewrite tests that froze implementation details or obsolete policy.
+  - Never change tests only to get back to green without stating which of those cases applies.

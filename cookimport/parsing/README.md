@@ -20,6 +20,7 @@
 - Phase 2 label-first runtime now lives in `label_source_of_truth.py` and `recipe_span_grouping.py`: authoritative labeled lines are normalized into block labels plus deterministic recipe spans before downstream staging, and the `ConversionResult` bridge is private/temporary.
 - Titleless structured runs are now diagnostic-only: grouping records them in `span_decisions.json` as rejected pseudo-recipes and keeps `recipe_spans.json` for accepted spans only.
 - Recipe-span grouping is now the single recipe-boundary acceptance gate: accepted spans need a title anchor plus ingredient/instruction/howto/yield/time proof, and title-only or title-plus-note spans are rejected immediately as `rejected_missing_recipe_body`.
+- Accepted recipe spans now also normalize any bridged `NONRECIPE_*` gap rows into `RECIPE_NOTES` before staging ownership/nonrecipe routing; only rejected spans or explicit recipe divestment can hand blocks back to nonrecipe.
 - `label_source_of_truth.py` no longer performs ordinary late missing-body demotion; if an accepted span somehow projects to no body anyway, it stays accepted and records an explicit invariant warning.
 - Outside recipe spans, deterministic title rescue can now skip duplicate-title and `NOTE:` lines when the next few rows still establish a recipe start, but TOC-like rows, `How to ...` headings, and generic knowledge headings do not count as title support.
 - Inside accepted recipe spans, immediate note prose is enough to retain `RECIPE_TITLE`; the stricter outside-span title rescue rules do not apply there.
