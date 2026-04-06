@@ -371,16 +371,21 @@ def _run_prompt_preview_fixture(tmp_path: Path) -> dict[str, object]:
     phase_plans = manifest["phase_plans"]
     assert phase_plans["nonrecipe_finalize"]["worker_count"] == 1
     assert phase_plans["nonrecipe_finalize"]["shard_count"] == 1
+    assert phase_plans["nonrecipe_finalize"]["requested_shard_count"] == 5
+    assert phase_plans["nonrecipe_finalize"]["budget_native_shard_count"] == 1
+    assert phase_plans["nonrecipe_finalize"]["launch_shard_count"] == 1
     assert [shard["owned_ids"] for shard in phase_plans["nonrecipe_finalize"]["shards"]] == [
         ["fixturebook.ks0000.nr"],
     ]
     assert phase_plans["recipe_refine"]["worker_count"] == 1
     assert phase_plans["recipe_refine"]["shard_count"] == 1
+    assert phase_plans["recipe_refine"]["requested_shard_count"] == 1
     assert phase_plans["recipe_refine"]["shards"][0]["owned_ids"] == [
         "urn:recipe:test:r0"
     ]
     assert phase_plans["line_role"]["worker_count"] == 1
     assert phase_plans["line_role"]["shard_count"] == 1
+    assert phase_plans["line_role"]["requested_shard_count"] == 1
     assert phase_plans["line_role"]["shards"][0]["owned_ids"] == [
         "0",
         "1",
@@ -446,16 +451,20 @@ def test_prompt_preview_rebuilds_manifest_counts_and_phase_plans(tmp_path: Path)
     phase_plans = manifest["phase_plans"]
     assert phase_plans["nonrecipe_finalize"]["worker_count"] == 1
     assert phase_plans["nonrecipe_finalize"]["shard_count"] == 1
+    assert phase_plans["nonrecipe_finalize"]["requested_shard_count"] == 5
+    assert phase_plans["nonrecipe_finalize"]["budget_native_shard_count"] == 1
     assert [shard["owned_ids"] for shard in phase_plans["nonrecipe_finalize"]["shards"]] == [
         ["fixturebook.ks0000.nr"],
     ]
     assert phase_plans["recipe_refine"]["worker_count"] == 1
     assert phase_plans["recipe_refine"]["shard_count"] == 1
+    assert phase_plans["recipe_refine"]["requested_shard_count"] == 1
     assert phase_plans["recipe_refine"]["shards"][0]["owned_ids"] == [
         "urn:recipe:test:r0"
     ]
     assert phase_plans["line_role"]["worker_count"] == 1
     assert phase_plans["line_role"]["shard_count"] == 1
+    assert phase_plans["line_role"]["requested_shard_count"] == 1
     assert phase_plans["line_role"]["shards"][0]["owned_ids"] == [
         "0",
         "1",
@@ -572,11 +581,31 @@ def test_prompt_preview_knowledge_prompt_target_count_controls_shard_count(
 
     assert manifest["preview_settings"]["knowledge_prompt_target_count"] == 1
     assert knowledge_phase["shard_count"] == 1
+    assert knowledge_phase["requested_shard_count"] == 1
+    assert knowledge_phase["budget_native_shard_count"] == 1
+    assert knowledge_phase["launch_shard_count"] == 1
+    assert knowledge_phase["survivability_recommended_shard_count"] == 1
     assert knowledge_phase["minimum_safe_shard_count"] == 1
     assert knowledge_phase["worker_count"] == 1
     assert knowledge_phase["shards"][0]["owned_ids"] == [
         "fixturebook.ks0000.nr",
     ]
+    assert (
+        out_dir
+        / "raw"
+        / "llm"
+        / "fixturebook"
+        / "nonrecipe_finalize"
+        / "phase_plan.json"
+    ).is_file()
+    assert (
+        out_dir
+        / "raw"
+        / "llm"
+        / "fixturebook"
+        / "nonrecipe_finalize"
+        / "phase_plan_summary.json"
+    ).is_file()
     artifacts = manifest["artifacts"]
     assert artifacts["prompt_preview_budget_summary_json"] == "prompt_preview_budget_summary.json"
     assert artifacts["prompt_preview_budget_summary_md"] == "prompt_preview_budget_summary.md"

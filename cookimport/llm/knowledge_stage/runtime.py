@@ -88,6 +88,13 @@ from .recovery import (
 from ..taskfile_progress import (
     start_taskfile_progress_heartbeat,
 )
+from ..knowledge_prompt_builder import build_knowledge_direct_prompt
+from ..phase_plan import (
+    attach_survivability_to_phase_plan,
+    build_phase_plan,
+    write_phase_plan_artifacts,
+)
+from ...runs.stage_names import stage_label
 
 
 def _runtime_attr(name: str, default: Any) -> Any:
@@ -329,11 +336,15 @@ def run_codex_farm_nonrecipe_finalize(
                 "input_mode": "nonrecipe_candidate_spans",
                 "workspace_root": str(workspace_root) if workspace_root is not None else None,
                 "configured_prompt_target_count": run_settings.knowledge_prompt_target_count,
+                "requested_shard_count": build_report.requested_shard_count,
+                "budget_native_shard_count": build_report.packet_count_before_partition,
+                "planning_warnings": list(build_report.planning_warnings),
                 "configured_packet_input_char_budget": run_settings.knowledge_packet_input_char_budget,
                 "configured_packet_output_char_budget": run_settings.knowledge_packet_output_char_budget,
             },
             progress_worker_total=configured_worker_total,
             progress_callback=progress_callback,
+            survivability_report=survivability_report,
         )
         worker_reports = [
             {
@@ -598,6 +609,8 @@ def run_codex_farm_nonrecipe_finalize(
                 ),
                 "preview_path": str(write_report.preview_path),
                 "manifest_path": str(manifest_path),
+                "phase_plan_path": str(knowledge_stage_dir / "phase_plan.json"),
+                "phase_plan_summary_path": str(knowledge_stage_dir / "phase_plan_summary.json"),
                 **_runtime_artifact_paths(knowledge_stage_dir),
             },
             "missing_packet_ids": missing_packet_ids,
@@ -722,6 +735,7 @@ def _run_direct_knowledge_workers_v1(
     runtime_metadata: Mapping[str, Any],
     progress_worker_total: int | None = None,
     progress_callback: Callable[[str], None] | None = None,
+    survivability_report: Mapping[str, Any] | None = None,
 ) -> tuple[PhaseManifestV1, list[WorkerExecutionReportV1], dict[str, Any]]:
     artifacts = {
         "phase_manifest": "phase_manifest.json",
@@ -820,6 +834,71 @@ def _run_direct_knowledge_workers_v1(
         "llm_review_shard_total": total_shards,
         **shard_distribution,
     }
+    worker_id_by_shard_id = {
+        shard_id: assignment.worker_id
+        for assignment in assignments
+        for shard_id in assignment.shard_ids
+    }
+    phase_plan = build_phase_plan(
+        stage_key=phase_key,
+        stage_label=stage_label(phase_key),
+        stage_order=4,
+        surface_pipeline=str(settings.get("llm_knowledge_pipeline") or ""),
+        runtime_pipeline_id=pipeline_id,
+        worker_count=worker_count,
+        requested_shard_count=(
+            int(runtime_metadata_payload.get("requested_shard_count") or total_shards)
+            if total_shards > 0
+            else 1
+        ),
+        budget_native_shard_count=(
+            int(runtime_metadata_payload.get("budget_native_shard_count") or total_shards)
+            if total_shards > 0
+            else 1
+        ),
+        launch_shard_count=total_shards,
+        planning_warnings=runtime_metadata_payload.get("planning_warnings") or [],
+        shard_specs=[
+            {
+                "shard_id": shard.shard_id,
+                "worker_id": worker_id_by_shard_id.get(shard.shard_id),
+                "owned_ids": list(shard.owned_ids),
+                "call_ids": [shard.shard_id],
+                "prompt_chars": len(
+                    build_knowledge_direct_prompt(
+                        dict(shard.input_payload)
+                        if isinstance(shard.input_payload, Mapping)
+                        else {}
+                    )
+                ),
+                "task_prompt_chars": len(
+                    build_knowledge_direct_prompt(
+                        dict(shard.input_payload)
+                        if isinstance(shard.input_payload, Mapping)
+                        else {}
+                    )
+                ),
+                "work_unit_count": int(
+                    (dict(shard.metadata) if isinstance(shard.metadata, Mapping) else {}).get(
+                        "char_count"
+                    )
+                    or 0
+                ),
+                "work_unit_label": "chars",
+            }
+            for shard in shards
+        ],
+    )
+    phase_plan = attach_survivability_to_phase_plan(
+        phase_plan=phase_plan,
+        survivability_report=survivability_report,
+    )
+    phase_plan_path, phase_plan_summary_path = write_phase_plan_artifacts(
+        stage_dir=run_root,
+        phase_plan=phase_plan,
+    )
+    runtime_metadata_payload["phase_plan_path"] = str(phase_plan_path)
+    runtime_metadata_payload["phase_plan_summary_path"] = str(phase_plan_summary_path)
     manifest = _write_knowledge_runtime_summary_artifacts(
         phase_key=phase_key,
         pipeline_id=pipeline_id,

@@ -54,6 +54,7 @@ def test_build_knowledge_jobs_exposes_only_live_planner_controls(tmp_path: Path)
 
     assert report.packets_written == 1
     assert report.shards_written == 1
+    assert report.requested_shard_count == 1
     assert report.packet_input_char_budget == 18000
     assert report.packet_output_char_budget == 6000
     payload = json.loads(
@@ -88,6 +89,7 @@ def test_build_knowledge_jobs_uses_prompt_target_as_shard_count(tmp_path: Path) 
     )
 
     assert report.packet_count_before_partition == 1
+    assert report.requested_shard_count == 2
     assert report.packets_written == 2
     assert report.packet_ids == ["fixturebook.ks0000.nr", "fixturebook.ks0001.nr"]
     assert [entry.shard_id for entry in report.shard_entries] == [
@@ -128,6 +130,7 @@ def test_build_knowledge_jobs_splits_by_explicit_char_budgets_when_no_target_cou
     )
 
     assert report.packets_written == 4
+    assert report.requested_shard_count == 4
     assert report.packet_input_char_budget == 320
     assert report.packet_output_char_budget == 220
     assert [entry.metadata["owned_block_indices"] for entry in report.shard_entries] == [
@@ -169,6 +172,7 @@ def test_build_knowledge_jobs_treats_prompt_target_count_as_hard_cap(
     )
 
     assert report.packet_count_before_partition == 4
+    assert report.requested_shard_count == 1
     assert report.shards_written == 1
     assert report.packets_written == 1
     assert report.packet_ids == ["fixturebook.ks0000.nr"]

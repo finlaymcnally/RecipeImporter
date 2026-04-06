@@ -36,7 +36,11 @@ from cookimport.llm.codex_farm_knowledge_contracts import (
     knowledge_input_packet_ids,
 )
 from cookimport.llm.knowledge_prompt_builder import build_knowledge_direct_prompt
-from cookimport.llm.phase_worker_runtime import resolve_phase_worker_count
+from cookimport.llm.phase_plan import (
+    attach_survivability_to_phase_plan,
+    build_phase_plan,
+    write_phase_plan_artifacts,
+)
 from cookimport.llm.prompt_budget import (
     build_prompt_preview_budget_summary,
     write_prompt_preview_budget_summary,
@@ -120,17 +124,6 @@ def _serialize_compact_prompt_json(payload: Any) -> str:
         separators=(",", ":"),
         sort_keys=True,
     ) + "\n"
-
-
-@dataclass(frozen=True)
-class PreviewShardAssignment:
-    shard_id: str
-    worker_id: str
-    owned_ids: tuple[str, ...]
-    call_ids: tuple[str, ...]
-    prompt_chars: int
-    task_prompt_chars: int
-    work_unit_count: int
 
 
 @dataclass(frozen=True)
@@ -251,6 +244,8 @@ def write_prompt_preview_for_existing_run(
     stage_plans: dict[str, dict[str, Any]] = {}
     counts: dict[str, int] = {}
 
+    phase_plan_stage_dirs: dict[str, Path] = {}
+
     if str(llm_recipe_pipeline or "").strip().lower() != "off":
         recipe_rows = _build_recipe_preview_rows(
             context=context,
@@ -275,6 +270,11 @@ def write_prompt_preview_for_existing_run(
                 _coerce_int(context.run_config.get("recipe_worker_count"))
                 or resolved_recipe_prompt_target_count
             ),
+            requested_shard_count=resolved_recipe_prompt_target_count,
+            budget_native_shard_count=len(recipe_rows),
+        )
+        phase_plan_stage_dirs["recipe_refine"] = (
+            out_dir / "raw" / "llm" / context.workbook_slug / stage_artifact_stem("recipe_refine")
         )
         _annotate_rows_from_phase_plan(
             rows=recipe_rows,
@@ -284,7 +284,7 @@ def write_prompt_preview_for_existing_run(
         counts["recipe_interaction_count"] = len(recipe_rows)
 
     if str(llm_knowledge_pipeline or "").strip().lower() != "off":
-        knowledge_rows = _build_knowledge_preview_rows(
+        knowledge_rows, knowledge_plan_context = _build_knowledge_preview_rows(
             context=context,
             out_dir=out_dir,
             pipeline_root=pipeline_root,
@@ -307,6 +307,16 @@ def write_prompt_preview_for_existing_run(
             worker_count=knowledge_worker_count
             if knowledge_worker_count is not None
             else _coerce_int(context.run_config.get("knowledge_worker_count")),
+            requested_shard_count=knowledge_plan_context.get("requested_shard_count"),
+            budget_native_shard_count=knowledge_plan_context.get("budget_native_shard_count"),
+            planning_warnings=knowledge_plan_context.get("planning_warnings"),
+        )
+        phase_plan_stage_dirs["nonrecipe_finalize"] = (
+            out_dir
+            / "raw"
+            / "llm"
+            / context.workbook_slug
+            / stage_artifact_stem("nonrecipe_finalize")
         )
         _annotate_rows_from_phase_plan(
             rows=knowledge_rows,
@@ -342,12 +352,15 @@ def write_prompt_preview_for_existing_run(
                 runtime_pipeline_id=str(phase_payload["runtime_pipeline_id"]),
                 rows=list(phase_payload["rows"]),
                 worker_count=effective_line_role_workers,
+                requested_shard_count=resolved_line_role_prompt_target_count,
+                budget_native_shard_count=len(list(phase_payload["rows"])),
             )
             _annotate_rows_from_phase_plan(
                 rows=list(phase_payload["rows"]),
                 phase_plan=stage_plans[phase_key],
             )
             rows.extend(list(phase_payload["rows"]))
+        phase_plan_stage_dirs["line_role"] = out_dir / "line-role-pipeline"
         counts["line_role_interaction_count"] = sum(
             len(phase_payload["rows"])
             for phase_payload in line_role_preview["phase_rows"].values()
@@ -374,10 +387,15 @@ def write_prompt_preview_for_existing_run(
         preview_dir=out_dir,
         phase_plans=stage_plans,
     )
-    _annotate_phase_plans_with_budget_summary(
+    stage_plans = _annotate_phase_plans_with_budget_summary(
         phase_plans=stage_plans,
         budget_summary=budget_summary,
     )
+    for stage_key, stage_dir in phase_plan_stage_dirs.items():
+        phase_plan = stage_plans.get(stage_key)
+        if not isinstance(phase_plan, Mapping):
+            continue
+        write_phase_plan_artifacts(stage_dir=stage_dir, phase_plan=phase_plan)
     budget_json_path, budget_md_path = write_prompt_preview_budget_summary(
         out_dir,
         budget_summary,
@@ -757,7 +775,7 @@ def _build_knowledge_preview_rows(
     prompt_target_count: int | None,
     input_char_budget: int | None,
     output_char_budget: int | None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     pipeline_assets = _load_pipeline_assets(
         pipeline_root=pipeline_root,
         pipeline_id=_DEFAULT_KNOWLEDGE_PIPELINE_ID,
@@ -774,7 +792,7 @@ def _build_knowledge_preview_rows(
         ),
         recipe_ownership_result=context.recipe_ownership_result,
     )
-    build_knowledge_jobs(
+    build_report = build_knowledge_jobs(
         full_blocks=context.full_blocks,
         candidate_spans=nonrecipe_stage_result.unresolved_candidate_spans(),
         recipe_ownership_result=context.recipe_ownership_result,
@@ -816,7 +834,16 @@ def _build_knowledge_preview_rows(
                 prompt_input_mode_override="inline",
             )
         )
-    return rows
+    requested_shard_count = (
+        max(1, int(prompt_target_count))
+        if prompt_target_count is not None
+        else len(rows)
+    )
+    return rows, {
+        "requested_shard_count": requested_shard_count,
+        "budget_native_shard_count": int(build_report.packet_count_before_partition),
+        "planning_warnings": list(build_report.planning_warnings),
+    }
 
 
 def _knowledge_preview_row_id(
@@ -1241,6 +1268,9 @@ def _build_direct_shard_phase_plan(
     runtime_pipeline_id: str,
     rows: Sequence[dict[str, Any]],
     worker_count: int | None,
+    requested_shard_count: int | None = None,
+    budget_native_shard_count: int | None = None,
+    planning_warnings: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     shard_specs: list[dict[str, Any]] = []
     for row in rows:
@@ -1270,7 +1300,7 @@ def _build_direct_shard_phase_plan(
                 "work_unit_label": work_unit_label,
             }
         )
-    return _finalize_phase_plan(
+    return build_phase_plan(
         stage_key=stage_key,
         stage_label=stage_label,
         stage_order=stage_order,
@@ -1278,107 +1308,10 @@ def _build_direct_shard_phase_plan(
         runtime_pipeline_id=runtime_pipeline_id,
         worker_count=worker_count,
         shard_specs=shard_specs,
+        requested_shard_count=requested_shard_count,
+        budget_native_shard_count=budget_native_shard_count,
+        planning_warnings=planning_warnings,
     )
-
-
-def _finalize_phase_plan(
-    *,
-    stage_key: str,
-    stage_label: str,
-    stage_order: int,
-    surface_pipeline: str,
-    runtime_pipeline_id: str,
-    worker_count: int | None,
-    shard_specs: Sequence[Mapping[str, Any]],
-) -> dict[str, Any]:
-    requested_workers = resolve_phase_worker_count(
-        requested_worker_count=worker_count,
-        shard_count=len(shard_specs),
-    )
-    normalized_shards: list[PreviewShardAssignment] = []
-    worker_ids = _assign_preview_workers(
-        requested_worker_count=requested_workers,
-        shard_count=len(shard_specs),
-    )
-    work_unit_label = next(
-        (
-            str(shard.get("work_unit_label") or "").strip()
-            for shard in shard_specs
-            if str(shard.get("work_unit_label") or "").strip()
-        ),
-        "units",
-    )
-    for index, shard in enumerate(shard_specs):
-        normalized_shards.append(
-            PreviewShardAssignment(
-                shard_id=str(shard.get("shard_id") or f"{stage_key}-shard-{index + 1:04d}"),
-                worker_id=worker_ids[index],
-                owned_ids=tuple(str(item) for item in shard.get("owned_ids") or [] if str(item)),
-                call_ids=tuple(str(item) for item in shard.get("call_ids") or [] if str(item)),
-                prompt_chars=max(0, int(shard.get("prompt_chars") or 0)),
-                task_prompt_chars=max(0, int(shard.get("task_prompt_chars") or 0)),
-                work_unit_count=max(0, int(shard.get("work_unit_count") or 0)),
-            )
-        )
-    worker_count_effective = len({shard.worker_id for shard in normalized_shards}) or 0
-    return {
-        "schema_version": "prompt_preview_phase_plan.v1",
-        "stage_key": stage_key,
-        "stage_label": stage_label,
-        "stage_order": stage_order,
-        "surface_pipeline": surface_pipeline,
-        "runtime_pipeline_id": runtime_pipeline_id,
-        "worker_count_requested": requested_workers,
-        "worker_count": worker_count_effective,
-        "fresh_agent_count": worker_count_effective,
-        "interaction_count": sum(len(shard.call_ids) for shard in normalized_shards),
-        "shard_count": len(normalized_shards),
-        "owned_id_count": sum(len(shard.owned_ids) for shard in normalized_shards),
-        "shards_per_worker": _int_distribution(
-            [
-                sum(1 for shard in normalized_shards if shard.worker_id == worker_id)
-                for worker_id in sorted({shard.worker_id for shard in normalized_shards})
-            ]
-        ),
-        "owned_ids_per_shard": _int_distribution(
-            [len(shard.owned_ids) for shard in normalized_shards]
-        ),
-        "work_unit_label": work_unit_label,
-        "work_unit_count": sum(shard.work_unit_count for shard in normalized_shards),
-        "work_units_per_shard": _int_distribution(
-            [shard.work_unit_count for shard in normalized_shards]
-        ),
-        "first_turn_payload_chars": _int_distribution(
-            [shard.prompt_chars for shard in normalized_shards]
-        ),
-        "task_payload_chars": _int_distribution(
-            [shard.task_prompt_chars for shard in normalized_shards]
-        ),
-        "workers": [
-            {
-                "worker_id": worker_id,
-                "shard_count": sum(1 for shard in normalized_shards if shard.worker_id == worker_id),
-                "shard_ids": [
-                    shard.shard_id
-                    for shard in normalized_shards
-                    if shard.worker_id == worker_id
-                ],
-            }
-            for worker_id in sorted({shard.worker_id for shard in normalized_shards})
-        ],
-        "shards": [
-            {
-                "shard_id": shard.shard_id,
-                "worker_id": shard.worker_id,
-                "owned_ids": list(shard.owned_ids),
-                "call_ids": list(shard.call_ids),
-                "prompt_chars": shard.prompt_chars,
-                "task_prompt_chars": shard.task_prompt_chars,
-                "work_unit_count": shard.work_unit_count,
-            }
-            for shard in normalized_shards
-        ],
-    }
 
 
 def _preview_work_unit_metrics_for_row(
@@ -1398,11 +1331,6 @@ def _preview_work_unit_metrics_for_row(
             "chars",
         )
     return len(_preview_owned_ids_for_row(stage_key=stage_key, row=row)), "units"
-
-
-def _assign_preview_workers(*, requested_worker_count: int, shard_count: int) -> list[str]:
-    effective_workers = max(1, min(requested_worker_count, max(shard_count, 1)))
-    return [f"worker-{(index % effective_workers) + 1:03d}" for index in range(shard_count)]
 
 
 def _preview_owned_ids_for_row(*, stage_key: str, row: Mapping[str, Any]) -> list[str]:
@@ -1468,59 +1396,26 @@ def _annotate_phase_plans_with_budget_summary(
     *,
     phase_plans: Mapping[str, dict[str, Any]],
     budget_summary: Mapping[str, Any],
-) -> None:
+) -> dict[str, dict[str, Any]]:
     by_stage = budget_summary.get("by_stage")
     if not isinstance(by_stage, Mapping):
-        return
+        return dict(phase_plans)
+    updated_phase_plans = {
+        stage_key: dict(phase_plan)
+        for stage_key, phase_plan in phase_plans.items()
+    }
     for stage_key, phase_plan in phase_plans.items():
         if not isinstance(phase_plan, dict):
             continue
         stage_budget = by_stage.get(stage_key)
         if not isinstance(stage_budget, Mapping):
             continue
-        for key in (
-            "minimum_safe_shard_count",
-            "binding_limit",
-            "survivability_verdict",
-        ):
-            if key in stage_budget:
-                phase_plan[key] = stage_budget.get(key)
         survivability = stage_budget.get("survivability")
-        if not isinstance(survivability, Mapping):
-            continue
-        phase_plan["survivability"] = dict(survivability)
-        shard_metrics = {
-            str(row.get("shard_id") or ""): row
-            for row in survivability.get("shards") or []
-            if isinstance(row, Mapping)
-        }
-        for shard in phase_plan.get("shards") or []:
-            if not isinstance(shard, dict):
-                continue
-            metrics = shard_metrics.get(str(shard.get("shard_id") or ""))
-            if not isinstance(metrics, Mapping):
-                continue
-            for key in (
-                "estimated_input_tokens",
-                "estimated_output_tokens",
-                "estimated_followup_tokens",
-                "estimated_peak_session_tokens",
-                "verdict",
-                "binding_limit",
-            ):
-                shard[key] = metrics.get(key)
-
-
-def _int_distribution(values: Sequence[int]) -> dict[str, int | float]:
-    normalized = [int(value) for value in values if int(value) >= 0]
-    if not normalized:
-        return {"count": 0, "min": 0, "max": 0, "avg": 0.0}
-    return {
-        "count": len(normalized),
-        "min": min(normalized),
-        "max": max(normalized),
-        "avg": round(sum(normalized) / len(normalized), 3),
-    }
+        updated_phase_plans[stage_key] = attach_survivability_to_phase_plan(
+            phase_plan=updated_phase_plans[stage_key],
+            survivability_report=survivability if isinstance(survivability, Mapping) else None,
+        )
+    return updated_phase_plans
 
 
 def _resolve_processed_run_dir(*, run_path: Path) -> Path:

@@ -92,6 +92,7 @@ Other active Codex-backed surfaces:
 - Optional knowledge extraction: `cookimport/llm/codex_farm_knowledge_orchestrator.py` (thin public facade), `cookimport/llm/knowledge_stage/planning.py`, `runtime.py`, `workspace_run.py`, `structured_session_contract.py`, `recovery.py`, `recovery_status.py`, `promotion.py`, `reporting.py`, `cookimport/llm/codex_farm_knowledge_jobs.py`, `cookimport/llm/codex_farm_knowledge_contracts.py`, `cookimport/llm/codex_farm_knowledge_models.py`, `cookimport/llm/codex_farm_knowledge_ingest.py`, `cookimport/llm/codex_farm_knowledge_writer.py`, `cookimport/llm/knowledge_prompt_builder.py`
 - `knowledge_stage/runtime.py` and `knowledge_stage/recovery.py` now also import their `_shared` and sibling-owner dependencies explicitly instead of cloning `_shared` into runtime globals, while preserving the public re-export surface that the tests and orchestration code expect.
 - the knowledge stage now keeps two small runtime ledgers beside the normal manifests: `task_status.jsonl` records per-shard attempt/terminal state, while `stage_status.json` records stage finalization and interruption attribution. `knowledge_stage_summary.json` is the canonical post-run summary view over those ledgers, including an `attention_summary` block for zero-target failure, follow-up trouble, and unreviewed-work counts. Interrupted runs should still leave partial `phase_manifest.json`, `promotion_report.json`, `telemetry.json`, and `failures.json` beside those status files.
+- prompt preview and live direct-exec stages now also write one shared phase-planning artifact per stage: `phase_plan.json` plus `phase_plan_summary.json`. Those files separate the operator-requested shard count, survivability recommendation, budget-native shard count, and actual launch shard count instead of collapsing them into one number.
 - for assignment-first failures, `task_status.jsonl` is explicit rather than generic: rows can terminate as `validated`, `repair_packet_exhausted`, `process_exited_without_final_packet_state`, or a propagated watchdog reason code depending on what deterministic validation and supervision observed.
 - `knowledge_stage_summary.json` now exposes `no_final_output_shard_count` plus `no_final_output_reason_code_counts` as the coarse knowledge no-result rollups. The authoritative failure vocabulary for knowledge packets is still `terminal_reason_code` plus the packet-state rows, not a generic packet bucket.
 - recipe and canonical line-role stage roots now also write compact post-run summaries beside their runtime artifacts: `recipe_stage_summary.json` under `raw/llm/<workbook>/recipe_phase_runtime/` and `line_role_stage_summary.json` under `line-role-pipeline/runtime/line_role/`. Those compact summaries now also expose `attention_summary` so non-promoted recipe outcomes, line-role fallback rows, Codex hard-policy rejections, and similar "should be zero" counters are obvious without opening raw proposals.
@@ -185,6 +186,8 @@ Recipe passes write under:
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_correction_audit/`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/inputs/*.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/phase_manifest.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/phase_plan.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/phase_plan_summary.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/shard_manifest.jsonl`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/task_manifest.jsonl`
 - `data/output/<ts>/raw/llm/<workbook_slug>/recipe_phase_runtime/worker_assignments.json`
@@ -224,6 +227,8 @@ Knowledge-stage writes:
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge_manifest.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/in/*.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/phase_manifest.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/phase_plan.json`
+- `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/phase_plan_summary.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/shard_manifest.jsonl`
 - `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/task_manifest.jsonl`
 - `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/worker_assignments.json`
@@ -338,6 +343,7 @@ Prompt/debug artifacts:
 - the knowledge stage row inside `prediction-run/prompt_budget_summary.json` now also carries compact packet / worker / follow-up counters copied from `knowledge_stage_summary.json`, so cost review and outcome review use the same vocabulary
 - the knowledge stage now also publishes packet-economics rollups all the way through `raw/llm/<book>/nonrecipe_finalize/telemetry.json`, `knowledge_stage_summary.json`, and `prediction-run/prompt_budget_summary.json`: packet counts, same-session classification/grouping validation counts, grouping-transition counts, repair rewrites, owned-row totals, semantic-payload tokens, protocol-overhead tokens, and per-owned-row cost ratios all use the same repo-owned numbers
 - `prediction-run/prompt_budget_summary.json` now also reports requested-vs-actual run-count metadata per active Codex stage (`requested_run_count`, `actual_run_count`, `run_count_status`, `run_count_explanation`) so a finished run shows clearly when a `3/4/5` target was matched or when the planner legally used fewer/more shards
+- stage rows in `prediction-run/prompt_budget_summary.json` now also pick up the shared phase-plan counts (`requested_shard_count`, `survivability_recommended_shard_count`, `budget_native_shard_count`, `launch_shard_count`) plus a small `prediction_drift` block when a live stage wrote `phase_plan.json`
 - `prediction-run/prompt_budget_summary.json` is now expected to be reached through manifest-declared `prompt_budget_summary_json` / `actual_costs_json` pointers under the canonical artifact root; readers should not guess sibling filenames
 - when line-role telemetry only exposes nested batch/attempt summaries, `prompt_budget_summary.json` should still recover those `tokens_total` values so the finished-run whole-run drain is not understated
 - recipe, knowledge, and line-role stage rows in `prompt_budget_summary.json` should all expose the same semantic-versus-protocol vocabulary now: `semantic_payload_tokens_total`, `protocol_overhead_tokens_total`, and `protocol_overhead_share` sit beside the existing visible/cached/wrapper token totals so stage-by-stage cost review does not depend on knowledge-only packet economics

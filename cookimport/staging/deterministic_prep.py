@@ -649,15 +649,35 @@ def _build_phase_recommendation_payload(
         if isinstance(survivability.get("worst_shard"), Mapping)
         else {}
     )
-    minimum_safe_shard_count = phase_plan.get("minimum_safe_shard_count")
+    minimum_safe_shard_count = (
+        phase_plan.get("survivability_recommended_shard_count")
+        if phase_plan.get("survivability_recommended_shard_count") is not None
+        else phase_plan.get("minimum_safe_shard_count")
+    )
     binding_limit = str(phase_plan.get("binding_limit") or "").strip() or None
+    requested_shard_count = _coerce_int(phase_plan.get("requested_shard_count"))
+    budget_native_shard_count = _coerce_int(phase_plan.get("budget_native_shard_count"))
+    launch_shard_count = _coerce_int(phase_plan.get("launch_shard_count"))
     return {
         "minimum_safe_shard_count": (
             int(minimum_safe_shard_count)
             if minimum_safe_shard_count is not None
             else None
         ),
+        "survivability_recommended_shard_count": (
+            int(minimum_safe_shard_count)
+            if minimum_safe_shard_count is not None
+            else None
+        ),
         "binding_limit": binding_limit,
+        "requested_shard_count": requested_shard_count,
+        "budget_native_shard_count": budget_native_shard_count,
+        "launch_shard_count": launch_shard_count,
+        "planning_warnings": [
+            str(item).strip()
+            for item in phase_plan.get("planning_warnings") or []
+            if str(item).strip()
+        ],
         "current_shard_count": current_shard_count or None,
         "owned_unit_count": owned_unit_count or None,
         "estimated_input_tokens_total": _coerce_int(

@@ -34,11 +34,11 @@ The visible proof after implementation is:
 - [x] (2026-04-06 11:33 America/Toronto) Wrote this first-pass ExecPlan.
 - [x] (2026-04-06 12:02 America/Toronto) Corrected the plan after product clarification: interactive CLI shard counts are authoritative and must not be silently rewritten upward to budget-native packetization.
 - [x] (2026-04-06 12:18 America/Toronto) Corrected the plan again after product clarification: survivability is advisory guidance, not a hard launch gate for risky shard counts.
-- [ ] Define and land one canonical phase-plan schema and writer that every Codex-backed surface can read.
-- [ ] Move knowledge, recipe, and line-role planning onto that shared plan builder so packetization, survivability, and UI recommendations all describe the same thing.
-- [ ] Make estimation render-accurate by counting the actual prompt text and actual structured payload shape that runtime will send.
-- [ ] Update interactive planner, preview artifacts, and post-run reporting to show operator request, survivability recommendation, budget-native shards, launch shards, and prediction drift from one shared artifact.
-- [ ] Validate the new planner on the April 6, 2026 benchmark case and prove that the knowledge stage truthfully reports requested `10` versus budget-native `24` without silently rewriting the operator’s choice.
+- [x] (2026-04-06 15:08 America/Toronto) Landed `cookimport/llm/phase_plan.py` as the shared phase-plan schema/writer and migrated prompt preview to emit `phase_plan.json` plus `phase_plan_summary.json`.
+- [x] (2026-04-06 15:08 America/Toronto) Moved preview-backed line-role/recipe/knowledge recommendations plus live recipe/knowledge runtime artifacts onto the shared phase-plan fields for requested, survivability-recommended, budget-native, and launch shard counts.
+- [x] (2026-04-06 15:08 America/Toronto) Switched shared planning counts to rendered prompt text where the repo already has the real prompt builder, instead of keeping preview-only proxy fields as the authoritative plan.
+- [x] (2026-04-06 15:08 America/Toronto) Updated the interactive planner rows, prompt preview artifacts, and post-run prompt-budget reader to surface one shard story plus predicted-vs-observed drift from the shared artifact.
+- [ ] Validate the new planner on the April 6, 2026 benchmark case with a real Codex-enabled run. Remaining blocker: repo instruction forbids running Codex-enabled benchmark/book-processing flows without explicit user approval.
 
 ## Surprises & Discoveries
 
@@ -50,6 +50,9 @@ The visible proof after implementation is:
 
 - Observation: Current estimates are mixing real rendered prompt counts with rough text-only proxies.
   Evidence: the prompt-preview planner stores exact prompt character counts for preview rows in `cookimport/llm/prompt_preview.py`, but the knowledge job builder still uses `_estimate_row_input_chars(...)`, `_estimate_pass1_input_chars(...)`, and `_estimate_pass2_input_chars(...)`, which do not count the full rendered instruction wrapper, ontology payload, or exact JSON response shape.
+
+- Observation: The repo already had a mostly-complete cross-stage phase-plan shape in prompt preview; the bigger gap was that live runtime and post-run reporting were not persisting or reading it as the canonical contract.
+  Evidence: `cookimport/llm/prompt_preview.py` already computed per-stage `phase_plans`, but runtime stage roots only wrote `phase_manifest.json` and `prompt_budget_runtime.py` still inferred requested-vs-actual behavior from telemetry/manifests instead of reading a durable plan artifact.
 
 - Observation: The April 6, 2026 knowledge classification packets were far larger than the configured input budget implied.
   Evidence: the run’s `classification_initial_prompt.txt` files were roughly `60k-82k` characters each while the configured `knowledge_packet_input_char_budget` was `18000`. Several initial responses omitted owned rows entirely, for example `100 -> 92`, `100 -> 98`, `99 -> 72`, and `99 -> 97`, and one shard returned `99` rows with local indices `0..98` that matched none of the owned block indices.
@@ -79,11 +82,19 @@ The visible proof after implementation is:
   Rationale: recipe, line-role, and knowledge have different prompt builders and work-unit definitions, but they still need one common artifact schema and one common reporting story. A shared planner core with stage-specific adapters keeps the change large but survivable.
   Date/Author: 2026-04-06 / Codex
 
+- Decision: The first live-runtime rollout writes shared phase-plan artifacts for recipe and knowledge now, while line-role continues to use the shared schema through prompt preview and interactive recommendation surfaces until its runtime writer is migrated separately.
+  Rationale: The motivating failure case is knowledge, and recipe already shares the same phase-runtime topology. Shipping those two live writers now gives prompt-budget postmortems a real artifact to read without taking on a larger line-role runtime migration in the same change.
+  Date/Author: 2026-04-06 / Codex
+
+- Decision: Real April 6 benchmark re-validation stays out of this implementation turn unless the user explicitly approves a Codex-enabled benchmark rerun.
+  Rationale: `AGENTS.md` forbids running LLM-enabled benchmark/book-processing flows without explicit approval. Deterministic preview plus focused tests are enough to land the artifact migration honestly, but they are not a substitute for the paid end-to-end benchmark proof.
+  Date/Author: 2026-04-06 / Codex
+
 ## Outcomes & Retrospective
 
-- Outcome: Not started yet. This initial ExecPlan captures the current split-planner problem, the concrete April 6, 2026 failure evidence, and the intended unified design.
-  Remaining work: implement the shared phase-plan artifact, migrate stage planners, update UI/reporting consumers, and validate the new behavior against the benchmark case that exposed the issue.
-  Lesson: shard planning cannot be treated as a cosmetic UI hint. In this repo it is a runtime contract that directly controls token cost, correctness pressure, and repair churn.
+- Outcome: The repo now has one shared phase-plan artifact family (`phase_plan.json` and `phase_plan_summary.json`) that prompt preview writes for recipe, knowledge, and line-role, and live recipe/knowledge runtimes write beside their normal manifests. Interactive recommendations and finished-run prompt-budget summaries now read the same requested/budget-native/launch/survivability count story instead of inventing a second summary shape.
+  Remaining work: line-role still needs its live runtime writer migrated to the shared phase-plan artifact, and the April 6 single-book benchmark needs one explicit user-approved Codex rerun to complete the motivating real-run acceptance proof.
+  Lesson: the important implementation work was less about inventing a planner than about stopping downstream readers from quietly throwing away the planner facts the repo already knew.
 
 ## Context and Orientation
 
@@ -258,6 +269,8 @@ This plan should create a new durable artifact family under the live and preview
     raw/llm/<workbook_slug>/<stage>/phase_plan_summary.json
 
 The exact filenames may change during implementation, but the plan artifact must be easy to find from both preview and live stage roots and must be stable enough for benchmark/reporting readers.
+
+Change note (2026-04-06 / Codex): Updated the living-plan sections after landing the shared phase-plan artifact, preview/runtime/reporting integrations, focused tests, and short doc updates; left the real Codex benchmark rerun explicitly pending because repo policy requires user approval for LLM-enabled benchmark execution.
 
 ## Interfaces and Dependencies
 

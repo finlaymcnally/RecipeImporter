@@ -957,6 +957,9 @@ def test_choose_run_settings_uses_target_context_recommendation_builder_for_shar
                     "line_role": {
                         "minimum_safe_shard_count": 4,
                         "binding_limit": "input",
+                        "requested_shard_count": 5,
+                        "budget_native_shard_count": 5,
+                        "launch_shard_count": 5,
                         "avg_input_tokens_per_shard": 58_000,
                         "avg_peak_session_tokens_per_shard": 70_600,
                         "worst_peak_session_tokens": 82_000,
@@ -966,6 +969,9 @@ def test_choose_run_settings_uses_target_context_recommendation_builder_for_shar
                     "recipe": {
                         "minimum_safe_shard_count": 3,
                         "binding_limit": "session_peak",
+                        "requested_shard_count": 5,
+                        "budget_native_shard_count": 5,
+                        "launch_shard_count": 5,
                         "avg_input_tokens_per_shard": 42_000,
                         "avg_peak_session_tokens_per_shard": 56_800,
                         "worst_peak_session_tokens": 71_000,
@@ -975,6 +981,10 @@ def test_choose_run_settings_uses_target_context_recommendation_builder_for_shar
                     "knowledge": {
                         "minimum_safe_shard_count": 2,
                         "binding_limit": "output",
+                        "requested_shard_count": 5,
+                        "budget_native_shard_count": 24,
+                        "launch_shard_count": 5,
+                        "planning_warnings": ["budget planning wanted 24 shards"],
                         "avg_input_tokens_per_shard": 33_000,
                         "avg_peak_session_tokens_per_shard": 57_400,
                         "worst_peak_session_tokens": 74_000,
@@ -1001,6 +1011,9 @@ def test_choose_run_settings_uses_target_context_recommendation_builder_for_shar
         "session_peak",
         "output",
     ]
+    assert [int(row["requested_shard_count"]) for row in captured_rows] == [5, 5, 5]
+    assert [int(row["budget_native_shard_count"]) for row in captured_rows] == [5, 5, 24]
+    assert [int(row["launch_shard_count"]) for row in captured_rows] == [5, 5, 5]
     assert [int(row["avg_input_tokens_per_shard"]) for row in captured_rows] == [
         58_000,
         42_000,
@@ -1015,6 +1028,7 @@ def test_choose_run_settings_uses_target_context_recommendation_builder_for_shar
     assert any("Prepared: 312 blocks, 1,245 lines, 27 recipe guesses" in line for line in captured_summary_lines)
     assert "Leftover for knowledge: 124 outside-recipe blocks, 38 knowledge packets" in captured_summary_lines
     assert "Each row shows: main limit | avg prompt size | avg session size | avg work per shard" in captured_summary_lines
+    assert any("Shard count is your launch request." in line for line in captured_summary_lines)
     assert "Rows with min -- are not verified yet. Treat those shard counts as untrusted." not in captured_summary_lines
     assert not any("Exact survivability estimates appear" in line for line in captured_summary_lines)
     assert selected.line_role_prompt_target_count == 4

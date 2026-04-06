@@ -64,14 +64,24 @@ def test_build_single_book_interactive_shard_recommendations_reads_preview_phase
                 "line_role": {
                     "minimum_safe_shard_count": 4,
                     "binding_limit": "input",
+                    "requested_shard_count": 5,
+                    "budget_native_shard_count": 5,
+                    "launch_shard_count": 5,
                 },
                 "recipe": {
                     "minimum_safe_shard_count": 3,
                     "binding_limit": "session_peak",
+                    "requested_shard_count": 5,
+                    "budget_native_shard_count": 5,
+                    "launch_shard_count": 5,
                 },
                 "knowledge": {
                     "minimum_safe_shard_count": 2,
                     "binding_limit": "output",
+                    "requested_shard_count": 5,
+                    "budget_native_shard_count": 7,
+                    "launch_shard_count": 5,
+                    "planning_warnings": ["budget planning wanted 7 shards"],
                 },
             }
         ),
@@ -96,14 +106,24 @@ def test_build_single_book_interactive_shard_recommendations_reads_preview_phase
         "line_role": {
             "minimum_safe_shard_count": 4,
             "binding_limit": "input",
+            "requested_shard_count": 5,
+            "budget_native_shard_count": 5,
+            "launch_shard_count": 5,
         },
         "recipe": {
             "minimum_safe_shard_count": 3,
             "binding_limit": "session_peak",
+            "requested_shard_count": 5,
+            "budget_native_shard_count": 5,
+            "launch_shard_count": 5,
         },
         "knowledge": {
             "minimum_safe_shard_count": 2,
             "binding_limit": "output",
+            "requested_shard_count": 5,
+            "budget_native_shard_count": 7,
+            "launch_shard_count": 5,
+            "planning_warnings": ["budget planning wanted 7 shards"],
         },
     }
 
@@ -141,6 +161,9 @@ def test_build_shard_recommendations_from_prep_bundle_exposes_context_and_book_k
                 "phase_plans": {
                     "line_role": {
                         "shard_count": 5,
+                        "requested_shard_count": 5,
+                        "budget_native_shard_count": 5,
+                        "launch_shard_count": 5,
                         "owned_id_count": 1245,
                         "owned_ids_per_shard": {"avg": 249.0},
                         "minimum_safe_shard_count": 4,
@@ -161,6 +184,9 @@ def test_build_shard_recommendations_from_prep_bundle_exposes_context_and_book_k
                     },
                     "recipe_refine": {
                         "shard_count": 5,
+                        "requested_shard_count": 5,
+                        "budget_native_shard_count": 5,
+                        "launch_shard_count": 5,
                         "owned_id_count": 27,
                         "owned_ids_per_shard": {"avg": 5.4},
                         "minimum_safe_shard_count": 3,
@@ -181,6 +207,9 @@ def test_build_shard_recommendations_from_prep_bundle_exposes_context_and_book_k
                     },
                     "nonrecipe_finalize": {
                         "shard_count": 5,
+                        "requested_shard_count": 5,
+                        "budget_native_shard_count": 9,
+                        "launch_shard_count": 5,
                         "owned_id_count": 38,
                         "owned_ids_per_shard": {"avg": 7.6},
                         "work_unit_label": "chars",
@@ -251,11 +280,14 @@ def test_build_shard_recommendations_from_prep_bundle_exposes_context_and_book_k
     assert recommendations["line_role"]["avg_peak_session_tokens_per_shard"] == 70_600
     assert recommendations["line_role"]["owned_units_per_shard_avg"] == 249.0
     assert recommendations["line_role"]["owned_unit_label"] == "lines"
+    assert recommendations["line_role"]["requested_shard_count"] == 5
     assert recommendations["recipe"]["owned_units_per_shard_avg"] == 5.4
     assert recommendations["recipe"]["owned_unit_label"] == "recipes"
+    assert recommendations["recipe"]["launch_shard_count"] == 5
     assert recommendations["knowledge"]["avg_peak_session_tokens_per_shard"] == 57_400
     assert recommendations["knowledge"]["owned_units_per_shard_avg"] == 12_400.0
     assert recommendations["knowledge"]["owned_unit_label"] == "chars"
+    assert recommendations["knowledge"]["budget_native_shard_count"] == 9
     assert recommendations["__book_summary__"] == {
         "block_count": 312,
         "line_count": 1245,

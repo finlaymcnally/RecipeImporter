@@ -31,6 +31,7 @@ class KnowledgeJobBuildReport:
     seed_nonrecipe_span_count: int
     candidate_nonrecipe_span_count: int
     packet_count_before_partition: int
+    requested_shard_count: int
     shards_written: int
     packets_written: int
     candidate_block_count: int
@@ -126,6 +127,7 @@ def build_knowledge_jobs(
     configured_prompt_target = coerce_positive_int(prompt_target_count)
     if configured_prompt_target is None:
         row_partitions = list(budget_row_partitions)
+        requested_shard_count = len(row_partitions)
     else:
         requested_shard_count = min(
             max(1, int(configured_prompt_target)),
@@ -256,6 +258,7 @@ def build_knowledge_jobs(
         seed_nonrecipe_span_count=len(candidate_spans),
         candidate_nonrecipe_span_count=len(candidate_spans),
         packet_count_before_partition=packet_count_before_partition,
+        requested_shard_count=requested_shard_count,
         shards_written=len(shard_entries),
         packets_written=len(written_packets),
         candidate_block_count=len(

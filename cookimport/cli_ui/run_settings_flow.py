@@ -481,8 +481,12 @@ def _build_codex_shard_plan_rows(
             dict(recommendation) if isinstance(recommendation, Mapping) else {}
         )
         minimum_safe_shard_count = recommendation_payload.get(
-            "minimum_safe_shard_count"
+            "survivability_recommended_shard_count"
         )
+        if minimum_safe_shard_count is None:
+            minimum_safe_shard_count = recommendation_payload.get(
+                "minimum_safe_shard_count"
+            )
         binding_limit = str(recommendation_payload.get("binding_limit") or "").strip() or None
         stage_budget = default_stage_survivability_budget(
             _CODEX_SURFACE_STAGE_KEYS.get(step_id, step_id)
@@ -506,7 +510,16 @@ def _build_codex_shard_plan_rows(
                     if minimum_safe_shard_count is not None
                     else None
                 ),
+                "survivability_recommended_shard_count": (
+                    int(minimum_safe_shard_count)
+                    if minimum_safe_shard_count is not None
+                    else None
+                ),
                 "binding_limit": binding_limit,
+                "requested_shard_count": recommendation_payload.get("requested_shard_count"),
+                "budget_native_shard_count": recommendation_payload.get("budget_native_shard_count"),
+                "launch_shard_count": recommendation_payload.get("launch_shard_count"),
+                "planning_warnings": list(recommendation_payload.get("planning_warnings") or []),
                 "current_shard_count_baseline": recommendation_payload.get(
                     "current_shard_count"
                 ),
@@ -611,6 +624,9 @@ def _build_codex_shard_plan_summary_lines(
         if extra_bits:
             lines.append("Leftover for knowledge: " + ", ".join(extra_bits))
     lines.append("Each row shows: main limit | avg prompt size | avg session size | avg work per shard")
+    lines.append(
+        "Shard count is your launch request. min is advisory survivability; notes surface budget-native pressure when it differs."
+    )
     has_recommendations = any(
         row.get("minimum_safe_shard_count") is not None for row in rows
     )
@@ -856,7 +872,14 @@ def _prompt_codex_shard_plan_menu(
             available_modes = tuple(str(mode) for mode in row.get("available_modes") or ())
             count_value = int(row.get("current_count") or 1)
             minimum_safe = row.get("minimum_safe_shard_count")
+            budget_native = row.get("budget_native_shard_count")
+            launch_shards = row.get("launch_shard_count")
             binding_limit = str(row.get("binding_limit") or "").strip()
+            planning_warnings = [
+                str(item).strip()
+                for item in row.get("planning_warnings") or []
+                if str(item).strip()
+            ]
             kpi_summary = _render_shard_plan_kpi_summary(
                 row,
                 shard_count=count_value,
@@ -873,9 +896,16 @@ def _prompt_codex_shard_plan_menu(
                 recommended_text = (
                     f"min {int(minimum_safe)}" if minimum_safe is not None else "min --"
                 )
-                note_text = kpi_summary or budget_summary or "disabled"
-                if note_text != "disabled":
-                    note_text = f"disabled | {note_text}"
+                note_bits = ["disabled"]
+                if budget_native is not None and int(budget_native) > 0:
+                    note_bits.append(f"native {int(budget_native)}")
+                if planning_warnings:
+                    note_bits.append(f"warn {len(planning_warnings)}")
+                if kpi_summary:
+                    note_bits.append(kpi_summary)
+                elif budget_summary:
+                    note_bits.append(budget_summary)
+                note_text = " | ".join(note_bits)
                 note_class = "class:text"
             elif minimum_safe is not None:
                 recommended_text = f"min {int(minimum_safe)}"
@@ -885,6 +915,16 @@ def _prompt_codex_shard_plan_menu(
                 else:
                     note_text = f"ok on {_binding_limit_label(binding_limit)}"
                     note_class = "class:selected"
+                if budget_native is not None and count_value < int(budget_native):
+                    note_text = f"{note_text} | native {int(budget_native)}"
+                elif (
+                    launch_shards is not None
+                    and int(launch_shards) > 0
+                    and int(launch_shards) != int(count_value)
+                ):
+                    note_text = f"{note_text} | launch {int(launch_shards)}"
+                if planning_warnings:
+                    note_text = f"{note_text} | warn {len(planning_warnings)}"
                 if kpi_summary:
                     note_text = f"{note_text} | {kpi_summary}"
             else:
@@ -894,6 +934,10 @@ def _prompt_codex_shard_plan_menu(
                     if kpi_summary and budget_summary
                     else (kpi_summary or budget_summary or "no exact estimate")
                 )
+                if budget_native is not None and int(budget_native) > 0:
+                    note_text = f"{note_text} | native {int(budget_native)}"
+                if planning_warnings:
+                    note_text = f"{note_text} | warn {len(planning_warnings)}"
                 note_class = "class:text"
             count_text = f"[{count_value:>{count_inner_width}}]"
             count_class = "class:text"

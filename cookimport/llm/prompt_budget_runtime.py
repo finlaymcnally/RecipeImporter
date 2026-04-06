@@ -6,6 +6,11 @@ from typing import Any, Mapping
 import tiktoken
 from cookimport.llm.codex_exec_runner import summarize_direct_telemetry_rows
 from cookimport.llm.fake_codex_farm_runner import build_structural_pipeline_output
+from cookimport.llm.phase_plan import (
+    PHASE_PLAN_JSON_NAME,
+    PHASE_PLAN_SUMMARY_JSON_NAME,
+    build_phase_plan_prediction_drift,
+)
 from cookimport.llm.shard_survivability import evaluate_stage_survivability
 from cookimport.runs.stage_names import canonical_stage_key, stage_label
 from cookimport.runs.stage_observability import (
@@ -529,6 +534,10 @@ def _build_codex_farm_stage_summary(
             stage_summary=stage_summary,
             stage_payload=stage_payload,
         )
+    _attach_phase_plan_artifacts(
+        stage_summary=stage_summary,
+        stage_payload=stage_payload,
+    )
     _attach_shared_payload_economics(stage_summary)
     return stage_summary
 def _execution_mode_summary_from_telemetry_rows(
@@ -618,6 +627,50 @@ def _candidate_stage_root_paths(stage_payload: Mapping[str, Any]) -> list[Path]:
         ):
             _append_path(nested.get(key))
     return candidate_paths
+def _attach_phase_plan_artifacts(
+    *,
+    stage_summary: dict[str, Any],
+    stage_payload: Mapping[str, Any],
+) -> None:
+    stage_root = next(
+        (
+            candidate
+            for candidate in _candidate_stage_root_paths(stage_payload)
+            if candidate.exists() and candidate.is_dir()
+        ),
+        None,
+    )
+    if stage_root is None:
+        return
+    phase_plan_path = stage_root / PHASE_PLAN_JSON_NAME
+    if not phase_plan_path.is_file():
+        return
+    try:
+        phase_plan = json.loads(phase_plan_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return
+    if not isinstance(phase_plan, Mapping):
+        return
+    stage_summary["phase_plan_path"] = str(phase_plan_path)
+    phase_plan_summary_path = stage_root / PHASE_PLAN_SUMMARY_JSON_NAME
+    if phase_plan_summary_path.is_file():
+        stage_summary["phase_plan_summary_path"] = str(phase_plan_summary_path)
+    for key in (
+        "requested_shard_count",
+        "budget_native_shard_count",
+        "launch_shard_count",
+        "survivability_recommended_shard_count",
+        "planning_warnings",
+        "invalid_request_errors",
+    ):
+        if key in phase_plan:
+            stage_summary[key] = phase_plan.get(key)
+    prediction_drift = build_phase_plan_prediction_drift(
+        phase_plan=phase_plan,
+        observed_stage_summary=stage_summary,
+    )
+    if prediction_drift is not None:
+        stage_summary["prediction_drift"] = prediction_drift
 def _attach_knowledge_stage_observability(
     *,
     stage_summary: dict[str, Any],

@@ -1138,6 +1138,44 @@ def _build_knowledge_prompt_budget_summary_fixture(tmp_path: Path) -> dict[str, 
         ),
         encoding="utf-8",
     )
+    (stage_root / "phase_plan.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "codex_phase_plan.v1",
+                "stage_key": "nonrecipe_finalize",
+                "stage_label": "Nonrecipe Finalize",
+                "requested_shard_count": 10,
+                "budget_native_shard_count": 24,
+                "launch_shard_count": 10,
+                "survivability_recommended_shard_count": 12,
+                "planning_warnings": [
+                    "knowledge_prompt_target_count is using the requested final shard count of 10; packet-budget planning would have split the queue into 24 shards."
+                ],
+                "survivability": {
+                    "totals": {
+                        "estimated_input_tokens": 150,
+                        "estimated_output_tokens": 30,
+                        "estimated_followup_tokens": 20,
+                        "estimated_peak_session_tokens": 200,
+                    }
+                },
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (stage_root / "phase_plan_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "codex_phase_plan_summary.v1",
+                "requested_shard_count": 10,
+                "budget_native_shard_count": 24,
+                "launch_shard_count": 10,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
 
     pred_manifest = {
         "llm_codex_farm": {
@@ -1248,6 +1286,24 @@ def test_prompt_budget_summary_surfaces_knowledge_execution_mode_rollups(
     assert knowledge_stage["cost_per_owned_row"] == 60.0
     assert knowledge_stage["protocol_overhead_share"] == 0.3333
     assert knowledge_stage["packet_economics"]["semantic_payload_tokens_total"] == 120
+    assert knowledge_stage["requested_shard_count"] == 10
+    assert knowledge_stage["budget_native_shard_count"] == 24
+    assert knowledge_stage["launch_shard_count"] == 10
+    assert knowledge_stage["survivability_recommended_shard_count"] == 12
+    assert knowledge_stage["phase_plan_path"].endswith("phase_plan.json")
+    assert knowledge_stage["phase_plan_summary_path"].endswith("phase_plan_summary.json")
+    assert knowledge_stage["prediction_drift"] == {
+        "predicted_input_tokens": 150,
+        "observed_input_tokens": 130,
+        "input_token_delta": -20,
+        "predicted_output_tokens": 30,
+        "observed_output_tokens": 35,
+        "output_token_delta": 5,
+        "predicted_followup_tokens": 20,
+        "predicted_peak_session_tokens": 200,
+        "observed_billed_total_tokens": 175,
+        "billed_total_minus_predicted_peak_session_tokens": -25,
+    }
 
 
 def test_prompt_budget_summary_reports_recipe_run_count_deviation_from_requested_target(

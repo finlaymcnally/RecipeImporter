@@ -182,7 +182,8 @@ Interactive `Import` and benchmark runs (`single_book` + matched-books) ask:
   - single-book benchmark now resolves a shared deterministic prep bundle for that selected source before opening the planner, so the row notes can show minimum-safe shard suggestions for line-role, recipe, and knowledge without throwing that prep work away
   - benchmark and all-method Codex rows stay in runtime stage order: block-labelling, then recipe correction, then non-recipe finalize
   - the header now gives a short deterministic prep summary (`blocks`, `lines`, `recipe guesses`, leftover `knowledge packets`) plus a one-line legend for the row note format
-  - when target-specific planning data is available, each row note uses short plain-English labels: the main limiting factor (`prompt`, `output`, `session`, or `work`) plus average prompt size, average session size, and average owned work units per shard
+  - when target-specific planning data is available, the shard-count column remains the operator's launch request, `min` stays the advisory survivability recommendation, and row notes now also surface budget-native shard pressure when the planner would naturally packetize more finely than the requested launch count
+  - row notes still use short plain-English labels for the main limiting factor (`prompt`, `output`, `session`, or `work`) plus average prompt size, average session size, and average owned work units per shard
   - live planning still fails closed later if the requested shard count is unsafe
   - the interactive chooser still caps each per-step prompt/shard count at `256`
   - the stage and benchmark adapter/CLI seams preserve those values into the live run config, so interactive shard choices survive through execution instead of silently falling back to saved defaults
