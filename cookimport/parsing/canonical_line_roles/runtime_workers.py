@@ -864,17 +864,26 @@ def _run_line_role_structured_assignment_v1(*, run_root: root.Path, assignment: 
         if shard_completed_callback is not None:
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
     worker_runner_payload = root._aggregate_line_role_worker_runner_payload(pipeline_id=pipeline_id, worker_runs=worker_runner_results)
+    worker_telemetry_summary = (
+        worker_runner_payload.get('telemetry', {}).get('summary', {})
+    )
+    if not isinstance(worker_telemetry_summary, root.Mapping):
+        worker_telemetry_summary = {}
     worker_runner_payload['recovery_policy'] = root.inline_repair_policy_summary(stage_key=root.LINE_ROLE_POLICY_STAGE_KEY)
     worker_runner_payload['repair_recovery_policy'] = root.build_followup_budget_summary(
         stage_key=root.LINE_ROLE_POLICY_STAGE_KEY,
         transport=root.INLINE_JSON_TRANSPORT,
         spent_attempts_by_kind={
             root.FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: int(
-                worker_runner_payload.get('telemetry', {})
-                .get('summary', {})
-                .get('structured_followup_call_count')
-                or 0
+                worker_telemetry_summary.get('structured_repair_followup_call_count') or 0
             ),
+            root.FOLLOWUP_KIND_WATCHDOG_RETRY: int(
+                worker_telemetry_summary.get('watchdog_retry_call_count') or 0
+            ),
+        },
+        allowed_attempts_multiplier_by_kind={
+            root.FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: len(assigned_shards),
+            root.FOLLOWUP_KIND_WATCHDOG_RETRY: len(assigned_shards),
         },
     )
     root._write_runtime_json(worker_root / 'status.json', worker_runner_payload)
@@ -1033,14 +1042,24 @@ def _run_line_role_direct_workers_v1(*, phase_key: str, pipeline_id: str, run_ro
     same_session_repair_rewrite_count = sum((int(dict(report.metadata or {}).get('same_session_repair_rewrite_count') or 0) for report in worker_reports))
     fresh_session_retry_count = sum((int(dict(report.metadata or {}).get('fresh_session_retry_count') or 0) for report in worker_reports))
     fresh_worker_replacement_count = sum((int(dict(report.metadata or {}).get('fresh_worker_replacement_count') or 0) for report in worker_reports))
+    telemetry_summary = telemetry.get('summary') if isinstance(telemetry, root.Mapping) else {}
+    if not isinstance(telemetry_summary, root.Mapping):
+        telemetry_summary = {}
     if any(str(dict(report.metadata or {}).get('codex_exec_style') or '').strip() == root.CODEX_EXEC_STYLE_INLINE_JSON_V1 for report in worker_reports):
         telemetry['summary']['repair_recovery_policy'] = root.build_followup_budget_summary(
             stage_key=root.LINE_ROLE_POLICY_STAGE_KEY,
             transport=root.INLINE_JSON_TRANSPORT,
             spent_attempts_by_kind={
                 root.FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: int(
-                    telemetry['summary'].get('structured_followup_call_count') or 0
+                    telemetry_summary.get('structured_repair_followup_call_count') or 0
                 ),
+                root.FOLLOWUP_KIND_WATCHDOG_RETRY: int(
+                    telemetry_summary.get('watchdog_retry_call_count') or 0
+                ),
+            },
+            allowed_attempts_multiplier_by_kind={
+                root.FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: len(shards),
+                root.FOLLOWUP_KIND_WATCHDOG_RETRY: len(shards),
             },
         )
     else:

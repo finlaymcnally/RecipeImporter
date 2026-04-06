@@ -17,6 +17,7 @@ from cookimport.llm.editable_task_file import (
 from cookimport.llm.repair_recovery_policy import (
     LINE_ROLE_POLICY_STAGE_KEY,
     taskfile_fresh_session_retry_limit,
+    taskfile_same_session_repair_rewrite_limit,
 )
 
 LINE_ROLE_SAME_SESSION_HANDOFF_SCHEMA_VERSION = "line_role_same_session_handoff.v1"
@@ -315,6 +316,12 @@ def advance_line_role_same_session_handoff(
         state.get("same_session_transition_count") or 0
     ) + 1
     state["validation_count"] = int(state.get("validation_count") or 0) + 1
+    repair_rewrite_limit = taskfile_same_session_repair_rewrite_limit(
+        stage_key=LINE_ROLE_POLICY_STAGE_KEY
+    )
+    current_repair_rewrite_count = int(
+        state.get("same_session_repair_rewrite_count") or 0
+    )
 
     if contract_errors:
         validation_errors = list(contract_errors)
@@ -337,7 +344,7 @@ def advance_line_role_same_session_handoff(
                 "repair_status": "failed" if current_mode == "repair" else "not_attempted",
                 "validation_errors": validation_errors,
             }
-        if current_mode == "repair":
+        if current_repair_rewrite_count >= repair_rewrite_limit:
             return _repair_exhausted_result(
                 state=state,
                 state_path=state_path,
@@ -467,7 +474,7 @@ def advance_line_role_same_session_handoff(
             if shard_id in set(failed_shard_ids)
         ]
         validation_errors = sorted({error for error in failed_validation_errors if error})
-        if current_mode == "repair":
+        if current_repair_rewrite_count >= repair_rewrite_limit:
             return _repair_exhausted_result(
                 state=state,
                 state_path=state_path,

@@ -261,7 +261,7 @@ def test_summarize_direct_telemetry_rows_counts_structured_followups() -> None:
             {
                 "task_id": "shard-001",
                 "tokens_total": 8,
-                "prompt_input_mode": "inline_repair",
+                "prompt_input_mode": "structured_session_repair",
             },
         ]
     )
@@ -270,11 +270,13 @@ def test_summarize_direct_telemetry_rows_counts_structured_followups() -> None:
     assert summary["taskfile_row_count"] == 1
     assert summary["taskfile_session_count"] == 1
     assert summary["structured_followup_call_count"] == 3
+    assert summary["structured_repair_followup_call_count"] == 2
+    assert summary["watchdog_retry_call_count"] == 1
     assert summary["structured_followup_tokens_total"] == 18
     assert summary["prompt_input_mode_counts"] == {
-        "inline_repair": 1,
         "inline_retry": 1,
         "inline_watchdog_retry": 1,
+        "structured_session_repair": 1,
         "taskfile": 1,
     }
 

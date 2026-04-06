@@ -778,6 +778,12 @@ def _write_knowledge_runtime_summary_artifacts(
                     FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT: (
                         fresh_worker_replacement_count
                     ),
+                    FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: int(
+                        packet_economics.get("repair_packet_count_total") or 0
+                    ),
+                },
+                allowed_attempts_multiplier_by_kind={
+                    FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: len(shards),
                 },
             ),
             "semantic_steps": {
@@ -822,6 +828,17 @@ def _write_knowledge_runtime_summary_artifacts(
                             ]
                         ),
                     },
+                    allowed_attempts_multiplier_by_kind=(
+                        {
+                            FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: int(
+                                packet_economics.get("classification_step_count_total")
+                                or 0
+                            ),
+                        }
+                        if int(packet_economics.get("classification_step_count_total") or 0)
+                        > 0
+                        else None
+                    ),
                 ),
                 KNOWLEDGE_GROUP_STEP_KEY: build_followup_budget_summary(
                     stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
@@ -834,6 +851,15 @@ def _write_knowledge_runtime_summary_artifacts(
                             ]
                         ),
                     },
+                    allowed_attempts_multiplier_by_kind=(
+                        {
+                            FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: int(
+                                packet_economics.get("grouping_step_count_total") or 0
+                            ),
+                        }
+                        if int(packet_economics.get("grouping_step_count_total") or 0) > 0
+                        else None
+                    ),
                 ),
             },
         }

@@ -17,9 +17,11 @@ FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE = "same_session_repair_rewrite"
 FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP = "structured_repair_followup"
 FOLLOWUP_KIND_FRESH_SESSION_RETRY = "fresh_session_retry"
 FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT = "fresh_worker_replacement"
+FOLLOWUP_KIND_WATCHDOG_RETRY = "watchdog_retry"
 
 FOLLOWUP_SCOPE_WORKER_ASSIGNMENT = "worker_assignment"
 FOLLOWUP_SCOPE_SEMANTIC_STEP = "semantic_step"
+FOLLOWUP_SCOPE_SHARD_RESULT = "shard_result"
 
 
 @dataclass(frozen=True)
@@ -110,7 +112,13 @@ _POLICY_TABLE: dict[tuple[str, str, str | None], StageTransportPolicy] = {
                 kind=FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP,
                 surface="structured_session",
                 max_attempts=1,
-                scope=FOLLOWUP_SCOPE_WORKER_ASSIGNMENT,
+                scope=FOLLOWUP_SCOPE_SHARD_RESULT,
+            ),
+            FollowupBudget(
+                kind=FOLLOWUP_KIND_WATCHDOG_RETRY,
+                surface="structured_session",
+                max_attempts=1,
+                scope=FOLLOWUP_SCOPE_SHARD_RESULT,
             ),
         ),
     ),
@@ -134,6 +142,12 @@ _POLICY_TABLE: dict[tuple[str, str, str | None], StageTransportPolicy] = {
                 surface="workspace_session",
                 max_attempts=1,
                 scope=FOLLOWUP_SCOPE_WORKER_ASSIGNMENT,
+            ),
+            FollowupBudget(
+                kind=FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP,
+                surface="structured_session",
+                max_attempts=1,
+                scope=FOLLOWUP_SCOPE_SHARD_RESULT,
             ),
         ),
     ),
@@ -281,11 +295,12 @@ def taskfile_same_session_repair_rewrite_limit(
 def structured_repair_followup_limit(
     *,
     stage_key: str,
+    transport: str = INLINE_JSON_TRANSPORT,
     semantic_step_key: str | None = None,
 ) -> int:
     return get_followup_limit(
         stage_key=stage_key,
-        transport=INLINE_JSON_TRANSPORT,
+        transport=transport,
         kind=FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP,
         semantic_step_key=semantic_step_key,
     )
@@ -315,12 +330,27 @@ def inline_repair_policy_summary(
     }
 
 
+def taskfile_structured_repair_policy_summary(
+    *,
+    stage_key: str,
+    semantic_step_key: str | None = None,
+) -> dict[str, int]:
+    return {
+        "structured_repair_followup_limit": structured_repair_followup_limit(
+            stage_key=stage_key,
+            transport=TASKFILE_TRANSPORT,
+            semantic_step_key=semantic_step_key,
+        )
+    }
+
+
 def build_followup_budget_summary(
     *,
     stage_key: str,
     transport: str,
     semantic_step_key: str | None = None,
     spent_attempts_by_kind: Mapping[str, Any] | None = None,
+    allowed_attempts_multiplier_by_kind: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     policy = get_stage_transport_policy(
         stage_key=stage_key,
@@ -330,10 +360,21 @@ def build_followup_budget_summary(
     spent_counts = (
         dict(spent_attempts_by_kind) if isinstance(spent_attempts_by_kind, Mapping) else {}
     )
+    allowed_attempts_multipliers = (
+        dict(allowed_attempts_multiplier_by_kind)
+        if isinstance(allowed_attempts_multiplier_by_kind, Mapping)
+        else {}
+    )
     budgets: dict[str, dict[str, Any]] = {}
     for budget in policy.allowed_followups:
         spent_attempts = max(0, int(spent_counts.get(budget.kind) or 0))
         allowed_attempts = max(0, int(budget.max_attempts))
+        multiplier_value = allowed_attempts_multipliers.get(budget.kind)
+        allowed_attempts *= (
+            max(0, int(multiplier_value or 0))
+            if multiplier_value is not None
+            else 1
+        )
         budgets[budget.kind] = {
             "followup_kind": budget.kind,
             "followup_surface": budget.surface,

@@ -12,6 +12,7 @@ from cookimport.llm.repair_recovery_policy import (
     FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT,
     FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE,
     FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP,
+    FOLLOWUP_KIND_WATCHDOG_RETRY,
     INLINE_JSON_TRANSPORT,
     KNOWLEDGE_CLASSIFY_STEP_KEY,
     KNOWLEDGE_GROUP_STEP_KEY,
@@ -790,6 +791,15 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
                             worker_status_rows,
                             "fresh_worker_replacement_count",
                         ),
+                        FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: int(
+                            packet_economics.get("repair_packet_count_total") or 0
+                        ),
+                    },
+                    allowed_attempts_multiplier_by_kind={
+                        FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: max(
+                            len(task_rows),
+                            int(packet_economics.get("packet_count_total") or 0),
+                        ),
                     },
                 ),
                 "semantic_steps": {
@@ -837,6 +847,22 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
                                 or 0
                             ),
                         },
+                        allowed_attempts_multiplier_by_kind=(
+                            {
+                                FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: int(
+                                    packet_economics.get(
+                                        "classification_step_count_total"
+                                    )
+                                    or 0
+                                ),
+                            }
+                            if int(
+                                packet_economics.get("classification_step_count_total")
+                                or 0
+                            )
+                            > 0
+                            else None
+                        ),
                     ),
                     KNOWLEDGE_GROUP_STEP_KEY: build_followup_budget_summary(
                         stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
@@ -850,6 +876,17 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
                                 or 0
                             ),
                         },
+                        allowed_attempts_multiplier_by_kind=(
+                            {
+                                FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: int(
+                                    packet_economics.get("grouping_step_count_total")
+                                    or 0
+                                ),
+                            }
+                            if int(packet_economics.get("grouping_step_count_total") or 0)
+                            > 0
+                            else None
+                        ),
                     ),
                 },
             }
@@ -1355,6 +1392,18 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
         for row in task_rows
     ):
         active_transport = INLINE_JSON_TRANSPORT
+    structured_repair_followup_call_count = int(
+        telemetry_summary.get("structured_repair_followup_call_count")
+        or prompt_input_mode_counts.get("structured_session_repair")
+        or prompt_input_mode_counts.get("inline_repair")
+        or 0
+    )
+    watchdog_retry_call_count = int(
+        telemetry_summary.get("watchdog_retry_call_count")
+        or prompt_input_mode_counts.get("inline_watchdog_retry")
+        or 0
+    )
+    inline_shard_budget_count = max(planned_task_total, len(task_rows), completed_task_total, 1)
     summary = {
         "schema_version": LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION,
         "stage_key": "line_role",
@@ -1400,9 +1449,12 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
                 stage_key=LINE_ROLE_POLICY_STAGE_KEY,
                 transport=INLINE_JSON_TRANSPORT,
                 spent_attempts_by_kind={
-                    FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: int(
-                        telemetry_summary.get("structured_followup_call_count") or 0
-                    ),
+                    FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: structured_repair_followup_call_count,
+                    FOLLOWUP_KIND_WATCHDOG_RETRY: watchdog_retry_call_count,
+                },
+                allowed_attempts_multiplier_by_kind={
+                    FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: inline_shard_budget_count,
+                    FOLLOWUP_KIND_WATCHDOG_RETRY: inline_shard_budget_count,
                 },
             )
             if active_transport == INLINE_JSON_TRANSPORT

@@ -38,6 +38,7 @@ The visible proof after implementation is:
 - [x] (2026-04-06 15:08 America/Toronto) Moved preview-backed line-role/recipe/knowledge recommendations plus live recipe/knowledge runtime artifacts onto the shared phase-plan fields for requested, survivability-recommended, budget-native, and launch shard counts.
 - [x] (2026-04-06 15:08 America/Toronto) Switched shared planning counts to rendered prompt text where the repo already has the real prompt builder, instead of keeping preview-only proxy fields as the authoritative plan.
 - [x] (2026-04-06 15:08 America/Toronto) Updated the interactive planner rows, prompt preview artifacts, and post-run prompt-budget reader to surface one shard story plus predicted-vs-observed drift from the shared artifact.
+- [x] (2026-04-06 16:04 America/Toronto) Migrated the live canonical line-role runtime root onto the shared phase-plan artifact as well, so recipe, knowledge, and line-role now all write `phase_plan.json` plus `phase_plan_summary.json` on the live path and expose those paths through runtime metadata.
 - [ ] Validate the new planner on the April 6, 2026 benchmark case with a real Codex-enabled run. Remaining blocker: repo instruction forbids running Codex-enabled benchmark/book-processing flows without explicit user approval.
 
 ## Surprises & Discoveries
@@ -82,8 +83,8 @@ The visible proof after implementation is:
   Rationale: recipe, line-role, and knowledge have different prompt builders and work-unit definitions, but they still need one common artifact schema and one common reporting story. A shared planner core with stage-specific adapters keeps the change large but survivable.
   Date/Author: 2026-04-06 / Codex
 
-- Decision: The first live-runtime rollout writes shared phase-plan artifacts for recipe and knowledge now, while line-role continues to use the shared schema through prompt preview and interactive recommendation surfaces until its runtime writer is migrated separately.
-  Rationale: The motivating failure case is knowledge, and recipe already shares the same phase-runtime topology. Shipping those two live writers now gives prompt-budget postmortems a real artifact to read without taking on a larger line-role runtime migration in the same change.
+- Decision: The first live-runtime rollout wrote shared phase-plan artifacts for recipe and knowledge first, then line-role was migrated in a small follow-on once the runtime-metadata seam was proven stable.
+  Rationale: The motivating failure case was knowledge, and recipe already shared the same phase-runtime topology. Shipping those two live writers first gave prompt-budget postmortems a real artifact to read without taking on a larger line-role runtime migration in the same change. Once that artifact family held up, line-role joined the same live writer contract.
   Date/Author: 2026-04-06 / Codex
 
 - Decision: Real April 6 benchmark re-validation stays out of this implementation turn unless the user explicitly approves a Codex-enabled benchmark rerun.
@@ -92,8 +93,8 @@ The visible proof after implementation is:
 
 ## Outcomes & Retrospective
 
-- Outcome: The repo now has one shared phase-plan artifact family (`phase_plan.json` and `phase_plan_summary.json`) that prompt preview writes for recipe, knowledge, and line-role, and live recipe/knowledge runtimes write beside their normal manifests. Interactive recommendations and finished-run prompt-budget summaries now read the same requested/budget-native/launch/survivability count story instead of inventing a second summary shape.
-  Remaining work: line-role still needs its live runtime writer migrated to the shared phase-plan artifact, and the April 6 single-book benchmark needs one explicit user-approved Codex rerun to complete the motivating real-run acceptance proof.
+- Outcome: The repo now has one shared phase-plan artifact family (`phase_plan.json` and `phase_plan_summary.json`) that prompt preview writes for recipe, knowledge, and line-role, and all three live runtimes now write beside their normal manifests as well. Interactive recommendations and finished-run prompt-budget summaries now read the same requested/budget-native/launch/survivability count story instead of inventing a second summary shape.
+  Remaining work: the April 6 single-book benchmark still needs one explicit user-approved Codex rerun to complete the motivating real-run acceptance proof.
   Lesson: the important implementation work was less about inventing a planner than about stopping downstream readers from quietly throwing away the planner facts the repo already knew.
 
 ## Context and Orientation

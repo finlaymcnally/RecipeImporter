@@ -37,6 +37,11 @@ from cookimport.llm.codex_farm_runner import (
     CodexFarmRunnerError,
     resolve_codex_farm_output_schema_path,
 )
+from cookimport.llm.phase_plan import (
+    attach_survivability_to_phase_plan,
+    build_phase_plan,
+    write_phase_plan_artifacts,
+)
 from cookimport.llm.editable_task_file import (
     TASK_FILE_NAME,
     build_task_file,
@@ -80,6 +85,7 @@ from cookimport.llm.repair_recovery_policy import (
     FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT,
     FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE,
     FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP,
+    FOLLOWUP_KIND_WATCHDOG_RETRY,
     INLINE_JSON_TRANSPORT,
     LINE_ROLE_POLICY_STAGE_KEY,
     TASKFILE_TRANSPORT,
@@ -609,6 +615,67 @@ def _run_line_role_shard_runtime(
     )
     if str(survivability_report.get("survivability_verdict") or "") != "safe":
         raise ShardSurvivabilityPreflightError(survivability_report)
+    worker_count = _resolve_line_role_worker_count(
+        settings=settings,
+        codex_max_inflight=codex_max_inflight,
+        shard_count=len(shard_plans),
+    )
+    requested_shard_count = getattr(settings, "line_role_prompt_target_count", None)
+    budget_native_shard_count = len(shard_plans) or 1
+    phase_plan = build_phase_plan(
+        stage_key="line_role",
+        stage_label=shard_plans[0].phase_label,
+        stage_order=2,
+        surface_pipeline=LINE_ROLE_PIPELINE_ROUTE_V2,
+        runtime_pipeline_id=shard_plans[0].runtime_pipeline_id,
+        worker_count=worker_count,
+        requested_shard_count=(
+            int(requested_shard_count) if requested_shard_count is not None else len(shard_plans)
+        ),
+        budget_native_shard_count=budget_native_shard_count,
+        launch_shard_count=len(shard_plans),
+        planning_warnings=list(survivability_report.get("warnings") or []),
+        shard_specs=[
+            {
+                "shard_id": shard_plan.shard_id,
+                "owned_ids": [str(candidate.atomic_index) for candidate in shard_plan.candidates],
+                "call_ids": [shard_plan.shard_id],
+                "prompt_chars": len(
+                    build_canonical_line_role_file_prompt(
+                        input_path=Path("in") / f"{shard_plan.shard_id}.json",
+                        input_payload=(
+                            dict(shard_plan.manifest_entry.input_payload)
+                            if isinstance(shard_plan.manifest_entry.input_payload, Mapping)
+                            else {}
+                        ),
+                    )
+                ),
+                "task_prompt_chars": len(
+                    json.dumps(
+                        (
+                            dict(shard_plan.manifest_entry.input_payload)
+                            if isinstance(shard_plan.manifest_entry.input_payload, Mapping)
+                            else {}
+                        ),
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    )
+                ),
+                "work_unit_count": len(shard_plan.candidates),
+                "work_unit_label": "lines",
+            }
+            for shard_plan in shard_plans
+        ],
+    )
+    phase_plan = attach_survivability_to_phase_plan(
+        phase_plan=phase_plan,
+        survivability_report=survivability_report,
+    )
+    phase_plan_path, phase_plan_summary_path = write_phase_plan_artifacts(
+        stage_dir=runtime_root / "line_role",
+        phase_plan=phase_plan,
+    )
     phase_result = _run_line_role_phase_runtime(
         shard_plans=shard_plans,
         artifact_root=artifact_root,
@@ -624,6 +691,14 @@ def _run_line_role_shard_runtime(
         settings=settings,
         codex_batch_size=codex_batch_size,
         codex_max_inflight=codex_max_inflight,
+        runtime_metadata={
+            "requested_shard_count": (
+                int(requested_shard_count) if requested_shard_count is not None else len(shard_plans)
+            ),
+            "budget_native_shard_count": budget_native_shard_count,
+            "phase_plan_path": str(phase_plan_path),
+            "phase_plan_summary_path": str(phase_plan_summary_path),
+        },
         progress_callback=progress_callback,
         validator=_validate_line_role_shard_proposal,
     )
@@ -695,6 +770,7 @@ def _run_line_role_phase_runtime(
     settings: RunSettings,
     codex_batch_size: int,
     codex_max_inflight: int | None,
+    runtime_metadata: Mapping[str, Any] | None = None,
     progress_callback: Callable[[str], None] | None,
     validator: Callable[[ShardManifestEntryV1, dict[str, Any]], tuple[bool, Sequence[str], dict[str, Any] | None]],
 ) -> _LineRolePhaseRuntimeResult:
@@ -810,6 +886,7 @@ def _run_line_role_phase_runtime(
                 if codex_farm_workspace_root is not None
                 else None
             ),
+            **dict(runtime_metadata or {}),
         },
         progress_callback=progress_callback,
         prompt_state=prompt_state,

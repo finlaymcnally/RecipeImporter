@@ -261,6 +261,67 @@ def test_label_atomic_lines_accepts_valid_workspace_outputs_without_final_messag
     assert rows[0]["final_agent_message_reason"] is None
 
 
+def test_label_atomic_lines_writes_live_phase_plan_artifacts(tmp_path) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:phase-plan:0",
+            block_index=0,
+            atomic_index=0,
+            text="Bright Cabbage Slaw",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        )
+    ]
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-route-v2",
+            line_role_prompt_target_count=1,
+            line_role_worker_count=1,
+        ),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner({0: "RECIPE_TITLE"}),
+        live_llm_allowed=True,
+    )
+
+    assert len(predictions) == 1
+    assert predictions[0].label == "RECIPE_TITLE"
+
+    phase_plan_path = (
+        tmp_path / "line-role-pipeline" / "runtime" / "line_role" / "phase_plan.json"
+    )
+    phase_plan_summary_path = (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "phase_plan_summary.json"
+    )
+    phase_manifest_path = (
+        tmp_path / "line-role-pipeline" / "runtime" / "line_role" / "phase_manifest.json"
+    )
+
+    assert phase_plan_path.exists()
+    assert phase_plan_summary_path.exists()
+
+    phase_plan = json.loads(phase_plan_path.read_text(encoding="utf-8"))
+    phase_manifest = json.loads(phase_manifest_path.read_text(encoding="utf-8"))
+
+    assert phase_plan["stage_key"] == "line_role"
+    assert phase_plan["requested_shard_count"] == 1
+    assert phase_plan["budget_native_shard_count"] == 1
+    assert phase_plan["launch_shard_count"] == 1
+    assert phase_plan["work_unit_label"] == "lines"
+    assert phase_plan["work_unit_count"] == 1
+    assert phase_plan["shards"][0]["work_unit_count"] == 1
+    assert phase_manifest["runtime_metadata"]["phase_plan_path"].endswith("phase_plan.json")
+    assert phase_manifest["runtime_metadata"]["phase_plan_summary_path"].endswith(
+        "phase_plan_summary.json"
+    )
+
+
 def test_label_atomic_lines_near_miss_invalid_task_file_edit_fails_closed_without_second_model_pass(
     tmp_path,
 ) -> None:

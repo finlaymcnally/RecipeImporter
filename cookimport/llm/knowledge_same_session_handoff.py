@@ -15,6 +15,7 @@ from .knowledge_stage.task_file_contracts import (
 from .repair_recovery_policy import (
     KNOWLEDGE_POLICY_STAGE_KEY,
     taskfile_fresh_session_retry_limit,
+    taskfile_same_session_repair_rewrite_limit,
 )
 
 KNOWLEDGE_SAME_SESSION_HANDOFF_SCHEMA_VERSION = "knowledge_same_session_handoff.v1"
@@ -124,6 +125,20 @@ def _record_transition_counters(
         state["grouping_transition_count"] = int(
             state.get("grouping_transition_count") or 0
         ) + 1
+
+
+def _same_session_repair_rewrite_count_for_stage(
+    *,
+    state: Mapping[str, Any],
+    stage_key: str,
+) -> int:
+    return sum(
+        1
+        for row in (state.get("transition_history") or [])
+        if isinstance(row, Mapping)
+        and str(row.get("status") or "").strip() == "repair_required"
+        and str(row.get("current_stage_key") or "").strip() == str(stage_key or "").strip()
+    )
 
 
 def _knowledge_recommended_command() -> str:
@@ -335,14 +350,23 @@ def advance_knowledge_same_session_handoff(
 
     current_mode = str(current_original_task_file.get("mode") or "initial").strip() or "initial"
     if transition.status == "repair_required" and current_mode == "repair":
-        state["same_session_repair_rewrite_count"] = max(
-            0,
-            int(state.get("same_session_repair_rewrite_count") or 0) - 1,
+        repair_rewrite_limit = taskfile_same_session_repair_rewrite_limit(
+            stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+            semantic_step_key=transition.current_stage_key,
         )
-        state["completed"] = False
-        state["final_status"] = "repair_exhausted"
-        _write_json(state_path, state)
-        return _repair_exhausted_result(state=state, transition=transition)
+        current_stage_repair_rewrite_count = _same_session_repair_rewrite_count_for_stage(
+            state=state,
+            stage_key=transition.current_stage_key,
+        )
+        if current_stage_repair_rewrite_count > repair_rewrite_limit:
+            state["same_session_repair_rewrite_count"] = max(
+                0,
+                int(state.get("same_session_repair_rewrite_count") or 0) - 1,
+            )
+            state["completed"] = False
+            state["final_status"] = "repair_exhausted"
+            _write_json(state_path, state)
+            return _repair_exhausted_result(state=state, transition=transition)
 
     if transition.next_task_file is not None:
         write_task_file(path=task_file_path, payload=transition.next_task_file)

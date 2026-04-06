@@ -15,6 +15,7 @@ from cookimport.llm.repair_recovery_policy import (
     should_attempt_taskfile_fresh_worker_replacement,
     structured_repair_followup_limit,
     taskfile_recovery_policy_summary,
+    taskfile_structured_repair_policy_summary,
 )
 
 
@@ -31,6 +32,9 @@ def test_policy_table_matches_current_stage_transport_matrix() -> None:
         "fresh_session_retry_limit": 1,
         "fresh_worker_replacement_limit": 1,
     }
+    assert taskfile_structured_repair_policy_summary(
+        stage_key=KNOWLEDGE_POLICY_STAGE_KEY
+    ) == {"structured_repair_followup_limit": 1}
     assert inline_repair_policy_summary(stage_key=LINE_ROLE_POLICY_STAGE_KEY) == {
         "structured_repair_followup_limit": 1
     }
@@ -66,6 +70,21 @@ def test_policy_rows_are_step_specific_for_knowledge_inline() -> None:
         stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
         semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
     ) == 3
+
+
+def test_line_role_inline_policy_includes_watchdog_retry_budget() -> None:
+    inline_policy = get_stage_transport_policy(
+        stage_key=LINE_ROLE_POLICY_STAGE_KEY,
+        transport=INLINE_JSON_TRANSPORT,
+    )
+
+    budgets = {budget.kind: budget.max_attempts for budget in inline_policy.allowed_followups}
+    budget_scopes = {budget.kind: budget.scope for budget in inline_policy.allowed_followups}
+
+    assert budgets["structured_repair_followup"] == 1
+    assert budgets["watchdog_retry"] == 1
+    assert budget_scopes["structured_repair_followup"] == "shard_result"
+    assert budget_scopes["watchdog_retry"] == "shard_result"
 
 
 def test_taskfile_retry_helper_uses_shared_budget_and_reason_taxonomy() -> None:
@@ -151,4 +170,51 @@ def test_followup_budget_summary_reports_allowed_and_spent_counts() -> None:
         "allowed_attempts": 3,
         "spent_attempts": 2,
         "remaining_attempts": 1,
+    }
+
+
+def test_line_role_inline_budget_summary_reports_watchdog_retry_separately() -> None:
+    summary = build_followup_budget_summary(
+        stage_key=LINE_ROLE_POLICY_STAGE_KEY,
+        transport=INLINE_JSON_TRANSPORT,
+        spent_attempts_by_kind={
+            "structured_repair_followup": 1,
+            "watchdog_retry": 1,
+        },
+        allowed_attempts_multiplier_by_kind={
+            "structured_repair_followup": 2,
+            "watchdog_retry": 2,
+        },
+    )
+
+    assert summary["budgets"]["structured_repair_followup"]["spent_attempts"] == 1
+    assert summary["budgets"]["watchdog_retry"] == {
+        "followup_kind": "watchdog_retry",
+        "followup_surface": "structured_session",
+        "budget_scope": "shard_result",
+        "allowed_attempts": 2,
+        "spent_attempts": 1,
+        "remaining_attempts": 1,
+    }
+
+
+def test_knowledge_taskfile_budget_summary_reports_post_result_repair_followups() -> None:
+    summary = build_followup_budget_summary(
+        stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+        transport=TASKFILE_TRANSPORT,
+        spent_attempts_by_kind={
+            "structured_repair_followup": 1,
+        },
+        allowed_attempts_multiplier_by_kind={
+            "structured_repair_followup": 3,
+        },
+    )
+
+    assert summary["budgets"]["structured_repair_followup"] == {
+        "followup_kind": "structured_repair_followup",
+        "followup_surface": "structured_session",
+        "budget_scope": "shard_result",
+        "allowed_attempts": 3,
+        "spent_attempts": 1,
+        "remaining_attempts": 2,
     }

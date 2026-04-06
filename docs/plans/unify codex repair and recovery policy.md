@@ -39,6 +39,8 @@ The visible proof after implementation is:
 - [x] (2026-04-06 15:26 America/Toronto) Standardized stage summaries so recipe, line-role, and knowledge all expose allowed-versus-spent policy budgets under `repair_recovery_policy` alongside the older followup rollups.
 - [x] (2026-04-06 15:26 America/Toronto) Updated durable docs in `docs/10-llm/10-llm_README.md`, `cookimport/llm/recipe_stage/README.md`, `cookimport/parsing/canonical_line_roles/README.md`, and `cookimport/llm/knowledge_stage/README.md`, and demoted `docs/reports/2026-04-06-repair-analysis.md` to narrative context.
 - [x] (2026-04-06 15:26 America/Toronto) Added focused policy and stage-summary assertions in `tests/llm/test_repair_recovery_policy.py` and `tests/staging/test_stage_observability.py`, then verified them with a green targeted pytest run.
+- [x] (2026-04-06 16:04 America/Toronto) Added line-role inline `watchdog_retry=1` to the shared policy matrix and updated line-role runtime/status reporting so structured inline repair spend and watchdog-retry spend are reported as separate shared policy rows instead of being collapsed into one repair counter.
+- [x] (2026-04-06 16:21 America/Toronto) Closed the remaining review gaps: same-session handoff exhaustion now reads shared repair limits, knowledge taskfile policy/reporting now includes the extra post-handoff structured repair surface, line-role inline and shared telemetry now count real `structured_session_*_repair` followups correctly, and the focused policy/runtime/stage-summary loop plus `./scripts/test-suite.sh fast` both pass.
 
 ## Surprises & Discoveries
 
@@ -62,6 +64,12 @@ The visible proof after implementation is:
 
 - Observation: the cleanest way to make summaries legible was to extend the already-shipped telemetry summaries and then let stage summaries reuse that shape instead of inventing a second reporting schema.
   Evidence: recipe and line-role already had durable worker/stage status artifacts, and knowledge reporting already built packet-economics rollups. Adding `repair_recovery_policy` beside those payloads kept the new contract close to existing observability instead of creating one more artifact family.
+
+- Observation: line-role inline followup spend was still being undercounted even after the watchdog row existed.
+  Evidence: `runtime_workers.py` emits `structured_session_repair`, but `codex_exec_telemetry.py` only treated `inline_*` prompt modes as structured followups, so line-role inline `spent_attempts` could stay at zero until the telemetry classifier learned the real structured-session repair mode names.
+
+- Observation: knowledge taskfile had one more live repair surface than the shared policy table admitted.
+  Evidence: after same-session taskfile handoff, `workspace_run.py` can still call `_run_knowledge_repair_attempt(...)` for an invalid final shard output; the original shared table had no corresponding `knowledge/taskfile` budget row for that followup.
 
 ## Decision Log
 
@@ -91,9 +99,9 @@ The visible proof after implementation is:
 
 ## Outcomes & Retrospective
 
-The shared repair/recovery policy is now a real live contract instead of a design note. `cookimport/llm/repair_recovery_policy.py` owns the budget matrix and now also renders normalized budget rows. Recipe, line-role, and knowledge telemetry emit those rows under `repair_recovery_policy`, and the compact stage summaries mirror the same allowed-versus-spent view so an operator can answer “what was allowed?” and “what did this run spend?” from one stable vocabulary.
+The shared repair/recovery policy is now a real live contract instead of a design note. `cookimport/llm/repair_recovery_policy.py` owns the budget matrix and now also renders normalized budget rows. Recipe, line-role, and knowledge telemetry emit those rows under `repair_recovery_policy`, and the compact stage summaries mirror the same allowed-versus-spent view so an operator can answer “what was allowed?” and “what did this run spend?” from one stable vocabulary. For line-role inline specifically, the shared policy surface now reports `structured_repair_followup` and `watchdog_retry` as separate budget rows rather than folding both into one generic follow-up count. Knowledge taskfile now also reports its extra post-handoff structured repair surface through that same shared policy instead of leaving it as an undocumented stage-local escape hatch.
 
-The runtime differences stayed intact. Recipe still reports one taskfile repair rewrite plus bounded recovery, line-role still splits taskfile versus inline behavior, and knowledge still distinguishes worker-assignment recovery from semantic-step repair budgets. The work intentionally stopped short of a monolithic shared executor; the finished slice is explicit policy, explicit spent counts, and durable docs/tests that keep those contracts honest.
+The runtime differences stayed intact. Recipe still reports one taskfile repair rewrite plus bounded recovery, line-role still splits taskfile versus inline behavior, and knowledge still distinguishes worker-assignment recovery from semantic-step repair budgets. The work intentionally stopped short of a monolithic shared executor; the finished slice is explicit policy, explicit spent counts, durable docs/tests, and corrected followup accounting that now agrees with the actual prompt-mode and packet-economics signals the runtime emits.
 
 ## Context and Orientation
 
@@ -306,3 +314,4 @@ Keep `cookimport/llm/task_file_guardrails.py` as the home for taskfile-size and 
 
 Revision note (2026-04-06 11:19 America/Toronto): created this ExecPlan after reviewing `docs/reports/repair-analysis.md`, the owning LLM docs, and the current recipe, line-role, and knowledge repair or recovery seams. The purpose of this first revision is to turn that narrative analysis into a code-facing refactor plan with concrete owners, validation, and acceptance criteria.
 Revision note (2026-04-06 15:26 America/Toronto): updated the plan after implementation. The code now exposes normalized `repair_recovery_policy` budget rows in worker or stage telemetry plus stage summaries, knowledge same-session reporting now tracks per-step repair spend, the owning docs now carry the policy matrix, and the narrative repair report is explicitly marked as historical context.
+Revision note (2026-04-06 16:21 America/Toronto): updated the plan after a code review of the finished slice. This revision records the follow-up repairs that were still needed after the first implementation: line-role inline followup spend now counts the real structured-session repair modes, knowledge taskfile policy/reporting now includes the extra post-handoff repair attempt, same-session repair exhaustion now reads shared limits instead of only local mode checks, and the fast suite was rerun after those fixes.

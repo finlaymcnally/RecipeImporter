@@ -39,6 +39,8 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
         "taskfile_row_count": 0,
         "taskfile_session_count": 0,
         "structured_followup_call_count": 0,
+        "structured_repair_followup_call_count": 0,
+        "watchdog_retry_call_count": 0,
         "structured_followup_tokens_total": 0,
         "command_policy_counts": {},
         "watchdog_recovered_shard_count": 0,
@@ -80,13 +82,13 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
             summary["taskfile_row_count"] += 1
             if bool(row.get("worker_session_primary_row")):
                 summary["taskfile_session_count"] += 1
-        if prompt_input_mode in {
-            "inline_watchdog_retry",
-            "inline_retry",
-            "inline_repair",
-            "inline_snippet_repair",
-        }:
+        if _prompt_input_mode_is_watchdog_retry(prompt_input_mode):
             summary["structured_followup_call_count"] += 1
+            summary["watchdog_retry_call_count"] += 1
+            summary["structured_followup_tokens_total"] += tokens_total
+        elif _prompt_input_mode_is_structured_repair_followup(prompt_input_mode):
+            summary["structured_followup_call_count"] += 1
+            summary["structured_repair_followup_call_count"] += 1
             summary["structured_followup_tokens_total"] += tokens_total
         command_execution_count = int(row.get("command_execution_count") or 0)
         command_policy_counts = row.get("command_execution_policy_counts")
@@ -200,6 +202,20 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
             }
     summary["pathological_flags"] = _summary_pathological_flags(summary)
     return summary
+
+
+def _prompt_input_mode_is_watchdog_retry(prompt_input_mode: str) -> bool:
+    return prompt_input_mode in {"inline_watchdog_retry", "structured_session_watchdog_retry"}
+
+
+def _prompt_input_mode_is_structured_repair_followup(prompt_input_mode: str) -> bool:
+    if prompt_input_mode in {"inline_retry", "inline_repair", "inline_snippet_repair"}:
+        return True
+    if prompt_input_mode == "structured_session_repair":
+        return True
+    return prompt_input_mode.startswith("structured_session_") and prompt_input_mode.endswith(
+        "_repair"
+    )
 
 
 def _row_has_any_token_usage(row: Mapping[str, Any]) -> bool:

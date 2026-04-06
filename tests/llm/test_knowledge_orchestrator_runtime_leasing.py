@@ -185,6 +185,7 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert second_output["block_decisions"][0]["grounding"]["proposed_tags"]
     phase_manifest = json.loads((phase_dir / "phase_manifest.json").read_text(encoding="utf-8"))
     telemetry = json.loads((phase_dir / "telemetry.json").read_text(encoding="utf-8"))
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
     assert telemetry["summary"]["packet_economics"]["packet_count_total"] >= 2
     assert telemetry["summary"]["packet_economics"]["repair_packet_count_total"] == 0
     assert telemetry["summary"]["packet_economics"]["owned_row_count_total"] == 2
@@ -197,6 +198,18 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert telemetry["rows"][0]["knowledge_same_session"] is True
     assert telemetry["summary"]["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 2
     assert telemetry["summary"]["task_file_guardrails"]["assignment_count"] == 1
+    assert (
+        worker_status["repair_recovery_policy"]["worker_assignment"]["budgets"][
+            "structured_repair_followup"
+        ]["allowed_attempts"]
+        == 2
+    )
+    assert (
+        worker_status["repair_recovery_policy"]["worker_assignment"]["budgets"][
+            "structured_repair_followup"
+        ]["spent_attempts"]
+        == 0
+    )
     assert (
         phase_manifest["runtime_metadata"]["worker_session_guardrails"][
             "actual_happy_path_worker_sessions"
@@ -314,6 +327,7 @@ def test_knowledge_orchestrator_inline_json_retries_classification_more_than_onc
         "structured_session_classification_repair": 2,
         "structured_session_grouping": 1,
     }
+    assert worker_status["telemetry"]["summary"]["structured_repair_followup_call_count"] == 2
 
 
 def test_knowledge_orchestrator_inline_json_retries_grouping_more_than_once(

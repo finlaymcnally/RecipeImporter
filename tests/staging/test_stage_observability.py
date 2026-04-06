@@ -684,6 +684,130 @@ def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: 
     )
 
 
+def test_build_line_role_stage_summary_reports_inline_watchdog_and_repair_budgets(
+    tmp_path: Path,
+) -> None:
+    stage_root = tmp_path / "line-role-pipeline" / "runtime" / "line_role"
+    (stage_root / "proposals").mkdir(parents=True, exist_ok=True)
+    _write_json(
+        stage_root / "phase_manifest.json",
+        {
+            "worker_count": 1,
+            "shard_count": 1,
+            "runtime_metadata": {
+                "worker_session_guardrails": {
+                    "planned_happy_path_worker_cap": 1,
+                    "actual_happy_path_worker_sessions": 0,
+                    "repair_worker_session_count": 0,
+                    "repair_followup_call_count": 2,
+                    "cap_exceeded": False,
+                    "happy_path_within_cap": True,
+                    "status": "within_cap",
+                },
+                "task_file_guardrails": {
+                    "assignment_count": 0,
+                    "warning_count": 0,
+                    "largest_assignment": None,
+                },
+            },
+        },
+    )
+    _write_json(stage_root / "promotion_report.json", {"invalid_shards": 0, "missing_output_shards": 0})
+    (stage_root / "shard_manifest.jsonl").write_text(
+        json.dumps({"shard_id": "line-role-canonical-0001"}) + "\n",
+        encoding="utf-8",
+    )
+    (stage_root / "canonical_line_table.jsonl").write_text(
+        json.dumps({"line_id": "0", "atomic_index": 0}) + "\n",
+        encoding="utf-8",
+    )
+    (stage_root / "shard_status.jsonl").write_text(
+        json.dumps(
+            {
+                "shard_id": "line-role-canonical-0001",
+                "state": "validated",
+                "terminal_outcome": "validated",
+                "last_attempt_type": "watchdog_retry",
+                "metadata": {
+                    "llm_authoritative_row_count": 1,
+                    "unresolved_row_count": 0,
+                    "suspicious_row_count": 0,
+                    "suspicious_shard": False,
+                    "watchdog_retry_status": "recovered",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _write_json(
+        stage_root / "workers" / "worker-001" / "live_status.json",
+        {"state": "completed", "reason_code": "completed_outputs_stabilized"},
+    )
+    _write_json(
+        stage_root / "workers" / "worker-001" / "status.json",
+        {
+            "telemetry": {
+                "summary": {
+                    "prompt_input_mode_counts": {
+                        "structured_session_repair": 1,
+                        "inline_watchdog_retry": 1,
+                    },
+                    "structured_repair_followup_call_count": 1,
+                    "watchdog_retry_call_count": 1,
+                    "structured_followup_call_count": 2,
+                }
+            }
+        },
+    )
+    _write_json(
+        stage_root / "telemetry.json",
+        {
+            "summary": {
+                "prompt_input_mode_counts": {
+                    "structured_session_repair": 1,
+                    "inline_watchdog_retry": 1,
+                },
+                "structured_repair_followup_call_count": 1,
+                "watchdog_retry_call_count": 1,
+                "structured_followup_call_count": 2,
+            }
+        },
+    )
+    label_llm_dir = tmp_path / "label_refine" / "book"
+    label_llm_dir.mkdir(parents=True, exist_ok=True)
+    (label_llm_dir / "labeled_lines.jsonl").write_text(
+        json.dumps(
+            {
+                "atomic_index": 0,
+                "label": "RECIPE_NOTES",
+                "decided_by": "codex",
+                "reason_tags": ["codex_line_role"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary = build_line_role_stage_summary(stage_root)
+
+    assert summary["repair_recovery_policy"]["transport"] == "inline-json-v1"
+    assert (
+        summary["repair_recovery_policy"]["budgets"]["structured_repair_followup"][
+            "spent_attempts"
+        ]
+        == 1
+    )
+    assert summary["repair_recovery_policy"]["budgets"]["watchdog_retry"] == {
+        "followup_kind": "watchdog_retry",
+        "followup_surface": "structured_session",
+        "budget_scope": "shard_result",
+        "allowed_attempts": 1,
+        "spent_attempts": 1,
+        "remaining_attempts": 0,
+    }
+
+
 def test_summarize_knowledge_stage_artifacts_uses_status_file(tmp_path: Path) -> None:
     stage_root = tmp_path / "raw" / "llm" / "book" / "knowledge"
     proposals_dir = stage_root / "proposals"

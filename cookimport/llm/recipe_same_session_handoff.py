@@ -19,6 +19,7 @@ from .phase_worker_runtime import ShardManifestEntryV1
 from .repair_recovery_policy import (
     RECIPE_POLICY_STAGE_KEY,
     taskfile_fresh_session_retry_limit,
+    taskfile_same_session_repair_rewrite_limit,
 )
 
 RECIPE_SAME_SESSION_HANDOFF_SCHEMA_VERSION = "recipe_same_session_handoff.v1"
@@ -578,7 +579,13 @@ def advance_recipe_same_session_handoff(
         )
         state["task_validation_errors_by_task_id"] = task_validation_errors_by_task_id
         state["task_status_by_task_id"] = task_status_by_task_id
-        if current_mode == "repair":
+        repair_rewrite_limit = taskfile_same_session_repair_rewrite_limit(
+            stage_key=RECIPE_POLICY_STAGE_KEY
+        )
+        current_repair_rewrite_count = int(
+            state.get("same_session_repair_rewrite_count") or 0
+        )
+        if current_repair_rewrite_count >= repair_rewrite_limit:
             return _repair_exhausted_result(
                 state=state,
                 state_path=state_path,

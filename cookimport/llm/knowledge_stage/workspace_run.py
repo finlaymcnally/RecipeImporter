@@ -35,6 +35,7 @@ from ..repair_recovery_policy import (
     structured_repair_followup_limit,
     taskfile_same_session_repair_rewrite_limit,
     taskfile_recovery_policy_summary,
+    taskfile_structured_repair_policy_summary,
 )
 from ..knowledge_same_session_handoff import (
     KNOWLEDGE_SAME_SESSION_STATE_ENV,
@@ -1412,6 +1413,7 @@ def _run_phase_knowledge_worker_assignment_v1(
 
     worker_failure_count = 0
     worker_proposal_count = 0
+    post_taskfile_repair_followup_count = 0
     worker_failures: list[dict[str, Any]] = []
     worker_proposals: list[ShardProposalV1] = []
     worker_runner_results: list[dict[str, Any]] = []
@@ -1515,6 +1517,9 @@ def _run_phase_knowledge_worker_assignment_v1(
         )
         worker_runner_payload["recovery_policy"] = {
             **taskfile_recovery_policy_summary(stage_key=KNOWLEDGE_POLICY_STAGE_KEY),
+            **taskfile_structured_repair_policy_summary(
+                stage_key=KNOWLEDGE_POLICY_STAGE_KEY
+            ),
             "same_session_repair_rewrite_limits": {
                 KNOWLEDGE_CLASSIFY_STEP_KEY: taskfile_same_session_repair_rewrite_limit(
                     stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
@@ -1531,6 +1536,9 @@ def _run_phase_knowledge_worker_assignment_v1(
             "worker_assignment": build_followup_budget_summary(
                 stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
                 transport=TASKFILE_TRANSPORT,
+                allowed_attempts_multiplier_by_kind={
+                    FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: len(assigned_shards),
+                },
             ),
             "semantic_steps": {
                 KNOWLEDGE_CLASSIFY_STEP_KEY: build_followup_budget_summary(
@@ -2053,6 +2061,7 @@ def _run_phase_knowledge_worker_assignment_v1(
                 validation_metadata=validation_metadata,
                 live_status_path=task_root / "repair_live_status.json",
             )
+            post_taskfile_repair_followup_count += 1
             _write_json(
                 {"text": repair_run_result.response_text},
                 task_root / "repair_last_message.json",
@@ -2265,6 +2274,9 @@ def _run_phase_knowledge_worker_assignment_v1(
     )
     worker_runner_payload["recovery_policy"] = {
         **taskfile_recovery_policy_summary(stage_key=KNOWLEDGE_POLICY_STAGE_KEY),
+        **taskfile_structured_repair_policy_summary(
+            stage_key=KNOWLEDGE_POLICY_STAGE_KEY
+        ),
         "same_session_repair_rewrite_limits": {
             KNOWLEDGE_CLASSIFY_STEP_KEY: taskfile_same_session_repair_rewrite_limit(
                 stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
@@ -2284,6 +2296,12 @@ def _run_phase_knowledge_worker_assignment_v1(
             spent_attempts_by_kind={
                 FOLLOWUP_KIND_FRESH_SESSION_RETRY: fresh_session_retry_count,
                 FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT: fresh_worker_replacement_count,
+                FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: (
+                    post_taskfile_repair_followup_count
+                ),
+            },
+            allowed_attempts_multiplier_by_kind={
+                FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: len(assigned_shards),
             },
         ),
         "semantic_steps": {
@@ -2317,12 +2335,7 @@ def _run_phase_knowledge_worker_assignment_v1(
         worker_runner_payload=worker_runner_payload,
         task_file_guardrail=task_file_guardrail,
         planned_happy_path_worker_cap=2,
-        repair_followup_call_count=int(
-            worker_runner_payload.get("telemetry", {})
-            .get("summary", {})
-            .get("structured_followup_call_count")
-            or 0
-        ),
+        repair_followup_call_count=post_taskfile_repair_followup_count,
     )
     _write_json(worker_runner_payload, worker_root / "status.json")
     return _DirectKnowledgeWorkerResult(
