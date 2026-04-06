@@ -574,7 +574,7 @@ def _packet_result_from_base(
 def _structured_classification_rows(payload: dict[str, object]) -> list[dict[str, object]]:
     return [
         {
-            "block_index": int(block.get("i") or 0),
+            "row_id": str(block.get("row_id") or ""),
             "category": "knowledge",
             "grounding": {
                 "tag_keys": [],
@@ -588,7 +588,7 @@ def _structured_classification_rows(payload: dict[str, object]) -> list[dict[str
                 ],
             },
         }
-        for block in (payload.get("b") or [])
+        for block in (payload.get("rows") or [])
         if isinstance(block, dict)
     ]
 
@@ -600,11 +600,11 @@ def _structured_grouping_rows(
 ) -> list[dict[str, object]]:
     return [
         {
-            "block_index": int(block.get("i") or 0),
+            "row_id": str(block.get("row_id") or ""),
             "group_key": "heat-control",
             "topic_label": topic_label,
         }
-        for block in (payload.get("b") or [])
+        for block in (payload.get("rows") or [])
         if isinstance(block, dict)
     ]
 

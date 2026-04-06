@@ -138,7 +138,11 @@ def _line_role_runner(
                 )
             }
         rows = payload.get("rows") if isinstance(payload, dict) else []
+        structured_packet_rows = (
+            payload.get("structured_packet_rows") if isinstance(payload, dict) else []
+        )
         atomic_indices: list[int] = []
+        row_ids: list[str] = []
         for row in rows:
             value = None
             if isinstance(row, dict):
@@ -147,6 +151,12 @@ def _line_role_runner(
                 value = row[0]
             if value is not None:
                 atomic_indices.append(int(value))
+        for row in structured_packet_rows or []:
+            if not isinstance(row, dict):
+                continue
+            row_id = str(row.get("row_id") or "").strip()
+            if row_id:
+                row_ids.append(row_id)
         if not atomic_indices:
             prompt_text = payload if isinstance(payload, str) else json.dumps(payload, sort_keys=True)
             atomic_indices = [
@@ -157,6 +167,24 @@ def _line_role_runner(
             atomic_indices = [
                 int(value) for value in re.findall(r"(?m)^(\d+)\|", prompt_text)
             ]
+        if not row_ids:
+            prompt_text = payload if isinstance(payload, str) else json.dumps(payload, sort_keys=True)
+            row_ids = re.findall(r'"row_id"\s*:\s*"([^"]+)"', prompt_text)
+        if row_ids:
+            return {
+                "rows": [
+                    {
+                        "row_id": row_id,
+                        "label": (
+                            label_by_atomic_index or {}
+                        ).get(
+                            atomic_indices[index] if index < len(atomic_indices) else index,
+                            "NONRECIPE_CANDIDATE",
+                        ),
+                    }
+                    for index, row_id in enumerate(row_ids)
+                ]
+            }
         return {
             "rows": [
                 {

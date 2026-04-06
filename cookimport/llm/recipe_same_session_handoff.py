@@ -16,6 +16,10 @@ from .editable_task_file import (
     write_task_file,
 )
 from .phase_worker_runtime import ShardManifestEntryV1
+from .repair_recovery_policy import (
+    RECIPE_POLICY_STAGE_KEY,
+    taskfile_fresh_session_retry_limit,
+)
 
 RECIPE_SAME_SESSION_HANDOFF_SCHEMA_VERSION = "recipe_same_session_handoff.v1"
 RECIPE_SAME_SESSION_STATE_ENV = "RECIPEIMPORT_RECIPE_SAME_SESSION_STATE_PATH"
@@ -73,7 +77,9 @@ def initialize_recipe_same_session_state(
         "completed": False,
         "final_status": None,
         "completed_task_count": 0,
-        "fresh_session_retry_limit": 1,
+        "fresh_session_retry_limit": taskfile_fresh_session_retry_limit(
+            stage_key=RECIPE_POLICY_STAGE_KEY
+        ),
         "fresh_session_retry_count": 0,
         "fresh_session_retry_status": "not_attempted",
         "fresh_session_retry_history": [],

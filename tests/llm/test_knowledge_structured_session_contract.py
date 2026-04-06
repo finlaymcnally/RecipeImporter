@@ -36,7 +36,7 @@ def _shard(*, shard_id: str, block_index: int, text: str) -> ShardManifestEntryV
     )
 
 
-def test_classification_structured_response_reports_missing_duplicate_and_foreign_block_indices() -> None:
+def test_classification_structured_response_reports_missing_duplicate_and_unknown_row_ids() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
@@ -59,7 +59,7 @@ def test_classification_structured_response_reports_missing_duplicate_and_foreig
             {
                 "rows": [
                     {
-                        "block_index": 21,
+                        "row_id": "r01",
                         "category": "knowledge",
                         "grounding": {
                             "tag_keys": ["bright"],
@@ -68,7 +68,7 @@ def test_classification_structured_response_reports_missing_duplicate_and_foreig
                         },
                     },
                     {
-                        "block_index": 21,
+                        "row_id": "r01",
                         "category": "other",
                         "grounding": {
                             "tag_keys": [],
@@ -77,7 +77,7 @@ def test_classification_structured_response_reports_missing_duplicate_and_foreig
                         },
                     },
                     {
-                        "block_index": 999,
+                        "row_id": "r99",
                         "category": "other",
                         "grounding": {
                             "tag_keys": [],
@@ -92,14 +92,15 @@ def test_classification_structured_response_reports_missing_duplicate_and_foreig
 
     assert edited is not None
     assert errors == (
-        "knowledge_blocks_missing_response_rows",
-        "duplicate_block_indices",
-        "unexpected_block_indices",
+        "knowledge_missing_response_rows",
+        "knowledge_duplicate_row_ids",
+        "knowledge_unknown_row_ids",
     )
     assert metadata["failed_unit_ids"] == ["knowledge::21", "knowledge::22"]
     assert metadata["missing_block_indices"] == [22]
-    assert metadata["duplicate_block_indices"] == [21]
-    assert metadata["unexpected_block_indices"] == [999]
+    assert metadata["missing_row_ids"] == ["r02"]
+    assert metadata["duplicate_row_ids"] == ["r01"]
+    assert metadata["unknown_row_ids"] == ["r99"]
     assert edited["units"][0]["answer"]["category"] == "knowledge"
     assert edited["units"][1]["answer"]["category"] is None
 
@@ -116,7 +117,7 @@ def test_classification_structured_response_reports_missing_duplicate_and_foreig
     assert validation_metadata["missing_block_indices"] == [22]
 
 
-def test_grouping_structured_response_reports_missing_duplicate_and_foreign_block_indices() -> None:
+def test_grouping_structured_response_reports_missing_duplicate_and_unknown_row_ids() -> None:
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
@@ -163,17 +164,17 @@ def test_grouping_structured_response_reports_missing_duplicate_and_foreign_bloc
             {
                 "rows": [
                     {
-                        "block_index": 31,
+                        "row_id": "r01",
                         "group_key": "heat-control",
                         "topic_label": "Heat control",
                     },
                     {
-                        "block_index": 31,
+                        "row_id": "r01",
                         "group_key": "heat-control-duplicate",
                         "topic_label": "Duplicate",
                     },
                     {
-                        "block_index": 999,
+                        "row_id": "r99",
                         "group_key": "unexpected",
                         "topic_label": "Unexpected",
                     },
@@ -184,14 +185,15 @@ def test_grouping_structured_response_reports_missing_duplicate_and_foreign_bloc
 
     assert edited is not None
     assert errors == (
-        "knowledge_blocks_missing_response_rows",
-        "duplicate_block_indices",
-        "unexpected_block_indices",
+        "knowledge_missing_response_rows",
+        "knowledge_duplicate_row_ids",
+        "knowledge_unknown_row_ids",
     )
     assert metadata["failed_unit_ids"] == ["knowledge::31", "knowledge::32"]
     assert metadata["missing_block_indices"] == [32]
-    assert metadata["duplicate_block_indices"] == [31]
-    assert metadata["unexpected_block_indices"] == [999]
+    assert metadata["missing_row_ids"] == ["r02"]
+    assert metadata["duplicate_row_ids"] == ["r01"]
+    assert metadata["unknown_row_ids"] == ["r99"]
     assert edited["units"][0]["answer"] == {
         "group_key": "heat-control",
         "topic_label": "Heat control",

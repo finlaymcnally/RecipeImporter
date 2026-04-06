@@ -19,6 +19,11 @@ from cookimport.llm.editable_task_file import (
     validate_edited_task_file,
     write_task_file,
 )
+from cookimport.llm.repair_recovery_policy import (
+    LINE_ROLE_POLICY_STAGE_KEY,
+    should_attempt_taskfile_fresh_session_retry,
+    should_attempt_taskfile_fresh_worker_replacement,
+)
 
 from .planning import _build_line_role_taskfile_prompt
 from .same_session_handoff import (
@@ -213,28 +218,21 @@ def _should_attempt_line_role_fresh_session_retry(
     original_task_file: Mapping[str, Any],
     same_session_state_payload: Mapping[str, Any],
 ) -> tuple[bool, str]:
-    retry_limit = int(same_session_state_payload.get("fresh_session_retry_limit") or 0)
-    retry_count = int(same_session_state_payload.get("fresh_session_retry_count") or 0)
-    if retry_limit <= retry_count:
-        return False, "fresh_session_retry_budget_spent"
-    if bool(same_session_state_payload.get("completed")):
-        return False, "same_session_already_completed"
-    if (
-        str(same_session_state_payload.get("final_status") or "").strip()
-        == "repair_exhausted"
-    ):
-        return False, "same_session_repair_exhausted"
-    if _line_role_hard_boundary_failure(run_result):
-        return False, "hard_boundary_failure"
-    if not run_result.completed_successfully():
-        return False, "worker_session_not_clean"
-    if not _line_role_task_file_useful_progress(
-        task_file_path=task_file_path,
-        original_task_file=original_task_file,
-        same_session_state_payload=same_session_state_payload,
-    ):
-        return False, "no_preserved_progress"
-    return True, "preserved_progress_without_completion"
+    return should_attempt_taskfile_fresh_session_retry(
+        stage_key=LINE_ROLE_POLICY_STAGE_KEY,
+        retry_attempt_count=int(
+            same_session_state_payload.get("fresh_session_retry_count") or 0
+        ),
+        same_session_completed=bool(same_session_state_payload.get("completed")),
+        final_status=str(same_session_state_payload.get("final_status") or "").strip(),
+        hard_boundary_failure=_line_role_hard_boundary_failure(run_result),
+        session_completed_successfully=run_result.completed_successfully(),
+        useful_progress=_line_role_task_file_useful_progress(
+            task_file_path=task_file_path,
+            original_task_file=original_task_file,
+            same_session_state_payload=same_session_state_payload,
+        ),
+    )
 
 
 def _line_role_retryable_runner_exception_reason(
@@ -270,21 +268,21 @@ def _should_attempt_line_role_fresh_worker_replacement(
     replacement_attempt_count: int,
     same_session_state_payload: Mapping[str, Any],
 ) -> tuple[bool, str]:
-    if int(replacement_attempt_count) >= 1:
-        return False, "fresh_worker_replacement_budget_spent"
-    if bool(same_session_state_payload.get("completed")):
-        return False, "same_session_already_completed"
-    if exc is not None:
-        retry_reason = _line_role_retryable_runner_exception_reason(exc)
-        if retry_reason is None:
-            return False, "runner_exception_not_retryable"
-        return True, retry_reason
-    if run_result is not None:
-        retry_reason = _line_role_catastrophic_run_result_reason(run_result)
-        if retry_reason is None:
-            return False, "worker_session_not_catastrophic"
-        return True, retry_reason
-    return False, "fresh_worker_replacement_not_applicable"
+    return should_attempt_taskfile_fresh_worker_replacement(
+        stage_key=LINE_ROLE_POLICY_STAGE_KEY,
+        replacement_attempt_count=replacement_attempt_count,
+        same_session_completed=bool(same_session_state_payload.get("completed")),
+        retryable_exception_reason=(
+            _line_role_retryable_runner_exception_reason(exc)
+            if exc is not None
+            else None
+        ),
+        catastrophic_run_result_reason=(
+            _line_role_catastrophic_run_result_reason(run_result)
+            if run_result is not None
+            else None
+        ),
+    )
 
 
 def _build_line_role_runner_exception_result(

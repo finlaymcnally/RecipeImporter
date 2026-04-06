@@ -75,6 +75,12 @@ from cookimport.llm.phase_worker_runtime import (
     WorkerExecutionReportV1,
     resolve_phase_worker_count,
 )
+from cookimport.llm.repair_recovery_policy import (
+    LINE_ROLE_POLICY_STAGE_KEY,
+    inline_repair_policy_summary,
+    structured_repair_followup_limit,
+    taskfile_recovery_policy_summary,
+)
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 from . import (
     CANONICAL_LINE_ROLE_ALLOWED_LABELS,

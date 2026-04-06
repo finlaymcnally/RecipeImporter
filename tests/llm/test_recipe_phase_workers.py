@@ -539,13 +539,9 @@ def test_recipe_phase_runtime_uses_fixed_assignment_task_manifest(
         "urn:recipe:test:tea",
         "urn:recipe:test:cereal",
     ]
-    assert task_file["helper_commands"]["status"] == "task-status"
-    assert task_file["helper_commands"]["doctor"] == "task-doctor"
-    assert task_file["helper_commands"]["summary"] == "task-summary"
-    assert task_file["helper_commands"]["show_unit"] == "task-show-unit <unit_id>"
-    assert task_file["helper_commands"]["show_unanswered"] == "task-show-unanswered --limit 5"
-    assert task_file["helper_commands"]["template_answers_file"] == "task-template answers.json"
-    assert task_file["helper_commands"]["apply_answers_file"] == "task-apply answers.json"
+    assert "helper_commands" not in task_file
+    assert "workflow" not in task_file
+    assert "next_action" not in task_file
     assert task_file["answer_schema"]["example_answers"][0]["status"] == "repaired"
     assert not (worker_root / "CURRENT_TASK.md").exists()
     assert not (worker_root / "CURRENT_TASK_FEEDBACK.md").exists()

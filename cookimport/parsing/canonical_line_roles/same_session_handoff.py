@@ -14,6 +14,10 @@ from cookimport.llm.editable_task_file import (
     validate_edited_task_file,
     write_task_file,
 )
+from cookimport.llm.repair_recovery_policy import (
+    LINE_ROLE_POLICY_STAGE_KEY,
+    taskfile_fresh_session_retry_limit,
+)
 
 LINE_ROLE_SAME_SESSION_HANDOFF_SCHEMA_VERSION = "line_role_same_session_handoff.v1"
 LINE_ROLE_SAME_SESSION_STATE_ENV = "RECIPEIMPORT_LINE_ROLE_SAME_SESSION_STATE_PATH"
@@ -58,7 +62,9 @@ def initialize_line_role_same_session_state(
         "completed": False,
         "final_status": None,
         "completed_shard_count": 0,
-        "fresh_session_retry_limit": 1,
+        "fresh_session_retry_limit": taskfile_fresh_session_retry_limit(
+            stage_key=LINE_ROLE_POLICY_STAGE_KEY
+        ),
         "fresh_session_retry_count": 0,
         "fresh_session_retry_status": "not_attempted",
         "fresh_session_retry_history": [],

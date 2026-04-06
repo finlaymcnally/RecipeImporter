@@ -949,17 +949,25 @@ def test_label_atomic_lines_inline_json_repairs_in_place(tmp_path) -> None:
 
         def _build_output(self, payload):  # noqa: ANN001
             rows = payload.get("rows") if isinstance(payload, dict) else []
+            structured_packet_rows = (
+                payload.get("structured_packet_rows") if isinstance(payload, dict) else []
+            )
             atomic_indices: list[int] = []
+            row_ids: list[str] = []
             for row in rows:
                 if isinstance(row, dict) and row.get("atomic_index") is not None:
                     atomic_indices.append(int(row.get("atomic_index")))
                 elif isinstance(row, (list, tuple)) and row:
                     atomic_indices.append(int(row[0]))
+            for row in structured_packet_rows or []:
+                if isinstance(row, dict) and str(row.get("row_id") or "").strip():
+                    row_ids.append(str(row.get("row_id")))
             label = "NOT_A_REAL_LABEL" if len(self.calls) == 1 else "RECIPE_NOTES"
             return {
                 "rows": [
-                    {"atomic_index": atomic_index, "label": label}
-                    for atomic_index in atomic_indices
+                    {"row_id": row_ids[index], "label": label}
+                    for index, _atomic_index in enumerate(atomic_indices)
+                    if index < len(row_ids)
                 ]
             }
 

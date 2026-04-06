@@ -642,6 +642,7 @@ def _should_attempt_line_role_repair(
             "rows_missing_or_not_a_list",
             "row_not_a_json_object",
             "atomic_index_missing",
+            "row_id_missing",
         }:
             return True
         if str(error).startswith(
@@ -649,6 +650,9 @@ def _should_attempt_line_role_repair(
                 "missing_owned_atomic_indices:",
                 "duplicate_atomic_index:",
                 "invalid_label:",
+                "missing_row_ids:",
+                "duplicate_row_id:",
+                "unknown_row_id:",
             )
         ):
             return True

@@ -104,6 +104,10 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
         if not isinstance(payload, dict):
             raise ValueError("knowledge fake payload must be a JSON object")
         stage_key = str(payload.get("stage_key") or "").strip()
+        if stage_key == "nonrecipe_classify" and isinstance(payload.get("rows"), list):
+            return _default_structured_knowledge_classification_output(payload)
+        if stage_key == "knowledge_group" and isinstance(payload.get("rows"), list):
+            return _default_structured_knowledge_grouping_output(payload)
         if (
             stage_key in {"nonrecipe_finalize", "nonrecipe_classify"}
             and payload.get("block_index") is not None
@@ -155,6 +159,11 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
             ],
         }
     if pipeline_id == "line-role.canonical.v1":
+        if isinstance(payload, dict) and (
+            isinstance(payload.get("structured_packet_rows"), list)
+            or isinstance(payload.get("rows"), list)
+        ):
+            return _default_structured_line_role_output(payload)
         if (
             isinstance(payload, dict)
             and str(payload.get("stage_key") or "").strip() == "line_role"
@@ -169,6 +178,84 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
             ]
         }
     raise ValueError(f"Unsupported fake pipeline id: {pipeline_id}")
+
+
+def _structured_knowledge_row_id(row: Mapping[str, Any]) -> str:
+    return str(row.get("row_id") or "").strip()
+
+
+def _structured_knowledge_row_text(row: Mapping[str, Any]) -> str:
+    return str(row.get("text") or "").strip()
+
+
+def _default_structured_knowledge_classification_output(
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    catalog = load_knowledge_tag_catalog()
+    rows = [dict(row) for row in (payload.get("rows") or []) if isinstance(row, Mapping)]
+    return {
+        "rows": [
+            {
+                "row_id": _structured_knowledge_row_id(row),
+                "category": "knowledge",
+                "grounding": {
+                    "tag_keys": catalog.candidate_tag_keys_for_text(
+                        _structured_knowledge_row_text(row)
+                    )[:1],
+                    "category_keys": [],
+                    "proposed_tags": (
+                        []
+                        if catalog.candidate_tag_keys_for_text(
+                            _structured_knowledge_row_text(row)
+                        )
+                        else [
+                            {
+                                "key": "fake-knowledge-concept",
+                                "display_name": "Fake Knowledge Concept",
+                                "category_key": "techniques",
+                            }
+                        ]
+                    ),
+                },
+            }
+            for row in rows
+        ]
+    }
+
+
+def _default_structured_knowledge_grouping_output(
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    rows = [dict(row) for row in (payload.get("rows") or []) if isinstance(row, Mapping)]
+    return {
+        "rows": [
+            {
+                "row_id": _structured_knowledge_row_id(row),
+                "group_key": "heat-control",
+                "topic_label": "Fake knowledge group",
+            }
+            for row in rows
+        ]
+    }
+
+
+def _default_structured_line_role_output(payload: Mapping[str, Any]) -> dict[str, Any]:
+    rows = [
+        dict(row)
+        for row in (
+            payload.get("structured_packet_rows")
+            or payload.get("rows")
+            or []
+        )
+        if isinstance(row, Mapping)
+    ]
+    output_rows: list[dict[str, Any]] = []
+    for row in rows:
+        row_id = str(row.get("row_id") or "").strip()
+        if not row_id:
+            continue
+        output_rows.append({"row_id": row_id, "label": "RECIPE_NOTES"})
+    return {"rows": output_rows}
 
 
 def build_structural_pipeline_output(

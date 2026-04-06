@@ -271,3 +271,45 @@ def test_structured_prompt_explicitly_forbids_category_only_grounding() -> None:
 
     assert "category-only grounding is invalid" in prompt
     assert "return `other` with empty grounding" in prompt
+
+
+def test_structured_packet_uses_local_row_ids_and_compact_hints() -> None:
+    task_file, _ = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[
+            ShardManifestEntryV1(
+                shard_id="book.ks0000.nr",
+                owned_ids=("book.ks0000.nr",),
+                input_payload={
+                    "v": "1",
+                    "bid": "book.ks0000.nr",
+                    "b": [
+                        {"i": 10, "id": "book.ks0000.nr:10", "t": "Whisk to emulsify."},
+                        {"i": 11, "id": "book.ks0000.nr:11", "t": "Chapter opener."},
+                    ],
+                    "x": {
+                        "p": [{"i": 9, "t": "Previous row."}],
+                        "n": [{"i": 12, "t": "Next row."}],
+                    },
+                },
+                metadata={"owned_block_indices": [10, 11], "owned_block_count": 2},
+            )
+        ],
+    )
+
+    packet = knowledge_task_file_to_structured_packet(
+        task_file_payload=task_file,
+        packet_kind="initial",
+    )
+
+    assert [row["row_id"] for row in packet["rows"]] == ["r01", "r02"]
+    assert [row["text"] for row in packet["rows"]] == [
+        "Whisk to emulsify.",
+        "Chapter opener.",
+    ]
+    assert packet["rows"][0]["context_before"] == "Previous row."
+    assert packet["rows"][0]["context_after"] == "Next row."
+    assert "candidate_tag_keys" in packet["rows"][0]
+    assert "categories" in packet
+    assert "ontology" not in packet
+    assert "review_contract" not in packet

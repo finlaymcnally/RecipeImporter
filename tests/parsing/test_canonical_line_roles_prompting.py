@@ -154,6 +154,37 @@ def test_line_role_taskfile_worker_prompt_includes_title_yield_reset_contract() 
     assert "read the nearby rows directly in the ordered `task.json` ledger" in prompt
 
 
+def test_line_role_inline_packet_uses_local_row_ids_and_neighbor_context() -> None:
+    shard = ShardManifestEntryV1(
+        shard_id="line-role-canonical-0001-a000010-a000011",
+        owned_ids=("10", "11"),
+        input_payload={
+            "rows": [[10, "Bright Cabbage Slaw"], [11, "Serves 4 generously"]],
+            "context_before_rows": [[9, "Variations"]],
+            "context_after_rows": [[12, "1/2 medium red onion, sliced thinly"]],
+        },
+    )
+
+    packet = canonical_line_roles_module._build_line_role_structured_packet(  # noqa: SLF001
+        shard=shard,
+        packet_kind="initial",
+    )
+    prompt = canonical_line_roles_module._build_line_role_structured_prompt(  # noqa: SLF001
+        packet=packet,
+    )
+
+    assert [row["row_id"] for row in packet["rows"]] == ["r01", "r02"]
+    assert packet["rows"][0]["text"] == "Bright Cabbage Slaw"
+    assert packet["context_before_rows"] == [{"text": "Variations"}]
+    assert packet["context_after_rows"] == [
+        {"text": "1/2 medium red onion, sliced thinly"}
+    ]
+    assert "owned_ids" not in packet
+    assert '"row_id":"r01"' in prompt
+    assert "Cover every owned `row_id` in this packet exactly once." in prompt
+    assert "nearby context rows are shown" in prompt
+
+
 def test_shared_line_role_contract_block_appears_in_file_prompt() -> None:
     shared_contract = build_line_role_shared_contract_block()
     file_prompt = build_canonical_line_role_file_prompt(

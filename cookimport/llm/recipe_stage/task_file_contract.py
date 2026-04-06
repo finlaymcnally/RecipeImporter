@@ -30,7 +30,6 @@ from ..shard_prompt_targets import partition_contiguous_items, resolve_shard_cou
 from ..task_file_guardrails import build_task_file_guardrail, build_worker_session_guardrails, summarize_task_file_guardrails
 from ..taskfile_prompt_contract import render_taskfile_prompt, section
 from ..recipe_same_session_handoff import RECIPE_SAME_SESSION_STATE_ENV, initialize_recipe_same_session_state
-from ..single_file_worker_commands import build_single_file_worker_surface
 from ..taskfile_progress import decorate_active_worker_label, summarize_taskfile_health
 from ..worker_hint_sidecars import preview_text, write_worker_hint_markdown
 logger = logging.getLogger(__name__)
@@ -69,14 +68,11 @@ def _build_recipe_task_file_unit(*, task_plan: _RecipeTaskPlan) -> dict[str, Any
     source_rows = [list(row) for row in recipe_row.get('ev') or payload.get('ev') or [] if isinstance(row, (list, tuple)) and len(row) >= 2]
     return {'unit_id': f'recipe::{recipe_id}', 'owned_id': recipe_id, 'evidence': {'recipe_id': recipe_id, 'source_text': source_text, 'source_rows': source_rows, 'hint': {'title': hint_payload.get('n'), 'ingredients': list(hint_payload.get('i') or []), 'steps': list(hint_payload.get('s') or []), 'quality_flags': list(hint_payload.get('q') or []), 'candidate_tags': list(hint_payload.get('tags') or [])}}, 'answer': {}}
 
-def _recipe_task_file_helper_commands() -> dict[str, str]:
-    return build_single_file_worker_surface(stage_key='recipe_refine').helper_commands
-
 def _recipe_task_file_answer_schema() -> dict[str, Any]:
     return {'editable_pointer_pattern': '/units/*/answer', 'required_keys': ['status', 'canonical_recipe', 'ingredient_step_mapping', 'ingredient_step_mapping_reason', 'divested_block_indices', 'selected_tags', 'warnings'], 'allowed_values': {'status': ['repaired', 'fragmentary', 'not_a_recipe']}, 'example_answers': [{'status': 'repaired', 'status_reason': None, 'canonical_recipe': {'title': 'Toast', 'ingredients': ['1 slice bread'], 'steps': ['Toast the bread.'], 'description': None, 'recipe_yield': None}, 'ingredient_step_mapping': [], 'ingredient_step_mapping_reason': 'not_needed_single_step', 'divested_block_indices': [], 'selected_tags': [], 'warnings': []}]}
 
 def _build_recipe_task_file(*, assignment: WorkerAssignmentV1, runnable_tasks: Sequence[_RecipeTaskPlan]) -> dict[str, Any]:
-    return build_task_file(stage_key='recipe_refine', assignment_id=assignment.worker_id, worker_id=assignment.worker_id, units=[_build_recipe_task_file_unit(task_plan=task_plan) for task_plan in runnable_tasks], helper_commands=_recipe_task_file_helper_commands(), workflow=build_single_file_worker_surface(stage_key='recipe_refine').workflow, next_action='Review the task with task-summary/task-show-unit, edit answer objects in task.json, optionally use task-template plus task-apply, then run task-handoff.', answer_schema=_recipe_task_file_answer_schema())
+    return build_task_file(stage_key='recipe_refine', assignment_id=assignment.worker_id, worker_id=assignment.worker_id, units=[_build_recipe_task_file_unit(task_plan=task_plan) for task_plan in runnable_tasks], answer_schema=_recipe_task_file_answer_schema())
 
 def _recipe_artifact_filename(recipe_id: str) -> str:
     rendered = sanitize_for_filename(str(recipe_id).strip())

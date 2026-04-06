@@ -18,6 +18,16 @@ from ..editable_task_file import (
     validate_edited_task_file,
     write_task_file,
 )
+from ..repair_recovery_policy import (
+    KNOWLEDGE_CLASSIFY_STEP_KEY,
+    KNOWLEDGE_GROUP_STEP_KEY,
+    KNOWLEDGE_POLICY_STAGE_KEY,
+    inline_repair_policy_summary,
+    should_attempt_taskfile_fresh_session_retry,
+    should_attempt_taskfile_fresh_worker_replacement,
+    structured_repair_followup_limit,
+    taskfile_recovery_policy_summary,
+)
 from ..knowledge_same_session_handoff import (
     KNOWLEDGE_SAME_SESSION_STATE_ENV,
     initialize_knowledge_same_session_state,
@@ -108,9 +118,6 @@ def _load_json_dict_safely(path: Path) -> dict[str, Any]:
 
 
 _KNOWLEDGE_SAME_SESSION_STATE_FILE_NAME = "knowledge_same_session_state.json"
-_STRUCTURED_KNOWLEDGE_MAX_REPAIR_FOLLOWUPS = 3
-
-
 def _knowledge_same_session_state_path(worker_root: Path) -> Path:
     return worker_root / "_repo_control" / _KNOWLEDGE_SAME_SESSION_STATE_FILE_NAME
 
@@ -159,6 +166,9 @@ def _merge_knowledge_response_contract_diagnostics(
         "missing_block_indices",
         "unexpected_block_indices",
         "duplicate_block_indices",
+        "missing_row_ids",
+        "unknown_row_ids",
+        "duplicate_row_ids",
     ):
         existing_values = [
             value for value in (validation_metadata.get(key) or []) if value is not None
@@ -234,21 +244,21 @@ def _should_attempt_knowledge_fresh_worker_replacement(
     replacement_attempt_count: int,
     same_session_state_payload: Mapping[str, Any],
 ) -> tuple[bool, str]:
-    if int(replacement_attempt_count) >= 1:
-        return False, "fresh_worker_replacement_budget_spent"
-    if bool(same_session_state_payload.get("completed")):
-        return False, "same_session_already_completed"
-    if exc is not None:
-        retry_reason = _knowledge_retryable_runner_exception_reason(exc)
-        if retry_reason is None:
-            return False, "runner_exception_not_retryable"
-        return True, retry_reason
-    if run_result is not None:
-        retry_reason = _knowledge_catastrophic_run_result_reason(run_result)
-        if retry_reason is None:
-            return False, "worker_session_not_catastrophic"
-        return True, retry_reason
-    return False, "fresh_worker_replacement_not_applicable"
+    return should_attempt_taskfile_fresh_worker_replacement(
+        stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+        replacement_attempt_count=replacement_attempt_count,
+        same_session_completed=bool(same_session_state_payload.get("completed")),
+        retryable_exception_reason=(
+            _knowledge_retryable_runner_exception_reason(exc)
+            if exc is not None
+            else None
+        ),
+        catastrophic_run_result_reason=(
+            _knowledge_catastrophic_run_result_reason(run_result)
+            if run_result is not None
+            else None
+        ),
+    )
 
 
 def _should_attempt_knowledge_fresh_session_retry(
@@ -258,25 +268,21 @@ def _should_attempt_knowledge_fresh_session_retry(
     original_task_file: Mapping[str, Any],
     same_session_state_payload: Mapping[str, Any],
 ) -> tuple[bool, str]:
-    retry_limit = int(same_session_state_payload.get("fresh_session_retry_limit") or 0)
-    retry_count = int(same_session_state_payload.get("fresh_session_retry_count") or 0)
-    if retry_limit <= retry_count:
-        return False, "fresh_session_retry_budget_spent"
-    if bool(same_session_state_payload.get("completed")):
-        return False, "same_session_already_completed"
-    if str(same_session_state_payload.get("final_status") or "").strip() == "repair_exhausted":
-        return False, "same_session_repair_exhausted"
-    if _knowledge_hard_boundary_failure(run_result):
-        return False, "hard_boundary_failure"
-    if not run_result.completed_successfully():
-        return False, "worker_session_not_clean"
-    if not _knowledge_task_file_useful_progress(
-        task_file_path=task_file_path,
-        original_task_file=original_task_file,
-        same_session_state_payload=same_session_state_payload,
-    ):
-        return False, "no_preserved_progress"
-    return True, "preserved_progress_without_completion"
+    return should_attempt_taskfile_fresh_session_retry(
+        stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+        retry_attempt_count=int(
+            same_session_state_payload.get("fresh_session_retry_count") or 0
+        ),
+        same_session_completed=bool(same_session_state_payload.get("completed")),
+        final_status=str(same_session_state_payload.get("final_status") or "").strip(),
+        hard_boundary_failure=_knowledge_hard_boundary_failure(run_result),
+        session_completed_successfully=run_result.completed_successfully(),
+        useful_progress=_knowledge_task_file_useful_progress(
+            task_file_path=task_file_path,
+            original_task_file=original_task_file,
+            same_session_state_payload=same_session_state_payload,
+        ),
+    )
 
 
 def _evaluate_knowledge_output_file(
@@ -736,12 +742,16 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                 parse_metadata=parse_metadata,
             )
 
+        classification_repair_limit = structured_repair_followup_limit(
+            stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+            semantic_step_key=KNOWLEDGE_CLASSIFY_STEP_KEY,
+        )
         if _knowledge_validation_blocked(
             classification_validation_errors,
             classification_validation_metadata,
         ):
             for repair_attempt_index in range(
-                1, _STRUCTURED_KNOWLEDGE_MAX_REPAIR_FOLLOWUPS + 1
+                1, classification_repair_limit + 1
             ):
                 repair_task_file = build_repair_task_file(
                     original_task_file=classification_task_file,
@@ -1032,12 +1042,16 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                         parse_errors=grouping_parse_errors,
                         parse_metadata=grouping_parse_metadata,
                     )
+                grouping_repair_limit = structured_repair_followup_limit(
+                    stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                    semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
+                )
                 if _knowledge_validation_blocked(
                     grouping_validation_errors,
                     grouping_validation_metadata,
                 ):
                     for repair_attempt_index in range(
-                        1, _STRUCTURED_KNOWLEDGE_MAX_REPAIR_FOLLOWUPS + 1
+                        1, grouping_repair_limit + 1
                     ):
                         repair_grouping_task_file = build_repair_task_file(
                             original_task_file=grouping_task_file,
@@ -1287,6 +1301,16 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
         worker_runs=worker_runner_results,
         stage_rows=stage_rows if stage_rows else None,
     )
+    worker_runner_payload["recovery_policy"] = {
+        "classification": inline_repair_policy_summary(
+            stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+            semantic_step_key=KNOWLEDGE_CLASSIFY_STEP_KEY,
+        ),
+        "grouping": inline_repair_policy_summary(
+            stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+            semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
+        ),
+    }
     _write_json(worker_runner_payload, worker_root / "status.json")
     return _DirectKnowledgeWorkerResult(
         report=WorkerExecutionReportV1(
@@ -1463,6 +1487,13 @@ def _run_phase_knowledge_worker_assignment_v1(
             task_file_guardrail=task_file_guardrail,
             planned_happy_path_worker_cap=1,
         )
+        worker_runner_payload["recovery_policy"] = {
+            **taskfile_recovery_policy_summary(stage_key=KNOWLEDGE_POLICY_STAGE_KEY),
+            "same_session_repair_rewrite_limits": {
+                KNOWLEDGE_CLASSIFY_STEP_KEY: 1,
+                KNOWLEDGE_GROUP_STEP_KEY: 1,
+            },
+        }
         _write_json(worker_runner_payload, worker_root / "status.json")
         return _DirectKnowledgeWorkerResult(
             report=WorkerExecutionReportV1(
@@ -2169,6 +2200,13 @@ def _run_phase_knowledge_worker_assignment_v1(
     worker_runner_payload["fresh_worker_replacement_status"] = (
         fresh_worker_replacement_status
     )
+    worker_runner_payload["recovery_policy"] = {
+        **taskfile_recovery_policy_summary(stage_key=KNOWLEDGE_POLICY_STAGE_KEY),
+        "same_session_repair_rewrite_limits": {
+            KNOWLEDGE_CLASSIFY_STEP_KEY: 1,
+            KNOWLEDGE_GROUP_STEP_KEY: 1,
+        },
+    }
     if fresh_worker_replacement_metadata:
         worker_runner_payload.update(dict(fresh_worker_replacement_metadata))
     _attach_worker_guardrail_summary(

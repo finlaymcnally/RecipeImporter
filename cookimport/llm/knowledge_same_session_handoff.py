@@ -12,6 +12,10 @@ from .knowledge_stage.task_file_contracts import (
     transition_knowledge_classification_task_file,
     transition_knowledge_grouping_task_file,
 )
+from .repair_recovery_policy import (
+    KNOWLEDGE_POLICY_STAGE_KEY,
+    taskfile_fresh_session_retry_limit,
+)
 
 KNOWLEDGE_SAME_SESSION_HANDOFF_SCHEMA_VERSION = "knowledge_same_session_handoff.v1"
 KNOWLEDGE_SAME_SESSION_STATE_ENV = "RECIPEIMPORT_KNOWLEDGE_SAME_SESSION_STATE_PATH"
@@ -63,7 +67,9 @@ def initialize_knowledge_same_session_state(
         "final_output_shard_count": 0,
         "completed": False,
         "final_status": None,
-        "fresh_session_retry_limit": 1,
+        "fresh_session_retry_limit": taskfile_fresh_session_retry_limit(
+            stage_key=KNOWLEDGE_POLICY_STAGE_KEY
+        ),
         "fresh_session_retry_count": 0,
         "fresh_session_retry_status": "not_attempted",
         "fresh_session_retry_history": [],

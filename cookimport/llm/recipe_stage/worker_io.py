@@ -23,6 +23,11 @@ from ..codex_farm_runner import CodexFarmRunnerError
 from ..codex_exec_runner import DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, CodexExecLiveSnapshot, CodexExecRunResult, CodexExecRunner, CodexExecSupervisionDecision, SubprocessCodexExecRunner, classify_taskfile_worker_command, detect_taskfile_worker_boundary_violation, format_watchdog_command_reason_detail, format_watchdog_command_loop_reason_detail, is_single_file_workspace_command_drift_policy, should_terminate_workspace_command_loop, summarize_direct_telemetry_rows
 from ..editable_task_file import TASK_FILE_NAME, build_repair_task_file, build_task_file, load_task_file, validate_edited_task_file, write_task_file
 from ..phase_worker_runtime import PhaseManifestV1, ShardManifestEntryV1, ShardProposalV1, TaskManifestEntryV1, WorkerAssignmentV1, WorkerExecutionReportV1, resolve_phase_worker_count
+from ..repair_recovery_policy import (
+    RECIPE_POLICY_STAGE_KEY,
+    should_attempt_taskfile_fresh_session_retry,
+    should_attempt_taskfile_fresh_worker_replacement,
+)
 from ..recipe_workspace_tools import build_recipe_worker_scaffold, recipe_worker_task_paths, validate_recipe_worker_draft
 from ..recipe_tagging_guide import build_recipe_tagging_guide
 from ..shard_survivability import attach_observed_telemetry_to_survivability_report, ShardSurvivabilityPreflightError, count_structural_output_tokens, count_tokens_for_model, evaluate_stage_survivability
@@ -121,38 +126,38 @@ def _recipe_catastrophic_run_result_reason(run_result: CodexExecRunResult) -> st
     return 'catastrophic_worker_failure'
 
 def _should_attempt_recipe_fresh_worker_replacement(*, run_result: CodexExecRunResult | None=None, exc: CodexFarmRunnerError | None=None, replacement_attempt_count: int, same_session_state_payload: Mapping[str, Any]) -> tuple[bool, str]:
-    if int(replacement_attempt_count) >= 1:
-        return (False, 'fresh_worker_replacement_budget_spent')
-    if bool(same_session_state_payload.get('completed')):
-        return (False, 'same_session_already_completed')
-    if exc is not None:
-        retry_reason = _recipe_retryable_runner_exception_reason(exc)
-        if retry_reason is None:
-            return (False, 'runner_exception_not_retryable')
-        return (True, retry_reason)
-    if run_result is not None:
-        retry_reason = _recipe_catastrophic_run_result_reason(run_result)
-        if retry_reason is None:
-            return (False, 'worker_session_not_catastrophic')
-        return (True, retry_reason)
-    return (False, 'fresh_worker_replacement_not_applicable')
+    return should_attempt_taskfile_fresh_worker_replacement(
+        stage_key=RECIPE_POLICY_STAGE_KEY,
+        replacement_attempt_count=replacement_attempt_count,
+        same_session_completed=bool(same_session_state_payload.get('completed')),
+        retryable_exception_reason=(
+            _recipe_retryable_runner_exception_reason(exc)
+            if exc is not None
+            else None
+        ),
+        catastrophic_run_result_reason=(
+            _recipe_catastrophic_run_result_reason(run_result)
+            if run_result is not None
+            else None
+        ),
+    )
 
 def _should_attempt_recipe_fresh_session_retry(*, run_result: CodexExecRunResult, task_file_path: Path, original_task_file: Mapping[str, Any], same_session_state_payload: Mapping[str, Any]) -> tuple[bool, str]:
-    retry_limit = int(same_session_state_payload.get('fresh_session_retry_limit') or 0)
-    retry_count = int(same_session_state_payload.get('fresh_session_retry_count') or 0)
-    if retry_limit <= retry_count:
-        return (False, 'fresh_session_retry_budget_spent')
-    if bool(same_session_state_payload.get('completed')):
-        return (False, 'same_session_already_completed')
-    if str(same_session_state_payload.get('final_status') or '').strip() == 'repair_exhausted':
-        return (False, 'same_session_repair_exhausted')
-    if _recipe_hard_boundary_failure(run_result):
-        return (False, 'hard_boundary_failure')
-    if not run_result.completed_successfully():
-        return (False, 'worker_session_not_clean')
-    if not _recipe_task_file_useful_progress(task_file_path=task_file_path, original_task_file=original_task_file, same_session_state_payload=same_session_state_payload):
-        return (False, 'no_preserved_progress')
-    return (True, 'preserved_progress_without_completion')
+    return should_attempt_taskfile_fresh_session_retry(
+        stage_key=RECIPE_POLICY_STAGE_KEY,
+        retry_attempt_count=int(
+            same_session_state_payload.get('fresh_session_retry_count') or 0
+        ),
+        same_session_completed=bool(same_session_state_payload.get('completed')),
+        final_status=str(same_session_state_payload.get('final_status') or '').strip(),
+        hard_boundary_failure=_recipe_hard_boundary_failure(run_result),
+        session_completed_successfully=run_result.completed_successfully(),
+        useful_progress=_recipe_task_file_useful_progress(
+            task_file_path=task_file_path,
+            original_task_file=original_task_file,
+            same_session_state_payload=same_session_state_payload,
+        ),
+    )
 
 def _write_recipe_worker_hint(*, path: Path, shard: ShardManifestEntryV1) -> None:
     payload = _coerce_dict(shard.input_payload)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import hashlib
 import json
 from typing import Any, Mapping, Sequence
 
@@ -77,11 +76,6 @@ def _packet_context_text(packet: Mapping[str, Any], *, key: str, last: bool) -> 
         return None
     cleaned = str(row.get("t") or "").strip()
     return cleaned or None
-
-
-def _classification_sort_key(owned_id: str, block_index: int) -> tuple[str, int]:
-    digest = hashlib.sha1(owned_id.encode("utf-8")).hexdigest()
-    return digest, int(block_index)
 
 
 def _blank_classification_answer() -> dict[str, Any]:
@@ -334,6 +328,12 @@ def _collect_knowledge_grouping_units(
                     "text": str(evidence.get("text") or ""),
                     "context_before": evidence.get("context_before"),
                     "context_after": evidence.get("context_after"),
+                    "structure": dict(_coerce_dict(evidence.get("structure"))),
+                    "candidate_tag_keys": [
+                        str(value).strip()
+                        for value in (evidence.get("candidate_tag_keys") or [])
+                        if str(value).strip()
+                    ],
                 },
                 "answer": {},
             }
@@ -459,7 +459,7 @@ def build_knowledge_classification_task_file(
     knowledge_group_task_max_evidence_chars: int = KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     catalog = load_knowledge_tag_catalog()
-    indexed_units: list[tuple[tuple[str, int], dict[str, Any]]] = []
+    units: list[dict[str, Any]] = []
     unit_to_shard_id: dict[str, str] = {}
     for shard in shards:
         for packet in _knowledge_packet_payloads(shard.input_payload):
@@ -502,10 +502,7 @@ def build_knowledge_classification_task_file(
                     },
                     "answer": _blank_classification_answer(),
                 }
-                indexed_units.append(
-                    (_classification_sort_key(block_id, block_index), unit_payload)
-                )
-    units = [payload for _sort_key, payload in sorted(indexed_units, key=lambda row: row[0])]
+                units.append(unit_payload)
     task_file = build_task_file(
         stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY,
         assignment_id=assignment.worker_id,

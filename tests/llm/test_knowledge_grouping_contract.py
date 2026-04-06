@@ -242,7 +242,7 @@ def test_structured_grouping_response_accepts_group_index_alias() -> None:
     edited, errors, metadata = build_knowledge_edited_task_file_from_grouping_response(
         original_task_file=grouping_task_file,
         response_text=(
-            '{"rows":[{"block_index":8,"group_index":"heat-control","topic_label":"Heat control"}]}'
+            '{"rows":[{"row_id":"r01","group_index":"heat-control","topic_label":"Heat control"}]}'
         ),
     )
 

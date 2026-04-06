@@ -22,6 +22,10 @@ from .codex_farm_runner import CodexFarmRunnerError
 from .codex_exec_runner import DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, CodexExecLiveSnapshot, CodexExecRunResult, CodexExecRunner, CodexExecSupervisionDecision, SubprocessCodexExecRunner, classify_taskfile_worker_command, detect_taskfile_worker_boundary_violation, format_watchdog_command_reason_detail, format_watchdog_command_loop_reason_detail, is_single_file_workspace_command_drift_policy, should_terminate_workspace_command_loop, summarize_direct_telemetry_rows
 from .editable_task_file import TASK_FILE_NAME, build_repair_task_file, build_task_file, load_task_file, validate_edited_task_file, write_task_file
 from .phase_worker_runtime import PhaseManifestV1, ShardManifestEntryV1, ShardProposalV1, TaskManifestEntryV1, WorkerAssignmentV1, WorkerExecutionReportV1, resolve_phase_worker_count
+from .repair_recovery_policy import (
+    RECIPE_POLICY_STAGE_KEY,
+    taskfile_recovery_policy_summary,
+)
 from .recipe_workspace_tools import build_recipe_worker_scaffold, recipe_worker_task_paths, validate_recipe_worker_draft
 from .recipe_tagging_guide import build_recipe_tagging_guide
 from .shard_survivability import attach_observed_telemetry_to_survivability_report, ShardSurvivabilityPreflightError, count_structural_output_tokens, count_tokens_for_model, evaluate_stage_survivability
@@ -31,7 +35,7 @@ from .recipe_same_session_handoff import RECIPE_SAME_SESSION_STATE_ENV, initiali
 from .single_file_worker_commands import build_single_file_worker_surface
 from .taskfile_progress import decorate_active_worker_label, summarize_taskfile_health
 from .worker_hint_sidecars import preview_text, write_worker_hint_markdown
-from .recipe_stage.task_file_contract import _RecipeTaskPlan, _build_recipe_task_file_unit, _recipe_task_file_helper_commands, _recipe_task_file_answer_schema, _build_recipe_task_file, _recipe_artifact_filename, _build_recipe_task_runtime_manifest_entry, _recipe_task_result_path, _write_recipe_task_payload, _build_recipe_task_file_worker_prompt
+from .recipe_stage.task_file_contract import _RecipeTaskPlan, _build_recipe_task_file_unit, _recipe_task_file_answer_schema, _build_recipe_task_file, _recipe_artifact_filename, _build_recipe_task_runtime_manifest_entry, _recipe_task_result_path, _write_recipe_task_payload, _build_recipe_task_file_worker_prompt
 from .recipe_stage.worker_io import _write_jsonl, _serialize_compact_prompt_json, _write_worker_input, _relative_path, _recipe_same_session_state_path, _recipe_task_file_useful_progress, _recipe_hard_boundary_failure, _recipe_retryable_runner_exception_reason, _recipe_catastrophic_run_result_reason, _should_attempt_recipe_fresh_worker_replacement, _should_attempt_recipe_fresh_session_retry, _write_recipe_worker_hint, _distribute_recipe_session_value, _build_recipe_workspace_task_runner_payload, _build_recipe_workspace_session_runner_payload, _aggregate_recipe_worker_runner_payload, _render_events_jsonl
 logger = logging.getLogger(__name__)
 SINGLE_CORRECTION_RECIPE_PIPELINE_ID = RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
@@ -1062,6 +1066,7 @@ def _run_recipe_taskfile_assignment_v1(*, run_root: Path, assignment: WorkerAssi
         worker_summary['repair_worker_session_count'] = int(worker_session_guardrails['repair_worker_session_count'])
     worker_runner_payload['fresh_worker_replacement_count'] = fresh_worker_replacement_count
     worker_runner_payload['fresh_worker_replacement_status'] = fresh_worker_replacement_status
+    worker_runner_payload['recovery_policy'] = taskfile_recovery_policy_summary(stage_key=RECIPE_POLICY_STAGE_KEY)
     if fresh_worker_replacement_metadata:
         worker_runner_payload.update(dict(fresh_worker_replacement_metadata))
     _write_json(worker_runner_payload, worker_root / 'status.json')
