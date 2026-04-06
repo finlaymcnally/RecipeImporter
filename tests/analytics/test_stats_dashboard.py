@@ -432,6 +432,7 @@ class TestRenderer:
         assert result["time_point_total"] == 6
         assert result["time_title"] == "All Token Use over Timestamp"
         assert result["time_x_axis_type"] == "datetime"
+        assert result["time_first_series_type"] == "scatter"
         assert result["time_first_compare_value"] == "2026-03-04T10:00:00"
         assert result["time_first_x_is_number"] is True
         assert result["time_first_outcome_value"] == pytest.approx(990)

@@ -30,6 +30,8 @@ def _run_runtime_phase(
     *,
     runner: FakeCodexExecRunner,
     settings=None,
+    block_texts: list[str] | None = None,
+    spans=None,
 ) -> dict[str, object]:
     configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
     pack_root, run_root = make_runtime_pack_and_run_dirs(tmp_path)
@@ -39,14 +41,18 @@ def _run_runtime_phase(
             worker_count=1,
             knowledge_prompt_target_count=2,
         )
+    runtime_block_texts = (
+        list(block_texts)
+        if block_texts is not None
+        else ["Knowledge zero.", "Recipe gap.", "Knowledge two."]
+    )
+    runtime_spans = list(spans) if spans is not None else [knowledge_span(0), knowledge_span(2)]
     apply_result = run_codex_farm_nonrecipe_finalize(
-        conversion_result=make_runtime_conversion_result(
-            ["Knowledge zero.", "Recipe gap.", "Knowledge two."]
+        conversion_result=make_runtime_conversion_result(runtime_block_texts),
+        nonrecipe_stage_result=make_runtime_nonrecipe_stage_result(spans=runtime_spans),
+        recipe_ownership_result=make_runtime_recipe_ownership_result(
+            block_count=len(runtime_block_texts)
         ),
-        nonrecipe_stage_result=make_runtime_nonrecipe_stage_result(
-            spans=[knowledge_span(0), knowledge_span(2)]
-        ),
-        recipe_ownership_result=make_runtime_recipe_ownership_result(block_count=3),
         run_settings=settings,
         run_root=run_root,
         workbook_slug="book",
@@ -232,7 +238,11 @@ def test_knowledge_orchestrator_inline_json_style_reuses_session(
         pack_root=pack_root,
         worker_count=1,
         knowledge_prompt_target_count=2,
-    ).model_copy(update={"codex_exec_style": "inline-json-v1"})
+    ).model_copy(
+        update={
+            "knowledge_codex_exec_style": "inline-json-v1",
+        }
+    )
     runner = FakeCodexExecRunner(
         output_builder=lambda payload: build_structural_pipeline_output(
             "recipe.knowledge.packet.v1",
@@ -264,6 +274,84 @@ def test_knowledge_orchestrator_inline_json_style_reuses_session(
     assert worker_status["telemetry"]["summary"]["prompt_input_mode_counts"] == {
         "structured_session_classification_initial": 2,
         "structured_session_grouping": 2,
+    }
+
+
+def test_knowledge_orchestrator_inline_json_retries_classification_more_than_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
+    pack_root, _run_root = make_runtime_pack_and_run_dirs(tmp_path)
+    settings = make_runtime_settings(
+        pack_root=pack_root,
+        worker_count=1,
+        knowledge_prompt_target_count=1,
+        knowledge_codex_exec_style="inline-json-v1",
+    )
+    runner = _MultiRepairClassificationInlineRunner()
+
+    fixture = _run_runtime_phase(
+        monkeypatch,
+        tmp_path,
+        runner=runner,
+        settings=settings,
+        block_texts=["Knowledge zero."],
+        spans=[knowledge_span(0)],
+    )
+    phase_dir = Path(fixture["phase_dir"])
+    worker_root = Path(fixture["worker_root"])
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+    proposal = json.loads(
+        (phase_dir / "proposals" / "book.ks0000.nr.json").read_text(encoding="utf-8")
+    )
+
+    assert runner.classification_repair_call_count == 2
+    assert proposal["payload"] is not None
+    assert proposal["validation_errors"] == []
+    assert worker_status["telemetry"]["summary"]["prompt_input_mode_counts"] == {
+        "structured_session_classification_initial": 1,
+        "structured_session_classification_repair": 2,
+        "structured_session_grouping": 1,
+    }
+
+
+def test_knowledge_orchestrator_inline_json_retries_grouping_more_than_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
+    pack_root, _run_root = make_runtime_pack_and_run_dirs(tmp_path)
+    settings = make_runtime_settings(
+        pack_root=pack_root,
+        worker_count=1,
+        knowledge_prompt_target_count=1,
+        knowledge_codex_exec_style="inline-json-v1",
+    )
+    runner = _MultiRepairGroupingInlineRunner()
+
+    fixture = _run_runtime_phase(
+        monkeypatch,
+        tmp_path,
+        runner=runner,
+        settings=settings,
+        block_texts=["Knowledge zero."],
+        spans=[knowledge_span(0)],
+    )
+    phase_dir = Path(fixture["phase_dir"])
+    worker_root = Path(fixture["worker_root"])
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+    proposal = json.loads(
+        (phase_dir / "proposals" / "book.ks0000.nr.json").read_text(encoding="utf-8")
+    )
+
+    assert runner.grouping_repair_call_count == 2
+    assert proposal["payload"] is not None
+    assert proposal["validation_errors"] == []
+    assert worker_status["telemetry"]["summary"]["prompt_input_mode_counts"] == {
+        "structured_session_classification_initial": 1,
+        "structured_session_grouping": 1,
+        "structured_session_grouping_repair": 2,
     }
 
 
@@ -388,6 +476,188 @@ class _FreshSessionKnowledgeRunner(FakeCodexExecRunner):
                 ),
             )
         return super().run_taskfile_worker(*args, **kwargs)
+
+
+def _packet_result_from_base(
+    base_result: CodexExecRunResult,
+    *,
+    response_text: str,
+) -> CodexExecRunResult:
+    usage = {
+        "input_tokens": max(1, len(base_result.prompt_text) // 4),
+        "cached_input_tokens": 0,
+        "output_tokens": max(1, len(response_text) // 4),
+        "reasoning_tokens": 0,
+    }
+    events = (
+        {"type": "thread.started"},
+        {
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": response_text},
+        },
+        {
+            "type": "turn.completed",
+            "usage": {
+                "input_tokens": usage["input_tokens"],
+                "cached_input_tokens": usage["cached_input_tokens"],
+                "output_tokens": usage["output_tokens"],
+                "reasoning_tokens": usage["reasoning_tokens"],
+            },
+        },
+    )
+    return CodexExecRunResult(
+        command=base_result.command,
+        subprocess_exit_code=base_result.subprocess_exit_code,
+        output_schema_path=base_result.output_schema_path,
+        prompt_text=base_result.prompt_text,
+        response_text=response_text,
+        turn_failed_message=None,
+        events=events,
+        usage=usage,
+        stdout_text="\n".join(json.dumps(event) for event in events) + "\n",
+        stderr_text=base_result.stderr_text,
+        source_working_dir=base_result.source_working_dir,
+        execution_working_dir=base_result.execution_working_dir,
+        execution_agents_path=base_result.execution_agents_path,
+        duration_ms=base_result.duration_ms,
+        started_at_utc=base_result.started_at_utc,
+        finished_at_utc=base_result.finished_at_utc,
+        workspace_mode=base_result.workspace_mode,
+        supervision_state=base_result.supervision_state,
+        supervision_reason_code=base_result.supervision_reason_code,
+        supervision_reason_detail=base_result.supervision_reason_detail,
+        supervision_retryable=base_result.supervision_retryable,
+    )
+
+
+def _structured_classification_rows(payload: dict[str, object]) -> list[dict[str, object]]:
+    return [
+        {
+            "block_index": int(block.get("i") or 0),
+            "category": "knowledge",
+            "grounding": {
+                "tag_keys": [],
+                "category_keys": ["techniques"],
+                "proposed_tags": [
+                    {
+                        "key": "heat-control",
+                        "display_name": "Heat control",
+                        "category_key": "techniques",
+                    }
+                ],
+            },
+        }
+        for block in (payload.get("b") or [])
+        if isinstance(block, dict)
+    ]
+
+
+def _structured_grouping_rows(
+    payload: dict[str, object],
+    *,
+    topic_label: str,
+) -> list[dict[str, object]]:
+    return [
+        {
+            "block_index": int(block.get("i") or 0),
+            "group_key": "heat-control",
+            "topic_label": topic_label,
+        }
+        for block in (payload.get("b") or [])
+        if isinstance(block, dict)
+    ]
+
+
+class _MultiRepairClassificationInlineRunner(FakeCodexExecRunner):
+    def __init__(self) -> None:
+        super().__init__(output_builder=lambda payload: {})
+        self.classification_repair_call_count = 0
+
+    def run_packet_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        base_result = super().run_packet_worker(*args, **kwargs)
+        payload = dict(kwargs.get("input_payload") or {})
+        packet_kind = str(payload.get("packet_kind") or "").strip()
+        stage_key = str(payload.get("stage_key") or "").strip()
+        if stage_key == "nonrecipe_classify" and packet_kind == "classification_initial":
+            return _packet_result_from_base(
+                base_result,
+                response_text='{"rows":[{"block_index":0,"category":"knowledge"',
+            )
+        if stage_key == "nonrecipe_classify" and packet_kind == "classification_repair":
+            self.classification_repair_call_count += 1
+            if self.classification_repair_call_count == 1:
+                return _packet_result_from_base(
+                    base_result,
+                    response_text='{"rows":[{"block_index":0,"category":"knowledge"',
+                )
+            return _packet_result_from_base(
+                base_result,
+                response_text=json.dumps(
+                    {"rows": _structured_classification_rows(payload)},
+                    indent=2,
+                    sort_keys=True,
+                ),
+            )
+        if stage_key == "knowledge_group":
+            return _packet_result_from_base(
+                base_result,
+                response_text=json.dumps(
+                    {"rows": _structured_grouping_rows(payload, topic_label="Heat control")},
+                    indent=2,
+                    sort_keys=True,
+                ),
+            )
+        return base_result
+
+
+class _MultiRepairGroupingInlineRunner(FakeCodexExecRunner):
+    def __init__(self) -> None:
+        super().__init__(output_builder=lambda payload: {})
+        self.grouping_repair_call_count = 0
+
+    def run_packet_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        base_result = super().run_packet_worker(*args, **kwargs)
+        payload = dict(kwargs.get("input_payload") or {})
+        packet_kind = str(payload.get("packet_kind") or "").strip()
+        stage_key = str(payload.get("stage_key") or "").strip()
+        if stage_key == "nonrecipe_classify":
+            return _packet_result_from_base(
+                base_result,
+                response_text=json.dumps(
+                    {"rows": _structured_classification_rows(payload)},
+                    indent=2,
+                    sort_keys=True,
+                ),
+            )
+        if stage_key == "knowledge_group" and packet_kind == "grouping_1":
+            return _packet_result_from_base(
+                base_result,
+                response_text=json.dumps(
+                    {"rows": _structured_grouping_rows(payload, topic_label="")},
+                    indent=2,
+                    sort_keys=True,
+                ),
+            )
+        if stage_key == "knowledge_group" and packet_kind == "grouping_1_repair":
+            self.grouping_repair_call_count += 1
+            if self.grouping_repair_call_count == 1:
+                return _packet_result_from_base(
+                    base_result,
+                    response_text=json.dumps(
+                        {"rows": _structured_grouping_rows(payload, topic_label="")},
+                        indent=2,
+                        sort_keys=True,
+                    ),
+                )
+            return _packet_result_from_base(
+                base_result,
+                response_text=json.dumps(
+                    {"rows": _structured_grouping_rows(payload, topic_label="Heat control")},
+                    indent=2,
+                    sort_keys=True,
+                ),
+            )
+        return base_result
 
 
 def _load_task_status_rows(path: Path) -> dict[str, dict[str, object]]:

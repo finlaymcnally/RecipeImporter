@@ -17,7 +17,11 @@ from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 
 
 def _settings(**kwargs) -> RunSettings:
-    return RunSettings(line_role_pipeline="codex-line-role-route-v2", **kwargs)
+    return RunSettings(
+        line_role_pipeline="codex-line-role-route-v2",
+        line_role_codex_exec_style="taskfile-v1",
+        **kwargs,
+    )
 
 
 @pytest.fixture(autouse=True)

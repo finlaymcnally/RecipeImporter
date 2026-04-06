@@ -80,6 +80,8 @@ def _load_fixture(name: str) -> dict[str, object]:
 
 
 def _settings(mode: str = "off", **kwargs):
+    if "line_role_codex_exec_style" not in kwargs:
+        kwargs["line_role_codex_exec_style"] = "taskfile-v1"
     return RunSettings(line_role_pipeline=mode, **kwargs)
 
 

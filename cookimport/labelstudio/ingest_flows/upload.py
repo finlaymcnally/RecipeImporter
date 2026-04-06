@@ -124,7 +124,12 @@ def run_labelstudio_import(
     knowledge_group_task_max_evidence_chars: int = int(
         serialized_run_setting_default("knowledge_group_task_max_evidence_chars")
     ),
-    codex_exec_style: str = str(serialized_run_setting_default("codex_exec_style")),
+    line_role_codex_exec_style: str = str(
+        serialized_run_setting_default("line_role_codex_exec_style")
+    ),
+    knowledge_codex_exec_style: str = str(
+        serialized_run_setting_default("knowledge_codex_exec_style")
+    ),
     line_role_prompt_target_count: int = 5,
     codex_farm_cmd: str = "codex-farm",
     codex_farm_model: str | None = None,
@@ -253,7 +258,8 @@ def run_labelstudio_import(
         knowledge_packet_output_char_budget=knowledge_packet_output_char_budget,
         knowledge_group_task_max_units=knowledge_group_task_max_units,
         knowledge_group_task_max_evidence_chars=knowledge_group_task_max_evidence_chars,
-        codex_exec_style=codex_exec_style,
+        line_role_codex_exec_style=line_role_codex_exec_style,
+        knowledge_codex_exec_style=knowledge_codex_exec_style,
         line_role_prompt_target_count=line_role_prompt_target_count,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_model=codex_farm_model,
@@ -566,6 +572,14 @@ def run_labelstudio_import(
         run_manifest_artifacts[
             "line_role_pipeline_line_role_predictions_jsonl"
         ] = line_role_predictions_manifest_path
+    semantic_line_role_predictions_manifest_path = _path_for_manifest(
+        run_root,
+        pred.get("line_role_pipeline_semantic_predictions_path"),
+    )
+    if semantic_line_role_predictions_manifest_path:
+        run_manifest_artifacts[
+            "line_role_pipeline_semantic_predictions_jsonl"
+        ] = semantic_line_role_predictions_manifest_path
     line_role_spans_manifest_path = _path_for_manifest(
         run_root,
         pred.get("line_role_pipeline_projected_spans_path"),
@@ -609,6 +623,9 @@ def run_labelstudio_import(
         "processed_report_path": pred["processed_report_path"],
         "line_role_pipeline_line_role_predictions_path": pred.get(
             "line_role_pipeline_line_role_predictions_path"
+        ),
+        "line_role_pipeline_semantic_predictions_path": pred.get(
+            "line_role_pipeline_semantic_predictions_path"
         ),
         "line_role_pipeline_projected_spans_path": pred.get(
             "line_role_pipeline_projected_spans_path"

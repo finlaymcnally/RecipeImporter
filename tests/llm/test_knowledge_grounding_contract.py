@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+from cookimport.llm.knowledge_stage.structured_session_contract import (
+    build_knowledge_structured_prompt,
+    knowledge_task_file_to_structured_packet,
+)
 from cookimport.llm.knowledge_stage.task_file_contracts import (
     build_knowledge_classification_task_file,
     validate_knowledge_classification_task_file,
@@ -143,6 +147,40 @@ def test_grounding_validator_demotes_unknown_or_empty_grounding_to_other() -> No
     }
 
 
+def test_grounding_validator_rejects_category_only_grounding_for_knowledge() -> None:
+    task_file, _ = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[_shard(text="Salt early so it has time to penetrate.")],
+    )
+    edited = deepcopy(task_file)
+    edited["units"][0]["answer"] = {
+        "category": "knowledge",
+        "grounding": {
+            "tag_keys": [],
+            "category_keys": ["techniques"],
+            "proposed_tags": [],
+        },
+    }
+
+    answers_by_unit_id, errors, metadata = validate_knowledge_classification_task_file(
+        original_task_file=task_file,
+        edited_task_file=edited,
+    )
+
+    assert answers_by_unit_id is None
+    assert errors == ("knowledge_category_only_grounding",)
+    assert metadata["failed_unit_ids"] == ["knowledge::10"]
+    assert metadata["grounding_gate_demoted_unit_ids"] == []
+    assert metadata["grounding_gate_demotion_reason_counts"] == {}
+    assert metadata["error_details"] == [
+        {
+            "path": "/units/knowledge::10/answer/grounding/category_keys",
+            "code": "knowledge_category_only_grounding",
+            "message": "knowledge grounding must include at least one existing tag key or one proposed tag; category_keys alone are not enough",
+        }
+    ]
+
+
 def test_grounding_validator_drops_invalid_entries_when_valid_grounding_survives() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
@@ -214,3 +252,22 @@ def test_grounding_validator_still_rejects_malformed_grounding_shapes() -> None:
     assert answers_by_unit_id is None
     assert errors == ("invalid_grounding_tag_keys",)
     assert metadata["failed_unit_ids"] == ["knowledge::10"]
+
+
+def test_structured_prompt_explicitly_forbids_category_only_grounding() -> None:
+    task_file, _ = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[_shard(text="Salt early so it has time to penetrate.")],
+    )
+    packet = knowledge_task_file_to_structured_packet(
+        task_file_payload=task_file,
+        packet_kind="initial",
+    )
+
+    prompt = build_knowledge_structured_prompt(
+        task_file_payload=task_file,
+        packet=packet,
+    )
+
+    assert "category-only grounding is invalid" in prompt
+    assert "return `other` with empty grounding" in prompt

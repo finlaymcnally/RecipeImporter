@@ -42,6 +42,7 @@ def make_runtime_settings(
     worker_count: int,
     context_blocks: int | None = None,
     knowledge_prompt_target_count: int | None = None,
+    knowledge_codex_exec_style: str = "taskfile-v1",
 ) -> RunSettings:
     payload: dict[str, object] = {
         "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
@@ -49,6 +50,7 @@ def make_runtime_settings(
         "codex_farm_cmd": "codex-farm",
         "codex_farm_root": str(pack_root),
         "codex_farm_pipeline_knowledge": "recipe.knowledge.packet.v1",
+        "knowledge_codex_exec_style": knowledge_codex_exec_style,
     }
     if context_blocks is not None:
         payload["codex_farm_knowledge_context_blocks"] = context_blocks

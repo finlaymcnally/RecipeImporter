@@ -1391,6 +1391,38 @@ def test_cf_debug_preview_prompts_predictive_rejects_codex_only_root(tmp_path: P
     assert "Predictive prompt preview only accepts deterministic/vanilla artifacts" in str(result.exception)
 
 
+def test_cf_debug_preview_prompts_rejects_benchmark_results_out_path(tmp_path: Path) -> None:
+    run_dir = _build_existing_run(tmp_path)
+    out_dir = (
+        REPO_ROOT
+        / "data"
+        / "golden"
+        / "benchmark-vs-golden"
+        / "2026-04-05_00.22.03"
+        / "single-book-benchmark"
+        / "fixturebook"
+        / "prompt-preview-inline-json"
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "preview-prompts",
+            "--run",
+            str(run_dir),
+            "--out",
+            str(out_dir),
+        ],
+    )
+
+    message = "\n".join(
+        part for part in (result.stdout, result.stderr, str(result.exception or "")) if part
+    )
+    assert result.exit_code != 0
+    assert "may not write under" in message
+    assert "benchmark-vs-golden" in message
+
+
 def test_cf_debug_actual_costs_reads_direct_summary_file(tmp_path: Path) -> None:
     summary_path = _write_actual_costs_summary(tmp_path / "prompt_budget_summary.json")
 
@@ -1480,3 +1512,49 @@ def test_cf_debug_preview_shard_sweep_writes_experiment_summaries(tmp_path: Path
     assert payload["experiments"][0]["phases"][0]["stage_key"] == "recipe_refine"
     assert (out_dir / "shard_sweep_summary.md").is_file()
     assert (out_dir / "experiments" / "narrow" / "prompt_preview_manifest.json").is_file()
+
+
+def test_cf_debug_preview_shard_sweep_rejects_benchmark_results_out_path(tmp_path: Path) -> None:
+    run_dir = _build_existing_run(tmp_path)
+    experiment_file = tmp_path / "shard_sweep.json"
+    _write_json(
+        experiment_file,
+        {
+            "experiments": [
+                {
+                    "name": "narrow",
+                    "recipe_worker_count": 1,
+                }
+            ]
+        },
+    )
+    out_dir = (
+        REPO_ROOT
+        / "data"
+        / "golden"
+        / "benchmark-vs-golden"
+        / "2026-04-05_00.22.03"
+        / "single-book-benchmark"
+        / "fixturebook"
+        / "preview-sweep"
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "preview-shard-sweep",
+            "--run",
+            str(run_dir),
+            "--experiment-file",
+            str(experiment_file),
+            "--out",
+            str(out_dir),
+        ],
+    )
+
+    message = "\n".join(
+        part for part in (result.stdout, result.stderr, str(result.exception or "")) if part
+    )
+    assert result.exit_code != 0
+    assert "may not write under" in message
+    assert "benchmark-vs-golden" in message

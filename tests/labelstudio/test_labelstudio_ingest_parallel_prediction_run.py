@@ -995,6 +995,48 @@ def test_nonrecipe_authority_projection_ignores_unresolved_candidate_without_fin
     assert "nonrecipe_authority:other" not in adjusted[0].reason_tags
 
 
+def test_nonrecipe_authority_projection_marks_reviewed_candidate_as_codex_without_changed_blocks() -> None:
+    predictions = [
+        CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id="block:10",
+            block_index=10,
+            atomic_index=10,
+            text="Salt and heat work together.",
+            within_recipe_span=False,
+            label="NONRECIPE_CANDIDATE",
+            decided_by="fallback",
+            reason_tags=["outside_recipe_route"],
+        )
+    ]
+    nonrecipe_stage_result = make_stage_result(
+        seed=make_seed_result({10: "candidate"}),
+        routing=make_routing_result(candidate_block_indices=[10]),
+        authority=make_authority_result({10: "other"}),
+        candidate_status=make_finalize_status_result(
+            reviewed_block_indices=[10],
+            unreviewed_block_category_by_index={},
+        ),
+        refinement_report={
+            "authority_mode": "nonrecipe_finalized_candidates",
+            "scored_effect": "final_authority",
+            "changed_blocks": [],
+        },
+    )
+
+    adjusted, summary = _apply_nonrecipe_authority_to_predictions(
+        predictions=predictions,
+        nonrecipe_stage_result=nonrecipe_stage_result,
+    )
+
+    assert summary["reviewed_candidate_block_count"] == 1
+    assert summary["reviewed_candidate_block_indices"] == [10]
+    assert summary["changed_block_count"] == 0
+    assert adjusted[0].label == "OTHER"
+    assert adjusted[0].decided_by == "codex"
+    assert "nonrecipe_authority:other" in adjusted[0].reason_tags
+
+
 def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_recipe(
     tmp_path: Path,
 ) -> None:
@@ -1106,6 +1148,230 @@ def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_r
     assert telemetry_payload["unresolved_candidate_line_count"] == 1
     assert telemetry_payload["unresolved_candidate_block_indices"] == [2]
     assert summary["unresolved_candidate_line_count"] == 1
+
+
+def test_line_role_artifacts_write_semantic_predictions_for_reviewed_nonrecipe_candidates(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    fake_result = _make_projection_conversion_result(
+        source=source,
+        block_texts=["Pancakes", "Salt and heat work together."],
+    )
+    label_first_result = _make_label_first_result(
+        source=source,
+        raw_artifacts=fake_result.raw_artifacts,
+    )
+    label_first_result.labeled_lines = [
+        AuthoritativeLabeledLine(
+            source_block_id="block:0",
+            source_block_index=0,
+            atomic_index=0,
+            text="Pancakes",
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:1",
+            source_block_index=1,
+            atomic_index=1,
+            text="Salt and heat work together.",
+            deterministic_label="OTHER",
+            final_label="NONRECIPE_CANDIDATE",
+            decided_by="fallback",
+            reason_tags=["outside_recipe_route"],
+        ),
+    ]
+    label_first_result.recipe_spans = [
+        RecipeSpan(
+            span_id="recipe_span_0",
+            start_block_index=0,
+            end_block_index=0,
+            block_indices=[0],
+            source_block_ids=["block:0"],
+            start_atomic_index=0,
+            end_atomic_index=0,
+            atomic_indices=[0],
+            title_block_index=0,
+            title_atomic_index=0,
+        )
+    ]
+
+    nonrecipe_stage_result = make_stage_result(
+        seed=make_seed_result({1: "candidate"}),
+        routing=make_routing_result(candidate_block_indices=[1]),
+        authority=make_authority_result({1: "other"}),
+        candidate_status=make_finalize_status_result(
+            reviewed_block_indices=[1],
+            unreviewed_block_category_by_index={},
+        ),
+        refinement_report={
+            "authority_mode": "nonrecipe_finalized_candidates",
+            "scored_effect": "final_authority",
+            "changed_blocks": [],
+        },
+    )
+
+    artifacts, summary = _write_authoritative_line_role_artifacts(
+        run_root=tmp_path / "run",
+        source_file=str(source),
+        source_hash="hash",
+        workbook_slug="book",
+        label_first_result=label_first_result,
+        nonrecipe_stage_result=nonrecipe_stage_result,
+    )
+
+    route_rows = [
+        json.loads(line)
+        for line in artifacts["line_role_predictions_path"].read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    semantic_rows = [
+        json.loads(line)
+        for line in artifacts["semantic_line_role_predictions_path"].read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    ]
+
+    route_row = next(row for row in route_rows if row["text"] == "Salt and heat work together.")
+    semantic_row = next(
+        row for row in semantic_rows if row["text"] == "Salt and heat work together."
+    )
+
+    assert route_row["label"] == "NONRECIPE_CANDIDATE"
+    assert route_row["decided_by"] == "fallback"
+    assert semantic_row["label"] == "OTHER"
+    assert semantic_row["decided_by"] == "codex"
+    assert summary["authoritative_stage_outputs_mutated"] is True
+    assert summary["reviewed_candidate_block_indices"] == [1]
+
+
+def test_authoritative_line_role_artifacts_preserve_runtime_telemetry_summary(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    fake_result = _make_projection_conversion_result(
+        source=source,
+        block_texts=["Pancakes", "Salt and heat work together."],
+    )
+    label_first_result = _make_label_first_result(
+        source=source,
+        raw_artifacts=fake_result.raw_artifacts,
+    )
+    label_first_result.labeled_lines = [
+        AuthoritativeLabeledLine(
+            source_block_id="block:0",
+            source_block_index=0,
+            atomic_index=0,
+            text="Pancakes",
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:1",
+            source_block_index=1,
+            atomic_index=1,
+            text="Salt and heat work together.",
+            deterministic_label="OTHER",
+            final_label="NONRECIPE_CANDIDATE",
+            decided_by="codex",
+            reason_tags=["outside_recipe_route"],
+        ),
+    ]
+    label_first_result.recipe_spans = [
+        RecipeSpan(
+            span_id="recipe_span_0",
+            start_block_index=0,
+            end_block_index=0,
+            block_indices=[0],
+            source_block_ids=["block:0"],
+            start_atomic_index=0,
+            end_atomic_index=0,
+            atomic_indices=[0],
+            title_block_index=0,
+            title_atomic_index=0,
+        )
+    ]
+
+    telemetry_summary_path = (
+        tmp_path / "run" / "line-role-pipeline" / "telemetry_summary.json"
+    )
+    telemetry_summary_path.parent.mkdir(parents=True, exist_ok=True)
+    telemetry_summary_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "pipeline": "codex-line-role-route-v2",
+                "summary": {
+                    "batch_count": 1,
+                    "attempt_count": 1,
+                    "tokens_input": 100,
+                    "tokens_cached_input": 10,
+                    "tokens_output": 20,
+                    "tokens_reasoning": 0,
+                    "tokens_total": 130,
+                },
+                "phases": [
+                    {
+                        "phase_key": "line_role",
+                        "summary": {"batch_count": 1},
+                        "runtime_artifacts": {"worker_count": 1},
+                    }
+                ],
+                "runtime_artifacts": {"runtime_root": "line-role-pipeline/runtime"},
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    nonrecipe_stage_result = make_stage_result(
+        seed=make_seed_result({1: "candidate"}),
+        routing=make_routing_result(candidate_block_indices=[1]),
+        authority=make_authority_result({1: "knowledge"}),
+        candidate_status=make_finalize_status_result(
+            reviewed_block_indices=[1],
+            unreviewed_block_category_by_index={},
+        ),
+        refinement_report={
+            "authority_mode": "knowledge_refined_final",
+            "scored_effect": "final_authority",
+            "changed_blocks": [{"block_index": 1}],
+        },
+    )
+
+    artifacts, summary = _write_authoritative_line_role_artifacts(
+        run_root=tmp_path / "run",
+        source_file=str(source),
+        source_hash="hash",
+        workbook_slug="book",
+        label_first_result=label_first_result,
+        nonrecipe_stage_result=nonrecipe_stage_result,
+    )
+
+    telemetry_payload = json.loads(
+        artifacts["telemetry_summary_path"].read_text(encoding="utf-8")
+    )
+
+    assert telemetry_payload["schema_version"] == 1
+    assert telemetry_payload["projection_schema_version"] == (
+        "line_role_final_authority_projection.v1"
+    )
+    assert telemetry_payload["mode"] == "final_authority_projection"
+    assert telemetry_payload["summary"]["tokens_total"] == 130
+    assert telemetry_payload["phases"][0]["phase_key"] == "line_role"
+    assert telemetry_payload["runtime_artifacts"]["runtime_root"] == (
+        "line-role-pipeline/runtime"
+    )
+    assert telemetry_payload["reviewed_candidate_block_indices"] == [1]
+    assert telemetry_payload["changed_block_indices"] == [1]
+    assert summary["reviewed_candidate_block_indices"] == [1]
 
 
 def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_default(

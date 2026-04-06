@@ -396,7 +396,12 @@ def _run_all_method_prediction_once_impl(
                                 "atomic_block_splitter"
                             ],
                             "line_role_pipeline": benchmark_kwargs["line_role_pipeline"],
-                            "codex_exec_style": benchmark_kwargs["codex_exec_style"],
+                            "line_role_codex_exec_style": benchmark_kwargs[
+                                "line_role_codex_exec_style"
+                            ],
+                            "knowledge_codex_exec_style": benchmark_kwargs[
+                                "knowledge_codex_exec_style"
+                            ],
                             "codex_farm_cmd": benchmark_kwargs["codex_farm_cmd"],
                             "codex_farm_model": benchmark_kwargs.get(
                                 "codex_farm_model"

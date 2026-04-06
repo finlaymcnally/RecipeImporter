@@ -76,6 +76,28 @@ def test_bench_artifacts_rebuilds_prediction_bundle_with_string_timing_metrics(
     assert bundle.extracted_archive_path.exists()
 
 
+def test_bench_artifacts_prefers_semantic_line_role_predictions_for_benchmark(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    line_role_dir = pred_run / "line-role-pipeline"
+    line_role_dir.mkdir(parents=True, exist_ok=True)
+    route_path = line_role_dir / "line_role_predictions.jsonl"
+    semantic_path = line_role_dir / "semantic_line_role_predictions.jsonl"
+    route_path.write_text('{"label":"NONRECIPE_CANDIDATE"}\n', encoding="utf-8")
+    semantic_path.write_text('{"label":"OTHER"}\n', encoding="utf-8")
+
+    resolved = bench_artifacts._resolve_line_role_predictions_for_benchmark(
+        import_result={
+            "line_role_pipeline_line_role_predictions_path": str(route_path),
+            "line_role_pipeline_semantic_predictions_path": str(semantic_path),
+        },
+        pred_run=pred_run,
+    )
+
+    assert resolved == semantic_path
+
+
 def test_source_debug_artifact_status_reads_recipe_phase_runtime_paths(
     tmp_path: Path,
 ) -> None:
@@ -1742,6 +1764,60 @@ def test_write_prompt_log_summary_tracks_rows_separately_from_runtime_shards(
     )
     assert summary["by_stage"]["line_role"]["row_count"] == 1
     assert summary["by_stage"]["line_role"]["runtime_shard_count"] == 1
+
+
+def test_write_prompt_log_summary_backfills_line_role_sidecar_stage(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "benchmark-run"
+    prompts_dir = run_root / "prompts"
+    prompts_dir.mkdir(parents=True, exist_ok=True)
+    full_prompt_log_path = prompts_dir / "full_prompt_log.jsonl"
+    full_prompt_log_path.write_text(
+        json.dumps(
+            {
+                "stage_key": "recipe_refine",
+                "stage_artifact_stem": "recipe_refine",
+                "runtime_shard_id": "recipe-shard-0000",
+                "runtime_worker_id": "worker-001",
+                "runtime_owned_ids": ["recipe:0"],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    telemetry_summary_path = run_root / "line-role-pipeline" / "telemetry_summary.json"
+    telemetry_summary_path.parent.mkdir(parents=True, exist_ok=True)
+    telemetry_summary_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "line_role_final_authority_projection.v1",
+                "mode": "final_authority_projection",
+                "changed_block_count": 0,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    summary_path = prompt_artifacts.write_prompt_log_summary(
+        full_prompt_log_path=full_prompt_log_path,
+    )
+
+    assert summary_path == prompts_dir / "prompt_log_summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["full_prompt_log_rows"] == 1
+    assert summary["by_stage"]["line_role"]["row_count"] == 0
+    assert summary["by_stage"]["line_role"]["artifact_presence"] == "sidecar_only"
+    assert summary["by_stage"]["line_role"]["artifact_evidence_mode"] == (
+        "final_authority_projection"
+    )
+    assert summary["by_stage"]["line_role"]["artifact_evidence_path"] == str(
+        telemetry_summary_path
+    )
 
 def test_pred_run_context_enriches_codex_runtime_from_llm_manifest_fallback(
     monkeypatch: pytest.MonkeyPatch,

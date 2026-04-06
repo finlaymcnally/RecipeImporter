@@ -82,7 +82,52 @@ def summarize_prompt_log(*, full_prompt_log_path: Path) -> dict[str, Any] | None
     runtime_shard_count_status = 'missing'
     if runtime_shard_count > 0:
         runtime_shard_count_status = 'complete' if rows_without_runtime_shard_id == 0 else 'partial'
-    return {'schema_version': PROMPT_LOG_SUMMARY_SCHEMA_VERSION, 'full_prompt_log_rows': total_rows, 'runtime_shard_count': runtime_shard_count, 'runtime_shard_count_status': runtime_shard_count_status, 'rows_without_runtime_shard_id': rows_without_runtime_shard_id, 'by_stage': by_stage}
+    summary = {'schema_version': PROMPT_LOG_SUMMARY_SCHEMA_VERSION, 'full_prompt_log_rows': total_rows, 'runtime_shard_count': runtime_shard_count, 'runtime_shard_count_status': runtime_shard_count_status, 'rows_without_runtime_shard_id': rows_without_runtime_shard_id, 'by_stage': by_stage}
+    _augment_prompt_log_summary_with_sidecar_stages(summary=summary, full_prompt_log_path=full_prompt_log_path)
+    return summary
+
+
+def _candidate_run_roots_for_prompt_summary(*, full_prompt_log_path: Path) -> list[Path]:
+    candidates: list[Path] = []
+    prompts_dir = full_prompt_log_path.parent
+    if prompts_dir.name == 'prompts':
+        candidates.append(prompts_dir.parent)
+    candidates.append(prompts_dir)
+    seen: set[Path] = set()
+    resolved_candidates: list[Path] = []
+    for candidate in candidates:
+        resolved = candidate.resolve(strict=False)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        resolved_candidates.append(candidate)
+    return resolved_candidates
+
+
+def _augment_prompt_log_summary_with_sidecar_stages(*, summary: dict[str, Any], full_prompt_log_path: Path) -> None:
+    by_stage = summary.get('by_stage')
+    if not isinstance(by_stage, dict):
+        return
+    for run_root in _candidate_run_roots_for_prompt_summary(full_prompt_log_path=full_prompt_log_path):
+        telemetry_summary_path = run_root / 'line-role-pipeline' / 'telemetry_summary.json'
+        if not telemetry_summary_path.exists() or not telemetry_summary_path.is_file():
+            continue
+        telemetry_summary = _load_json_dict(telemetry_summary_path) or {}
+        stage_payload = by_stage.setdefault('line_role', {'stage_key': 'line_role', 'stage_label': stage_label('line_role'), 'stage_artifact_stem': stage_artifact_stem('line_role'), 'row_count': 0, 'runtime_shard_count': 0, 'runtime_worker_count': 0, 'runtime_owned_id_count': 0, 'rows_without_runtime_shard_id': 0})
+        stage_payload.setdefault('stage_key', 'line_role')
+        stage_payload.setdefault('stage_label', stage_label('line_role'))
+        stage_payload.setdefault('stage_artifact_stem', stage_artifact_stem('line_role'))
+        stage_payload.setdefault('row_count', 0)
+        stage_payload.setdefault('runtime_shard_count', 0)
+        stage_payload.setdefault('runtime_worker_count', 0)
+        stage_payload.setdefault('runtime_owned_id_count', 0)
+        stage_payload.setdefault('rows_without_runtime_shard_id', 0)
+        stage_payload['artifact_presence'] = 'rows_and_sidecar' if int(stage_payload.get('row_count') or 0) > 0 else 'sidecar_only'
+        stage_payload['artifact_evidence_path'] = str(telemetry_summary_path)
+        sidecar_mode = _clean_text(telemetry_summary.get('mode'))
+        if sidecar_mode is not None:
+            stage_payload['artifact_evidence_mode'] = sidecar_mode
+        break
 
 def write_prompt_log_summary(*, full_prompt_log_path: Path, output_path: Path | None=None) -> Path | None:
     summary = summarize_prompt_log(full_prompt_log_path=full_prompt_log_path)

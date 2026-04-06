@@ -94,6 +94,44 @@ def _write_processed_outputs(
     result.report = session.conversion_result.report
     return run_root
 
+
+def _looks_like_line_role_runtime_telemetry(payload: dict[str, Any]) -> bool:
+    return (
+        isinstance(payload.get("summary"), dict)
+        or isinstance(payload.get("phases"), list)
+        or isinstance(payload.get("runtime_artifacts"), dict)
+    )
+
+
+def _write_line_role_projection_telemetry_summary(
+    *,
+    telemetry_summary_path: Path,
+    projection_payload: dict[str, Any],
+) -> None:
+    merged_payload = dict(projection_payload)
+    if telemetry_summary_path.exists():
+        try:
+            existing_payload = json.loads(telemetry_summary_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            existing_payload = None
+        if isinstance(existing_payload, dict):
+            if _looks_like_line_role_runtime_telemetry(existing_payload):
+                merged_payload = dict(existing_payload)
+                merged_payload["projection_schema_version"] = str(
+                    projection_payload.get("schema_version") or ""
+                ).strip() or None
+                for key, value in projection_payload.items():
+                    if key == "schema_version":
+                        continue
+                    merged_payload[key] = value
+            else:
+                merged_payload = {**existing_payload, **projection_payload}
+    telemetry_summary_path.write_text(
+        json.dumps(merged_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
 def _write_authoritative_line_role_artifacts(
     *,
     run_root: Path,
@@ -134,6 +172,9 @@ def _write_authoritative_line_role_artifacts(
             "Prediction-run projection reused authoritative Stage 2 labels for recipe-local lines.",
             "Outside-recipe route labels were projected into final KNOWLEDGE/OTHER only when final authority existed.",
             *([
+                f"Nonrecipe authority finalized {nonrecipe_projection_summary['reviewed_candidate_block_count']} outside-recipe candidate blocks before scoring."
+            ] if nonrecipe_projection_summary["reviewed_candidate_block_count"] else []),
+            *([
                 "Unresolved candidate outside-recipe rows were marked unresolved and excluded from semantic scoring."
             ] if scoring_projection_summary["unresolved_candidate_line_count"] else []),
             *([
@@ -144,6 +185,9 @@ def _write_authoritative_line_role_artifacts(
     archive_payload = build_line_role_extracted_archive_payload(projected_spans)
 
     line_role_predictions_path = pipeline_dir / "line_role_predictions.jsonl"
+    semantic_line_role_predictions_path = (
+        pipeline_dir / "semantic_line_role_predictions.jsonl"
+    )
     projected_spans_path = pipeline_dir / "projected_spans.jsonl"
     stage_predictions_path = pipeline_dir / "stage_block_predictions.json"
     extracted_archive_path = pipeline_dir / "extracted_archive.json"
@@ -155,6 +199,14 @@ def _write_authoritative_line_role_artifacts(
             for row in route_predictions
         )
         + ("\n" if route_predictions else ""),
+        encoding="utf-8",
+    )
+    semantic_line_role_predictions_path.write_text(
+        "\n".join(
+            json.dumps(row.model_dump(mode="json"), sort_keys=True)
+            for row in semantic_predictions
+        )
+        + ("\n" if semantic_predictions else ""),
         encoding="utf-8",
     )
     projected_spans_path.write_text(
@@ -173,24 +225,21 @@ def _write_authoritative_line_role_artifacts(
         json.dumps(archive_payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    telemetry_summary_path.write_text(
-        json.dumps(
-            {
-                "schema_version": "line_role_final_authority_projection.v1",
-                "mode": "final_authority_projection",
-                "labeled_line_count": len(label_first_result.labeled_lines),
-                "recipe_span_count": len(label_first_result.recipe_spans),
-                **nonrecipe_projection_summary,
-                **scoring_projection_summary,
-            },
-            indent=2,
-            sort_keys=True,
-        ),
-        encoding="utf-8",
+    _write_line_role_projection_telemetry_summary(
+        telemetry_summary_path=telemetry_summary_path,
+        projection_payload={
+            "schema_version": "line_role_final_authority_projection.v1",
+            "mode": "final_authority_projection",
+            "labeled_line_count": len(label_first_result.labeled_lines),
+            "recipe_span_count": len(label_first_result.recipe_spans),
+            **nonrecipe_projection_summary,
+            **scoring_projection_summary,
+        },
     )
     return (
         {
             "line_role_predictions_path": line_role_predictions_path,
+            "semantic_line_role_predictions_path": semantic_line_role_predictions_path,
             "projected_spans_path": projected_spans_path,
             "stage_block_predictions_path": stage_predictions_path,
             "extracted_archive_path": extracted_archive_path,
@@ -200,7 +249,7 @@ def _write_authoritative_line_role_artifacts(
             "recipes_applied": len(label_first_result.recipe_spans),
             "span_count": len(projected_spans),
             "authoritative_stage_outputs_mutated": bool(
-                nonrecipe_projection_summary["changed_block_count"]
+                nonrecipe_projection_summary["reviewed_candidate_block_count"]
             ),
             "mode": "final_authority_projection",
             **nonrecipe_projection_summary,
@@ -274,6 +323,8 @@ def _apply_nonrecipe_authority_to_predictions(
         return predictions, {
             "authority_mode": "missing_nonrecipe_stage_result",
             "scored_effect": "route_only",
+            "reviewed_candidate_block_count": 0,
+            "reviewed_candidate_block_indices": [],
             "changed_block_count": 0,
             "changed_block_indices": [],
         }
@@ -281,12 +332,16 @@ def _apply_nonrecipe_authority_to_predictions(
     final_categories = dict(
         nonrecipe_stage_result.authority.authoritative_block_category_by_index
     )
+    reviewed_candidate_block_indices = sorted(
+        int(index)
+        for index in nonrecipe_stage_result.candidate_status.finalized_candidate_block_indices
+    )
+    reviewed_candidate_index_set = set(reviewed_candidate_block_indices)
     changed_block_indices = sorted(
         int(row.get("block_index"))
         for row in (nonrecipe_stage_result.refinement_report.get("changed_blocks") or [])
         if isinstance(row, dict) and row.get("block_index") is not None
     )
-    changed_index_set = set(changed_block_indices)
     adjusted_predictions: list[Any] = []
     for prediction in predictions:
         block_index = getattr(prediction, "block_index", None)
@@ -307,16 +362,23 @@ def _apply_nonrecipe_authority_to_predictions(
             adjusted_predictions.append(prediction)
             continue
         target_label = "KNOWLEDGE" if category == "knowledge" else "OTHER"
-        if current_label == target_label:
+        block_index_int = int(block_index)
+        reviewed_by_nonrecipe_authority = block_index_int in reviewed_candidate_index_set
+        reason_tags = list(getattr(prediction, "reason_tags", []) or [])
+        authority_reason_tag = f"nonrecipe_authority:{category}"
+        if authority_reason_tag not in reason_tags and reviewed_by_nonrecipe_authority:
+            reason_tags.append(authority_reason_tag)
+        decided_by = (
+            "codex" if reviewed_by_nonrecipe_authority else prediction.decided_by
+        )
+        if current_label == target_label and decided_by == prediction.decided_by:
             adjusted_predictions.append(prediction)
             continue
-        reason_tags = list(getattr(prediction, "reason_tags", []) or [])
-        reason_tags.append(f"nonrecipe_authority:{category}")
         adjusted_predictions.append(
             prediction.model_copy(
                 update={
                     "label": target_label,
-                    "decided_by": "codex" if int(block_index) in changed_index_set else prediction.decided_by,
+                    "decided_by": decided_by,
                     "reason_tags": reason_tags,
                 }
             )
@@ -330,6 +392,8 @@ def _apply_nonrecipe_authority_to_predictions(
             nonrecipe_stage_result.refinement_report.get("scored_effect")
             or "route_only"
         ),
+        "reviewed_candidate_block_count": len(reviewed_candidate_block_indices),
+        "reviewed_candidate_block_indices": reviewed_candidate_block_indices,
         "changed_block_count": len(changed_block_indices),
         "changed_block_indices": changed_block_indices,
     }

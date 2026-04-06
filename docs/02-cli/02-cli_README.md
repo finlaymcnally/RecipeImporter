@@ -40,8 +40,10 @@ Behavior differences:
   - `build-followup`: answer that manifest into a new `followup_dataN/` folder that assumes the requester already has `upload_bundle_v1`.
   - lower-level commands (`select-cases`, `export-cases`, `audit-line-role`, `audit-prompt-links`, `audit-knowledge`, `export-page-context`, `export-uncertainty`, `pack`, `ablate`) remain available when you want manual control.
   - `preview-prompts`: rebuild zero-token recipe/knowledge/line-role prompt previews from an existing deterministic/`vanilla` processed run or benchmark root so you can estimate likely cost before spending tokens.
+    Preview outputs are scratch analysis artifacts; `cf-debug` now refuses `--out` paths under `data/golden/benchmark-vs-golden/` so prompt previews do not masquerade as real benchmark runs.
   - `actual-costs`: resolve the finished-run postmortem cost artifact (`prompt_budget_summary.json`) from a completed run or benchmark root.
   - `preview-shard-sweep`: run several local worker/shard preview variants from one existing run root and compare them side by side. A tiny starter experiment file lives at `docs/examples/shard_sweep_examples.json`.
+    Like `preview-prompts`, it must write outside `data/golden/benchmark-vs-golden/`.
   - knowledge follow-up uses a dedicated run-level path rather than the line-role prompt audit: `select-cases` now accepts `--include-knowledge-source-key` or `--include-knowledge-output-subdir`, and `audit-knowledge` / `pack` / `build-followup` can emit `knowledge_audit.jsonl` plus knowledge artifact references.
 - `C3imp`:
   - one positive integer arg: sets `C3IMP_LIMIT=N`, clears args, then enters interactive mode
@@ -157,28 +159,28 @@ Interactive `Import` and benchmark runs (`single_book` + matched-books) ask:
   - default is inferred from global `llm_recipe_pipeline`,
   - `COOKIMPORT_TOP_TIER_PROFILE=codex-exec|vanilla` can still force vanilla vs codex family and bypass the menu.
 - if interactive setup chooses Codex Exec, it then asks:
-  - one shared Codex submenu implemented as a single list with aligned `[Yes]` / `[No]` columns
-  - the concrete Codex-backed ids live on those step rows (for example recipe correction shows `codex-recipe-shard-v1`)
-  - up/down moves between rows while keeping the submenu on one screen
-  - left/right arrows move the current row between `[Yes]` and `[No]` in place, and the active box is marked directly on that row
-  - pressing Enter on a step row still flips that row's current value
+  - one shared Codex step planner implemented as a single list with one row per available stage
+  - each row owns both transport mode and shard count on the same screen
+  - mode columns are `Off`, `JSON`, and `Taskfile`; recipe exposes only `Off` and `Taskfile`
+  - up/down moves between rows while keeping the planner on one screen
+  - left/right arrows and `Enter` cycle the current row's mode in place, and `+`, `-`, or direct digits edit shard count
   - `Continue` accepts the current per-row settings
-- for interactive `Import`, that submenu asks about:
+- for interactive `Import`, that planner asks about:
   - recipe correction (`codex-recipe-shard-v1`)
   - non-recipe finalize (`codex-knowledge-candidate-v2`)
-- for interactive benchmark modes (`single_book`, `selected_matched_books`, `all_matched_books`), that submenu asks about:
+- for interactive benchmark modes (`single_book`, `selected_matched_books`, `all_matched_books`), that planner asks about:
   - block labelling (`codex-line-role-route-v2`)
   - recipe correction (`codex-recipe-shard-v1`)
   - non-recipe finalize (`codex-knowledge-candidate-v2`)
-  - unchecked recipe correction maps to `llm_recipe_pipeline=off`
-  - unchecked block labelling maps to `line_role_pipeline=off` and `atomic_block_splitter=off`
-  - checked block labelling no longer auto-enables `atomic_block_splitter`; it preserves the current/default setting, which is now `off` unless explicitly overridden elsewhere
-  - unchecked non-recipe finalize maps to `llm_knowledge_pipeline=off`
-- after that shared Codex surface toggle menu, interactive flows now open one shard-planning page for all enabled Codex-backed tasks in that run
-  - import shows the selected source file above the page; single-book benchmark now resolves the concrete gold/source pair first and shows that target above the page before run settings continue
-  - single-book benchmark now resolves a shared deterministic prep bundle for that selected source before opening the shard-planning page, so the row notes can show minimum-safe shard suggestions for line-role, recipe, and knowledge without throwing that prep work away
+  - recipe `Taskfile`, line-role `JSON`, and knowledge `JSON` are the default per-step modes
+  - recipe `Off` maps to `llm_recipe_pipeline=off`
+  - block labelling `Off` maps to `line_role_pipeline=off` and `atomic_block_splitter=off`
+  - block labelling `JSON` / `Taskfile` keep `line_role_pipeline=codex-line-role-route-v2` and persist the transport choice through `line_role_codex_exec_style`
+  - non-recipe finalize `Off` maps to `llm_knowledge_pipeline=off`
+  - non-recipe finalize `JSON` / `Taskfile` keep `llm_knowledge_pipeline=codex-knowledge-candidate-v2` and persist the transport choice through `knowledge_codex_exec_style`
+  - import shows the selected source file above the planner; single-book benchmark now resolves the concrete gold/source pair first and shows that target above the planner before run settings continue
+  - single-book benchmark now resolves a shared deterministic prep bundle for that selected source before opening the planner, so the row notes can show minimum-safe shard suggestions for line-role, recipe, and knowledge without throwing that prep work away
   - benchmark and all-method Codex rows stay in runtime stage order: block-labelling, then recipe correction, then non-recipe finalize
-  - the page edits `line_role_prompt_target_count`, `recipe_prompt_target_count`, and `knowledge_prompt_target_count` in one screen instead of three separate typed prompts
   - the header now gives a short deterministic prep summary (`blocks`, `lines`, `recipe guesses`, leftover `knowledge packets`) plus a one-line legend for the row note format
   - when target-specific planning data is available, each row note uses short plain-English labels: the main limiting factor (`prompt`, `output`, `session`, or `work`) plus average prompt size, average session size, and average owned work units per shard
   - live planning still fails closed later if the requested shard count is unsafe
@@ -186,16 +188,14 @@ Interactive `Import` and benchmark runs (`single_book` + matched-books) ask:
   - the stage and benchmark adapter/CLI seams preserve those values into the live run config, so interactive shard choices survive through execution instead of silently falling back to saved defaults
   - `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count` now all mean requested shard count on the live runtime path; worker count remains a separate concurrency override
   - for recipe correction specifically, recipe count may be larger than shard count because several contiguous recipe tasks can share one planned shard
-- interactive all-method benchmark callers reuse that same Codex submenu too, so any interactive benchmark flow that exposes Codex Exec now makes the operator pick concrete Codex processes instead of falling back to a separate generic `Include Codex Exec permutations?` prompt
-- the owning seam for that shared per-surface chooser is `choose_interactive_codex_surfaces(...)` in `cookimport/cli_ui/run_settings_flow.py`; if a Codex surface toggle should exist in import, benchmark, and all-method flows, add it there instead of inventing a benchmark-only menu variant
+- interactive all-method benchmark callers reuse that same Codex planner too, so any interactive benchmark flow that exposes Codex Exec now makes the operator pick concrete Codex processes instead of falling back to a separate generic `Include Codex Exec permutations?` prompt
+- the owning seam for that shared per-surface chooser is `choose_interactive_codex_surfaces(...)` in `cookimport/cli_ui/run_settings_flow.py`; if a Codex surface toggle or per-step transport choice should exist in import, benchmark, and all-method flows, add it there instead of inventing a benchmark-only menu variant
 - this difference is intentional:
   - import reuses the submenu with recipe + knowledge only because stage call adapters do not carry `line_role_pipeline` or `atomic_block_splitter`
   - benchmark modes expose block labelling because benchmark call builders do carry those fields
 - when any codex-backed surface is selected, chooser then asks:
   - `Codex Exec model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models only; no repo-invented fallback model id)
   - `Codex Exec reasoning effort override` (`Pipeline default` plus the selected discovered model's supported efforts when metadata is available)
-  - `Codex Exec style for this run` when block labelling or non-recipe finalize is enabled:
-    `Taskfile workers` keeps `taskfile-v1`, while `Inline JSON` sets `codex_exec_style=inline-json-v1` for those two surfaces only
 
 Resolved profile families:
 - `Codex Exec automatic top-tier`:

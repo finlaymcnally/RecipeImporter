@@ -219,7 +219,11 @@ Thinking effort uses `--codex-thinking-effort` (alias `--codex-reasoning-effort`
 `labelstudio-eval` also appends benchmark-style history CSV rows and refreshes dashboard artifacts.
 For metadata parity with benchmark/prediction manifests, `labelstudio-eval` now accepts optional
 `--llm-recipe-pipeline`, `--atomic-block-splitter`, and `--line-role-pipeline` overrides; when omitted,
-values are inferred from prediction-run metadata.
+values are inferred from prediction-run metadata. Prediction-run line-role diagnostics now distinguish
+route-layer and final-semantic views: prediction runs may write both
+`line-role-pipeline/line_role_predictions.jsonl` (route-layer compatibility view) and
+`line-role-pipeline/semantic_line_role_predictions.jsonl` (final nonrecipe-authority semantic view used
+by benchmark joins when present).
 New eval manifests should record the prediction-run root under `artifacts.artifact_root_dir`; `pred_run_dir` is only a stale historical alias and should not be reintroduced on new writes.
 
 ### 5.3 Benchmark behavior
@@ -227,7 +231,8 @@ New eval manifests should record the prediction-run root under `artifacts.artifa
 `labelstudio-benchmark` supports:
 
 Canonical line-role projection note:
-- `line_role_predictions.jsonl` is the route-label artifact. Outside recipe, it should show `NONRECIPE_CANDIDATE` / `NONRECIPE_EXCLUDE`, not final `KNOWLEDGE` / `OTHER`.
+- prediction-run `line_role_predictions.jsonl` is still the route-label artifact. Outside recipe, it should show `NONRECIPE_CANDIDATE` / `NONRECIPE_EXCLUDE`, not final `KNOWLEDGE` / `OTHER`.
+- when `semantic_line_role_predictions.jsonl` exists, benchmark eval prefers that final-semantic view for joined reviewer diagnostics and materializes it as the local benchmark `line_role_predictions.jsonl`.
 - `line-role-pipeline/stage_block_predictions.json` is the scored benchmark view. It stays in dense canonical `line_index` coordinates for scoring, while `projected_spans.jsonl` / `extracted_archive.json` preserve source block provenance, and it records unresolved outside-recipe candidates explicitly under `unresolved_candidate_*` metadata.
 - In other words, an unresolved outside-recipe candidate may still appear as provisional `OTHER` in projected scoring artifacts, but benchmark scoring excludes that row via the unresolved-candidate metadata until explicit final non-recipe authority exists.
 

@@ -4,26 +4,21 @@ Interactive run-settings UI helpers.
 - The interactive benchmark preset shortcut `saltfatacidheatcutdown_fast_codex_exec` reuses this module's normal Codex Exec top-tier harmonization, then pins all three Codex benchmark surfaces on, shard counts to `5/5/5`, model override to `gpt-5.3-codex-spark`, and reasoning effort to `low`.
 - The workflow toggle still collapses to `off` vs shard-backed Codex, but the menu renders only the family labels `Vanilla / no Codex` and `Codex Exec`.
 - Any non-`off` choice resolves `Codex Exec automatic top-tier` (winner-preferred when available).
-- Interactive Codex-enabled flows now reuse one consolidated Codex submenu after the workflow choice when Codex Exec is selected:
-  - one list shows every available step with aligned `[Yes]` / `[No]` columns beside it
-  - the concrete pipeline ids live on those step rows instead of the top workflow choice
-  - up/down moves between rows while staying in the same submenu
-  - left/right arrows set the current row to `[Yes]` or `[No]` in place and visibly move the active marker
-  - pressing Enter on a step row still flips that row's current state
+- Interactive Codex-enabled flows now reuse one consolidated per-step planner after the workflow choice when Codex Exec is selected:
+  - one list shows every available step with mode and shard count on the same row
+  - mode columns are `Off`, `JSON`, and `Taskfile`; recipe offers only `Off` and `Taskfile`
+  - the highlighted mode on each row is the live choice for that step in this run
+  - up/down moves between rows while staying in the same planner
+  - left/right arrows or `Enter` cycle the current row's mode; `+`, `-`, and direct digit entry edit shard count
   - `Continue` accepts the whole list at once
   - interactive `Import` shows recipe correction and non-recipe finalize
-  - interactive benchmark modes show block labelling, recipe correction, and non-recipe finalize so the menu and prompt-target prompts match runtime stage order
-  - single-book benchmark mode now resolves the selected gold/source pair early enough to run a deterministic prompt-preview preflight before the shard-count menu, so the shard rows can surface minimum-safe recommendations for that concrete book
-  - interactive all-method benchmark callers can reuse that same submenu with the benchmark surface set they actually support
-  - unchecked recipe correction maps to `llm_recipe_pipeline=off`
-  - unchecked block labelling maps to `line_role_pipeline=off` and `atomic_block_splitter=off`
-  - checked block labelling preserves the current/default `atomic_block_splitter` value instead of auto-enabling `atomic-v1`
-  - unchecked non-recipe finalize maps to `llm_knowledge_pipeline=off`
-  - enabled surfaces now also prompt for shard count using the same contract on every Codex-backed stage: import asks recipe then knowledge, while benchmark flows ask line-role then recipe then knowledge
+  - interactive benchmark modes show block labelling, recipe correction, and non-recipe finalize so the planner matches runtime stage order
+  - single-book benchmark mode now resolves the selected gold/source pair early enough to run a deterministic prompt-preview preflight before the planner, so the rows can surface minimum-safe recommendations for that concrete book
+  - interactive all-method benchmark callers can reuse that same planner with the benchmark surface set they actually support
+  - recipe `Taskfile`, line-role `JSON`, and knowledge `JSON` are the default Codex step modes
+  - row notes still surface deterministic shard recommendations and survivability hints when available
   - those prompts map directly to `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count`
-  - when block labelling or non-recipe finalize stays enabled, the flow also asks `Codex Exec style for this run`
-  - `Taskfile workers` keeps the current `taskfile-v1` contract
-  - `Inline JSON` sets `codex_exec_style=inline-json-v1` for line-role and non-recipe finalize only; recipe correction still stays on the taskfile worker contract
+  - line-role transport now persists through `line_role_codex_exec_style` and knowledge through `knowledge_codex_exec_style`
 - Any non-`off` choice also prompts for codex AI settings for that run:
   - `Codex Exec model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models only)
   - `Codex Exec reasoning effort override` (`Pipeline default` plus only the efforts supported by the selected discovered model when that metadata is available)

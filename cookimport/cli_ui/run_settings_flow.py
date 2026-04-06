@@ -34,7 +34,6 @@ from cookimport.config.run_settings import (
     RECIPE_CODEX_FARM_EXECUTION_PIPELINES,
     RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
     RunSettings,
-    normalize_codex_exec_style_value,
     normalize_llm_recipe_pipeline_value,
 )
 from cookimport.llm.codex_farm_runner import list_codex_farm_models
@@ -42,7 +41,6 @@ from cookimport.llm.shard_survivability import default_stage_survivability_budge
 
 MenuSelect = Callable[..., Any]
 PromptConfirm = Callable[..., Any]
-PromptCodexSurfaceMenu = Callable[..., Any]
 PromptCodexShardPlanMenu = Callable[..., Any]
 PromptText = Callable[..., Any]
 _WORKER_UTILIZATION_ENV = "COOKIMPORT_WORKER_UTILIZATION"
@@ -75,9 +73,11 @@ _CODEX_SURFACE_STAGE_KEYS: dict[str, str] = {
     "line_role": "line_role",
     "knowledge": "nonrecipe_finalize",
 }
-_CODEX_EXEC_STYLE_LABELS: dict[str, str] = {
-    CODEX_EXEC_STYLE_TASKFILE_V1: "Taskfile workers",
-    CODEX_EXEC_STYLE_INLINE_JSON_V1: "Inline JSON",
+_CODEX_STEP_MODE_OFF = "off"
+_CODEX_STEP_MODE_DISPLAY_LABELS: dict[str, str] = {
+    _CODEX_STEP_MODE_OFF: "Off",
+    CODEX_EXEC_STYLE_INLINE_JSON_V1: "JSON",
+    CODEX_EXEC_STYLE_TASKFILE_V1: "Taskfile",
 }
 INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST = (
     "saltfatacidheatcutdown_fast_codex_exec"
@@ -281,298 +281,45 @@ def _patch_interactive_settings(
     )
 
 
-def _prompt_codex_surface_menu(
-    *,
-    message: str,
-    step_rows: list[tuple[str, str]],
-    enabled_by_step: dict[str, bool],
-    back_action: Any,
-    **kwargs: Any,
-) -> dict[str, bool] | Any:
-    label_width = max((len(label) for _step_id, label in step_rows), default=0)
-    choices: list[questionary.Choice] = [
-        questionary.Choice("", value=step_id, shortcut_key=False)
-        for step_id, _label in step_rows
-    ]
-    choices.append(questionary.Separator())
-    choices.append(questionary.Choice("Continue", value="__done__"))
-    choice_labels = dict(step_rows)
-    merged_style = merge_styles_default([])
-
-    ic = common.InquirerControl(
-        choices,
-        default="__done__",
-        pointer="»",
-        use_indicator=False,
-        use_shortcuts=False,
-        show_selected=False,
-        show_description=False,
-        use_arrow_keys=True,
-        initial_choice=choices[0] if step_rows else choices[-1],
-    )
-
-    def _sync_titles() -> None:
-        for index, choice in enumerate(ic.choices):
-            if isinstance(choice, questionary.Separator):
-                continue
-            if choice.value == "__done__":
-                choice.title = "Continue"
-                continue
-            step_id = str(choice.value)
-            label = choice_labels.get(step_id, step_id)
-            is_current = index == ic.pointed_at
-            is_enabled = bool(enabled_by_step.get(step_id))
-            label_class = "class:highlighted" if is_current else "class:text"
-            selected_class = "class:selected"
-            inactive_class = "class:text"
-            yes_class = (
-                "class:highlighted"
-                if is_current and is_enabled
-                else (selected_class if is_enabled else inactive_class)
-            )
-            no_class = (
-                "class:highlighted"
-                if is_current and not is_enabled
-                else (selected_class if not is_enabled else inactive_class)
-            )
-            yes_text = (
-                ">[Yes]<"
-                if is_current and is_enabled
-                else (" [Yes] " if is_enabled else " [yes] ")
-            )
-            no_text = (
-                ">[No ]<"
-                if is_current and not is_enabled
-                else (" [No ] " if not is_enabled else " [no ] ")
-            )
-            choice.title = [
-                (label_class, f"{label.ljust(label_width)}  "),
-                (yes_class, yes_text),
-                (inactive_class, " "),
-                (no_class, no_text),
-            ]
-
-    def _select_next() -> None:
-        ic.select_next()
-        while not ic.is_selection_valid():
-            ic.select_next()
-
-    def _select_previous() -> None:
-        ic.select_previous()
-        while not ic.is_selection_valid():
-            ic.select_previous()
-
-    def _set_current_state(enabled: bool) -> None:
-        current = ic.get_pointed_at()
-        step_id = str(current.value)
-        if step_id in enabled_by_step:
-            enabled_by_step[step_id] = enabled
-
-    _sync_titles()
-
-    def _get_prompt_tokens() -> list[tuple[str, str]]:
-        return [
-            ("class:qmark", "?"),
-            ("class:question", f" {message} "),
-            (
-                "class:instruction",
-                "(Use up/down to pick a row, left/right to choose Yes/No, Enter to continue, Esc to go back)",
-            ),
-        ]
-
-    layout = common.create_inquirer_layout(ic, _get_prompt_tokens, **kwargs)
-    bindings = KeyBindings()
-
-    @bindings.add(Keys.ControlQ, eager=True)
-    @bindings.add(Keys.ControlC, eager=True)
-    def _abort(event: Any) -> None:
-        event.app.exit(exception=KeyboardInterrupt, style="class:aborting")
-
-    @bindings.add(Keys.Escape, eager=True)
-    def _go_back(event: Any) -> None:
-        event.app.exit(result=back_action)
-
-    @bindings.add(Keys.Down, eager=True)
-    def _move_down(event: Any) -> None:
-        _select_next()
-        _sync_titles()
-        event.app.invalidate()
-
-    @bindings.add(Keys.Up, eager=True)
-    def _move_up(event: Any) -> None:
-        _select_previous()
-        _sync_titles()
-        event.app.invalidate()
-
-    @bindings.add(Keys.Left, eager=True)
-    @bindings.add("h", eager=True)
-    def _set_yes(event: Any) -> None:
-        _set_current_state(True)
-        _sync_titles()
-        event.app.invalidate()
-
-    @bindings.add(Keys.Right, eager=True)
-    @bindings.add("l", eager=True)
-    def _set_no(event: Any) -> None:
-        _set_current_state(False)
-        _sync_titles()
-        event.app.invalidate()
-
-    @bindings.add(Keys.ControlM, eager=True)
-    def _submit(event: Any) -> None:
-        current = ic.get_pointed_at()
-        current_value = str(current.value)
-        if current_value == "__done__":
-            ic.is_answered = True
-            event.app.exit(result=dict(enabled_by_step))
-            return
-        if current_value in enabled_by_step:
-            enabled_by_step[current_value] = not enabled_by_step[current_value]
-            _sync_titles()
-            event.app.invalidate()
-
-    @bindings.add(Keys.Any)
-    def _other(event: Any) -> None:
-        """Disallow inserting other text."""
-
-    question = Question(
-        Application(
-            layout=layout,
-            key_bindings=bindings,
-            style=merged_style,
-            **utils.used_kwargs(kwargs, Application.__init__),
+def _available_codex_step_modes(step_id: str) -> tuple[str, ...]:
+    if step_id == "recipe":
+        return (_CODEX_STEP_MODE_OFF, CODEX_EXEC_STYLE_TASKFILE_V1)
+    if step_id in {"line_role", "knowledge"}:
+        return (
+            _CODEX_STEP_MODE_OFF,
+            CODEX_EXEC_STYLE_INLINE_JSON_V1,
+            CODEX_EXEC_STYLE_TASKFILE_V1,
         )
-    )
-    return question.ask()
+    return (_CODEX_STEP_MODE_OFF,)
 
 
-def _choose_interactive_codex_surfaces(
+def _current_codex_step_mode(
     *,
     selected_settings: RunSettings,
-    prompt_codex_surface_menu: PromptCodexSurfaceMenu,
-    prompt_codex_shard_plan_menu: PromptCodexShardPlanMenu | None,
-    back_action: Any,
-    surface_options: tuple[str, ...],
-    target_context: Mapping[str, Any] | None = None,
-) -> RunSettings | None:
-    step_rows: list[tuple[str, str]] = []
-    enabled_by_step: dict[str, bool] = {}
-    for step_id in surface_options:
-        if step_id == "recipe":
-            step_rows.append(
-                ("recipe", f"Recipe correction (`{RECIPE_CODEX_FARM_PIPELINE_SHARD_V1}`)")
-            )
-            enabled_by_step["recipe"] = (
-                selected_settings.llm_recipe_pipeline.value != "off"
-            )
-        elif step_id == "line_role":
-            step_rows.append(
-                ("line_role", f"Block labelling (`{LINE_ROLE_PIPELINE_ROUTE_V2}`)")
-            )
-            enabled_by_step["line_role"] = (
-                selected_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_ROUTE_V2
-            )
-        elif step_id == "knowledge":
-            step_rows.append(
-                ("knowledge", f"Knowledge harvest (`{KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2}`)")
-            )
-            enabled_by_step["knowledge"] = (
-                selected_settings.llm_knowledge_pipeline.value != "off"
-            )
-
-    enabled_by_step = prompt_codex_surface_menu(
-        message="Codex Exec options for this run:",
-        step_rows=step_rows,
-        enabled_by_step=enabled_by_step,
-        back_action=back_action,
-    )
-    if enabled_by_step is None or enabled_by_step is back_action:
-        return None
-
-    selected_step_ids = [
-        step_id for step_id, _label in step_rows if bool(enabled_by_step.get(step_id))
-    ]
-    resolved_recipe_pipeline = (
-        _normalize_interactive_recipe_pipeline(selected_settings.llm_recipe_pipeline.value)
-        or RECIPE_CODEX_FARM_EXECUTION_PIPELINES[0]
-    )
-    selected_settings = _patch_interactive_settings(
-        selected_settings,
-        warn_context="interactive benchmark llm surface overrides",
-        llm_recipe_pipeline=(
-            resolved_recipe_pipeline if "recipe" in selected_step_ids else "off"
-        ),
-        line_role_pipeline=(
-            LINE_ROLE_PIPELINE_ROUTE_V2
-            if "line_role" in selected_step_ids
-            else "off"
-        ),
-        llm_knowledge_pipeline=(
-            KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2 if "knowledge" in selected_step_ids else "off"
-        ),
-        atomic_block_splitter=(
-            selected_settings.atomic_block_splitter.value
-            if "line_role" in selected_step_ids
-            else "off"
-        ),
-    )
-    if prompt_codex_shard_plan_menu is None or not selected_step_ids:
-        return selected_settings
-    target_context = _resolve_codex_prompt_target_context(
-        target_context=target_context,
-        selected_settings=selected_settings,
-        selected_step_ids=selected_step_ids,
-    )
-    return _choose_interactive_codex_prompt_targets(
-        selected_settings=selected_settings,
-        prompt_codex_shard_plan_menu=prompt_codex_shard_plan_menu,
-        back_action=back_action,
-        selected_step_ids=selected_step_ids,
-        target_context=target_context,
-    )
-
-
-def _prompt_codex_prompt_target_count(
-    *,
-    prompt_text: PromptText,
-    message: str,
-    default_value: int,
-    back_action: Any,
-) -> int | None:
-    max_value = 256
-    raw_value = prompt_text(
-        message,
-        default=str(default_value),
-        instruction=(
-            "Approximate prompts for this task in this run. Use a whole number "
-            f"from 1 to {max_value}. Press Esc to go back."
-        ),
-        validate=lambda text: (
-            True
-            if (
-                str(text or "").strip().isdigit()
-                and 1 <= int(str(text).strip()) <= max_value
-            )
-            else f"Enter a whole number from 1 to {max_value}."
-        ),
-    )
-    if raw_value in {None, back_action}:
-        return None
-    normalized = str(raw_value).strip()
-    if not normalized:
-        return int(default_value)
-    try:
-        parsed = int(normalized)
-    except ValueError:
-        return None
-    return parsed if 1 <= parsed <= max_value else None
+    step_id: str,
+) -> str:
+    if step_id == "recipe":
+        return (
+            CODEX_EXEC_STYLE_TASKFILE_V1
+            if selected_settings.llm_recipe_pipeline.value != "off"
+            else _CODEX_STEP_MODE_OFF
+        )
+    if step_id == "line_role":
+        if selected_settings.line_role_pipeline.value != LINE_ROLE_PIPELINE_ROUTE_V2:
+            return _CODEX_STEP_MODE_OFF
+        return selected_settings.resolved_line_role_codex_exec_style()
+    if step_id == "knowledge":
+        if selected_settings.llm_knowledge_pipeline.value == "off":
+            return _CODEX_STEP_MODE_OFF
+        return selected_settings.resolved_knowledge_codex_exec_style()
+    return _CODEX_STEP_MODE_OFF
 
 
 def _resolve_codex_prompt_target_context(
     *,
     target_context: Mapping[str, Any] | None,
     selected_settings: RunSettings,
-    selected_step_ids: Sequence[str],
+    step_ids: Sequence[str],
 ) -> Mapping[str, Any] | None:
     if not isinstance(target_context, Mapping):
         return target_context
@@ -583,7 +330,7 @@ def _resolve_codex_prompt_target_context(
     try:
         recommendations_by_step = recommendation_builder(
             selected_settings,
-            tuple(selected_step_ids),
+            tuple(step_ids),
         )
     except Exception:  # noqa: BLE001
         return target_context
@@ -641,7 +388,7 @@ def _render_shard_plan_kpi_summary(recommendation_payload: Mapping[str, Any]) ->
 def _build_codex_shard_plan_rows(
     *,
     selected_settings: RunSettings,
-    selected_step_ids: Sequence[str],
+    step_ids: Sequence[str],
     target_context: Mapping[str, Any] | None,
 ) -> list[dict[str, Any]]:
     recommendations_by_step = (
@@ -655,7 +402,7 @@ def _build_codex_shard_plan_rows(
         else {}
     )
     rows: list[dict[str, Any]] = []
-    for step_id in selected_step_ids:
+    for step_id in step_ids:
         if step_id not in _CODEX_SURFACE_PROMPT_TARGET_FIELDS:
             continue
         field_name, label = _CODEX_SURFACE_PROMPT_TARGET_FIELDS[step_id]
@@ -676,6 +423,11 @@ def _build_codex_shard_plan_rows(
             {
                 "step_id": step_id,
                 "label": label,
+                "available_modes": _available_codex_step_modes(step_id),
+                "current_mode": _current_codex_step_mode(
+                    selected_settings=selected_settings,
+                    step_id=step_id,
+                ),
                 "current_count": max(
                     1,
                     int(current_value) if current_value is not None else 5,
@@ -806,7 +558,7 @@ def _prompt_codex_shard_plan_menu(
     back_action: Any,
     max_value: int = 256,
     **kwargs: Any,
-) -> dict[str, int] | Any:
+) -> dict[str, dict[str, Any]] | Any:
     choices: list[questionary.Choice | questionary.Separator] = []
     for summary_line in summary_lines:
         choices.append(questionary.Separator(summary_line))
@@ -864,6 +616,31 @@ def _prompt_codex_shard_plan_menu(
         while not ic.is_selection_valid():
             ic.select_previous()
 
+    numeric_entry: dict[str, Any] = {
+        "step_id": None,
+        "buffer": "",
+    }
+
+    def _clear_numeric_entry() -> None:
+        numeric_entry["step_id"] = None
+        numeric_entry["buffer"] = ""
+
+    def _cycle_current_mode(delta: int) -> None:
+        current = ic.get_pointed_at()
+        step_id = str(current.value)
+        row = row_lookup.get(step_id)
+        if row is None:
+            return
+        modes = tuple(str(mode) for mode in row.get("available_modes") or ())
+        if not modes:
+            return
+        current_mode = str(row.get("current_mode") or _CODEX_STEP_MODE_OFF)
+        try:
+            current_index = modes.index(current_mode)
+        except ValueError:
+            current_index = 0
+        row["current_mode"] = modes[(current_index + delta) % len(modes)]
+
     def _set_current_count(delta: int) -> None:
         current = ic.get_pointed_at()
         step_id = str(current.value)
@@ -873,19 +650,25 @@ def _prompt_codex_shard_plan_menu(
         current_count = int(row.get("current_count") or 1)
         row["current_count"] = max(1, min(max_value, current_count + delta))
 
-    def _adopt_recommendation_or_increment() -> None:
+    def _set_current_count_from_digits(digit: str) -> None:
         current = ic.get_pointed_at()
         step_id = str(current.value)
         row = row_lookup.get(step_id)
         if row is None:
             return
-        recommended = row.get("minimum_safe_shard_count")
-        if recommended is not None and int(row.get("current_count") or 1) != int(
-            recommended
-        ):
-            row["current_count"] = max(1, min(max_value, int(recommended)))
+        if numeric_entry["step_id"] != step_id:
+            numeric_entry["step_id"] = step_id
+            numeric_entry["buffer"] = ""
+        candidate = f"{numeric_entry['buffer']}{digit}"
+        normalized_candidate = candidate.lstrip("0")
+        if not normalized_candidate:
+            numeric_entry["buffer"] = candidate
             return
-        _set_current_count(1)
+        parsed = int(normalized_candidate)
+        if parsed < 1 or parsed > max_value:
+            return
+        numeric_entry["buffer"] = candidate
+        row["current_count"] = parsed
 
     def _sync_titles() -> None:
         for index, choice in enumerate(ic.choices):
@@ -898,6 +681,8 @@ def _prompt_codex_shard_plan_menu(
             row = row_lookup.get(step_id) or {}
             label = str(row.get("label") or step_id)
             is_current = index == ic.pointed_at
+            current_mode = str(row.get("current_mode") or _CODEX_STEP_MODE_OFF)
+            available_modes = tuple(str(mode) for mode in row.get("available_modes") or ())
             count_value = int(row.get("current_count") or 1)
             minimum_safe = row.get("minimum_safe_shard_count")
             binding_limit = str(row.get("binding_limit") or "").strip()
@@ -905,16 +690,26 @@ def _prompt_codex_shard_plan_menu(
             budget_summary = str(row.get("budget_summary") or "").strip()
             label_class = "class:highlighted" if is_current else "class:text"
             count_class = "class:highlighted" if is_current else "class:selected"
-            if minimum_safe is not None:
+            if current_mode == _CODEX_STEP_MODE_OFF:
+                recommended_text = (
+                    f"min {int(minimum_safe)}" if minimum_safe is not None else "min --"
+                )
+                note_text = kpi_summary or budget_summary or "disabled"
+                if note_text != "disabled":
+                    note_text = f"disabled | {note_text}"
+                note_class = "class:text"
+            elif minimum_safe is not None:
                 recommended_text = f"min {int(minimum_safe)}"
                 if count_value < int(minimum_safe):
                     note_text = f"too low for {_binding_limit_label(binding_limit)}"
                     note_class = "class:answer"
                 else:
                     note_text = f"ok on {_binding_limit_label(binding_limit)}"
-                    note_class = "class:selected"
                 if kpi_summary:
                     note_text = f"{note_text} | {kpi_summary}"
+                    note_class = note_class
+                elif note_class != "class:answer":
+                    note_class = "class:selected"
             else:
                 recommended_text = "min --"
                 note_text = (
@@ -926,8 +721,26 @@ def _prompt_codex_shard_plan_menu(
             count_text = f"[{count_value:>3}]"
             if is_current:
                 count_text = f">[{count_value:>3}]<"
+            mode_bits: list[tuple[str, str]] = []
+            for mode in (
+                _CODEX_STEP_MODE_OFF,
+                CODEX_EXEC_STYLE_INLINE_JSON_V1,
+                CODEX_EXEC_STYLE_TASKFILE_V1,
+            ):
+                mode_label = _CODEX_STEP_MODE_DISPLAY_LABELS[mode]
+                if mode not in available_modes:
+                    mode_bits.append(("class:text", f" {'-' * len(mode_label)}  "))
+                    continue
+                mode_text = f"[{mode_label}]"
+                mode_class = "class:text"
+                if current_mode == mode:
+                    mode_class = "class:highlighted" if is_current else "class:selected"
+                    if is_current:
+                        mode_text = f">{mode_text}<"
+                mode_bits.append((mode_class, f"{mode_text:<12}"))
             choice.title = [
                 (label_class, f"{label.ljust(label_width)}  "),
+                *mode_bits,
                 (count_class, f"{count_text}  "),
                 ("class:text", f"{recommended_text:<7}  "),
                 (note_class, note_text),
@@ -941,7 +754,7 @@ def _prompt_codex_shard_plan_menu(
             ("class:question", f" {message} "),
             (
                 "class:instruction",
-                "(Use up/down to pick a row, left/right or +/- to change shard count, Enter to continue, Esc to go back)",
+                "(Use up/down to pick a row, left/right to change mode, type digits or use +/- to change shard count, Enter to cycle mode, Esc to go back)",
             ),
         ]
 
@@ -959,28 +772,44 @@ def _prompt_codex_shard_plan_menu(
 
     @bindings.add(Keys.Down, eager=True)
     def _move_down(event: Any) -> None:
+        _clear_numeric_entry()
         _select_next()
         _sync_titles()
         event.app.invalidate()
 
     @bindings.add(Keys.Up, eager=True)
     def _move_up(event: Any) -> None:
+        _clear_numeric_entry()
         _select_previous()
         _sync_titles()
         event.app.invalidate()
 
     @bindings.add(Keys.Left, eager=True)
-    @bindings.add("-", eager=True)
     @bindings.add("h", eager=True)
-    def _decrement(event: Any) -> None:
-        _set_current_count(-1)
+    def _previous_mode(event: Any) -> None:
+        _clear_numeric_entry()
+        _cycle_current_mode(-1)
         _sync_titles()
         event.app.invalidate()
 
     @bindings.add(Keys.Right, eager=True)
-    @bindings.add("+", eager=True)
     @bindings.add("l", eager=True)
+    def _next_mode(event: Any) -> None:
+        _clear_numeric_entry()
+        _cycle_current_mode(1)
+        _sync_titles()
+        event.app.invalidate()
+
+    @bindings.add("-", eager=True)
+    def _decrement(event: Any) -> None:
+        _clear_numeric_entry()
+        _set_current_count(-1)
+        _sync_titles()
+        event.app.invalidate()
+
+    @bindings.add("+", eager=True)
     def _increment(event: Any) -> None:
+        _clear_numeric_entry()
         _set_current_count(1)
         _sync_titles()
         event.app.invalidate()
@@ -993,14 +822,33 @@ def _prompt_codex_shard_plan_menu(
             ic.is_answered = True
             event.app.exit(
                 result={
-                    step_id: int(row.get("current_count") or 1)
+                    step_id: {
+                        "mode": str(row.get("current_mode") or _CODEX_STEP_MODE_OFF),
+                        "count": int(row.get("current_count") or 1),
+                    }
                     for step_id, row in row_lookup.items()
                 }
             )
             return
-        _adopt_recommendation_or_increment()
+        if numeric_entry["step_id"] == current_value and numeric_entry["buffer"]:
+            _clear_numeric_entry()
+            _sync_titles()
+            event.app.invalidate()
+            return
+        _clear_numeric_entry()
+        _cycle_current_mode(1)
         _sync_titles()
         event.app.invalidate()
+
+    def _register_digit_binding(digit: str) -> None:
+        @bindings.add(digit, eager=True)
+        def _digit_entry(event: Any) -> None:
+            _set_current_count_from_digits(digit)
+            _sync_titles()
+            event.app.invalidate()
+
+    for digit in "0123456789":
+        _register_digit_binding(digit)
 
     @bindings.add(Keys.Any)
     def _other(event: Any) -> None:
@@ -1017,30 +865,35 @@ def _prompt_codex_shard_plan_menu(
     return question.ask()
 
 
-def _choose_interactive_codex_prompt_targets(
+def _choose_interactive_codex_surfaces(
     *,
     selected_settings: RunSettings,
     prompt_codex_shard_plan_menu: PromptCodexShardPlanMenu,
     back_action: Any,
-    selected_step_ids: Sequence[str],
+    surface_options: tuple[str, ...],
     target_context: Mapping[str, Any] | None = None,
 ) -> RunSettings | None:
-    patched_payload = project_run_config_payload(
-        selected_settings.to_run_config_dict(),
-        contract=RUN_SETTING_CONTRACT_FULL,
+    step_ids = tuple(
+        step_id
+        for step_id in surface_options
+        if step_id in _CODEX_SURFACE_PROMPT_TARGET_FIELDS
+    )
+    if not step_ids:
+        return selected_settings
+    target_context = _resolve_codex_prompt_target_context(
+        target_context=target_context,
+        selected_settings=selected_settings,
+        step_ids=step_ids,
     )
     rows = _build_codex_shard_plan_rows(
         selected_settings=selected_settings,
-        selected_step_ids=selected_step_ids,
+        step_ids=step_ids,
         target_context=target_context,
     )
     if not rows:
-        return RunSettings.from_dict(
-            patched_payload,
-            warn_context="interactive codex prompt targets",
-        )
-    selected_counts = prompt_codex_shard_plan_menu(
-        message="Codex Exec shard planning for this run:",
+        return selected_settings
+    selected_plan = prompt_codex_shard_plan_menu(
+        message="Codex Exec step planning for this run:",
         rows=rows,
         summary_lines=_build_codex_shard_plan_summary_lines(
             target_context=target_context,
@@ -1048,16 +901,70 @@ def _choose_interactive_codex_prompt_targets(
         ),
         back_action=back_action,
     )
-    if selected_counts is None or selected_counts is back_action:
+    if selected_plan is None or selected_plan is back_action:
         return None
-    for step_id, prompt_target_count in dict(selected_counts).items():
+    patched_payload = project_run_config_payload(
+        selected_settings.to_run_config_dict(),
+        contract=RUN_SETTING_CONTRACT_FULL,
+    )
+    resolved_recipe_pipeline = (
+        _normalize_interactive_recipe_pipeline(selected_settings.llm_recipe_pipeline.value)
+        or RECIPE_CODEX_FARM_EXECUTION_PIPELINES[0]
+    )
+    if "recipe" not in step_ids:
+        patched_payload["llm_recipe_pipeline"] = "off"
+    if "line_role" not in step_ids:
+        patched_payload["line_role_pipeline"] = "off"
+        patched_payload["atomic_block_splitter"] = "off"
+        patched_payload["line_role_codex_exec_style"] = CODEX_EXEC_STYLE_INLINE_JSON_V1
+    if "knowledge" not in step_ids:
+        patched_payload["llm_knowledge_pipeline"] = "off"
+        patched_payload["knowledge_codex_exec_style"] = CODEX_EXEC_STYLE_INLINE_JSON_V1
+    for step_id, row_plan in dict(selected_plan).items():
+        mode = str((row_plan or {}).get("mode") or _CODEX_STEP_MODE_OFF)
+        prompt_target_count = int((row_plan or {}).get("count") or 1)
         if step_id not in _CODEX_SURFACE_PROMPT_TARGET_FIELDS:
             continue
         field_name, _label = _CODEX_SURFACE_PROMPT_TARGET_FIELDS[step_id]
         patched_payload[field_name] = int(prompt_target_count)
+        if step_id == "recipe":
+            patched_payload["llm_recipe_pipeline"] = (
+                resolved_recipe_pipeline
+                if mode != _CODEX_STEP_MODE_OFF
+                else "off"
+            )
+            continue
+        if step_id == "line_role":
+            patched_payload["line_role_pipeline"] = (
+                LINE_ROLE_PIPELINE_ROUTE_V2
+                if mode != _CODEX_STEP_MODE_OFF
+                else "off"
+            )
+            patched_payload["line_role_codex_exec_style"] = (
+                mode
+                if mode != _CODEX_STEP_MODE_OFF
+                else CODEX_EXEC_STYLE_INLINE_JSON_V1
+            )
+            patched_payload["atomic_block_splitter"] = (
+                selected_settings.atomic_block_splitter.value
+                if mode != _CODEX_STEP_MODE_OFF
+                else "off"
+            )
+            continue
+        if step_id == "knowledge":
+            patched_payload["llm_knowledge_pipeline"] = (
+                KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2
+                if mode != _CODEX_STEP_MODE_OFF
+                else "off"
+            )
+            patched_payload["knowledge_codex_exec_style"] = (
+                mode
+                if mode != _CODEX_STEP_MODE_OFF
+                else CODEX_EXEC_STYLE_INLINE_JSON_V1
+            )
     return RunSettings.from_dict(
         patched_payload,
-        warn_context="interactive codex prompt targets",
+        warn_context="interactive codex step planning",
     )
 
 
@@ -1066,66 +973,17 @@ def choose_interactive_codex_surfaces(
     selected_settings: RunSettings,
     back_action: Any,
     surface_options: tuple[str, ...],
-    prompt_codex_surface_menu: PromptCodexSurfaceMenu | None = None,
     prompt_codex_shard_plan_menu: PromptCodexShardPlanMenu | None = None,
     target_context: Mapping[str, Any] | None = None,
 ) -> RunSettings | None:
     return _choose_interactive_codex_surfaces(
         selected_settings=selected_settings,
-        prompt_codex_surface_menu=(
-            prompt_codex_surface_menu or _prompt_codex_surface_menu
+        prompt_codex_shard_plan_menu=(
+            prompt_codex_shard_plan_menu or _prompt_codex_shard_plan_menu
         ),
-        prompt_codex_shard_plan_menu=prompt_codex_shard_plan_menu,
         back_action=back_action,
-        surface_options=surface_options,
+        surface_options=tuple(surface_options),
         target_context=target_context,
-    )
-
-
-def _codex_exec_style_applies(selected_settings: RunSettings) -> bool:
-    return any(
-        (
-            selected_settings.line_role_pipeline.value == LINE_ROLE_PIPELINE_ROUTE_V2,
-            selected_settings.llm_knowledge_pipeline.value != "off",
-        )
-    )
-
-
-def _choose_interactive_codex_exec_style(
-    *,
-    selected_settings: RunSettings,
-    menu_select: MenuSelect,
-    back_action: Any,
-) -> RunSettings | None:
-    if not _codex_exec_style_applies(selected_settings):
-        return selected_settings
-    default_style = normalize_codex_exec_style_value(selected_settings.codex_exec_style.value)
-    selected_style = menu_select(
-        "Codex Exec style for this run:",
-        menu_help=(
-            "This choice applies only to block labelling and non-recipe finalize.\n"
-            "Recipe correction stays on the current taskfile worker contract.\n"
-            "Taskfile workers keep the existing editable `task.json` path.\n"
-            "Inline JSON uses immutable inline payloads plus `codex exec resume --last` repair/grouping turns."
-        ),
-        default=default_style,
-        choices=[
-            questionary.Choice(
-                _CODEX_EXEC_STYLE_LABELS[CODEX_EXEC_STYLE_TASKFILE_V1],
-                value=CODEX_EXEC_STYLE_TASKFILE_V1,
-            ),
-            questionary.Choice(
-                _CODEX_EXEC_STYLE_LABELS[CODEX_EXEC_STYLE_INLINE_JSON_V1],
-                value=CODEX_EXEC_STYLE_INLINE_JSON_V1,
-            ),
-        ],
-    )
-    if selected_style in {None, back_action}:
-        return None
-    return _patch_interactive_settings(
-        selected_settings,
-        warn_context="interactive codex exec style selection",
-        codex_exec_style=normalize_codex_exec_style_value(selected_style),
     )
 
 
@@ -1339,6 +1197,8 @@ def build_interactive_benchmark_preset_settings(
         llm_recipe_pipeline=RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
         line_role_pipeline=LINE_ROLE_PIPELINE_ROUTE_V2,
         llm_knowledge_pipeline=KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
+        line_role_codex_exec_style=CODEX_EXEC_STYLE_INLINE_JSON_V1,
+        knowledge_codex_exec_style=CODEX_EXEC_STYLE_INLINE_JSON_V1,
         atomic_block_splitter=selected_settings.atomic_block_splitter.value,
         recipe_prompt_target_count=5,
         line_role_prompt_target_count=5,
@@ -1355,7 +1215,6 @@ def choose_run_settings(
     menu_select: MenuSelect,
     back_action: Any,
     prompt_confirm: PromptConfirm | None = None,
-    prompt_codex_surface_menu: PromptCodexSurfaceMenu | None = None,
     prompt_codex_shard_plan_menu: PromptCodexShardPlanMenu | None = None,
     prompt_text: PromptText | None = None,
     prompt_codex_ai_settings: bool = False,
@@ -1415,22 +1274,14 @@ def choose_run_settings(
     if codex_surface_menu_options is not None and selected_profile == "codex-exec":
         selected_settings = choose_interactive_codex_surfaces(
             selected_settings=selected_settings,
-            prompt_codex_surface_menu=prompt_codex_surface_menu,
             prompt_codex_shard_plan_menu=(
                 prompt_codex_shard_plan_menu
                 if prompt_codex_shard_plan_menu is not None
-                else (_prompt_codex_shard_plan_menu if prompt_text is not None else None)
+                else _prompt_codex_shard_plan_menu
             ),
             back_action=back_action,
             surface_options=codex_surface_menu_options,
             target_context=interactive_codex_target_context,
-        )
-        if selected_settings is None:
-            return None
-        selected_settings = _choose_interactive_codex_exec_style(
-            selected_settings=selected_settings,
-            menu_select=menu_select,
-            back_action=back_action,
         )
         if selected_settings is None:
             return None

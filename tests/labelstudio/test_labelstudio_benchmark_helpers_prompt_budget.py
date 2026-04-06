@@ -66,6 +66,9 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
                     "tokens_output": 7,
                     "tokens_reasoning": 2,
                     "tokens_total": 64,
+                    "visible_input_tokens": 20,
+                    "visible_output_tokens": 7,
+                    "wrapper_overhead_tokens": 37,
                 }
             }
         ),
@@ -85,6 +88,9 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
                             "tokens_output": 12,
                             "tokens_reasoning": 1,
                             "tokens_total": 123,
+                            "visible_input_tokens": 60,
+                            "visible_output_tokens": 12,
+                            "wrapper_overhead_tokens": 51,
                         }
                     }
                 },
@@ -98,6 +104,9 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
                             "tokens_output": 20,
                             "tokens_reasoning": 4,
                             "tokens_total": 104,
+                            "visible_input_tokens": 45,
+                            "visible_output_tokens": 20,
+                            "wrapper_overhead_tokens": 39,
                         }
                     }
                 },
@@ -113,6 +122,9 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
                             "tokens_output": 60,
                             "tokens_reasoning": 0,
                             "tokens_total": 360,
+                            "visible_input_tokens": 140,
+                            "visible_output_tokens": 60,
+                            "wrapper_overhead_tokens": 160,
                         }
                     }
                 }
@@ -125,12 +137,19 @@ def test_prompt_budget_summary_merges_codex_and_line_role_telemetry(
 
     written = json.loads(summary_path.read_text(encoding="utf-8"))
     assert written["by_stage"]["recipe_refine"]["call_count"] == 2
+    assert written["by_stage"]["recipe_refine"]["semantic_payload_tokens_total"] == 72
+    assert written["by_stage"]["recipe_refine"]["protocol_overhead_tokens_total"] == 51
     assert written["by_stage"]["recipe_build_intermediate"]["tokens_total"] == 104
     assert written["by_stage"]["nonrecipe_finalize"]["call_count"] == 4
     assert written["by_stage"]["nonrecipe_finalize"]["tokens_total"] == 360
+    assert written["by_stage"]["nonrecipe_finalize"]["semantic_payload_tokens_total"] == 200
     assert written["by_stage"]["line_role"]["call_count"] == 2
     assert written["by_stage"]["line_role"]["attempt_count"] == 3
+    assert written["by_stage"]["line_role"]["semantic_payload_tokens_total"] == 27
+    assert written["by_stage"]["line_role"]["protocol_overhead_tokens_total"] == 37
     assert written["totals"]["tokens_total"] == 651
+    assert written["totals"]["semantic_payload_tokens_total"] == 364
+    assert written["totals"]["protocol_overhead_tokens_total"] == 287
 
 
 def test_prompt_budget_summary_recovers_line_role_tokens_from_nested_batch_summaries(

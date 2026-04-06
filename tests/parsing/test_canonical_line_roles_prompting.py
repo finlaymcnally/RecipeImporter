@@ -124,6 +124,9 @@ def test_line_role_shared_contract_block_includes_required_contract_text() -> No
     assert "Label: `INGREDIENT_LINE`" in contract
     assert "Cooking Acids" in contract
     assert "Use limes in guacamole" in contract
+    assert "Obvious praise blurbs, foreword or preface setup" in contract
+    assert "This book will teach you the four elements of good cooking." in contract
+    assert "exclusion_reason: `publisher_promo`" in contract
 
 
 def test_line_role_taskfile_worker_prompt_includes_title_yield_reset_contract() -> None:
@@ -140,7 +143,13 @@ def test_line_role_taskfile_worker_prompt_includes_title_yield_reset_contract() 
     shared_contract = build_line_role_shared_contract_block()
 
     assert "Shared labeling contract:" in prompt
-    assert shared_contract in prompt
+    for line in (
+        "`INSTRUCTION_LINE` means a recipe-local procedural step",
+        "Contents-style title lists, endorsements, intro framing, and isolated topic headings default to `NONRECIPE_EXCLUDE`",
+        "This book will teach you the four elements of good cooking.",
+    ):
+        assert line in shared_contract
+        assert line in prompt
     assert "Title, variant, yield, and section calls are sequence-sensitive." in prompt
     assert "read the nearby rows directly in the ordered `task.json` ledger" in prompt
 
@@ -382,6 +391,11 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
         "Contents-style title lists, endorsements, intro framing, and isolated topic headings default to `NONRECIPE_EXCLUDE`"
         in prompt
     )
+    assert (
+        "Obvious praise blurbs, foreword or preface setup, book-thesis or manifesto framing"
+        in prompt
+    )
+    assert "This book will teach you the four elements of good cooking." in prompt
     assert "Use optional `exclusion_reason` only on rows labeled `NONRECIPE_EXCLUDE`" in prompt
     assert "A single outside-recipe heading by itself is not enough" in prompt
     assert "Reference-only neighboring context:" in prompt
@@ -453,6 +467,10 @@ def test_line_role_shared_contract_fallback_stays_routing_only(
     )
     assert (
         "Line: `Then I fell in love with Johnny, who introduced me to San Francisco.`\n    Label: `NONRECIPE_EXCLUDE`"
+        in contract
+    )
+    assert (
+        "Line: `This book will teach you the four elements of good cooking.`\n    Label: `NONRECIPE_EXCLUDE`"
         in contract
     )
     assert (

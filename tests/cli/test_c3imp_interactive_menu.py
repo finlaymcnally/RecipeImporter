@@ -51,6 +51,16 @@ def _patch_stage_attr(
             monkeypatch.setattr(module, name, value)
 
 
+def _echo_codex_step_plan(**kwargs):
+    return {
+        str(row["step_id"]): {
+            "mode": row["current_mode"],
+            "count": row["current_count"],
+        }
+        for row in kwargs["rows"]
+    }
+
+
 def test_menu_shortcuts_assign_numeric_keys():
     choices = [
         questionary.Choice("Import", value="import"),
@@ -716,8 +726,6 @@ def test_choose_run_settings_workflow_menu_uses_family_labels_only(
         if message == "Workflow for this run:":
             captured_titles.extend(str(choice.title) for choice in kwargs.get("choices", []))
             return "codex-recipe-shard-v1"
-        if message == "Codex Exec style for this run:":
-            return CODEX_EXEC_STYLE_TASKFILE_V1
         pytest.fail(f"unexpected menu prompt: {message}")
 
     selected = run_settings_flow.choose_run_settings(
@@ -725,21 +733,27 @@ def test_choose_run_settings_workflow_menu_uses_family_labels_only(
         output_dir=tmp_path,
         menu_select=_menu_select,
         back_action=object(),
-        prompt_codex_surface_menu=lambda **_kwargs: {
-            "recipe": True,
-            "line_role": True,
-            "knowledge": True,
-        },
+        prompt_codex_shard_plan_menu=_echo_codex_step_plan,
         prompt_recipe_pipeline_menu=True,
         prompt_benchmark_llm_surface_toggles=True,
     )
 
     assert selected is not None
     assert captured_titles == ["Vanilla / no Codex", "Codex Exec"]
-    assert selected.codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
+    assert selected.line_role_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
+    assert selected.knowledge_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
 
 
-def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
+def test_run_settings_default_surface_codex_exec_styles_prefer_inline_json() -> None:
+    selected = cli.RunSettings.from_dict(
+        {},
+        warn_context="test surface codex exec style defaults",
+    )
+    assert selected.line_role_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
+    assert selected.knowledge_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
+
+
+def test_choose_run_settings_benchmark_step_planning_applies_modes_independently(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -758,17 +772,13 @@ def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
         menu_select=lambda message, *_args, **_kwargs: (
             "codex-recipe-shard-v1"
             if message == "Workflow for this run:"
-            else (
-                CODEX_EXEC_STYLE_TASKFILE_V1
-                if message == "Codex Exec style for this run:"
-                else pytest.fail(f"unexpected menu prompt: {message}")
-            )
+            else pytest.fail(f"unexpected menu prompt: {message}")
         ),
         back_action=object(),
-        prompt_codex_surface_menu=lambda **_kwargs: {
-            "recipe": True,
-            "line_role": False,
-            "knowledge": False,
+        prompt_codex_shard_plan_menu=lambda **_kwargs: {
+            "line_role": {"mode": "off", "count": 5},
+            "recipe": {"mode": CODEX_EXEC_STYLE_TASKFILE_V1, "count": 5},
+            "knowledge": {"mode": "off", "count": 5},
         },
         prompt_recipe_pipeline_menu=True,
         prompt_benchmark_llm_surface_toggles=True,
@@ -779,9 +789,11 @@ def test_choose_run_settings_benchmark_surface_toggles_apply_independently(
     assert selected.line_role_pipeline.value == "off"
     assert selected.atomic_block_splitter.value == "off"
     assert selected.llm_knowledge_pipeline.value == "off"
+    assert selected.line_role_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
+    assert selected.knowledge_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
 
 
-def test_choose_run_settings_prompts_for_enabled_codex_prompt_targets(
+def test_choose_run_settings_step_planner_surfaces_defaults_and_applies_counts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -803,22 +815,17 @@ def test_choose_run_settings_prompts_for_enabled_codex_prompt_targets(
         menu_select=lambda message, *_args, **_kwargs: (
             "codex-recipe-shard-v1"
             if message == "Workflow for this run:"
-            else (
-                CODEX_EXEC_STYLE_TASKFILE_V1
-                if message == "Codex Exec style for this run:"
-                else pytest.fail(f"unexpected menu prompt: {message}")
-            )
+            else pytest.fail(f"unexpected menu prompt: {message}")
         ),
         back_action=object(),
-        prompt_codex_surface_menu=lambda **_kwargs: {
-            "recipe": True,
-            "line_role": False,
-            "knowledge": True,
-        },
         prompt_codex_shard_plan_menu=lambda **kwargs: (
             captured_rows.extend(dict(row) for row in kwargs["rows"])
             or captured_summary_lines.extend(list(kwargs["summary_lines"]))
-            or {"recipe": 3, "knowledge": 6}
+            or {
+                "line_role": {"mode": "off", "count": 5},
+                "recipe": {"mode": CODEX_EXEC_STYLE_TASKFILE_V1, "count": 3},
+                "knowledge": {"mode": CODEX_EXEC_STYLE_TASKFILE_V1, "count": 6},
+            }
         ),
         prompt_recipe_pipeline_menu=True,
         prompt_benchmark_llm_surface_toggles=True,
@@ -826,17 +833,24 @@ def test_choose_run_settings_prompts_for_enabled_codex_prompt_targets(
 
     assert selected is not None
     assert [str(row["step_id"]) for row in captured_rows] == [
+        "line_role",
         "recipe",
         "knowledge",
+    ]
+    assert [str(row["current_mode"]) for row in captured_rows] == [
+        CODEX_EXEC_STYLE_INLINE_JSON_V1,
+        CODEX_EXEC_STYLE_TASKFILE_V1,
+        CODEX_EXEC_STYLE_INLINE_JSON_V1,
     ]
     assert any("Exact survivability estimates appear" in line for line in captured_summary_lines)
     assert selected.recipe_prompt_target_count == 3
     assert selected.knowledge_prompt_target_count == 6
     assert selected.line_role_prompt_target_count == 5
-    assert selected.codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
+    assert selected.line_role_pipeline.value == "off"
+    assert selected.knowledge_codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
 
 
-def test_choose_run_settings_benchmark_prompts_codex_targets_in_runtime_stage_order(
+def test_choose_run_settings_benchmark_prompts_codex_steps_in_runtime_stage_order(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -857,21 +871,16 @@ def test_choose_run_settings_benchmark_prompts_codex_targets_in_runtime_stage_or
         menu_select=lambda message, *_args, **_kwargs: (
             "codex-recipe-shard-v1"
             if message == "Workflow for this run:"
-            else (
-                CODEX_EXEC_STYLE_TASKFILE_V1
-                if message == "Codex Exec style for this run:"
-                else pytest.fail(f"unexpected menu prompt: {message}")
-            )
+            else pytest.fail(f"unexpected menu prompt: {message}")
         ),
         back_action=object(),
-        prompt_codex_surface_menu=lambda **_kwargs: {
-            "line_role": True,
-            "recipe": True,
-            "knowledge": True,
-        },
         prompt_codex_shard_plan_menu=lambda **kwargs: (
             captured_rows.extend(dict(row) for row in kwargs["rows"])
-            or {"line_role": 10, "recipe": 5, "knowledge": 10}
+            or {
+                "line_role": {"mode": CODEX_EXEC_STYLE_TASKFILE_V1, "count": 10},
+                "recipe": {"mode": CODEX_EXEC_STYLE_TASKFILE_V1, "count": 5},
+                "knowledge": {"mode": CODEX_EXEC_STYLE_INLINE_JSON_V1, "count": 10},
+            }
         ),
         prompt_recipe_pipeline_menu=True,
         prompt_benchmark_llm_surface_toggles=True,
@@ -886,7 +895,8 @@ def test_choose_run_settings_benchmark_prompts_codex_targets_in_runtime_stage_or
     assert selected.line_role_prompt_target_count == 10
     assert selected.recipe_prompt_target_count == 5
     assert selected.knowledge_prompt_target_count == 10
-    assert selected.codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
+    assert selected.line_role_codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
+    assert selected.knowledge_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
 
 
 def test_choose_run_settings_uses_target_context_recommendation_builder_for_shard_plan(
@@ -912,22 +922,17 @@ def test_choose_run_settings_uses_target_context_recommendation_builder_for_shar
         menu_select=lambda message, *_args, **_kwargs: (
             "codex-recipe-shard-v1"
             if message == "Workflow for this run:"
-            else (
-                CODEX_EXEC_STYLE_TASKFILE_V1
-                if message == "Codex Exec style for this run:"
-                else pytest.fail(f"unexpected menu prompt: {message}")
-            )
+            else pytest.fail(f"unexpected menu prompt: {message}")
         ),
         back_action=object(),
-        prompt_codex_surface_menu=lambda **_kwargs: {
-            "line_role": True,
-            "recipe": True,
-            "knowledge": True,
-        },
         prompt_codex_shard_plan_menu=lambda **kwargs: (
             captured_rows.extend(dict(row) for row in kwargs["rows"])
             or captured_summary_lines.extend(list(kwargs["summary_lines"]))
-            or {"line_role": 4, "recipe": 3, "knowledge": 2}
+            or {
+                "line_role": {"mode": CODEX_EXEC_STYLE_INLINE_JSON_V1, "count": 4},
+                "recipe": {"mode": CODEX_EXEC_STYLE_TASKFILE_V1, "count": 3},
+                "knowledge": {"mode": CODEX_EXEC_STYLE_INLINE_JSON_V1, "count": 2},
+            }
         ),
         prompt_recipe_pipeline_menu=True,
         prompt_benchmark_llm_surface_toggles=True,
@@ -1015,7 +1020,8 @@ def test_choose_run_settings_uses_target_context_recommendation_builder_for_shar
     assert selected.line_role_prompt_target_count == 4
     assert selected.recipe_prompt_target_count == 3
     assert selected.knowledge_prompt_target_count == 2
-    assert selected.codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
+    assert selected.line_role_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
+    assert selected.knowledge_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
 
 
 def test_binding_limit_and_kpi_labels_are_plain_english() -> None:
@@ -1049,7 +1055,7 @@ def test_shard_plan_summary_warns_when_some_rows_are_unverified() -> None:
     assert "Rows with min -- are not verified yet. Treat those shard counts as untrusted." in lines
 
 
-def test_choose_interactive_codex_surfaces_line_role_only_prompts_only_for_line_role_target() -> None:
+def test_choose_interactive_codex_surfaces_shows_all_rows_and_applies_line_role_only() -> None:
     selected_settings = cli.RunSettings.from_dict(
         {
             "llm_recipe_pipeline": "off",
@@ -1065,20 +1071,25 @@ def test_choose_interactive_codex_surfaces_line_role_only_prompts_only_for_line_
         selected_settings=selected_settings,
         back_action=object(),
         surface_options=("recipe", "line_role", "knowledge"),
-        prompt_codex_surface_menu=lambda **_kwargs: {
-            "recipe": False,
-            "line_role": True,
-            "knowledge": False,
-        },
         prompt_codex_shard_plan_menu=lambda **kwargs: (
-            captured_rows.extend(dict(row) for row in kwargs["rows"]) or {"line_role": 4}
+            captured_rows.extend(dict(row) for row in kwargs["rows"])
+            or {
+                "recipe": {"mode": "off", "count": 5},
+                "line_role": {"mode": CODEX_EXEC_STYLE_TASKFILE_V1, "count": 4},
+                "knowledge": {"mode": "off", "count": 5},
+            }
         ),
     )
 
     assert result is not None
-    assert [str(row["step_id"]) for row in captured_rows] == ["line_role"]
+    assert [str(row["step_id"]) for row in captured_rows] == [
+        "recipe",
+        "line_role",
+        "knowledge",
+    ]
     assert result.recipe_prompt_target_count == selected_settings.recipe_prompt_target_count
     assert result.line_role_prompt_target_count == 4
+    assert result.line_role_codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
 
 
 def test_choose_run_settings_threads_target_context_into_shard_planning_page(
@@ -1102,19 +1113,15 @@ def test_choose_run_settings_threads_target_context_into_shard_planning_page(
         menu_select=lambda message, *_args, **_kwargs: (
             "codex-recipe-shard-v1"
             if message == "Workflow for this run:"
-            else (
-                CODEX_EXEC_STYLE_TASKFILE_V1
-                if message == "Codex Exec style for this run:"
-                else pytest.fail(f"unexpected menu prompt: {message}")
-            )
+            else pytest.fail(f"unexpected menu prompt: {message}")
         ),
         back_action=object(),
-        prompt_codex_surface_menu=lambda **_kwargs: {
-            "recipe": True,
-            "knowledge": False,
-        },
         prompt_codex_shard_plan_menu=lambda **kwargs: (
-            captured_summary_lines.extend(list(kwargs["summary_lines"])) or {"recipe": 7}
+            captured_summary_lines.extend(list(kwargs["summary_lines"]))
+            or {
+                "recipe": {"mode": CODEX_EXEC_STYLE_TASKFILE_V1, "count": 7},
+                "knowledge": {"mode": "off", "count": 5},
+            }
         ),
         prompt_recipe_pipeline_menu=True,
         interactive_codex_surface_options=("recipe", "knowledge"),
@@ -1129,30 +1136,6 @@ def test_choose_run_settings_threads_target_context_into_shard_planning_page(
         "Target: book.epub",
         "Gold: dinner-for-two",
     ]
-
-
-def test_prompt_codex_prompt_target_count_caps_interactive_choice_at_256() -> None:
-    captured: dict[str, object] = {}
-
-    result = run_settings_flow._prompt_codex_prompt_target_count(  # noqa: SLF001
-        prompt_text=lambda message, **kwargs: (
-            captured.update({"message": message, **kwargs}) or "256"
-        ),
-        message="Recipe correction shard count for this run:",
-        default_value=5,
-        back_action=object(),
-    )
-
-    assert result == 256
-    assert captured["instruction"] == (
-        "Approximate prompts for this task in this run. Use a whole number "
-        "from 1 to 256. Press Esc to go back."
-    )
-    validate = captured["validate"]
-    assert callable(validate)
-    assert validate("1") is True
-    assert validate("256") is True
-    assert validate("257") == "Enter a whole number from 1 to 256."
 
 
 def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
@@ -1175,8 +1158,6 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
     def _menu_select(message, *_args, **_kwargs):
         if message == "Workflow for this run:":
             return "codex-recipe-shard-v1"
-        if message == "Codex Exec style for this run:":
-            return CODEX_EXEC_STYLE_INLINE_JSON_V1
         if message == "Codex Exec model override:":
             seen_model_prompt["value"] = True
             return "__pipeline_default__"
@@ -1189,10 +1170,10 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
         output_dir=tmp_path,
         menu_select=_menu_select,
         back_action=object(),
-        prompt_codex_surface_menu=lambda **_kwargs: {
-            "recipe": False,
-            "line_role": True,
-            "knowledge": False,
+        prompt_codex_shard_plan_menu=lambda **_kwargs: {
+            "line_role": {"mode": CODEX_EXEC_STYLE_INLINE_JSON_V1, "count": 5},
+            "recipe": {"mode": "off", "count": 5},
+            "knowledge": {"mode": "off", "count": 5},
         },
         prompt_recipe_pipeline_menu=True,
         prompt_codex_ai_settings=True,
@@ -1205,7 +1186,7 @@ def test_choose_run_settings_line_role_only_codex_still_prompts_for_ai_settings(
     assert selected.line_role_pipeline.value == "codex-line-role-route-v2"
     assert selected.llm_knowledge_pipeline.value == "off"
     assert selected.atomic_block_splitter.value == "off"
-    assert selected.codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
+    assert selected.line_role_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
 
 
 def test_build_interactive_benchmark_preset_settings_resolves_fast_codex_exec_single_book(
@@ -1234,6 +1215,8 @@ def test_build_interactive_benchmark_preset_settings_resolves_fast_codex_exec_si
     assert selected.recipe_prompt_target_count == 5
     assert selected.line_role_prompt_target_count == 5
     assert selected.knowledge_prompt_target_count == 5
+    assert selected.line_role_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
+    assert selected.knowledge_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
     assert str(selected.codex_farm_model) == "gpt-5.3-codex-spark"
     assert selected.codex_farm_reasoning_effort is CodexReasoningEffort.low
 
@@ -1255,8 +1238,6 @@ def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowled
     def _menu_select(message, *_args, **_kwargs):
         if message == "Workflow for this run:":
             return "codex-recipe-shard-v1"
-        if message == "Codex Exec style for this run:":
-            return CODEX_EXEC_STYLE_TASKFILE_V1
         pytest.fail(f"unexpected menu prompt: {message}")
 
     selected = run_settings_flow.choose_run_settings(
@@ -1264,9 +1245,9 @@ def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowled
         output_dir=tmp_path,
         menu_select=_menu_select,
         back_action=object(),
-        prompt_codex_surface_menu=lambda **_kwargs: {
-            "recipe": False,
-            "knowledge": True,
+        prompt_codex_shard_plan_menu=lambda **_kwargs: {
+            "recipe": {"mode": "off", "count": 5},
+            "knowledge": {"mode": CODEX_EXEC_STYLE_TASKFILE_V1, "count": 5},
         },
         prompt_recipe_pipeline_menu=True,
         interactive_codex_surface_options=("recipe", "knowledge"),
@@ -1277,89 +1258,24 @@ def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowled
     assert selected.llm_knowledge_pipeline.value == "codex-knowledge-candidate-v2"
     assert selected.line_role_pipeline.value == "off"
     assert selected.atomic_block_splitter.value == "off"
-    assert selected.codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
+    assert selected.knowledge_codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
 
 
-def test_prompt_codex_surface_menu_uses_arrow_keys_to_toggle_without_leaving_screen() -> None:
-    result: dict[str, dict[str, bool] | None] = {"value": None}
-    error: dict[str, BaseException] = {}
-
-    with create_pipe_input() as pipe_input:
-        def _run_prompt() -> None:
-            try:
-                result["value"] = run_settings_flow._prompt_codex_surface_menu(
-                    message="Codex Exec steps for this run:",
-                    step_rows=[
-                        ("recipe", "Recipe correction (`codex-recipe-shard-v1`)"),
-                        ("knowledge", "Knowledge harvest (`codex-knowledge-candidate-v2`)"),
-                    ],
-                    enabled_by_step={"recipe": True, "knowledge": True},
-                    back_action="back",
-                    input=pipe_input,
-                    output=DummyOutput(),
-                )
-            except BaseException as exc:  # noqa: BLE001
-                error["exc"] = exc
-
-        worker = threading.Thread(target=_run_prompt, daemon=True)
-        worker.start()
-        pipe_input.send_bytes(b"\x1b[B")  # Down
-        pipe_input.send_bytes(b"\x1b[C")  # Right -> No
-        pipe_input.send_bytes(b"\x1b[B")  # Down to Continue
-        pipe_input.send_bytes(b"\r")      # Enter
-        worker.join(timeout=2)
-
-    assert "exc" not in error, f"Prompt crashed instead of handling arrows: {error.get('exc')}"
-    assert result["value"] == {"recipe": True, "knowledge": False}
-
-
-def test_prompt_codex_surface_menu_allows_left_and_right_to_move_current_choice() -> None:
-    result: dict[str, dict[str, bool] | None] = {"value": None}
-    error: dict[str, BaseException] = {}
-
-    with create_pipe_input() as pipe_input:
-        def _run_prompt() -> None:
-            try:
-                result["value"] = run_settings_flow._prompt_codex_surface_menu(
-                    message="Codex Exec options for this run:",
-                    step_rows=[
-                        ("recipe", "Recipe correction (`codex-recipe-shard-v1`)"),
-                        ("knowledge", "Knowledge harvest (`codex-knowledge-candidate-v2`)"),
-                    ],
-                    enabled_by_step={"recipe": True, "knowledge": True},
-                    back_action="back",
-                    input=pipe_input,
-                    output=DummyOutput(),
-                )
-            except BaseException as exc:  # noqa: BLE001
-                error["exc"] = exc
-
-        worker = threading.Thread(target=_run_prompt, daemon=True)
-        worker.start()
-        pipe_input.send_bytes(b"\x1b[B")  # Down to knowledge
-        pipe_input.send_bytes(b"\x1b[C")  # Right -> No
-        pipe_input.send_bytes(b"\x1b[D")  # Left -> Yes
-        pipe_input.send_bytes(b"\x1b[B")  # Down to Continue
-        pipe_input.send_bytes(b"\r")      # Enter
-        worker.join(timeout=2)
-
-    assert "exc" not in error, f"Prompt crashed instead of handling arrows: {error.get('exc')}"
-    assert result["value"] == {"recipe": True, "knowledge": True}
-
-
-def test_prompt_codex_shard_plan_menu_uses_arrow_keys_to_adjust_counts() -> None:
-    result: dict[str, dict[str, int] | None] = {"value": None}
+def test_prompt_codex_shard_plan_menu_uses_arrow_keys_to_change_modes_without_leaving_screen() -> None:
+    result: dict[str, dict[str, dict[str, object]] | None] = {"value": None}
     error: dict[str, BaseException] = {}
 
     with create_pipe_input() as pipe_input:
         def _run_prompt() -> None:
             try:
                 result["value"] = run_settings_flow._prompt_codex_shard_plan_menu(
-                    message="Codex Exec shard planning for this run:",
+                    message="Codex Exec step planning for this run:",
                     rows=[
                         {
                             "step_id": "recipe",
                             "label": "Recipe correction",
+                            "available_modes": ("off", CODEX_EXEC_STYLE_TASKFILE_V1),
+                            "current_mode": CODEX_EXEC_STYLE_TASKFILE_V1,
                             "current_count": 5,
                             "minimum_safe_shard_count": None,
                             "binding_limit": None,
@@ -1368,6 +1284,12 @@ def test_prompt_codex_shard_plan_menu_uses_arrow_keys_to_adjust_counts() -> None
                         {
                             "step_id": "knowledge",
                             "label": "Knowledge",
+                            "available_modes": (
+                                "off",
+                                CODEX_EXEC_STYLE_INLINE_JSON_V1,
+                                CODEX_EXEC_STYLE_TASKFILE_V1,
+                            ),
+                            "current_mode": CODEX_EXEC_STYLE_INLINE_JSON_V1,
                             "current_count": 6,
                             "minimum_safe_shard_count": None,
                             "binding_limit": None,
@@ -1384,15 +1306,194 @@ def test_prompt_codex_shard_plan_menu_uses_arrow_keys_to_adjust_counts() -> None
 
         worker = threading.Thread(target=_run_prompt, daemon=True)
         worker.start()
-        pipe_input.send_bytes(b"\x1b[C")  # Right -> recipe 6
         pipe_input.send_bytes(b"\x1b[B")  # Down -> knowledge
-        pipe_input.send_bytes(b"\x1b[D")  # Left -> knowledge 5
+        pipe_input.send_bytes(b"\x1b[D")  # Left -> knowledge off
         pipe_input.send_bytes(b"\x1b[B")  # Down -> Continue
         pipe_input.send_bytes(b"\r")
         worker.join(timeout=2)
 
     assert "exc" not in error, f"Prompt crashed instead of handling arrows: {error.get('exc')}"
-    assert result["value"] == {"recipe": 6, "knowledge": 5}
+    assert result["value"] == {
+        "recipe": {"mode": CODEX_EXEC_STYLE_TASKFILE_V1, "count": 5},
+        "knowledge": {"mode": "off", "count": 6},
+    }
+
+
+def test_prompt_codex_shard_plan_menu_allows_left_and_right_to_cycle_current_mode() -> None:
+    result: dict[str, dict[str, dict[str, object]] | None] = {"value": None}
+    error: dict[str, BaseException] = {}
+
+    with create_pipe_input() as pipe_input:
+        def _run_prompt() -> None:
+            try:
+                result["value"] = run_settings_flow._prompt_codex_shard_plan_menu(
+                    message="Codex Exec step planning for this run:",
+                    rows=[
+                        {
+                            "step_id": "recipe",
+                            "label": "Recipe correction",
+                            "available_modes": ("off", CODEX_EXEC_STYLE_TASKFILE_V1),
+                            "current_mode": CODEX_EXEC_STYLE_TASKFILE_V1,
+                            "current_count": 5,
+                            "minimum_safe_shard_count": None,
+                            "binding_limit": None,
+                            "budget_summary": "in 240k / out 88k / peak 320k",
+                        },
+                        {
+                            "step_id": "knowledge",
+                            "label": "Knowledge",
+                            "available_modes": (
+                                "off",
+                                CODEX_EXEC_STYLE_INLINE_JSON_V1,
+                                CODEX_EXEC_STYLE_TASKFILE_V1,
+                            ),
+                            "current_mode": CODEX_EXEC_STYLE_INLINE_JSON_V1,
+                            "current_count": 6,
+                            "minimum_safe_shard_count": None,
+                            "binding_limit": None,
+                            "budget_summary": "in 220k / out 80k / peak 300k",
+                        },
+                    ],
+                    summary_lines=["Target: book.epub"],
+                    back_action="back",
+                    input=pipe_input,
+                    output=DummyOutput(),
+                )
+            except BaseException as exc:  # noqa: BLE001
+                error["exc"] = exc
+
+        worker = threading.Thread(target=_run_prompt, daemon=True)
+        worker.start()
+        pipe_input.send_bytes(b"\x1b[B")  # Down -> knowledge
+        pipe_input.send_bytes(b"\x1b[C")  # Right -> taskfile
+        pipe_input.send_bytes(b"\x1b[D")  # Left -> json
+        pipe_input.send_bytes(b"\x1b[B")  # Down -> Continue
+        pipe_input.send_bytes(b"\r")
+        worker.join(timeout=2)
+
+    assert "exc" not in error, f"Prompt crashed instead of handling arrows: {error.get('exc')}"
+    assert result["value"] == {
+        "recipe": {"mode": CODEX_EXEC_STYLE_TASKFILE_V1, "count": 5},
+        "knowledge": {"mode": CODEX_EXEC_STYLE_INLINE_JSON_V1, "count": 6},
+    }
+
+
+def test_prompt_codex_shard_plan_menu_uses_plus_and_minus_to_adjust_counts() -> None:
+    result: dict[str, dict[str, dict[str, object]] | None] = {"value": None}
+    error: dict[str, BaseException] = {}
+
+    with create_pipe_input() as pipe_input:
+        def _run_prompt() -> None:
+            try:
+                result["value"] = run_settings_flow._prompt_codex_shard_plan_menu(
+                    message="Codex Exec step planning for this run:",
+                    rows=[
+                        {
+                            "step_id": "recipe",
+                            "label": "Recipe correction",
+                            "available_modes": ("off", CODEX_EXEC_STYLE_TASKFILE_V1),
+                            "current_mode": CODEX_EXEC_STYLE_TASKFILE_V1,
+                            "current_count": 5,
+                            "minimum_safe_shard_count": None,
+                            "binding_limit": None,
+                            "budget_summary": "in 240k / out 88k / peak 320k",
+                        },
+                        {
+                            "step_id": "knowledge",
+                            "label": "Knowledge",
+                            "available_modes": (
+                                "off",
+                                CODEX_EXEC_STYLE_INLINE_JSON_V1,
+                                CODEX_EXEC_STYLE_TASKFILE_V1,
+                            ),
+                            "current_mode": CODEX_EXEC_STYLE_INLINE_JSON_V1,
+                            "current_count": 6,
+                            "minimum_safe_shard_count": None,
+                            "binding_limit": None,
+                            "budget_summary": "in 220k / out 80k / peak 300k",
+                        },
+                    ],
+                    summary_lines=["Target: book.epub"],
+                    back_action="back",
+                    input=pipe_input,
+                    output=DummyOutput(),
+                )
+            except BaseException as exc:  # noqa: BLE001
+                error["exc"] = exc
+
+        worker = threading.Thread(target=_run_prompt, daemon=True)
+        worker.start()
+        pipe_input.send_text("+")         # recipe 6
+        pipe_input.send_bytes(b"\x1b[B")  # Down -> knowledge
+        pipe_input.send_text("-")         # knowledge 5
+        pipe_input.send_bytes(b"\x1b[B")  # Down -> Continue
+        pipe_input.send_bytes(b"\r")
+        worker.join(timeout=2)
+
+    assert "exc" not in error, f"Prompt crashed instead of handling +/-: {error.get('exc')}"
+    assert result["value"] == {
+        "recipe": {"mode": CODEX_EXEC_STYLE_TASKFILE_V1, "count": 6},
+        "knowledge": {"mode": CODEX_EXEC_STYLE_INLINE_JSON_V1, "count": 5},
+    }
+
+
+def test_prompt_codex_shard_plan_menu_accepts_direct_digit_entry() -> None:
+    result: dict[str, dict[str, dict[str, object]] | None] = {"value": None}
+    error: dict[str, BaseException] = {}
+
+    with create_pipe_input() as pipe_input:
+        def _run_prompt() -> None:
+            try:
+                result["value"] = run_settings_flow._prompt_codex_shard_plan_menu(
+                    message="Codex Exec step planning for this run:",
+                    rows=[
+                        {
+                            "step_id": "recipe",
+                            "label": "Recipe correction",
+                            "available_modes": ("off", CODEX_EXEC_STYLE_TASKFILE_V1),
+                            "current_mode": CODEX_EXEC_STYLE_TASKFILE_V1,
+                            "current_count": 5,
+                            "minimum_safe_shard_count": None,
+                            "binding_limit": None,
+                            "budget_summary": "in 240k / out 88k / peak 320k",
+                        },
+                        {
+                            "step_id": "knowledge",
+                            "label": "Knowledge",
+                            "available_modes": (
+                                "off",
+                                CODEX_EXEC_STYLE_INLINE_JSON_V1,
+                                CODEX_EXEC_STYLE_TASKFILE_V1,
+                            ),
+                            "current_mode": CODEX_EXEC_STYLE_INLINE_JSON_V1,
+                            "current_count": 6,
+                            "minimum_safe_shard_count": None,
+                            "binding_limit": None,
+                            "budget_summary": "in 220k / out 80k / peak 300k",
+                        },
+                    ],
+                    summary_lines=["Target: book.epub"],
+                    back_action="back",
+                    input=pipe_input,
+                    output=DummyOutput(),
+                )
+            except BaseException as exc:  # noqa: BLE001
+                error["exc"] = exc
+
+        worker = threading.Thread(target=_run_prompt, daemon=True)
+        worker.start()
+        pipe_input.send_text("12")
+        pipe_input.send_bytes(b"\x1b[B")  # Down -> knowledge
+        pipe_input.send_text("9")
+        pipe_input.send_bytes(b"\x1b[B")  # Down -> Continue
+        pipe_input.send_bytes(b"\r")
+        worker.join(timeout=2)
+
+    assert "exc" not in error, f"Prompt crashed instead of handling digits: {error.get('exc')}"
+    assert result["value"] == {
+        "recipe": {"mode": CODEX_EXEC_STYLE_TASKFILE_V1, "count": 12},
+        "knowledge": {"mode": CODEX_EXEC_STYLE_INLINE_JSON_V1, "count": 9},
+    }
 
 
 def test_choose_run_settings_codex_profile_prompts_for_ai_settings_when_enabled(

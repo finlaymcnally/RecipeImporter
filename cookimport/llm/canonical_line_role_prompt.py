@@ -58,8 +58,10 @@ Negative rules:
 - Contents-style title lists, endorsements, intro framing, and isolated topic headings default to `NONRECIPE_EXCLUDE` unless nearby rows clearly show reusable lesson prose or one live recipe.
 - Contents-style title lists such as `Winter: Roasted Radicchio and Roquefort` or `Torn Croutons` usually stay `NONRECIPE_EXCLUDE` with `navigation` unless nearby rows prove one live recipe.
 - Endorsements, intro framing, and isolated topic headings default to `NONRECIPE_EXCLUDE` unless nearby rows clearly show reusable lesson prose or one live recipe.
+- Obvious praise blurbs, foreword or preface setup, book-thesis or manifesto framing, and `this book will teach you ...` jacket-copy promises usually stay `NONRECIPE_EXCLUDE`, not `NONRECIPE_CANDIDATE`.
 - First-person narrative or memoir framing is usually `NONRECIPE_EXCLUDE` when it reads like foreword/introduction setup rather than reusable cooking knowledge.
 - Endorsements, acknowledgments, foreword/introduction framing, memoir setup, and broad book-encouragement prose usually stay `NONRECIPE_EXCLUDE`; use `NONRECIPE_CANDIDATE` only when the line itself carries reusable cooking knowledge.
+- When those obvious framing rows are excluded, prefer the matching `exclusion_reason` (`endorsement`, `publisher_promo`, or `front_matter`) instead of leaving the reason blank.
 - Use optional `exclusion_reason` only on rows labeled `NONRECIPE_EXCLUDE` when the text is overwhelmingly obvious junk.
 
 Few-shot examples:
@@ -148,23 +150,28 @@ Few-shot examples:
     Label: `NONRECIPE_EXCLUDE`
     exclusion_reason: `navigation`
 
-21) Context: outside recipe, obvious imperative prep step with nearby recipe structure
+21) Context: outside recipe, publisher-style promise or thesis framing
+    Line: `This book will teach you the four elements of good cooking.`
+    Label: `NONRECIPE_EXCLUDE`
+    exclusion_reason: `publisher_promo`
+
+22) Context: outside recipe, obvious imperative prep step with nearby recipe structure
     Line: `Quarter the cabbage through the core. Use a sharp knife to cut the core out at an angle.`
     Label: `INSTRUCTION_LINE`
 
-22) Context: short variation follow-up line after `Variations`
+23) Context: short variation follow-up line after `Variations`
     Line: `To add a little heat, add 1 teaspoon minced jalapeño.`
     Label: `RECIPE_VARIANT`
 
-23) Context: nearby rows are `Variations`, variant prose, then a fresh recipe start followed by yield and ingredients
+24) Context: nearby rows are `Variations`, variant prose, then a fresh recipe start followed by yield and ingredients
     Line: `Bright Cabbage Slaw`
     Label: `RECIPE_TITLE`
 
-24) Context: strict yield header immediately after that fresh recipe title
+25) Context: strict yield header immediately after that fresh recipe title
     Line: `Serves 4 generously`
     Label: `YIELD_LINE`
 
-25) Context: ingredient row immediately after the reset title and yield
+26) Context: ingredient row immediately after the reset title and yield
     Line: `1/2 medium red onion, sliced thinly`
     Label: `INGREDIENT_LINE`
 """

@@ -970,7 +970,7 @@ def test_label_atomic_lines_inline_json_repairs_in_place(tmp_path) -> None:
             "codex-line-role-route-v2",
             line_role_prompt_target_count=1,
             line_role_worker_count=1,
-            codex_exec_style="inline-json-v1",
+            line_role_codex_exec_style="inline-json-v1",
         ),
         artifact_root=tmp_path,
         codex_runner=runner,
@@ -1240,6 +1240,8 @@ def test_label_atomic_lines_workspace_mirrors_hint_and_input_artifacts(
     assert "Static reminders" in worker_hint_text
     assert "Focus" in worker_hint_text
     assert "There is no deterministic answer key in this workspace." in worker_hint_text
+    assert "Obvious praise blurbs, foreword/preface setup, manifesto or `this book will teach you` framing" in worker_hint_text
+    assert "`endorsement`, `publisher_promo`, or `front_matter`" in worker_hint_text
     worker_input_text = (
         prompt_root
         / "runtime"

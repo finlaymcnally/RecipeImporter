@@ -28,6 +28,7 @@ from ..recipe_tagging_guide import build_recipe_tagging_guide
 from ..shard_survivability import attach_observed_telemetry_to_survivability_report, ShardSurvivabilityPreflightError, count_structural_output_tokens, count_tokens_for_model, evaluate_stage_survivability
 from ..shard_prompt_targets import partition_contiguous_items, resolve_shard_count
 from ..task_file_guardrails import build_task_file_guardrail, build_worker_session_guardrails, summarize_task_file_guardrails
+from ..taskfile_prompt_contract import render_taskfile_prompt, section
 from ..recipe_same_session_handoff import RECIPE_SAME_SESSION_STATE_ENV, initialize_recipe_same_session_state
 from ..single_file_worker_commands import build_single_file_worker_surface
 from ..taskfile_progress import decorate_active_worker_label, summarize_taskfile_health
@@ -101,10 +102,61 @@ def _write_recipe_task_payload(*, output_path: Path, payload: Mapping[str, Any])
     output_path.write_text(json.dumps(dict(payload), indent=2, sort_keys=True) + '\n', encoding='utf-8')
 
 def _build_recipe_task_file_worker_prompt(*, task_count: int, repair_mode: bool, fresh_session_resume: bool=False) -> str:
-    lines = ['You are a recipe correction worker in a bounded local workspace.', '', 'Resume from the existing `task.json` and current workspace state.' if fresh_session_resume else f'Start with `task-summary`. If you need the payload for specific units, use `task-show-unit <unit_id>` or `task-show-unanswered --limit 5`. Then edit only `/units/*/answer` in `{TASK_FILE_NAME}`, save the same file, and run `task-handoff`.', '`task.json` already contains the full job for this worker. You do not need extra manifests, queue state, or hidden context before editing it.', 'The helper is the only repo-side handoff seam. It validates the edited file and either completes the assignment or rewrites `task.json` into repair mode for the same session.', 'If you briefly reread part of the file or make a small local false start, correct it and continue.', 'Do not rewrite immutable metadata or evidence fields.', 'Do not invent helper ledgers, queue files, or alternate output files.', 'The repo will expand accepted answers into final artifacts after the helper validates them.']
-    if repair_mode:
-        lines.extend(['', 'Repair mode:', '- only the units in this file failed the previous validation pass', '- each failed unit includes immutable `previous_answer` and `validation_feedback`', '- fix only the named problems and keep all other immutable fields unchanged'])
-    else:
-        lines.extend(['', f'This worker session owns {task_count} recipe task units.'])
-    lines.extend(['', 'Worker contract:', '- Start with `task.json`.', '- Prefer `task-summary` before opening raw file contents.', '- If the file is large, inspect only the units you need with `task-show-unit <unit_id>` or `task-show-unanswered --limit 5`.', '- If you need orientation first, run `task-status`.', '- If the workspace feels inconsistent, run `task-doctor` before inventing shell scripts.', '- Edit only the `answer` object inside each unit.', '- If you want a repo-owned batch write path, run `task-template answers.json`, fill only the answer payloads, then run `task-apply answers.json`.', '- After each edit pass, run `task-handoff` from the workspace root.', '- If the helper reports `repair_required`, reopen the rewritten `task.json` immediately, fix only the named issues, and run the helper again.', '- Stop only after the helper reports `completed`.', '- Do not dump `task.json` with `cat` or `sed`, do not use `ls` or `find` just to orient yourself, and do not write ad hoc inline Python, Node, or heredoc rewrites against `task.json`.', '- Other than repo-owned helper commands and tiny temp-file helpers, avoid shell on the happy path.', '', 'Recipe answer rules:', '- `status` must be one of `repaired`, `fragmentary`, or `not_a_recipe`.', '- When `status=repaired`, provide `canonical_recipe.title`, `ingredients`, and `steps`.', '- Use `ingredient_step_mapping` only for real ingredient-to-step links.', '- `divested_block_indices` must list any owned evidence block indices that no longer belong to the recipe.', '- When `status=fragmentary` or `status=not_a_recipe`, divest every owned evidence block.', '- Keep `selected_tags` as a short list of obvious semantic tag labels.', '- Keep `warnings` concise.'])
-    return '\n'.join(lines)
+    intro_lines = (
+        'You are a recipe correction worker in a bounded local workspace.',
+        (
+            'Resume from the existing `task.json` and current workspace state.'
+            if fresh_session_resume
+            else (
+                f'Start with `task-summary`. If you need the payload for specific '
+                f'units, use `task-show-unit <unit_id>` or `task-show-unanswered '
+                f'--limit 5`. Then edit only `/units/*/answer` in `{TASK_FILE_NAME}`, '
+                'save the same file, and run `task-handoff`.'
+            )
+        ),
+        '`task.json` already contains the full job for this worker. You do not need extra manifests, queue state, or hidden context before editing it.',
+        'The helper is the only repo-side handoff seam. It validates the edited file and either completes the assignment or rewrites `task.json` into repair mode for the same session.',
+        'If you briefly reread part of the file or make a small local false start, correct it and continue.',
+        'Do not rewrite immutable metadata or evidence fields.',
+        'Do not invent helper ledgers, queue files, or alternate output files.',
+        'The repo will expand accepted answers into final artifacts after the helper validates them.',
+    )
+    repair_section = (
+        section(
+            '- only the units in this file failed the previous validation pass',
+            '- each failed unit includes immutable `previous_answer` and `validation_feedback`',
+            '- fix only the named problems and keep all other immutable fields unchanged',
+            heading='Repair mode',
+        )
+        if repair_mode
+        else section(f'This worker session owns {task_count} recipe task units.')
+    )
+    return render_taskfile_prompt(
+        section(*intro_lines),
+        repair_section,
+        section(
+            '- Start with `task.json`.',
+            '- Prefer `task-summary` before opening raw file contents.',
+            '- If the file is large, inspect only the units you need with `task-show-unit <unit_id>` or `task-show-unanswered --limit 5`.',
+            '- If you need orientation first, run `task-status`.',
+            '- If the workspace feels inconsistent, run `task-doctor` before inventing shell scripts.',
+            '- Edit only the `answer` object inside each unit.',
+            '- If you want a repo-owned batch write path, run `task-template answers.json`, fill only the answer payloads, then run `task-apply answers.json`.',
+            '- After each edit pass, run `task-handoff` from the workspace root.',
+            '- If the helper reports `repair_required`, reopen the rewritten `task.json` immediately, fix only the named issues, and run the helper again.',
+            '- Stop only after the helper reports `completed`.',
+            '- Do not dump `task.json` with `cat` or `sed`, do not use `ls` or `find` just to orient yourself, and do not write ad hoc inline Python, Node, or heredoc rewrites against `task.json`.',
+            '- Other than repo-owned helper commands and tiny temp-file helpers, avoid shell on the happy path.',
+            heading='Worker contract',
+        ),
+        section(
+            '- `status` must be one of `repaired`, `fragmentary`, or `not_a_recipe`.',
+            '- When `status=repaired`, provide `canonical_recipe.title`, `ingredients`, and `steps`.',
+            '- Use `ingredient_step_mapping` only for real ingredient-to-step links.',
+            '- `divested_block_indices` must list any owned evidence block indices that no longer belong to the recipe.',
+            '- When `status=fragmentary` or `status=not_a_recipe`, divest every owned evidence block.',
+            '- Keep `selected_tags` as a short list of obvious semantic tag labels.',
+            '- Keep `warnings` concise.',
+            heading='Recipe answer rules',
+        ),
+    )

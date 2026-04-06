@@ -466,6 +466,7 @@ def test_knowledge_taskfile_worker_can_run_through_fake_codex_farm_subprocess(
         {
             "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
             "knowledge_worker_count": 1,
+            "knowledge_codex_exec_style": "taskfile-v1",
             "codex_farm_cmd": str(_script_path()),
             "codex_farm_root": str(Path(__file__).resolve().parents[2] / "llm_pipelines"),
             "codex_farm_pipeline_knowledge": "recipe.knowledge.packet.v1",

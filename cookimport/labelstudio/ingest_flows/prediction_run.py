@@ -280,7 +280,12 @@ def generate_pred_run_artifacts(
     knowledge_group_task_max_evidence_chars: int = int(
         serialized_run_setting_default("knowledge_group_task_max_evidence_chars")
     ),
-    codex_exec_style: str = str(serialized_run_setting_default("codex_exec_style")),
+    line_role_codex_exec_style: str = str(
+        serialized_run_setting_default("line_role_codex_exec_style")
+    ),
+    knowledge_codex_exec_style: str = str(
+        serialized_run_setting_default("knowledge_codex_exec_style")
+    ),
     atomic_block_splitter: str = "off",
     line_role_pipeline: str = "off",
     line_role_prompt_target_count: int = 5,
@@ -487,10 +492,11 @@ def generate_pred_run_artifacts(
         knowledge_packet_output_char_budget=knowledge_packet_output_char_budget,
         knowledge_group_task_max_units=knowledge_group_task_max_units,
         knowledge_group_task_max_evidence_chars=knowledge_group_task_max_evidence_chars,
-        codex_exec_style=codex_exec_style,
         atomic_block_splitter=atomic_block_splitter,
         line_role_pipeline=line_role_pipeline,
+        line_role_codex_exec_style=line_role_codex_exec_style,
         line_role_prompt_target_count=line_role_prompt_target_count,
+        knowledge_codex_exec_style=knowledge_codex_exec_style,
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_model=codex_farm_model,
         codex_farm_reasoning_effort=codex_farm_reasoning_effort,
@@ -2039,6 +2045,12 @@ def generate_pred_run_artifacts(
             and line_role_artifacts.get("line_role_predictions_path") is not None
             else None
         ),
+        "line_role_pipeline_semantic_predictions_path": (
+            str(line_role_artifacts["semantic_line_role_predictions_path"])
+            if isinstance(line_role_artifacts, dict)
+            and line_role_artifacts.get("semantic_line_role_predictions_path") is not None
+            else None
+        ),
         "line_role_pipeline_telemetry_path": (
             str(line_role_artifacts["telemetry_summary_path"])
             if isinstance(line_role_artifacts, dict)
@@ -2313,6 +2325,11 @@ def generate_pred_run_artifacts(
         "stage_block_predictions_path": scored_stage_block_predictions_path,
         "line_role_pipeline_line_role_predictions_path": (
             line_role_artifacts.get("line_role_predictions_path")
+            if isinstance(line_role_artifacts, dict)
+            else None
+        ),
+        "line_role_pipeline_semantic_predictions_path": (
+            line_role_artifacts.get("semantic_line_role_predictions_path")
             if isinstance(line_role_artifacts, dict)
             else None
         ),

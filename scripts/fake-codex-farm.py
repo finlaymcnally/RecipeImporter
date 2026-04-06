@@ -99,6 +99,14 @@ def _extract_first_json_object(raw: str) -> dict[str, Any] | None:
     return None
 
 
+def _extract_prompt_packet_payload(prompt_text: str) -> dict[str, Any] | None:
+    marker = "Packet JSON:"
+    marker_index = prompt_text.find(marker)
+    if marker_index < 0:
+        return None
+    return _extract_first_json_object(prompt_text[marker_index + len(marker) :])
+
+
 def _extract_task_file_payload(prompt_text: str, *, cd: str | None) -> dict[str, Any] | None:
     candidates: list[Path] = []
     for match in re.finditer(r"([A-Za-z0-9_./:-]+\.json)", prompt_text):
@@ -289,8 +297,12 @@ def _infer_exec_pipeline_id(prompt_text: str, *, output_schema_path: str) -> str
         "recipe knowledge" in prompt_lower
         or "non-recipe finalize" in prompt_lower
         or "candidate non-recipe cookbook text" in prompt_lower
+        or "classify each owned block as `knowledge` or `other`" in prompt_lower
+        or "group every knowledge block in this packet" in prompt_lower
+        or '"grounding"' in prompt_lower
+        or '"topic_label"' in prompt_lower
     ):
-        return "recipe.knowledge.compact.v1"
+        return "recipe.knowledge.packet.v1"
     if "recipe correction" in prompt_lower or "recipe.correction" in prompt_lower:
         return "recipe.correction.compact.v1"
     return "line-role.canonical.v1"
@@ -571,10 +583,7 @@ def _pipeline_id_for_exec_schema(output_schema_path: str) -> str:
 def _run_exec(args: argparse.Namespace) -> int:
     prompt_text = sys.stdin.read()
     output_schema_path = str(args.output_schema or "").strip()
-    pipeline_id = _infer_exec_pipeline_id(
-        prompt_text,
-        output_schema_path=output_schema_path,
-    )
+    pipeline_id = _infer_exec_pipeline_id(prompt_text, output_schema_path=output_schema_path)
     if not output_schema_path:
         if _run_workspace_worker_exec(
             prompt_text=prompt_text,
@@ -584,7 +593,11 @@ def _run_exec(args: argparse.Namespace) -> int:
             return 0
     parsed_payload = _extract_task_file_payload(prompt_text, cd=args.cd)
     if parsed_payload is None:
+        parsed_payload = _extract_prompt_packet_payload(prompt_text)
+    if parsed_payload is None:
         parsed_payload = _extract_first_json_object(prompt_text)
+    if isinstance(parsed_payload, dict) and str(parsed_payload.get("schema_version") or "").strip() == "knowledge_structured_packet.v1":
+        pipeline_id = "recipe.knowledge.packet.v1"
     payload = parsed_payload if parsed_payload is not None else prompt_text
     response_payload = build_structural_pipeline_output(pipeline_id, payload)
     response_text = json.dumps(response_payload, sort_keys=True)
@@ -666,6 +679,7 @@ def _build_parser() -> argparse.ArgumentParser:
     errors.add_argument("--json", action="store_true")
 
     exec_parser = subparsers.add_parser("exec")
+    exec_parser.add_argument("--last", action="store_true")
     exec_parser.add_argument("--json", action="store_true")
     exec_parser.add_argument("--ephemeral", action="store_true")
     exec_parser.add_argument("--skip-git-repo-check", action="store_true")
@@ -674,14 +688,16 @@ def _build_parser() -> argparse.ArgumentParser:
     exec_parser.add_argument("--output-schema")
     exec_parser.add_argument("--model")
     exec_parser.add_argument("-c", dest="config_overrides", action="append", default=[])
-    exec_parser.add_argument("stdin_marker", nargs="?")
+    exec_parser.add_argument("exec_args", nargs="*")
 
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    args, extras = parser.parse_known_args(argv)
+    if extras and args.command != "exec":
+        parser.error("unrecognized arguments: " + " ".join(extras))
 
     if args.command == "models" and args.models_command == "list":
         sys.stdout.write(json.dumps(_fake_models()))

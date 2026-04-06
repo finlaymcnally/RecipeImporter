@@ -250,6 +250,9 @@ def build_knowledge_structured_prompt(
         task_note = (
             "Classify each owned block as `knowledge` or `other` and include `grounding`.\n"
             "Cover every block in this packet exactly once.\n"
+            "If `category` is `knowledge`, grounding must include at least one existing `tag_key` or one proposed tag.\n"
+            "`category_keys` may support that grounding, but category-only grounding is invalid and will be returned for repair.\n"
+            "If you cannot name a real existing tag fit or a concrete proposed tag, return `other` with empty grounding.\n"
         )
     return (
         "Return JSON only.\n\n"
@@ -347,7 +350,9 @@ def build_knowledge_edited_task_file_from_grouping_response(
             if row.get("block_index") is None:
                 return None, ("block_index_missing",), {}
             answers_by_block_index[int(row.get("block_index"))] = {
-                "group_key": str(row.get("group_key") or "").strip(),
+                "group_key": str(
+                    row.get("group_key") or row.get("group_index") or ""
+                ).strip(),
                 "topic_label": str(row.get("topic_label") or "").strip(),
             }
     elif isinstance(parsed.get("idea_groups"), list):

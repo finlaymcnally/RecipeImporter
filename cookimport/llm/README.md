@@ -11,12 +11,14 @@ Start points:
   - `codex_exec_taskfile_policy.py` owns taskfile/single-file workspace command parsing plus boundary/drift policy classification; `codex_exec_runner.py` re-exports the current policy helpers and limits.
   - `codex_exec_command_builder.py` owns `codex exec` argv construction plus Linux taskfile fs-cage command assembly; `codex_exec_runner.py` keeps thin wrappers so the current monkeypatch/import surface stays stable.
 - `codex_farm_runner.py` is the `codex-farm process` runner seam.
+- `taskfile_prompt_contract.py` owns the shared section renderer used by the surviving taskfile worker prompts so recipe, knowledge, and line-role stay on one prompt skeleton while keeping stage-local semantics.
 - `prompt_preview.py`, `prompt_artifacts.py`, and `prompt_budget.py` own prompt/cost inspection surfaces.
   - `prompt_artifacts.py` is now a thin public facade over `prompt_artifacts_discovery.py`, `prompt_artifacts_loader.py`, and `prompt_artifacts_activity.py`.
   - `prompt_budget.py` is now a thin facade over `prompt_budget_runtime.py` and `prompt_budget_preview.py`.
 
 Active worker surfaces:
-- Recipe, canonical line-role, and knowledge all use assignment-first taskfile workers, but the happy path now differs by stage. Recipe refine still uses the richer helper-driven surface inside `task.json`. Canonical line-role plus knowledge classification/grouping are direct-batch: open `task.json` directly, read the full assignment, edit only `/units/*/answer`, run `task-handoff`, and keep any repair/grouping follow-up in the same workspace session.
+- Recipe stays on assignment-first taskfile workers. Canonical line-role plus knowledge now default to the thinner inline-JSON path, while `line_role_codex_exec_style=taskfile-v1` or `knowledge_codex_exec_style=taskfile-v1` still keep the direct-batch editable `task.json` contract for comparison or debugging.
+- When line-role or knowledge do use taskfile mode, the happy path is direct-batch: open `task.json` directly, read the full assignment, edit only `/units/*/answer`, run `task-handoff`, and keep any repair/grouping follow-up in the same workspace session.
 - Knowledge now uses that direct-batch contract twice when needed: first a block-local classification file with immutable ontology context, then one or more bounded grouping-only files built only from accepted knowledge rows.
 - The source worker roots still keep repo-owned `worker_manifest.json`, `prompt.txt`, `in/*.json`, `out/*.json`, `debug/`, and repair/status files for validation and debugging, but those are no longer the model-visible startup surface.
 

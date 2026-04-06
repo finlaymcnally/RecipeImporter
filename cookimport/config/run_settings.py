@@ -87,6 +87,10 @@ from .run_settings_types import (
 )
 
 
+def resolve_codex_exec_style_value(value: Any) -> str:
+    return normalize_codex_exec_style_value(value)
+
+
 class RunSettings(BaseModel):
     """Canonical per-run pipeline settings used by UI + reports + analytics."""
 
@@ -777,16 +781,16 @@ class RunSettings(BaseModel):
             ),
         ),
     )
-    codex_exec_style: CodexExecStyle = Field(
-        default=CodexExecStyle.taskfile_v1,
+    line_role_codex_exec_style: CodexExecStyle = Field(
+        default=CodexExecStyle.inline_json_v1,
         json_schema_extra=_ui_meta(
             group="LLM",
-            label="Codex Exec Style",
+            label="Line Role Codex Exec Style",
             order=113,
             description=(
-                "Transport style for Codex-backed line-role and non-recipe finalize. "
-                "Taskfile keeps the current editable task.json contract; inline JSON "
-                "uses immutable inline payloads plus resumed Codex sessions."
+                "Transport style for Codex-backed block labelling. "
+                "Inline JSON is the default thin path; taskfile keeps the editable "
+                "task.json contract for comparison or debugging."
             ),
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
@@ -860,6 +864,20 @@ class RunSettings(BaseModel):
                 "Optional non-recipe finalize pipeline. "
                 "Off keeps the fully vanilla nonrecipe authority."
             ),
+        ),
+    )
+    knowledge_codex_exec_style: CodexExecStyle = Field(
+        default=CodexExecStyle.inline_json_v1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Knowledge Codex Exec Style",
+            order=116,
+            description=(
+                "Transport style for Codex-backed non-recipe finalize. "
+                "Inline JSON is the default thin path; taskfile keeps the editable "
+                "task.json contract for comparison or debugging."
+            ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
     knowledge_prompt_target_count: int | None = Field(
@@ -1209,9 +1227,17 @@ class RunSettings(BaseModel):
     ) -> str | LlmKnowledgePipeline:
         return normalize_llm_knowledge_pipeline_value(value)
 
-    @field_validator("codex_exec_style", mode="before")
+    @field_validator("line_role_codex_exec_style", mode="before")
     @classmethod
-    def _normalize_codex_exec_style(
+    def _normalize_line_role_codex_exec_style(
+        cls,
+        value: Any,
+    ) -> str | CodexExecStyle:
+        return normalize_codex_exec_style_value(value)
+
+    @field_validator("knowledge_codex_exec_style", mode="before")
+    @classmethod
+    def _normalize_knowledge_codex_exec_style(
         cls,
         value: Any,
     ) -> str | CodexExecStyle:
@@ -1252,11 +1278,21 @@ class RunSettings(BaseModel):
             data["llm_knowledge_pipeline"] = normalize_llm_knowledge_pipeline_value(
                 data.get("llm_knowledge_pipeline")
             )
-        if "codex_exec_style" in data:
-            data["codex_exec_style"] = normalize_codex_exec_style_value(
-                data.get("codex_exec_style")
+        if "line_role_codex_exec_style" in data:
+            data["line_role_codex_exec_style"] = normalize_codex_exec_style_value(
+                data.get("line_role_codex_exec_style")
+            )
+        if "knowledge_codex_exec_style" in data:
+            data["knowledge_codex_exec_style"] = normalize_codex_exec_style_value(
+                data.get("knowledge_codex_exec_style")
             )
         return cls.model_validate(data)
+
+    def resolved_line_role_codex_exec_style(self) -> str:
+        return resolve_codex_exec_style_value(self.line_role_codex_exec_style)
+
+    def resolved_knowledge_codex_exec_style(self) -> str:
+        return resolve_codex_exec_style_value(self.knowledge_codex_exec_style)
 
     def to_run_config_dict(self) -> dict[str, object]:
         from cookimport.config.codex_decision import (

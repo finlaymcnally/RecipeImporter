@@ -25,9 +25,13 @@ def test_build_knowledge_direct_prompt_uses_inline_json_contract() -> None:
     assert "retrieval-grade cooking leverage" in prompt
     assert "materially improve a cook's future decisions, diagnosis, or technique without needing the surrounding paragraph" in prompt
     assert "technically true but low-value, too generic, motivational" in prompt
+    assert "personal story with an embedded cooking lesson is still usually `other`" in prompt
+    assert "Praise, endorsement, foreword, thesis, manifesto" in prompt
     assert "proposed tag under an existing category" in prompt
     assert "keep only that block and leave the surrounding framing `other`" in prompt
+    assert "A heading alone is not enough for `knowledge`." in prompt
     assert "keep that heading with the useful body instead of forcing it to `other`" in prompt
+    assert "unsupported by reusable explanatory body text in the owned packet" in prompt
     assert "Do not treat two blocks as one idea just because they are adjacent in the packet" in prompt
     assert "Every `knowledge` block must belong to exactly one idea group." in prompt
     assert "top level: `v`, `bid`, `d`, `g`" in prompt

@@ -161,7 +161,7 @@ def write_prompt_eval_alignment_doc(
         "",
         "- `eval_report.json` + `eval_report.md`: canonical benchmark metrics.",
         "- `wrong_label_lines.jsonl` + `aligned_prediction_blocks.jsonl`: evaluator diagnostics.",
-        "- `line-role-pipeline/line_role_predictions.jsonl`: canonical line-role rows reused for reviewer diagnostics.",
+        "- `line-role-pipeline/line_role_predictions.jsonl`: canonical line-role rows reused for reviewer diagnostics; benchmark eval prefers final-semantic rows when that artifact exists.",
         "- `line-role-pipeline/line_role_flips_vs_baseline.jsonl`: inferred baseline-vs-candidate deltas.",
         "- `line-role-pipeline/slice_metrics.json`: slice-level quality signals.",
         "- `line-role-pipeline/routing_summary.json`: excluded versus candidate outside-recipe routing plus recipe-local structure counts.",

@@ -29,8 +29,12 @@ Decision boundary:
 - If the text is technically true but low-value, too generic, motivational, or not worth preserving on its own, keep it as `other`.
 - If you cannot name a specific existing tag fit, and you also cannot point to a real catalog gap that deserves a proposed tag, keep the block `other`.
 - In mixed packets, keep memoir/framing blocks `other`; only mark a block `knowledge` when that block itself stands on its own as reusable cooking guidance.
+- Memoir, scene-setting, or personal story with an embedded cooking lesson is still usually `other`; keep only the specific block that independently stands as reusable guidance.
+- Praise, endorsement, foreword, thesis, manifesto, "this book will teach you," and broad inspiration-about-cooking prose are `other` even when they contain true cooking claims.
 - If only one block in a mixed packet is genuinely reusable, keep only that block and leave the surrounding framing `other`.
+- A heading alone is not enough for `knowledge`.
 - If a short conceptual heading directly introduces useful explanatory blocks in the same packet, keep that heading with the useful body instead of forcing it to `other`.
+- If the heading is decorative, thesis-like, or unsupported by reusable explanatory body text in the owned packet, keep it `other`.
 - Do not treat two blocks as one idea just because they are adjacent in the packet; they still need clear topical continuity in the text itself.
 - Category-only grounding is not enough. If a block cannot ground more specifically than a broad category, keep it `other`.
 

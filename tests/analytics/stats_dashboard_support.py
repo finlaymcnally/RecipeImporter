@@ -807,6 +807,10 @@ const payload = {
   time_point_total: timePointTotal,
   time_title: String(timeChart.chart_title || ""),
   time_x_axis_type: String((timeChart.x_axis && timeChart.x_axis.type) || ""),
+  time_first_series_type: (
+    timeSeries.length &&
+    String((timeSeries[0] && timeSeries[0].type) || "")
+  ) || "",
   time_first_compare_value: (
     timeFirstPoint &&
     timeFirstPoint.custom &&

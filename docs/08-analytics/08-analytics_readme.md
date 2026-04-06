@@ -124,6 +124,7 @@ Benchmark rows (`run_category=benchmark_eval` or `benchmark_prediction`) keep:
   - line-role totals may need recovery from nested telemetry summaries when the top-level benchmark copy only carries lightweight phase metadata; `prompt_budget_summary.json` is the preferred whole-run artifact when present
   - when a Codex taskfile stage has partial or missing usage for some worker runs, `prompt_budget_summary.json` now marks token usage as `complete`, `partial`, or `unavailable` and leaves the affected token totals blank instead of reporting a misleading literal spend
   - canonical line-role telemetry and manifest backfill now use the same fail-closed rule: when line-role usage is incomplete, token totals stay blank instead of silently reporting `0`
+  - prompt-budget stage rollups should trust explicit stage telemetry when it is populated, but an empty top-level telemetry surface with zeroed summary must recover from nested worker summaries instead of falsely reporting zero spend
   - those prompt-budget summaries should also carry the status context needed to explain the blank totals: how many worker calls had usable usage and how many were missing it
   - knowledge prompt-budget rollups now also preserve packet terminal reasons from `knowledge_stage_summary.json`: `no_final_output_reason_code_counts` is the explicit failure breakdown, and `no_final_output_shard_count` is the coarse derived topline when analytics wants one “no final output” number
   - prompt-budget and stage-summary artifacts now also preserve direct-exec guardrail context from the live runtime: `worker_session_guardrails` for planned-versus-actual happy-path sessions plus repair/follow-up counts, and `task_file_guardrails` for deterministic `task.json` size pressure on the actual worker-visible file
@@ -192,6 +193,7 @@ Collector behavior (`collect_dashboard_data`):
 - Use the same benchmark-record model and field catalog as dashboard compare/control analysis.
 - Support `discover`, `raw`, `controlled`, field catalog, subset-patch, and insights-style workflows.
 - `run_timestamp` is treated as a time axis for compare/control numeric charts, so timestamp-vs-metric views plot one point per run instead of averaging timestamp buckets.
+- Timestamp compare/control charts stay as datetime scatter plots; they do not connect runs with a continuous line.
 
 Dashboard Compare & Control:
 - Uses the active `Previous Runs` quick filters and column filters as its source subset before running compare/control analysis, so saved dashboard state can reopen one-book or otherwise filtered charts directly.

@@ -221,12 +221,14 @@ def _knowledge_classification_review_contract() -> dict[str, Any]:
             "Read the owned block text first. That text is the primary evidence.",
             "Use nearby context only to disambiguate edge cases, not to force nearby rows into the same answer.",
             "Treat candidate tags, heading shape, and packet position as weak hints only.",
+            "A heading alone is not enough for knowledge; keep a heading only when it directly introduces reusable explanatory content in the owned packet.",
             "Short conceptual headings can still be knowledge when they introduce real explanatory content; shortness alone is not enough to drop a block.",
         ],
         "anti_patterns": [
             "Do not invent a rule that classifies many rows at once from heading level, casing, length, or title shape.",
             "Do not treat the whole packet as one semantic unit just because the rows are adjacent.",
             "Do not treat candidate tags as votes or proof that a block is knowledge.",
+            "Do not keep memoir, praise, endorsement, foreword, thesis, manifesto, or broad inspiration-about-cooking prose as knowledge just because it contains true cooking claims.",
             "If you feel tempted to batch or script the decision, stop and reread the actual owned block text instead.",
         ],
     }
@@ -721,28 +723,37 @@ def validate_knowledge_classification_task_file(
                 and not normalized_grounding["tag_keys"]
                 and not normalized_grounding["proposed_tags"]
             ):
-                demotion_reason = "missing_grounding"
                 if normalized_grounding["category_keys"]:
-                    demotion_reason = "category_only_grounding"
-                elif unit_grounding_drop_details:
-                    demotion_reason = "invalid_grounding_dropped_to_empty"
-                grounding_gate_demotion_details.append(
-                    {
-                        "unit_id": unit_id,
-                        "block_index": block_index,
-                        "reason": demotion_reason,
-                        "retained_category_keys": list(normalized_grounding["category_keys"]),
-                        "dropped_grounding_error_codes": sorted(
-                            {
-                                str(code).strip()
-                                for code in unit_grounding_drop_codes
-                                if str(code).strip()
-                            }
-                        ),
-                    }
-                )
-                validated_answers[unit_id] = _canonical_other_classification_answer()
-                continue
+                    next_errors.append("knowledge_category_only_grounding")
+                    error_details.append(
+                        {
+                            "path": f"/units/{unit_id}/answer/grounding/category_keys",
+                            "code": "knowledge_category_only_grounding",
+                            "message": "knowledge grounding must include at least one existing tag key or one proposed tag; category_keys alone are not enough",
+                        }
+                    )
+                    unit_failed = True
+                else:
+                    demotion_reason = "missing_grounding"
+                    if unit_grounding_drop_details:
+                        demotion_reason = "invalid_grounding_dropped_to_empty"
+                    grounding_gate_demotion_details.append(
+                        {
+                            "unit_id": unit_id,
+                            "block_index": block_index,
+                            "reason": demotion_reason,
+                            "retained_category_keys": list(normalized_grounding["category_keys"]),
+                            "dropped_grounding_error_codes": sorted(
+                                {
+                                    str(code).strip()
+                                    for code in unit_grounding_drop_codes
+                                    if str(code).strip()
+                                }
+                            ),
+                        }
+                    )
+                    validated_answers[unit_id] = _canonical_other_classification_answer()
+                    continue
         elif category == "other":
             if (
                 normalized_grounding["tag_keys"]

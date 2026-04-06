@@ -1515,14 +1515,22 @@ def register(app: typer.Typer) -> dict[str, object]:
         )] = int(
             serialized_run_setting_default("knowledge_group_task_max_evidence_chars")
         ),
-        codex_exec_style: Annotated[str, typer.Option(
-            "--codex-exec-style",
+        line_role_codex_exec_style: Annotated[str, typer.Option(
+            "--line-role-codex-exec-style",
             hidden=True,
             help=(
-                "Internal: direct Codex worker style for line-role and knowledge surfaces "
+                "Internal: direct Codex worker style for line-role "
                 "(taskfile-v1 or inline-json-v1)."
             ),
-        )] = str(serialized_run_setting_default("codex_exec_style")),
+        )] = str(serialized_run_setting_default("line_role_codex_exec_style")),
+        knowledge_codex_exec_style: Annotated[str, typer.Option(
+            "--knowledge-codex-exec-style",
+            hidden=True,
+            help=(
+                "Internal: direct Codex worker style for knowledge "
+                "(taskfile-v1 or inline-json-v1)."
+            ),
+        )] = str(serialized_run_setting_default("knowledge_codex_exec_style")),
         line_role_prompt_target_count: Annotated[int, typer.Option(
             "--line-role-prompt-target-count",
             min=1,
@@ -1838,7 +1846,12 @@ def register(app: typer.Typer) -> dict[str, object]:
         selected_codex_farm_model = (
             str(codex_farm_model or "").strip() or None
         )
-        selected_codex_exec_style = normalize_codex_exec_style_value(codex_exec_style)
+        selected_line_role_codex_exec_style = normalize_codex_exec_style_value(
+            line_role_codex_exec_style
+        )
+        selected_knowledge_codex_exec_style = normalize_codex_exec_style_value(
+            knowledge_codex_exec_style
+        )
         try:
             selected_codex_farm_reasoning_effort = (
                 normalize_codex_reasoning_effort(codex_farm_reasoning_effort)
@@ -2025,7 +2038,8 @@ def register(app: typer.Typer) -> dict[str, object]:
                     knowledge_group_task_max_evidence_chars=(
                         knowledge_group_task_max_evidence_chars
                     ),
-                    codex_exec_style=selected_codex_exec_style,
+                    line_role_codex_exec_style=selected_line_role_codex_exec_style,
+                    knowledge_codex_exec_style=selected_knowledge_codex_exec_style,
                     codex_farm_cmd=codex_farm_cmd,
                     codex_farm_model=selected_codex_farm_model,
                     codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
@@ -2175,7 +2189,12 @@ def register(app: typer.Typer) -> dict[str, object]:
                                     knowledge_group_task_max_evidence_chars=(
                                         knowledge_group_task_max_evidence_chars
                                     ),
-                                    codex_exec_style=selected_codex_exec_style,
+                                    line_role_codex_exec_style=(
+                                        selected_line_role_codex_exec_style
+                                    ),
+                                    knowledge_codex_exec_style=(
+                                        selected_knowledge_codex_exec_style
+                                    ),
                                     atomic_block_splitter=selected_atomic_block_splitter,
                                     line_role_pipeline=selected_line_role_pipeline,
                                     line_role_prompt_target_count=line_role_prompt_target_count,
@@ -2321,7 +2340,12 @@ def register(app: typer.Typer) -> dict[str, object]:
                                 knowledge_group_task_max_evidence_chars=(
                                     knowledge_group_task_max_evidence_chars
                                 ),
-                                codex_exec_style=selected_codex_exec_style,
+                                line_role_codex_exec_style=(
+                                    selected_line_role_codex_exec_style
+                                ),
+                                knowledge_codex_exec_style=(
+                                    selected_knowledge_codex_exec_style
+                                ),
                                 atomic_block_splitter=selected_atomic_block_splitter,
                                 line_role_pipeline=selected_line_role_pipeline,
                                 line_role_prompt_target_count=line_role_prompt_target_count,
@@ -3128,7 +3152,8 @@ def register(app: typer.Typer) -> dict[str, object]:
             "knowledge_group_task_max_evidence_chars": (
                 knowledge_group_task_max_evidence_chars
             ),
-            "codex_exec_style": selected_codex_exec_style,
+            "line_role_codex_exec_style": selected_line_role_codex_exec_style,
+            "knowledge_codex_exec_style": selected_knowledge_codex_exec_style,
             "atomic_block_splitter": selected_atomic_block_splitter,
             "line_role_pipeline": selected_line_role_pipeline,
             "line_role_prompt_target_count": line_role_prompt_target_count,

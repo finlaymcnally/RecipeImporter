@@ -95,7 +95,11 @@ def test_worker_prompt_describes_task_file_contract() -> None:
     assert "Treat `candidate_tag_keys`, heading shape, and packet position as weak hints only" in prompt
     assert "If you feel tempted to invent a rule that covers many rows at once" in prompt
     assert "If `category` is `knowledge`, `grounding` must include at least one existing `tag_key`" in prompt
+    assert "personal story with an embedded cooking lesson is still usually `other`" in prompt
+    assert "Praise, endorsement, foreword, thesis, manifesto" in prompt
+    assert "A heading alone is not enough for `knowledge`." in prompt
     assert "Short conceptual headings can still be `knowledge`" in prompt
+    assert "unsupported by reusable explanatory body text in the owned packet" in prompt
     assert "Proposed tags are allowed only for real retrieval-grade concepts" in prompt
     assert "Do not compress the packet into one global keep/drop rule" in prompt
     assert "Do not invent `group_key`, `topic_label`, packet summaries, or cross-unit grouping notes in this step." in prompt
@@ -153,7 +157,8 @@ def test_knowledge_worker_hint_stays_compact_and_keeps_high_signal_sections(
     assert "gap_from_prev=14" in rendered
     assert "table_hint" in rendered
     assert "Do not turn heading shape, candidate tags, or packet profile into a bulk heuristic" in rendered
-    assert "If a short heading feels ambiguous, ask whether it introduces portable cooking knowledge" in rendered
+    assert "If a short heading feels ambiguous, ask whether it introduces portable cooking knowledge and is supported by reusable body text" in rendered
+    assert "Memoir, praise, endorsement, foreword, and thesis-like framing are usually `other`" in rendered
     assert rendered.count("## ") == 5
 
 
@@ -203,7 +208,15 @@ def test_knowledge_task_file_summary_surfaces_semantic_review_contract() -> None
         for row in (summary_contract.get("decision_policy") or [])
     )
     assert any(
+        "heading alone is not enough" in row.lower()
+        for row in (summary_contract.get("decision_policy") or [])
+    )
+    assert any(
         "many rows at once" in row.lower()
+        for row in (summary_contract.get("anti_patterns") or [])
+    )
+    assert any(
+        "manifesto" in row.lower()
         for row in (summary_contract.get("anti_patterns") or [])
     )
 

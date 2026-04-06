@@ -109,10 +109,18 @@ def _load_json_dict_safely(path: Path) -> dict[str, Any]:
 
 
 _KNOWLEDGE_SAME_SESSION_STATE_FILE_NAME = "knowledge_same_session_state.json"
+_STRUCTURED_KNOWLEDGE_MAX_REPAIR_FOLLOWUPS = 3
 
 
 def _knowledge_same_session_state_path(worker_root: Path) -> Path:
     return worker_root / "_repo_control" / _KNOWLEDGE_SAME_SESSION_STATE_FILE_NAME
+
+
+def _knowledge_validation_blocked(
+    validation_errors: Sequence[str],
+    validation_metadata: Mapping[str, Any],
+) -> bool:
+    return bool(validation_errors) or bool(validation_metadata.get("error_details"))
 
 
 def _knowledge_task_file_useful_progress(
@@ -644,105 +652,129 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
             classification_validation_errors = tuple(validation_errors)
             classification_validation_metadata = dict(validation_metadata)
 
-        if classification_validation_errors or classification_validation_metadata.get("error_details"):
-            repair_task_file = build_repair_task_file(
-                original_task_file=classification_task_file,
-                failed_unit_ids=_knowledge_failed_unit_ids(
-                    task_file_payload=classification_task_file,
-                    validation_metadata=classification_validation_metadata,
-                ),
-                previous_answers_by_unit_id=classification_answers_by_unit_id,
-                validation_feedback_by_unit_id=build_task_file_answer_feedback(
+        if _knowledge_validation_blocked(
+            classification_validation_errors,
+            classification_validation_metadata,
+        ):
+            for repair_attempt_index in range(
+                1, _STRUCTURED_KNOWLEDGE_MAX_REPAIR_FOLLOWUPS + 1
+            ):
+                repair_task_file = build_repair_task_file(
+                    original_task_file=classification_task_file,
+                    failed_unit_ids=_knowledge_failed_unit_ids(
+                        task_file_payload=classification_task_file,
+                        validation_metadata=classification_validation_metadata,
+                    ),
+                    previous_answers_by_unit_id=classification_answers_by_unit_id,
+                    validation_feedback_by_unit_id=build_task_file_answer_feedback(
+                        validation_errors=classification_validation_errors,
+                        validation_metadata=classification_validation_metadata,
+                    ),
+                )
+                repair_packet = _knowledge_task_file_to_structured_packet(
+                    task_file_payload=repair_task_file,
+                    packet_kind="classification_repair",
                     validation_errors=classification_validation_errors,
-                    validation_metadata=classification_validation_metadata,
-                ),
-            )
-            repair_packet = _knowledge_task_file_to_structured_packet(
-                task_file_payload=repair_task_file,
-                packet_kind="classification_repair",
-                validation_errors=classification_validation_errors,
-            )
-            repair_prompt = _build_knowledge_structured_prompt(
-                task_file_payload=repair_task_file,
-                packet=repair_packet,
-            )
-            repair_packet_path = session_root / "classification_repair_packet_01.json"
-            repair_prompt_path = session_root / "classification_repair_prompt_01.txt"
-            repair_response_path = session_root / "classification_repair_response_01.json"
-            repair_events_path = session_root / "classification_repair_events_01.jsonl"
-            repair_last_message_path = session_root / "classification_repair_last_message_01.json"
-            repair_usage_path = session_root / "classification_repair_usage_01.json"
-            repair_workspace_manifest_path = (
-                session_root / "classification_repair_workspace_manifest_01.json"
-            )
-            repair_packet_path.write_text(
-                json.dumps(repair_packet, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            repair_prompt_path.write_text(repair_prompt, encoding="utf-8")
-            assert_structured_session_can_resume(
-                worker_root=session_root,
-                execution_working_dir=execution_workspace,
-            )
-            repair_run_result = runner.run_packet_worker(
-                prompt_text=repair_prompt,
-                input_payload=repair_packet,
-                working_dir=session_root,
-                env=env,
-                output_schema_path=None,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                resume_last=True,
-                prepared_execution_working_dir=execution_workspace,
-                workspace_task_label="knowledge structured classification repair session",
-            )
-            repair_response_path.write_text(
-                str(repair_run_result.response_text or ""),
-                encoding="utf-8",
-            )
-            repair_events_path.write_text(
-                _render_events_jsonl(repair_run_result.events),
-                encoding="utf-8",
-            )
-            _write_json({"text": repair_run_result.response_text}, repair_last_message_path)
-            _write_json(dict(repair_run_result.usage or {}), repair_usage_path)
-            _write_json(
-                repair_run_result.workspace_manifest(),
-                repair_workspace_manifest_path,
-            )
-            record_structured_session_turn(
-                worker_root=session_root,
-                execution_working_dir=execution_workspace,
-                turn_kind="classification_repair",
-                packet_path=repair_packet_path,
-                prompt_path=repair_prompt_path,
-                response_path=repair_response_path,
-            )
-            worker_runner_results.append(
-                _build_knowledge_inline_attempt_runner_payload(
-                    pipeline_id=pipeline_id,
-                    worker_id=assignment.worker_id,
-                    shard_id=shard.shard_id,
-                    run_result=repair_run_result,
+                )
+                repair_prompt = _build_knowledge_structured_prompt(
+                    task_file_payload=repair_task_file,
+                    packet=repair_packet,
+                )
+                repair_packet_path = (
+                    session_root / f"classification_repair_packet_{repair_attempt_index:02d}.json"
+                )
+                repair_prompt_path = (
+                    session_root / f"classification_repair_prompt_{repair_attempt_index:02d}.txt"
+                )
+                repair_response_path = (
+                    session_root / f"classification_repair_response_{repair_attempt_index:02d}.json"
+                )
+                repair_events_path = (
+                    session_root / f"classification_repair_events_{repair_attempt_index:02d}.jsonl"
+                )
+                repair_last_message_path = (
+                    session_root
+                    / f"classification_repair_last_message_{repair_attempt_index:02d}.json"
+                )
+                repair_usage_path = (
+                    session_root / f"classification_repair_usage_{repair_attempt_index:02d}.json"
+                )
+                repair_workspace_manifest_path = (
+                    session_root
+                    / f"classification_repair_workspace_manifest_{repair_attempt_index:02d}.json"
+                )
+                repair_packet_path.write_text(
+                    json.dumps(repair_packet, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                repair_prompt_path.write_text(repair_prompt, encoding="utf-8")
+                assert_structured_session_can_resume(
+                    worker_root=session_root,
+                    execution_working_dir=execution_workspace,
+                )
+                repair_run_result = runner.run_packet_worker(
+                    prompt_text=repair_prompt,
+                    input_payload=repair_packet,
+                    working_dir=session_root,
+                    env=env,
+                    output_schema_path=None,
                     model=model,
                     reasoning_effort=reasoning_effort,
-                    prompt_input_mode="structured_session_classification_repair",
-                    events_path=repair_events_path,
-                    last_message_path=repair_last_message_path,
-                    usage_path=repair_usage_path,
-                    workspace_manifest_path=repair_workspace_manifest_path,
+                    resume_last=True,
+                    prepared_execution_working_dir=execution_workspace,
+                    workspace_task_label="knowledge structured classification repair session",
                 )
-            )
-            repair_edited_task_file, repair_parse_errors, repair_parse_metadata = (
-                _build_knowledge_edited_task_file_from_classification_response(
-                    original_task_file=repair_task_file,
-                    response_text=repair_run_result.response_text,
+                repair_response_path.write_text(
+                    str(repair_run_result.response_text or ""),
+                    encoding="utf-8",
                 )
-            )
-            if repair_edited_task_file is None:
-                classification_validation_errors = tuple(repair_parse_errors)
-                classification_validation_metadata = dict(repair_parse_metadata)
-            else:
+                repair_events_path.write_text(
+                    _render_events_jsonl(repair_run_result.events),
+                    encoding="utf-8",
+                )
+                _write_json({"text": repair_run_result.response_text}, repair_last_message_path)
+                _write_json(dict(repair_run_result.usage or {}), repair_usage_path)
+                _write_json(
+                    repair_run_result.workspace_manifest(),
+                    repair_workspace_manifest_path,
+                )
+                record_structured_session_turn(
+                    worker_root=session_root,
+                    execution_working_dir=execution_workspace,
+                    turn_kind=(
+                        "classification_repair"
+                        if repair_attempt_index == 1
+                        else f"classification_repair_{repair_attempt_index}"
+                    ),
+                    packet_path=repair_packet_path,
+                    prompt_path=repair_prompt_path,
+                    response_path=repair_response_path,
+                )
+                worker_runner_results.append(
+                    _build_knowledge_inline_attempt_runner_payload(
+                        pipeline_id=pipeline_id,
+                        worker_id=assignment.worker_id,
+                        shard_id=shard.shard_id,
+                        run_result=repair_run_result,
+                        model=model,
+                        reasoning_effort=reasoning_effort,
+                        prompt_input_mode="structured_session_classification_repair",
+                        events_path=repair_events_path,
+                        last_message_path=repair_last_message_path,
+                        usage_path=repair_usage_path,
+                        workspace_manifest_path=repair_workspace_manifest_path,
+                    )
+                )
+                repair_edited_task_file, repair_parse_errors, repair_parse_metadata = (
+                    _build_knowledge_edited_task_file_from_classification_response(
+                        original_task_file=repair_task_file,
+                        response_text=repair_run_result.response_text,
+                    )
+                )
+                if repair_edited_task_file is None:
+                    classification_validation_errors = tuple(repair_parse_errors)
+                    classification_validation_metadata = dict(repair_parse_metadata)
+                    continue
                 (
                     repair_answers_by_unit_id,
                     _repair_errors,
@@ -774,11 +806,20 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                 classification_answers_by_unit_id = _knowledge_merge_answers(
                     classification_answers_by_unit_id,
                     dict(
-                        classification_validation_metadata.get("validated_answers_by_unit_id") or {}
+                        classification_validation_metadata.get("validated_answers_by_unit_id")
+                        or {}
                     ),
                 )
+                if not _knowledge_validation_blocked(
+                    classification_validation_errors,
+                    classification_validation_metadata,
+                ):
+                    break
 
-        if classification_validation_errors or classification_validation_metadata.get("error_details"):
+        if _knowledge_validation_blocked(
+            classification_validation_errors,
+            classification_validation_metadata,
+        ):
             worker_failure_count += 1
             worker_failures.append(
                 {
@@ -892,6 +933,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                         response_text=grouping_run_result.response_text,
                     )
                 )
+                grouping_batch_answers_by_unit_id: dict[str, dict[str, Any]] = {}
                 if grouping_edited_task_file is None:
                     grouping_validation_errors = tuple(grouping_parse_errors)
                     grouping_validation_metadata = dict(grouping_parse_metadata)
@@ -904,17 +946,204 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                         original_task_file=grouping_task_file,
                         edited_task_file=grouping_edited_task_file,
                     )
-                    grouping_answers_by_unit_id = _knowledge_merge_answers(
-                        grouping_answers_by_unit_id,
+                    grouping_batch_answers_by_unit_id = _knowledge_merge_answers(
                         dict(
                             grouping_validation_metadata.get("validated_answers_by_unit_id") or {}
                         ),
-                    )
-                    grouping_answers_by_unit_id = _knowledge_merge_answers(
-                        grouping_answers_by_unit_id,
                         grouping_batch_answers_by_unit_id,
                     )
-                if grouping_validation_errors or grouping_validation_metadata.get("error_details"):
+                if _knowledge_validation_blocked(
+                    grouping_validation_errors,
+                    grouping_validation_metadata,
+                ):
+                    for repair_attempt_index in range(
+                        1, _STRUCTURED_KNOWLEDGE_MAX_REPAIR_FOLLOWUPS + 1
+                    ):
+                        repair_grouping_task_file = build_repair_task_file(
+                            original_task_file=grouping_task_file,
+                            failed_unit_ids=_knowledge_failed_unit_ids(
+                                task_file_payload=grouping_task_file,
+                                validation_metadata=grouping_validation_metadata,
+                            ),
+                            previous_answers_by_unit_id=grouping_batch_answers_by_unit_id,
+                            validation_feedback_by_unit_id=build_task_file_answer_feedback(
+                                validation_errors=grouping_validation_errors,
+                                validation_metadata=grouping_validation_metadata,
+                            ),
+                        )
+                        repair_grouping_packet = _knowledge_task_file_to_structured_packet(
+                            task_file_payload=repair_grouping_task_file,
+                            packet_kind=f"grouping_{batch_index}_repair",
+                            validation_errors=grouping_validation_errors,
+                        )
+                        repair_grouping_prompt = _build_knowledge_structured_prompt(
+                            task_file_payload=repair_grouping_task_file,
+                            packet=repair_grouping_packet,
+                        )
+                        repair_grouping_packet_path = (
+                            session_root
+                            / f"grouping_repair_packet_{batch_index:02d}_{repair_attempt_index:02d}.json"
+                        )
+                        repair_grouping_prompt_path = (
+                            session_root
+                            / f"grouping_repair_prompt_{batch_index:02d}_{repair_attempt_index:02d}.txt"
+                        )
+                        repair_grouping_response_path = (
+                            session_root
+                            / f"grouping_repair_response_{batch_index:02d}_{repair_attempt_index:02d}.json"
+                        )
+                        repair_grouping_events_path = (
+                            session_root
+                            / f"grouping_repair_events_{batch_index:02d}_{repair_attempt_index:02d}.jsonl"
+                        )
+                        repair_grouping_last_message_path = (
+                            session_root
+                            / f"grouping_repair_last_message_{batch_index:02d}_{repair_attempt_index:02d}.json"
+                        )
+                        repair_grouping_usage_path = (
+                            session_root
+                            / f"grouping_repair_usage_{batch_index:02d}_{repair_attempt_index:02d}.json"
+                        )
+                        repair_grouping_workspace_manifest_path = (
+                            session_root
+                            / f"grouping_repair_workspace_manifest_{batch_index:02d}_{repair_attempt_index:02d}.json"
+                        )
+                        repair_grouping_packet_path.write_text(
+                            json.dumps(repair_grouping_packet, indent=2, sort_keys=True) + "\n",
+                            encoding="utf-8",
+                        )
+                        repair_grouping_prompt_path.write_text(
+                            repair_grouping_prompt,
+                            encoding="utf-8",
+                        )
+                        assert_structured_session_can_resume(
+                            worker_root=session_root,
+                            execution_working_dir=execution_workspace,
+                        )
+                        repair_grouping_run_result = runner.run_packet_worker(
+                            prompt_text=repair_grouping_prompt,
+                            input_payload=repair_grouping_packet,
+                            working_dir=session_root,
+                            env=env,
+                            output_schema_path=None,
+                            model=model,
+                            reasoning_effort=reasoning_effort,
+                            resume_last=True,
+                            prepared_execution_working_dir=execution_workspace,
+                            workspace_task_label="knowledge structured grouping repair session",
+                        )
+                        repair_grouping_response_path.write_text(
+                            str(repair_grouping_run_result.response_text or ""),
+                            encoding="utf-8",
+                        )
+                        repair_grouping_events_path.write_text(
+                            _render_events_jsonl(repair_grouping_run_result.events),
+                            encoding="utf-8",
+                        )
+                        _write_json(
+                            {"text": repair_grouping_run_result.response_text},
+                            repair_grouping_last_message_path,
+                        )
+                        _write_json(
+                            dict(repair_grouping_run_result.usage or {}),
+                            repair_grouping_usage_path,
+                        )
+                        _write_json(
+                            repair_grouping_run_result.workspace_manifest(),
+                            repair_grouping_workspace_manifest_path,
+                        )
+                        record_structured_session_turn(
+                            worker_root=session_root,
+                            execution_working_dir=execution_workspace,
+                            turn_kind=(
+                                f"grouping_{batch_index}_repair"
+                                if repair_attempt_index == 1
+                                else f"grouping_{batch_index}_repair_{repair_attempt_index}"
+                            ),
+                            packet_path=repair_grouping_packet_path,
+                            prompt_path=repair_grouping_prompt_path,
+                            response_path=repair_grouping_response_path,
+                        )
+                        worker_runner_results.append(
+                            _build_knowledge_inline_attempt_runner_payload(
+                                pipeline_id=pipeline_id,
+                                worker_id=assignment.worker_id,
+                                shard_id=shard.shard_id,
+                                run_result=repair_grouping_run_result,
+                                model=model,
+                                reasoning_effort=reasoning_effort,
+                                prompt_input_mode="structured_session_grouping_repair",
+                                events_path=repair_grouping_events_path,
+                                last_message_path=repair_grouping_last_message_path,
+                                usage_path=repair_grouping_usage_path,
+                                workspace_manifest_path=repair_grouping_workspace_manifest_path,
+                            )
+                        )
+                        (
+                            repair_grouping_edited_task_file,
+                            repair_grouping_parse_errors,
+                            repair_grouping_parse_metadata,
+                        ) = _build_knowledge_edited_task_file_from_grouping_response(
+                            original_task_file=repair_grouping_task_file,
+                            response_text=repair_grouping_run_result.response_text,
+                        )
+                        if repair_grouping_edited_task_file is None:
+                            grouping_validation_errors = tuple(repair_grouping_parse_errors)
+                            grouping_validation_metadata = dict(repair_grouping_parse_metadata)
+                            continue
+                        (
+                            repair_grouping_answers_by_unit_id,
+                            _repair_grouping_errors,
+                            repair_grouping_validation_metadata,
+                        ) = validate_knowledge_grouping_task_file(
+                            original_task_file=repair_grouping_task_file,
+                            edited_task_file=repair_grouping_edited_task_file,
+                        )
+                        grouping_batch_answers_by_unit_id = _knowledge_merge_answers(
+                            grouping_batch_answers_by_unit_id,
+                            dict(
+                                repair_grouping_validation_metadata.get(
+                                    "validated_answers_by_unit_id"
+                                )
+                                or {}
+                            ),
+                        )
+                        grouping_batch_answers_by_unit_id = _knowledge_merge_answers(
+                            grouping_batch_answers_by_unit_id,
+                            repair_grouping_answers_by_unit_id,
+                        )
+                        final_grouping_task_file = _apply_answers_to_task_file(
+                            original_task_file=grouping_task_file,
+                            answers_by_unit_id=grouping_batch_answers_by_unit_id,
+                        )
+                        (
+                            _final_grouping_answers,
+                            grouping_validation_errors,
+                            grouping_validation_metadata,
+                        ) = validate_knowledge_grouping_task_file(
+                            original_task_file=grouping_task_file,
+                            edited_task_file=final_grouping_task_file,
+                        )
+                        grouping_batch_answers_by_unit_id = _knowledge_merge_answers(
+                            grouping_batch_answers_by_unit_id,
+                            dict(
+                                grouping_validation_metadata.get("validated_answers_by_unit_id")
+                                or {}
+                            ),
+                        )
+                        if not _knowledge_validation_blocked(
+                            grouping_validation_errors,
+                            grouping_validation_metadata,
+                        ):
+                            break
+                grouping_answers_by_unit_id = _knowledge_merge_answers(
+                    grouping_answers_by_unit_id,
+                    grouping_batch_answers_by_unit_id,
+                )
+                if _knowledge_validation_blocked(
+                    grouping_validation_errors,
+                    grouping_validation_metadata,
+                ):
                     grouping_failed = True
                     proposal_payload = None
                     proposal_status = "invalid"

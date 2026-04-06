@@ -69,6 +69,7 @@ from .recovery_status import (
     _write_knowledge_stage_status,
 )
 from ..editable_task_file import TASK_FILE_NAME, load_task_file
+from ..taskfile_prompt_contract import render_taskfile_prompt, section
 
 
 def _runtime_constant(name: str, default: Any) -> Any:
@@ -162,86 +163,86 @@ def _build_knowledge_taskfile_prompt(
         for shard in (shards or [])
         if str(getattr(shard, "shard_id", "") or "").strip()
     ]
-    lines = [
-        "You are processing non-recipe finalize shards inside one bounded local workspace.",
+    task_specific_semantics = (
         (
-            "Resume from the existing `task.json` and current workspace state."
-            if fresh_session_resume
-            else (
-                f"Open `{TASK_FILE_NAME}` directly, read the full assignment, edit only "
-                "`/units/*/answer`, save the same file, and run `task-handoff`."
-            )
-        ),
-        "`task.json` is the whole job at each step. You do not need to discover extra control files or hidden repo state before editing it.",
-        "",
-        "The current working directory is already the workspace root.",
-        "The helper is the only repo-side handoff seam. It validates the edited file and either finishes the assignment or rewrites `task.json` for the next step.",
-        "",
-        "Worker contract:",
-        "- Start with `task.json`.",
-        "- If you need orientation first, run `task-status`.",
-        "- If the workspace feels inconsistent, run `task-doctor` before inventing shell scripts.",
-        "- Edit only the `answer` object inside each unit.",
-        "- After each edit pass, run `task-handoff` from the workspace root.",
-        "- After the helper returns, trust the current `task.json` as the new whole job. You do not need to inspect other files to figure out what changed.",
-        "- If the helper reports `repair_required` or `advance_to_grouping`, reopen the rewritten `task.json` immediately and continue in the same session.",
-        "- Stop only after the helper reports `completed_without_grouping` or `completed_with_grouping`.",
-        "- Do not invent queue advancement, control files, helper ledgers, or alternate output files.",
-        "- `previous_answer` and `validation_feedback`, when present, are repair-only immutable context.",
-        "- If you briefly reread part of `task.json` or make a small local false start, correct it and continue. Harmless local retries are not the point of failure here.",
-        "- Ordinary local reads of `task.json` and `AGENTS.md` are allowed. Do not turn them into shell schedulers or scripted rewrites.",
-        "- Other than `task-status`, `task-doctor`, and `task-handoff`, do not expect repo-owned workflow helpers on the happy path.",
-        "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
-        "",
-        "Shard semantics:",
-        "- The repo does not know the `knowledge` versus `other` answer ahead of time; you make that semantic call from the owned shard text.",
-        "- You are doing close semantic review, not building a heuristic classifier for the whole packet.",
-        "- Read the actual owned block text before deciding. That text is primary evidence.",
-        "- Use nearby rows only to disambiguate edge cases; do not force nearby rows into the same answer just because they are adjacent.",
-        "- Treat `candidate_tag_keys`, heading shape, and packet position as weak hints only, not votes or proof.",
-        "- If you feel tempted to invent a rule that covers many rows at once, stop and reread the actual owned rows instead.",
-    ]
-    if stage_key == "nonrecipe_classify":
-        lines.extend(
-            [
-                "- This is the classification step. Decide each block on its own merits before any grouping happens.",
-                "- Read the full classification file once, then fill every answer object in place before you run `task-handoff`.",
-                "- Answer each unit with `category` and `grounding`.",
-                f"- Final categories must be exactly one of `{'`, `'.join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)}`.",
-                "- If `category` is `knowledge`, `grounding` must include at least one existing `tag_key` or one proposed tag.",
-                "- If you cannot point to a specific existing tag fit, and you also cannot name a real catalog gap, answer `other` instead of inventing a weak tag.",
-                "- If `category` is `other`, keep grounding empty.",
-                "- Short conceptual headings can still be `knowledge` when they introduce real explanatory content; shortness alone is not enough to drop a block.",
-                "- `grounding.category_keys` are optional support only; category-only grounding is not enough to keep a block.",
-                "- Proposed tags are allowed only for real retrieval-grade concepts that do not fit an existing tag; they are rare and should use an existing `category_key` plus a normalized slug `key`.",
-                "- Do not compress the packet into one global keep/drop rule, one heading rule, or one candidate-tag rule.",
-                "- Do not invent `group_key`, `topic_label`, packet summaries, or cross-unit grouping notes in this step.",
-                "- The owned block rows are authoritative. Nearby context is informational only.",
-            ]
+            "- This is the classification step. Decide each block on its own merits before any grouping happens.",
+            "- Read the full classification file once, then fill every answer object in place before you run `task-handoff`.",
+            "- Answer each unit with `category` and `grounding`.",
+            f"- Final categories must be exactly one of `{'`, `'.join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)}`.",
+            "- If `category` is `knowledge`, `grounding` must include at least one existing `tag_key` or one proposed tag.",
+            "- If you cannot point to a specific existing tag fit, and you also cannot name a real catalog gap, answer `other` instead of inventing a weak tag.",
+            "- If `category` is `other`, keep grounding empty.",
+            "- Memoir, scene-setting, or personal story with an embedded cooking lesson is still usually `other`; keep only the specific block that independently stands as reusable guidance.",
+            "- Praise, endorsement, foreword, thesis, manifesto, `this book will teach you`, and broad inspiration-about-cooking prose are `other` even when they contain true cooking claims.",
+            "- A heading alone is not enough for `knowledge`.",
+            "- Short conceptual headings can still be `knowledge` when they introduce real explanatory content; shortness alone is not enough to drop a block.",
+            "- If a heading is decorative, thesis-like, or unsupported by reusable explanatory body text in the owned packet, answer `other`.",
+            "- `grounding.category_keys` are optional support only; category-only grounding is not enough to keep a block.",
+            "- Proposed tags are allowed only for real retrieval-grade concepts that do not fit an existing tag; they are rare and should use an existing `category_key` plus a normalized slug `key`.",
+            "- Do not compress the packet into one global keep/drop rule, one heading rule, or one candidate-tag rule.",
+            "- Do not invent `group_key`, `topic_label`, packet summaries, or cross-unit grouping notes in this step.",
+            "- The owned block rows are authoritative. Nearby context is informational only.",
         )
-    else:
-        lines.extend(
-            [
-                "- This is the grouping-only step. Every unit already passed classification as `knowledge`.",
-                "- Read the full grouping file, then fill every answer object in place before `task-handoff`.",
-                "- Answer each unit with `group_key` and `topic_label` only.",
-                "- `group_key` and `topic_label` must both be non-empty strings.",
-                "- Use concise group labels; the repo canonicalizes final group ids during deterministic expansion.",
-                "- Do not revisit keep/drop classification in this step.",
-            ]
+        if stage_key == "nonrecipe_classify"
+        else (
+            "- This is the grouping-only step. Every unit already passed classification as `knowledge`.",
+            "- Read the full grouping file, then fill every answer object in place before `task-handoff`.",
+            "- Answer each unit with `group_key` and `topic_label` only.",
+            "- `group_key` and `topic_label` must both be non-empty strings.",
+            "- Use concise group labels; the repo canonicalizes final group ids during deterministic expansion.",
+            "- Do not revisit keep/drop classification in this step.",
         )
-    lines.extend(
-        [
-        "",
-        (
-            "Assigned shard ids represented in this task file: "
-            f"`{', '.join(shard_ids) if shard_ids else '[none]'}`."
-        ),
-        "",
-        "Do not return shard outputs in your final message. The authoritative result is the edited task file.",
-        ]
     )
-    return "\n".join(lines)
+    return render_taskfile_prompt(
+        section(
+            "You are processing non-recipe finalize shards inside one bounded local workspace.",
+            (
+                "Resume from the existing `task.json` and current workspace state."
+                if fresh_session_resume
+                else (
+                    f"Open `{TASK_FILE_NAME}` directly, read the full assignment, edit only "
+                    "`/units/*/answer`, save the same file, and run `task-handoff`."
+                )
+            ),
+            "`task.json` is the whole job at each step. You do not need to discover extra control files or hidden repo state before editing it.",
+            "The current working directory is already the workspace root.",
+            "The helper is the only repo-side handoff seam. It validates the edited file and either finishes the assignment or rewrites `task.json` for the next step.",
+        ),
+        section(
+            "- Start with `task.json`.",
+            "- If you need orientation first, run `task-status`.",
+            "- If the workspace feels inconsistent, run `task-doctor` before inventing shell scripts.",
+            "- Edit only the `answer` object inside each unit.",
+            "- After each edit pass, run `task-handoff` from the workspace root.",
+            "- After the helper returns, trust the current `task.json` as the new whole job. You do not need to inspect other files to figure out what changed.",
+            "- If the helper reports `repair_required` or `advance_to_grouping`, reopen the rewritten `task.json` immediately and continue in the same session.",
+            "- Stop only after the helper reports `completed_without_grouping` or `completed_with_grouping`.",
+            "- Do not invent queue advancement, control files, helper ledgers, or alternate output files.",
+            "- `previous_answer` and `validation_feedback`, when present, are repair-only immutable context.",
+            "- If you briefly reread part of `task.json` or make a small local false start, correct it and continue. Harmless local retries are not the point of failure here.",
+            "- Ordinary local reads of `task.json` and `AGENTS.md` are allowed. Do not turn them into shell schedulers or scripted rewrites.",
+            "- Other than `task-status`, `task-doctor`, and `task-handoff`, do not expect repo-owned workflow helpers on the happy path.",
+            "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
+            heading="Worker contract",
+        ),
+        section(
+            "- The repo does not know the `knowledge` versus `other` answer ahead of time; you make that semantic call from the owned shard text.",
+            "- You are doing close semantic review, not building a heuristic classifier for the whole packet.",
+            "- Read the actual owned block text before deciding. That text is primary evidence.",
+            "- Use nearby rows only to disambiguate edge cases; do not force nearby rows into the same answer just because they are adjacent.",
+            "- Treat `candidate_tag_keys`, heading shape, and packet position as weak hints only, not votes or proof.",
+            "- If you feel tempted to invent a rule that covers many rows at once, stop and reread the actual owned rows instead.",
+            *task_specific_semantics,
+            heading="Shard semantics",
+        ),
+        section(
+            (
+                "Assigned shard ids represented in this task file: "
+                f"`{', '.join(shard_ids) if shard_ids else '[none]'}`."
+            ),
+            "Do not return shard outputs in your final message. The authoritative result is the edited task file.",
+        ),
+    )
 
 
 _KNOWLEDGE_HINT_EXAMPLE_FILES = (
@@ -370,7 +371,8 @@ def _build_knowledge_hint_profile_and_policy(
         "Decide `knowledge` versus `other` block-by-block before thinking about grouping.",
         "Use your own semantic judgment; the repo will validate only structure and coverage.",
         "Do not turn heading shape, candidate tags, or packet profile into a bulk heuristic; read the actual owned block text.",
-        "If a short heading feels ambiguous, ask whether it introduces portable cooking knowledge, not whether it is merely short.",
+        "If a short heading feels ambiguous, ask whether it introduces portable cooking knowledge and is supported by reusable body text, not whether it is merely short.",
+        "Memoir, praise, endorsement, foreword, and thesis-like framing are usually `other` even when they contain a true cooking lesson.",
         "Open `examples/` only when you need a contrast case or tie-breaker.",
     ]
     return profile_lines, interpretation_lines, decision_policy

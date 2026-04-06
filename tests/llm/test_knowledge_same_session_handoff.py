@@ -211,6 +211,39 @@ def test_same_session_handoff_demotes_ungrounded_knowledge_without_repair(
     assert output_payload["idea_groups"] == []
 
 
+def test_same_session_handoff_rewrites_category_only_grounding_into_repair_mode(
+    tmp_path: Path,
+) -> None:
+    workspace_root, state_path = _initialize_workspace(tmp_path)
+
+    task_file = load_task_file(workspace_root / "task.json")
+    edited = deepcopy(task_file)
+    edited["units"][0]["answer"] = {
+        "category": "knowledge",
+        "grounding": {
+            "tag_keys": [],
+            "category_keys": ["techniques"],
+            "proposed_tags": [],
+        },
+    }
+    write_task_file(path=workspace_root / "task.json", payload=edited)
+
+    repair_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    repair_task = load_task_file(workspace_root / "task.json")
+
+    assert repair_result["status"] == "repair_required"
+    assert repair_result["validation_errors"] == ["knowledge_category_only_grounding"]
+    assert repair_result["same_session_repair_rewrite_count"] == 1
+    assert repair_task["mode"] == "repair"
+    assert repair_task["stage_key"] == "nonrecipe_classify"
+    assert repair_task["units"][0]["validation_feedback"]["validation_errors"] == [
+        "knowledge_category_only_grounding"
+    ]
+
+
 def test_same_session_handoff_rewrites_invalid_classification_into_repair_mode(
     tmp_path: Path,
 ) -> None:

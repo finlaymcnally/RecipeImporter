@@ -123,9 +123,10 @@ def build_run_settings(
     recipe_prompt_target_count: int | None = 5,
     atomic_block_splitter: str | AtomicBlockSplitter = AtomicBlockSplitter.off,
     line_role_pipeline: str | LineRolePipeline = LineRolePipeline.off,
-    codex_exec_style: str = "taskfile-v1",
+    line_role_codex_exec_style: str = "inline-json-v1",
     line_role_prompt_target_count: int | None = 5,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
+    knowledge_codex_exec_style: str = "inline-json-v1",
     knowledge_prompt_target_count: int | None = 5,
     knowledge_packet_input_char_budget: int | None = 18000,
     knowledge_packet_output_char_budget: int | None = 6000,
@@ -157,6 +158,12 @@ def build_run_settings(
             file_paths=file_paths,
             all_epub=all_epub,
         )
+    resolved_line_role_codex_exec_style = _normalized_value(
+        line_role_codex_exec_style
+    )
+    resolved_knowledge_codex_exec_style = _normalized_value(
+        knowledge_codex_exec_style
+    )
     return RunSettings.model_validate(
         {
             "workers": workers,
@@ -236,13 +243,14 @@ def build_run_settings(
             ),
             "atomic_block_splitter": _normalized_value(atomic_block_splitter),
             "line_role_pipeline": _normalized_value(line_role_pipeline),
-            "codex_exec_style": _normalized_value(codex_exec_style),
+            "line_role_codex_exec_style": resolved_line_role_codex_exec_style,
             "line_role_prompt_target_count": (
                 int(line_role_prompt_target_count)
                 if line_role_prompt_target_count is not None
                 else None
             ),
             "llm_knowledge_pipeline": _normalized_value(llm_knowledge_pipeline),
+            "knowledge_codex_exec_style": resolved_knowledge_codex_exec_style,
             "knowledge_prompt_target_count": (
                 int(knowledge_prompt_target_count)
                 if knowledge_prompt_target_count is not None

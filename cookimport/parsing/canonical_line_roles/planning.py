@@ -21,6 +21,7 @@ from cookimport.llm.phase_worker_runtime import (
     WorkerExecutionReportV1,
     resolve_phase_worker_count,
 )
+from cookimport.llm.taskfile_prompt_contract import render_taskfile_prompt, section
 from cookimport.llm.shard_prompt_targets import (
     partition_contiguous_items,
     resolve_shard_count,
@@ -508,37 +509,42 @@ def _build_line_role_taskfile_prompt(
         else "- Open `task.json` directly, read the full shard in order, fill every `answer.label`, save the same file, and run `task-handoff`.\n"
     )
     shared_contract = build_line_role_shared_contract_block()
-    return (
-        "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger.\n\n"
-        "Worker contract:\n"
-        "- The current working directory is already the workspace root.\n"
-        f"{start_instruction}"
-        "- `task.json` already contains the full assignment. You do not need extra control state, helper ledgers, or hidden context before editing it.\n"
-        "- This is an execution task, not a planning or status-report task.\n"
-        "- Do not invent phase ledgers, install loops, queue-control files, or alternate output files.\n"
-        "- Title, variant, yield, and section calls are sequence-sensitive. For ambiguous lines, read the nearby rows directly in the ordered `task.json` ledger before labeling.\n"
-        "- If you need orientation first, run `task-status`.\n"
-        "- If the workspace feels inconsistent, run `task-doctor` before inventing shell scripts.\n"
-        "- If a narrow local ambiguity remains after reading the file directly, `task-show-unit <unit_id>` and `task-show-unanswered --limit 5` exist as fallback-only helpers.\n"
-        "- Ordinary local reads of `task.json` and `AGENTS.md` are allowed. Do not turn them into shell schedulers or scripted rewrites.\n"
-        "- After each edit pass, run `task-handoff` from the workspace root.\n"
-        "- If the helper reports `repair_required`, reopen the rewritten `task.json` immediately, fix only the named issues, and run the helper again.\n"
-        "- Do not stop to summarize partial progress, list next steps, mention time limits, or say that you have not run `task-handoff` yet.\n"
-        "- Do not emit todo lists, progress recaps, or “keep going from here” messages. Continue the assignment instead.\n"
-        "- Stop only after the helper reports `completed`.\n"
-        "- If you briefly reread part of the file or make a small local false start, correct it and continue.\n"
-        "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.\n"
-        "- The task file already contains the immutable row evidence and the editable answer slots.\n"
-        "- Do not modify immutable evidence fields.\n\n"
-        "Task-file answer rules:\n"
-        "- Set `answer.label` for every unit.\n"
-        "- Use `answer.exclusion_reason` only when `answer.label=NONRECIPE_EXCLUDE`.\n"
-        "\n"
-        "Shared labeling contract:\n"
-        f"{shared_contract}\n\n"
-        "Do not return row labels in your final message. The authoritative result is the edited `task.json` file.\n\n"
-        "Assigned shard ids represented in this task file:\n"
-        f"{assignments}\n"
+    return render_taskfile_prompt(
+        section(
+            "You are processing canonical line-role shards inside one local worker workspace. Each shard owns one ordered row ledger.",
+        ),
+        section(
+            "- The current working directory is already the workspace root.",
+            start_instruction.strip(),
+            "- `task.json` already contains the full assignment. You do not need extra control state, helper ledgers, or hidden context before editing it.",
+            "- This is an execution task, not a planning or status-report task.",
+            "- Do not invent phase ledgers, install loops, queue-control files, or alternate output files.",
+            "- Title, variant, yield, and section calls are sequence-sensitive. For ambiguous lines, read the nearby rows directly in the ordered `task.json` ledger before labeling.",
+            "- If you need orientation first, run `task-status`.",
+            "- If the workspace feels inconsistent, run `task-doctor` before inventing shell scripts.",
+            "- If a narrow local ambiguity remains after reading the file directly, `task-show-unit <unit_id>` and `task-show-unanswered --limit 5` exist as fallback-only helpers.",
+            "- Ordinary local reads of `task.json` and `AGENTS.md` are allowed. Do not turn them into shell schedulers or scripted rewrites.",
+            "- After each edit pass, run `task-handoff` from the workspace root.",
+            "- If the helper reports `repair_required`, reopen the rewritten `task.json` immediately, fix only the named issues, and run the helper again.",
+            "- Do not stop to summarize partial progress, list next steps, mention time limits, or say that you have not run `task-handoff` yet.",
+            "- Do not emit todo lists, progress recaps, or “keep going from here” messages. Continue the assignment instead.",
+            "- Stop only after the helper reports `completed`.",
+            "- If you briefly reread part of the file or make a small local false start, correct it and continue.",
+            "- Stay inside this workspace: do not inspect parent directories or the repository, keep every visible path local, and do not use repo/network/package-manager commands such as `git`, `curl`, or `npm`.",
+            "- The task file already contains the immutable row evidence and the editable answer slots.",
+            "- Do not modify immutable evidence fields.",
+            heading="Worker contract",
+        ),
+        section(
+            "- Set `answer.label` for every unit.",
+            "- Use `answer.exclusion_reason` only when `answer.label=NONRECIPE_EXCLUDE`.",
+            heading="Task-file answer rules",
+        ),
+        section(*shared_contract.splitlines(), heading="Shared labeling contract"),
+        section(
+            "Do not return row labels in your final message. The authoritative result is the edited `task.json` file.",
+        ),
+        section(assignments, heading="Assigned shard ids represented in this task file"),
     )
 
 def _write_line_role_worker_hint(
@@ -567,6 +573,7 @@ def _write_line_role_worker_hint(
         "`HOWTO_SECTION` is only for short recipe-internal subsection headings such as `FOR THE SAUCE` or `TO FINISH`.",
         "Do not use `HOWTO_SECTION` for chapter, topic, lesson, or contents headings.",
         "Contents-style title lists, intro framing, endorsements, and isolated topic headings should default to `NONRECIPE_EXCLUDE` unless nearby rows show reusable lesson prose.",
+        "Obvious praise blurbs, foreword/preface setup, manifesto or `this book will teach you` framing should usually be `NONRECIPE_EXCLUDE` with `endorsement`, `publisher_promo`, or `front_matter`.",
         "Neighbor rows in `context_before_rows` / `context_after_rows` are reference-only and must never appear in output JSON.",
     ]
     write_worker_hint_markdown(

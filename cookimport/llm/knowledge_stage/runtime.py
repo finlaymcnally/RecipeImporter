@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cookimport.config.run_settings import normalize_codex_exec_style_value
+from cookimport.config.run_settings import resolve_codex_exec_style_value
 
 from . import _shared as _shared_module
 from . import workspace_run as _workspace_run_module
@@ -311,8 +311,8 @@ def run_codex_farm_nonrecipe_finalize(
             reasoning_effort=codex_reasoning_effort,
             settings={
                 "llm_knowledge_pipeline": run_settings.llm_knowledge_pipeline.value,
-                "codex_exec_style": normalize_codex_exec_style_value(
-                    getattr(run_settings, "codex_exec_style", None)
+                "codex_exec_style": resolve_codex_exec_style_value(
+                    run_settings.knowledge_codex_exec_style,
                 ),
                 "knowledge_prompt_target_count": run_settings.knowledge_prompt_target_count,
                 "knowledge_packet_input_char_budget": run_settings.knowledge_packet_input_char_budget,
@@ -323,8 +323,8 @@ def run_codex_farm_nonrecipe_finalize(
             },
             runtime_metadata={
                 "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
-                "codex_exec_style": normalize_codex_exec_style_value(
-                    getattr(run_settings, "codex_exec_style", None)
+                "codex_exec_style": resolve_codex_exec_style_value(
+                    run_settings.knowledge_codex_exec_style,
                 ),
                 "input_mode": "nonrecipe_candidate_spans",
                 "workspace_root": str(workspace_root) if workspace_root is not None else None,

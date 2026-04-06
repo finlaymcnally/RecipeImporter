@@ -30,6 +30,24 @@ app = typer.Typer(
     help="Deterministic follow-up exporters and audits for benchmark upload bundles.",
 )
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_BENCHMARK_RESULTS_ROOT = (
+    _REPO_ROOT / "data" / "golden" / "benchmark-vs-golden"
+).resolve(strict=False)
+
+
+def _ensure_preview_output_path_allowed(*, out: Path, command_name: str) -> None:
+    resolved_out = out.expanduser().resolve(strict=False)
+    try:
+        resolved_out.relative_to(_BENCHMARK_RESULTS_ROOT)
+    except ValueError:
+        return
+    raise typer.BadParameter(
+        f"{command_name} writes scratch preview artifacts and may not write under "
+        f"{_BENCHMARK_RESULTS_ROOT}. Choose another --out path such as `.cache/` or `tmp/`.",
+        param_hint="--out",
+    )
+
 
 @app.command("request-template")
 def request_template(
@@ -303,10 +321,11 @@ def preview_prompts(
         min=1,
     ),
 ) -> None:
+    _ensure_preview_output_path_allowed(out=out, command_name="cf-debug preview-prompts")
     manifest_path = write_prompt_preview_for_existing_run(
         run_path=run,
         out_dir=out,
-        repo_root=Path(__file__).resolve().parents[1],
+        repo_root=_REPO_ROOT,
         llm_recipe_pipeline=llm_recipe_pipeline,
         llm_knowledge_pipeline=llm_knowledge_pipeline,
         line_role_pipeline=line_role_pipeline,
@@ -477,6 +496,7 @@ def preview_shard_sweep(
     if not experiments:
         raise typer.BadParameter("Experiment file did not contain any experiment objects.")
 
+    _ensure_preview_output_path_allowed(out=out, command_name="cf-debug preview-shard-sweep")
     out.mkdir(parents=True, exist_ok=True)
     experiment_rows: list[dict[str, object]] = []
     for index, experiment in enumerate(experiments, start=1):
@@ -487,7 +507,7 @@ def preview_shard_sweep(
         manifest_path = write_prompt_preview_for_existing_run(
             run_path=run,
             out_dir=experiment_out,
-            repo_root=Path(__file__).resolve().parents[1],
+            repo_root=_REPO_ROOT,
             llm_recipe_pipeline=str(
                 experiment.get("llm_recipe_pipeline") or llm_recipe_pipeline
             ),

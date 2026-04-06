@@ -11,6 +11,9 @@ from cookimport.llm.knowledge_stage.task_file_contracts import (
     build_knowledge_grouping_task_files,
     validate_knowledge_grouping_task_file,
 )
+from cookimport.llm.knowledge_stage.structured_session_contract import (
+    build_knowledge_edited_task_file_from_grouping_response,
+)
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1, WorkerAssignmentV1
 
 
@@ -225,3 +228,34 @@ def test_grouping_task_files_use_custom_limits_from_classification_task() -> Non
     assert len(transition_task_file["units"]) == 2
     assert transition_task_file["grouping_batch"]["max_units_per_batch"] == 2
     assert transition_task_file["grouping_batch"]["total_batches"] == 2
+
+
+def test_structured_grouping_response_accepts_group_index_alias() -> None:
+    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[_shard(block_index=8, text="Use low heat and whisk steadily.")],
+    )
+    grouping_task_file, _ = build_knowledge_grouping_task_file(
+        assignment_id="worker-001",
+        worker_id="worker-001",
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id={
+            "knowledge::8": {"category": "knowledge"}
+        },
+        unit_to_shard_id=unit_to_shard_id,
+    )
+
+    edited, errors, metadata = build_knowledge_edited_task_file_from_grouping_response(
+        original_task_file=grouping_task_file,
+        response_text=(
+            '{"rows":[{"block_index":8,"group_index":"heat-control","topic_label":"Heat control"}]}'
+        ),
+    )
+
+    assert edited is not None
+    assert errors == ()
+    assert metadata == {}
+    assert edited["units"][0]["answer"] == {
+        "group_key": "heat-control",
+        "topic_label": "Heat control",
+    }

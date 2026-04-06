@@ -33,7 +33,8 @@ The most important settings at the start of a run are:
 - `line_role_pipeline`: whether Codex reviews and corrects line/block labels before recipe grouping
 - `llm_recipe_pipeline`: whether Codex runs the recipe-refine stage after recipe boundaries are accepted
 - `llm_knowledge_pipeline`: whether Codex runs non-recipe finalize on the surviving outside-recipe candidate queue
-- `codex_exec_style`: whether line-role and non-recipe finalize use editable `task.json` workers or inline JSON prompts
+- `line_role_codex_exec_style`: whether line-role uses editable `task.json` workers or inline JSON prompts
+- `knowledge_codex_exec_style`: whether non-recipe finalize uses editable `task.json` workers or inline JSON prompts
 - `codex_farm_model`: an explicit model override for enabled Codex-backed stages
 - `codex_farm_reasoning_effort`: an explicit reasoning override for enabled Codex-backed stages
 - `recipe_prompt_target_count`: the requested shard count for recipe-refine workers

@@ -40,7 +40,8 @@ BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES = (
     "ocr_batch_size",
     "workspace_completion_quiescence_seconds",
     "completed_termination_grace_seconds",
-    "codex_exec_style",
+    "line_role_codex_exec_style",
+    "knowledge_codex_exec_style",
     "knowledge_group_task_max_units",
     "knowledge_group_task_max_evidence_chars",
 )
@@ -296,16 +297,12 @@ def normalize_llm_knowledge_pipeline_value(value: Any) -> str:
 
 def normalize_codex_exec_style_value(value: Any) -> str:
     normalized = str(getattr(value, "value", value) or "").strip().lower().replace("_", "-")
-    if normalized in {"", "default", "taskfile", "taskfile-v1"}:
-        return CODEX_EXEC_STYLE_TASKFILE_V1
-    if normalized in {
-        "inline",
-        "inline-json",
-        "inline-json-v1",
-    }:
+    if normalized in {"", "default", "inline", "inline-json", "inline-json-v1"}:
         return CODEX_EXEC_STYLE_INLINE_JSON_V1
+    if normalized in {"taskfile", "taskfile-v1"}:
+        return CODEX_EXEC_STYLE_TASKFILE_V1
     raise ValueError(
-        "Invalid codex_exec_style. Expected one of: "
+        "Invalid Codex exec style. Expected one of: "
         f"{CODEX_EXEC_STYLE_TASKFILE_V1}, {CODEX_EXEC_STYLE_INLINE_JSON_V1}."
     )
 

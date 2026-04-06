@@ -14,7 +14,7 @@ from cookimport.config.run_settings import (
     CODEX_EXEC_STYLE_INLINE_JSON_V1,
     LINE_ROLE_PIPELINE_ROUTE_V2,
     RunSettings,
-    normalize_codex_exec_style_value,
+    resolve_codex_exec_style_value,
 )
 from cookimport.core.progress_messages import format_stage_progress
 from cookimport.llm.codex_exec_runner import (
@@ -763,12 +763,8 @@ def _run_line_role_phase_runtime(
         timeout_seconds=max(1, int(timeout_seconds)),
         settings={
             "line_role_pipeline": LINE_ROLE_PIPELINE_ROUTE_V2,
-            "codex_exec_style": normalize_codex_exec_style_value(
-                getattr(
-                    settings,
-                    "codex_exec_style",
-                    None,
-                )
+            "codex_exec_style": resolve_codex_exec_style_value(
+                settings.line_role_codex_exec_style,
             ),
             "codex_timeout_seconds": int(timeout_seconds),
             "line_role_prompt_target_count": getattr(

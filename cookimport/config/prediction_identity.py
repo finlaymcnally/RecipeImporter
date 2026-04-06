@@ -17,7 +17,7 @@ ALL_METHOD_PREDICTION_IDENTITY_FIELDS = (
     "multi_recipe_for_the_guardrail",
     "atomic_block_splitter",
     "line_role_pipeline",
-    "codex_exec_style",
+    "line_role_codex_exec_style",
     "web_schema_extractor",
     "web_schema_normalizer",
     "web_html_text_extractor",
@@ -54,10 +54,14 @@ ALL_METHOD_PREDICTION_IDENTITY_FIELDS = (
     "codex_farm_context_blocks",
     "codex_farm_failure_mode",
     "llm_knowledge_pipeline",
+    "knowledge_codex_exec_style",
     "codex_farm_knowledge_context_blocks",
 )
 
-LINE_ROLE_CACHE_IDENTITY_FIELDS = ("line_role_pipeline", "codex_exec_style")
+LINE_ROLE_CACHE_IDENTITY_FIELDS = (
+    "line_role_pipeline",
+    "line_role_codex_exec_style",
+)
 
 
 def _project_run_config_fields(

@@ -71,6 +71,54 @@ _SURFACE_CONFIG_BY_KEY = {
     },
 }
 
+
+def _ratio_or_none(numerator: int | None, denominator: int | None) -> float | None:
+    if numerator is None or denominator in {None, 0}:
+        return None
+    return round(float(numerator) / float(denominator), 4)
+
+
+def _attach_shared_payload_economics(summary: dict[str, Any]) -> None:
+    visible_input_tokens = _nonnegative_int(summary.get("visible_input_tokens"))
+    visible_output_tokens = _nonnegative_int(summary.get("visible_output_tokens"))
+    wrapper_overhead_tokens = _nonnegative_int(summary.get("wrapper_overhead_tokens"))
+    billed_total_tokens = _nonnegative_int(summary.get("tokens_total"))
+    computed_semantic_payload_tokens_total = (
+        None
+        if visible_input_tokens is None or visible_output_tokens is None
+        else visible_input_tokens + visible_output_tokens
+    )
+    computed_protocol_overhead_share = _ratio_or_none(
+        wrapper_overhead_tokens,
+        billed_total_tokens,
+    )
+    semantic_payload_tokens_total = (
+        computed_semantic_payload_tokens_total
+        if computed_semantic_payload_tokens_total is not None
+        else _nonnegative_int(summary.get("semantic_payload_tokens_total"))
+    )
+    protocol_overhead_tokens_total = (
+        wrapper_overhead_tokens
+        if wrapper_overhead_tokens is not None
+        else _nonnegative_int(summary.get("protocol_overhead_tokens_total"))
+    )
+    protocol_overhead_share = (
+        computed_protocol_overhead_share
+        if computed_protocol_overhead_share is not None
+        else _nonnegative_float(summary.get("protocol_overhead_share"))
+    )
+    summary["semantic_payload_tokens_total"] = semantic_payload_tokens_total
+    summary["protocol_overhead_tokens_total"] = protocol_overhead_tokens_total
+    summary["protocol_overhead_share"] = protocol_overhead_share
+    cost_breakdown = summary.get("cost_breakdown")
+    if isinstance(cost_breakdown, Mapping):
+        summary["cost_breakdown"] = {
+            **dict(cost_breakdown),
+            "semantic_payload_tokens_total": semantic_payload_tokens_total,
+            "protocol_overhead_tokens_total": protocol_overhead_tokens_total,
+            "protocol_overhead_share": protocol_overhead_share,
+        }
+
 def _normalize_prompt_budget_stage_key(stage_key: str) -> str:
     normalized = canonical_stage_key(stage_key)
     if normalized == "recipe_correction":
@@ -254,6 +302,7 @@ def build_prediction_run_prompt_budget_summary(
         "reasoning_tokens": totals.get("tokens_reasoning"),
         "billed_total_tokens": totals.get("tokens_total"),
     }
+    _attach_shared_payload_economics(totals)
     totals["pathological_flags"] = sorted(total_pathological_flags)
     totals["prompt_input_mode_counts"] = dict(sorted(total_prompt_input_mode_counts.items()))
 
@@ -281,10 +330,18 @@ def _build_codex_farm_stage_summary(
     stage_payload: Mapping[str, Any],
 ) -> dict[str, Any] | None:
     telemetry_rows = _extract_telemetry_rows(stage_payload=stage_payload)
+    has_explicit_telemetry_rows = _has_explicit_telemetry_rows_surface(stage_payload)
     atomic_summaries = _collect_atomic_summary_payloads(stage_payload)
+    explicit_summary_payload = _extract_explicit_summary_payload(stage_payload=stage_payload)
+    use_atomic_summary_fallback = _should_fallback_to_atomic_summaries(
+        telemetry_rows=telemetry_rows,
+        has_explicit_telemetry_rows=has_explicit_telemetry_rows,
+        explicit_summary_payload=explicit_summary_payload,
+        atomic_summaries=atomic_summaries,
+    )
     pathology_summary = (
         summarize_direct_telemetry_rows(telemetry_rows)
-        if isinstance(telemetry_rows, list)
+        if isinstance(telemetry_rows, list) and not use_atomic_summary_fallback
         else {}
     )
 
@@ -306,11 +363,15 @@ def _build_codex_farm_stage_summary(
                     breakdown_totals.get(key),
                     _nonnegative_int(row.get(key)),
                 )
-    if atomic_summaries and not isinstance(telemetry_rows, list):
+    if atomic_summaries and (
+        not has_explicit_telemetry_rows or use_atomic_summary_fallback
+    ):
         token_totals = _aggregate_token_totals_from_summaries(atomic_summaries)
         breakdown_totals = _aggregate_breakdown_totals_from_summaries(atomic_summaries)
 
-    summary_payload = _extract_summary_payload(stage_payload=stage_payload)
+    summary_payload = explicit_summary_payload
+    if summary_payload is None:
+        summary_payload = _extract_summary_payload(stage_payload=stage_payload)
     if isinstance(summary_payload, Mapping):
         for key in _TOKEN_KEYS:
             fallback_value = summary_payload.get(key)
@@ -328,7 +389,9 @@ def _build_codex_farm_stage_summary(
         1 for summary in atomic_summaries if _summary_looks_like_missing_token_usage(summary)
     )
     token_usage_status: str | None = None
-    if atomic_summaries:
+    if atomic_summaries and (
+        not has_explicit_telemetry_rows or use_atomic_summary_fallback
+    ):
         if token_usage_missing_call_count > 0:
             token_usage_status = (
                 "partial" if token_usage_available_call_count > 0 else "unavailable"
@@ -343,7 +406,9 @@ def _build_codex_farm_stage_summary(
         if isinstance(summary_payload, Mapping)
         else None
     )
-    if atomic_summaries:
+    if atomic_summaries and (
+        not has_explicit_telemetry_rows or use_atomic_summary_fallback
+    ):
         call_count = _aggregate_call_count_from_summaries(atomic_summaries)
     if row_count > 0:
         call_count = row_count
@@ -352,7 +417,9 @@ def _build_codex_farm_stage_summary(
         if isinstance(summary_payload, Mapping)
         else None
     )
-    if atomic_summaries:
+    if atomic_summaries and (
+        not has_explicit_telemetry_rows or use_atomic_summary_fallback
+    ):
         duration_total_ms = _aggregate_duration_total_ms_from_summaries(atomic_summaries)
     if isinstance(telemetry_rows, list):
         duration_total_ms = _extract_duration_total_ms_from_rows(telemetry_rows)
@@ -462,6 +529,7 @@ def _build_codex_farm_stage_summary(
             stage_summary=stage_summary,
             stage_payload=stage_payload,
         )
+    _attach_shared_payload_economics(stage_summary)
     return stage_summary
 def _execution_mode_summary_from_telemetry_rows(
     telemetry_rows: list[Any] | None,
@@ -777,6 +845,88 @@ def _extract_telemetry_rows(*, stage_payload: Mapping[str, Any]) -> list[Any] | 
     rows: list[Any] = []
     _collect_telemetry_rows_from_worker_children(stage_payload, rows)
     return rows or None
+def _extract_explicit_summary_payload(
+    *,
+    stage_payload: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    direct_telemetry = stage_payload.get("telemetry")
+    if isinstance(direct_telemetry, Mapping):
+        direct_summary = direct_telemetry.get("summary")
+        if isinstance(direct_summary, Mapping):
+            return direct_summary
+        if _looks_like_summary_payload(direct_telemetry):
+            return direct_telemetry
+
+    process_run = stage_payload.get("process_run")
+    if isinstance(process_run, Mapping):
+        process_run_summary = _extract_explicit_summary_payload(stage_payload=process_run)
+        if process_run_summary is not None:
+            return process_run_summary
+
+    process_payload = stage_payload.get("process_payload")
+    if isinstance(process_payload, Mapping):
+        process_payload_summary = _extract_explicit_summary_payload(stage_payload=process_payload)
+        if process_payload_summary is not None:
+            return process_payload_summary
+
+    for runtime_key in ("phase_runtime", "phase_worker_runtime"):
+        runtime_payload = stage_payload.get(runtime_key)
+        if not isinstance(runtime_payload, Mapping):
+            continue
+        runtime_telemetry = runtime_payload.get("telemetry")
+        if isinstance(runtime_telemetry, Mapping):
+            runtime_summary = runtime_telemetry.get("summary")
+            if isinstance(runtime_summary, Mapping):
+                return runtime_summary
+            if _looks_like_summary_payload(runtime_telemetry):
+                return runtime_telemetry
+    return None
+def _should_fallback_to_atomic_summaries(
+    *,
+    telemetry_rows: list[Any] | None,
+    has_explicit_telemetry_rows: bool,
+    explicit_summary_payload: Mapping[str, Any] | None,
+    atomic_summaries: list[Mapping[str, Any]],
+) -> bool:
+    if not atomic_summaries:
+        return False
+    if not has_explicit_telemetry_rows:
+        return True
+    if not isinstance(telemetry_rows, list) or telemetry_rows:
+        return False
+    if explicit_summary_payload is None:
+        return True
+    explicit_call_count = _extract_call_count(explicit_summary_payload)
+    explicit_has_usage = _summary_has_any_token_usage(explicit_summary_payload)
+    explicit_looks_missing = _summary_looks_like_missing_token_usage(explicit_summary_payload)
+    atomic_has_usage = any(_summary_has_any_token_usage(summary) for summary in atomic_summaries)
+    return (
+        atomic_has_usage
+        and not explicit_has_usage
+        and not explicit_looks_missing
+        and int(explicit_call_count or 0) == 0
+    )
+def _has_explicit_telemetry_rows_surface(stage_payload: Mapping[str, Any]) -> bool:
+    direct_telemetry = stage_payload.get("telemetry")
+    if isinstance(direct_telemetry, Mapping) and isinstance(direct_telemetry.get("rows"), list):
+        return True
+
+    process_run = stage_payload.get("process_run")
+    if isinstance(process_run, Mapping) and _has_explicit_telemetry_rows_surface(process_run):
+        return True
+
+    process_payload = stage_payload.get("process_payload")
+    if isinstance(process_payload, Mapping) and _has_explicit_telemetry_rows_surface(process_payload):
+        return True
+
+    for runtime_key in ("phase_runtime", "phase_worker_runtime"):
+        runtime_payload = stage_payload.get(runtime_key)
+        if not isinstance(runtime_payload, Mapping):
+            continue
+        runtime_telemetry = runtime_payload.get("telemetry")
+        if isinstance(runtime_telemetry, Mapping) and isinstance(runtime_telemetry.get("rows"), list):
+            return True
+    return False
 def _build_line_role_stage_summary(
     *,
     pred_manifest: Mapping[str, Any],
@@ -1047,6 +1197,7 @@ def _build_line_role_stage_summary(
                     )
             if isinstance(task_file_guardrails, Mapping):
                 stage_summary["task_file_guardrails"] = dict(task_file_guardrails)
+        _attach_shared_payload_economics(stage_summary)
         return stage_summary
     return None
 def _prediction_run_config(pred_manifest: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -1322,6 +1473,23 @@ def _collect_atomic_summary_payloads(payload: Mapping[str, Any]) -> list[Mapping
                 continue
             summaries.extend(_collect_atomic_summary_payloads(worker_run))
         return summaries
+    for runtime_key in ("phase_runtime", "phase_worker_runtime"):
+        nested_runtime = payload.get(runtime_key)
+        if not isinstance(nested_runtime, Mapping):
+            continue
+        worker_reports = nested_runtime.get("worker_reports")
+        if not isinstance(worker_reports, list) or not worker_reports:
+            continue
+        summaries = []
+        for report in worker_reports:
+            if not isinstance(report, Mapping):
+                continue
+            runner_result = report.get("runner_result")
+            if not isinstance(runner_result, Mapping):
+                continue
+            summaries.extend(_collect_atomic_summary_payloads(runner_result))
+        if summaries:
+            return summaries
     for nested_key in ("process_run", "process_payload", "phase_runtime", "phase_worker_runtime"):
         nested = payload.get(nested_key)
         if not isinstance(nested, Mapping):

@@ -767,17 +767,19 @@ _JS_COMPARE_CONTROL = """\
           state.compare_field,
         );
       if (!pairs.length) return;
+      const orderedPairs = isTimeAxis
+        ? [...pairs].sort((a, b) => a.x - b.x)
+        : pairs;
       series.push({
         name: segment.label,
-        type: isTimeAxis ? "line" : "scatter",
-        lineWidth: isTimeAxis ? 1.8 : undefined,
+        type: "scatter",
         marker: {
           enabled: true,
           radius: 3,
         },
         color: compareControlChartSeriesColor(index),
         turboThreshold: 0,
-        data: pairs.map(pair => ({
+        data: orderedPairs.map(pair => ({
           x: pair.x,
           y: pair.y,
           custom: {

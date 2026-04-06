@@ -307,7 +307,9 @@ def _resolve_line_role_predictions_for_benchmark(
 ) -> Path | None:
     candidates: list[Path] = []
     for value in (
+        import_result.get("line_role_pipeline_semantic_predictions_path"),
         import_result.get("line_role_pipeline_line_role_predictions_path"),
+        pred_run / "line-role-pipeline" / "semantic_line_role_predictions.jsonl",
         pred_run / "line-role-pipeline" / "line_role_predictions.jsonl",
     ):
         if not value:
