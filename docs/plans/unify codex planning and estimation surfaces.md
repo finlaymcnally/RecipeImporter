@@ -14,15 +14,15 @@ This document must be maintained in accordance with `docs/PLANS.md`.
 
 ## Purpose / Big Picture
 
-After this change, there will be one authoritative planning artifact for each Codex-backed phase. The interactive shard picker, prompt preview, live preflight, and post-run reporting will all read from that same plan instead of rebuilding partial truths in different ways. A user choosing shard counts in interactive mode will see the same safety limits and the same natural packetization pressure that the live runtime sees, and a finished run will show predicted-versus-observed drift against the exact plan that launched it.
+After this change, there will be one authoritative planning artifact for each Codex-backed phase. The interactive shard picker, prompt preview, live preflight, and post-run reporting will all read from that same plan instead of rebuilding partial truths in different ways. A user choosing shard counts in interactive mode will see the same safety limits and the same natural packetization pressure that the live runtime sees, and a finished run will show predicted-versus-observed drift against the exact plan that launched it. The operator-selected shard count in the interactive CLI remains authoritative unless an explicit existing sanity clamp fires; the planner’s job is to explain the consequences clearly, not silently replace the choice with a different live count.
 
 This matters because the current system can know something important in one place and silently drop it in another. The observed April 6, 2026 single-book benchmark for `saltfatacidheatcutdown` proved that failure mode. The knowledge planner recorded a warning that budget-based packetization wanted `24` shards, but the runtime still forced the queue down to the requested `10` shards, and the interactive planner did not surface that warning. The result was oversized classification packets, missing row coverage, repair churn, and a token bill dominated by resumed-session overhead instead of semantic work.
 
 The visible proof after implementation is:
 
-1. The interactive Codex step planner shows three distinct numbers per surface when available: the hard minimum shard count required for token/session safety, the budget-native shard count that falls out of packetization, and the effective shard count that the live runtime will actually use.
+1. The interactive Codex step planner shows the operator request, the hard minimum shard count required for token/session safety, the budget-native shard count that falls out of packetization, and the launch shard count the runtime will actually use.
 2. A prompt preview generated from deterministic prep writes the same phase-plan artifact the live run will use, including warnings and the exact rendered prompt sizes that drove the estimate.
-3. Live execution refuses to coarsen a phase below its budget-native packetization. A user may request more shards than the natural plan, but not fewer.
+3. Live execution preserves the operator-selected shard count unless an explicit surfaced sanity clamp or hard validation failure prevents launch. It does not silently rewrite `5` into `32`.
 4. Post-run artifacts compare observed token usage back to the exact plan that launched, so prediction drift is measurable instead of anecdotal.
 
 ## Progress
@@ -32,11 +32,12 @@ The visible proof after implementation is:
 - [x] (2026-04-06 11:33 America/Toronto) Inspected the current prompt-preview and deterministic recommendation path in `cookimport/staging/deterministic_prep.py`, `cookimport/cli_support/bench_single_book.py`, and `cookimport/llm/prompt_preview.py`.
 - [x] (2026-04-06 11:33 America/Toronto) Inspected the current knowledge planning and runtime path in `cookimport/llm/codex_farm_knowledge_jobs.py`, `cookimport/llm/knowledge_stage/runtime.py`, and `cookimport/llm/knowledge_stage/workspace_run.py`.
 - [x] (2026-04-06 11:33 America/Toronto) Wrote this first-pass ExecPlan.
+- [x] (2026-04-06 12:02 America/Toronto) Corrected the plan after product clarification: interactive CLI shard counts are authoritative and must not be silently rewritten upward to budget-native packetization.
 - [ ] Define and land one canonical phase-plan schema and writer that every Codex-backed surface can read.
 - [ ] Move knowledge, recipe, and line-role planning onto that shared plan builder so packetization, survivability, and UI recommendations all describe the same thing.
 - [ ] Make estimation render-accurate by counting the actual prompt text and actual structured payload shape that runtime will send.
-- [ ] Update interactive planner, preview artifacts, and post-run reporting to show hard minimum shards, budget-native shards, effective live shards, and prediction drift from one shared artifact.
-- [ ] Validate the new planner on the April 6, 2026 benchmark case and prove that the knowledge stage no longer collapses budget-native `24` shards back down to requested `10`.
+- [ ] Update interactive planner, preview artifacts, and post-run reporting to show operator request, hard minimum shards, budget-native shards, launch shards, and prediction drift from one shared artifact.
+- [ ] Validate the new planner on the April 6, 2026 benchmark case and prove that the knowledge stage truthfully reports requested `10` versus budget-native `24` without silently rewriting the operator’s choice.
 
 ## Surprises & Discoveries
 
@@ -57,12 +58,12 @@ The visible proof after implementation is:
 
 ## Decision Log
 
-- Decision: The unified planner will treat requested shard count as a soft upper-level preference, not permission to merge below budget-native packetization.
-  Rationale: The April 6, 2026 run showed that allowing requested shard count to override budget-native packetization creates oversized exact-coverage tasks that are cheap to ask for and expensive to recover from. The runtime must be allowed to fan out to a safer or more natural plan even when the operator asked for fewer shards.
+- Decision: In the interactive CLI, requested shard count remains an operator-authoritative runtime contract unless an explicit surfaced sanity clamp or hard validation failure prevents launch.
+  Rationale: The product requirement is that choosing `1/1/1` yields `1/1/1` and choosing `5/5/5` does not secretly launch `5/5/32`. The unified planner must make low-shard risk obvious, but it must not silently replace the user’s answer with a different shard topology.
   Date/Author: 2026-04-06 / Codex
 
-- Decision: The canonical phase plan will distinguish at least three counts: `hard_minimum_shards`, `budget_native_shards`, and `effective_shards`.
-  Rationale: The current single-number story mixes token/session safety with packetization quality. Those are different constraints and need to be visible separately in the UI and artifacts.
+- Decision: The canonical phase plan will distinguish at least four counts: `requested_shards`, `hard_minimum_shards`, `budget_native_shards`, and `launch_shards`.
+  Rationale: The current single-number story mixes operator intent, token/session safety, packetization quality, and actual launched topology. Those are different facts and need to be visible separately in the UI and artifacts.
   Date/Author: 2026-04-06 / Codex
 
 - Decision: Render-accurate estimation wins over rough text-length proxies wherever the runtime can already construct the actual prompt.
@@ -101,25 +102,25 @@ This repository has several Codex-facing planning surfaces that currently talk a
 
 `cookimport/llm/prompt_budget_runtime.py` and the benchmark artifacts such as `prompt_budget_summary.json` own post-run cost summaries. These report totals after the fact, but they do not currently point back to one canonical phase plan artifact that explains why the runtime chose a given shard topology.
 
-The core term used in this plan is a “phase plan.” A phase plan is a deterministic JSON artifact that describes how one Codex-backed stage will be partitioned before launch. It contains the real shard topology, the rendered prompt sizes that informed that topology, the safety and quality constraints that influenced it, and the warnings a human should see before paying for the run.
+The core term used in this plan is a “phase plan.” A phase plan is a deterministic JSON artifact that describes how one Codex-backed stage will be partitioned before launch. It contains the operator request, the real launched shard topology, the rendered prompt sizes that informed the estimate, the safety and quality constraints that influenced the recommendation, and the warnings a human should see before paying for the run.
 
 ## Plan of Work
 
 ### Milestone 1: Define one authoritative phase-plan artifact
 
-In this milestone, the repo gains one shared module for phase-planning results. Create a new shared planner owner under `cookimport/llm/` that defines a stable schema for one phase plan and one run-level collection of phase plans. The artifact must be precise enough that a future reader can tell the difference between the operator’s request, the packetization the planner wanted naturally, and the shard count that actually launched.
+In this milestone, the repo gains one shared module for phase-planning results. Create a new shared planner owner under `cookimport/llm/` that defines a stable schema for one phase plan and one run-level collection of phase plans. The artifact must be precise enough that a future reader can tell the difference between the operator’s request, the packetization the planner wanted naturally, the hard safety minimums, and the shard count that actually launched.
 
-The schema must include, at minimum, the stage key, stage label, requested shard count, hard minimum shard count from survivability, budget-native shard count from natural packetization, effective shard count used by live execution, warnings, and one row per effective shard. Each shard row must include its owned identifiers, rendered prompt size, estimated output size, estimated peak session size, and a work-unit metric whose label is meaningful for that stage such as `recipes`, `lines`, or `chars`.
+The schema must include, at minimum, the stage key, stage label, requested shard count, hard minimum shard count from survivability, budget-native shard count from natural packetization, launch shard count used by live execution, warnings, blocking validation errors if launch is disallowed, and one row per launch shard. Each shard row must include its owned identifiers, rendered prompt size, estimated output size, estimated peak session size, and a work-unit metric whose label is meaningful for that stage such as `recipes`, `lines`, or `chars`.
 
-The acceptance proof for this milestone is one shared JSON file written by prompt preview for a deterministic sample run, plus a focused unit test that builds a phase plan for a mocked stage and verifies that the artifact records request, natural packetization, and effective topology separately.
+The acceptance proof for this milestone is one shared JSON file written by prompt preview for a deterministic sample run, plus a focused unit test that builds a phase plan for a mocked stage and verifies that the artifact records request, natural packetization, hard safety, and launched topology separately.
 
 ### Milestone 2: Move stage-specific planners behind shared adapters
 
-In this milestone, recipe, line-role, and knowledge each provide a stage-specific adapter to the shared planner instead of inventing independent planning stories. The adapters are responsible for preparing candidate work items and rendering the actual prompt text for a provisional shard. The shared planner is responsible for counting prompt and output budgets, deciding when a provisional shard must split, and assembling the final phase plan artifact.
+In this milestone, recipe, line-role, and knowledge each provide a stage-specific adapter to the shared planner instead of inventing independent planning stories. The adapters are responsible for preparing candidate work items and rendering the actual prompt text for a provisional shard. The shared planner is responsible for counting prompt and output budgets, computing hard safety limits, characterizing natural packetization pressure, and assembling the final phase plan artifact.
 
-For knowledge, replace the current `build_knowledge_jobs(...)` override behavior with a two-step contract. First, build the natural budget-native partitions from actual rendered prompt size and output estimates. Second, if the operator requested more shards than that natural plan, allow additive splitting. If the operator requested fewer shards, record that request but do not merge below the natural plan. The effective live shard count must therefore be `max(requested_shards, budget_native_shards, hard_minimum_shards)` when all counts are defined.
+For knowledge, replace the current `build_knowledge_jobs(...)` override behavior with a two-track contract. First, build the budget-native analysis from actual rendered prompt size and output estimates so the planner can say what packetization it naturally wants. Second, build the launch topology from the operator-selected shard count, subject only to explicit existing sanity clamps and hard launch blockers. If the operator requested fewer shards than the natural plan, record that risk as a warning; if the request falls below hard survivability minimums, return a blocking validation result instead of silently increasing the shard count.
 
-For recipe and line-role, preserve the existing semantics of requested shard count where they remain valid, but still emit the same canonical phase-plan artifact and compute hard minimum versus natural packetization through the same shared contract.
+For recipe and line-role, preserve the existing semantics of requested shard count where they remain valid, but still emit the same canonical phase-plan artifact and compute hard minimum versus natural packetization through the same shared contract. When any stage applies an upper-bound clamp or reject path, that outcome must be explicit in the phase plan and the interactive UI.
 
 The acceptance proof for this milestone is a set of focused tests that build phase plans for all three stages and show that each stage can now produce one shared artifact shape with stage-specific work-unit labeling and shard rows.
 
@@ -135,26 +136,28 @@ The acceptance proof for this milestone is an updated prompt-preview artifact wh
 
 In this milestone, the interactive planner, preview artifacts, live preflight, and post-run reporting all read from the shared phase plan. The interactive planner in `cookimport/cli_ui/run_settings_flow.py` must render both safety and packetization pressure. Each row should show:
 
+- requested shards
 - hard minimum shards
 - budget-native shards
-- effective live shards
+- launch shards
 - the main binding limit for hard safety
 - the planner warning when the operator’s request is below the budget-native count
+- any clamp or blocking validation that would prevent the request from launching as entered
 
-The preview artifact written by `cookimport/llm/prompt_preview.py` must store the same phase plan JSON that live runtime would use. The live knowledge, recipe, and line-role runtimes must persist the plan artifact before worker launch and record the exact `effective_shards` used for execution. Post-run summaries must read that plan artifact and attach predicted-versus-observed deltas to it rather than keeping prediction and actual cost as separate stories.
+The preview artifact written by `cookimport/llm/prompt_preview.py` must store the same phase plan JSON that live runtime would use. The live knowledge, recipe, and line-role runtimes must persist the plan artifact before worker launch and record the exact `launch_shards` used for execution. Post-run summaries must read that plan artifact and attach predicted-versus-observed deltas to it rather than keeping prediction and actual cost as separate stories.
 
-The acceptance proof for this milestone is a deterministic single-book preview where the interactive recommendation payload, the saved preview manifest, and the live phase plan all agree on the same hard minimum, budget-native, and effective shard counts.
+The acceptance proof for this milestone is a deterministic single-book preview where the interactive recommendation payload, the saved preview manifest, and the live phase plan all agree on the same requested, hard minimum, budget-native, and launch shard counts.
 
 ### Milestone 5: Validate against the known failure case
 
-In this milestone, use the `saltfatacidheatcutdown` deterministic prep bundle and the April 6, 2026 benchmark settings to prove that the unified planner catches the exact failure mode that motivated this plan. The planner must report that the knowledge stage naturally wants more than ten shards. The interactive planner must surface that fact. The live runtime must refuse to collapse back to ten oversized knowledge packets.
+In this milestone, use the `saltfatacidheatcutdown` deterministic prep bundle and the April 6, 2026 benchmark settings to prove that the unified planner catches the exact failure mode that motivated this plan. The planner must report that the knowledge stage naturally wants more than ten shards. The interactive planner must surface that fact. The live runtime must preserve the operator’s chosen ten shards while recording that they are coarser than the budget-native plan, unless a hard safety gate blocks launch outright.
 
 The acceptance proof is a before-and-after comparison:
 
 - before: the historical run artifact warning says budget planning wanted `24` shards but execution used `10`
-- after: the new phase plan artifact records requested `10`, budget-native `24`, and effective `24` or more, and the interactive UI renders a warning before launch
+- after: the new phase plan artifact records requested `10`, budget-native `24`, and launch `10`, and the interactive UI renders a warning before launch
 
-This milestone is complete only when the same benchmark settings can no longer produce hundred-block knowledge classification packets by requesting too few shards.
+This milestone is complete only when the same benchmark settings produce one truthful planning story end to end: the UI, preview artifacts, and live runtime all agree that the operator asked for `10`, the planner naturally wanted `24`, and launch still used `10` unless a surfaced hard blocker prevented it.
 
 ## Concrete Steps
 
@@ -206,7 +209,7 @@ Use prompt preview as the first end-to-end validation tool because it is zero-to
       data/output/<deterministic-run-or-prep-run-root> \
       --out /tmp/phase-plan-preview
 
-After the shared planner is wired in, inspect the resulting preview manifest and verify that each phase stores one canonical phase plan with matching hard minimum, budget-native, and effective shard counts.
+After the shared planner is wired in, inspect the resulting preview manifest and verify that each phase stores one canonical phase plan with matching requested, hard minimum, budget-native, and launch shard counts.
 
 ## Validation and Acceptance
 
@@ -214,17 +217,17 @@ Acceptance is based on behavior, not only on code movement.
 
 The change is accepted when all of the following are true:
 
-1. Interactive single-book benchmark planning shows one consistent shard story per Codex surface. When the user chooses a knowledge shard count below the budget-native count, the row must visibly warn that runtime will use a higher effective count.
-2. Prompt preview writes one phase-plan artifact per stage that includes rendered prompt size, hard minimum shards, budget-native shards, effective shards, and planner warnings.
-3. Live runtime writes the same phase-plan artifact before launch and uses its `effective_shards` instead of silently collapsing back to the requested count.
+1. Interactive single-book benchmark planning shows one consistent shard story per Codex surface. When the user chooses a knowledge shard count below the budget-native count, the row must visibly warn that the chosen launch plan is coarser than the planner’s natural packetization.
+2. Prompt preview writes one phase-plan artifact per stage that includes rendered prompt size, requested shards, hard minimum shards, budget-native shards, launch shards, and planner warnings.
+3. Live runtime writes the same phase-plan artifact before launch and preserves the requested shard count unless an explicit surfaced clamp or blocking safety check prevents launch.
 4. Post-run reporting attaches observed token usage back to the recorded phase plan and shows prediction drift without inventing a second planning story.
-5. The motivating April 6, 2026 knowledge case no longer allows requested `10` to override natural `24`-packet planning.
+5. The motivating April 6, 2026 knowledge case truthfully reports requested `10` versus natural `24`-packet planning without silently rewriting the user’s answer.
 
 Concrete validation steps:
 
 - Run focused tests for the shared planner and stage adapters. Expect the new planner tests and updated CLI tests to pass.
-- Run prompt preview from a deterministic prep bundle for `saltfatacidheatcutdown` and verify that the knowledge phase plan records requested `10`, budget-native `24`, and effective `24` or more.
-- Run the interactive single-book benchmark planner for the same source and verify that the knowledge row shows both the operator request and the effective plan instead of only a single minimum-safe count.
+- Run prompt preview from a deterministic prep bundle for `saltfatacidheatcutdown` and verify that the knowledge phase plan records requested `10`, budget-native `24`, and launch `10`.
+- Run the interactive single-book benchmark planner for the same source and verify that the knowledge row shows both the operator request and the budget-native warning instead of only a single minimum-safe count.
 - Run a controlled benchmark or fake-Codex rehearsal and verify that the live knowledge stage plan artifact matches the preview plan for the same settings.
 
 ## Idempotence and Recovery
@@ -276,4 +279,4 @@ Update these current owners to consume that shared planner:
 
 The planner must keep using `cookimport/llm/shard_survivability.py` for hard token/session safety, but survivability becomes one consumer of the shared phase plan rather than a sibling story. The planner must also keep using each stage’s existing prompt builder so estimation stays tied to runtime reality.
 
-Revision note: Created this plan on 2026-04-06 because the current repo has split planning surfaces that can disagree silently. The immediate trigger was the April 6, 2026 benchmark where knowledge planning knew budget-native packetization wanted 24 shards but runtime and interactive UI still centered the requested 10-shard story.
+Revision note: Created this plan on 2026-04-06 because the current repo has split planning surfaces that can disagree silently. The immediate trigger was the April 6, 2026 benchmark where knowledge planning knew budget-native packetization wanted 24 shards but runtime and interactive UI still centered the requested 10-shard story. Updated later the same day to match the actual product contract: interactive shard counts remain authoritative, and the unified planner must warn or fail closed rather than silently rewriting the user’s chosen counts.
