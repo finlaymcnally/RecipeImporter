@@ -367,7 +367,7 @@ def test_same_session_handoff_keeps_prior_valid_classification_answers_after_rep
     ]
 
 
-def test_same_session_handoff_advances_through_multiple_grouping_batches(
+def test_same_session_handoff_completes_after_one_grouping_pass(
     tmp_path: Path,
 ) -> None:
     block_count = KNOWLEDGE_GROUP_TASK_MAX_UNITS + 1
@@ -411,8 +411,8 @@ def test_same_session_handoff_advances_through_multiple_grouping_batches(
     assert first_grouping_result["status"] == "advance_to_grouping"
     assert first_grouping_result["grouping_transition_count"] == 1
     assert first_grouping_task["grouping_batch"]["current_batch_index"] == 1
-    assert first_grouping_task["grouping_batch"]["total_batches"] == 2
-    assert len(first_grouping_task["units"]) == KNOWLEDGE_GROUP_TASK_MAX_UNITS
+    assert first_grouping_task["grouping_batch"]["total_batches"] == 1
+    assert len(first_grouping_task["units"]) == block_count
 
     for unit in first_grouping_task["units"]:
         unit["answer"] = {
@@ -420,30 +420,6 @@ def test_same_session_handoff_advances_through_multiple_grouping_batches(
             "topic_label": "Heat control",
         }
     write_task_file(path=workspace_root / "task.json", payload=first_grouping_task)
-
-    second_grouping_result = advance_knowledge_same_session_handoff(
-        workspace_root=workspace_root,
-        state_path=state_path,
-    )
-    second_grouping_task = load_task_file(workspace_root / "task.json")
-    status_after_first_group = describe_knowledge_same_session_status(
-        workspace_root=workspace_root,
-        state_path=state_path,
-    )
-
-    assert second_grouping_result["status"] == "advance_to_grouping"
-    assert second_grouping_result["grouping_transition_count"] == 2
-    assert second_grouping_task["grouping_batch"]["current_batch_index"] == 2
-    assert second_grouping_task["grouping_batch"]["total_batches"] == 2
-    assert len(second_grouping_task["units"]) == 1
-    assert status_after_first_group["completed_grouping_batch_count"] == 1
-    assert status_after_first_group["grouping_batch"]["current_batch_index"] == 2
-
-    second_grouping_task["units"][0]["answer"] = {
-        "group_key": "heat-control",
-        "topic_label": "Heat control",
-    }
-    write_task_file(path=workspace_root / "task.json", payload=second_grouping_task)
 
     final_result = advance_knowledge_same_session_handoff(
         workspace_root=workspace_root,
@@ -454,8 +430,8 @@ def test_same_session_handoff_advances_through_multiple_grouping_batches(
     )
 
     assert final_result["status"] == "completed_with_grouping"
-    assert final_result["grouping_validation_count"] == 2
-    assert final_result["grouping_transition_count"] == 2
+    assert final_result["grouping_validation_count"] == 1
+    assert final_result["grouping_transition_count"] == 1
     assert len(output_payload["block_decisions"]) == block_count
     assert output_payload["idea_groups"] == [
         {

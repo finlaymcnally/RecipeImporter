@@ -44,10 +44,12 @@ Primary modules:
 - `cookimport/analytics/dashboard_collect.py`
 - `cookimport/analytics/benchmark_manifest_runtime.py`
 - `cookimport/analytics/dashboard_schema.py`
-- `cookimport/analytics/dashboard_render.py` (public facade)
+- `cookimport/analytics/dashboard_render.py` (public renderer entrypoint; writes `index.html` plus shared assets directly)
 - `cookimport/analytics/dashboard_renderers/` (asset/page/template ownership)
-  - `templates.py` is now a tiny facade over `html_shell.py`, `style_asset.py`, and `script_asset.py`
-  - `dashboard_renderers/assets/script_filters.js` and `dashboard_renderers/assets/script_tables.js` are the source-of-truth JS files; the same-named Python modules are thin loaders so the import surface stays stable
+  - `html_shell.py` owns the static page shell
+  - `style_asset.py` owns the emitted dashboard CSS
+  - `script_bootstrap.py` and `script_compare_control.py` own the Python-side JS fragments
+  - `dashboard_renderers/assets/script_filters.js` and `dashboard_renderers/assets/script_tables.js` are the source-of-truth checked-in JS files loaded directly by `dashboard_render.py`
 - `cookimport/analytics/compare_control_engine.py` (public facade)
 - `cookimport/analytics/compare_control_fields.py` (derived field values and compare/control field catalog ownership)
 - `cookimport/analytics/compare_control_filters.py` (quick-filter and column-filter normalization/evaluation)

@@ -20,12 +20,12 @@ import/stage throughput and golden-set benchmark trends.
 Modules:
 - `dashboard_schema.py` – Pydantic v2 models (`DashboardData`, `StageRecord`, `BenchmarkRecord`)
 - `dashboard_collect.py` – Read-only collectors for CSV history + eval_report.json
-- `dashboard_render.py` – Thin public facade exposing `render_dashboard(...)`
+- `dashboard_render.py` – Single renderer entrypoint that writes `index.html`, `dashboard.js`, `style.css`, and the data/state assets
 - `compare_control_engine.py` – Thin public compare/control facade
 - `compare_control_fields.py` – Derived benchmark field values plus compare/control field catalog ownership
 - `compare_control_filters.py` – Quick-filter and column-filter normalization/evaluation
 - `compare_control_analysis.py` – Compare/control statistics, discovery cards, and insights ownership
-- `dashboard_renderers/` – Asset writing, shared formatting, the single-page shell, and static templates
+- `dashboard_renderers/` – The single-page shell, emitted CSS, Python-side JS fragments, and checked-in JS assets
 
 Dashboard UX rule:
 - Any new metric shown in the dashboard should come with a plain-English description (tooltips and/or an on-page help/glossary). See `cookimport/analytics/CONVENTIONS.md`.

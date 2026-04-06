@@ -1,7 +1,7 @@
 # Dashboard Renderers
 
-`dashboard_render.py` is now a thin public facade over this package. `assets.py` owns the top-level artifact write, `html_shell.py` and `style_asset.py` own the static shell, and `script_asset.py` assembles the shared JavaScript bundle.
+`dashboard_render.py` now owns the top-level artifact write directly. This package only keeps the real asset owners: `html_shell.py`, `style_asset.py`, `script_bootstrap.py`, `script_compare_control.py`, and the checked-in JS files under `assets/`.
 
 The dashboard is single-surface now: all-method sweeps stay inside `index.html` as a compact summary section instead of generating standalone sweep pages.
 
-`script_bootstrap.py` and `script_compare_control.py` still own Python-side JS fragments directly. `script_filters.py` and `script_tables.py` are thin loaders over the checked-in source-of-truth files in `assets/script_filters.js` and `assets/script_tables.js`.
+`dashboard_render.py` concatenates the Python-side JS fragments with the checked-in source-of-truth files in `assets/script_filters.js` and `assets/script_tables.js`.

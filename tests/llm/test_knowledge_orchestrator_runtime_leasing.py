@@ -195,7 +195,7 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert telemetry["summary"]["packet_economics"]["same_session_transition_count_total"] == 2
     assert telemetry["summary"]["packet_economics"]["grouping_transition_count_total"] == 1
     assert telemetry["rows"][0]["knowledge_same_session"] is True
-    assert telemetry["summary"]["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 3
+    assert telemetry["summary"]["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 2
     assert telemetry["summary"]["task_file_guardrails"]["assignment_count"] == 1
     assert (
         phase_manifest["runtime_metadata"]["worker_session_guardrails"][

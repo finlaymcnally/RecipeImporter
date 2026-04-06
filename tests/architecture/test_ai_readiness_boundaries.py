@@ -27,15 +27,18 @@ def test_run_settings_contracts_stays_model_agnostic() -> None:
     assert "from cookimport.config.run_settings import" not in contracts_text
 
 
-def test_templates_and_llm_orchestrators_stay_thin_facades() -> None:
-    templates_text = _read("cookimport/analytics/dashboard_renderers/templates.py")
+def test_dashboard_render_root_and_llm_orchestrators_stay_small() -> None:
+    dashboard_render_text = _read("cookimport/analytics/dashboard_render.py")
     knowledge_orchestrator_text = _read("cookimport/llm/codex_farm_knowledge_orchestrator.py")
     recipe_orchestrator_text = _read("cookimport/llm/codex_farm_orchestrator.py")
 
-    assert "from .html_shell import _HTML" in templates_text
-    assert "from .script_asset import _JS" in templates_text
-    assert "from .style_asset import _CSS" in templates_text
-    assert len(templates_text.splitlines()) <= 10
+    assert "from cookimport.analytics.dashboard_renderers.html_shell import _HTML" in dashboard_render_text
+    assert "from cookimport.analytics.dashboard_renderers.style_asset import _CSS" in dashboard_render_text
+    assert "from cookimport.analytics.dashboard_renderers.script_bootstrap import _JS_BOOTSTRAP" in dashboard_render_text
+    assert "from cookimport.analytics.dashboard_renderers.script_compare_control import _JS_COMPARE_CONTROL" in dashboard_render_text
+    assert 'Path(__file__).resolve().parent / "dashboard_renderers" / "assets"' in dashboard_render_text
+    assert "def render_dashboard(out_dir: Path, data: DashboardData) -> Path:" in dashboard_render_text
+    assert len(dashboard_render_text.splitlines()) <= 80
 
     assert "from cookimport.llm.knowledge_stage.planning import (" in knowledge_orchestrator_text
     assert "from cookimport.llm.knowledge_stage.recovery import (" in knowledge_orchestrator_text
@@ -98,11 +101,10 @@ def test_package_owner_modules_exist_for_split_domains() -> None:
         REPO_ROOT / "cookimport" / "staging" / "block_label_resolution.py",
         REPO_ROOT / "cookimport" / "analytics" / "dashboard_renderers" / "html_shell.py",
         REPO_ROOT / "cookimport" / "analytics" / "dashboard_renderers" / "style_asset.py",
-        REPO_ROOT / "cookimport" / "analytics" / "dashboard_renderers" / "script_asset.py",
         REPO_ROOT / "cookimport" / "analytics" / "dashboard_renderers" / "script_bootstrap.py",
-        REPO_ROOT / "cookimport" / "analytics" / "dashboard_renderers" / "script_filters.py",
         REPO_ROOT / "cookimport" / "analytics" / "dashboard_renderers" / "script_compare_control.py",
-        REPO_ROOT / "cookimport" / "analytics" / "dashboard_renderers" / "script_tables.py",
+        REPO_ROOT / "cookimport" / "analytics" / "dashboard_renderers" / "assets" / "script_filters.js",
+        REPO_ROOT / "cookimport" / "analytics" / "dashboard_renderers" / "assets" / "script_tables.js",
         REPO_ROOT / "cookimport" / "config" / "run_settings_ui.py",
         REPO_ROOT / "cookimport" / "config" / "run_settings_builders.py",
         REPO_ROOT / "cookimport" / "config" / "run_settings_types.py",
@@ -139,7 +141,7 @@ def test_second_wave_owner_roots_stay_small_and_explicit() -> None:
     recipe_stage_text = _read("cookimport/llm/recipe_stage/__init__.py")
     nonrecipe_text = _read("cookimport/staging/nonrecipe_stage.py")
     stage_predictions_text = _read("cookimport/staging/stage_block_predictions.py")
-    script_asset_text = _read("cookimport/analytics/dashboard_renderers/script_asset.py")
+    dashboard_render_text = _read("cookimport/analytics/dashboard_render.py")
     run_settings_text = _read("cookimport/config/run_settings.py")
 
     assert '"bench_all_method"' in bench_text
@@ -168,11 +170,12 @@ def test_second_wave_owner_roots_stay_small_and_explicit() -> None:
     assert "resolve_stage_block_label" in stage_predictions_text
     assert len(stage_predictions_text.splitlines()) <= 160
 
-    assert "from .script_bootstrap import _JS_BOOTSTRAP" in script_asset_text
-    assert "from .script_filters import _JS_FILTERS" in script_asset_text
-    assert "from .script_compare_control import _JS_COMPARE_CONTROL" in script_asset_text
-    assert "from .script_tables import _JS_TABLES" in script_asset_text
-    assert len(script_asset_text.splitlines()) <= 20
+    assert "_JS_BOOTSTRAP" in dashboard_render_text
+    assert "_JS_COMPARE_CONTROL" in dashboard_render_text
+    assert 'script_filters.js' in dashboard_render_text
+    assert 'script_tables.js' in dashboard_render_text
+    assert "data_json.replace(\"</\", \"<\\\\/\")" in dashboard_render_text
+    assert len(dashboard_render_text.splitlines()) <= 80
 
     assert "class RunSettings(BaseModel):" in run_settings_text
     # This root still owns the canonical immutable schema, so line count grows

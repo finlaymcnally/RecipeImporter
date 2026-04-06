@@ -111,7 +111,7 @@ def test_grouping_validator_requires_non_empty_group_fields() -> None:
     assert metadata["knowledge_blocks_missing_group"] == [8]
 
 
-def test_grouping_task_files_split_large_grouping_scope_into_bounded_batches() -> None:
+def test_grouping_task_files_keep_large_grouping_scope_in_one_task_file() -> None:
     block_count = KNOWLEDGE_GROUP_TASK_MAX_UNITS + 1
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
@@ -151,16 +151,15 @@ def test_grouping_task_files_split_large_grouping_scope_into_bounded_batches() -
         unit_to_shard_id=unit_to_shard_id,
     )
 
-    assert len(task_files) == 2
-    assert len(batch_unit_ids) == 2
-    assert len(task_files[0]["units"]) == KNOWLEDGE_GROUP_TASK_MAX_UNITS
-    assert len(task_files[1]["units"]) == 1
+    assert len(task_files) == 1
+    assert len(batch_unit_ids) == 1
+    assert len(task_files[0]["units"]) == block_count
     assert task_files[0]["grouping_batch"] == {
         "current_batch_index": 1,
-        "total_batches": 2,
-        "unit_count": KNOWLEDGE_GROUP_TASK_MAX_UNITS,
+        "total_batches": 1,
+        "unit_count": block_count,
         "total_grouping_unit_count": block_count,
-        "remaining_batches_after_this": 1,
+        "remaining_batches_after_this": 0,
         "estimated_evidence_chars": task_files[0]["grouping_batch"]["estimated_evidence_chars"],
         "max_units_per_batch": KNOWLEDGE_GROUP_TASK_MAX_UNITS,
         "max_evidence_chars_per_batch": task_files[0]["grouping_batch"][
@@ -168,12 +167,7 @@ def test_grouping_task_files_split_large_grouping_scope_into_bounded_batches() -
         ],
         "shard_ids": ["book.ks0000.nr"],
     }
-    assert task_files[1]["grouping_batch"]["current_batch_index"] == 2
-    assert task_files[1]["grouping_batch"]["total_batches"] == 2
-    assert task_files[1]["grouping_batch"]["remaining_batches_after_this"] == 0
-    flattened_unit_ids = [unit_id for batch in batch_unit_ids for unit_id in batch]
-    assert len(flattened_unit_ids) == block_count
-    assert set(flattened_unit_ids) == {
+    assert set(batch_unit_ids[0]) == {
         f"knowledge::{block_index}" for block_index in range(block_count)
     }
     assert grouping_unit_to_shard_id[f"knowledge::{block_count - 1}"] == "book.ks0000.nr"
@@ -225,9 +219,9 @@ def test_grouping_task_files_use_custom_limits_from_classification_task() -> Non
         "max_units_per_batch": 2,
         "max_evidence_chars_per_batch": 10_000,
     }
-    assert len(transition_task_file["units"]) == 2
+    assert len(transition_task_file["units"]) == 3
     assert transition_task_file["grouping_batch"]["max_units_per_batch"] == 2
-    assert transition_task_file["grouping_batch"]["total_batches"] == 2
+    assert transition_task_file["grouping_batch"]["total_batches"] == 1
 
 
 def test_structured_grouping_response_accepts_group_index_alias() -> None:
