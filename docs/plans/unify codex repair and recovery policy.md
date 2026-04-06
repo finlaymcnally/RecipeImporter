@@ -34,11 +34,11 @@ The visible proof after implementation is:
 - [x] (2026-04-06 11:19 America/Toronto) Inspected the current owner seams for repair and recovery in `cookimport/llm/recipe_stage/worker_io.py`, `cookimport/llm/recipe_stage_shared.py`, `cookimport/parsing/canonical_line_roles/runtime_recovery.py`, `cookimport/parsing/canonical_line_roles/runtime_workers.py`, `cookimport/llm/knowledge_stage/workspace_run.py`, `cookimport/llm/knowledge_stage/recovery.py`, `cookimport/llm/knowledge_stage/reporting.py`, and `cookimport/llm/task_file_guardrails.py`.
 - [x] (2026-04-06 11:19 America/Toronto) Re-read the earlier taskfile-runtime and knowledge-grouping ExecPlans to avoid duplicating already-planned work and to scope this plan as the missing repair/recovery contract slice.
 - [x] (2026-04-06 11:19 America/Toronto) Wrote this first-pass ExecPlan.
-- [ ] Add one shared repair/recovery policy module under `cookimport/llm/` that declares budgets, follow-up kinds, and reason-taxonomy helpers for all active Codex stages and transports.
-- [ ] Migrate recipe, line-role, and knowledge to consume that shared policy surface for gating decisions instead of using stage-local magic numbers and duplicated helper logic.
-- [ ] Standardize runtime telemetry and stage summaries so they report both allowed budgets and actual spent counts for repair and recovery.
-- [ ] Update durable docs in `docs/10-llm/10-llm_README.md` and stage owner READMEs so the shared vocabulary and per-stage matrix are code-verified and easy to find.
-- [ ] Add focused tests that prove the shared policy is the single source of truth and that each stage still preserves its intended follow-up behavior.
+- [x] (2026-04-06 15:26 America/Toronto) Landed the shared policy owner in `cookimport/llm/repair_recovery_policy.py`, including reusable budget-summary rendering so reporting surfaces can expose the same policy rows instead of restating limits ad hoc.
+- [x] (2026-04-06 15:26 America/Toronto) Migrated recipe, line-role, and knowledge runtime reporting to consume the shared policy surface for both taskfile and inline budgets; taskfile and inline stage telemetry now emit `repair_recovery_policy`, and knowledge now carries per-step spent counts for classification/grouping repairs.
+- [x] (2026-04-06 15:26 America/Toronto) Standardized stage summaries so recipe, line-role, and knowledge all expose allowed-versus-spent policy budgets under `repair_recovery_policy` alongside the older followup rollups.
+- [x] (2026-04-06 15:26 America/Toronto) Updated durable docs in `docs/10-llm/10-llm_README.md`, `cookimport/llm/recipe_stage/README.md`, `cookimport/parsing/canonical_line_roles/README.md`, and `cookimport/llm/knowledge_stage/README.md`, and demoted `docs/reports/2026-04-06-repair-analysis.md` to narrative context.
+- [x] (2026-04-06 15:26 America/Toronto) Added focused policy and stage-summary assertions in `tests/llm/test_repair_recovery_policy.py` and `tests/staging/test_stage_observability.py`, then verified them with a green targeted pytest run.
 
 ## Surprises & Discoveries
 
@@ -59,6 +59,9 @@ The visible proof after implementation is:
 
 - Observation: this plan should not try to force one monolithic generic runtime loop as its first move.
   Evidence: the remaining differences are real, not accidental. Knowledge has semantic steps, line-role has a thin inline path plus watchdog behavior, and recipe still keeps a helper-driven taskfile contract. The missing piece is a shared policy layer and shared reporting vocabulary, not immediate total runtime unification.
+
+- Observation: the cleanest way to make summaries legible was to extend the already-shipped telemetry summaries and then let stage summaries reuse that shape instead of inventing a second reporting schema.
+  Evidence: recipe and line-role already had durable worker/stage status artifacts, and knowledge reporting already built packet-economics rollups. Adding `repair_recovery_policy` beside those payloads kept the new contract close to existing observability instead of creating one more artifact family.
 
 ## Decision Log
 
@@ -82,9 +85,15 @@ The visible proof after implementation is:
   Rationale: the repo already has many artifacts. The operator should be able to answer policy and spent-count questions from the existing stage summary, promotion report, and telemetry files rather than from one more special-case output family.
   Date/Author: 2026-04-06 / Codex
 
+- Decision: Use one normalized `repair_recovery_policy` payload shape everywhere rather than overloading the older `recovery_policy` counters.
+  Rationale: existing fields such as `fresh_session_retry_count` and `recovery_policy` are already consumed by tests and operator tooling. Adding one explicit normalized payload with `followup_kind`, `followup_surface`, `budget_scope`, `allowed_attempts`, and `spent_attempts` made the new contract inspectable without breaking those older stage-local fields.
+  Date/Author: 2026-04-06 / Codex
+
 ## Outcomes & Retrospective
 
-This section will be updated after implementation and focused validation.
+The shared repair/recovery policy is now a real live contract instead of a design note. `cookimport/llm/repair_recovery_policy.py` owns the budget matrix and now also renders normalized budget rows. Recipe, line-role, and knowledge telemetry emit those rows under `repair_recovery_policy`, and the compact stage summaries mirror the same allowed-versus-spent view so an operator can answer “what was allowed?” and “what did this run spend?” from one stable vocabulary.
+
+The runtime differences stayed intact. Recipe still reports one taskfile repair rewrite plus bounded recovery, line-role still splits taskfile versus inline behavior, and knowledge still distinguishes worker-assignment recovery from semantic-step repair budgets. The work intentionally stopped short of a monolithic shared executor; the finished slice is explicit policy, explicit spent counts, and durable docs/tests that keep those contracts honest.
 
 ## Context and Orientation
 
@@ -296,3 +305,4 @@ The stage owners that must consume this surface are:
 Keep `cookimport/llm/task_file_guardrails.py` as the home for taskfile-size and session-cap reporting, but extend its summary payloads or compose them with the new follow-up budget summaries rather than inventing a second unrelated guardrail shape.
 
 Revision note (2026-04-06 11:19 America/Toronto): created this ExecPlan after reviewing `docs/reports/repair-analysis.md`, the owning LLM docs, and the current recipe, line-role, and knowledge repair or recovery seams. The purpose of this first revision is to turn that narrative analysis into a code-facing refactor plan with concrete owners, validation, and acceptance criteria.
+Revision note (2026-04-06 15:26 America/Toronto): updated the plan after implementation. The code now exposes normalized `repair_recovery_policy` budget rows in worker or stage telemetry plus stage summaries, knowledge same-session reporting now tracks per-step repair spend, the owning docs now carry the policy matrix, and the narrative repair report is explicitly marked as historical context.

@@ -488,13 +488,33 @@ def test_build_recipe_stage_summary_reports_task_followup_rollups(tmp_path: Path
     )
     _write_json(task_root / "repair_status.json", {"status": "repaired"})
     _write_json(task_root / "status.json", {"status": "validated"})
+    _write_json(
+        stage_root / "workers" / "worker-001" / "status.json",
+        {
+            "repair_worker_session_count": 1,
+            "fresh_session_retry_count": 0,
+            "fresh_worker_replacement_count": 0,
+        },
+    )
 
     summary = build_recipe_stage_summary(stage_root)
 
-    assert summary["schema_version"] == "recipe_stage_summary.v6"
+    assert summary["schema_version"] == "recipe_stage_summary.v7"
     assert summary["followups"]["label"] == "task_followup"
     assert summary["followups"]["handled_locally_skip_llm_count"] == 2
     assert summary["followups"]["repair_completed_count"] == 1
+    assert (
+        summary["repair_recovery_policy"]["budgets"]["same_session_repair_rewrite"][
+            "allowed_attempts"
+        ]
+        == 1
+    )
+    assert (
+        summary["repair_recovery_policy"]["budgets"]["same_session_repair_rewrite"][
+            "spent_attempts"
+        ]
+        == 1
+    )
     assert summary["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 1
     assert summary["worker_session_guardrails"]["repair_worker_session_count"] == 1
     assert summary["task_file_guardrails"]["warning_count"] == 1
@@ -586,6 +606,14 @@ def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: 
         stage_root / "workers" / "worker-001" / "shards" / "line-role-canonical-0001" / "status.json",
         {"status": "validated"},
     )
+    _write_json(
+        stage_root / "workers" / "worker-001" / "status.json",
+        {
+            "same_session_repair_rewrite_count": 0,
+            "fresh_session_retry_count": 0,
+            "fresh_worker_replacement_count": 0,
+        },
+    )
     label_llm_dir = tmp_path / "label_refine" / "book"
     label_llm_dir.mkdir(parents=True, exist_ok=True)
     (label_llm_dir / "labeled_lines.jsonl").write_text(
@@ -620,7 +648,7 @@ def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: 
 
     summary = build_line_role_stage_summary(stage_root)
 
-    assert summary["schema_version"] == "line_role_stage_summary.v4"
+    assert summary["schema_version"] == "line_role_stage_summary.v5"
     assert summary["lines"]["canonical_line_total"] == 2
     assert summary["lines"]["llm_authoritative_row_count"] == 2
     assert summary["lines"]["unresolved_row_count"] == 0
@@ -630,6 +658,18 @@ def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: 
     assert summary["shards"]["suspicious_shard_count"] == 1
     assert summary["important_artifacts"]["canonical_line_table_jsonl"] == "canonical_line_table.jsonl"
     assert summary["important_artifacts"]["shard_status_jsonl"] == "shard_status.jsonl"
+    assert (
+        summary["repair_recovery_policy"]["budgets"]["fresh_session_retry"][
+            "allowed_attempts"
+        ]
+        == 1
+    )
+    assert (
+        summary["repair_recovery_policy"]["budgets"]["fresh_session_retry"][
+            "spent_attempts"
+        ]
+        == 0
+    )
     assert summary["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 1
     assert summary["task_file_guardrails"]["warning_count"] == 0
     assert summary["attention_summary"]["needs_attention"] is True
@@ -705,7 +745,7 @@ def test_summarize_knowledge_stage_artifacts_uses_status_file(tmp_path: Path) ->
     summary = summarize_knowledge_stage_artifacts(stage_root)
 
     assert summary["authoritative"] is True
-    assert summary["schema_version"] == "knowledge_stage_summary.v9"
+    assert summary["schema_version"] == "knowledge_stage_summary.v10"
     assert summary["stage_state"] == "interrupted"
     assert summary["termination_cause"] == "operator_interrupt"
     assert summary["finalization_completeness"] == "interrupted_before_finalization"
@@ -719,6 +759,7 @@ def test_summarize_knowledge_stage_artifacts_uses_status_file(tmp_path: Path) ->
     assert summary["packets"]["packet_total"] == 0
     assert summary["workers"]["outcome_counts"] == {}
     assert summary["followups"]["circuit_breaker_activation_count"] == 0
+    assert summary["repair_recovery_policy"]["active_transport"] == "inline-json-v1"
     assert summary["salvage"]["success_count"] == 0
     assert summary["attention_summary"]["needs_attention"] is True
     assert summary["attention_summary"]["zero_target_counts"]["pre_kill_failure_count"] == 2
@@ -1010,6 +1051,13 @@ def test_summarize_knowledge_stage_artifacts_reports_packet_and_worker_rollups(
         "completed_outputs_stabilized": 1,
     }
     assert summary["workers"]["output_count"] == 1
+    assert summary["repair_recovery_policy"]["active_transport"] == "inline-json-v1"
+    assert (
+        summary["repair_recovery_policy"]["semantic_steps"]["nonrecipe_classify"][
+            "budgets"
+        ]["structured_repair_followup"]["allowed_attempts"]
+        == 3
+    )
     assert summary["packet_economics"] == {
         "packet_count_total": 3,
         "primary_packet_count_total": 2,

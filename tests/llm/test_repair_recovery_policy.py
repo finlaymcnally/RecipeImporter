@@ -8,6 +8,7 @@ from cookimport.llm.repair_recovery_policy import (
     LINE_ROLE_POLICY_STAGE_KEY,
     RECIPE_POLICY_STAGE_KEY,
     TASKFILE_TRANSPORT,
+    build_followup_budget_summary,
     get_stage_transport_policy,
     inline_repair_policy_summary,
     should_attempt_taskfile_fresh_session_retry,
@@ -132,3 +133,22 @@ def test_taskfile_and_inline_policy_rows_can_be_opened_directly() -> None:
     assert recipe_policy.transport == TASKFILE_TRANSPORT
     assert line_role_inline_policy.stage_key == LINE_ROLE_POLICY_STAGE_KEY
     assert line_role_inline_policy.transport == INLINE_JSON_TRANSPORT
+
+
+def test_followup_budget_summary_reports_allowed_and_spent_counts() -> None:
+    summary = build_followup_budget_summary(
+        stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+        transport=INLINE_JSON_TRANSPORT,
+        semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
+        spent_attempts_by_kind={"structured_repair_followup": 2},
+    )
+
+    assert summary["semantic_step_key"] == KNOWLEDGE_GROUP_STEP_KEY
+    assert summary["budgets"]["structured_repair_followup"] == {
+        "followup_kind": "structured_repair_followup",
+        "followup_surface": "structured_session",
+        "budget_scope": "semantic_step",
+        "allowed_attempts": 3,
+        "spent_attempts": 2,
+        "remaining_attempts": 1,
+    }

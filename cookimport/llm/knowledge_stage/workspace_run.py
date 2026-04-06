@@ -19,13 +19,21 @@ from ..editable_task_file import (
     write_task_file,
 )
 from ..repair_recovery_policy import (
+    FOLLOWUP_KIND_FRESH_SESSION_RETRY,
+    FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT,
+    FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE,
+    FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP,
+    INLINE_JSON_TRANSPORT,
     KNOWLEDGE_CLASSIFY_STEP_KEY,
     KNOWLEDGE_GROUP_STEP_KEY,
     KNOWLEDGE_POLICY_STAGE_KEY,
+    TASKFILE_TRANSPORT,
+    build_followup_budget_summary,
     inline_repair_policy_summary,
     should_attempt_taskfile_fresh_session_retry,
     should_attempt_taskfile_fresh_worker_replacement,
     structured_repair_followup_limit,
+    taskfile_same_session_repair_rewrite_limit,
     taskfile_recovery_policy_summary,
 )
 from ..knowledge_same_session_handoff import (
@@ -127,6 +135,24 @@ def _knowledge_validation_blocked(
     validation_metadata: Mapping[str, Any],
 ) -> bool:
     return bool(validation_errors) or bool(validation_metadata.get("error_details"))
+
+
+def _knowledge_same_session_repair_counts_by_step(
+    state_payload: Mapping[str, Any],
+) -> dict[str, int]:
+    counts = {
+        KNOWLEDGE_CLASSIFY_STEP_KEY: 0,
+        KNOWLEDGE_GROUP_STEP_KEY: 0,
+    }
+    for transition_row in state_payload.get("transition_history") or ():
+        if not isinstance(transition_row, Mapping):
+            continue
+        if str(transition_row.get("status") or "").strip() != "repair_required":
+            continue
+        current_stage_key = str(transition_row.get("current_stage_key") or "").strip()
+        if current_stage_key in counts:
+            counts[current_stage_key] += 1
+    return counts
 
 
 def _merge_knowledge_response_contract_diagnostics(
@@ -1490,8 +1516,33 @@ def _run_phase_knowledge_worker_assignment_v1(
         worker_runner_payload["recovery_policy"] = {
             **taskfile_recovery_policy_summary(stage_key=KNOWLEDGE_POLICY_STAGE_KEY),
             "same_session_repair_rewrite_limits": {
-                KNOWLEDGE_CLASSIFY_STEP_KEY: 1,
-                KNOWLEDGE_GROUP_STEP_KEY: 1,
+                KNOWLEDGE_CLASSIFY_STEP_KEY: taskfile_same_session_repair_rewrite_limit(
+                    stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                    semantic_step_key=KNOWLEDGE_CLASSIFY_STEP_KEY,
+                ),
+                KNOWLEDGE_GROUP_STEP_KEY: taskfile_same_session_repair_rewrite_limit(
+                    stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                    semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
+                ),
+            },
+        }
+        worker_runner_payload["repair_recovery_policy"] = {
+            "active_transport": TASKFILE_TRANSPORT,
+            "worker_assignment": build_followup_budget_summary(
+                stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                transport=TASKFILE_TRANSPORT,
+            ),
+            "semantic_steps": {
+                KNOWLEDGE_CLASSIFY_STEP_KEY: build_followup_budget_summary(
+                    stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                    transport=TASKFILE_TRANSPORT,
+                    semantic_step_key=KNOWLEDGE_CLASSIFY_STEP_KEY,
+                ),
+                KNOWLEDGE_GROUP_STEP_KEY: build_followup_budget_summary(
+                    stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                    transport=TASKFILE_TRANSPORT,
+                    semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
+                ),
             },
         }
         _write_json(worker_runner_payload, worker_root / "status.json")
@@ -2200,11 +2251,64 @@ def _run_phase_knowledge_worker_assignment_v1(
     worker_runner_payload["fresh_worker_replacement_status"] = (
         fresh_worker_replacement_status
     )
+    same_session_repair_rewrite_count = int(
+        same_session_state_payload.get("same_session_repair_rewrite_count") or 0
+    )
+    same_session_repair_counts_by_step = _knowledge_same_session_repair_counts_by_step(
+        same_session_state_payload
+    )
+    worker_runner_payload["same_session_repair_rewrite_count"] = (
+        same_session_repair_rewrite_count
+    )
+    worker_runner_payload["same_session_repair_rewrite_counts_by_step"] = dict(
+        same_session_repair_counts_by_step
+    )
     worker_runner_payload["recovery_policy"] = {
         **taskfile_recovery_policy_summary(stage_key=KNOWLEDGE_POLICY_STAGE_KEY),
         "same_session_repair_rewrite_limits": {
-            KNOWLEDGE_CLASSIFY_STEP_KEY: 1,
-            KNOWLEDGE_GROUP_STEP_KEY: 1,
+            KNOWLEDGE_CLASSIFY_STEP_KEY: taskfile_same_session_repair_rewrite_limit(
+                stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                semantic_step_key=KNOWLEDGE_CLASSIFY_STEP_KEY,
+            ),
+            KNOWLEDGE_GROUP_STEP_KEY: taskfile_same_session_repair_rewrite_limit(
+                stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
+            ),
+        },
+    }
+    worker_runner_payload["repair_recovery_policy"] = {
+        "active_transport": TASKFILE_TRANSPORT,
+        "worker_assignment": build_followup_budget_summary(
+            stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+            transport=TASKFILE_TRANSPORT,
+            spent_attempts_by_kind={
+                FOLLOWUP_KIND_FRESH_SESSION_RETRY: fresh_session_retry_count,
+                FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT: fresh_worker_replacement_count,
+            },
+        ),
+        "semantic_steps": {
+            KNOWLEDGE_CLASSIFY_STEP_KEY: build_followup_budget_summary(
+                stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                transport=TASKFILE_TRANSPORT,
+                semantic_step_key=KNOWLEDGE_CLASSIFY_STEP_KEY,
+                spent_attempts_by_kind={
+                    FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE: same_session_repair_counts_by_step.get(
+                        KNOWLEDGE_CLASSIFY_STEP_KEY,
+                        0,
+                    ),
+                },
+            ),
+            KNOWLEDGE_GROUP_STEP_KEY: build_followup_budget_summary(
+                stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                transport=TASKFILE_TRANSPORT,
+                semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
+                spent_attempts_by_kind={
+                    FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE: same_session_repair_counts_by_step.get(
+                        KNOWLEDGE_GROUP_STEP_KEY,
+                        0,
+                    ),
+                },
+            ),
         },
     }
     if fresh_worker_replacement_metadata:
@@ -2246,6 +2350,10 @@ def _run_phase_knowledge_worker_assignment_v1(
                     worker_root / "packet_history.jsonl",
                 ),
                 "task_file_guardrail": dict(task_file_guardrail or {}),
+                "same_session_repair_rewrite_count": same_session_repair_rewrite_count,
+                "same_session_repair_rewrite_counts_by_step": dict(
+                    same_session_repair_counts_by_step
+                ),
                 "fresh_session_retry_count": fresh_session_retry_count,
                 "fresh_session_retry_status": fresh_session_retry_status,
                 "fresh_worker_replacement_count": fresh_worker_replacement_count,

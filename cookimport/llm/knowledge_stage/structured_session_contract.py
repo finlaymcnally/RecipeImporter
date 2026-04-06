@@ -114,6 +114,18 @@ def apply_knowledge_same_session_row_metadata(
     initial_task_file: Mapping[str, Any],
     state_payload: Mapping[str, Any],
 ) -> None:
+    classification_repair_rewrite_count = 0
+    grouping_repair_rewrite_count = 0
+    for transition_row in state_payload.get("transition_history") or ():
+        if not isinstance(transition_row, Mapping):
+            continue
+        if str(transition_row.get("status") or "").strip() != "repair_required":
+            continue
+        current_stage_key = str(transition_row.get("current_stage_key") or "").strip()
+        if current_stage_key == "nonrecipe_classify":
+            classification_repair_rewrite_count += 1
+        elif current_stage_key == "knowledge_group":
+            grouping_repair_rewrite_count += 1
     classification_validation_count = int(
         state_payload.get("classification_validation_count") or 0
     )
@@ -131,6 +143,10 @@ def apply_knowledge_same_session_row_metadata(
     row["classification_validation_count"] = classification_validation_count
     row["grouping_validation_count"] = grouping_validation_count
     row["same_session_repair_rewrite_count"] = same_session_repair_rewrite_count
+    row["classification_same_session_repair_rewrite_count"] = (
+        classification_repair_rewrite_count
+    )
+    row["grouping_same_session_repair_rewrite_count"] = grouping_repair_rewrite_count
     row["grouping_transition_count"] = int(
         state_payload.get("grouping_transition_count") or 0
     )

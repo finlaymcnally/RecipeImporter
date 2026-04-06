@@ -76,7 +76,14 @@ from cookimport.llm.phase_worker_runtime import (
     resolve_phase_worker_count,
 )
 from cookimport.llm.repair_recovery_policy import (
+    FOLLOWUP_KIND_FRESH_SESSION_RETRY,
+    FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT,
+    FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE,
+    FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP,
+    INLINE_JSON_TRANSPORT,
     LINE_ROLE_POLICY_STAGE_KEY,
+    TASKFILE_TRANSPORT,
+    build_followup_budget_summary,
     inline_repair_policy_summary,
     structured_repair_followup_limit,
     taskfile_recovery_policy_summary,

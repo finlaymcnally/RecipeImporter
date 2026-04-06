@@ -1,5 +1,7 @@
 # Repair Attempts: Plain-English Detailed Walkthrough - by codex
 
+Note: this file is narrative context, not the live contract. The authoritative repair/recovery policy now lives in `docs/10-llm/10-llm_README.md` plus `cookimport/llm/repair_recovery_policy.py`, and runtime artifacts surface the same shared policy under `repair_recovery_policy`.
+
 There are 3 LLM stages:
 
 1. `line-role`
@@ -818,5 +820,4 @@ That is what makes it feel spaghetti-adjacent.
 3. **Move knowledge’s extra packet-style repair into that generic action instead of leaving it as a knowledge-specific oddity.**
 4. **Make “up to 3 repairs” progress-gated rather than purely fixed-count.**
 5. **Only after that, consider transport changes like recipe inline-json.**
-
 

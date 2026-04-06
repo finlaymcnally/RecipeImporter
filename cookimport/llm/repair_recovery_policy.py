@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Mapping
 
 TASKFILE_TRANSPORT = "taskfile-v1"
 INLINE_JSON_TRANSPORT = "inline-json-v1"
@@ -264,6 +265,19 @@ def taskfile_fresh_worker_replacement_limit(*, stage_key: str) -> int:
     )
 
 
+def taskfile_same_session_repair_rewrite_limit(
+    *,
+    stage_key: str,
+    semantic_step_key: str | None = None,
+) -> int:
+    return get_followup_limit(
+        stage_key=stage_key,
+        transport=TASKFILE_TRANSPORT,
+        kind=FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE,
+        semantic_step_key=semantic_step_key,
+    )
+
+
 def structured_repair_followup_limit(
     *,
     stage_key: str,
@@ -298,6 +312,41 @@ def inline_repair_policy_summary(
             stage_key=stage_key,
             semantic_step_key=semantic_step_key,
         )
+    }
+
+
+def build_followup_budget_summary(
+    *,
+    stage_key: str,
+    transport: str,
+    semantic_step_key: str | None = None,
+    spent_attempts_by_kind: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    policy = get_stage_transport_policy(
+        stage_key=stage_key,
+        transport=transport,
+        semantic_step_key=semantic_step_key,
+    )
+    spent_counts = (
+        dict(spent_attempts_by_kind) if isinstance(spent_attempts_by_kind, Mapping) else {}
+    )
+    budgets: dict[str, dict[str, Any]] = {}
+    for budget in policy.allowed_followups:
+        spent_attempts = max(0, int(spent_counts.get(budget.kind) or 0))
+        allowed_attempts = max(0, int(budget.max_attempts))
+        budgets[budget.kind] = {
+            "followup_kind": budget.kind,
+            "followup_surface": budget.surface,
+            "budget_scope": budget.scope,
+            "allowed_attempts": allowed_attempts,
+            "spent_attempts": spent_attempts,
+            "remaining_attempts": max(allowed_attempts - spent_attempts, 0),
+        }
+    return {
+        "stage_key": policy.stage_key,
+        "transport": policy.transport,
+        "semantic_step_key": policy.semantic_step_key,
+        "budgets": budgets,
     }
 
 

@@ -7,6 +7,20 @@ from typing import Any, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cookimport.llm.repair_recovery_policy import (
+    FOLLOWUP_KIND_FRESH_SESSION_RETRY,
+    FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT,
+    FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE,
+    FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP,
+    INLINE_JSON_TRANSPORT,
+    KNOWLEDGE_CLASSIFY_STEP_KEY,
+    KNOWLEDGE_GROUP_STEP_KEY,
+    KNOWLEDGE_POLICY_STAGE_KEY,
+    LINE_ROLE_POLICY_STAGE_KEY,
+    RECIPE_POLICY_STAGE_KEY,
+    TASKFILE_TRANSPORT,
+    build_followup_budget_summary,
+)
 from cookimport.llm.knowledge_runtime_replay import replay_knowledge_runtime
 from cookimport.llm.knowledge_runtime_state import (
     KNOWLEDGE_PACKET_EXPLICIT_NO_FINAL_OUTPUT_REASON_CODES,
@@ -41,11 +55,11 @@ KNOWLEDGE_MANIFEST_FILE_NAME = "knowledge_manifest.json"
 KNOWLEDGE_STAGE_STATUS_FILE_NAME = "stage_status.json"
 KNOWLEDGE_STAGE_STATUS_SCHEMA_VERSION = "knowledge_stage_status.v1"
 KNOWLEDGE_STAGE_SUMMARY_FILE_NAME = "knowledge_stage_summary.json"
-KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v9"
+KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v10"
 RECIPE_STAGE_SUMMARY_FILE_NAME = "recipe_stage_summary.json"
-RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v6"
+RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v7"
 LINE_ROLE_STAGE_SUMMARY_FILE_NAME = "line_role_stage_summary.json"
-LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION = "line_role_stage_summary.v4"
+LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION = "line_role_stage_summary.v5"
 
 _KNOWLEDGE_STAGE_ARTIFACT_KEYS: tuple[str, ...] = (
     "phase_manifest.json",
@@ -739,6 +753,7 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
         if "circuit_breaker" in reason_code
     }
     worker_state_counts, worker_reason_code_counts = _collect_worker_status_counts(stage_root)
+    worker_status_rows = _load_worker_status_rows(stage_root)
     salvage_counts = _collect_salvage_counts(stage_root)
     telemetry_payload = _load_json_dict(stage_root / "telemetry.json") or {}
     telemetry_summary = (
@@ -751,6 +766,93 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
         if isinstance(telemetry_summary.get("packet_economics"), Mapping)
         else {}
     )
+    repair_recovery_policy = (
+        telemetry_summary.get("repair_recovery_policy")
+        if isinstance(telemetry_summary.get("repair_recovery_policy"), Mapping)
+        else None
+    )
+    if not isinstance(repair_recovery_policy, Mapping):
+        same_session_mode = (
+            int(packet_economics.get("same_session_transition_count_total") or 0) > 0
+        )
+        if same_session_mode:
+            repair_recovery_policy = {
+                "active_transport": TASKFILE_TRANSPORT,
+                "worker_assignment": build_followup_budget_summary(
+                    stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                    transport=TASKFILE_TRANSPORT,
+                    spent_attempts_by_kind={
+                        FOLLOWUP_KIND_FRESH_SESSION_RETRY: _sum_worker_status_int(
+                            worker_status_rows,
+                            "fresh_session_retry_count",
+                        ),
+                        FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT: _sum_worker_status_int(
+                            worker_status_rows,
+                            "fresh_worker_replacement_count",
+                        ),
+                    },
+                ),
+                "semantic_steps": {
+                    KNOWLEDGE_CLASSIFY_STEP_KEY: build_followup_budget_summary(
+                        stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                        transport=TASKFILE_TRANSPORT,
+                        semantic_step_key=KNOWLEDGE_CLASSIFY_STEP_KEY,
+                        spent_attempts_by_kind={
+                            FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE: int(
+                                packet_economics.get(
+                                    "classification_same_session_repair_rewrite_count_total"
+                                )
+                                or 0
+                            ),
+                        },
+                    ),
+                    KNOWLEDGE_GROUP_STEP_KEY: build_followup_budget_summary(
+                        stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                        transport=TASKFILE_TRANSPORT,
+                        semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
+                        spent_attempts_by_kind={
+                            FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE: int(
+                                packet_economics.get(
+                                    "grouping_same_session_repair_rewrite_count_total"
+                                )
+                                or 0
+                            ),
+                        },
+                    ),
+                },
+            }
+        else:
+            repair_recovery_policy = {
+                "active_transport": INLINE_JSON_TRANSPORT,
+                "semantic_steps": {
+                    KNOWLEDGE_CLASSIFY_STEP_KEY: build_followup_budget_summary(
+                        stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                        transport=INLINE_JSON_TRANSPORT,
+                        semantic_step_key=KNOWLEDGE_CLASSIFY_STEP_KEY,
+                        spent_attempts_by_kind={
+                            FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: int(
+                                packet_economics.get(
+                                    "classification_repair_packet_count_total"
+                                )
+                                or 0
+                            ),
+                        },
+                    ),
+                    KNOWLEDGE_GROUP_STEP_KEY: build_followup_budget_summary(
+                        stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                        transport=INLINE_JSON_TRANSPORT,
+                        semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
+                        spent_attempts_by_kind={
+                            FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: int(
+                                packet_economics.get(
+                                    "grouping_repair_packet_count_total"
+                                )
+                                or 0
+                            ),
+                        },
+                    ),
+                },
+            }
     replay_summary = replay_knowledge_runtime(knowledge_root=stage_root)
     packet_total = len(task_rows) if task_rows else int(replay_summary.rollup.packet_total)
     deterministic_bypass_total = int(packet_attempt_type_counts.get("deterministic_bypass") or 0)
@@ -871,6 +973,7 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
             ),
             "circuit_breaker_reason_counts": circuit_breaker_reason_counts,
         },
+        "repair_recovery_policy": dict(repair_recovery_policy or {}),
         "salvage": salvage_counts,
         "packet_economics": packet_economics,
         "grounding_counts": grounding_counts,
@@ -959,6 +1062,29 @@ def _count_status_values(paths: list[Path]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def _load_worker_status_rows(stage_root: Path) -> list[dict[str, Any]]:
+    return [
+        _load_json_dict(path) or {}
+        for path in sorted(stage_root.glob("workers/*/status.json"))
+    ]
+
+
+def _sum_worker_status_int(
+    worker_status_rows: list[dict[str, Any]],
+    key: str,
+) -> int:
+    return sum(int((row or {}).get(key) or 0) for row in worker_status_rows)
+
+
+def _first_mapping(
+    value: Any,
+    fallback: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    if isinstance(value, Mapping):
+        return dict(value)
+    return dict(fallback or {})
+
+
 def _repair_rollup(stage_root: Path) -> tuple[int, int, int]:
     attempted_paths = sorted(stage_root.glob("workers/*/shards/*/repair_prompt.txt"))
     completed_paths = sorted(stage_root.glob("workers/*/shards/*/repair_status.json"))
@@ -991,11 +1117,13 @@ def _stage_summary_state(
 def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
     phase_manifest = _load_json_dict(stage_root / "phase_manifest.json") or {}
     promotion_report = _load_json_dict(stage_root / "promotion_report.json") or {}
+    telemetry_payload = _load_json_dict(stage_root / "telemetry.json") or {}
     recipe_manifest = _load_json_dict(stage_root.parent / RECIPE_MANIFEST_FILE_NAME) or {}
     recipe_manifest_counts = recipe_manifest.get("counts")
     if not isinstance(recipe_manifest_counts, Mapping):
         recipe_manifest_counts = {}
     worker_state_counts, worker_reason_code_counts = _collect_worker_status_counts(stage_root)
+    worker_status_rows = _load_worker_status_rows(stage_root)
     shard_status_paths = sorted(stage_root.glob("workers/*/shards/*/status.json"))
     shard_status_counts = _count_status_values(shard_status_paths)
     failed_shard_total = sum(
@@ -1060,18 +1188,36 @@ def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
             "repair_running_count": repair_running,
             "proposal_count": proposal_count,
         },
+        "repair_recovery_policy": build_followup_budget_summary(
+            stage_key=RECIPE_POLICY_STAGE_KEY,
+            transport=TASKFILE_TRANSPORT,
+            spent_attempts_by_kind={
+                FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE: _sum_worker_status_int(
+                    worker_status_rows,
+                    "repair_worker_session_count",
+                ),
+                FOLLOWUP_KIND_FRESH_SESSION_RETRY: _sum_worker_status_int(
+                    worker_status_rows,
+                    "fresh_session_retry_count",
+                ),
+                FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT: _sum_worker_status_int(
+                    worker_status_rows,
+                    "fresh_worker_replacement_count",
+                ),
+            },
+        ),
         "important_artifacts": important_artifacts,
     }
     worker_session_guardrails = _runtime_guardrail_payload(
         phase_manifest_payload=phase_manifest,
-        telemetry_payload=_load_json_dict(stage_root / "telemetry.json") or {},
+        telemetry_payload=telemetry_payload,
         key="worker_session_guardrails",
     )
     if worker_session_guardrails is not None:
         summary["worker_session_guardrails"] = worker_session_guardrails
     task_file_guardrails = _runtime_guardrail_payload(
         phase_manifest_payload=phase_manifest,
-        telemetry_payload=_load_json_dict(stage_root / "telemetry.json") or {},
+        telemetry_payload=telemetry_payload,
         key="task_file_guardrails",
     )
     if task_file_guardrails is not None:
@@ -1129,10 +1275,12 @@ def write_recipe_stage_summary(
 def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
     phase_manifest = _load_json_dict(stage_root / "phase_manifest.json") or {}
     promotion_report = _load_json_dict(stage_root / "promotion_report.json") or {}
+    telemetry_payload = _load_json_dict(stage_root / "telemetry.json") or {}
     task_rows = _load_jsonl_dicts(stage_root / "shard_status.jsonl")
     line_rows = _load_jsonl_dicts(stage_root / "canonical_line_table.jsonl")
     labeled_line_rows = _load_all_label_llm_rows(_line_role_run_root(stage_root))
     worker_state_counts, worker_reason_code_counts = _collect_worker_status_counts(stage_root)
+    worker_status_rows = _load_worker_status_rows(stage_root)
     shard_status_paths = sorted(stage_root.glob("workers/*/shards/*/status.json"))
     shard_status_counts = _count_status_values(shard_status_paths)
     failed_shard_total = sum(
@@ -1186,6 +1334,27 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
     codex_policy_rejected_row_count, codex_policy_rejection_reason_counts = (
         _count_codex_policy_rejections_in_label_rows(labeled_line_rows)
     )
+    active_transport = TASKFILE_TRANSPORT
+    telemetry_summary = (
+        telemetry_payload.get("summary")
+        if isinstance(telemetry_payload.get("summary"), Mapping)
+        else {}
+    )
+    prompt_input_mode_counts = (
+        telemetry_summary.get("prompt_input_mode_counts")
+        if isinstance(telemetry_summary.get("prompt_input_mode_counts"), Mapping)
+        else {}
+    )
+    if any(
+        str(mode).startswith("structured_session")
+        for mode in prompt_input_mode_counts.keys()
+    ) or int(telemetry_summary.get("structured_followup_call_count") or 0) > 0:
+        active_transport = INLINE_JSON_TRANSPORT
+    elif any(
+        str(row.get("last_attempt_type") or "").strip().startswith("structured_session")
+        for row in task_rows
+    ):
+        active_transport = INLINE_JSON_TRANSPORT
     summary = {
         "schema_version": LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION,
         "stage_key": "line_role",
@@ -1226,18 +1395,48 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
             "repair_running_count": repair_running,
             "proposal_count": proposal_count,
         },
+        "repair_recovery_policy": (
+            build_followup_budget_summary(
+                stage_key=LINE_ROLE_POLICY_STAGE_KEY,
+                transport=INLINE_JSON_TRANSPORT,
+                spent_attempts_by_kind={
+                    FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: int(
+                        telemetry_summary.get("structured_followup_call_count") or 0
+                    ),
+                },
+            )
+            if active_transport == INLINE_JSON_TRANSPORT
+            else build_followup_budget_summary(
+                stage_key=LINE_ROLE_POLICY_STAGE_KEY,
+                transport=TASKFILE_TRANSPORT,
+                spent_attempts_by_kind={
+                    FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE: _sum_worker_status_int(
+                        worker_status_rows,
+                        "same_session_repair_rewrite_count",
+                    ),
+                    FOLLOWUP_KIND_FRESH_SESSION_RETRY: _sum_worker_status_int(
+                        worker_status_rows,
+                        "fresh_session_retry_count",
+                    ),
+                    FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT: _sum_worker_status_int(
+                        worker_status_rows,
+                        "fresh_worker_replacement_count",
+                    ),
+                },
+            )
+        ),
         "important_artifacts": important_artifacts,
     }
     worker_session_guardrails = _runtime_guardrail_payload(
         phase_manifest_payload=phase_manifest,
-        telemetry_payload=_load_json_dict(stage_root / "telemetry.json") or {},
+        telemetry_payload=telemetry_payload,
         key="worker_session_guardrails",
     )
     if worker_session_guardrails is not None:
         summary["worker_session_guardrails"] = worker_session_guardrails
     task_file_guardrails = _runtime_guardrail_payload(
         phase_manifest_payload=phase_manifest,
-        telemetry_payload=_load_json_dict(stage_root / "telemetry.json") or {},
+        telemetry_payload=telemetry_payload,
         key="task_file_guardrails",
     )
     if task_file_guardrails is not None:

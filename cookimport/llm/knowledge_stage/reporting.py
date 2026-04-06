@@ -19,6 +19,18 @@ from ..phase_worker_runtime import (
     WorkerAssignmentV1,
     WorkerExecutionReportV1,
 )
+from ..repair_recovery_policy import (
+    FOLLOWUP_KIND_FRESH_SESSION_RETRY,
+    FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT,
+    FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE,
+    FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP,
+    INLINE_JSON_TRANSPORT,
+    KNOWLEDGE_CLASSIFY_STEP_KEY,
+    KNOWLEDGE_GROUP_STEP_KEY,
+    KNOWLEDGE_POLICY_STAGE_KEY,
+    TASKFILE_TRANSPORT,
+    build_followup_budget_summary,
+)
 from ..task_file_guardrails import (
     build_worker_session_guardrails,
     summarize_task_file_guardrails,
@@ -244,11 +256,15 @@ def _build_knowledge_packet_economics(
     grouping_validation_count_total = 0
     same_session_transition_count_total = 0
     same_session_repair_rewrite_count_total = 0
+    classification_same_session_repair_rewrite_count_total = 0
+    grouping_same_session_repair_rewrite_count_total = 0
     grouping_transition_count_total = 0
     classification_step_count_total = 0
     grouping_step_count_total = 0
     classification_owned_row_count_total = 0
     grouping_owned_row_count_total = 0
+    classification_repair_packet_count_total = 0
+    grouping_repair_packet_count_total = 0
     if same_session_rows:
         packet_count_total = sum(
             int(row.get("workspace_packet_count") or 0) for row in same_session_rows
@@ -270,6 +286,14 @@ def _build_knowledge_packet_economics(
         )
         same_session_repair_rewrite_count_total = sum(
             int(row.get("same_session_repair_rewrite_count") or 0)
+            for row in same_session_rows
+        )
+        classification_same_session_repair_rewrite_count_total = sum(
+            int(row.get("classification_same_session_repair_rewrite_count") or 0)
+            for row in same_session_rows
+        )
+        grouping_same_session_repair_rewrite_count_total = sum(
+            int(row.get("grouping_same_session_repair_rewrite_count") or 0)
             for row in same_session_rows
         )
         grouping_transition_count_total = sum(
@@ -321,6 +345,20 @@ def _build_knowledge_packet_economics(
         grouping_owned_row_count_total = sum(
             int(row.get("owned_row_count") or 0) for row in grouping_rows
         )
+        classification_same_session_repair_rewrite_count_total = 0
+        grouping_same_session_repair_rewrite_count_total = 0
+        classification_repair_packet_count_total = sum(
+            1
+            for row in step_rows
+            if str(row.get("knowledge_semantic_step") or "").strip() == "classification"
+            and bool(row.get("is_repair_attempt"))
+        )
+        grouping_repair_packet_count_total = sum(
+            1
+            for row in step_rows
+            if str(row.get("knowledge_semantic_step") or "").strip() == "grouping"
+            and bool(row.get("is_repair_attempt"))
+        )
         owned_row_count_total = (
             classification_owned_row_count_total
             if classification_rows
@@ -328,6 +366,13 @@ def _build_knowledge_packet_economics(
         )
         classification_step_count_total = len(classification_rows)
         grouping_step_count_total = len(grouping_rows)
+    if same_session_rows:
+        classification_repair_packet_count_total = (
+            classification_same_session_repair_rewrite_count_total
+        )
+        grouping_repair_packet_count_total = (
+            grouping_same_session_repair_rewrite_count_total
+        )
     if step_rows:
         packet_count_total = len(step_rows)
     shard_count = len(normalized_rows)
@@ -353,6 +398,14 @@ def _build_knowledge_packet_economics(
         "grouping_validation_count_total": grouping_validation_count_total,
         "same_session_transition_count_total": same_session_transition_count_total,
         "same_session_repair_rewrite_count_total": same_session_repair_rewrite_count_total,
+        "classification_same_session_repair_rewrite_count_total": (
+            classification_same_session_repair_rewrite_count_total
+        ),
+        "grouping_same_session_repair_rewrite_count_total": (
+            grouping_same_session_repair_rewrite_count_total
+        ),
+        "classification_repair_packet_count_total": classification_repair_packet_count_total,
+        "grouping_repair_packet_count_total": grouping_repair_packet_count_total,
         "grouping_transition_count_total": grouping_transition_count_total,
         "classification_owned_row_count_total": classification_owned_row_count_total,
         "grouping_owned_row_count_total": grouping_owned_row_count_total,
@@ -687,6 +740,103 @@ def _write_knowledge_runtime_summary_artifacts(
         telemetry_summary=telemetry_summary,
     )
     telemetry_summary.update(_summarize_knowledge_workspace_relaunches(worker_reports))
+    packet_economics = dict(telemetry_summary.get("packet_economics") or {})
+    same_session_repair_counts_by_step = {
+        KNOWLEDGE_CLASSIFY_STEP_KEY: int(
+            packet_economics.get("classification_same_session_repair_rewrite_count_total")
+            or 0
+        ),
+        KNOWLEDGE_GROUP_STEP_KEY: int(
+            packet_economics.get("grouping_same_session_repair_rewrite_count_total")
+            or 0
+        ),
+    }
+    structured_repair_counts_by_step = {
+        KNOWLEDGE_CLASSIFY_STEP_KEY: int(
+            packet_economics.get("classification_repair_packet_count_total") or 0
+        ),
+        KNOWLEDGE_GROUP_STEP_KEY: int(
+            packet_economics.get("grouping_repair_packet_count_total") or 0
+        ),
+    }
+    fresh_session_retry_count = sum(
+        int(dict(report.metadata or {}).get("fresh_session_retry_count") or 0)
+        for report in worker_reports
+    )
+    fresh_worker_replacement_count = sum(
+        int(dict(report.metadata or {}).get("fresh_worker_replacement_count") or 0)
+        for report in worker_reports
+    )
+    if int(packet_economics.get("same_session_transition_count_total") or 0) > 0:
+        telemetry_summary["repair_recovery_policy"] = {
+            "active_transport": TASKFILE_TRANSPORT,
+            "worker_assignment": build_followup_budget_summary(
+                stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                transport=TASKFILE_TRANSPORT,
+                spent_attempts_by_kind={
+                    FOLLOWUP_KIND_FRESH_SESSION_RETRY: fresh_session_retry_count,
+                    FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT: (
+                        fresh_worker_replacement_count
+                    ),
+                },
+            ),
+            "semantic_steps": {
+                KNOWLEDGE_CLASSIFY_STEP_KEY: build_followup_budget_summary(
+                    stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                    transport=TASKFILE_TRANSPORT,
+                    semantic_step_key=KNOWLEDGE_CLASSIFY_STEP_KEY,
+                    spent_attempts_by_kind={
+                        FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE: (
+                            same_session_repair_counts_by_step[
+                                KNOWLEDGE_CLASSIFY_STEP_KEY
+                            ]
+                        ),
+                    },
+                ),
+                KNOWLEDGE_GROUP_STEP_KEY: build_followup_budget_summary(
+                    stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                    transport=TASKFILE_TRANSPORT,
+                    semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
+                    spent_attempts_by_kind={
+                        FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE: (
+                            same_session_repair_counts_by_step[
+                                KNOWLEDGE_GROUP_STEP_KEY
+                            ]
+                        ),
+                    },
+                ),
+            },
+        }
+    else:
+        telemetry_summary["repair_recovery_policy"] = {
+            "active_transport": INLINE_JSON_TRANSPORT,
+            "semantic_steps": {
+                KNOWLEDGE_CLASSIFY_STEP_KEY: build_followup_budget_summary(
+                    stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                    transport=INLINE_JSON_TRANSPORT,
+                    semantic_step_key=KNOWLEDGE_CLASSIFY_STEP_KEY,
+                    spent_attempts_by_kind={
+                        FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: (
+                            structured_repair_counts_by_step[
+                                KNOWLEDGE_CLASSIFY_STEP_KEY
+                            ]
+                        ),
+                    },
+                ),
+                KNOWLEDGE_GROUP_STEP_KEY: build_followup_budget_summary(
+                    stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                    transport=INLINE_JSON_TRANSPORT,
+                    semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
+                    spent_attempts_by_kind={
+                        FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: (
+                            structured_repair_counts_by_step[
+                                KNOWLEDGE_GROUP_STEP_KEY
+                            ]
+                        ),
+                    },
+                ),
+            },
+        }
     task_file_guardrails = summarize_task_file_guardrails(
         [
             (
@@ -751,13 +901,8 @@ def _write_knowledge_runtime_summary_artifacts(
             **dict(runtime_metadata or {}),
             "task_file_guardrails": task_file_guardrails,
             "worker_session_guardrails": worker_session_guardrails,
-            "fresh_worker_replacement_count": sum(
-                int(
-                    dict(report.metadata or {}).get("fresh_worker_replacement_count")
-                    or 0
-                )
-                for report in worker_reports
-            ),
+            "fresh_session_retry_count": fresh_session_retry_count,
+            "fresh_worker_replacement_count": fresh_worker_replacement_count,
         },
     )
     _write_json(asdict(manifest), run_root / artifacts["phase_manifest"])

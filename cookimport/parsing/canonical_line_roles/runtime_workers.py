@@ -418,7 +418,12 @@ def _run_line_role_taskfile_assignment_v1(*, run_root: root.Path, assignment: ro
         worker_proposals.append(root.ShardProposalV1(shard_id=shard.shard_id, worker_id=assignment.worker_id, status=proposal_status, proposal_path=root._relative_runtime_path(run_root, proposal_path), payload=payload if valid else None, validation_errors=tuple(final_validation_errors), metadata=dict(final_validation_metadata or {})))
         if shard_completed_callback is not None:
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
+    same_session_repair_rewrite_count = int(
+        line_role_same_session_state_payload.get('same_session_repair_rewrite_count')
+        or 0
+    )
     worker_runner_payload = root._aggregate_line_role_worker_runner_payload(pipeline_id=pipeline_id, worker_runs=worker_runner_results)
+    worker_runner_payload['same_session_repair_rewrite_count'] = same_session_repair_rewrite_count
     worker_runner_payload['fresh_session_retry_count'] = fresh_session_retry_count
     worker_runner_payload['fresh_session_retry_status'] = fresh_session_retry_status
     if fresh_session_recovery_metadata:
@@ -428,8 +433,17 @@ def _run_line_role_taskfile_assignment_v1(*, run_root: root.Path, assignment: ro
     if fresh_worker_replacement_metadata:
         worker_runner_payload.update(dict(fresh_worker_replacement_metadata))
     worker_runner_payload['recovery_policy'] = root.taskfile_recovery_policy_summary(stage_key=root.LINE_ROLE_POLICY_STAGE_KEY)
+    worker_runner_payload['repair_recovery_policy'] = root.build_followup_budget_summary(
+        stage_key=root.LINE_ROLE_POLICY_STAGE_KEY,
+        transport=root.TASKFILE_TRANSPORT,
+        spent_attempts_by_kind={
+            root.FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE: same_session_repair_rewrite_count,
+            root.FOLLOWUP_KIND_FRESH_SESSION_RETRY: fresh_session_retry_count,
+            root.FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT: fresh_worker_replacement_count,
+        },
+    )
     root._write_runtime_json(worker_root / 'status.json', worker_runner_payload)
-    return root._DirectLineRoleWorkerResult(report=root.WorkerExecutionReportV1(worker_id=assignment.worker_id, shard_ids=assignment.shard_ids, workspace_root=root._relative_runtime_path(run_root, worker_root), status='ok' if worker_failure_count == 0 else 'partial_failure', proposal_count=worker_proposal_count, failure_count=worker_failure_count, runtime_mode_audit={'mode': root.DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, 'status': 'ok', 'output_schema_enforced': False, 'tool_affordances_requested': True}, runner_result=worker_runner_payload, metadata={'in_dir': root._relative_runtime_path(run_root, in_dir), 'debug_dir': root._relative_runtime_path(run_root, debug_dir), 'hints_dir': root._relative_runtime_path(run_root, hints_dir), 'out_dir': root._relative_runtime_path(run_root, out_dir), 'shards_dir': root._relative_runtime_path(run_root, shard_dir), 'log_dir': root._relative_runtime_path(run_root, logs_dir), 'task_file_guardrail': dict(task_file_guardrail or {}), 'fresh_session_retry_count': fresh_session_retry_count, 'fresh_session_retry_status': fresh_session_retry_status, **dict(fresh_session_recovery_metadata), 'fresh_worker_replacement_count': fresh_worker_replacement_count, 'fresh_worker_replacement_status': fresh_worker_replacement_status, **dict(fresh_worker_replacement_metadata)}), proposals=tuple(worker_proposals), failures=tuple(worker_failures), stage_rows=tuple(stage_rows), task_status_rows=tuple(task_status_rows), runner_results_by_shard_id=dict(runner_results_by_shard_id))
+    return root._DirectLineRoleWorkerResult(report=root.WorkerExecutionReportV1(worker_id=assignment.worker_id, shard_ids=assignment.shard_ids, workspace_root=root._relative_runtime_path(run_root, worker_root), status='ok' if worker_failure_count == 0 else 'partial_failure', proposal_count=worker_proposal_count, failure_count=worker_failure_count, runtime_mode_audit={'mode': root.DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, 'status': 'ok', 'output_schema_enforced': False, 'tool_affordances_requested': True}, runner_result=worker_runner_payload, metadata={'in_dir': root._relative_runtime_path(run_root, in_dir), 'debug_dir': root._relative_runtime_path(run_root, debug_dir), 'hints_dir': root._relative_runtime_path(run_root, hints_dir), 'out_dir': root._relative_runtime_path(run_root, out_dir), 'shards_dir': root._relative_runtime_path(run_root, shard_dir), 'log_dir': root._relative_runtime_path(run_root, logs_dir), 'task_file_guardrail': dict(task_file_guardrail or {}), 'same_session_repair_rewrite_count': same_session_repair_rewrite_count, 'fresh_session_retry_count': fresh_session_retry_count, 'fresh_session_retry_status': fresh_session_retry_status, **dict(fresh_session_recovery_metadata), 'fresh_worker_replacement_count': fresh_worker_replacement_count, 'fresh_worker_replacement_status': fresh_worker_replacement_status, **dict(fresh_worker_replacement_metadata)}), proposals=tuple(worker_proposals), failures=tuple(worker_failures), stage_rows=tuple(stage_rows), task_status_rows=tuple(task_status_rows), runner_results_by_shard_id=dict(runner_results_by_shard_id))
 
 def _run_line_role_direct_worker_assignment_v1(*, run_root: root.Path, assignment: root.WorkerAssignmentV1, artifacts: dict[str, str], shard_by_id: dict[str, root.ShardManifestEntryV1], debug_payload_by_shard_id: root.Mapping[str, root.Any], deterministic_baseline_by_shard_id: root.Mapping[str, root.Mapping[int, root.CanonicalLineRolePrediction]], runner: root.CodexExecRunner, pipeline_id: str, env: dict[str, str], model: str | None, reasoning_effort: str | None, settings: root.Mapping[str, root.Any], output_schema_path: root.Path | None, timeout_seconds: int, cohort_watchdog_state: root._LineRoleCohortWatchdogState, shard_completed_callback: root.Callable[..., None] | None, prompt_state: '_PromptArtifactState' | None, validator: root.Callable[[root.ShardManifestEntryV1, dict[str, root.Any]], tuple[bool, root.Sequence[str], dict[str, root.Any] | None]]) -> root._DirectLineRoleWorkerResult:
     worker_root = root.Path(assignment.workspace_root)
@@ -851,6 +865,18 @@ def _run_line_role_structured_assignment_v1(*, run_root: root.Path, assignment: 
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
     worker_runner_payload = root._aggregate_line_role_worker_runner_payload(pipeline_id=pipeline_id, worker_runs=worker_runner_results)
     worker_runner_payload['recovery_policy'] = root.inline_repair_policy_summary(stage_key=root.LINE_ROLE_POLICY_STAGE_KEY)
+    worker_runner_payload['repair_recovery_policy'] = root.build_followup_budget_summary(
+        stage_key=root.LINE_ROLE_POLICY_STAGE_KEY,
+        transport=root.INLINE_JSON_TRANSPORT,
+        spent_attempts_by_kind={
+            root.FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: int(
+                worker_runner_payload.get('telemetry', {})
+                .get('summary', {})
+                .get('structured_followup_call_count')
+                or 0
+            ),
+        },
+    )
     root._write_runtime_json(worker_root / 'status.json', worker_runner_payload)
     return root._DirectLineRoleWorkerResult(report=root.WorkerExecutionReportV1(worker_id=assignment.worker_id, shard_ids=assignment.shard_ids, workspace_root=root._relative_runtime_path(run_root, worker_root), status='ok' if worker_failure_count == 0 else 'partial_failure', proposal_count=worker_proposal_count, failure_count=worker_failure_count, runtime_mode_audit={'mode': root.DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, 'status': 'ok', 'output_schema_enforced': True, 'tool_affordances_requested': False}, runner_result=worker_runner_payload, metadata={'shards_dir': root._relative_runtime_path(run_root, shard_dir), 'codex_exec_style': root.CODEX_EXEC_STYLE_INLINE_JSON_V1}), proposals=tuple(worker_proposals), failures=tuple(worker_failures), stage_rows=tuple(stage_rows), task_status_rows=tuple(task_status_rows), runner_results_by_shard_id=dict(runner_results_by_shard_id))
 
@@ -1004,10 +1030,33 @@ def _run_line_role_direct_workers_v1(*, phase_key: str, pipeline_id: str, run_ro
     telemetry['summary']['worker_session_guardrails'] = worker_session_guardrails
     telemetry['summary']['planned_happy_path_worker_cap'] = int(worker_session_guardrails['planned_happy_path_worker_cap'])
     telemetry['summary']['actual_happy_path_worker_sessions'] = int(worker_session_guardrails['actual_happy_path_worker_sessions'])
+    same_session_repair_rewrite_count = sum((int(dict(report.metadata or {}).get('same_session_repair_rewrite_count') or 0) for report in worker_reports))
+    fresh_session_retry_count = sum((int(dict(report.metadata or {}).get('fresh_session_retry_count') or 0) for report in worker_reports))
+    fresh_worker_replacement_count = sum((int(dict(report.metadata or {}).get('fresh_worker_replacement_count') or 0) for report in worker_reports))
+    if any(str(dict(report.metadata or {}).get('codex_exec_style') or '').strip() == root.CODEX_EXEC_STYLE_INLINE_JSON_V1 for report in worker_reports):
+        telemetry['summary']['repair_recovery_policy'] = root.build_followup_budget_summary(
+            stage_key=root.LINE_ROLE_POLICY_STAGE_KEY,
+            transport=root.INLINE_JSON_TRANSPORT,
+            spent_attempts_by_kind={
+                root.FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: int(
+                    telemetry['summary'].get('structured_followup_call_count') or 0
+                ),
+            },
+        )
+    else:
+        telemetry['summary']['repair_recovery_policy'] = root.build_followup_budget_summary(
+            stage_key=root.LINE_ROLE_POLICY_STAGE_KEY,
+            transport=root.TASKFILE_TRANSPORT,
+            spent_attempts_by_kind={
+                root.FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE: same_session_repair_rewrite_count,
+                root.FOLLOWUP_KIND_FRESH_SESSION_RETRY: fresh_session_retry_count,
+                root.FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT: fresh_worker_replacement_count,
+            },
+        )
     root._write_runtime_json(run_root / artifacts['promotion_report'], promotion_report)
     root._write_runtime_json(run_root / artifacts['telemetry'], telemetry)
     root._write_runtime_json(run_root / artifacts['failures'], failures)
-    runtime_metadata_payload = {**dict(runtime_metadata or {}), 'task_file_guardrails': task_file_guardrails, 'worker_session_guardrails': worker_session_guardrails, 'fresh_session_retry_count': sum((int(dict(report.metadata or {}).get('fresh_session_retry_count') or 0) for report in worker_reports)), 'fresh_worker_replacement_count': sum((int(dict(report.metadata or {}).get('fresh_worker_replacement_count') or 0) for report in worker_reports))}
+    runtime_metadata_payload = {**dict(runtime_metadata or {}), 'task_file_guardrails': task_file_guardrails, 'worker_session_guardrails': worker_session_guardrails, 'same_session_repair_rewrite_count': same_session_repair_rewrite_count, 'fresh_session_retry_count': fresh_session_retry_count, 'fresh_worker_replacement_count': fresh_worker_replacement_count}
     manifest = root.PhaseManifestV1(schema_version='phase_worker_runtime.phase_manifest.v1', phase_key=phase_key, pipeline_id=pipeline_id, run_root=str(run_root), worker_count=len(assignments), shard_count=len(shards), assignment_strategy='round_robin_v1', runtime_mode=root.DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, max_turns_per_shard=1, settings=dict(settings or {}), artifact_paths=dict(artifacts), runtime_metadata=runtime_metadata_payload)
     root._write_runtime_json(run_root / artifacts['phase_manifest'], root._line_role_asdict(manifest))
     if bool(worker_session_guardrails.get('cap_exceeded')):

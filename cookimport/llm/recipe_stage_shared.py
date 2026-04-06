@@ -25,7 +25,12 @@ from .editable_task_file import TASK_FILE_NAME, build_repair_task_file, build_ta
 from .phase_worker_runtime import PhaseManifestV1, ShardManifestEntryV1, ShardProposalV1, TaskManifestEntryV1, WorkerAssignmentV1, WorkerExecutionReportV1, resolve_phase_worker_count
 from .phase_plan import attach_survivability_to_phase_plan, build_phase_plan, write_phase_plan_artifacts
 from .repair_recovery_policy import (
+    FOLLOWUP_KIND_FRESH_SESSION_RETRY,
+    FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT,
+    FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE,
     RECIPE_POLICY_STAGE_KEY,
+    TASKFILE_TRANSPORT,
+    build_followup_budget_summary,
     taskfile_recovery_policy_summary,
 )
 from .recipe_workspace_tools import build_recipe_worker_scaffold, recipe_worker_task_paths, validate_recipe_worker_draft
@@ -1066,6 +1071,15 @@ def _run_recipe_taskfile_assignment_v1(*, run_root: Path, assignment: WorkerAssi
         worker_summary['planned_happy_path_worker_cap'] = int(worker_session_guardrails['planned_happy_path_worker_cap'])
         worker_summary['actual_happy_path_worker_sessions'] = int(worker_session_guardrails['actual_happy_path_worker_sessions'])
         worker_summary['repair_worker_session_count'] = int(worker_session_guardrails['repair_worker_session_count'])
+        worker_summary['repair_recovery_policy'] = build_followup_budget_summary(
+            stage_key=RECIPE_POLICY_STAGE_KEY,
+            transport=TASKFILE_TRANSPORT,
+            spent_attempts_by_kind={
+                FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE: repair_worker_session_count,
+                FOLLOWUP_KIND_FRESH_SESSION_RETRY: fresh_session_retry_count,
+                FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT: fresh_worker_replacement_count,
+            },
+        )
     worker_runner_payload['fresh_worker_replacement_count'] = fresh_worker_replacement_count
     worker_runner_payload['fresh_worker_replacement_status'] = fresh_worker_replacement_status
     worker_runner_payload['recovery_policy'] = taskfile_recovery_policy_summary(stage_key=RECIPE_POLICY_STAGE_KEY)
@@ -1240,10 +1254,22 @@ def _run_direct_recipe_workers_v1(*, phase_key: str, pipeline_id: str, run_root:
     telemetry['summary']['planned_happy_path_worker_cap'] = int(worker_session_guardrails['planned_happy_path_worker_cap'])
     telemetry['summary']['actual_happy_path_worker_sessions'] = int(worker_session_guardrails['actual_happy_path_worker_sessions'])
     telemetry['summary']['repair_worker_session_count'] = int(worker_session_guardrails['repair_worker_session_count'])
+    total_repair_worker_session_count = sum((int((dict(report.metadata or {}).get('repair_worker_session_count') if isinstance(report.metadata, Mapping) else 0) or 0) for report in worker_reports))
+    total_fresh_session_retry_count = sum((int(dict(report.metadata or {}).get('fresh_session_retry_count') or 0) for report in worker_reports))
+    total_fresh_worker_replacement_count = sum((int(dict(report.metadata or {}).get('fresh_worker_replacement_count') or 0) for report in worker_reports))
+    telemetry['summary']['repair_recovery_policy'] = build_followup_budget_summary(
+        stage_key=RECIPE_POLICY_STAGE_KEY,
+        transport=TASKFILE_TRANSPORT,
+        spent_attempts_by_kind={
+            FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE: total_repair_worker_session_count,
+            FOLLOWUP_KIND_FRESH_SESSION_RETRY: total_fresh_session_retry_count,
+            FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT: total_fresh_worker_replacement_count,
+        },
+    )
     _write_json(promotion_report, run_root / artifacts['promotion_report'])
     _write_json(telemetry, run_root / artifacts['telemetry'])
     _write_json(failures, run_root / artifacts['failures'])
-    runtime_metadata_payload = {**dict(runtime_metadata or {}), 'task_file_guardrails': task_file_guardrails, 'worker_session_guardrails': worker_session_guardrails, 'fresh_session_retry_count': sum((int(dict(report.metadata or {}).get('fresh_session_retry_count') or 0) for report in worker_reports)), 'fresh_worker_replacement_count': sum((int(dict(report.metadata or {}).get('fresh_worker_replacement_count') or 0) for report in worker_reports)), 'phase_plan_path': str(phase_plan_path), 'phase_plan_summary_path': str(phase_plan_summary_path)}
+    runtime_metadata_payload = {**dict(runtime_metadata or {}), 'task_file_guardrails': task_file_guardrails, 'worker_session_guardrails': worker_session_guardrails, 'same_session_repair_rewrite_count': total_repair_worker_session_count, 'fresh_session_retry_count': total_fresh_session_retry_count, 'fresh_worker_replacement_count': total_fresh_worker_replacement_count, 'phase_plan_path': str(phase_plan_path), 'phase_plan_summary_path': str(phase_plan_summary_path)}
     manifest = PhaseManifestV1(schema_version='phase_worker_runtime.phase_manifest.v1', phase_key=phase_key, pipeline_id=pipeline_id, run_root=str(run_root), worker_count=len(assignments), shard_count=len(shards), assignment_strategy='round_robin_v1', runtime_mode=DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, max_turns_per_shard=1, settings=dict(settings or {}), artifact_paths=dict(artifacts), runtime_metadata=runtime_metadata_payload)
     _write_json(asdict(manifest), run_root / artifacts['phase_manifest'])
     if bool(worker_session_guardrails.get('cap_exceeded')):
