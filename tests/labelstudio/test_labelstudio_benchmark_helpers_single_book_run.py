@@ -183,6 +183,9 @@ def test_build_shard_recommendations_from_prep_bundle_exposes_context_and_book_k
                         "shard_count": 5,
                         "owned_id_count": 38,
                         "owned_ids_per_shard": {"avg": 7.6},
+                        "work_unit_label": "chars",
+                        "work_unit_count": 62_000,
+                        "work_units_per_shard": {"avg": 12_400.0},
                         "minimum_safe_shard_count": 2,
                         "binding_limit": "output",
                         "survivability": {
@@ -251,7 +254,8 @@ def test_build_shard_recommendations_from_prep_bundle_exposes_context_and_book_k
     assert recommendations["recipe"]["owned_units_per_shard_avg"] == 5.4
     assert recommendations["recipe"]["owned_unit_label"] == "recipes"
     assert recommendations["knowledge"]["avg_peak_session_tokens_per_shard"] == 57_400
-    assert recommendations["knowledge"]["owned_unit_label"] == "packets"
+    assert recommendations["knowledge"]["owned_units_per_shard_avg"] == 12_400.0
+    assert recommendations["knowledge"]["owned_unit_label"] == "chars"
     assert recommendations["__book_summary__"] == {
         "block_count": 312,
         "line_count": 1245,
@@ -1005,9 +1009,9 @@ def test_interactive_single_book_codex_enabled_runs_only_codex_exec(
         "auto",
         "auto",
     ]
-    assert [call["deterministic_prep_manifest_path"] for call in benchmark_calls] == [
+    assert [call.get("deterministic_prep_manifest_path") for call in benchmark_calls] == [
         prep_bundle.manifest_path,
-        prep_bundle.manifest_path,
+        None,
     ]
     assert [call["eval_output_dir"] for call in benchmark_calls] == [
         benchmark_eval_output / "single-book-benchmark" / "book" / "vanilla",

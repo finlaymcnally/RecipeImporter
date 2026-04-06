@@ -698,7 +698,7 @@ def _write_knowledge_runtime_summary_artifacts(
         ]
     )
     worker_session_guardrails = build_worker_session_guardrails(
-        planned_happy_path_worker_cap=len(assignments) * 3,
+        planned_happy_path_worker_cap=len(assignments) * 2,
         actual_happy_path_worker_sessions=int(
             telemetry_summary.get("taskfile_session_count") or 0
         ),

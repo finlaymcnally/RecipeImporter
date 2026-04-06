@@ -939,7 +939,10 @@ class RunSettings(BaseModel):
             group="LLM",
             label="Knowledge Group Task Max Units",
             order=115,
-            description="Maximum accepted knowledge rows grouped in one same-session grouping batch.",
+            description=(
+                "Legacy grouping metadata hint. The active runtime groups one shard in one "
+                "pass rather than splitting runtime grouping into several batches."
+            ),
             step=1,
             minimum=1,
             maximum=500,
@@ -954,7 +957,10 @@ class RunSettings(BaseModel):
             group="LLM",
             label="Knowledge Group Task Max Evidence",
             order=115,
-            description="Approximate evidence-character cap for one knowledge grouping batch.",
+            description=(
+                "Legacy grouping metadata hint. The active runtime groups one shard in one "
+                "pass rather than splitting runtime grouping into several batches."
+            ),
             step=250,
             minimum=1,
             maximum=500000,

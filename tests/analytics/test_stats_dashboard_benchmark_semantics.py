@@ -453,7 +453,7 @@ class TestBenchmarkSemantics:
         assert "overflow-x: auto;" in css
         assert "cursor: col-resize;" in css
 
-    def test_render_builds_all_method_standalone_pages(self, tmp_path):
+    def test_render_keeps_all_method_sweeps_on_main_page_only(self, tmp_path):
         all_method_root = (
             tmp_path
             / "golden"
@@ -562,260 +562,14 @@ class TestBenchmarkSemantics:
         html = html_path.read_text(encoding="utf-8")
         assert "All-Method Benchmark Runs" not in html
         assert "all-method-benchmark/index.html" not in html
+        assert "All-Method Sweeps" in html
+        assert "Recent all-method benchmark sweeps stay on this page." in html
+        assert 'id="all-method-summary-section"' in html
+        assert not (tmp_path / "dash" / "all-method-benchmark").exists()
 
-        all_method_dir = tmp_path / "dash" / "all-method-benchmark"
-        run_detail_path = (
-            all_method_dir
-            / "all-method-benchmark-run__2026-02-23_16.01.06.html"
-        )
-        assert run_detail_path.exists()
-        detail_path = (
-            all_method_dir
-            / "all-method-benchmark__2026-02-23_16.01.06__thefoodlabcutdown.html"
-        )
-        assert detail_path.exists()
-        detail_path_second = (
-            all_method_dir
-            / "all-method-benchmark__2026-02-23_16.01.06__dinnerfor2cutdown.html"
-        )
-        assert detail_path_second.exists()
-
-        detail_html = detail_path.read_text(encoding="utf-8")
-        assert 'class="all-method-quick-nav"' in detail_html
-        assert 'href="#detail-summary"' in detail_html
-        assert 'href="#detail-charts"' in detail_html
-        assert 'href="#detail-ranked-table"' in detail_html
-        assert 'id="detail-charts"' in detail_html
-        assert 'id="detail-ranked-table"' in detail_html
-        assert 'class="section-details"' in detail_html
-        assert "Run Summary" in detail_html
-        assert "Compact stats only (no per-config labels)" in detail_html
-        assert "<th>Stat</th><th>N</th><th>Min</th><th>Median</th><th>Mean</th><th>Max</th>" in detail_html
-        assert "Metric Bar Charts" in detail_html
-        assert "One bar per run/configuration for each metric category." in detail_html
-        assert "All axes use fixed 0-100%; recipes is percent identified vs golden recipe headers for this source." in detail_html
-        assert "Run 01" in detail_html
-        assert "metric-bar-fill" in detail_html
-        assert "Metric Web Charts (Radar)" in detail_html
-        assert "Each web is one run/configuration." in detail_html
-        assert "All axes use fixed 0-100%; recipes is percent identified vs golden recipe headers for this source." in detail_html
-        assert "metric-radar-svg" in detail_html
-        assert "Run 01: config_002_bbb_extractor_markdown" in detail_html
-        assert "<strong>Golden recipes:</strong> 10" in detail_html
-        strict_precision_block = detail_html.split("<h3>Strict Precision</h3>", 1)[1].split(
-            "</section>", 1
-        )[0]
-        assert 'style="width:20.00%"' in strict_precision_block
-        assert 'style="width:100.00%"' not in strict_precision_block
-        recipes_identified_block = detail_html.split("<h3>Recipes Identified %</h3>", 1)[1].split(
-            "</section>", 1
-        )[0]
-        assert 'style="width:90.00%"' in recipes_identified_block
-        assert 'style="width:70.00%"' in recipes_identified_block
-        assert "Strict Precision" in detail_html
-        assert "Practical F1" in detail_html
-        assert ">Extractor</span></th>" in detail_html
-        assert ">Parser</span></th>" in detail_html
-        assert ">Skip HF</th>" in detail_html
-        assert ">Preprocess</th>" in detail_html
-        assert "<td>auto</td>" in detail_html
-        assert "<td>v2</td>" in detail_html
-        assert "<td>true</td>" in detail_html
-        assert "<td>br_split_v1</td>" in detail_html
-        assert "<td>markdown</td>" in detail_html
-        assert "<td>-</td>" in detail_html
-        assert "Ranked Configurations" in detail_html
-        assert detail_html.find("config_002_bbb_extractor_markdown") < detail_html.find(
-            "config_001_aaa_extractor_beautifulsoup"
-        )
-        assert "strict_f1=0.3000" in detail_html
-        assert 'href="../index.html#previous-runs-section"' in detail_html
-
-        run_detail_html = run_detail_path.read_text(encoding="utf-8")
-        assert 'href="../index.html#previous-runs-section"' in run_detail_html
-        assert 'class="all-method-quick-nav"' in run_detail_html
-        assert 'href="#run-summary"' in run_detail_html
-        assert 'href="#run-charts"' in run_detail_html
-        assert 'href="#run-config-table"' in run_detail_html
-        assert 'href="#run-drilldown"' in run_detail_html
-        assert 'id="run-charts"' in run_detail_html
-        assert 'id="run-config-table"' in run_detail_html
-        assert 'id="run-drilldown"' in run_detail_html
-        assert "Run Summary" in run_detail_html
-        assert "Compact stats across aggregated config rows" in run_detail_html
-        assert "Metric Bar Charts" in run_detail_html
-        assert "One bar per aggregated configuration for each metric category." in run_detail_html
-        assert "All axes use fixed 0-100%; recipes is percent identified vs golden recipe headers for each book." in run_detail_html
-        assert "Config 01" in run_detail_html
-        assert "metric-bar-fill" in run_detail_html
-        assert "Metric Web Charts (Radar)" in run_detail_html
-        assert "Each web is one aggregated configuration." in run_detail_html
-        assert "All axes use fixed 0-100%; recipes is percent identified vs golden recipe headers for each book." in run_detail_html
-        assert "metric-radar-svg" in run_detail_html
-        assert "Config 01: config_002_bbb_extractor_markdown" in run_detail_html
-        assert "Per-Cookbook Average Metric Bar Charts" in run_detail_html
-        assert "One bar per cookbook. Values are averaged across all configs that ran for that cookbook." in run_detail_html
-        assert "Labels use Book 01/Book 02 order from Per-Book Drilldown." in run_detail_html
-        assert "Highest avg strict precision:" in run_detail_html
-        assert "Highest avg strict recall:" in run_detail_html
-        assert "Book 01" in run_detail_html
-        assert "Per-Cookbook Average Web Charts (Radar)" in run_detail_html
-        assert "Each web is one cookbook with metrics averaged across all configs that ran for that cookbook." in run_detail_html
-        assert "Book 01: DinnerFor2CUTDOWN.epub (configs=2)" in run_detail_html
-        avg_book_precision_block = run_detail_html.split("<h3>Avg Strict Precision</h3>", 1)[1].split(
-            "</section>", 1
-        )[0]
-        assert 'style="width:13.33%"' in avg_book_precision_block
-        assert 'style="width:28.00%"' in avg_book_precision_block
-        avg_book_recipes_identified_block = run_detail_html.split("<h3>Avg Recipes Identified %</h3>", 1)[1].split(
-            "</section>", 1
-        )[0]
-        assert 'style="width:80.00%"' in avg_book_recipes_identified_block
-        assert 'style="width:91.67%"' in avg_book_recipes_identified_block
-        mean_precision_block = run_detail_html.split("<h3>Mean Strict Precision</h3>", 1)[1].split(
-            "</section>", 1
-        )[0]
-        assert 'style="width:25.50%"' in mean_precision_block
-        assert 'style="width:100.00%"' not in mean_precision_block
-        mean_recipes_identified_block = run_detail_html.split("<h3>Recipes Identified %</h3>", 1)[1].split(
-            "</section>", 1
-        )[0]
-        assert 'style="width:95.00%"' in mean_recipes_identified_block
-        assert "Mean Strict Precision" in run_detail_html
-        assert "Mean Practical F1" in run_detail_html
-        assert "Config Performance Across Books" in run_detail_html
-        assert "Per-Book Drilldown" in run_detail_html
-        assert "Open book details" in run_detail_html
-        assert "all-method-benchmark__2026-02-23_16.01.06__thefoodlabcutdown.html" in run_detail_html
-        assert "all-method-benchmark__2026-02-23_16.01.06__dinnerfor2cutdown.html" in run_detail_html
-        assert run_detail_html.find("config_002_bbb_extractor_markdown") < run_detail_html.find(
-            "config_001_aaa_extractor_beautifulsoup"
-        )
-
-    def test_all_method_renders_report_variants_without_eval_reports(self, tmp_path):
-        golden_root = tmp_path / "golden"
-        all_method_root = (
-            golden_root
-            / "eval-vs-pipeline"
-            / "2026-02-23_16.01.06"
-            / "all-method-benchmark"
-            / "thefoodlabcutdown"
-        )
-        all_method_root.mkdir(parents=True, exist_ok=True)
-
-        for idx in range(1, 4):
-            config_dir = all_method_root / f"config_{idx:03d}_cfg{idx}_extractor_beautifulsoup"
-            config_dir.mkdir(parents=True, exist_ok=True)
-            (config_dir / "manifest.json").write_text(
-                json.dumps(
-                    {
-                        "importer_name": "epub",
-                        "source_file": "/tmp/thefoodlabCUTDOWN.epub",
-                        "recipe_count": 10 + idx,
-                        "run_config": {"epub_extractor": "beautifulsoup"},
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-        (all_method_root / "all_method_benchmark_report.json").write_text(
-            json.dumps(
-                {
-                    "created_at": "2026-02-23T16:10:00",
-                    "source_file": "/tmp/thefoodlabCUTDOWN.epub",
-                    "variants": [
-                        {
-                            "config_dir": "config_001_cfg1_extractor_beautifulsoup",
-                            "evaluation_representative_config_dir": "config_001_cfg1_extractor_beautifulsoup",
-                            "evaluation_result_source": "executed",
-                            "eval_report_json": "config_001_cfg1_extractor_beautifulsoup/eval_report.json",
-                            "precision": 0.10,
-                            "recall": 0.20,
-                            "f1": 0.1333,
-                            "practical_precision": 0.40,
-                            "practical_recall": 0.50,
-                            "practical_f1": 0.4444,
-                            "run_config_hash": "hash001",
-                            "run_config_summary": "epub_extractor=beautifulsoup",
-                        },
-                        {
-                            "config_dir": "config_002_cfg2_extractor_beautifulsoup",
-                            "evaluation_representative_config_dir": "config_001_cfg1_extractor_beautifulsoup",
-                            "evaluation_result_source": "reused_in_run",
-                            "eval_report_json": "config_001_cfg1_extractor_beautifulsoup/eval_report.json",
-                            "precision": 0.10,
-                            "recall": 0.20,
-                            "f1": 0.1333,
-                            "practical_precision": 0.40,
-                            "practical_recall": 0.50,
-                            "practical_f1": 0.4444,
-                            "run_config_hash": "hash002",
-                            "run_config_summary": "epub_extractor=beautifulsoup",
-                        },
-                        {
-                            "config_dir": "config_003_cfg3_extractor_beautifulsoup",
-                            "evaluation_representative_config_dir": "config_001_cfg1_extractor_beautifulsoup",
-                            "evaluation_result_source": "reused_in_run",
-                            "eval_report_json": "config_001_cfg1_extractor_beautifulsoup/eval_report.json",
-                            "precision": 0.10,
-                            "recall": 0.20,
-                            "f1": 0.1333,
-                            "practical_precision": 0.40,
-                            "practical_recall": 0.50,
-                            "practical_f1": 0.4444,
-                            "run_config_hash": "hash003",
-                            "run_config_summary": "epub_extractor=beautifulsoup",
-                        },
-                    ],
-                }
-            ),
-            encoding="utf-8",
-        )
-
-        data = DashboardData(
-            golden_root=str(golden_root),
-            benchmark_records=[
-                BenchmarkRecord(
-                    run_timestamp="2026-02-23T16:04:10",
-                    artifact_dir=str(all_method_root / "config_001_cfg1_extractor_beautifulsoup"),
-                    precision=0.10,
-                    recall=0.20,
-                    f1=0.1333,
-                    practical_f1=0.4444,
-                    recipes=11,
-                    gold_recipe_headers=20,
-                    source_file="/tmp/thefoodlabCUTDOWN.epub",
-                    importer_name="epub",
-                    run_config_hash="hash001",
-                )
-            ],
-        )
-        render_dashboard(tmp_path / "dash", data)
-
-        all_method_index = tmp_path / "dash" / "all-method-benchmark" / "index.html"
-        assert not all_method_index.exists()
-
-        run_detail_html = (
-            tmp_path
-            / "dash"
-            / "all-method-benchmark"
-            / "all-method-benchmark-run__2026-02-23_16.01.06.html"
-        ).read_text(encoding="utf-8")
-        assert "<strong>Run folder:</strong> 2026-02-23_16.01.06" in run_detail_html
-        assert "<strong>Configs aggregated:</strong> 3" in run_detail_html
-
-        detail_path = (
-            tmp_path
-            / "dash"
-            / "all-method-benchmark"
-            / "all-method-benchmark__2026-02-23_16.01.06__thefoodlabcutdown.html"
-        )
-        detail_html = detail_path.read_text(encoding="utf-8")
-        assert "config_001_cfg1_extractor_beautifulsoup" in detail_html
-        assert "config_002_cfg2_extractor_beautifulsoup" in detail_html
-        assert "config_003_cfg3_extractor_beautifulsoup" in detail_html
-
-    def test_render_includes_single_profile_sweep_runs(self, tmp_path):
+    def test_render_does_not_write_standalone_sweep_pages_for_single_profile_runs(
+        self, tmp_path
+    ):
         golden_root = tmp_path / "golden"
         single_profile_root = (
             golden_root
@@ -857,20 +611,10 @@ class TestBenchmarkSemantics:
                 ),
             ],
         )
-        render_dashboard(tmp_path / "dash", data)
-
-        all_method_dir = tmp_path / "dash" / "all-method-benchmark"
-        assert not (all_method_dir / "index.html").exists()
-
-        run_detail_html = (
-            all_method_dir
-            / "all-method-benchmark-run__2026-02-28_03.35.11.html"
-        ).read_text(encoding="utf-8")
-        assert "<strong>Book jobs:</strong> 2" in run_detail_html
-        assert "<strong>Configs aggregated:</strong> 1" in run_detail_html
-        assert "profile_abcdef123456" in run_detail_html
-        assert "all-method-benchmark__2026-02-28_03.35.11__01_book_a.html" in run_detail_html
-        assert "all-method-benchmark__2026-02-28_03.35.11__02_book_b.html" in run_detail_html
+        html_path = render_dashboard(tmp_path / "dash", data)
+        html = html_path.read_text(encoding="utf-8")
+        assert "All-Method Sweeps" in html
+        assert not (tmp_path / "dash" / "all-method-benchmark").exists()
 
     def test_render_all_method_section_when_no_groups(self, tmp_path):
         golden_root = tmp_path / "golden-empty"
@@ -891,6 +635,7 @@ class TestBenchmarkSemantics:
         html = html_path.read_text(encoding="utf-8")
         assert "all-method-benchmark/index.html" not in html
         assert "No all-method benchmark runs found in benchmark history." not in html
+        assert 'id="all-method-summary-section"' in html
         assert not (tmp_path / "dash" / "all-method-benchmark" / "index.html").exists()
         assert not (tmp_path / "dash" / "all-method-benchmark.html").exists()
 

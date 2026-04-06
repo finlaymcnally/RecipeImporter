@@ -5,18 +5,19 @@ Interactive run-settings UI helpers.
 - The workflow toggle still collapses to `off` vs shard-backed Codex, but the menu renders only the family labels `Vanilla / no Codex` and `Codex Exec`.
 - Any non-`off` choice resolves `Codex Exec automatic top-tier` (winner-preferred when available).
 - Interactive Codex-enabled flows now reuse one consolidated per-step planner after the workflow choice when Codex Exec is selected:
-  - one list shows every available step with mode and shard count on the same row
+  - one list shows every available step with shard count first, then the mode columns on the same row
   - mode columns are `Off`, `JSON`, and `Taskfile`; recipe offers only `Off` and `Taskfile`
-  - the highlighted mode on each row is the live choice for that step in this run
+  - the cursor starts on the shard-count cell; the active highlight wraps only the current token instead of the whole padded cell
   - up/down moves between rows while staying in the same planner
-  - left/right arrows or `Enter` cycle the current row's mode; `+`, `-`, and direct digit entry edit shard count
+  - left/right arrows move between shard count and mode columns; moving onto a mode cell selects it, while `+`, `-`, and direct digit entry edit shard count
+  - prompt/session/work estimates recompute live from the selected shard count on each row
   - `Continue` accepts the whole list at once
   - interactive `Import` shows recipe correction and non-recipe finalize
   - interactive benchmark modes show block labelling, recipe correction, and non-recipe finalize so the planner matches runtime stage order
   - single-book benchmark mode now resolves the selected gold/source pair early enough to run a deterministic prompt-preview preflight before the planner, so the rows can surface minimum-safe recommendations for that concrete book
   - interactive all-method benchmark callers can reuse that same planner with the benchmark surface set they actually support
   - recipe `Taskfile`, line-role `JSON`, and knowledge `JSON` are the default Codex step modes
-  - row notes still surface deterministic shard recommendations and survivability hints when available
+  - unavailable mode cells render blank instead of placeholder dashes, and row notes still surface deterministic shard recommendations and survivability hints when available
   - those prompts map directly to `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count`
   - line-role transport now persists through `line_role_codex_exec_style` and knowledge through `knowledge_codex_exec_style`
 - Any non-`off` choice also prompts for codex AI settings for that run:

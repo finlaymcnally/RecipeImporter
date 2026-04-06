@@ -425,33 +425,29 @@ def build_knowledge_grouping_task_files(
         classification_answers_by_unit_id=classification_answers_by_unit_id,
         unit_to_shard_id=unit_to_shard_id,
     )
-    batches = _partition_knowledge_grouping_units(
-        units,
-        max_units_per_batch=max_units_per_batch,
-        max_evidence_chars_per_batch=max_evidence_chars_per_batch,
-    )
     total_grouping_unit_count = len(units)
-    task_files = [
-        _build_knowledge_grouping_task_file_from_units(
-            assignment_id=assignment_id,
-            worker_id=worker_id,
-            units=batch_units,
-            batch_index=index + 1,
-            batch_count=len(batches),
-            total_grouping_unit_count=total_grouping_unit_count,
-            max_units_per_batch=max_units_per_batch,
-            max_evidence_chars_per_batch=max_evidence_chars_per_batch,
-        )
-        for index, batch_units in enumerate(batches)
-    ]
-    batch_unit_ids = [
-        [
-            str(unit.get("unit_id") or "").strip()
-            for unit in batch_units
-            if str(unit.get("unit_id") or "").strip()
+    task_files = []
+    batch_unit_ids: list[list[str]] = []
+    if units:
+        task_files = [
+            _build_knowledge_grouping_task_file_from_units(
+                assignment_id=assignment_id,
+                worker_id=worker_id,
+                units=units,
+                batch_index=1,
+                batch_count=1,
+                total_grouping_unit_count=total_grouping_unit_count,
+                max_units_per_batch=max_units_per_batch,
+                max_evidence_chars_per_batch=max_evidence_chars_per_batch,
+            )
         ]
-        for batch_units in batches
-    ]
+        batch_unit_ids = [
+            [
+                str(unit.get("unit_id") or "").strip()
+                for unit in units
+                if str(unit.get("unit_id") or "").strip()
+            ]
+        ]
     return task_files, grouping_unit_to_shard_id, batch_unit_ids
 
 
@@ -1093,43 +1089,36 @@ def transition_knowledge_classification_task_file(
             },
         )
     grouping_limits = _coerce_dict(classification_source_task_file.get("grouping_limits"))
-    grouping_task_files, _grouping_unit_to_shard_id, grouping_batch_unit_ids = (
-        build_knowledge_grouping_task_files(
-            assignment_id=str(original_task_file.get("assignment_id") or ""),
-            worker_id=str(original_task_file.get("worker_id") or ""),
-            classification_task_file=classification_source_task_file,
-            classification_answers_by_unit_id=combined_answers_by_unit_id,
-            unit_to_shard_id=unit_to_shard_id,
-            max_units_per_batch=int(
-                grouping_limits.get("max_units_per_batch")
-                or KNOWLEDGE_GROUP_TASK_MAX_UNITS
-            ),
-            max_evidence_chars_per_batch=int(
-                grouping_limits.get("max_evidence_chars_per_batch")
-                or KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS
-            ),
-        )
+    grouping_task_file, _grouping_unit_to_shard_id = build_knowledge_grouping_task_file(
+        assignment_id=str(original_task_file.get("assignment_id") or ""),
+        worker_id=str(original_task_file.get("worker_id") or ""),
+        classification_task_file=classification_source_task_file,
+        classification_answers_by_unit_id=combined_answers_by_unit_id,
+        unit_to_shard_id=unit_to_shard_id,
+        max_units_per_batch=int(
+            grouping_limits.get("max_units_per_batch")
+            or KNOWLEDGE_GROUP_TASK_MAX_UNITS
+        ),
+        max_evidence_chars_per_batch=int(
+            grouping_limits.get("max_evidence_chars_per_batch")
+            or KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS
+        ),
     )
-    if grouping_task_files:
-        first_grouping_task_file = grouping_task_files[0]
-        total_grouping_unit_count = sum(
-            len(batch_unit_ids) for batch_unit_ids in grouping_batch_unit_ids
-        )
+    if grouping_task_file.get("units"):
+        total_grouping_unit_count = len(grouping_task_file.get("units") or [])
         return KnowledgeTaskFileTransition(
             status="advance_to_grouping",
             current_stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY,
             next_stage_key=KNOWLEDGE_GROUP_STAGE_KEY,
-            next_task_file=first_grouping_task_file,
+            next_task_file=grouping_task_file,
             validated_answers_by_unit_id=combined_answers_by_unit_id,
             validation_metadata=dict(validation_metadata),
             transition_metadata={
                 "grouping_unit_count": total_grouping_unit_count,
-                "grouping_batch_count": len(grouping_task_files),
+                "grouping_batch_count": 1,
                 "current_grouping_batch_index": 1,
-                "current_grouping_batch_unit_count": len(
-                    first_grouping_task_file.get("units") or []
-                ),
-                "pending_grouping_unit_batches": grouping_batch_unit_ids[1:],
+                "current_grouping_batch_unit_count": total_grouping_unit_count,
+                "pending_grouping_unit_batches": [],
             },
         )
     return KnowledgeTaskFileTransition(
@@ -1231,70 +1220,6 @@ def transition_knowledge_grouping_task_file(
                 "repair_reason": "task_file_contract_violation"
                 if not validation_metadata.get("failed_unit_ids")
                 else "unit_validation_failure",
-            },
-        )
-    remaining_batch_unit_ids = [
-        [
-            str(unit_id).strip()
-            for unit_id in batch_unit_ids
-            if str(unit_id).strip()
-        ]
-        for batch_unit_ids in (pending_grouping_unit_batches or [])
-        if batch_unit_ids
-    ]
-    if remaining_batch_unit_ids:
-        next_batch_unit_ids = remaining_batch_unit_ids[0]
-        later_batch_unit_ids = remaining_batch_unit_ids[1:]
-        batch_metadata = _coerce_dict(original_task_file.get("grouping_batch"))
-        total_batch_count = max(
-            int(batch_metadata.get("total_batches") or 0),
-            1 + len(remaining_batch_unit_ids),
-        )
-        current_batch_index = max(int(batch_metadata.get("current_batch_index") or 0), 1)
-        max_units_per_batch = max(
-            1,
-            int(batch_metadata.get("max_units_per_batch") or KNOWLEDGE_GROUP_TASK_MAX_UNITS),
-        )
-        max_evidence_chars_per_batch = max(
-            1,
-            int(
-                batch_metadata.get("max_evidence_chars_per_batch")
-                or KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS
-            ),
-        )
-        total_grouping_unit_count = max(
-            int(batch_metadata.get("total_grouping_unit_count") or 0),
-            len(combined_grouping_answers_by_unit_id) + sum(len(batch) for batch in later_batch_unit_ids),
-        )
-        next_batch_units, _next_mapping = _collect_knowledge_grouping_units(
-            classification_task_file=classification_task_file,
-            classification_answers_by_unit_id=classification_answers_by_unit_id,
-            unit_to_shard_id=unit_to_shard_id,
-            allowed_unit_ids=next_batch_unit_ids,
-        )
-        next_task_file = _build_knowledge_grouping_task_file_from_units(
-            assignment_id=str(original_task_file.get("assignment_id") or ""),
-            worker_id=str(original_task_file.get("worker_id") or ""),
-            units=next_batch_units,
-            batch_index=current_batch_index + 1,
-            batch_count=total_batch_count,
-            total_grouping_unit_count=total_grouping_unit_count,
-            max_units_per_batch=max_units_per_batch,
-            max_evidence_chars_per_batch=max_evidence_chars_per_batch,
-        )
-        return KnowledgeTaskFileTransition(
-            status="advance_to_grouping",
-            current_stage_key=KNOWLEDGE_GROUP_STAGE_KEY,
-            next_stage_key=KNOWLEDGE_GROUP_STAGE_KEY,
-            next_task_file=next_task_file,
-            validated_answers_by_unit_id=combined_grouping_answers_by_unit_id,
-            validation_metadata=dict(validation_metadata),
-            transition_metadata={
-                "grouping_unit_count": total_grouping_unit_count,
-                "grouping_batch_count": total_batch_count,
-                "current_grouping_batch_index": current_batch_index + 1,
-                "current_grouping_batch_unit_count": len(next_task_file.get("units") or []),
-                "pending_grouping_unit_batches": later_batch_unit_ids,
             },
         )
     return KnowledgeTaskFileTransition(

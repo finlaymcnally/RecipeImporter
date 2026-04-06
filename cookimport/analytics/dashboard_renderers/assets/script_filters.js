@@ -996,6 +996,9 @@
     const filterSubset = document.getElementById(String(cfg.filter_subset_id || ""));
     const clearSelection = document.getElementById(String(cfg.clear_selection_id || ""));
     const resetButton = document.getElementById(String(cfg.reset_id || ""));
+    const xAxisToggleWrap = document.getElementById(String(cfg.x_axis_toggle_wrap_id || ""));
+    const xAxisDateButton = document.getElementById(String(cfg.x_axis_date_id || ""));
+    const xAxisPerRunButton = document.getElementById(String(cfg.x_axis_per_run_id || ""));
     if (
       !panel ||
       !viewMode ||
@@ -1149,6 +1152,20 @@
       });
       resetButton.dataset.bound = "1";
     }
+    [xAxisDateButton, xAxisPerRunButton].forEach(button => {
+      if (!(button instanceof HTMLButtonElement) || button.dataset.bound) return;
+      button.addEventListener("click", () => {
+        const mode = normalizeCompareControlXAxisMode(
+          button.getAttribute("data-x-axis-mode")
+        );
+        const state = compareControlStateForSet(setKey);
+        activateCompareControlChartForSet(setKey);
+        state.x_axis_mode = mode;
+        setCompareControlStateForSet(setKey, state);
+        rerenderCompareControl();
+      });
+      button.dataset.bound = "1";
+    });
   }
 
   function setupCompareControlControls() {
@@ -1165,6 +1182,9 @@
       filter_subset_id: "compare-control-filter-subset",
       clear_selection_id: "compare-control-clear-selection",
       reset_id: "compare-control-reset",
+      x_axis_toggle_wrap_id: "compare-control-x-axis-toggle-wrap",
+      x_axis_date_id: "compare-control-x-axis-date",
+      x_axis_per_run_id: "compare-control-x-axis-per-run",
     });
     setupCompareControlControlsForSet({
       set_key: "secondary",
@@ -1179,6 +1199,9 @@
       filter_subset_id: "compare-control-filter-subset-secondary",
       clear_selection_id: "compare-control-clear-selection-secondary",
       reset_id: "compare-control-reset-secondary",
+      x_axis_toggle_wrap_id: "compare-control-x-axis-toggle-wrap-secondary",
+      x_axis_date_id: "compare-control-x-axis-date-secondary",
+      x_axis_per_run_id: "compare-control-x-axis-per-run-secondary",
     });
 
     const toggleSecondSet = document.getElementById("compare-control-toggle-second-set");
@@ -1215,6 +1238,28 @@
       });
       combinedAxisMode.dataset.bound = "1";
     }
+
+    [
+      ["compare-control-x-axis-date-combined", "date"],
+      ["compare-control-x-axis-per-run-combined", "per_run"],
+    ].forEach(([id, mode]) => {
+      const button = document.getElementById(id);
+      if (!(button instanceof HTMLButtonElement) || button.dataset.bound) return;
+      button.addEventListener("click", () => {
+        const normalizedMode = normalizeCompareControlXAxisMode(mode);
+        const primaryState = compareControlStateForSet("primary");
+        const secondaryState = compareControlStateForSet("secondary");
+        activateCompareControlChartForSet("primary");
+        activateCompareControlChartForSet("secondary");
+        primaryState.x_axis_mode = normalizedMode;
+        secondaryState.x_axis_mode = normalizedMode;
+        setCompareControlStateForSet("primary", primaryState);
+        setCompareControlStateForSet("secondary", secondaryState);
+        renderCompareControlSection();
+        persistDashboardUiState();
+      });
+      button.dataset.bound = "1";
+    });
 
     syncCompareControlLayoutChrome();
   }
@@ -3424,6 +3469,7 @@
   // ---- Render all sections ----
   function renderAll() {
     previousRunsFilterResultCache = null;
+    renderAllMethodSummary();
     renderPreviousRuns();
     renderBenchmarkTrendChart();
     renderCompareControlSection();

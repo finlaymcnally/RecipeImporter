@@ -568,14 +568,20 @@ def register(app: typer.Typer) -> dict[str, object]:
             "--knowledge-group-task-max-units",
             min=1,
             hidden=True,
-            help="Maximum accepted knowledge rows grouped in one same-session batch.",
+            help=(
+                "Legacy grouping metadata hint. The active runtime groups one shard in one "
+                "pass instead of splitting runtime grouping into batches."
+            ),
         ),
         knowledge_group_task_max_evidence_chars: int = typer.Option(
             int(serialized_run_setting_default("knowledge_group_task_max_evidence_chars")),
             "--knowledge-group-task-max-evidence-chars",
             min=1,
             hidden=True,
-            help="Approximate evidence-character cap for one knowledge grouping batch.",
+            help=(
+                "Legacy grouping metadata hint. The active runtime groups one shard in one "
+                "pass instead of splitting runtime grouping into batches."
+            ),
         ),
         workspace_completion_quiescence_seconds: float = typer.Option(
             float(serialized_run_setting_default("workspace_completion_quiescence_seconds")),

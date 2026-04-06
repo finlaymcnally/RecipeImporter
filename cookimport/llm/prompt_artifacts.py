@@ -137,6 +137,103 @@ def write_prompt_log_summary(*, full_prompt_log_path: Path, output_path: Path | 
     target_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + '\n', encoding='utf-8')
     return target_path
 
+
+def _structured_session_sidecar_path(*, response_path: Path, suffix: str, extension: str) -> Path | None:
+    stem = response_path.stem
+    if '_response_' in stem:
+        prefix, tail = stem.split('_response_', 1)
+        sibling_stem = f'{prefix}_{suffix}_{tail}'
+    elif stem.endswith('_response'):
+        sibling_stem = f'{stem[:-len("_response")]}_{suffix}'
+    else:
+        return None
+    candidate = response_path.with_name(f'{sibling_stem}{extension}')
+    if candidate.exists() and candidate.is_file():
+        return candidate
+    return None
+
+
+def _resolve_structured_session_root(*, runtime_stage_root: Path | None, runtime_context: Mapping[str, Any] | None) -> Path | None:
+    if runtime_stage_root is None or not isinstance(runtime_context, Mapping):
+        return None
+    runtime_shard_id = _clean_text(runtime_context.get('runtime_shard_id'))
+    runtime_worker_id = _clean_text(runtime_context.get('runtime_worker_id'))
+    if runtime_shard_id is None or runtime_worker_id is None:
+        return None
+    session_root = runtime_stage_root / 'workers' / runtime_worker_id / 'shards' / runtime_shard_id / 'structured_session'
+    if not session_root.exists() or not session_root.is_dir():
+        return None
+    return session_root
+
+
+def _load_structured_session_turn_artifacts(*, session_root: Path | None) -> list[dict[str, Any]]:
+    if session_root is None:
+        return []
+    lineage_payload = _load_json_dict(session_root / 'session_lineage.json') or {}
+    turns = lineage_payload.get('turns')
+    if not isinstance(turns, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for turn in turns:
+        if not isinstance(turn, Mapping):
+            continue
+        prompt_path = _resolve_artifact_path(session_root, turn.get('prompt_path'))
+        response_path = _resolve_artifact_path(session_root, turn.get('response_path'))
+        packet_path = _resolve_artifact_path(session_root, turn.get('packet_path'))
+        if prompt_path is None or response_path is None:
+            continue
+        prompt_text = _safe_read_text(prompt_path)
+        response_text = _safe_read_text(response_path)
+        packet_text = _safe_read_text(packet_path) if packet_path is not None else ''
+        usage_path = _structured_session_sidecar_path(
+            response_path=response_path,
+            suffix='usage',
+            extension='.json',
+        )
+        events_path = _structured_session_sidecar_path(
+            response_path=response_path,
+            suffix='events',
+            extension='.jsonl',
+        )
+        last_message_path = _structured_session_sidecar_path(
+            response_path=response_path,
+            suffix='last_message',
+            extension='.json',
+        )
+        workspace_manifest_path = _structured_session_sidecar_path(
+            response_path=response_path,
+            suffix='workspace_manifest',
+            extension='.json',
+        )
+        usage_payload = _load_json_dict(usage_path) if isinstance(usage_path, Path) else {}
+        if not isinstance(usage_payload, dict):
+            usage_payload = {}
+        rows.append(
+            {
+                'turn_index': _coerce_int(turn.get('turn_index')) or (len(rows) + 1),
+                'turn_kind': _clean_text(turn.get('turn_kind')) or f'turn_{len(rows) + 1}',
+                'packet_path': packet_path,
+                'packet_text': packet_text,
+                'parsed_input': _parse_json_text(packet_text),
+                'prompt_path': prompt_path,
+                'prompt_text': prompt_text,
+                'response_path': response_path,
+                'response_text': response_text,
+                'parsed_response': _parse_json_text(response_text),
+                'usage_path': usage_path,
+                'usage_payload': usage_payload,
+                'events_path': events_path,
+                'last_message_path': last_message_path,
+                'workspace_manifest_path': workspace_manifest_path,
+                'timestamp_utc': (
+                    _timestamp_utc_for_path(response_path)
+                    or _timestamp_utc_for_path(prompt_path)
+                    or _timestamp_utc_for_path(packet_path)
+                ),
+            }
+        )
+    return rows
+
 def build_codex_farm_prompt_type_samples_markdown(*, full_prompt_log_path: Path, output_path: Path, examples_per_pass: int=3) -> Path | None:
     if examples_per_pass <= 0:
         return None
@@ -687,6 +784,131 @@ def render_prompt_artifacts_from_descriptors(*, pred_run: Path, eval_output_dir:
                     request_payload: dict[str, Any] = {'messages': request_messages, 'tools': [], 'response_format': response_format_payload, 'model': model_value, 'reasoning_effort': reasoning_effort_value, 'temperature': None, 'top_p': None, 'max_output_tokens': None, 'seed': None, 'pipeline_id': stage.pipeline_id, 'sandbox': sandbox_value, 'ask_for_approval': ask_for_approval_value, 'web_search': web_search_value, 'output_schema_path': telemetry_output_schema_path}
                     template_vars: dict[str, Any] = {'INPUT_PATH': str(input_file) if input_file is not None else None, 'INPUT_TEXT': input_text}
                     prompt_templates = {'prompt_template_text': pass_assets.get('prompt_template_text'), 'prompt_template_path': pass_assets.get('prompt_source_path')}
+                    structured_session_turns = _load_structured_session_turn_artifacts(session_root=_resolve_structured_session_root(runtime_stage_root=runtime_stage_root, runtime_context=runtime_context))
+                    if structured_session_turns:
+                        for turn_artifact in structured_session_turns:
+                            turn_prompt_text = str(turn_artifact.get('prompt_text') or '')
+                            turn_packet_text = str(turn_artifact.get('packet_text') or '')
+                            turn_response_text = str(turn_artifact.get('response_text') or '')
+                            turn_parsed_input = turn_artifact.get('parsed_input')
+                            turn_parsed_response = turn_artifact.get('parsed_response')
+                            turn_index = _coerce_int(turn_artifact.get('turn_index')) or 0
+                            turn_kind = _clean_text(turn_artifact.get('turn_kind')) or f'turn_{turn_index or 0}'
+                            turn_call_id = f"{runtime_context.get('runtime_shard_id') or call_stem}__turn_{turn_index:02d}_{turn_kind}"
+                            turn_request_messages = [{'role': 'user', 'content': turn_prompt_text}]
+                            turn_usage_payload = (
+                                dict(turn_artifact.get('usage_payload'))
+                                if isinstance(turn_artifact.get('usage_payload'), Mapping)
+                                else {}
+                            )
+                            turn_tokens_input = _coerce_int(turn_usage_payload.get('input_tokens'))
+                            turn_tokens_cached_input = _coerce_int(turn_usage_payload.get('cached_input_tokens'))
+                            turn_tokens_output = _coerce_int(turn_usage_payload.get('output_tokens'))
+                            turn_tokens_reasoning = _coerce_int(turn_usage_payload.get('reasoning_tokens'))
+                            turn_tokens_total = sum(
+                                value or 0
+                                for value in (
+                                    turn_tokens_input,
+                                    turn_tokens_cached_input,
+                                    turn_tokens_output,
+                                    turn_tokens_reasoning,
+                                )
+                            )
+                            turn_output_preview = turn_response_text[:400] if turn_response_text else None
+                            turn_response_path = turn_artifact.get('response_path')
+                            turn_request_telemetry = {
+                                'csv_path': telemetry_csv_by_run_id.get(process_run_id) if process_run_id is not None else None,
+                                'task_id': turn_call_id,
+                                'worker_id': runtime_context.get('runtime_worker_id'),
+                                'thread_id': None,
+                                'status': 'ok' if turn_response_text.strip() else None,
+                                'duration_ms': None,
+                                'attempt_index': turn_index,
+                                'execution_attempt_index': turn_index,
+                                'lease_claim_index': None,
+                                'input_path': str(turn_artifact.get('packet_path')) if isinstance(turn_artifact.get('packet_path'), Path) else None,
+                                'output_path': str(turn_response_path) if isinstance(turn_response_path, Path) else None,
+                                'prompt_chars': len(turn_prompt_text),
+                                'prompt_sha256': None,
+                                'output_bytes': turn_response_path.stat().st_size if isinstance(turn_response_path, Path) and turn_response_path.exists() else None,
+                                'output_sha256': None,
+                                'output_payload_present': bool(turn_response_text.strip()),
+                                'output_preview_chars': len(turn_output_preview) if turn_output_preview is not None else 0,
+                                'output_preview_truncated': bool(turn_output_preview is not None and len(turn_output_preview) < len(turn_response_text)),
+                                'output_preview': turn_output_preview,
+                                'tokens_input': turn_tokens_input,
+                                'tokens_cached_input': turn_tokens_cached_input,
+                                'tokens_output': turn_tokens_output,
+                                'tokens_reasoning': turn_tokens_reasoning,
+                                'tokens_total': turn_tokens_total,
+                                'usage_json': turn_usage_payload,
+                                'model': model_value,
+                                'reasoning_effort': reasoning_effort_value,
+                                'sandbox': sandbox_value,
+                                'ask_for_approval': ask_for_approval_value,
+                                'web_search': web_search_value,
+                                'output_schema_path': telemetry_output_schema_path,
+                                'worker_id': runtime_context.get('runtime_worker_id'),
+                                'shard_id': runtime_context.get('runtime_shard_id'),
+                                'owned_ids': list(runtime_context.get('runtime_owned_ids') or []),
+                                'events_path': str(turn_artifact.get('events_path')) if isinstance(turn_artifact.get('events_path'), Path) else None,
+                                'last_message_path': str(turn_artifact.get('last_message_path')) if isinstance(turn_artifact.get('last_message_path'), Path) else None,
+                                'usage_path': str(turn_artifact.get('usage_path')) if isinstance(turn_artifact.get('usage_path'), Path) else None,
+                                'live_status_path': None,
+                                'workspace_manifest_path': str(turn_artifact.get('workspace_manifest_path')) if isinstance(turn_artifact.get('workspace_manifest_path'), Path) else None,
+                                'stdout_path': None,
+                                'stderr_path': None,
+                            }
+                            turn_row_payload = {
+                                'run_id': benchmark_run_id,
+                                'schema_version': PROMPT_CALL_RECORD_SCHEMA_VERSION,
+                                'call_id': turn_call_id,
+                                'timestamp_utc': turn_artifact.get('timestamp_utc') or timestamp_utc,
+                                'recipe_id': recipe_id,
+                                'source_file': source_file,
+                                'pipeline_id': stage.pipeline_id,
+                                'stage_key': stage.stage_key,
+                                'stage_heading_key': stage.stage_heading_key,
+                                'stage_label': stage.stage_label,
+                                'stage_artifact_stem': stage.stage_artifact_stem,
+                                'stage_dir_name': stage.stage_dir_name,
+                                'stage_order': stage.stage_order,
+                                'process_run_id': process_run_id,
+                                'model': model_value,
+                                'prompt_input_mode': f'structured_session_{turn_kind}',
+                                'request_payload_source': 'structured_session_prompt_artifact',
+                                'request_messages': turn_request_messages,
+                                'system_prompt': None,
+                                'developer_prompt': None,
+                                'user_prompt': turn_prompt_text,
+                                'rendered_prompt_text': turn_prompt_text,
+                                'rendered_messages': turn_request_messages,
+                                'prompt_templates': prompt_templates,
+                                'template_vars': {'INPUT_PATH': str(turn_artifact.get('packet_path')) if isinstance(turn_artifact.get('packet_path'), Path) else None, 'INPUT_TEXT': turn_packet_text},
+                                'inserted_context_blocks': _collect_inserted_context_blocks(turn_parsed_input),
+                                'request': {'messages': turn_request_messages, 'tools': [], 'response_format': response_format_payload, 'model': model_value, 'reasoning_effort': reasoning_effort_value, 'temperature': None, 'top_p': None, 'max_output_tokens': None, 'seed': None, 'pipeline_id': stage.pipeline_id, 'sandbox': sandbox_value, 'ask_for_approval': ask_for_approval_value, 'web_search': web_search_value, 'output_schema_path': telemetry_output_schema_path},
+                                'request_input_payload': turn_parsed_input,
+                                'tools': [],
+                                'response_format': response_format_payload,
+                                'decoding_params': {'temperature': None, 'top_p': None, 'max_output_tokens': None, 'seed': None, 'reasoning_effort': reasoning_effort_value},
+                                'raw_response': {'output_text': turn_response_text, 'output_file': str(turn_response_path) if isinstance(turn_response_path, Path) else None},
+                                'parsed_response': turn_parsed_response,
+                                'request_input_file': str(turn_artifact.get('packet_path')) if isinstance(turn_artifact.get('packet_path'), Path) else None,
+                                'request_telemetry': turn_request_telemetry,
+                                'runtime_shard_id': runtime_context.get('runtime_shard_id'),
+                                'runtime_worker_id': runtime_context.get('runtime_worker_id'),
+                                'runtime_owned_ids': list(runtime_context.get('runtime_owned_ids') or []),
+                                'runtime_turn_index': turn_index,
+                                'runtime_turn_kind': turn_kind,
+                                'activity_trace': None,
+                            }
+                            activity_trace_payload = _export_prompt_activity_trace(row_payload=turn_row_payload, prompts_dir=prompts_dir, repo_root=repo_root)
+                            turn_row_payload['activity_trace'] = activity_trace_payload
+                            if isinstance(activity_trace_payload, dict):
+                                turn_request_telemetry['activity_trace_path'] = activity_trace_payload.get('path')
+                            full_prompt_log_handle.write(json.dumps(PromptCallRecord(schema_version=PROMPT_CALL_RECORD_SCHEMA_VERSION, row=turn_row_payload).to_row(), ensure_ascii=False) + '\n')
+                            full_prompt_log_rows += 1
+                        continue
                     request_telemetry: dict[str, Any] | None = None
                     if isinstance(telemetry_row, dict):
                         usage_payload = _parse_json_text(str(telemetry_row.get('usage_json') or ''))

@@ -80,6 +80,19 @@ def _build_single_book_interactive_shard_recommendations(
     )
 
 
+def _variant_can_reuse_deterministic_prep_bundle(
+    *,
+    bundle_settings: RunSettings,
+    variant_settings: RunSettings,
+) -> bool:
+    # The shared prep bundle carries authoritative line-role outputs, so a codex
+    # line-role variant must not inherit a bundle that was built with line-role off.
+    return (
+        str(getattr(bundle_settings.line_role_pipeline, "value", "off")).strip().lower()
+        == str(getattr(variant_settings.line_role_pipeline, "value", "off")).strip().lower()
+    )
+
+
 def _write_single_book_summary_markdown(
     *,
     run_timestamp: str,
@@ -474,7 +487,13 @@ def _interactive_single_book_benchmark(
                     ),
                 }
             )
-        if deterministic_prep_bundle is not None:
+        if (
+            deterministic_prep_bundle is not None
+            and _variant_can_reuse_deterministic_prep_bundle(
+                bundle_settings=variants[0][1],
+                variant_settings=variant_settings,
+            )
+        ):
             variant_kwargs["deterministic_prep_manifest_path"] = (
                 deterministic_prep_bundle.manifest_path
             )

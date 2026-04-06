@@ -118,6 +118,7 @@ Current behavior notes:
   - `line_role_pipeline=off|codex-line-role-route-v2`
   - `llm_knowledge_pipeline=codex-knowledge-candidate-v2`
 - benchmark/operator defaults now keep `atomic_block_splitter=off` unless it is explicitly requested
+- shared deterministic-prep reuse may still feed both vanilla and codex benchmark variants, but only variants whose `line_role_pipeline` matches the bundle may reuse its authoritative line-role outputs; codex line-role variants must not inherit a vanilla prep bundle
 - non-interactive live Codex-backed benchmark runs require:
   - `--allow-codex`
   - `--benchmark-codex-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION`
@@ -160,7 +161,7 @@ Current interactive contracts:
 - upload-bundle recipe-stage observability now reads recipe manifest diagnostics from `processed_output_run_dir` / `stage_run_dir` (and explicit `recipe_manifest_json`) when no `pred_run_dir` exists, so final mapping / structural statuses are not silently downgraded to generic projection gaps
 - upload-bundle active recipe span breakout now projects prompt-derived recipe spans through `line-role-pipeline/projected_spans.jsonl` when that artifact is available; prompt `start_block_index` / `end_block_index` values are source-block coordinates, not canonical scored line coordinates
 - upload-bundle recipe-stage blame uses that same projected span mapping so recipe-local changed lines do not silently fall back into the default `line_role` bucket just because prompt evidence was recorded in source block indices
-- benchmark manifests now surface both `full_prompt_log_rows` and `full_prompt_log_runtime_shard_count`; use the shard count for real shard-job volume and treat row count as reviewer-log volume only
+- benchmark manifests now surface both `full_prompt_log_rows` and `full_prompt_log_runtime_shard_count`; use the shard count for real shard-job volume and treat row count as reviewer-log / actual model-turn volume
 - benchmark status panels now treat generic `task X/Y | running N` progress strings as worker activity, so shard-backed line-role and similar phases do not collapse back to one stale status line
 - recipe, knowledge, and line-role benchmark progress now all share the same story shape: visible work-unit counter, separate worker-session summary, separate repo follow-up/finalization summary, and worker rows that represent real worker sessions rather than repo cleanup
 - single-profile matched-book runs write under `.../single-profile-benchmark/`

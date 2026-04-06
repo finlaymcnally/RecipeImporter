@@ -30,10 +30,7 @@ Current, code-verified analytics contract for this repo.
   - `assets/dashboard_ui_state.json`
   - `assets/dashboard.js`
   - `assets/style.css`
-- Standalone all-method pages:
-  - `all-method-benchmark/all-method-benchmark-run__<run_ts>.html`
-  - `all-method-benchmark/all-method-benchmark__<run_ts>__<source_slug>.html`
-- There is no standalone `all-method-benchmark/index.html` page
+- There is no standalone `all-method-benchmark/` page family anymore; all-method sweep summaries stay inside `index.html`
 
 4. Compare/control backend utilities
 - Terminal/agent entry points share the same benchmark-record model used by the dashboard
@@ -197,6 +194,7 @@ Collector behavior (`collect_dashboard_data`):
 
 Dashboard Compare & Control:
 - Uses the active `Previous Runs` quick filters and column filters as its source subset before running compare/control analysis, so saved dashboard state can reopen one-book or otherwise filtered charts directly.
+- When `Compare by = run_timestamp`, the chart can switch between `Date` (datetime scatter) and `Per run` (equal-spaced chronological run order) from the toggle below the chart; the selected mode persists in dashboard UI state.
 
 `cookimport compare-control dashboard-state`:
 - Reads or updates the live Compare & Control state stored in `assets/dashboard_ui_state.json`.
@@ -261,7 +259,7 @@ Current row semantics:
 - `AI Model` can render `System error` when manifest enrichment detects codex runtime failure metadata.
 - `All token use` and `Quality / 1M tokens` are default columns.
 - Missing token telemetry stays unknown (`-`) instead of becoming numeric zero.
-- All-method benchmark sweeps collapse to one row whose timestamp links to the generated run-summary page.
+- All-method benchmark sweeps collapse to one row whose timestamp jumps to the in-page `All-Method Sweeps` summary.
 
 State behavior:
 - Browser state persists in `localStorage`.
@@ -281,22 +279,16 @@ Current compare/control contract:
 Important scope rule:
 - Compare/control analyzes benchmark history independently from the `Previous Runs` table filters.
 
-### 5.5 All-method pages
-
-Renderer output:
-- `all-method-benchmark/all-method-benchmark-run__<run_timestamp>.html`
-- `all-method-benchmark/all-method-benchmark__<run_timestamp>__<source_slug>.html`
+### 5.5 All-method sweeps
 
 Grouping contract:
 - `all-method-benchmark/<source_slug>/config_*`
 - `single-profile-benchmark/<source_slug>`
 
 Current page behavior:
-- No standalone all-method root index page
-- Run-summary pages link to per-book detail pages
-- Run and detail pages include summary tables, metric charts, radar/web charts, and ranked tables
-- Score metrics use fixed `0..100%` axes
-- Recipes are shown as percent identified against `gold_recipe_headers`
+- No standalone all-method HTML pages are generated
+- `Previous Runs` keeps one collapsed row per all-method sweep run
+- `All-Method Sweeps` on the main page shows a compact recent-sweeps summary table with the source set, best config, row counts, and topline metrics
 
 ## 6) Known caveats
 

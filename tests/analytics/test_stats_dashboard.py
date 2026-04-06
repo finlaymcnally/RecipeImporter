@@ -264,6 +264,8 @@ class TestRenderer:
         assert "const displayGroups = [...(analysis.groups || [])].sort((left, right) => (" in js
         assert "if (Math.abs(numeric) > 5) {" in js
         assert 'Math.round(numeric).toLocaleString("en-US")' in js
+        assert 'custom.outcomeField === "all_token_use"' in js
+        assert 'Math.round(outcomeNumber).toLocaleString("en-US")' in js
         assert 'htmlParts.push("<th>Group</th>");' in js
         assert 'return meta.label + " (" + fieldName + ")";' not in js
         assert '" [numeric]"' not in js
@@ -397,6 +399,7 @@ class TestRenderer:
         assert reset_state.get("selected_groups") == []
         assert reset_state.get("view_mode") == "discover"
         assert reset_state.get("outcome_field") == "strict_accuracy"
+        assert reset_state.get("x_axis_mode") == "date"
 
     def test_compare_control_secondary_fields_skip_constant_zero_metrics(
         self, tmp_path
@@ -436,6 +439,16 @@ class TestRenderer:
         assert result["time_first_compare_value"] == "2026-03-04T10:00:00"
         assert result["time_first_x_is_number"] is True
         assert result["time_first_outcome_value"] == pytest.approx(990)
+        assert result["per_run_chart_type"] == "scatter"
+        assert result["per_run_series_count"] == 2
+        assert result["per_run_point_total"] == 6
+        assert result["per_run_title"] == "All Token Use over Runs"
+        assert result["per_run_x_axis_type"] == ""
+        assert result["per_run_x_axis_allow_decimals"] is True
+        assert result["per_run_first_compare_value"] == "#1"
+        assert result["per_run_first_run_order"] == 1
+        assert result["per_run_first_x_value"] == pytest.approx(1)
+        assert result["per_run_first_outcome_value"] == pytest.approx(990)
         assert result["categorical_chart_type"] == "bar"
         assert result["categorical_series_count"] == 2
         assert result["categorical_title"] == "Average Strict Accuracy by Importer"
@@ -499,6 +512,8 @@ class TestRenderer:
         assert 'data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="precision" data-per-label-comparison-variant="vanilla"' not in html
         assert 'data-per-label-comparison-scope="rolling" data-per-label-comparison-metric="recall" data-per-label-comparison-variant="vanilla"' not in html
         assert "Point value" in html
+        assert 'id="compare-control-x-axis-date"' in html
+        assert 'id="compare-control-x-axis-per-run"' in html
         assert "Previous Runs" in html
         assert 'class="table-wrap table-scroll"' in html
         assert "Stage / Import Throughput" not in html
@@ -575,7 +590,9 @@ class TestRenderer:
         assert "Click to sort A to Z / Z to A." in js
         assert "(?:_.+)?$/.test(text);" in js
         assert "runDirTimestamp: runDirTimestamp || fallbackTimestamp || null," in js
-        assert '"all-method-benchmark-run__" + slugToken(ts) + ".html"' in js
+        assert 'href: "#all-method-summary-section"' in js
+        assert "function renderAllMethodSummary()" in js
+        assert 'document.getElementById("all-method-summary-section")' in js
         assert "function sourceLabelForRecord(record)" in js
         assert "function sourceSlugFromArtifactPath(pathValue)" in js
         assert "function importerLabelForRecord(record)" in js

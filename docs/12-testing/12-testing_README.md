@@ -58,6 +58,7 @@ Active intentional split seams:
   - `tests/analytics/test_stats_dashboard_benchmark_semantics.py`
   - `tests/analytics/test_stats_dashboard_csv.py`
   - `tests/analytics/test_stats_dashboard_slow.py`
+    - includes Playwright smoke coverage that opens the full generated dashboard page and fails on uncaught browser runtime errors during basic interactions
 - Label Studio benchmark coverage is intentionally spread across focused files instead of one helper mega-file:
   - smoke path: `tests/labelstudio/test_labelstudio_benchmark_smoke.py`
   - interactive/import/export/artifact flows: `..._interactive.py`, `..._import_eval.py`, `..._export_selection.py`, `..._artifacts.py`, `..._progress.py`, `..._progress_dashboard.py`

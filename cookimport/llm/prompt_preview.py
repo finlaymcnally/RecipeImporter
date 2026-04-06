@@ -130,6 +130,7 @@ class PreviewShardAssignment:
     call_ids: tuple[str, ...]
     prompt_chars: int
     task_prompt_chars: int
+    work_unit_count: int
 
 
 @dataclass(frozen=True)
@@ -1245,6 +1246,10 @@ def _build_direct_shard_phase_plan(
     for row in rows:
         payload = _coerce_dict(row.get("request_input_payload"))
         owned_ids = _preview_owned_ids_for_row(stage_key=stage_key, row=row)
+        work_unit_count, work_unit_label = _preview_work_unit_metrics_for_row(
+            stage_key=stage_key,
+            row=row,
+        )
         shard_specs.append(
             {
                 "shard_id": str(
@@ -1261,6 +1266,8 @@ def _build_direct_shard_phase_plan(
                 "task_prompt_chars": len(
                     str(row.get("task_prompt_text") or row.get("request_input_text") or "")
                 ),
+                "work_unit_count": work_unit_count,
+                "work_unit_label": work_unit_label,
             }
         )
     return _finalize_phase_plan(
@@ -1293,6 +1300,14 @@ def _finalize_phase_plan(
         requested_worker_count=requested_workers,
         shard_count=len(shard_specs),
     )
+    work_unit_label = next(
+        (
+            str(shard.get("work_unit_label") or "").strip()
+            for shard in shard_specs
+            if str(shard.get("work_unit_label") or "").strip()
+        ),
+        "units",
+    )
     for index, shard in enumerate(shard_specs):
         normalized_shards.append(
             PreviewShardAssignment(
@@ -1302,6 +1317,7 @@ def _finalize_phase_plan(
                 call_ids=tuple(str(item) for item in shard.get("call_ids") or [] if str(item)),
                 prompt_chars=max(0, int(shard.get("prompt_chars") or 0)),
                 task_prompt_chars=max(0, int(shard.get("task_prompt_chars") or 0)),
+                work_unit_count=max(0, int(shard.get("work_unit_count") or 0)),
             )
         )
     worker_count_effective = len({shard.worker_id for shard in normalized_shards}) or 0
@@ -1326,6 +1342,11 @@ def _finalize_phase_plan(
         ),
         "owned_ids_per_shard": _int_distribution(
             [len(shard.owned_ids) for shard in normalized_shards]
+        ),
+        "work_unit_label": work_unit_label,
+        "work_unit_count": sum(shard.work_unit_count for shard in normalized_shards),
+        "work_units_per_shard": _int_distribution(
+            [shard.work_unit_count for shard in normalized_shards]
         ),
         "first_turn_payload_chars": _int_distribution(
             [shard.prompt_chars for shard in normalized_shards]
@@ -1353,10 +1374,30 @@ def _finalize_phase_plan(
                 "call_ids": list(shard.call_ids),
                 "prompt_chars": shard.prompt_chars,
                 "task_prompt_chars": shard.task_prompt_chars,
+                "work_unit_count": shard.work_unit_count,
             }
             for shard in normalized_shards
         ],
     }
+
+
+def _preview_work_unit_metrics_for_row(
+    *,
+    stage_key: str,
+    row: Mapping[str, Any],
+) -> tuple[int, str]:
+    if stage_key == "line_role":
+        return len(_preview_owned_ids_for_row(stage_key=stage_key, row=row)), "lines"
+    if stage_key == "recipe_refine":
+        return len(_preview_owned_ids_for_row(stage_key=stage_key, row=row)), "recipes"
+    if stage_key == "nonrecipe_finalize":
+        payload = _coerce_dict(row.get("request_input_payload"))
+        blocks = knowledge_input_blocks(payload)
+        return (
+            sum(len(str(block.get("t", block.get("text")) or "").strip()) for block in blocks),
+            "chars",
+        )
+    return len(_preview_owned_ids_for_row(stage_key=stage_key, row=row)), "units"
 
 
 def _assign_preview_workers(*, requested_worker_count: int, shard_count: int) -> list[str]:

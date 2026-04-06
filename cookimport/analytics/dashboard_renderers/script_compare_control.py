@@ -744,6 +744,14 @@ _JS_COMPARE_CONTROL = """\
     return Boolean(onlyName && onlyName !== "All visible rows");
   }
 
+  function compareControlUsesPerRunXAxis(state, compareInfo) {
+    return Boolean(
+      compareInfo &&
+      compareInfo.time_like &&
+      normalizeCompareControlXAxisMode(state && state.x_axis_mode) === "per_run"
+    );
+  }
+
   function buildCompareControlNumericScatterSeries(records, state, catalog) {
     const compareLabel = compareControlChartFieldLabel(state.compare_field);
     const outcomeLabel = compareControlChartFieldLabel(state.outcome_field);
@@ -751,7 +759,8 @@ _JS_COMPARE_CONTROL = """\
       ? catalog.by_field[state.compare_field]
       : null;
     const isTimeAxis = Boolean(compareInfo && compareInfo.time_like);
-    const series = [];
+    const usePerRunAxis = compareControlUsesPerRunXAxis(state, compareInfo);
+    const segmentEntries = [];
     const segments = compareControlChartSegments(records, state, catalog);
     segments.forEach((segment, index) => {
       const pairs = state.view_mode === "controlled"
@@ -767,33 +776,67 @@ _JS_COMPARE_CONTROL = """\
           state.compare_field,
         );
       if (!pairs.length) return;
-      const orderedPairs = isTimeAxis
-        ? [...pairs].sort((a, b) => a.x - b.x)
-        : pairs;
-      series.push({
-        name: segment.label,
+      segmentEntries.push({
+        segment,
+        index,
+        pairs,
+      });
+    });
+    if (!segmentEntries.length) return [];
+
+    const runOrderByPair = new Map();
+    if (usePerRunAxis) {
+      const orderedPairs = segmentEntries
+        .flatMap(entry => entry.pairs)
+        .filter(pair => pair && pair.record)
+        .sort((left, right) => {
+          const tsCompare = compareRunTimestampAsc(
+            left.record && left.record.run_timestamp,
+            right.record && right.record.run_timestamp,
+          );
+          if (tsCompare !== 0) return tsCompare;
+          if (left.x !== right.x) return left.x - right.x;
+          if (left.y !== right.y) return left.y - right.y;
+          return 0;
+        });
+      orderedPairs.forEach((pair, index) => {
+        runOrderByPair.set(pair, index + 1);
+      });
+    }
+
+    return segmentEntries.map(entry => {
+      const orderedPairs = usePerRunAxis
+        ? [...entry.pairs].sort((left, right) => (
+          Number(runOrderByPair.get(left) || 0) - Number(runOrderByPair.get(right) || 0)
+        ))
+        : (isTimeAxis ? [...entry.pairs].sort((a, b) => a.x - b.x) : entry.pairs);
+      return {
+        name: entry.segment.label,
         type: "scatter",
         marker: {
           enabled: true,
           radius: 3,
         },
-        color: compareControlChartSeriesColor(index),
+        color: compareControlChartSeriesColor(entry.index),
         turboThreshold: 0,
         data: orderedPairs.map(pair => ({
-          x: pair.x,
+          x: usePerRunAxis ? Number(runOrderByPair.get(pair) || 0) : pair.x,
           y: pair.y,
           custom: {
-            compareLabel,
+            compareLabel: usePerRunAxis ? "Run" : compareLabel,
             outcomeLabel,
-            compareValue: previousRunsFieldValue(pair.record, state.compare_field),
+            outcomeField: String(state.outcome_field || "").trim(),
+            compareValue: usePerRunAxis
+              ? "#" + String(Number(runOrderByPair.get(pair) || 0))
+              : previousRunsFieldValue(pair.record, state.compare_field),
             outcomeValue: pair.y,
-            splitLabel: segment.label,
+            runOrder: usePerRunAxis ? Number(runOrderByPair.get(pair) || 0) : null,
+            splitLabel: entry.segment.label,
             ...compareControlScatterPointCustomForRecord(pair.record),
           },
         })),
-      });
+      };
     });
-    return series;
   }
 
   function buildCompareControlCategoricalScatterSeries(records, state, catalog) {
@@ -874,6 +917,7 @@ _JS_COMPARE_CONTROL = """\
               custom: {
                 compareLabel,
                 outcomeLabel,
+                outcomeField: String(state.outcome_field || "").trim(),
                 compareValue: point.groupLabel,
                 outcomeValue: point.outcomeValue,
                 groupLabel: point.groupLabel,
@@ -971,6 +1015,7 @@ _JS_COMPARE_CONTROL = """\
               custom: {
                 compareLabel,
                 outcomeLabel,
+                outcomeField: String(state.outcome_field || "").trim(),
                 compareValue: point.groupLabel,
                 outcomeValue: point.outcomeValue,
                 groupLabel: point.groupLabel,
@@ -1008,6 +1053,7 @@ _JS_COMPARE_CONTROL = """\
     const compareLabel = compareControlChartFieldLabel(state.compare_field);
     const outcomeLabel = compareControlChartFieldLabel(state.outcome_field);
     const isTimeAxis = Boolean(compareInfo && compareInfo.time_like);
+    const usePerRunAxis = compareControlUsesPerRunXAxis(state, compareInfo);
 
     if (!records.length) {
       const selectedGroups = uniqueStringList(state.selected_groups)
@@ -1073,12 +1119,13 @@ _JS_COMPARE_CONTROL = """\
       return {
         chart_type: "scatter",
         chart_title: isTimeAxis
-          ? outcomeLabel + " over " + compareLabel
+          ? outcomeLabel + " over " + (usePerRunAxis ? "Runs" : compareLabel)
           : outcomeLabel + " vs " + compareLabel,
         chart_subtitle: compareControlChartModeSummary(state),
         x_axis: {
-          title: { text: compareLabel },
-          type: isTimeAxis ? "datetime" : undefined,
+          title: { text: isTimeAxis ? (usePerRunAxis ? "Run" : compareLabel) : compareLabel },
+          type: isTimeAxis && !usePerRunAxis ? "datetime" : undefined,
+          allowDecimals: usePerRunAxis ? false : undefined,
         },
         y_axis: {
           title: { text: outcomeLabel },
@@ -1089,7 +1136,11 @@ _JS_COMPARE_CONTROL = """\
             ? "No comparable numeric rows remained after hold-constant controls."
             : (
               isTimeAxis
-                ? "No runs had both timestamp and outcome values."
+                ? (
+                  usePerRunAxis
+                    ? "No runs had both run order and outcome values."
+                    : "No runs had both timestamp and outcome values."
+                )
                 : "No numeric rows had both compare and outcome values."
             )
         ),
@@ -1437,12 +1488,23 @@ _JS_COMPARE_CONTROL = """\
           const outcomeNumber = maybeNumber(outcomeValueRaw);
           const outcomeText = outcomeNumber == null
             ? String(outcomeValueRaw == null ? "-" : outcomeValueRaw)
-            : fmtMaybe(outcomeNumber, 4);
+            : (
+              custom.outcomeField === "all_token_use"
+                ? Math.round(outcomeNumber).toLocaleString("en-US")
+                : fmtMaybe(outcomeNumber, 4)
+            );
           let html = (
             '<span style="font-size: 0.85rem"><b>' +
             esc(seriesName) +
             "</b></span><br/>"
           );
+          if (custom.runOrder != null && Number.isFinite(Number(custom.runOrder))) {
+            html += (
+              "<span><b>Run:</b> #" +
+              esc(String(Number(custom.runOrder))) +
+              "</span><br/>"
+            );
+          }
           html += (
             "<span><b>" + esc(compareLabel) + ":</b> " +
             esc(String(compareValueRaw == null ? "-" : compareValueRaw)) +
@@ -1663,6 +1725,14 @@ _JS_COMPARE_CONTROL = """\
     )
       ? "bar"
       : "scatter";
+    const primaryXAxisType = String((primary.x_axis && primary.x_axis.type) || "").trim();
+    const secondaryXAxisType = String((secondary.x_axis && secondary.x_axis.type) || "").trim();
+    if (combinedChartType === "scatter" && primaryXAxisType !== secondaryXAxisType) {
+      return compareControlChartPlaceholder(
+        totalRows,
+        "Combined mode needs both sets to use the same time x-axis mode."
+      );
+    }
 
     const xAxisBase = (
       primary.x_axis && typeof primary.x_axis === "object"
@@ -1724,6 +1794,76 @@ _JS_COMPARE_CONTROL = """\
     });
   }
 
+  function syncCompareControlXAxisToggleForSet(setKey, catalog) {
+    const key = setKey === "secondary" ? "secondary" : "primary";
+    const suffix = key === "secondary" ? "-secondary" : "";
+    const wrap = document.getElementById("compare-control-x-axis-toggle-wrap" + suffix);
+    const dateButton = document.getElementById("compare-control-x-axis-date" + suffix);
+    const perRunButton = document.getElementById("compare-control-x-axis-per-run" + suffix);
+    const state = compareControlStateForSet(key);
+    const compareInfo = catalog && catalog.by_field
+      ? catalog.by_field[state.compare_field]
+      : null;
+    const show = Boolean(compareInfo && compareInfo.time_like);
+    const mode = normalizeCompareControlXAxisMode(state.x_axis_mode);
+    if (wrap) {
+      wrap.hidden = !show;
+    }
+    if (dateButton) {
+      dateButton.classList.toggle("is-active", show && mode === "date");
+      dateButton.setAttribute("aria-pressed", show && mode === "date" ? "true" : "false");
+    }
+    if (perRunButton) {
+      perRunButton.classList.toggle("is-active", show && mode === "per_run");
+      perRunButton.setAttribute("aria-pressed", show && mode === "per_run" ? "true" : "false");
+    }
+  }
+
+  function syncCombinedCompareControlXAxisToggle(catalog) {
+    const wrap = document.getElementById("compare-control-x-axis-toggle-wrap-combined");
+    const dateButton = document.getElementById("compare-control-x-axis-date-combined");
+    const perRunButton = document.getElementById("compare-control-x-axis-per-run-combined");
+    const layout = normalizeCompareControlChartLayout(compareControlChartLayout);
+    const primaryState = compareControlStateForSet("primary");
+    const secondaryState = compareControlStateForSet("secondary");
+    const primaryInfo = catalog && catalog.by_field
+      ? catalog.by_field[primaryState.compare_field]
+      : null;
+    const secondaryInfo = catalog && catalog.by_field
+      ? catalog.by_field[secondaryState.compare_field]
+      : null;
+    const show = Boolean(
+      compareControlSecondSetEnabled &&
+      layout === "combined" &&
+      primaryInfo &&
+      primaryInfo.time_like &&
+      secondaryInfo &&
+      secondaryInfo.time_like
+    );
+    const primaryMode = normalizeCompareControlXAxisMode(primaryState.x_axis_mode);
+    const secondaryMode = normalizeCompareControlXAxisMode(secondaryState.x_axis_mode);
+    if (wrap) {
+      wrap.hidden = !show;
+    }
+    if (dateButton) {
+      dateButton.classList.toggle("is-active", show && primaryMode === "date" && secondaryMode === "date");
+      dateButton.setAttribute(
+        "aria-pressed",
+        show && primaryMode === "date" && secondaryMode === "date" ? "true" : "false"
+      );
+    }
+    if (perRunButton) {
+      perRunButton.classList.toggle(
+        "is-active",
+        show && primaryMode === "per_run" && secondaryMode === "per_run"
+      );
+      perRunButton.setAttribute(
+        "aria-pressed",
+        show && primaryMode === "per_run" && secondaryMode === "per_run" ? "true" : "false"
+      );
+    }
+  }
+
   function renderCompareControlDynamicChartForSet(records, totalRows, config) {
     const cfg = config && typeof config === "object" ? config : Object.create(null);
     const setKey = cfg.set_key === "secondary" ? "secondary" : "primary";
@@ -1756,6 +1896,7 @@ _JS_COMPARE_CONTROL = """\
 
   function renderCompareControlSection() {
     const records = compareControlSourceRecords();
+    const catalog = buildCompareControlFieldCatalog(records);
     syncCompareControlLayoutChrome();
     renderCompareControlPanel(
       { records },
@@ -1763,6 +1904,7 @@ _JS_COMPARE_CONTROL = """\
         set_key: "primary",
       }
     );
+    syncCompareControlXAxisToggleForSet("primary", catalog);
     if (compareControlSecondSetEnabled) {
       renderCompareControlPanel(
         { records },
@@ -1770,6 +1912,7 @@ _JS_COMPARE_CONTROL = """\
           set_key: "secondary",
         }
       );
+      syncCompareControlXAxisToggleForSet("secondary", catalog);
     } else {
       const secondaryStatus = document.getElementById("compare-control-status-secondary");
       const secondaryResults = document.getElementById("compare-control-results-secondary");
@@ -1780,7 +1923,9 @@ _JS_COMPARE_CONTROL = """\
       }
       if (secondaryResults) secondaryResults.innerHTML = "";
       if (secondaryGroups) secondaryGroups.innerHTML = "";
+      syncCompareControlXAxisToggleForSet("secondary", catalog);
     }
+    syncCombinedCompareControlXAxisToggle(catalog);
 
     const primaryChartDefinition = compareControlChartDefinitionForSet(
       records,

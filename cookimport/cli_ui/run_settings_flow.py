@@ -79,6 +79,12 @@ _CODEX_STEP_MODE_DISPLAY_LABELS: dict[str, str] = {
     CODEX_EXEC_STYLE_INLINE_JSON_V1: "JSON",
     CODEX_EXEC_STYLE_TASKFILE_V1: "Taskfile",
 }
+_CODEX_STEP_COUNT_COLUMN = "__count__"
+_CODEX_STEP_MODE_COLUMN_ORDER: tuple[str, ...] = (
+    _CODEX_STEP_MODE_OFF,
+    CODEX_EXEC_STYLE_INLINE_JSON_V1,
+    CODEX_EXEC_STYLE_TASKFILE_V1,
+)
 INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST = (
     "saltfatacidheatcutdown_fast_codex_exec"
 )
@@ -361,23 +367,86 @@ def _binding_limit_label(binding_limit: str | None) -> str:
     }.get(normalized, normalized or "limit")
 
 
-def _render_shard_plan_kpi_summary(recommendation_payload: Mapping[str, Any]) -> str:
+def _estimate_total_from_average(
+    average_value: Any,
+    *,
+    shard_count: Any,
+) -> int | None:
+    if average_value is None:
+        return None
+    shard_count_int = max(1, int(shard_count or 1))
+    return max(0, int(round(float(average_value) * float(shard_count_int))))
+
+
+def _estimate_per_shard_from_total(
+    total_value: Any,
+    *,
+    shard_count: Any,
+) -> int | None:
+    if total_value is None:
+        return None
+    shard_count_int = max(1, int(shard_count or 1))
+    return max(0, int(round(float(total_value) / float(shard_count_int))))
+
+
+def _render_shard_plan_kpi_summary(
+    recommendation_payload: Mapping[str, Any],
+    *,
+    shard_count: int | None = None,
+) -> str:
+    baseline_shard_count = max(
+        1,
+        int(
+            recommendation_payload.get("current_shard_count")
+            or recommendation_payload.get("current_shard_count_baseline")
+            or shard_count
+            or 1
+        ),
+    )
+    effective_shard_count = max(1, int(shard_count or baseline_shard_count))
     bits: list[str] = []
-    avg_input_tokens_per_shard = recommendation_payload.get(
-        "avg_input_tokens_per_shard"
+    estimated_input_tokens_total = recommendation_payload.get(
+        "estimated_input_tokens_total"
     )
-    if avg_input_tokens_per_shard is not None:
-        bits.append(
-            f"~{_format_shard_budget_value(int(avg_input_tokens_per_shard))} prompt"
+    if estimated_input_tokens_total is None:
+        estimated_input_tokens_total = _estimate_total_from_average(
+            recommendation_payload.get("avg_input_tokens_per_shard"),
+            shard_count=baseline_shard_count,
         )
-    avg_peak_session_tokens_per_shard = recommendation_payload.get(
-        "avg_peak_session_tokens_per_shard"
+    prompt_tokens_per_shard = _estimate_per_shard_from_total(
+        estimated_input_tokens_total,
+        shard_count=effective_shard_count,
     )
-    if avg_peak_session_tokens_per_shard is not None:
+    if prompt_tokens_per_shard is not None:
         bits.append(
-            f"~{_format_shard_budget_value(int(avg_peak_session_tokens_per_shard))} session"
+            f"~{_format_shard_budget_value(int(prompt_tokens_per_shard))} prompt"
         )
-    owned_units_per_shard_avg = recommendation_payload.get("owned_units_per_shard_avg")
+    estimated_peak_session_tokens_total = recommendation_payload.get(
+        "estimated_peak_session_tokens_total"
+    )
+    if estimated_peak_session_tokens_total is None:
+        estimated_peak_session_tokens_total = _estimate_total_from_average(
+            recommendation_payload.get("avg_peak_session_tokens_per_shard"),
+            shard_count=baseline_shard_count,
+        )
+    peak_session_tokens_per_shard = _estimate_per_shard_from_total(
+        estimated_peak_session_tokens_total,
+        shard_count=effective_shard_count,
+    )
+    if peak_session_tokens_per_shard is not None:
+        bits.append(
+            f"~{_format_shard_budget_value(int(peak_session_tokens_per_shard))} session"
+        )
+    owned_unit_count = recommendation_payload.get("owned_unit_count")
+    if owned_unit_count is None:
+        owned_unit_count = _estimate_total_from_average(
+            recommendation_payload.get("owned_units_per_shard_avg"),
+            shard_count=baseline_shard_count,
+        )
+    owned_units_per_shard_avg = _estimate_per_shard_from_total(
+        owned_unit_count,
+        shard_count=effective_shard_count,
+    )
     owned_unit_label = str(recommendation_payload.get("owned_unit_label") or "").strip()
     if owned_units_per_shard_avg is not None and owned_unit_label:
         rounded_units = int(round(float(owned_units_per_shard_avg)))
@@ -438,6 +507,16 @@ def _build_codex_shard_plan_rows(
                     else None
                 ),
                 "binding_limit": binding_limit,
+                "current_shard_count_baseline": recommendation_payload.get(
+                    "current_shard_count"
+                ),
+                "estimated_input_tokens_total": recommendation_payload.get(
+                    "estimated_input_tokens_total"
+                ),
+                "estimated_peak_session_tokens_total": recommendation_payload.get(
+                    "estimated_peak_session_tokens_total"
+                ),
+                "owned_unit_count": recommendation_payload.get("owned_unit_count"),
                 "avg_input_tokens_per_shard": recommendation_payload.get(
                     "avg_input_tokens_per_shard"
                 ),
@@ -559,11 +638,34 @@ def _prompt_codex_shard_plan_menu(
     max_value: int = 256,
     **kwargs: Any,
 ) -> dict[str, dict[str, Any]] | Any:
+    label_width = max(
+        (len(str(row.get("label") or "")) for row in rows),
+        default=0,
+    )
+    count_inner_width = max(3, len(str(max_value)))
+    count_cell_width = len(f">[{max_value:>{count_inner_width}}]<")
+    mode_cell_width = max(
+        len(f">[{label}]<") for label in _CODEX_STEP_MODE_DISPLAY_LABELS.values()
+    )
+
+    def _build_header_line() -> str:
+        return (
+            f"{'':<{label_width}}  "
+            f"{'shards':<{count_cell_width}}  "
+            f"{'off':<{mode_cell_width}}  "
+            f"{'json':<{mode_cell_width}}  "
+            f"{'taskfile':<{mode_cell_width}}  "
+            "min  notes"
+        ).rstrip()
+
+    header_line = _build_header_line()
     choices: list[questionary.Choice | questionary.Separator] = []
     for summary_line in summary_lines:
         choices.append(questionary.Separator(summary_line))
     if summary_lines:
         choices.append(questionary.Separator())
+    choices.append(questionary.Separator(header_line))
+    choices.append(questionary.Separator("-" * max(24, len(header_line))))
     for row in rows:
         choices.append(
             questionary.Choice(
@@ -579,10 +681,6 @@ def _prompt_codex_shard_plan_menu(
         for row in rows
         if str(row.get("step_id") or "").strip()
     }
-    label_width = max(
-        (len(str(row.get("label") or "")) for row in rows),
-        default=0,
-    )
     merged_style = merge_styles_default([])
     initial_choice = next(
         (
@@ -620,26 +718,78 @@ def _prompt_codex_shard_plan_menu(
         "step_id": None,
         "buffer": "",
     }
+    current_column: dict[str, str] = {"value": _CODEX_STEP_COUNT_COLUMN}
 
     def _clear_numeric_entry() -> None:
         numeric_entry["step_id"] = None
         numeric_entry["buffer"] = ""
 
-    def _cycle_current_mode(delta: int) -> None:
+    def _row_navigable_columns(step_id: str) -> tuple[str, ...]:
+        row = row_lookup.get(step_id)
+        if row is None:
+            return (_CODEX_STEP_COUNT_COLUMN,)
+        available_modes = {
+            str(mode)
+            for mode in row.get("available_modes") or ()
+            if str(mode).strip()
+        }
+        columns = [_CODEX_STEP_COUNT_COLUMN]
+        columns.extend(
+            mode for mode in _CODEX_STEP_MODE_COLUMN_ORDER if mode in available_modes
+        )
+        return tuple(columns)
+
+    def _normalize_current_column() -> None:
+        current = ic.get_pointed_at()
+        step_id = str(current.value)
+        if step_id == "__done__":
+            return
+        navigable_columns = _row_navigable_columns(step_id)
+        if current_column["value"] not in navigable_columns:
+            current_column["value"] = _CODEX_STEP_COUNT_COLUMN
+
+    def _select_current_mode(mode: str) -> None:
         current = ic.get_pointed_at()
         step_id = str(current.value)
         row = row_lookup.get(step_id)
         if row is None:
             return
-        modes = tuple(str(mode) for mode in row.get("available_modes") or ())
-        if not modes:
+        available_modes = {
+            str(candidate)
+            for candidate in row.get("available_modes") or ()
+            if str(candidate).strip()
+        }
+        if mode not in available_modes:
             return
-        current_mode = str(row.get("current_mode") or _CODEX_STEP_MODE_OFF)
+        row["current_mode"] = mode
+
+    def _move_current_column(delta: int) -> None:
+        current = ic.get_pointed_at()
+        step_id = str(current.value)
+        if step_id == "__done__":
+            return
+        columns = list(_row_navigable_columns(step_id))
+        _normalize_current_column()
+        active_column = current_column["value"]
+        if active_column == _CODEX_STEP_COUNT_COLUMN and delta > 0:
+            row = row_lookup.get(step_id) or {}
+            current_mode = str(row.get("current_mode") or "").strip()
+            if current_mode in columns:
+                current_column["value"] = current_mode
+                _select_current_mode(current_mode)
+                return
+            if len(columns) > 1:
+                current_column["value"] = columns[1]
+                _select_current_mode(columns[1])
+            return
         try:
-            current_index = modes.index(current_mode)
+            column_index = columns.index(active_column)
         except ValueError:
-            current_index = 0
-        row["current_mode"] = modes[(current_index + delta) % len(modes)]
+            column_index = 0
+        target_index = max(0, min(len(columns) - 1, column_index + delta))
+        current_column["value"] = columns[target_index]
+        if current_column["value"] != _CODEX_STEP_COUNT_COLUMN:
+            _select_current_mode(current_column["value"])
 
     def _set_current_count(delta: int) -> None:
         current = ic.get_pointed_at()
@@ -670,26 +820,55 @@ def _prompt_codex_shard_plan_menu(
         numeric_entry["buffer"] = candidate
         row["current_count"] = parsed
 
+    def _append_fixed_cell(
+        tokens: list[tuple[str, str]],
+        *,
+        style_class: str,
+        text: str,
+        width: int,
+        gap: int = 2,
+    ) -> None:
+        tokens.append((style_class, text))
+        padding = max(0, width - len(text))
+        if padding:
+            tokens.append(("class:text", " " * padding))
+        if gap:
+            tokens.append(("class:text", " " * gap))
+
     def _sync_titles() -> None:
         for index, choice in enumerate(ic.choices):
             if isinstance(choice, questionary.Separator):
                 continue
             if choice.value == "__done__":
-                choice.title = "Continue"
+                choice.title = (
+                    [("class:highlighted", "Continue")]
+                    if index == ic.pointed_at
+                    else "Continue"
+                )
                 continue
             step_id = str(choice.value)
             row = row_lookup.get(step_id) or {}
             label = str(row.get("label") or step_id)
             is_current = index == ic.pointed_at
+            if is_current:
+                _normalize_current_column()
             current_mode = str(row.get("current_mode") or _CODEX_STEP_MODE_OFF)
             available_modes = tuple(str(mode) for mode in row.get("available_modes") or ())
             count_value = int(row.get("current_count") or 1)
             minimum_safe = row.get("minimum_safe_shard_count")
             binding_limit = str(row.get("binding_limit") or "").strip()
-            kpi_summary = str(row.get("kpi_summary") or "").strip()
+            kpi_summary = _render_shard_plan_kpi_summary(
+                row,
+                shard_count=count_value,
+            )
             budget_summary = str(row.get("budget_summary") or "").strip()
-            label_class = "class:highlighted" if is_current else "class:text"
-            count_class = "class:highlighted" if is_current else "class:selected"
+            title_tokens: list[tuple[str, str]] = []
+            _append_fixed_cell(
+                title_tokens,
+                style_class="class:highlighted" if is_current else "class:text",
+                text=label,
+                width=label_width,
+            )
             if current_mode == _CODEX_STEP_MODE_OFF:
                 recommended_text = (
                     f"min {int(minimum_safe)}" if minimum_safe is not None else "min --"
@@ -705,11 +884,9 @@ def _prompt_codex_shard_plan_menu(
                     note_class = "class:answer"
                 else:
                     note_text = f"ok on {_binding_limit_label(binding_limit)}"
+                    note_class = "class:selected"
                 if kpi_summary:
                     note_text = f"{note_text} | {kpi_summary}"
-                    note_class = note_class
-                elif note_class != "class:answer":
-                    note_class = "class:selected"
             else:
                 recommended_text = "min --"
                 note_text = (
@@ -718,33 +895,43 @@ def _prompt_codex_shard_plan_menu(
                     else (kpi_summary or budget_summary or "no exact estimate")
                 )
                 note_class = "class:text"
-            count_text = f"[{count_value:>3}]"
-            if is_current:
-                count_text = f">[{count_value:>3}]<"
-            mode_bits: list[tuple[str, str]] = []
-            for mode in (
-                _CODEX_STEP_MODE_OFF,
-                CODEX_EXEC_STYLE_INLINE_JSON_V1,
-                CODEX_EXEC_STYLE_TASKFILE_V1,
-            ):
+            count_text = f"[{count_value:>{count_inner_width}}]"
+            count_class = "class:text"
+            if is_current and current_column["value"] == _CODEX_STEP_COUNT_COLUMN:
+                count_class = "class:highlighted"
+                count_text = f">{count_text}<"
+            _append_fixed_cell(
+                title_tokens,
+                style_class=count_class,
+                text=count_text,
+                width=count_cell_width,
+            )
+            for mode in _CODEX_STEP_MODE_COLUMN_ORDER:
                 mode_label = _CODEX_STEP_MODE_DISPLAY_LABELS[mode]
                 if mode not in available_modes:
-                    mode_bits.append(("class:text", f" {'-' * len(mode_label)}  "))
+                    _append_fixed_cell(
+                        title_tokens,
+                        style_class="class:text",
+                        text="",
+                        width=mode_cell_width,
+                    )
                     continue
                 mode_text = f"[{mode_label}]"
                 mode_class = "class:text"
-                if current_mode == mode:
-                    mode_class = "class:highlighted" if is_current else "class:selected"
-                    if is_current:
-                        mode_text = f">{mode_text}<"
-                mode_bits.append((mode_class, f"{mode_text:<12}"))
-            choice.title = [
-                (label_class, f"{label.ljust(label_width)}  "),
-                *mode_bits,
-                (count_class, f"{count_text}  "),
-                ("class:text", f"{recommended_text:<7}  "),
-                (note_class, note_text),
-            ]
+                if is_current and current_column["value"] == mode:
+                    mode_class = "class:highlighted"
+                    mode_text = f">{mode_text}<"
+                elif current_mode == mode:
+                    mode_class = "class:selected"
+                _append_fixed_cell(
+                    title_tokens,
+                    style_class=mode_class,
+                    text=mode_text,
+                    width=mode_cell_width,
+                )
+            title_tokens.append(("class:text", f"{recommended_text:<7}  "))
+            title_tokens.append((note_class, note_text))
+            choice.title = title_tokens
 
     _sync_titles()
 
@@ -754,7 +941,7 @@ def _prompt_codex_shard_plan_menu(
             ("class:question", f" {message} "),
             (
                 "class:instruction",
-                "(Use up/down to pick a row, left/right to change mode, type digits or use +/- to change shard count, Enter to cycle mode, Esc to go back)",
+                "(Use up/down to pick a row, left/right to move between shard count and modes, type digits or use +/- to change shard count, Enter on Continue to accept, Esc to go back)",
             ),
         ]
 
@@ -788,7 +975,7 @@ def _prompt_codex_shard_plan_menu(
     @bindings.add("h", eager=True)
     def _previous_mode(event: Any) -> None:
         _clear_numeric_entry()
-        _cycle_current_mode(-1)
+        _move_current_column(-1)
         _sync_titles()
         event.app.invalidate()
 
@@ -796,7 +983,7 @@ def _prompt_codex_shard_plan_menu(
     @bindings.add("l", eager=True)
     def _next_mode(event: Any) -> None:
         _clear_numeric_entry()
-        _cycle_current_mode(1)
+        _move_current_column(1)
         _sync_titles()
         event.app.invalidate()
 
@@ -836,7 +1023,6 @@ def _prompt_codex_shard_plan_menu(
             event.app.invalidate()
             return
         _clear_numeric_entry()
-        _cycle_current_mode(1)
         _sync_titles()
         event.app.invalidate()
 

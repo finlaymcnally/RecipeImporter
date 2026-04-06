@@ -21,11 +21,9 @@ Durable reporting/dashboard caveats for `cookimport/analytics/`.
 - Dashboard `Recent Benchmarks` `Gold`/`Matched` columns are freeform span-eval counts (`gold_total`/`gold_matched`), not recipe totals; benchmark `recipes` is stored in CSV when available and can be backfilled from `processed_report_path`.
 - Dashboard UX contract: every displayed metric must include a plain-English description (tooltips and/or an on-page help/glossary) that clarifies units and denominators (spans vs recipes, seconds vs ratios, etc.).
 - Dashboard metrics contract is CSV-first: every stat shown in `stats-dashboard` must be written to `performance_history.csv`; JSON report scans are fallback/backfill only.
-- Standalone dashboard pages for all-method sweeps must also remain CSV-first: group benchmark rows by `run_dir`/`artifact_dir` paths containing `all-method-benchmark/<source_slug>/config_*` and rank configs from those CSV-backed benchmark metrics.
-- Dashboard should emit all-method run-summary pages at `all-method-benchmark/all-method-benchmark-run__<run_timestamp>.html` and keep the main dashboard `Previous Runs` table as the entry point (no standalone all-method root index page).
-- All-method run-summary pages must aggregate configuration performance across all per-book jobs in the run folder and keep drilldown links to per-book pages (`all-method-benchmark/all-method-benchmark__<run_timestamp>__<source_slug>.html`).
-- All-method run-summary/detail pages should expose sticky quick-nav links and collapsible section groups so long metric pages remain scannable without removing metrics.
-- All-method detail pages should keep a compact stats-only summary block and per-metric bar-chart blocks ahead of the full ranked configuration table for quick scanability.
+- All-method sweep handling must remain CSV-first: group benchmark rows by `run_dir`/`artifact_dir` paths containing `all-method-benchmark/<source_slug>/config_*`, rank configs from those CSV-backed benchmark metrics, and surface the summary inside the main dashboard only.
+- Dashboard must not emit standalone `all-method-benchmark/*.html` pages.
+- Main-page all-method sweep summaries should stay compact: a collapsed previous-runs row plus an in-page summary table is enough.
 - Ranked all-method rows should expose explicit dimension fields (`Extractor`, `Parser`, `Skip HF`, `Preprocess`) so users can compare configuration differences without parsing slug strings.
 - Run-config metrics contract is `run_config_hash` + `run_config_summary` + `run_config_json` in CSV. Dashboard UI should display summary/hash first and use JSON/report fallback only when CSV context is incomplete.
 - Benchmark CSV `recipes` should be populated for benchmark entrypoints (`labelstudio-benchmark`, `labelstudio-eval`) using pred-run manifest `recipe_count` first, then `processed_report_path` fallback.

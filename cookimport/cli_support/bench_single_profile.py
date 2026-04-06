@@ -29,6 +29,19 @@ def _labelstudio_benchmark_command():
     )
 
 
+def _variant_can_reuse_deterministic_prep_bundle(
+    *,
+    bundle_settings: RunSettings,
+    variant_settings: RunSettings,
+) -> bool:
+    # The shared prep bundle carries authoritative line-role outputs, so a codex
+    # line-role variant must not inherit a bundle that was built with line-role off.
+    return (
+        str(getattr(bundle_settings.line_role_pipeline, "value", "off")).strip().lower()
+        == str(getattr(variant_settings.line_role_pipeline, "value", "off")).strip().lower()
+    )
+
+
 @dataclass
 class _SingleProfileBookDashboardRow:
     source_name: str
@@ -1060,11 +1073,15 @@ def _interactive_single_profile_all_matched_benchmark(
                     "source_file": target.source_file,
                     "eval_output_dir": variant_eval_output,
                     "processed_output_dir": variant_processed_output,
-                    "deterministic_prep_manifest_path": (
-                        deterministic_prep_bundle.manifest_path
-                    ),
                 }
             )
+            if _variant_can_reuse_deterministic_prep_bundle(
+                bundle_settings=variants[0][1],
+                variant_settings=variants[variant_index - 1][1],
+            ):
+                variant_kwargs["deterministic_prep_manifest_path"] = (
+                    deterministic_prep_bundle.manifest_path
+                )
             if scaled_worker_overrides:
                 variant_kwargs.update(scaled_worker_overrides)
             if single_profile_dashboard is not None:

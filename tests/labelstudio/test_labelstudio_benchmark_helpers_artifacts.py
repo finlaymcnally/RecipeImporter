@@ -442,6 +442,192 @@ def _build_codex_farm_prompt_log_fixture(tmp_path: Path) -> dict[str, object]:
     }
 
 
+def _build_nonrecipe_structured_session_prompt_log_fixture(
+    tmp_path: Path,
+) -> dict[str, object]:
+    pred_run = tmp_path / "prediction-run"
+    run_dir = pred_run / "raw" / "llm" / "book"
+    runtime_stage_root = run_dir / "nonrecipe_finalize"
+    knowledge_in = runtime_stage_root / "in"
+    knowledge_out = run_dir / "knowledge" / "out"
+    for folder in (knowledge_in, knowledge_out):
+        folder.mkdir(parents=True, exist_ok=True)
+
+    shard_id = "book.ks0000.nr"
+    worker_id = "worker-001"
+    input_file = knowledge_in / "s0000.json"
+    output_file = knowledge_out / "s0000.json"
+    input_file.write_text(
+        json.dumps({"bid": shard_id, "prompt_text": "legacy knowledge prompt"}),
+        encoding="utf-8",
+    )
+    output_file.write_text(
+        json.dumps({"result": "legacy knowledge response"}),
+        encoding="utf-8",
+    )
+
+    (runtime_stage_root / "phase_manifest.json").write_text(
+        json.dumps({"pipeline_id": "recipe.knowledge.packet.v1"}, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    (runtime_stage_root / "worker_assignments.json").write_text(
+        json.dumps([{"worker_id": worker_id, "shard_ids": [shard_id]}], indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    (runtime_stage_root / "shard_manifest.jsonl").write_text(
+        json.dumps(
+            {
+                "shard_id": shard_id,
+                "owned_ids": [shard_id],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (runtime_stage_root / "telemetry.json").write_text(
+        json.dumps({"rows": []}, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    session_root = (
+        runtime_stage_root / "workers" / worker_id / "shards" / shard_id / "structured_session"
+    )
+    session_root.mkdir(parents=True, exist_ok=True)
+
+    turn_specs = [
+        ("classification_initial", {"b": [{"i": 1, "t": "Salt is flavor."}]}, {"rows": [{"block_index": 1, "category": "knowledge"}]}),
+        ("grouping_1", {"rows": [{"block_index": 1, "category": "knowledge"}]}, {"rows": [{"block_index": 1, "group_key": "salt"}]}),
+        ("grouping_2", {"rows": [{"block_index": 2, "category": "knowledge"}]}, {"rows": [{"block_index": 2, "group_key": "heat"}]}),
+    ]
+    lineage_turns: list[dict[str, object]] = []
+    for index, (turn_kind, packet_payload, response_payload) in enumerate(turn_specs, start=1):
+        prompt_path = session_root / f"{turn_kind}_prompt.txt"
+        packet_path = session_root / f"{turn_kind}_packet.json"
+        response_path = session_root / f"{turn_kind}_response.json"
+        events_path = session_root / f"{turn_kind}_events.jsonl"
+        last_message_path = session_root / f"{turn_kind}_last_message.json"
+        usage_path = session_root / f"{turn_kind}_usage.json"
+        workspace_manifest_path = session_root / f"{turn_kind}_workspace_manifest.json"
+        prompt_path.write_text(f"{turn_kind} prompt body", encoding="utf-8")
+        packet_path.write_text(
+            json.dumps(packet_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        response_path.write_text(
+            json.dumps(response_payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        events_path.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "thread.started"}, sort_keys=True),
+                    json.dumps(
+                        {
+                            "type": "item.completed",
+                            "item": {
+                                "type": "agent_message",
+                                "text": f"{turn_kind} final message",
+                            },
+                        },
+                        sort_keys=True,
+                    ),
+                    json.dumps({"type": "turn.completed"}, sort_keys=True),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        last_message_path.write_text(
+            json.dumps({"text": f"{turn_kind} final message"}, sort_keys=True),
+            encoding="utf-8",
+        )
+        usage_path.write_text(
+            json.dumps(
+                {
+                    "input_tokens": 100 + index,
+                    "cached_input_tokens": 10 * index,
+                    "output_tokens": 20 + index,
+                    "reasoning_tokens": 0,
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        workspace_manifest_path.write_text(
+            json.dumps({"execution_working_dir": f"/tmp/{turn_kind}"}, sort_keys=True),
+            encoding="utf-8",
+        )
+        lineage_turns.append(
+            {
+                "turn_index": index,
+                "turn_kind": turn_kind,
+                "packet_path": str(packet_path.resolve()),
+                "prompt_path": str(prompt_path.resolve()),
+                "response_path": str(response_path.resolve()),
+            }
+        )
+
+    (session_root / "session_lineage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "structured_session_lineage.v1",
+                "assignment_id": f"{worker_id}:{shard_id}",
+                "execution_working_dir": str(session_root.resolve()),
+                "session_lineage_count": 1,
+                "turn_count": len(lineage_turns),
+                "turns": lineage_turns,
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    (run_dir / "knowledge_manifest.json").write_text(
+        json.dumps(
+            {
+                "pipeline_id": "recipe.knowledge.packet.v1",
+                "paths": {
+                    "knowledge_in_dir": str(knowledge_in),
+                    "proposals_dir": str(knowledge_out),
+                },
+                "process_run": {
+                    "run_id": "run-knowledge-structured",
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "recipe_manifest.json").write_text(
+        json.dumps(
+            {
+                "enabled": True,
+                "codex_farm_model": "manifest-model",
+                "codex_farm_reasoning_effort": "low",
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    eval_output_dir = tmp_path / "eval"
+    log_path = prompt_artifacts.build_codex_farm_prompt_response_log(
+        pred_run=pred_run,
+        eval_output_dir=eval_output_dir,
+        repo_root=tmp_path,
+    )
+
+    return {
+        "eval_output_dir": eval_output_dir,
+        "log_path": log_path,
+    }
+
+
 def test_build_codex_farm_prompt_response_log_writes_task_category_logs(
     tmp_path: Path,
 ) -> None:
@@ -599,6 +785,75 @@ def test_build_codex_farm_prompt_response_log_writes_activity_trace_summary(
     assert "# Codex Exec Activity Trace Summary" in trace_summary_md
     assert "- total_rows: `2`" in trace_summary_md
     assert "## recipe_refine (Recipe Refine)" in trace_summary_md
+
+
+def test_build_codex_farm_prompt_response_log_expands_structured_session_turns(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_nonrecipe_structured_session_prompt_log_fixture(tmp_path)
+    eval_output_dir = fixture["eval_output_dir"]
+    assert isinstance(eval_output_dir, Path)
+
+    full_prompt_rows = [
+        json.loads(line)
+        for line in (eval_output_dir / "prompts" / "full_prompt_log.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    assert len(full_prompt_rows) == 3
+    assert [row["runtime_turn_kind"] for row in full_prompt_rows] == [
+        "classification_initial",
+        "grouping_1",
+        "grouping_2",
+    ]
+    assert [row["runtime_turn_index"] for row in full_prompt_rows] == [1, 2, 3]
+    assert {row["runtime_shard_id"] for row in full_prompt_rows} == {"book.ks0000.nr"}
+    assert all(row["stage_key"] == "nonrecipe_finalize" for row in full_prompt_rows)
+    assert full_prompt_rows[0]["call_id"] == (
+        "book.ks0000.nr__turn_01_classification_initial"
+    )
+    assert (
+        full_prompt_rows[0]["request_messages"][0]["content"]
+        == "classification_initial prompt body"
+    )
+    assert full_prompt_rows[0]["request_payload_source"] == "structured_session_prompt_artifact"
+    assert full_prompt_rows[0]["request_input_payload"] == {
+        "b": [{"i": 1, "t": "Salt is flavor."}]
+    }
+    assert full_prompt_rows[1]["parsed_response"] == {
+        "rows": [{"block_index": 1, "group_key": "salt"}]
+    }
+    assert full_prompt_rows[2]["request_telemetry"]["tokens_total"] == 156
+    assert full_prompt_rows[2]["request_telemetry"]["events_path"].endswith(
+        "grouping_2_events.jsonl"
+    )
+    assert full_prompt_rows[2]["activity_trace"]["available"] is True
+    assert full_prompt_rows[2]["activity_trace"]["agent_message_count"] == 1
+
+    summary = json.loads(
+        (eval_output_dir / "prompts" / "prompt_log_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert summary["full_prompt_log_rows"] == 3
+    assert summary["runtime_shard_count"] == 1
+    assert summary["by_stage"]["nonrecipe_finalize"]["row_count"] == 3
+    assert summary["by_stage"]["nonrecipe_finalize"]["runtime_shard_count"] == 1
+
+    trace_rows = [
+        json.loads(line)
+        for line in (eval_output_dir / "prompts" / "activity_trace_summary.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    assert len(trace_rows) == 3
+    assert [row["call_id"] for row in trace_rows] == [
+        "book.ks0000.nr__turn_01_classification_initial",
+        "book.ks0000.nr__turn_02_grouping_1",
+        "book.ks0000.nr__turn_03_grouping_2",
+    ]
 
 
 def test_build_codex_farm_activity_trace_summary_reads_exported_trace_json(

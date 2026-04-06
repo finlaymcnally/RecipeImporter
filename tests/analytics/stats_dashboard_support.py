@@ -600,6 +600,34 @@ const timeFirstPoint = (
   timeSeries[0].data.length
 ) ? timeSeries[0].data[0] : null;
 
+const perRunState = hooks.normalizeCompareControlStateForCatalog(
+  {
+    outcome_field: "all_token_use",
+    compare_field: "run_timestamp",
+    split_field: "source_label",
+    view_mode: "raw",
+    x_axis_mode: "per_run",
+  },
+  catalog
+);
+const perRunChart = hooks.buildCompareControlChartDefinition({
+  records,
+  total_rows: records.length,
+  state: perRunState,
+  catalog,
+  compare_info: catalog.by_field[perRunState.compare_field],
+});
+const perRunSeries = Array.isArray(perRunChart.series) ? perRunChart.series : [];
+const perRunPointTotal = perRunSeries.reduce(
+  (total, series) => total + (Array.isArray(series.data) ? series.data.length : 0),
+  0
+);
+const perRunFirstPoint = (
+  perRunSeries.length &&
+  Array.isArray(perRunSeries[0].data) &&
+  perRunSeries[0].data.length
+) ? perRunSeries[0].data[0] : null;
+
 const categoricalState = hooks.normalizeCompareControlStateForCatalog(
   {
     outcome_field: "strict_accuracy",
@@ -818,6 +846,26 @@ const payload = {
   ) || "",
   time_first_x_is_number: Boolean(timeFirstPoint && Number.isFinite(Number(timeFirstPoint.x))),
   time_first_outcome_value: timeFirstPoint ? Number(timeFirstPoint.y) : null,
+  per_run_chart_type: String(perRunChart.chart_type || ""),
+  per_run_series_count: perRunSeries.length,
+  per_run_point_total: perRunPointTotal,
+  per_run_title: String(perRunChart.chart_title || ""),
+  per_run_x_axis_type: String((perRunChart.x_axis && perRunChart.x_axis.type) || ""),
+  per_run_x_axis_allow_decimals: Boolean(
+    perRunChart.x_axis && perRunChart.x_axis.allowDecimals === false
+  ),
+  per_run_first_compare_value: (
+    perRunFirstPoint &&
+    perRunFirstPoint.custom &&
+    String(perRunFirstPoint.custom.compareValue || "")
+  ) || "",
+  per_run_first_run_order: (
+    perRunFirstPoint &&
+    perRunFirstPoint.custom &&
+    Number(perRunFirstPoint.custom.runOrder)
+  ) || null,
+  per_run_first_x_value: perRunFirstPoint ? Number(perRunFirstPoint.x) : null,
+  per_run_first_outcome_value: perRunFirstPoint ? Number(perRunFirstPoint.y) : null,
   categorical_series_count: categoricalSeries.length,
   categorical_chart_type: String(categoricalChart.chart_type || ""),
   categorical_title: String(categoricalChart.chart_title || ""),
@@ -2039,3 +2087,132 @@ def _run_benchmark_trend_host_width_drift_harness(
             else 0
         ),
     }
+
+
+def _run_dashboard_page_runtime_smoke_harness(
+    html_path: Path,
+) -> dict[str, object]:
+    """Open the full dashboard in a browser and report uncaught runtime failures."""
+    dashboard_state_server = pytest.importorskip("cookimport.analytics.dashboard_state_server")
+    playwright_sync_api = pytest.importorskip("playwright.sync_api")
+
+    start_dashboard_server = dashboard_state_server.start_dashboard_server
+    server, url = start_dashboard_server(
+        dashboard_dir=html_path.parent,
+        host="127.0.0.1",
+        port=0,
+    )
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+
+    try:
+        with playwright_sync_api.sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except Exception as exc:  # pragma: no cover - environment-specific browser install issues
+                pytest.skip(f"chromium launch unavailable for dashboard runtime smoke: {exc}")
+
+            page = browser.new_page(viewport={"width": 1440, "height": 1100})
+            page_errors: list[str] = []
+            console_errors: list[str] = []
+
+            highcharts_stub = (
+                "window.Highcharts = window.Highcharts || {};\n"
+                "window.Highcharts.stockChart = window.Highcharts.stockChart || function(){"
+                "  return { destroy: function(){} };"
+                "};\n"
+                "window.Highcharts.chart = window.Highcharts.chart || function(){"
+                "  return { destroy: function(){} };"
+                "};\n"
+                "window.Highcharts.setOptions = window.Highcharts.setOptions || function(){};\n"
+                "window.Highcharts.dateFormat = window.Highcharts.dateFormat || function(){ return ''; };\n"
+                "window.Highcharts.seriesTypes = window.Highcharts.seriesTypes || {};\n"
+                "window.Highcharts.seriesTypes.arearange = window.Highcharts.seriesTypes.arearange || function(){};\n"
+            )
+
+            def _fulfill_highcharts(route) -> None:
+                route.fulfill(
+                    status=200,
+                    content_type="application/javascript",
+                    body=highcharts_stub,
+                )
+
+            def _record_page_error(exc) -> None:
+                page_errors.append(str(exc))
+
+            def _record_console(msg) -> None:
+                msg_type = str(getattr(msg, "type", "") or "")
+                msg_text = str(getattr(msg, "text", "") or "")
+                if msg_type == "error" and msg_text:
+                    console_errors.append(f"[{msg_type}] {msg_text}")
+
+            page.on("pageerror", _record_page_error)
+            page.on("console", _record_console)
+            page.route("**/*highstock.js*", _fulfill_highcharts)
+            page.route("**/*highcharts-more.js*", _fulfill_highcharts)
+
+            page.goto(url, wait_until="domcontentloaded", timeout=120000)
+            page.wait_for_selector("#previous-runs-table", timeout=20000)
+            page.wait_for_selector("#compare-control-panel", timeout=20000)
+
+            page.select_option("#compare-control-view-mode", "raw")
+            page.wait_for_timeout(150)
+
+            compare_values = page.eval_on_selector_all(
+                "#compare-control-compare-field option",
+                """(options) => options
+                .map(option => String(option.value || "").trim())
+                .filter(Boolean)""",
+            )
+            if compare_values:
+                preferred_compare = (
+                    "run_timestamp" if "run_timestamp" in compare_values else compare_values[0]
+                )
+                page.select_option("#compare-control-compare-field", preferred_compare)
+                page.wait_for_timeout(150)
+
+            outcome_values = page.eval_on_selector_all(
+                "#compare-control-outcome-field option",
+                """(options) => options
+                .map(option => String(option.value || "").trim())
+                .filter(Boolean)""",
+            )
+            if outcome_values:
+                preferred_outcome = (
+                    "strict_accuracy"
+                    if "strict_accuracy" in outcome_values
+                    else outcome_values[0]
+                )
+                page.select_option("#compare-control-outcome-field", preferred_outcome)
+                page.wait_for_timeout(150)
+
+            if compare_values and "run_timestamp" in compare_values:
+                page.select_option("#compare-control-compare-field", "run_timestamp")
+                page.wait_for_timeout(150)
+                if page.locator("#compare-control-x-axis-per-run").count():
+                    page.click("#compare-control-x-axis-per-run")
+                    page.wait_for_timeout(150)
+                    page.click("#compare-control-x-axis-date")
+                    page.wait_for_timeout(150)
+
+            page.click("#compare-control-toggle-second-set")
+            page.wait_for_timeout(150)
+            page.click("#compare-control-toggle-second-set")
+            page.wait_for_timeout(150)
+
+            previous_runs_count = int(
+                page.locator("#previous-runs-table tbody tr").count()
+            )
+            status_text = page.locator("#compare-control-status").text_content() or ""
+            browser.close()
+
+            return {
+                "page_errors": page_errors,
+                "console_errors": console_errors,
+                "previous_runs_count": previous_runs_count,
+                "status_text": status_text,
+            }
+    finally:
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=2)

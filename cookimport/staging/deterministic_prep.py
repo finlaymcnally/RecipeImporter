@@ -604,7 +604,7 @@ def _owned_unit_label_for_step(step_id: str) -> str:
     return {
         "line_role": "lines",
         "recipe": "recipes",
-        "knowledge": "packets",
+        "knowledge": "chars",
     }.get(step_id, "units")
 
 
@@ -629,13 +629,19 @@ def _build_phase_recommendation_payload(
         or 0
     )
     owned_unit_count = (
-        _coerce_int(phase_plan.get("owned_id_count"))
+        _coerce_int(phase_plan.get("work_unit_count"))
+        or _coerce_int(phase_plan.get("owned_id_count"))
         or _coerce_int(totals.get("owned_unit_count"))
         or 0
     )
     owned_ids_per_shard = (
         phase_plan.get("owned_ids_per_shard")
         if isinstance(phase_plan.get("owned_ids_per_shard"), Mapping)
+        else {}
+    )
+    work_units_per_shard = (
+        phase_plan.get("work_units_per_shard")
+        if isinstance(phase_plan.get("work_units_per_shard"), Mapping)
         else {}
     )
     worst_shard = (
@@ -654,11 +660,22 @@ def _build_phase_recommendation_payload(
         "binding_limit": binding_limit,
         "current_shard_count": current_shard_count or None,
         "owned_unit_count": owned_unit_count or None,
-        "owned_unit_label": _owned_unit_label_for_step(step_id),
+        "estimated_input_tokens_total": _coerce_int(
+            totals.get("estimated_input_tokens")
+        ),
+        "estimated_peak_session_tokens_total": _coerce_int(
+            totals.get("estimated_peak_session_tokens")
+        ),
+        "owned_unit_label": str(phase_plan.get("work_unit_label") or "").strip()
+        or _owned_unit_label_for_step(step_id),
         "owned_units_per_shard_avg": (
-            round(float(owned_ids_per_shard.get("avg") or 0.0), 2)
-            if owned_ids_per_shard
-            else _average_float(owned_unit_count, current_shard_count)
+            round(float(work_units_per_shard.get("avg") or 0.0), 2)
+            if work_units_per_shard
+            else (
+                round(float(owned_ids_per_shard.get("avg") or 0.0), 2)
+                if owned_ids_per_shard
+                else _average_float(owned_unit_count, current_shard_count)
+            )
         ),
         "avg_input_tokens_per_shard": _average_int(
             totals.get("estimated_input_tokens"),

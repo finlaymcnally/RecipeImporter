@@ -978,8 +978,8 @@ def test_choose_run_settings_uses_target_context_recommendation_builder_for_shar
                         "avg_input_tokens_per_shard": 33_000,
                         "avg_peak_session_tokens_per_shard": 57_400,
                         "worst_peak_session_tokens": 74_000,
-                        "owned_units_per_shard_avg": 7.6,
-                        "owned_unit_label": "packets",
+                        "owned_units_per_shard_avg": 12_400.0,
+                        "owned_unit_label": "chars",
                     },
                 }
             ),
@@ -1009,7 +1009,7 @@ def test_choose_run_settings_uses_target_context_recommendation_builder_for_shar
     assert [float(row["owned_units_per_shard_avg"]) for row in captured_rows] == [
         249.0,
         5.4,
-        7.6,
+        12_400.0,
     ]
     assert "Target: book.epub" in captured_summary_lines
     assert any("Prepared: 312 blocks, 1,245 lines, 27 recipe guesses" in line for line in captured_summary_lines)
@@ -1037,6 +1037,22 @@ def test_binding_limit_and_kpi_labels_are_plain_english() -> None:
             }
         )
         == "~21k prompt | ~26k session | ~294 lines/sh"
+    )
+
+
+def test_shard_plan_kpi_summary_updates_when_shard_count_changes() -> None:
+    assert (
+        run_settings_flow._render_shard_plan_kpi_summary(
+            {
+                "current_shard_count": 5,
+                "estimated_input_tokens_total": 105_000,
+                "estimated_peak_session_tokens_total": 135_000,
+                "owned_unit_count": 1_470,
+                "owned_unit_label": "lines",
+            },
+            shard_count=10,
+        )
+        == "~10k prompt | ~13k session | ~147 lines/sh"
     )
 
 
@@ -1261,7 +1277,7 @@ def test_choose_run_settings_stage_codex_surface_menu_applies_recipe_and_knowled
     assert selected.knowledge_codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
 
 
-def test_prompt_codex_shard_plan_menu_uses_arrow_keys_to_change_modes_without_leaving_screen() -> None:
+def test_prompt_codex_shard_plan_menu_moves_from_shard_column_into_modes_without_leaving_screen() -> None:
     result: dict[str, dict[str, dict[str, object]] | None] = {"value": None}
     error: dict[str, BaseException] = {}
 
@@ -1307,6 +1323,7 @@ def test_prompt_codex_shard_plan_menu_uses_arrow_keys_to_change_modes_without_le
         worker = threading.Thread(target=_run_prompt, daemon=True)
         worker.start()
         pipe_input.send_bytes(b"\x1b[B")  # Down -> knowledge
+        pipe_input.send_bytes(b"\x1b[C")  # Right -> knowledge JSON
         pipe_input.send_bytes(b"\x1b[D")  # Left -> knowledge off
         pipe_input.send_bytes(b"\x1b[B")  # Down -> Continue
         pipe_input.send_bytes(b"\r")
@@ -1319,7 +1336,53 @@ def test_prompt_codex_shard_plan_menu_uses_arrow_keys_to_change_modes_without_le
     }
 
 
-def test_prompt_codex_shard_plan_menu_allows_left_and_right_to_cycle_current_mode() -> None:
+def test_prompt_codex_shard_plan_menu_handles_safe_minimum_with_kpi_summary() -> None:
+    result: dict[str, dict[str, dict[str, object]] | None] = {"value": None}
+    error: dict[str, BaseException] = {}
+
+    with create_pipe_input() as pipe_input:
+        def _run_prompt() -> None:
+            try:
+                result["value"] = run_settings_flow._prompt_codex_shard_plan_menu(
+                    message="Codex Exec step planning for this run:",
+                    rows=[
+                        {
+                            "step_id": "line_role",
+                            "label": "Block labelling",
+                            "available_modes": (
+                                "off",
+                                CODEX_EXEC_STYLE_INLINE_JSON_V1,
+                                CODEX_EXEC_STYLE_TASKFILE_V1,
+                            ),
+                            "current_mode": CODEX_EXEC_STYLE_INLINE_JSON_V1,
+                            "current_count": 5,
+                            "minimum_safe_shard_count": 4,
+                            "binding_limit": "owned_units",
+                            "kpi_summary": "~21k prompt | ~27k session | ~294 lines/sh",
+                            "budget_summary": "in 220k / out 80k / peak 300k",
+                        },
+                    ],
+                    summary_lines=["Target: book.epub"],
+                    back_action="back",
+                    input=pipe_input,
+                    output=DummyOutput(),
+                )
+            except BaseException as exc:  # noqa: BLE001
+                error["exc"] = exc
+
+        worker = threading.Thread(target=_run_prompt, daemon=True)
+        worker.start()
+        pipe_input.send_bytes(b"\x1b[B")  # Down -> Continue
+        pipe_input.send_bytes(b"\r")
+        worker.join(timeout=2)
+
+    assert "exc" not in error, f"Prompt crashed instead of rendering safe KPI rows: {error.get('exc')}"
+    assert result["value"] == {
+        "line_role": {"mode": CODEX_EXEC_STYLE_INLINE_JSON_V1, "count": 5},
+    }
+
+
+def test_prompt_codex_shard_plan_menu_allows_left_and_right_to_move_between_mode_columns() -> None:
     result: dict[str, dict[str, dict[str, object]] | None] = {"value": None}
     error: dict[str, BaseException] = {}
 
@@ -1365,8 +1428,9 @@ def test_prompt_codex_shard_plan_menu_allows_left_and_right_to_cycle_current_mod
         worker = threading.Thread(target=_run_prompt, daemon=True)
         worker.start()
         pipe_input.send_bytes(b"\x1b[B")  # Down -> knowledge
-        pipe_input.send_bytes(b"\x1b[C")  # Right -> taskfile
-        pipe_input.send_bytes(b"\x1b[D")  # Left -> json
+        pipe_input.send_bytes(b"\x1b[C")  # Right -> knowledge JSON
+        pipe_input.send_bytes(b"\x1b[C")  # Right -> knowledge taskfile
+        pipe_input.send_bytes(b"\x1b[D")  # Left -> knowledge JSON
         pipe_input.send_bytes(b"\x1b[B")  # Down -> Continue
         pipe_input.send_bytes(b"\r")
         worker.join(timeout=2)

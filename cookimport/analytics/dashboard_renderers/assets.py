@@ -4,7 +4,6 @@ import json
 import re
 from pathlib import Path
 
-from cookimport.analytics.dashboard_renderers.all_method_pages import _render_all_method_pages
 from cookimport.analytics.dashboard_renderers.index_page import write_index_page
 from cookimport.analytics.dashboard_renderers.templates import _CSS, _JS
 from cookimport.analytics.dashboard_schema import DashboardData
@@ -34,5 +33,4 @@ def render_dashboard(out_dir: Path, data: DashboardData) -> Path:
     (assets_dir / "style.css").write_text(_CSS, encoding="utf-8")
     (assets_dir / "dashboard.js").write_text(_JS, encoding="utf-8")
 
-    _render_all_method_pages(out_dir, data)
     return write_index_page(out_dir=out_dir, data_json=data_json, asset_version=asset_version)

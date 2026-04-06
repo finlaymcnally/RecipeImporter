@@ -491,6 +491,40 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
     stage_rows: list[dict[str, Any]] = []
     requested_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
 
+    def _record_structured_attempt(
+        *,
+        run_result: CodexExecRunResult,
+        shard_id: str,
+        prompt_input_mode: str,
+        events_path: Path,
+        last_message_path: Path,
+        usage_path: Path,
+        workspace_manifest_path: Path,
+    ) -> None:
+        runner_payload = _build_knowledge_inline_attempt_runner_payload(
+            pipeline_id=pipeline_id,
+            worker_id=assignment.worker_id,
+            shard_id=shard_id,
+            run_result=run_result,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            prompt_input_mode=prompt_input_mode,
+            events_path=events_path,
+            last_message_path=last_message_path,
+            usage_path=usage_path,
+            workspace_manifest_path=workspace_manifest_path,
+        )
+        worker_runner_results.append(runner_payload)
+        telemetry = runner_payload.get("telemetry")
+        if not isinstance(telemetry, Mapping):
+            return
+        rows = telemetry.get("rows")
+        if not isinstance(rows, list):
+            return
+        for row in rows:
+            if isinstance(row, Mapping):
+                stage_rows.append(dict(row))
+
     for shard in requested_shards:
         preflight_failure = _preflight_knowledge_shard(shard)
         if preflight_failure is not None:
@@ -604,20 +638,14 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
             prompt_path=classification_prompt_path,
             response_path=classification_response_path,
         )
-        worker_runner_results.append(
-            _build_knowledge_inline_attempt_runner_payload(
-                pipeline_id=pipeline_id,
-                worker_id=assignment.worker_id,
-                shard_id=shard.shard_id,
-                run_result=initial_run_result,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                prompt_input_mode="structured_session_classification_initial",
-                events_path=classification_events_path,
-                last_message_path=classification_last_message_path,
-                usage_path=classification_usage_path,
-                workspace_manifest_path=classification_workspace_manifest_path,
-            )
+        _record_structured_attempt(
+            run_result=initial_run_result,
+            shard_id=shard.shard_id,
+            prompt_input_mode="structured_session_classification_initial",
+            events_path=classification_events_path,
+            last_message_path=classification_last_message_path,
+            usage_path=classification_usage_path,
+            workspace_manifest_path=classification_workspace_manifest_path,
         )
 
         edited_classification_task_file, parse_errors, parse_metadata = (
@@ -750,20 +778,14 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     prompt_path=repair_prompt_path,
                     response_path=repair_response_path,
                 )
-                worker_runner_results.append(
-                    _build_knowledge_inline_attempt_runner_payload(
-                        pipeline_id=pipeline_id,
-                        worker_id=assignment.worker_id,
-                        shard_id=shard.shard_id,
-                        run_result=repair_run_result,
-                        model=model,
-                        reasoning_effort=reasoning_effort,
-                        prompt_input_mode="structured_session_classification_repair",
-                        events_path=repair_events_path,
-                        last_message_path=repair_last_message_path,
-                        usage_path=repair_usage_path,
-                        workspace_manifest_path=repair_workspace_manifest_path,
-                    )
+                _record_structured_attempt(
+                    run_result=repair_run_result,
+                    shard_id=shard.shard_id,
+                    prompt_input_mode="structured_session_classification_repair",
+                    events_path=repair_events_path,
+                    last_message_path=repair_last_message_path,
+                    usage_path=repair_usage_path,
+                    workspace_manifest_path=repair_workspace_manifest_path,
                 )
                 repair_edited_task_file, repair_parse_errors, repair_parse_metadata = (
                     _build_knowledge_edited_task_file_from_classification_response(
@@ -912,20 +934,14 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     prompt_path=grouping_prompt_path,
                     response_path=grouping_response_path,
                 )
-                worker_runner_results.append(
-                    _build_knowledge_inline_attempt_runner_payload(
-                        pipeline_id=pipeline_id,
-                        worker_id=assignment.worker_id,
-                        shard_id=shard.shard_id,
-                        run_result=grouping_run_result,
-                        model=model,
-                        reasoning_effort=reasoning_effort,
-                        prompt_input_mode="structured_session_grouping",
-                        events_path=grouping_events_path,
-                        last_message_path=grouping_last_message_path,
-                        usage_path=grouping_usage_path,
-                        workspace_manifest_path=grouping_workspace_manifest_path,
-                    )
+                _record_structured_attempt(
+                    run_result=grouping_run_result,
+                    shard_id=shard.shard_id,
+                    prompt_input_mode="structured_session_grouping",
+                    events_path=grouping_events_path,
+                    last_message_path=grouping_last_message_path,
+                    usage_path=grouping_usage_path,
+                    workspace_manifest_path=grouping_workspace_manifest_path,
                 )
                 grouping_edited_task_file, grouping_parse_errors, grouping_parse_metadata = (
                     _build_knowledge_edited_task_file_from_grouping_response(
@@ -1064,20 +1080,14 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                             prompt_path=repair_grouping_prompt_path,
                             response_path=repair_grouping_response_path,
                         )
-                        worker_runner_results.append(
-                            _build_knowledge_inline_attempt_runner_payload(
-                                pipeline_id=pipeline_id,
-                                worker_id=assignment.worker_id,
-                                shard_id=shard.shard_id,
-                                run_result=repair_grouping_run_result,
-                                model=model,
-                                reasoning_effort=reasoning_effort,
-                                prompt_input_mode="structured_session_grouping_repair",
-                                events_path=repair_grouping_events_path,
-                                last_message_path=repair_grouping_last_message_path,
-                                usage_path=repair_grouping_usage_path,
-                                workspace_manifest_path=repair_grouping_workspace_manifest_path,
-                            )
+                        _record_structured_attempt(
+                            run_result=repair_grouping_run_result,
+                            shard_id=shard.shard_id,
+                            prompt_input_mode="structured_session_grouping_repair",
+                            events_path=repair_grouping_events_path,
+                            last_message_path=repair_grouping_last_message_path,
+                            usage_path=repair_grouping_usage_path,
+                            workspace_manifest_path=repair_grouping_workspace_manifest_path,
                         )
                         (
                             repair_grouping_edited_task_file,
@@ -1743,7 +1753,7 @@ def _run_phase_knowledge_worker_assignment_v1(
             _attach_worker_guardrail_summary(
                 worker_runner_payload=worker_runner_payload,
                 task_file_guardrail=task_file_guardrail,
-                planned_happy_path_worker_cap=3,
+                planned_happy_path_worker_cap=2,
             )
             worker_runner_results.append(worker_runner_payload)
         classify_answers_by_unit_id = (
@@ -2096,7 +2106,7 @@ def _run_phase_knowledge_worker_assignment_v1(
     _attach_worker_guardrail_summary(
         worker_runner_payload=worker_runner_payload,
         task_file_guardrail=task_file_guardrail,
-        planned_happy_path_worker_cap=3,
+        planned_happy_path_worker_cap=2,
         repair_followup_call_count=int(
             worker_runner_payload.get("telemetry", {})
             .get("summary", {})

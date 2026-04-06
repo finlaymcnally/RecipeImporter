@@ -50,6 +50,7 @@ _JS_BOOTSTRAP = """\
       outcome_field: "strict_accuracy",
       compare_field: "",
       chart_type: "scatter",
+      x_axis_mode: "date",
       hold_constant_fields: [],
       split_field: "",
       view_mode: "discover",
@@ -626,6 +627,11 @@ _JS_BOOTSTRAP = """\
     return COMPARE_CONTROL_CHART_TYPES.has(key) ? key : COMPARE_CONTROL_DEFAULT_CHART_TYPE;
   }
 
+  function normalizeCompareControlXAxisMode(value) {
+    const key = String(value || "date").trim().toLowerCase();
+    return key === "per_run" ? "per_run" : "date";
+  }
+
   function normalizeCompareControlChartLayout(value) {
     const key = String(value || COMPARE_CONTROL_DEFAULT_CHART_LAYOUT).trim().toLowerCase();
     return COMPARE_CONTROL_CHART_LAYOUTS.has(key)
@@ -677,6 +683,7 @@ _JS_BOOTSTRAP = """\
       outcome_field: String(source.outcome_field || base.outcome_field).trim() || base.outcome_field,
       compare_field: String(source.compare_field || "").trim(),
       chart_type: normalizeCompareControlChartType(source.chart_type),
+      x_axis_mode: normalizeCompareControlXAxisMode(source.x_axis_mode),
       hold_constant_fields: uniqueStringList(source.hold_constant_fields),
       split_field: String(source.split_field || "").trim(),
       view_mode: normalizeCompareControlViewMode(source.view_mode),

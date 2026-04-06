@@ -482,9 +482,9 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codex_ex
         / "01_book_a"
         / "codex-exec",
     ]
-    assert [call["deterministic_prep_manifest_path"] for call in benchmark_calls] == [
+    assert [call.get("deterministic_prep_manifest_path") for call in benchmark_calls] == [
         prep_bundle.manifest_path,
-        prep_bundle.manifest_path,
+        None,
     ]
 
 

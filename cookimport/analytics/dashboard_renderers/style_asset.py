@@ -259,6 +259,24 @@ svg [data-metric-tooltip-key]:hover * {
 .previous-runs-subsection > .section-note {
   margin: 0 0 0.55rem;
 }
+#all-method-summary-section {
+  background: #fdfcf7;
+  border-color: #e8dec7;
+}
+#all-method-summary-section > h3 {
+  color: #6d5430;
+}
+.all-method-summary-wrap {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fffef9;
+}
+.all-method-summary-table td.num {
+  white-space: nowrap;
+}
+.all-method-summary-empty {
+  margin: 0;
+}
 #compare-control-analysis-section {
   background: #f8fbf6;
   border-color: #d7e3cf;
@@ -304,6 +322,44 @@ svg [data-metric-tooltip-key]:hover * {
   color: var(--text);
   font-size: 0.8rem;
   padding: 0.28rem 0.4rem;
+}
+.compare-control-x-axis-toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+  flex-wrap: wrap;
+}
+.compare-control-x-axis-toggle-label {
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.compare-control-x-axis-toggle {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid #cfd9c5;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #f5f8ef;
+}
+.compare-control-x-axis-toggle button {
+  border: 0;
+  background: transparent;
+  color: #516047;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.3rem 0.72rem;
+}
+.compare-control-x-axis-toggle button:hover {
+  background: #e8f0dd;
+}
+.compare-control-x-axis-toggle button.is-active {
+  background: #d8e8c6;
+  color: #274112;
 }
 .compare-control-controls-split {
   display: grid;

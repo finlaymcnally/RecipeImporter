@@ -183,6 +183,11 @@ _HTML = """\
 	      </section>
 	    </details>
 	    <div class="previous-runs-sections">
+      <section id="all-method-summary-section" class="previous-runs-subsection" hidden>
+        <h3>All-Method Sweeps</h3>
+        <p class="section-note">Recent all-method benchmark sweeps stay on this page. Use this compact summary instead of separate sweep HTML pages.</p>
+        <div id="all-method-summary"></div>
+      </section>
 	      <section id="previous-runs-history-panel" class="previous-runs-subsection">
 	        <h3>History Table &amp; Trend</h3>
 	        <p class="section-note">Use this section for row filtering, trend review, and table-level drilldown.</p>
@@ -330,6 +335,13 @@ _HTML = """\
               <p class="section-note">Auto-built from Compare &amp; Control scope and settings only (numeric compare: scatter, categorical compare: bars).</p>
               <div id="compare-control-trend-chart" class="highcharts-host" aria-label="Compare and control score trend chart"></div>
               <p id="compare-control-trend-fallback" class="empty-note" hidden></p>
+              <div id="compare-control-x-axis-toggle-wrap" class="compare-control-x-axis-toggle-wrap" hidden>
+                <span class="compare-control-x-axis-toggle-label">X-axis</span>
+                <div class="compare-control-x-axis-toggle" role="group" aria-label="Compare and control x-axis mode">
+                  <button id="compare-control-x-axis-date" type="button" data-x-axis-mode="date">Date</button>
+                  <button id="compare-control-x-axis-per-run" type="button" data-x-axis-mode="per_run">Per run</button>
+                </div>
+              </div>
             </section>
           </div>
           <div id="compare-control-column-secondary" class="compare-control-set-column compare-control-set-column-secondary" hidden>
@@ -370,6 +382,13 @@ _HTML = """\
               <p class="section-note">Auto-built from Compare &amp; Control scope and settings only (numeric compare: scatter, categorical compare: bars).</p>
               <div id="compare-control-trend-chart-secondary" class="highcharts-host" aria-label="Compare and control score trend chart set 2"></div>
               <p id="compare-control-trend-fallback-secondary" class="empty-note" hidden></p>
+              <div id="compare-control-x-axis-toggle-wrap-secondary" class="compare-control-x-axis-toggle-wrap" hidden>
+                <span class="compare-control-x-axis-toggle-label">X-axis</span>
+                <div class="compare-control-x-axis-toggle" role="group" aria-label="Compare and control x-axis mode set 2">
+                  <button id="compare-control-x-axis-date-secondary" type="button" data-x-axis-mode="date">Date</button>
+                  <button id="compare-control-x-axis-per-run-secondary" type="button" data-x-axis-mode="per_run">Per run</button>
+                </div>
+              </div>
             </section>
           </div>
         </div>
@@ -378,6 +397,13 @@ _HTML = """\
           <p class="section-note">Use combined mode only when you want one merged chart instead of the default left/right split.</p>
           <div id="compare-control-trend-chart-combined" class="highcharts-host" aria-label="Combined compare and control score trend chart"></div>
           <p id="compare-control-trend-fallback-combined" class="empty-note" hidden></p>
+          <div id="compare-control-x-axis-toggle-wrap-combined" class="compare-control-x-axis-toggle-wrap" hidden>
+            <span class="compare-control-x-axis-toggle-label">X-axis</span>
+            <div class="compare-control-x-axis-toggle" role="group" aria-label="Combined compare and control x-axis mode">
+              <button id="compare-control-x-axis-date-combined" type="button" data-x-axis-mode="date">Date</button>
+              <button id="compare-control-x-axis-per-run-combined" type="button" data-x-axis-mode="per_run">Per run</button>
+            </div>
+          </div>
         </section>
       </section>
     </div>

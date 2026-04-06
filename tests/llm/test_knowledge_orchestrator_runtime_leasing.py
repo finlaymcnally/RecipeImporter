@@ -355,6 +355,47 @@ def test_knowledge_orchestrator_inline_json_retries_grouping_more_than_once(
     }
 
 
+def test_knowledge_orchestrator_inline_json_populates_top_level_telemetry_and_survivability(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
+    pack_root, _run_root = make_runtime_pack_and_run_dirs(tmp_path)
+    settings = make_runtime_settings(
+        pack_root=pack_root,
+        worker_count=1,
+        knowledge_prompt_target_count=2,
+        knowledge_codex_exec_style="inline-json-v1",
+    )
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: build_structural_pipeline_output(
+            "recipe.knowledge.packet.v1",
+            dict(payload or {}),
+        )
+    )
+
+    fixture = _run_runtime_phase(
+        monkeypatch,
+        tmp_path,
+        runner=runner,
+        settings=settings,
+    )
+    phase_dir = Path(fixture["phase_dir"])
+    telemetry = json.loads((phase_dir / "telemetry.json").read_text(encoding="utf-8"))
+    survivability_report = json.loads(
+        (phase_dir / "shard_survivability_report.json").read_text(encoding="utf-8")
+    )
+
+    assert telemetry["rows"]
+    assert telemetry["summary"]["call_count"] == len(telemetry["rows"])
+    assert telemetry["summary"]["tokens_total"] > 0
+    assert all(row["task_id"].startswith("book.ks000") for row in telemetry["rows"])
+    assert (
+        survivability_report["shards"][0]["observed"]["token_usage_status"] == "complete"
+    )
+    assert survivability_report["shards"][0]["observed"]["total_billed_tokens"] > 0
+
+
 def test_knowledge_orchestrator_replaces_hard_boundary_failure_with_fresh_worker(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

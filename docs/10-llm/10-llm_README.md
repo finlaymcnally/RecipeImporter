@@ -237,14 +237,14 @@ Knowledge-stage writes:
 
 Knowledge runtime note:
 - the live knowledge implementation is no longer one direct `knowledge/in -> knowledge/out` CodexFarm call
-- knowledge classification now carries its grouping batch limits inside the repo-authored classification `task.json`, so same-session handoff and later grouping batches reuse the same explicit max-units / max-evidence budgets instead of falling back to hidden module literals.
+- knowledge classification still carries grouping-limit metadata inside the repo-authored classification `task.json`, but the active runtime now keeps grouping shard-local and single-turn on the happy path instead of fanning one shard out into several grouping batches.
 - deterministic repo code now decides only shard sizing and ordering. It does not decide final `knowledge|other` labels or final grouping.
 - knowledge shard planning now reads the stage-owned recipe block-ownership contract. Recipe-owned blocks are excluded from owned packet rows and from prompt context text; only nearby owned indices may survive as compact guardrail metadata.
 - `codex_farm_knowledge_jobs.py` now writes one ordered shard payload per file under `knowledge/in/*.json`. `knowledge_prompt_target_count` is a hard cap on the number of shard files, and packet-budget pressure is recorded as metadata/warnings rather than silently increasing shard count.
 - the live knowledge model call now goes through `codex_exec_runner.py`, and the worker surface is assignment-first rather than leased-packet-first or phase-ledger-first
 - knowledge worker assignments now use one happy-path `taskfile` Codex session per worker assignment with repo-written `task.json`: classification starts first, the same session runs one repo-owned validate-and-advance helper, and that helper either rewrites `task.json` into repair mode, rewrites it into the grouping file, or finishes the final `out/*.json` shard artifacts directly when everything is `other`
 - knowledge repair rewrites now keep `validation_feedback` unit-local and compact instead of copying the full shared validation-detail blob onto every failed unit; detailed validation history still lives in repo-owned same-session state/telemetry
-- knowledge grouping task files are now bounded deterministic batches rather than one flat all-kept-rows file: deterministic code splits large grouping work by row/evidence budget, writes top-level `grouping_batch` progress metadata into `task.json`, and keeps the worker on the same direct-batch open/edit/handoff loop until the final batch completes
+- knowledge grouping task files now keep all retained knowledge rows for the shard in one grouping surface on the happy path; `grouping_batch` metadata remains as a reviewer/telemetry summary, but active runtime grouping no longer fans one shard out into several batch turns
 - classification `task.json` now includes immutable task-scope `ontology` loaded from the checked-in `cookimport/llm/knowledge_tag_catalog.json` snapshot plus per-unit `candidate_tag_keys` lexical hints; deterministic code validates catalog membership and shape, but the model still makes the semantic keep/drop call
 - classification `task.json` now also carries a repo-written `review_contract`. The intended mindset is close semantic review of each owned block, not inventing a packet-wide heuristic or shell-script classifier. The live happy path is direct-batch rather than queue-style: open `task.json` directly, answer all owned units in place, run `task-handoff`, and continue in the same workspace only if the helper rewrites the file into repair mode or grouping mode. `task-template`, `task-apply`, `answers.json`, and the older queue helpers are no longer part of the normal knowledge classification path.
 - `live_status.json` plus deterministic validation metadata is now the repo-side truth surface for no-result classification. The happy path no longer depends on `packet_lease_status.json`, `current_packet.json`, or repo-advanced pass control files.
@@ -323,9 +323,9 @@ Line-role runtime note:
 
 Prompt/debug artifacts:
 
-- `prompts/full_prompt_log.jsonl` is the stable per-call truth
+- `prompts/full_prompt_log.jsonl` is the stable per-call truth; structured-session packet stages must emit one row per actual model turn, not one collapsed row per shard
 - direct `codex exec` shard telemetry now records `duration_ms`, `started_at_utc`, and `finished_at_utc`; when the global `var/codex_exec_activity.csv` join is missing or stale, prompt-artifact export should backfill recipe/knowledge rows from the stage-local `telemetry.json` keyed by runtime shard id
-- `prompts/prompt_log_summary.json` is the small count summary for that log; it separates raw row count from `runtime_shard_count` so bundled recipe outputs do not look like extra Codex calls
+- `prompts/prompt_log_summary.json` is the small count summary for that log; it separates raw row count from `runtime_shard_count` so bundled recipe outputs and multi-turn structured-session rows do not look like extra shard jobs
 - `prompts/prompt_request_response_log.txt` is the human-readable convenience export
 - `prompts/prompt_type_samples_from_full_prompt_log.md` is a sampled reviewer view
 - `prompts/activity_traces/<call_id>.json` is the canonical prompt-local export for visible worker activity; it is derived from saved worker files such as `events.jsonl`, `last_message.json`, `usage.json`, `live_status.json`, `workspace_manifest.json`, and optional `stdout.txt` / `stderr.txt`
@@ -355,7 +355,7 @@ Prompt/debug artifacts:
 - preview export also writes `prompt_preview_budget_summary.json` and `prompt_preview_budget_summary.md`; it is predictive-only, prefers the paired deterministic/`vanilla` processed artifact when a benchmark root has both variants, uses structural prompt/output reconstruction for token estimates, reports stages as unavailable when that structure cannot be reconstructed safely, and hard-refuses Codex-backed or ambiguous processed runs
 - when preview rebuilds knowledge planning from older deterministic artifacts, stale recipe-local labels that survived outside recipe spans are treated as preview-only excluded `other` rows so old vanilla runs still produce a forward-looking estimate instead of crashing
 - reviewer-facing prompt files stay prompt-level on purpose; the durable cutover is to annotate them with runtime ownership metadata (`runtime_shard_id`, `runtime_worker_id`, `runtime_owned_ids`), not to invent a second export family just for shard workers
-- when you want “how many Codex jobs actually ran?” on classic shard runtime, prefer stage `call_count` in `prompt_budget_summary.json` or `prompts/prompt_log_summary.json.runtime_shard_count`; raw `full_prompt_log_rows` may be higher because one shard output can expand into several per-item rows
+- when you want “how many Codex jobs actually ran?” on classic shard runtime, prefer stage `call_count` in `prompt_budget_summary.json` or `prompts/prompt_log_summary.json.runtime_shard_count`; raw `full_prompt_log_rows` may be higher because one shard can expand into several reviewer rows or several real structured-session turns
 - preview defaults to the shard-v1 surfaces unless explicitly overridden, so it can project post-refactor worker/shard budgets over saved deterministic-only benchmark outputs too
 - preview reconstruction is local-only and composed from three seams:
   - recipe prompt inputs from CodexFarm job builders in `codex_farm_orchestrator`

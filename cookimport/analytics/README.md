@@ -25,7 +25,7 @@ Modules:
 - `compare_control_fields.py` – Derived benchmark field values plus compare/control field catalog ownership
 - `compare_control_filters.py` – Quick-filter and column-filter normalization/evaluation
 - `compare_control_analysis.py` – Compare/control statistics, discovery cards, and insights ownership
-- `dashboard_renderers/` – Asset writing, shared formatting, all-method page generation, and static templates
+- `dashboard_renderers/` – Asset writing, shared formatting, the single-page shell, and static templates
 
 Dashboard UX rule:
 - Any new metric shown in the dashboard should come with a plain-English description (tooltips and/or an on-page help/glossary). See `cookimport/analytics/CONVENTIONS.md`.
@@ -49,13 +49,9 @@ Output: `.history/dashboard/` for repo-local outputs (configurable via `--out-di
 - Benchmark CSV appends now write `importer_name`; dashboard importer display also has source-path/run-config fallback for older blank rows.
 - Codex model/effort is backfilled from benchmark manifest `llm_codex_farm` runtime payloads when run-config omits those fields.
 - Benchmark runtime model/effort now falls back to prediction-run manifest `llm_codex_farm` telemetry when run-config values are unset/default.
-- For grouped all-method runs, writes run-level summary pages under `all-method-benchmark/`:
-  - `.history/dashboard/all-method-benchmark/all-method-benchmark-run__<run_timestamp>.html` (repo-local default)
-- Per-book detail pages live in the same all-method subfolder:
-  - `.history/dashboard/all-method-benchmark/all-method-benchmark__<run_timestamp>__<source_slug>.html` (repo-local default)
-- No standalone `all-method-benchmark/index.html` page is generated; entry is via main-page `Previous Runs` timestamp links.
-- Grouping key remains benchmark artifact paths matching `all-method-benchmark/<source_slug>/config_*`; run-level pages aggregate those per-book groups by run folder.
-- Run-summary pages include config-level charts plus per-cookbook average bar/radar sections (averaged across all configs per source) before config and per-book tables.
+- Grouped all-method runs stay inside the main dashboard as a compact `All-Method Sweeps` summary section.
+- No standalone `all-method-benchmark/` HTML pages are generated.
+- Grouping key remains benchmark artifact paths matching `all-method-benchmark/<source_slug>/config_*`; the main page collapses those per-book groups into one sweep row plus the summary table.
 
 Throughput dashboard organization:
 - run/date view (`Run / Date Trend`, `Recent Runs`) for timeline-level comparisons

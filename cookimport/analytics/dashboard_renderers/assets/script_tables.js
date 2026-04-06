@@ -1746,6 +1746,301 @@
     return leftHref.localeCompare(rightHref);
   }
 
+  function allMethodRunInfo(record) {
+    const ALL_METHOD_SEGMENT = "all-method-benchmark";
+    const ALL_METHOD_CONFIG_PREFIX = "config_";
+    const artifactDir = record ? record.artifact_dir : null;
+    const info = normalizePathParts(artifactDir);
+    if (info.parts.length < 3) return null;
+    const lower = info.parts.map(p => String(p).toLowerCase());
+    for (let idx = 0; idx < lower.length; idx++) {
+      if (lower[idx] !== ALL_METHOD_SEGMENT) continue;
+      if (idx + 2 >= info.parts.length) continue;
+      const sourceSlug = info.parts[idx + 1];
+      const configDir = info.parts[idx + 2];
+      if (!String(configDir).startsWith(ALL_METHOD_CONFIG_PREFIX)) continue;
+      let runDirTimestamp = null;
+      for (let i = idx - 1; i >= 0; i--) {
+        const candidate = info.parts[i];
+        if (isTimestampTokenText(candidate)) {
+          runDirTimestamp = String(candidate);
+          break;
+        }
+      }
+      const fallbackTimestamp = String((record && record.run_timestamp) || "").trim();
+      const runRootDir = info.prefix + info.parts.slice(0, idx + 1).join("/");
+      const groupDir = info.prefix + info.parts.slice(0, idx + 2).join("/");
+      return {
+        runKey: runRootDir || groupDir,
+        groupKey: groupDir,
+        runDirTimestamp: runDirTimestamp || fallbackTimestamp || null,
+        configDir: String(configDir),
+        sourceSlug: String(sourceSlug),
+      };
+    }
+    return null;
+  }
+
+  function allMethodScoreMetric(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function allMethodAggregateConfigKey(record, configDir) {
+    const hash = String(record.run_config_hash || "").trim().toLowerCase();
+    if (hash) return "hash:" + hash;
+    return "name:" + String(configDir || "");
+  }
+
+  function bestAllMethodRecord(recordsForGroup) {
+    if (!recordsForGroup.length) return null;
+    let best = recordsForGroup[0];
+    recordsForGroup.slice(1).forEach(next => {
+      const bestKey = [
+        allMethodScoreMetric(best.macro_f1_excluding_other),
+        allMethodScoreMetric(best.strict_accuracy),
+        allMethodScoreMetric(best.f1),
+        allMethodScoreMetric(best.practical_f1),
+      ];
+      const nextKey = [
+        allMethodScoreMetric(next.macro_f1_excluding_other),
+        allMethodScoreMetric(next.strict_accuracy),
+        allMethodScoreMetric(next.f1),
+        allMethodScoreMetric(next.practical_f1),
+      ];
+      for (let i = 0; i < bestKey.length; i++) {
+        if (nextKey[i] > bestKey[i]) {
+          best = next;
+          return;
+        }
+        if (nextKey[i] < bestKey[i]) {
+          return;
+        }
+      }
+    });
+    return best;
+  }
+
+  function mostCommonValue(counts) {
+    let best = null;
+    let bestCount = -1;
+    Object.keys(counts).forEach(key => {
+      const count = counts[key] || 0;
+      if (count > bestCount) {
+        best = key;
+        bestCount = count;
+      }
+    });
+    return best;
+  }
+
+  function summarizeAllMethodSource(counts) {
+    const labels = Object.keys(counts);
+    if (!labels.length) return "all-method benchmark run";
+    labels.sort((a, b) => {
+      const countA = counts[a] || 0;
+      const countB = counts[b] || 0;
+      if (countB !== countA) return countB - countA;
+      return String(a).localeCompare(String(b));
+    });
+    if (labels.length === 1) {
+      return "all-method: " + labels[0];
+    }
+    return "all-method: " + labels[0] + " + " + (labels.length - 1) + " more";
+  }
+
+  function buildAllMethodRunRows(records, options) {
+    const rows = Array.isArray(records) ? records : [];
+    const opts = options && typeof options === "object" ? options : Object.create(null);
+    const href = String(opts.href || "#all-method-summary-section").trim() || "#all-method-summary-section";
+    const runs = Object.create(null);
+
+    rows.forEach(record => {
+      const info = allMethodRunInfo(record);
+      if (!info) return;
+      let run = runs[info.runKey];
+      if (!run) {
+        run = {
+          runKey: info.runKey,
+          runDirTimestamp: info.runDirTimestamp,
+          groups: Object.create(null),
+        };
+        runs[info.runKey] = run;
+      }
+      if (!run.runDirTimestamp && info.runDirTimestamp) {
+        run.runDirTimestamp = info.runDirTimestamp;
+      }
+      let group = run.groups[info.groupKey];
+      if (!group) {
+        group = { groupKey: info.groupKey, records: [] };
+        run.groups[info.groupKey] = group;
+      }
+      group.records.push({ record, configDir: info.configDir });
+    });
+
+    return Object.keys(runs)
+      .map(runKey => {
+        const run = runs[runKey];
+        const groups = Object.keys(run.groups).map(key => run.groups[key]);
+        if (!groups.length) return null;
+
+        const state = Object.create(null);
+        const winsByConfig = Object.create(null);
+        const sourceCounts = Object.create(null);
+        const aiModelCounts = Object.create(null);
+        const aiEffortCounts = Object.create(null);
+        const aiProfileCounts = Object.create(null);
+
+        groups.forEach(group => {
+          const groupRecords = group.records.map(entry => entry.record);
+          const winner = bestAllMethodRecord(groupRecords);
+          const winnerInfo = winner ? allMethodRunInfo(winner) : null;
+          const winnerKey = (winner && winnerInfo)
+            ? allMethodAggregateConfigKey(winner, winnerInfo.configDir)
+            : null;
+          if (winnerKey) {
+            winsByConfig[winnerKey] = (winsByConfig[winnerKey] || 0) + 1;
+          }
+
+          group.records.forEach(entry => {
+            const record = entry.record;
+            const configDir = entry.configDir;
+            const configKey = allMethodAggregateConfigKey(record, configDir);
+            let agg = state[configKey];
+            if (!agg) {
+              agg = {
+                configKey,
+                configName: configDir,
+                groupKeys: new Set(),
+                importerCounts: Object.create(null),
+                strictAccuracyValues: [],
+                macroF1Values: [],
+                goldTotalSum: 0,
+                goldTotalN: 0,
+                goldMatchedSum: 0,
+                goldMatchedN: 0,
+                recipesSum: 0,
+                recipesN: 0,
+                tokensInputSum: 0,
+                tokensInputN: 0,
+                tokensCachedInputSum: 0,
+                tokensCachedInputN: 0,
+                tokensOutputSum: 0,
+                tokensOutputN: 0,
+                tokensTotalSum: 0,
+                tokensTotalN: 0,
+                wins: 0,
+              };
+              state[configKey] = agg;
+            }
+
+            agg.groupKeys.add(group.groupKey);
+            const importer = importerLabelForRecord(record);
+            agg.importerCounts[importer] = (agg.importerCounts[importer] || 0) + 1;
+            const sourceLabel = sourceLabelForRecord(record);
+            if (sourceLabel && sourceLabel !== "-") {
+              sourceCounts[sourceLabel] = (sourceCounts[sourceLabel] || 0) + 1;
+            }
+            const aiModel = aiModelLabelForRecord(record);
+            if (aiModel && aiModel !== "-") {
+              aiModelCounts[aiModel] = (aiModelCounts[aiModel] || 0) + 1;
+            }
+            const aiEffort = aiEffortLabelForRecord(record);
+            if (aiEffort && aiEffort !== "-") {
+              aiEffortCounts[aiEffort] = (aiEffortCounts[aiEffort] || 0) + 1;
+            }
+            const aiProfile = aiAssistanceProfileLabelForRecord(record);
+            if (aiProfile && aiProfile !== "-") {
+              aiProfileCounts[aiProfile] = (aiProfileCounts[aiProfile] || 0) + 1;
+            }
+            if (record.strict_accuracy != null) agg.strictAccuracyValues.push(Number(record.strict_accuracy));
+            if (record.macro_f1_excluding_other != null) agg.macroF1Values.push(Number(record.macro_f1_excluding_other));
+            if (record.gold_total != null) { agg.goldTotalSum += Number(record.gold_total); agg.goldTotalN += 1; }
+            if (record.gold_matched != null) { agg.goldMatchedSum += Number(record.gold_matched); agg.goldMatchedN += 1; }
+            if (record.recipes != null) { agg.recipesSum += Number(record.recipes); agg.recipesN += 1; }
+            if (record.tokens_input != null) { agg.tokensInputSum += Number(record.tokens_input); agg.tokensInputN += 1; }
+            if (record.tokens_cached_input != null) { agg.tokensCachedInputSum += Number(record.tokens_cached_input); agg.tokensCachedInputN += 1; }
+            if (record.tokens_output != null) { agg.tokensOutputSum += Number(record.tokens_output); agg.tokensOutputN += 1; }
+            if (record.tokens_total != null) { agg.tokensTotalSum += Number(record.tokens_total); agg.tokensTotalN += 1; }
+          });
+        });
+
+        Object.keys(winsByConfig).forEach(key => {
+          if (state[key]) state[key].wins = winsByConfig[key];
+        });
+
+        const aggregates = Object.keys(state).map(key => {
+          const agg = state[key];
+          return {
+            configKey: agg.configKey,
+            configName: agg.configName,
+            books: agg.groupKeys.size,
+            wins: agg.wins || 0,
+            strict_accuracy_mean: mean(agg.strictAccuracyValues),
+            macro_f1_excluding_other_mean: mean(agg.macroF1Values),
+            gold_total: agg.goldTotalN ? agg.goldTotalSum : null,
+            gold_matched: agg.goldMatchedN ? agg.goldMatchedSum : null,
+            recipes: agg.recipesN ? agg.recipesSum : null,
+            tokens_input: agg.tokensInputN ? agg.tokensInputSum : null,
+            tokens_cached_input: agg.tokensCachedInputN ? agg.tokensCachedInputSum : null,
+            tokens_output: agg.tokensOutputN ? agg.tokensOutputSum : null,
+            tokens_total: agg.tokensTotalN ? agg.tokensTotalSum : null,
+            importer_name: mostCommonValue(agg.importerCounts) || "-",
+          };
+        });
+
+        aggregates.sort((left, right) => {
+          const leftKey = [
+            left.books,
+            allMethodScoreMetric(left.macro_f1_excluding_other_mean),
+            allMethodScoreMetric(left.strict_accuracy_mean),
+            left.wins,
+          ];
+          const rightKey = [
+            right.books,
+            allMethodScoreMetric(right.macro_f1_excluding_other_mean),
+            allMethodScoreMetric(right.strict_accuracy_mean),
+            right.wins,
+          ];
+          for (let i = 0; i < leftKey.length; i++) {
+            if (rightKey[i] !== leftKey[i]) return rightKey[i] - leftKey[i];
+          }
+          return String(left.configName || "").localeCompare(String(right.configName || ""));
+        });
+
+        const best = aggregates.length ? aggregates[0] : null;
+        const ts = run.runDirTimestamp || "";
+        const aiModel = mostCommonValue(aiModelCounts) || "-";
+        const aiEffort = mostCommonValue(aiEffortCounts) || "-";
+        const aiAssistanceProfile = mostCommonValue(aiProfileCounts) || "-";
+
+        return {
+          type: "all_method",
+          run_timestamp: ts,
+          href,
+          strict_accuracy: best ? best.strict_accuracy_mean : null,
+          macro_f1_excluding_other: best ? best.macro_f1_excluding_other_mean : null,
+          gold_total: best ? best.gold_total : null,
+          gold_matched: best ? best.gold_matched : null,
+          recipes: best ? best.recipes : null,
+          tokens_input: best ? best.tokens_input : null,
+          tokens_cached_input: best ? best.tokens_cached_input : null,
+          tokens_output: best ? best.tokens_output : null,
+          tokens_total: best ? best.tokens_total : null,
+          source: summarizeAllMethodSource(sourceCounts),
+          importer_name: best ? best.importer_name : "-",
+          ai_model: aiModel,
+          ai_effort: aiEffort,
+          ai_assistance_profile: aiAssistanceProfile,
+          best_config_name: best ? best.configName : "-",
+          book_count: groups.length,
+          config_count: aggregates.length,
+        };
+      })
+      .filter(item => item != null)
+      .sort((left, right) => compareRunTimestampDesc(left.run_timestamp, right.run_timestamp));
+  }
+
   function renderPreviousRunsCell(row, fieldName) {
     const td = document.createElement("td");
     if (fieldName === "run_timestamp") {
@@ -1812,327 +2107,14 @@
       return;
     }
 
-    const ALL_METHOD_SEGMENT = "all-method-benchmark";
-    const ALL_METHOD_CONFIG_PREFIX = "config_";
-
-    function normalizePathParts(pathValue) {
-      if (pathValue == null) return { prefix: "", parts: [] };
-      const raw = String(pathValue).trim().replace(/\\/g, "/");
-      if (!raw) return { prefix: "", parts: [] };
-      const prefix = raw.startsWith("/") ? "/" : "";
-      const parts = raw.split("/").filter(p => p && p !== ".");
-      return { prefix, parts };
-    }
-
-    function isTimestampToken(token) {
-      const text = String(token || "").trim();
-      if (!text) return false;
-      return /^\d{4}-\d{2}-\d{2}[T_]\d{2}[.:]\d{2}[.:]\d{2}(?:_.+)?$/.test(text);
-    }
-
-    function nearestRunTimestamp(parts, beforeIndex) {
-      if (!Array.isArray(parts) || beforeIndex <= 0) return null;
-      for (let i = beforeIndex - 1; i >= 0; i--) {
-        const candidate = parts[i];
-        if (isTimestampToken(candidate)) return String(candidate);
-      }
-      return null;
-    }
-
-    function allMethodRunInfo(record) {
-      const artifactDir = record ? record.artifact_dir : null;
-      const info = normalizePathParts(artifactDir);
-      if (info.parts.length < 3) return null;
-      const lower = info.parts.map(p => String(p).toLowerCase());
-      for (let idx = 0; idx < lower.length; idx++) {
-        if (lower[idx] !== ALL_METHOD_SEGMENT) continue;
-        if (idx + 2 >= info.parts.length) continue;
-        const sourceSlug = info.parts[idx + 1];
-        const configDir = info.parts[idx + 2];
-        if (!String(configDir).startsWith(ALL_METHOD_CONFIG_PREFIX)) continue;
-        const runDirTimestamp = nearestRunTimestamp(info.parts, idx);
-        const fallbackTimestamp = String((record && record.run_timestamp) || "").trim();
-        const runRootDir = info.prefix + info.parts.slice(0, idx + 1).join("/");
-        const groupDir = info.prefix + info.parts.slice(0, idx + 2).join("/");
-        return {
-          runKey: runRootDir || groupDir,
-          groupKey: groupDir,
-          runDirTimestamp: runDirTimestamp || fallbackTimestamp || null,
-          configDir: String(configDir),
-          sourceSlug: String(sourceSlug),
-        };
-      }
-      return null;
-    }
-
-    function slugToken(value) {
-      const token = String(value || "")
-        .trim()
-        .replace(/[^a-zA-Z0-9._-]+/g, "_")
-        .replace(/^[._-]+|[._-]+$/g, "");
-      return token || "unknown";
-    }
-
-    function metric(value) {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : 0;
-    }
-
-    function aggregateConfigKey(record, configDir) {
-      const hash = String(record.run_config_hash || "").trim().toLowerCase();
-      if (hash) return "hash:" + hash;
-      return "name:" + String(configDir || "");
-    }
-
-    function bestRecord(recordsForGroup) {
-      if (!recordsForGroup.length) return null;
-      let best = recordsForGroup[0];
-      recordsForGroup.slice(1).forEach(next => {
-        const bestKey = [
-          metric(best.macro_f1_excluding_other),
-          metric(best.strict_accuracy),
-          metric(best.f1),
-          metric(best.practical_f1),
-        ];
-        const nextKey = [
-          metric(next.macro_f1_excluding_other),
-          metric(next.strict_accuracy),
-          metric(next.f1),
-          metric(next.practical_f1),
-        ];
-        for (let i = 0; i < bestKey.length; i++) {
-          if (nextKey[i] > bestKey[i]) { best = next; return; }
-          if (nextKey[i] < bestKey[i]) return;
-        }
-      });
-      return best;
-    }
-
-    function mostCommonValue(counts) {
-      let best = null;
-      let bestCount = -1;
-      Object.keys(counts).forEach(key => {
-        const count = counts[key] || 0;
-        if (count > bestCount) {
-          best = key;
-          bestCount = count;
-        }
-      });
-      return best;
-    }
-
-    function summarizeAllMethodSource(counts) {
-      const labels = Object.keys(counts);
-      if (!labels.length) return "all-method benchmark run";
-      labels.sort((a, b) => {
-        const countA = counts[a] || 0;
-        const countB = counts[b] || 0;
-        if (countB !== countA) return countB - countA;
-        return String(a).localeCompare(String(b));
-      });
-      if (labels.length === 1) {
-        return "all-method: " + labels[0];
-      }
-      return "all-method: " + labels[0] + " + " + (labels.length - 1) + " more";
-    }
-
-    const singleRows = [];
-    const allMethodRuns = Object.create(null);
-
-    records.forEach(r => {
-      const info = allMethodRunInfo(r);
-      if (!info) {
-        singleRows.push({ type: "single", record: r });
-        return;
-      }
-      let run = allMethodRuns[info.runKey];
-      if (!run) {
-        run = {
-          runKey: info.runKey,
-          runDirTimestamp: info.runDirTimestamp,
-          groups: Object.create(null),
-        };
-        allMethodRuns[info.runKey] = run;
-      }
-      if (!run.runDirTimestamp && info.runDirTimestamp) {
-        run.runDirTimestamp = info.runDirTimestamp;
-      }
-      let group = run.groups[info.groupKey];
-      if (!group) {
-        group = { groupKey: info.groupKey, records: [] };
-        run.groups[info.groupKey] = group;
-      }
-      group.records.push({ record: r, configDir: info.configDir });
-    });
-
-    function summarizeAllMethodRun(run) {
-      const groups = Object.keys(run.groups).map(k => run.groups[k]);
-      if (!groups.length) return null;
-
-      const state = Object.create(null);
-      const winsByConfig = Object.create(null);
-      const sourceCounts = Object.create(null);
-      const aiModelCounts = Object.create(null);
-      const aiEffortCounts = Object.create(null);
-      const aiProfileCounts = Object.create(null);
-
-      groups.forEach(group => {
-        const groupRecords = group.records.map(entry => entry.record);
-        const winner = bestRecord(groupRecords);
-        const winnerInfo = winner ? allMethodRunInfo(winner) : null;
-        const winnerKey = (winner && winnerInfo)
-          ? aggregateConfigKey(winner, winnerInfo.configDir)
-          : null;
-        if (winnerKey) {
-          winsByConfig[winnerKey] = (winsByConfig[winnerKey] || 0) + 1;
-        }
-
-        group.records.forEach(entry => {
-          const r = entry.record;
-          const configDir = entry.configDir;
-          const configKey = aggregateConfigKey(r, configDir);
-          let agg = state[configKey];
-          if (!agg) {
-            agg = {
-              configKey,
-              configName: configDir,
-              groupKeys: new Set(),
-              importerCounts: Object.create(null),
-              strictAccuracyValues: [],
-              macroF1Values: [],
-              goldTotalSum: 0,
-              goldTotalN: 0,
-                goldMatchedSum: 0,
-                goldMatchedN: 0,
-                recipesSum: 0,
-                recipesN: 0,
-                tokensInputSum: 0,
-                tokensInputN: 0,
-                tokensCachedInputSum: 0,
-                tokensCachedInputN: 0,
-                tokensOutputSum: 0,
-                tokensOutputN: 0,
-                tokensTotalSum: 0,
-                tokensTotalN: 0,
-                wins: 0,
-              };
-              state[configKey] = agg;
-            }
-
-          agg.groupKeys.add(group.groupKey);
-          const importer = importerLabelForRecord(r);
-          agg.importerCounts[importer] = (agg.importerCounts[importer] || 0) + 1;
-          const sourceLabel = sourceLabelForRecord(r);
-          if (sourceLabel && sourceLabel !== "-") {
-            sourceCounts[sourceLabel] = (sourceCounts[sourceLabel] || 0) + 1;
-          }
-          const aiModel = aiModelLabelForRecord(r);
-          if (aiModel && aiModel !== "-") {
-            aiModelCounts[aiModel] = (aiModelCounts[aiModel] || 0) + 1;
-          }
-          const aiEffort = aiEffortLabelForRecord(r);
-          if (aiEffort && aiEffort !== "-") {
-            aiEffortCounts[aiEffort] = (aiEffortCounts[aiEffort] || 0) + 1;
-          }
-          const aiProfile = aiAssistanceProfileLabelForRecord(r);
-          if (aiProfile && aiProfile !== "-") {
-            aiProfileCounts[aiProfile] = (aiProfileCounts[aiProfile] || 0) + 1;
-          }
-          if (r.strict_accuracy != null) agg.strictAccuracyValues.push(Number(r.strict_accuracy));
-          if (r.macro_f1_excluding_other != null) agg.macroF1Values.push(Number(r.macro_f1_excluding_other));
-          if (r.gold_total != null) { agg.goldTotalSum += Number(r.gold_total); agg.goldTotalN += 1; }
-          if (r.gold_matched != null) { agg.goldMatchedSum += Number(r.gold_matched); agg.goldMatchedN += 1; }
-          if (r.recipes != null) { agg.recipesSum += Number(r.recipes); agg.recipesN += 1; }
-          if (r.tokens_input != null) { agg.tokensInputSum += Number(r.tokens_input); agg.tokensInputN += 1; }
-          if (r.tokens_cached_input != null) { agg.tokensCachedInputSum += Number(r.tokens_cached_input); agg.tokensCachedInputN += 1; }
-          if (r.tokens_output != null) { agg.tokensOutputSum += Number(r.tokens_output); agg.tokensOutputN += 1; }
-          if (r.tokens_total != null) { agg.tokensTotalSum += Number(r.tokens_total); agg.tokensTotalN += 1; }
-        });
-      });
-
-      Object.keys(winsByConfig).forEach(key => {
-        if (state[key]) state[key].wins = winsByConfig[key];
-      });
-
-      const aggregates = Object.keys(state).map(key => {
-        const agg = state[key];
-        const importer = mostCommonValue(agg.importerCounts) || "-";
-        return {
-          configKey: agg.configKey,
-          configName: agg.configName,
-          books: agg.groupKeys.size,
-          wins: agg.wins || 0,
-          strict_accuracy_mean: mean(agg.strictAccuracyValues),
-          macro_f1_excluding_other_mean: mean(agg.macroF1Values),
-          gold_total: agg.goldTotalN ? agg.goldTotalSum : null,
-          gold_matched: agg.goldMatchedN ? agg.goldMatchedSum : null,
-          recipes: agg.recipesN ? agg.recipesSum : null,
-          tokens_input: agg.tokensInputN ? agg.tokensInputSum : null,
-          tokens_cached_input: agg.tokensCachedInputN ? agg.tokensCachedInputSum : null,
-          tokens_output: agg.tokensOutputN ? agg.tokensOutputSum : null,
-          tokens_total: agg.tokensTotalN ? agg.tokensTotalSum : null,
-          importer_name: importer,
-        };
-      });
-
-      aggregates.sort((a, b) => {
-        const aKey = [
-          a.books,
-          metric(a.macro_f1_excluding_other_mean),
-          metric(a.strict_accuracy_mean),
-          a.wins,
-        ];
-        const bKey = [
-          b.books,
-          metric(b.macro_f1_excluding_other_mean),
-          metric(b.strict_accuracy_mean),
-          b.wins,
-        ];
-        for (let i = 0; i < aKey.length; i++) {
-          if (bKey[i] !== aKey[i]) return bKey[i] - aKey[i];
-        }
-        return String(a.configName || "").localeCompare(String(b.configName || ""));
-      });
-
-      const best = aggregates.length ? aggregates[0] : null;
-      const ts = run.runDirTimestamp || "";
-      const fileName = "all-method-benchmark-run__" + slugToken(ts) + ".html";
-      const href = "all-method-benchmark/" + fileName;
-      const sourceSummary = summarizeAllMethodSource(sourceCounts);
-      const aiModel = mostCommonValue(aiModelCounts) || "-";
-      const aiEffort = mostCommonValue(aiEffortCounts) || "-";
-      const aiAssistanceProfile = mostCommonValue(aiProfileCounts) || "-";
-
-      return {
-        type: "all_method",
-        run_timestamp: ts,
-        href,
-        strict_accuracy: best ? best.strict_accuracy_mean : null,
-        macro_f1_excluding_other: best ? best.macro_f1_excluding_other_mean : null,
-        gold_total: best ? best.gold_total : null,
-        gold_matched: best ? best.gold_matched : null,
-        recipes: best ? best.recipes : null,
-        tokens_input: best ? best.tokens_input : null,
-        tokens_cached_input: best ? best.tokens_cached_input : null,
-        tokens_output: best ? best.tokens_output : null,
-        tokens_total: best ? best.tokens_total : null,
-        source: sourceSummary,
-        importer_name: best ? best.importer_name : "-",
-        ai_model: aiModel,
-        ai_effort: aiEffort,
-        ai_assistance_profile: aiAssistanceProfile,
-      };
-    }
-
-    const bundledRows = Object.keys(allMethodRuns)
-      .map(key => summarizeAllMethodRun(allMethodRuns[key]))
-      .filter(Boolean);
-    const rows = bundledRows.concat(singleRows.map(item => ({
+    const rows = buildAllMethodRunRows(records, { href: "#all-method-summary-section" }).concat(
+      records.filter(record => !allMethodRunInfo(record)).map(record => ({
       type: "single",
-      run_timestamp: item.record.run_timestamp || "",
-      href: item.record.artifact_dir || "",
-      record: item.record,
-    })));
+      run_timestamp: record.run_timestamp || "",
+      href: record.artifact_dir || "",
+      record,
+    }))
+    );
 
     rows.sort((a, b) => comparePreviousRunsRows(a, b));
     tbody.innerHTML = "";
@@ -2144,6 +2126,48 @@
       tbody.appendChild(tr);
     });
     persistDashboardUiState();
+  }
+
+  function renderAllMethodSummary() {
+    const section = document.getElementById("all-method-summary-section");
+    const host = document.getElementById("all-method-summary");
+    if (!section || !host) return;
+
+    const rows = buildAllMethodRunRows(DATA && DATA.benchmark_records, {
+      href: "#all-method-summary-section",
+    });
+    if (!rows.length) {
+      section.hidden = true;
+      host.innerHTML = "";
+      return;
+    }
+
+    section.hidden = false;
+    const recentRows = rows.slice(0, 8);
+    let html = '<div class="all-method-summary-wrap table-wrap"><table class="all-method-summary-table"><thead><tr>';
+    html += "<th>Run</th>";
+    html += "<th>Source set</th>";
+    html += "<th>Best config</th>";
+    html += "<th>Books</th>";
+    html += "<th>Configs</th>";
+    html += "<th>strict_accuracy</th>";
+    html += "<th>macro_f1_excluding_other</th>";
+    html += "<th>Token use</th>";
+    html += "</tr></thead><tbody>";
+    recentRows.forEach(row => {
+      html += "<tr>";
+      html += '<td><a href="#previous-runs-section">' + esc(String(row.run_timestamp || "-")) + "</a></td>";
+      html += '<td title="' + esc(String(row.source || "-")) + '">' + esc(String(row.source || "-")) + "</td>";
+      html += '<td title="' + esc(String(row.best_config_name || "-")) + '">' + esc(String(row.best_config_name || "-")) + "</td>";
+      html += '<td class="num">' + esc(String(row.book_count || 0)) + "</td>";
+      html += '<td class="num">' + esc(String(row.config_count || 0)) + "</td>";
+      html += '<td class="num">' + esc(fmt4(row.strict_accuracy)) + "</td>";
+      html += '<td class="num">' + esc(fmt4(row.macro_f1_excluding_other)) + "</td>";
+      html += '<td class="num">' + esc(previousRunsAllTokenUseDisplay(row)) + "</td>";
+      html += "</tr>";
+    });
+    html += "</tbody></table></div>";
+    host.innerHTML = html;
   }
 
   // ---- Per-label section ----

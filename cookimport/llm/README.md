@@ -14,6 +14,7 @@ Start points:
 - `taskfile_prompt_contract.py` owns the shared section renderer used by the surviving taskfile worker prompts so recipe, knowledge, and line-role stay on one prompt skeleton while keeping stage-local semantics.
 - `prompt_preview.py`, `prompt_artifacts.py`, and `prompt_budget.py` own prompt/cost inspection surfaces.
   - `prompt_artifacts.py` is now a thin public facade over `prompt_artifacts_discovery.py`, `prompt_artifacts_loader.py`, and `prompt_artifacts_activity.py`.
+  - `full_prompt_log.jsonl` is supposed to be actual-call truth; structured-session packet turns are exported as separate rows instead of being collapsed to one shard row.
   - `prompt_budget.py` is now a thin facade over `prompt_budget_runtime.py` and `prompt_budget_preview.py`.
 
 Active worker surfaces:
