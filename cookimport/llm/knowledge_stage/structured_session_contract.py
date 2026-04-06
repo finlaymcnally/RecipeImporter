@@ -30,6 +30,21 @@ def render_validation_reason_detail(
         for value in (validation_metadata.get("unresolved_block_indices") or [])
         if value is not None
     ]
+    missing_block_indices = [
+        int(value)
+        for value in (validation_metadata.get("missing_block_indices") or [])
+        if value is not None
+    ]
+    unexpected_block_indices = [
+        int(value)
+        for value in (validation_metadata.get("unexpected_block_indices") or [])
+        if value is not None
+    ]
+    duplicate_block_indices = [
+        int(value)
+        for value in (validation_metadata.get("duplicate_block_indices") or [])
+        if value is not None
+    ]
     detail_parts = [str(prefix).strip() or "validation blocked promotion"]
     if cleaned_errors:
         detail_parts.append("errors=" + ",".join(cleaned_errors))
@@ -37,6 +52,21 @@ def render_validation_reason_detail(
         detail_parts.append(
             "unresolved_block_indices="
             + ",".join(str(value) for value in unresolved_block_indices)
+        )
+    if missing_block_indices:
+        detail_parts.append(
+            "missing_block_indices="
+            + ",".join(str(value) for value in missing_block_indices)
+        )
+    if unexpected_block_indices:
+        detail_parts.append(
+            "unexpected_block_indices="
+            + ",".join(str(value) for value in unexpected_block_indices)
+        )
+    if duplicate_block_indices:
+        detail_parts.append(
+            "duplicate_block_indices="
+            + ",".join(str(value) for value in duplicate_block_indices)
         )
     if parse_error:
         detail_parts.append(f"parse_error={parse_error}")
@@ -274,6 +304,121 @@ def _blank_grounding_payload() -> dict[str, Any]:
     }
 
 
+def _knowledge_unit_maps(
+    original_task_file: Mapping[str, Any],
+) -> tuple[dict[int, str], dict[str, int], list[str]]:
+    unit_id_by_block_index: dict[int, str] = {}
+    block_index_by_unit_id: dict[str, int] = {}
+    owned_unit_ids: list[str] = []
+    for unit in original_task_file.get("units") or []:
+        if not isinstance(unit, Mapping):
+            continue
+        unit_id = str(unit.get("unit_id") or "").strip()
+        if not unit_id:
+            continue
+        block_index = int(_coerce_dict(unit.get("evidence")).get("block_index") or 0)
+        unit_id_by_block_index[block_index] = unit_id
+        block_index_by_unit_id[unit_id] = block_index
+        owned_unit_ids.append(unit_id)
+    return unit_id_by_block_index, block_index_by_unit_id, owned_unit_ids
+
+
+def _response_contract_metadata(
+    *,
+    original_task_file: Mapping[str, Any],
+    missing_unit_ids: Sequence[str],
+    unexpected_block_indices: Sequence[int],
+    duplicate_block_indices: Sequence[int],
+) -> tuple[tuple[str, ...], dict[str, Any]]:
+    unit_id_by_block_index, block_index_by_unit_id, owned_unit_ids = _knowledge_unit_maps(
+        original_task_file
+    )
+    missing_unit_id_set = {
+        str(unit_id).strip()
+        for unit_id in missing_unit_ids
+        if str(unit_id).strip()
+    }
+    missing_block_indices = sorted(
+        {
+            int(block_index_by_unit_id[unit_id])
+            for unit_id in missing_unit_id_set
+            if unit_id in block_index_by_unit_id
+        }
+    )
+    duplicate_block_index_set = {
+        int(value) for value in duplicate_block_indices if value is not None
+    }
+    duplicate_unit_ids = sorted(
+        {
+            str(unit_id_by_block_index.get(block_index) or "").strip()
+            for block_index in duplicate_block_index_set
+            if str(unit_id_by_block_index.get(block_index) or "").strip()
+        }
+    )
+    unexpected_block_index_list = sorted(
+        {int(value) for value in unexpected_block_indices if value is not None}
+    )
+    response_contract_errors: list[str] = []
+    error_details: list[dict[str, Any]] = []
+    failed_unit_ids = sorted(missing_unit_id_set | set(duplicate_unit_ids))
+    if missing_block_indices:
+        response_contract_errors.append("knowledge_blocks_missing_response_rows")
+        for unit_id in sorted(missing_unit_id_set):
+            block_index = block_index_by_unit_id.get(unit_id)
+            error_details.append(
+                {
+                    "path": f"/units/{unit_id}/answer",
+                    "code": "knowledge_block_missing_response_row",
+                    "message": "response did not return a row for this owned block",
+                    "block_index": block_index,
+                }
+            )
+    if duplicate_block_index_set:
+        response_contract_errors.append("duplicate_block_indices")
+        for block_index in sorted(duplicate_block_index_set):
+            unit_id = str(unit_id_by_block_index.get(block_index) or "").strip()
+            error_details.append(
+                {
+                    "path": (
+                        f"/units/{unit_id}/answer"
+                        if unit_id
+                        else "/response/rows/*/block_index"
+                    ),
+                    "code": "duplicate_block_index",
+                    "message": "response returned more than one row for this block_index",
+                    "block_index": block_index,
+                }
+            )
+    if unexpected_block_index_list:
+        response_contract_errors.append("unexpected_block_indices")
+        if not failed_unit_ids:
+            failed_unit_ids = list(owned_unit_ids)
+        for block_index in unexpected_block_index_list:
+            error_details.append(
+                {
+                    "path": "/response/rows/*/block_index",
+                    "code": "unexpected_block_index",
+                    "message": "response referenced a block_index that is not owned by this packet",
+                    "block_index": block_index,
+                }
+            )
+    if not response_contract_errors:
+        return (), {}
+    return (
+        tuple(response_contract_errors),
+        {
+            "failed_unit_ids": failed_unit_ids,
+            "unresolved_block_indices": sorted(
+                set(missing_block_indices) | duplicate_block_index_set
+            ),
+            "missing_block_indices": missing_block_indices,
+            "unexpected_block_indices": unexpected_block_index_list,
+            "duplicate_block_indices": sorted(duplicate_block_index_set),
+            "error_details": error_details,
+        },
+    )
+
+
 def build_knowledge_edited_task_file_from_classification_response(
     *,
     original_task_file: Mapping[str, Any],
@@ -293,27 +438,40 @@ def build_knowledge_edited_task_file_from_classification_response(
         decision_rows = parsed.get("block_decisions")
     if not isinstance(decision_rows, list):
         return None, ("rows_missing_or_not_a_list",), {}
-    unit_id_by_block_index = {
-        int(_coerce_dict(unit.get("evidence")).get("block_index") or 0): str(
-            unit.get("unit_id") or ""
-        ).strip()
-        for unit in (original_task_file.get("units") or [])
-        if isinstance(unit, Mapping)
-    }
+    unit_id_by_block_index, _block_index_by_unit_id, owned_unit_ids = _knowledge_unit_maps(
+        original_task_file
+    )
     answers_by_unit_id: dict[str, dict[str, Any]] = {}
+    seen_block_indices: set[int] = set()
+    duplicate_block_indices: set[int] = set()
+    unexpected_block_indices: set[int] = set()
     for row in decision_rows:
         if not isinstance(row, Mapping):
             return None, ("row_not_a_json_object",), {}
         if row.get("block_index") is None:
             return None, ("block_index_missing",), {}
         block_index = int(row.get("block_index"))
+        if block_index in seen_block_indices:
+            duplicate_block_indices.add(block_index)
+            continue
+        seen_block_indices.add(block_index)
         unit_id = unit_id_by_block_index.get(block_index)
         if not unit_id:
+            unexpected_block_indices.add(block_index)
             continue
         answers_by_unit_id[unit_id] = {
             "category": str(row.get("category") or "").strip(),
             "grounding": dict(row.get("grounding") or _blank_grounding_payload()),
         }
+    missing_unit_ids = [
+        unit_id for unit_id in owned_unit_ids if unit_id not in answers_by_unit_id
+    ]
+    response_contract_errors, response_contract_metadata = _response_contract_metadata(
+        original_task_file=original_task_file,
+        missing_unit_ids=missing_unit_ids,
+        unexpected_block_indices=sorted(unexpected_block_indices),
+        duplicate_block_indices=sorted(duplicate_block_indices),
+    )
     edited = dict(original_task_file)
     edited["units"] = []
     for unit in original_task_file.get("units") or []:
@@ -324,7 +482,7 @@ def build_knowledge_edited_task_file_from_classification_response(
         if unit_id in answers_by_unit_id:
             unit_dict["answer"] = answers_by_unit_id[unit_id]
         edited["units"].append(unit_dict)
-    return edited, (), {}
+    return edited, response_contract_errors, response_contract_metadata
 
 
 def build_knowledge_edited_task_file_from_grouping_response(
@@ -342,14 +500,28 @@ def build_knowledge_edited_task_file_from_grouping_response(
     if not isinstance(parsed, Mapping):
         return None, ("response_not_json_object",), {"response_type": type(parsed).__name__}
     rows = parsed.get("rows")
+    unit_id_by_block_index, _block_index_by_unit_id, owned_unit_ids = _knowledge_unit_maps(
+        original_task_file
+    )
     answers_by_block_index: dict[int, dict[str, Any]] = {}
+    seen_block_indices: set[int] = set()
+    duplicate_block_indices: set[int] = set()
+    unexpected_block_indices: set[int] = set()
     if isinstance(rows, list):
         for row in rows:
             if not isinstance(row, Mapping):
                 return None, ("row_not_a_json_object",), {}
             if row.get("block_index") is None:
                 return None, ("block_index_missing",), {}
-            answers_by_block_index[int(row.get("block_index"))] = {
+            block_index = int(row.get("block_index"))
+            if block_index in seen_block_indices:
+                duplicate_block_indices.add(block_index)
+                continue
+            seen_block_indices.add(block_index)
+            if block_index not in unit_id_by_block_index:
+                unexpected_block_indices.add(block_index)
+                continue
+            answers_by_block_index[block_index] = {
                 "group_key": str(
                     row.get("group_key") or row.get("group_index") or ""
                 ).strip(),
@@ -366,12 +538,33 @@ def build_knowledge_edited_task_file_from_grouping_response(
                     normalized_block_index = int(block_index)
                 except (TypeError, ValueError):
                     continue
+                if normalized_block_index in seen_block_indices:
+                    duplicate_block_indices.add(normalized_block_index)
+                    continue
+                seen_block_indices.add(normalized_block_index)
+                if normalized_block_index not in unit_id_by_block_index:
+                    unexpected_block_indices.add(normalized_block_index)
+                    continue
                 answers_by_block_index[normalized_block_index] = {
                     "group_key": group_key,
                     "topic_label": topic_label,
                 }
     else:
         return None, ("rows_missing_or_not_a_list",), {}
+    answered_unit_ids = {
+        unit_id_by_block_index[block_index]
+        for block_index in answers_by_block_index
+        if block_index in unit_id_by_block_index
+    }
+    missing_unit_ids = [
+        unit_id for unit_id in owned_unit_ids if unit_id not in answered_unit_ids
+    ]
+    response_contract_errors, response_contract_metadata = _response_contract_metadata(
+        original_task_file=original_task_file,
+        missing_unit_ids=missing_unit_ids,
+        unexpected_block_indices=sorted(unexpected_block_indices),
+        duplicate_block_indices=sorted(duplicate_block_indices),
+    )
     edited = dict(original_task_file)
     edited["units"] = []
     for unit in original_task_file.get("units") or []:
@@ -383,7 +576,7 @@ def build_knowledge_edited_task_file_from_grouping_response(
         if block_index in answers_by_block_index:
             unit_dict["answer"] = answers_by_block_index[block_index]
         edited["units"].append(unit_dict)
-    return edited, (), {}
+    return edited, response_contract_errors, response_contract_metadata
 
 
 def knowledge_failed_unit_ids(

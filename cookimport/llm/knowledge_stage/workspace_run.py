@@ -45,7 +45,6 @@ from .structured_session_contract import (
     write_knowledge_task_file_snapshot as _write_task_file_snapshot,
 )
 from ..structured_session_runtime import (
-    assert_structured_session_can_resume,
     initialize_structured_session_lineage,
     record_structured_session_turn,
 )
@@ -121,6 +120,55 @@ def _knowledge_validation_blocked(
     validation_metadata: Mapping[str, Any],
 ) -> bool:
     return bool(validation_errors) or bool(validation_metadata.get("error_details"))
+
+
+def _merge_knowledge_response_contract_diagnostics(
+    *,
+    validation_errors: Sequence[str],
+    validation_metadata: Mapping[str, Any],
+    parse_errors: Sequence[str],
+    parse_metadata: Mapping[str, Any],
+) -> tuple[tuple[str, ...], dict[str, Any]]:
+    merged_errors = [
+        str(error).strip()
+        for error in validation_errors
+        if str(error).strip()
+    ]
+    for error in parse_errors:
+        cleaned = str(error).strip()
+        if cleaned:
+            merged_errors.append(cleaned)
+    merged_metadata = dict(validation_metadata)
+    merged_error_details = [
+        dict(detail)
+        for detail in (validation_metadata.get("error_details") or [])
+        if isinstance(detail, Mapping)
+    ]
+    merged_error_details.extend(
+        dict(detail)
+        for detail in (parse_metadata.get("error_details") or [])
+        if isinstance(detail, Mapping)
+    )
+    if merged_error_details:
+        merged_metadata["error_details"] = merged_error_details
+    if parse_metadata.get("parse_error") is not None:
+        merged_metadata["parse_error"] = parse_metadata.get("parse_error")
+    for key in (
+        "failed_unit_ids",
+        "unresolved_block_indices",
+        "missing_block_indices",
+        "unexpected_block_indices",
+        "duplicate_block_indices",
+    ):
+        existing_values = [
+            value for value in (validation_metadata.get(key) or []) if value is not None
+        ]
+        next_values = [value for value in (parse_metadata.get(key) or []) if value is not None]
+        if existing_values or next_values:
+            merged_metadata[key] = sorted(
+                {value for value in [*existing_values, *next_values] if value is not None}
+            )
+    return tuple(dict.fromkeys(merged_errors)), merged_metadata
 
 
 def _knowledge_task_file_useful_progress(
@@ -604,7 +652,6 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
             output_schema_path=None,
             model=model,
             reasoning_effort=reasoning_effort,
-            persist_session=True,
             workspace_task_label="knowledge structured classification session",
         )
         execution_workspace = Path(initial_run_result.execution_working_dir or session_root)
@@ -679,6 +726,15 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
             )
             classification_validation_errors = tuple(validation_errors)
             classification_validation_metadata = dict(validation_metadata)
+            (
+                classification_validation_errors,
+                classification_validation_metadata,
+            ) = _merge_knowledge_response_contract_diagnostics(
+                validation_errors=classification_validation_errors,
+                validation_metadata=classification_validation_metadata,
+                parse_errors=parse_errors,
+                parse_metadata=parse_metadata,
+            )
 
         if _knowledge_validation_blocked(
             classification_validation_errors,
@@ -736,10 +792,6 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     encoding="utf-8",
                 )
                 repair_prompt_path.write_text(repair_prompt, encoding="utf-8")
-                assert_structured_session_can_resume(
-                    worker_root=session_root,
-                    execution_working_dir=execution_workspace,
-                )
                 repair_run_result = runner.run_packet_worker(
                     prompt_text=repair_prompt,
                     input_payload=repair_packet,
@@ -748,7 +800,6 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     output_schema_path=None,
                     model=model,
                     reasoning_effort=reasoning_effort,
-                    resume_last=True,
                     prepared_execution_working_dir=execution_workspace,
                     workspace_task_label="knowledge structured classification repair session",
                 )
@@ -832,6 +883,15 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                         or {}
                     ),
                 )
+                (
+                    classification_validation_errors,
+                    classification_validation_metadata,
+                ) = _merge_knowledge_response_contract_diagnostics(
+                    validation_errors=classification_validation_errors,
+                    validation_metadata=classification_validation_metadata,
+                    parse_errors=repair_parse_errors,
+                    parse_metadata=repair_parse_metadata,
+                )
                 if not _knowledge_validation_blocked(
                     classification_validation_errors,
                     classification_validation_metadata,
@@ -896,10 +956,6 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     encoding="utf-8",
                 )
                 grouping_prompt_path.write_text(grouping_prompt, encoding="utf-8")
-                assert_structured_session_can_resume(
-                    worker_root=session_root,
-                    execution_working_dir=execution_workspace,
-                )
                 grouping_run_result = runner.run_packet_worker(
                     prompt_text=grouping_prompt,
                     input_payload=grouping_packet,
@@ -908,7 +964,6 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     output_schema_path=None,
                     model=model,
                     reasoning_effort=reasoning_effort,
-                    resume_last=True,
                     prepared_execution_working_dir=execution_workspace,
                     workspace_task_label="knowledge structured grouping session",
                 )
@@ -967,6 +1022,15 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                             grouping_validation_metadata.get("validated_answers_by_unit_id") or {}
                         ),
                         grouping_batch_answers_by_unit_id,
+                    )
+                    (
+                        grouping_validation_errors,
+                        grouping_validation_metadata,
+                    ) = _merge_knowledge_response_contract_diagnostics(
+                        validation_errors=grouping_validation_errors,
+                        validation_metadata=grouping_validation_metadata,
+                        parse_errors=grouping_parse_errors,
+                        parse_metadata=grouping_parse_metadata,
                     )
                 if _knowledge_validation_blocked(
                     grouping_validation_errors,
@@ -1032,10 +1096,6 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                             repair_grouping_prompt,
                             encoding="utf-8",
                         )
-                        assert_structured_session_can_resume(
-                            worker_root=session_root,
-                            execution_working_dir=execution_workspace,
-                        )
                         repair_grouping_run_result = runner.run_packet_worker(
                             prompt_text=repair_grouping_prompt,
                             input_payload=repair_grouping_packet,
@@ -1044,7 +1104,6 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                             output_schema_path=None,
                             model=model,
                             reasoning_effort=reasoning_effort,
-                            resume_last=True,
                             prepared_execution_working_dir=execution_workspace,
                             workspace_task_label="knowledge structured grouping repair session",
                         )
@@ -1140,6 +1199,15 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                                 grouping_validation_metadata.get("validated_answers_by_unit_id")
                                 or {}
                             ),
+                        )
+                        (
+                            grouping_validation_errors,
+                            grouping_validation_metadata,
+                        ) = _merge_knowledge_response_contract_diagnostics(
+                            validation_errors=grouping_validation_errors,
+                            validation_metadata=grouping_validation_metadata,
+                            parse_errors=repair_grouping_parse_errors,
+                            parse_metadata=repair_grouping_parse_metadata,
                         )
                         if not _knowledge_validation_blocked(
                             grouping_validation_errors,

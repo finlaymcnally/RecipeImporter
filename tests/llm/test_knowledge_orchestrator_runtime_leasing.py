@@ -228,7 +228,7 @@ def test_knowledge_orchestrator_retries_one_fresh_session_after_preserved_progre
     )
 
 
-def test_knowledge_orchestrator_inline_json_style_reuses_session(
+def test_knowledge_orchestrator_inline_json_style_reuses_workspace_without_resuming_history(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -262,10 +262,10 @@ def test_knowledge_orchestrator_inline_json_style_reuses_session(
     lineage_payload = json.loads(lineage_path.read_text(encoding="utf-8"))
 
     assert len(runner.calls) == 4
-    assert [call["mode"] for call in runner.calls].count("structured_prompt") == 2
-    assert [call["mode"] for call in runner.calls].count("structured_prompt_resume") == 2
-    assert [call["persist_session"] for call in runner.calls].count(True) == 2
-    assert [call["resume_last"] for call in runner.calls].count(True) == 2
+    assert [call["mode"] for call in runner.calls].count("structured_prompt") == 4
+    assert [call["mode"] for call in runner.calls].count("structured_prompt_resume") == 0
+    assert [call["persist_session"] for call in runner.calls].count(True) == 0
+    assert [call["resume_last"] for call in runner.calls].count(True) == 0
     assert len({call["execution_working_dir"] for call in runner.calls}) == 2
     assert lineage_payload["turn_count"] == 2
     assert lineage_payload["turns"][0]["turn_kind"] == "classification_initial"

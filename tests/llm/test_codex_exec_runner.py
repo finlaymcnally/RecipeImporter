@@ -976,6 +976,71 @@ def test_fake_codex_exec_runner_records_inline_json_call(tmp_path: Path) -> None
     assert result.execution_working_dir == str(execution_dir.resolve(strict=False))
 
 
+def test_subprocess_runner_reuses_prepared_workspace_without_resuming_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_dir = tmp_path / "worker-root"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    execution_dir = tmp_path / "execution-session"
+    execution_dir.mkdir(parents=True, exist_ok=True)
+    (execution_dir / "AGENTS.md").write_text("workspace agents\n", encoding="utf-8")
+
+    def _unexpected_prepare(**_kwargs):  # noqa: ANN003
+        raise AssertionError("prepare_direct_exec_workspace should not run")
+
+    def _fake_streaming(**kwargs):  # noqa: ANN003
+        assert Path(str(kwargs["working_dir"])) == execution_dir
+        assert kwargs["command"][:2] == ["codex", "exec"]
+        assert "resume" not in kwargs["command"]
+        return exec_runner_module._StreamedCodexProcessResult(  # noqa: SLF001
+            returncode=0,
+            stdout="",
+            stderr="",
+            events=(
+                {"type": "thread.started"},
+                {
+                    "type": "item.completed",
+                    "item": {"type": "agent_message", "text": '{"rows":[]}'},
+                },
+                {
+                    "type": "turn.completed",
+                    "usage": {
+                        "input_tokens": 12,
+                        "cached_input_tokens": 0,
+                        "output_tokens": 4,
+                        "reasoning_tokens": 0,
+                    },
+                },
+            ),
+            termination_decision=None,
+            duration_ms=1,
+        )
+
+    monkeypatch.setattr(exec_runner_module, "prepare_direct_exec_workspace", _unexpected_prepare)
+    monkeypatch.setattr(
+        exec_runner_module,
+        "_run_codex_exec_subprocess_streaming",
+        _fake_streaming,
+    )
+
+    runner = SubprocessCodexExecRunner(cmd="codex exec")
+    result = runner.run_packet_worker(
+        prompt_text="Return JSON only.",
+        input_payload={"rows": []},
+        working_dir=source_dir,
+        env={},
+        output_schema_path=None,
+        prepared_execution_working_dir=execution_dir,
+    )
+
+    assert result.command[:2] == ["codex", "exec"]
+    assert "resume" not in result.command
+    assert result.source_working_dir == str(source_dir)
+    assert result.execution_working_dir == str(execution_dir.resolve(strict=False))
+    assert result.response_text == '{"rows":[]}'
+
+
 def test_build_taskfile_worker_fs_cage_command_hides_home_and_sibling_workspaces(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

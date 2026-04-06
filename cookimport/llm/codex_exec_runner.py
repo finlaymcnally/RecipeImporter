@@ -502,11 +502,11 @@ class SubprocessCodexExecRunner:
         prepared_execution_working_dir: Path | None,
     ) -> CodexExecRunResult:
         process_env = _merge_env(env)
-        if resume_last:
-            if prepared_execution_working_dir is None:
-                raise CodexFarmRunnerError(
-                    "Inline JSON requires a previously prepared execution workspace."
-                )
+        if resume_last and prepared_execution_working_dir is None:
+            raise CodexFarmRunnerError(
+                "Inline JSON requires a previously prepared execution workspace."
+            )
+        if prepared_execution_working_dir is not None:
             execution_working_dir = Path(prepared_execution_working_dir).resolve(strict=False)
             if not execution_working_dir.exists():
                 raise CodexFarmRunnerError(

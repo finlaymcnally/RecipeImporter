@@ -544,6 +544,7 @@ def validate_knowledge_classification_task_file(
     error_details = list(metadata.get("error_details") or [])
     failed_unit_ids: list[str] = []
     unresolved_block_indices: list[int] = []
+    missing_block_indices: list[int] = []
     validated_answers: dict[str, dict[str, Any]] = {}
     grounding_gate_demotion_details: list[dict[str, Any]] = []
     grounding_drop_details: list[dict[str, Any]] = []
@@ -564,7 +565,18 @@ def validate_knowledge_classification_task_file(
         unit_failed = False
         unit_grounding_drop_codes: list[str] = []
         unit_grounding_drop_details: list[dict[str, Any]] = []
-        if category not in ALLOWED_KNOWLEDGE_FINAL_CATEGORIES:
+        if not category:
+            next_errors.append("knowledge_block_missing_decision")
+            missing_block_indices.append(block_index)
+            error_details.append(
+                {
+                    "path": f"/units/{unit_id}/answer/category",
+                    "code": "knowledge_block_missing_decision",
+                    "message": "response did not return a classification decision for this block",
+                }
+            )
+            unit_failed = True
+        elif category not in ALLOWED_KNOWLEDGE_FINAL_CATEGORIES:
             next_errors.append("invalid_category")
             error_details.append(
                 {
@@ -782,6 +794,7 @@ def validate_knowledge_classification_task_file(
         "error_details": error_details,
         "failed_unit_ids": failed_unit_ids,
         "unresolved_block_indices": sorted(set(unresolved_block_indices)),
+        "missing_block_indices": sorted(set(missing_block_indices)),
         "validated_answers_by_unit_id": validated_answers,
         "grounding_gate_demotion_details": grounding_gate_demotion_details,
         "grounding_gate_demoted_unit_ids": [
