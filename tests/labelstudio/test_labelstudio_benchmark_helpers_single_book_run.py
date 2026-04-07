@@ -158,6 +158,7 @@ def test_build_shard_recommendations_from_prep_bundle_exposes_context_and_book_k
     preview_manifest_path.write_text(
         json.dumps(
             {
+                "schema_version": "codex_prompt_preview.v3",
                 "phase_plans": {
                     "line_role": {
                         "shard_count": 5,
@@ -296,6 +297,130 @@ def test_build_shard_recommendations_from_prep_bundle_exposes_context_and_book_k
         "outside_recipe_block_count": 124,
         "knowledge_packet_count": 38,
     }
+
+
+def test_build_shard_recommendations_from_prep_bundle_rebuilds_stale_preview_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import cookimport.staging.deterministic_prep as deterministic_prep
+    from cookimport.staging.book_cache import preview_cache_manifest_path
+
+    artifact_root = tmp_path / "prep-cache" / "prep-key-123"
+    book_cache_root = tmp_path / "book-cache"
+    selected_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+            "recipe_prompt_target_count": 5,
+            "line_role_prompt_target_count": 5,
+            "knowledge_prompt_target_count": 5,
+        },
+        warn_context="test stale preview manifest rebuild",
+    )
+    preview_manifest_path = preview_cache_manifest_path(
+        book_cache_root=book_cache_root,
+        source_hash="hash-123",
+        prep_key="prep-key-123",
+        selected_settings=selected_settings,
+    )
+    preview_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    preview_manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "codex_prompt_preview.v2",
+                "phase_plans": {
+                    "line_role": {
+                        "shard_count": 5,
+                        "minimum_safe_shard_count": 4,
+                        "binding_limit": "input",
+                    }
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    rebuilt_manifest = {
+        "schema_version": "codex_prompt_preview.v3",
+        "phase_plans": {
+            "line_role": {
+                "shard_count": 5,
+                "requested_shard_count": 5,
+                "budget_native_shard_count": 5,
+                "launch_shard_count": 5,
+                "owned_id_count": 1245,
+                "owned_ids_per_shard": {"avg": 249.0},
+                "minimum_safe_shard_count": 4,
+                "binding_limit": "input",
+                "survivability": {
+                    "current_shard_count": 5,
+                    "totals": {
+                        "estimated_input_tokens": 290_000,
+                        "estimated_peak_session_tokens": 353_000,
+                        "owned_unit_count": 1245,
+                    },
+                    "worst_shard": {
+                        "estimated_peak_session_tokens": 82_000,
+                    },
+                },
+            }
+        },
+    }
+    generated_manifest_path = artifact_root / "prompt-preview" / "prompt_preview_manifest.json"
+    generated_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    generated_manifest_path.write_text(
+        json.dumps(rebuilt_manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        deterministic_prep,
+        "write_prompt_preview_for_existing_run",
+        lambda **kwargs: generated_manifest_path,
+    )
+    monkeypatch.setattr(
+        deterministic_prep,
+        "load_recipe_boundary_result_from_deterministic_prep_bundle",
+        lambda _prep_bundle: SimpleNamespace(
+            extracted_bundle=SimpleNamespace(archive_blocks=[]),
+            label_first_result=SimpleNamespace(
+                labeled_lines=[],
+                recipe_spans=[],
+            ),
+            recipe_owned_blocks=[],
+            outside_recipe_blocks=[],
+        ),
+    )
+    prep_bundle = deterministic_prep.DeterministicPrepBundleResult(
+        prep_key="prep-key-123",
+        source_file=tmp_path / "book.epub",
+        source_hash="hash-123",
+        workbook_slug="book",
+        importer_name="epub",
+        artifact_root=artifact_root,
+        manifest_path=artifact_root / "deterministic_prep_bundle_manifest.json",
+        processed_run_root=artifact_root / "processed-output" / "book",
+        prediction_run_root=artifact_root / "prediction-run",
+        conversion_result_path=artifact_root / "conversion_result.json",
+        processed_report_path=None,
+        stage_block_predictions_path=None,
+        cache_hit=True,
+        timing={},
+        deterministic_settings={},
+        book_cache_root=book_cache_root,
+    )
+
+    recommendations = deterministic_prep.build_shard_recommendations_from_prep_bundle(
+        prep_bundle=prep_bundle,
+        selected_settings=selected_settings,
+    )
+
+    assert recommendations["line_role"]["budget_native_shard_count"] == 5
+    cached_manifest = json.loads(preview_manifest_path.read_text(encoding="utf-8"))
+    assert cached_manifest["schema_version"] == "codex_prompt_preview.v3"
 
 
 def test_deterministic_prep_key_ignores_llm_only_settings(tmp_path: Path) -> None:

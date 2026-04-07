@@ -1028,7 +1028,10 @@ def test_choose_run_settings_uses_target_context_recommendation_builder_for_shar
     assert any("Prepared: 312 blocks, 1,245 lines, 27 recipe guesses" in line for line in captured_summary_lines)
     assert "Leftover for knowledge: 124 outside-recipe blocks, 38 knowledge packets" in captured_summary_lines
     assert "Each row shows: main limit | avg prompt size | avg session size | avg work per shard" in captured_summary_lines
-    assert any("Shard count is your launch request." in line for line in captured_summary_lines)
+    assert any(
+        "row notes stay compact and full planner warnings appear below the table" in line
+        for line in captured_summary_lines
+    )
     assert "Rows with min -- are not verified yet. Treat those shard counts as untrusted." not in captured_summary_lines
     assert not any("Exact survivability estimates appear" in line for line in captured_summary_lines)
     assert selected.line_role_prompt_target_count == 4
@@ -1052,6 +1055,65 @@ def test_binding_limit_and_kpi_labels_are_plain_english() -> None:
         )
         == "~21k prompt | ~26k session | ~294 lines/sh"
     )
+
+
+def test_planning_warning_badge_counts_messages() -> None:
+    assert (
+        run_settings_flow._planning_warning_badge(["budget planning wanted 24 shards"])
+        == "warn 1 below"
+    )
+
+
+def test_planning_warning_badge_counts_more() -> None:
+    assert (
+        run_settings_flow._planning_warning_badge(
+            [
+                "x" * 60,
+                "second warning",
+            ]
+        )
+        == "warn 2 below"
+    )
+
+
+def test_shard_plan_warning_lines_wrap_under_table() -> None:
+    lines = run_settings_flow._build_codex_shard_plan_warning_lines(
+        [
+            {
+                "label": "Knowledge",
+                "current_count": 5,
+                "budget_native_shard_count": 24,
+                "planning_warnings": [
+                    "knowledge_prompt_target_count is using the rendered preview packet count fallback because the requested target did not survive budget-native packetization",
+                ],
+            }
+        ],
+        wrap_width=60,
+    )
+
+    assert lines[0] == "Planner warnings:"
+    assert lines[1].startswith("Knowledge: Current shard count 5 is below the budget-native")
+    assert any("packetizer naturally split this work more finely" in line for line in lines[1:])
+
+
+def test_current_row_warning_messages_recalculate_when_shard_count_changes() -> None:
+    row = {
+        "label": "Knowledge",
+        "current_count": 5,
+        "minimum_safe_shard_count": 1,
+        "binding_limit": "session_peak",
+        "budget_native_shard_count": 24,
+        "planning_warnings": [
+            "knowledge_prompt_target_count is using the requested final shard count of 5; packet-budget planning would have split the queue into 24 shards.",
+        ],
+    }
+
+    assert run_settings_flow._current_row_warning_messages(row) == [
+        "Current shard count 5 is below the budget-native plan of 24 shards. The rendered preview packetizer naturally split this work more finely at that count."
+    ]
+
+    row["current_count"] = 24
+    assert run_settings_flow._current_row_warning_messages(row) == []
 
 
 def test_shard_plan_kpi_summary_updates_when_shard_count_changes() -> None:

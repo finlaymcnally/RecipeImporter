@@ -17,7 +17,7 @@ BOOK_CACHE_WAIT_SECONDS = 120.0
 BOOK_CACHE_POLL_SECONDS = 0.25
 CONVERSION_CACHE_SCHEMA_VERSION = "book_conversion_cache_entry.v1"
 CONVERSION_CACHE_KEY_SCHEMA_VERSION = "book_conversion_cache_key.v1"
-PREVIEW_CACHE_KEY_SCHEMA_VERSION = "book_preview_cache_key.v2"
+PREVIEW_CACHE_KEY_SCHEMA_VERSION = "book_preview_cache_key.v3"
 _CONVERSION_CACHE_INCLUDED_FIELDS = (
     "bucket1_fixed_behavior_version",
     "epub_extractor",

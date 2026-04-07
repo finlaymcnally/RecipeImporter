@@ -72,6 +72,7 @@ _DETERMINISTIC_PREP_INCLUDED_FIELDS = tuple(
     if field_name not in _DETERMINISTIC_PREP_EXCLUDED_FIELDS
 )
 _GENERATE_PRED_RUN_ARTIFACTS_PARAMETER_NAMES: frozenset[str] | None = None
+_CURRENT_PREVIEW_MANIFEST_SCHEMA_VERSION = "codex_prompt_preview.v3"
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +116,15 @@ def _coerce_dict(value: Any) -> dict[str, Any]:
 
 def _read_json(path: Path) -> dict[str, Any]:
     return read_json_dict(path)
+
+
+def _preview_manifest_is_current(payload: Mapping[str, Any] | None) -> bool:
+    if not isinstance(payload, Mapping):
+        return False
+    if str(payload.get("schema_version") or "").strip() != _CURRENT_PREVIEW_MANIFEST_SCHEMA_VERSION:
+        return False
+    phase_plans = payload.get("phase_plans")
+    return isinstance(phase_plans, Mapping)
 
 
 def _read_jsonl_dicts(path: Path) -> list[dict[str, Any]]:
@@ -1057,16 +1067,23 @@ def build_shard_recommendations_from_prep_bundle(
         selected_settings=selected_settings,
     )
     preview_lock_path = entry_lock_path(preview_manifest_path)
-    if not preview_manifest_path.exists():
+    preview_manifest = (
+        _read_json(preview_manifest_path)
+        if preview_manifest_path.exists()
+        else None
+    )
+    if not _preview_manifest_is_current(preview_manifest):
         lock_acquired = acquire_entry_lock(preview_lock_path)
         if not lock_acquired:
             waited = wait_for_entry(
-                load_entry=lambda: _read_json(preview_manifest_path)
-                if preview_manifest_path.exists()
-                else None,
+                load_entry=lambda: (
+                    _read_json(preview_manifest_path)
+                    if preview_manifest_path.exists()
+                    else None
+                ),
                 lock_path=preview_lock_path,
             )
-            if waited is not None:
+            if _preview_manifest_is_current(waited):
                 preview_manifest = waited
             else:
                 lock_acquired = acquire_entry_lock(preview_lock_path)
@@ -1118,12 +1135,14 @@ def build_shard_recommendations_from_prep_bundle(
                     line_role_shard_target_lines=selected_settings.line_role_shard_target_lines,
                 )
                 preview_manifest = _read_json(generated_manifest_path)
+                if not _preview_manifest_is_current(preview_manifest):
+                    raise ValueError(
+                        "Prompt-preview generation returned an out-of-date manifest schema"
+                    )
                 write_json_atomic(preview_manifest_path, preview_manifest)
         finally:
             if "lock_acquired" in locals() and lock_acquired:
                 release_entry_lock(preview_lock_path)
-    else:
-        preview_manifest = _read_json(preview_manifest_path)
     phase_plans = preview_manifest.get("phase_plans")
     if not isinstance(phase_plans, Mapping):
         return {}

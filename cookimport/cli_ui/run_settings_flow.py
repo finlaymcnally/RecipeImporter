@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import textwrap
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
@@ -107,6 +108,13 @@ def _worker_utilization() -> float | None:
     return min(parsed, 1.0)
 
 
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _rate_limit_workers(selected_settings: RunSettings) -> RunSettings:
     utilization = _worker_utilization()
     if utilization is None or utilization >= 1.0:
@@ -200,6 +208,88 @@ def _format_codex_surface_list(surface_options: tuple[str, ...] | None) -> str |
     if len(labels) == 2:
         return f"{labels[0]} and {labels[1]}"
     return f"{', '.join(labels[:-1])}, and {labels[-1]}"
+
+
+def _planning_warning_badge(warnings: Sequence[str] | None) -> str | None:
+    warning_list = [str(item).strip() for item in warnings or [] if str(item).strip()]
+    if not warning_list:
+        return None
+    count = len(warning_list)
+    return f"warn {count} below"
+
+
+def _is_budget_native_planning_warning(text: str) -> bool:
+    normalized = str(text or "").strip().lower()
+    if not normalized:
+        return False
+    return (
+        "packet-budget planning would have split" in normalized
+        or "requested final shard count" in normalized
+        or "rendered preview packet count fallback" in normalized
+        or "budget-native packetization" in normalized
+    )
+
+
+def _current_row_warning_messages(row: Mapping[str, Any]) -> list[str]:
+    current_count = max(1, int(row.get("current_count") or 1))
+    minimum_safe = _coerce_int(row.get("minimum_safe_shard_count"))
+    budget_native = _coerce_int(row.get("budget_native_shard_count"))
+    binding_limit = str(row.get("binding_limit") or "").strip()
+    raw_warnings = [
+        str(item).strip()
+        for item in row.get("planning_warnings") or []
+        if str(item).strip()
+    ]
+    messages: list[str] = []
+    if minimum_safe is not None and current_count < int(minimum_safe):
+        messages.append(
+            f"Current shard count {current_count} is below the advisory survivability minimum "
+            f"of {int(minimum_safe)} for {_binding_limit_label(binding_limit)}."
+        )
+    if budget_native is not None and int(budget_native) > 0 and current_count < int(budget_native):
+        messages.append(
+            f"Current shard count {current_count} is below the budget-native plan of "
+            f"{int(budget_native)} shards. The rendered preview packetizer naturally split "
+            "this work more finely at that count."
+        )
+    for warning in raw_warnings:
+        if _is_budget_native_planning_warning(warning):
+            continue
+        messages.append(warning)
+    return messages
+
+
+def _build_codex_shard_plan_warning_lines(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    wrap_width: int = 88,
+) -> list[str]:
+    lines: list[str] = []
+    warning_rows: list[tuple[str, list[str]]] = []
+    for row in rows:
+        label = str(row.get("label") or row.get("step_id") or "Step").strip() or "Step"
+        warnings = _current_row_warning_messages(row)
+        if warnings:
+            warning_rows.append((label, warnings))
+    if not warning_rows:
+        return lines
+    lines.append("Planner warnings:")
+    for label, warnings in warning_rows:
+        for warning in warnings:
+            initial_indent = f"{label}: "
+            wrapped = textwrap.wrap(
+                warning,
+                width=max(24, wrap_width),
+                initial_indent=initial_indent,
+                subsequent_indent=" " * len(initial_indent),
+                break_long_words=False,
+                break_on_hyphens=False,
+            )
+            if wrapped:
+                lines.extend(wrapped)
+            else:
+                lines.append(initial_indent.rstrip())
+    return lines
 
 
 def _choose_interactive_recipe_pipeline(
@@ -625,7 +715,7 @@ def _build_codex_shard_plan_summary_lines(
             lines.append("Leftover for knowledge: " + ", ".join(extra_bits))
     lines.append("Each row shows: main limit | avg prompt size | avg session size | avg work per shard")
     lines.append(
-        "Shard count is your launch request. min is advisory survivability; notes surface budget-native pressure when it differs."
+        "Shard count is your launch request. min is advisory survivability; row notes stay compact and full planner warnings appear below the table."
     )
     has_recommendations = any(
         row.get("minimum_safe_shard_count") is not None for row in rows
@@ -675,38 +765,29 @@ def _prompt_codex_shard_plan_menu(
         ).rstrip()
 
     header_line = _build_header_line()
-    choices: list[questionary.Choice | questionary.Separator] = []
-    for summary_line in summary_lines:
-        choices.append(questionary.Separator(summary_line))
-    if summary_lines:
-        choices.append(questionary.Separator())
-    choices.append(questionary.Separator(header_line))
-    choices.append(questionary.Separator("-" * max(24, len(header_line))))
-    for row in rows:
-        choices.append(
-            questionary.Choice(
-                "",
-                value=str(row.get("step_id") or ""),
-                shortcut_key=False,
-            )
+    summary_choice_rows: list[questionary.Separator] = [
+        questionary.Separator(summary_line)
+        for summary_line in summary_lines
+    ]
+    row_choices: list[questionary.Choice] = [
+        questionary.Choice(
+            "",
+            value=str(row.get("step_id") or ""),
+            shortcut_key=False,
         )
-    choices.append(questionary.Separator())
-    choices.append(questionary.Choice("Continue", value="__done__"))
+        for row in rows
+    ]
+    continue_choice = questionary.Choice("Continue", value="__done__")
+    choices: list[questionary.Choice | questionary.Separator] = list(row_choices) + [
+        continue_choice
+    ]
     row_lookup = {
         str(row.get("step_id") or ""): row
         for row in rows
         if str(row.get("step_id") or "").strip()
     }
     merged_style = merge_styles_default([])
-    initial_choice = next(
-        (
-            choice
-            for choice in choices
-            if not isinstance(choice, questionary.Separator)
-            and str(choice.value) != "__done__"
-        ),
-        choices[-1],
-    )
+    initial_choice = row_choices[0] if row_choices else continue_choice
 
     ic = common.InquirerControl(
         choices,
@@ -719,6 +800,46 @@ def _prompt_codex_shard_plan_menu(
         use_arrow_keys=True,
         initial_choice=initial_choice,
     )
+
+    def _rebuild_choice_list() -> None:
+        current_value: str | None = None
+        if ic.choices:
+            current_choice = ic.get_pointed_at()
+            if not isinstance(current_choice, questionary.Separator):
+                current_value = str(current_choice.value)
+        warning_lines = _build_codex_shard_plan_warning_lines(rows)
+        rebuilt: list[questionary.Choice | questionary.Separator] = []
+        rebuilt.extend(summary_choice_rows)
+        if summary_choice_rows:
+            rebuilt.append(questionary.Separator())
+        rebuilt.append(questionary.Separator(header_line))
+        rebuilt.append(questionary.Separator("-" * max(24, len(header_line))))
+        rebuilt.extend(row_choices)
+        rebuilt.append(questionary.Separator())
+        for warning_line in warning_lines:
+            rebuilt.append(questionary.Separator(warning_line))
+        if warning_lines:
+            rebuilt.append(questionary.Separator())
+        rebuilt.append(continue_choice)
+        ic.choices = rebuilt
+        desired_value = current_value or str(initial_choice.value)
+        fallback_index = next(
+            (
+                index
+                for index, choice in enumerate(rebuilt)
+                if not isinstance(choice, questionary.Separator)
+            ),
+            0,
+        )
+        ic.pointed_at = next(
+            (
+                index
+                for index, choice in enumerate(rebuilt)
+                if not isinstance(choice, questionary.Separator)
+                and str(choice.value) == desired_value
+            ),
+            fallback_index,
+        )
 
     def _select_next() -> None:
         ic.select_next()
@@ -852,6 +973,7 @@ def _prompt_codex_shard_plan_menu(
             tokens.append(("class:text", " " * gap))
 
     def _sync_titles() -> None:
+        _rebuild_choice_list()
         for index, choice in enumerate(ic.choices):
             if isinstance(choice, questionary.Separator):
                 continue
@@ -875,11 +997,9 @@ def _prompt_codex_shard_plan_menu(
             budget_native = row.get("budget_native_shard_count")
             launch_shards = row.get("launch_shard_count")
             binding_limit = str(row.get("binding_limit") or "").strip()
-            planning_warnings = [
-                str(item).strip()
-                for item in row.get("planning_warnings") or []
-                if str(item).strip()
-            ]
+            warning_badge = _planning_warning_badge(
+                _current_row_warning_messages(row)
+            )
             kpi_summary = _render_shard_plan_kpi_summary(
                 row,
                 shard_count=count_value,
@@ -899,8 +1019,8 @@ def _prompt_codex_shard_plan_menu(
                 note_bits = ["disabled"]
                 if budget_native is not None and int(budget_native) > 0:
                     note_bits.append(f"native {int(budget_native)}")
-                if planning_warnings:
-                    note_bits.append(f"warn {len(planning_warnings)}")
+                if warning_badge:
+                    note_bits.append(warning_badge)
                 if kpi_summary:
                     note_bits.append(kpi_summary)
                 elif budget_summary:
@@ -915,16 +1035,16 @@ def _prompt_codex_shard_plan_menu(
                 else:
                     note_text = f"ok on {_binding_limit_label(binding_limit)}"
                     note_class = "class:selected"
-                if budget_native is not None and count_value < int(budget_native):
+                if budget_native is not None and int(budget_native) > 0:
                     note_text = f"{note_text} | native {int(budget_native)}"
-                elif (
+                if (
                     launch_shards is not None
                     and int(launch_shards) > 0
                     and int(launch_shards) != int(count_value)
                 ):
                     note_text = f"{note_text} | launch {int(launch_shards)}"
-                if planning_warnings:
-                    note_text = f"{note_text} | warn {len(planning_warnings)}"
+                if warning_badge:
+                    note_text = f"{note_text} | {warning_badge}"
                 if kpi_summary:
                     note_text = f"{note_text} | {kpi_summary}"
             else:
@@ -936,8 +1056,8 @@ def _prompt_codex_shard_plan_menu(
                 )
                 if budget_native is not None and int(budget_native) > 0:
                     note_text = f"{note_text} | native {int(budget_native)}"
-                if planning_warnings:
-                    note_text = f"{note_text} | warn {len(planning_warnings)}"
+                if warning_badge:
+                    note_text = f"{note_text} | {warning_badge}"
                 note_class = "class:text"
             count_text = f"[{count_value:>{count_inner_width}}]"
             count_class = "class:text"

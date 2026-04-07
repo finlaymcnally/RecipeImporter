@@ -81,6 +81,7 @@ _DEFAULT_KNOWLEDGE_PIPELINE_ID = "recipe.knowledge.packet.v1"
 _DEFAULT_KNOWLEDGE_SURFACE = "codex-knowledge-candidate-v2"
 _DEFAULT_LINE_ROLE_PIPELINE_ID = "line-role.canonical.v1"
 _DEFAULT_LINE_ROLE_SURFACE = "codex-line-role-route-v2"
+PROMPT_PREVIEW_MANIFEST_SCHEMA_VERSION = "codex_prompt_preview.v3"
 
 
 def _resolved_preview_model_label(
@@ -402,7 +403,7 @@ def write_prompt_preview_for_existing_run(
     )
 
     manifest = {
-        "schema_version": "codex_prompt_preview.v2",
+        "schema_version": PROMPT_PREVIEW_MANIFEST_SCHEMA_VERSION,
         "resolved_processed_run_dir": str(context.processed_run_dir),
         "source_file": context.source_file,
         "source_hash": context.source_hash,
