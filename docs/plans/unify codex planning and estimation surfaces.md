@@ -272,6 +272,7 @@ This plan should create a new durable artifact family under the live and preview
 The exact filenames may change during implementation, but the plan artifact must be easy to find from both preview and live stage roots and must be stable enough for benchmark/reporting readers.
 
 Change note (2026-04-06 / Codex): Updated the living-plan sections after landing the shared phase-plan artifact, preview/runtime/reporting integrations, focused tests, and short doc updates; left the real Codex benchmark rerun explicitly pending because repo policy requires user approval for LLM-enabled benchmark execution.
+Change note (2026-04-06 / Codex follow-up): Fixed the remaining prompt-budget rollup gap after verifying a real benchmark run. The live stage roots were already writing `phase_plan.json`, but `prompt_budget_runtime.py` was still missing them for three different reasons: knowledge kept its paths under `knowledge.paths`, recipe stored them on the top-level LLM runtime surface rather than the `process_runs.recipe_correction` payload the summarizer used, and line-role never invoked the shared phase-plan attachment helper. The final implementation now uses manifest-aware stage-root discovery, includes nested `paths` / `phase_runtime` / `phase_manifest` roots, prefers directories that actually contain `phase_plan.json`, and attaches phase-plan rollups for line-role as well.
 
 ## Interfaces and Dependencies
 

@@ -1382,7 +1382,10 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
         if isinstance(telemetry_summary.get("prompt_input_mode_counts"), Mapping)
         else {}
     )
-    if any(
+    task_row_transport_counts = _count_metadata_value_rows(task_rows, "transport")
+    if task_row_transport_counts.get(INLINE_JSON_TRANSPORT):
+        active_transport = INLINE_JSON_TRANSPORT
+    elif any(
         str(mode).startswith("structured_session")
         for mode in prompt_input_mode_counts.keys()
     ) or int(telemetry_summary.get("structured_followup_call_count") or 0) > 0:
@@ -1548,10 +1551,12 @@ def build_stage_observability_report(
     run_kind: str,
     created_at: str,
     run_config: Mapping[str, Any] | None = None,
+    artifact_scan_root: Path | None = None,
 ) -> StageObservabilityReport:
     stage_rows: dict[str, ObservedStage] = {}
+    observed_root = artifact_scan_root or run_root
 
-    raw_llm_root = run_root / "raw" / "llm"
+    raw_llm_root = observed_root / "raw" / "llm"
     if raw_llm_root.exists() and raw_llm_root.is_dir():
         for workbook_dir in sorted(path for path in raw_llm_root.iterdir() if path.is_dir()):
             workbook_slug = workbook_dir.name
@@ -1673,7 +1678,7 @@ def build_stage_observability_report(
 
     write_outputs_paths: dict[str, str] = {}
     for stage_key in ("label_deterministic", "label_refine", "recipe_boundary"):
-        stage_dir = run_root / stage_artifact_stem(stage_key)
+        stage_dir = observed_root / stage_artifact_stem(stage_key)
         if not stage_dir.exists() or not stage_dir.is_dir():
             continue
         stage_rows.setdefault(
@@ -1709,8 +1714,8 @@ def build_stage_observability_report(
                     },
                 )
             )
-    nonrecipe_route_path = run_root / NONRECIPE_ROUTE_FILE_NAME
-    nonrecipe_exclusions_path = run_root / NONRECIPE_EXCLUSIONS_FILE_NAME
+    nonrecipe_route_path = observed_root / NONRECIPE_ROUTE_FILE_NAME
+    nonrecipe_exclusions_path = observed_root / NONRECIPE_EXCLUSIONS_FILE_NAME
     if nonrecipe_route_path.exists() or nonrecipe_exclusions_path.exists():
         stage_key = "nonrecipe_route"
         artifact_paths = {}
@@ -1735,12 +1740,12 @@ def build_stage_observability_report(
         )
         stage_rows[stage_key].workbooks = [
             StageWorkbookObservation(
-                workbook_slug=run_root.name,
-                attention_summary=_build_nonrecipe_route_attention_summary(run_root),
+                workbook_slug=observed_root.name,
+                attention_summary=_build_nonrecipe_route_attention_summary(observed_root),
             )
         ]
-    nonrecipe_authority_path = run_root / NONRECIPE_AUTHORITY_FILE_NAME
-    nonrecipe_finalize_status_path = run_root / NONRECIPE_FINALIZE_STATUS_FILE_NAME
+    nonrecipe_authority_path = observed_root / NONRECIPE_AUTHORITY_FILE_NAME
+    nonrecipe_finalize_status_path = observed_root / NONRECIPE_FINALIZE_STATUS_FILE_NAME
     if nonrecipe_authority_path.exists() or nonrecipe_finalize_status_path.exists():
         stage_key = "nonrecipe_finalize"
         artifact_paths = {}
@@ -1763,7 +1768,7 @@ def build_stage_observability_report(
                 artifact_paths=artifact_paths,
             ),
         )
-    line_role_stage_dir = run_root / "line-role-pipeline" / "runtime" / "line_role"
+    line_role_stage_dir = observed_root / "line-role-pipeline" / "runtime" / "line_role"
     if line_role_stage_dir.exists() and line_role_stage_dir.is_dir():
         stage_key = "line_role"
         stage_rows.setdefault(
@@ -1778,7 +1783,7 @@ def build_stage_observability_report(
         )
         stage_rows[stage_key].workbooks.append(
             StageWorkbookObservation(
-                workbook_slug=run_root.name,
+                workbook_slug=observed_root.name,
                 stage_dir=_relative_to(run_root, line_role_stage_dir),
                 output_dir=_relative_to(run_root, line_role_stage_dir / "proposals")
                 if (line_role_stage_dir / "proposals").exists()
@@ -1815,11 +1820,11 @@ def build_stage_observability_report(
         ("reports_glob", "*.excel_import_report.json"),
     ):
         if "*" in path_name:
-            matches = sorted(run_root.glob(path_name))
+            matches = sorted(observed_root.glob(path_name))
             if matches:
                 write_outputs_paths[artifact_key] = str(path_name)
             continue
-        target = run_root / path_name
+        target = observed_root / path_name
         if target.exists():
             write_outputs_paths[artifact_key] = path_name
     if write_outputs_paths or (run_config is not None and run_kind == "stage"):

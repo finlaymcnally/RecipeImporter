@@ -1439,3 +1439,152 @@ def test_prompt_budget_summary_reports_line_role_surface_target_separately_from_
         "Requested 5 run(s) and Line Role used 5 shard(s)."
     )
     assert summary["run_count_deviations"] == []
+
+
+def test_prompt_budget_summary_uses_top_level_llm_runtime_for_recipe_phase_plan(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    recipe_root = pred_run / "raw" / "llm" / "book" / "recipe_phase_runtime"
+    recipe_root.mkdir(parents=True, exist_ok=True)
+    (recipe_root / "phase_plan.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "codex_phase_plan.v1",
+                "stage_key": "recipe_refine",
+                "requested_shard_count": 5,
+                "budget_native_shard_count": 5,
+                "launch_shard_count": 5,
+                "survivability_recommended_shard_count": 4,
+                "planning_warnings": [],
+                "survivability": {
+                    "totals": {
+                        "estimated_input_tokens": 100,
+                        "estimated_output_tokens": 20,
+                        "estimated_followup_tokens": 10,
+                        "estimated_peak_session_tokens": 140,
+                    }
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (recipe_root / "phase_plan_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "codex_phase_plan_summary.v1",
+                "requested_shard_count": 5,
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    pred_manifest = {
+        "llm_codex_farm": {
+            "llmRawDir": str(pred_run / "raw" / "llm" / "book"),
+            "phase_runtime": {
+                "phase_plan_path": str(recipe_root / "phase_plan.json"),
+                "phase_plan_summary_path": str(recipe_root / "phase_plan_summary.json"),
+            },
+            "process_runs": {
+                "recipe_correction": {
+                    "telemetry": {
+                        "rows": [
+                            {
+                                "task_id": "recipe-001",
+                                "duration_ms": 1000,
+                                "tokens_input": 90,
+                                "tokens_output": 30,
+                                "tokens_total": 120,
+                            }
+                        ]
+                    }
+                }
+            },
+        }
+    }
+
+    summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
+    recipe_stage = summary["by_stage"]["recipe_refine"]
+
+    assert recipe_stage["requested_shard_count"] == 5
+    assert recipe_stage["survivability_recommended_shard_count"] == 4
+    assert recipe_stage["phase_plan_path"].endswith("phase_plan.json")
+
+
+def test_prompt_budget_summary_uses_stage_run_root_for_line_role_phase_plan(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    line_role_root = pred_run / "line-role-pipeline" / "runtime" / "line_role"
+    line_role_root.mkdir(parents=True, exist_ok=True)
+    (line_role_root / "phase_plan.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "codex_phase_plan.v1",
+                "stage_key": "line_role",
+                "requested_shard_count": 5,
+                "budget_native_shard_count": 5,
+                "launch_shard_count": 5,
+                "survivability_recommended_shard_count": 4,
+                "planning_warnings": [],
+                "survivability": {
+                    "totals": {
+                        "estimated_input_tokens": 200,
+                        "estimated_output_tokens": 40,
+                        "estimated_followup_tokens": 0,
+                        "estimated_peak_session_tokens": 240,
+                    }
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (line_role_root / "phase_plan_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "codex_phase_plan_summary.v1",
+                "requested_shard_count": 5,
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    telemetry_path = pred_run / "line-role-pipeline" / "telemetry_summary.json"
+    telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+    telemetry_path.write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "call_count": 1,
+                    "duration_total_ms": 500,
+                    "tokens_input": 180,
+                    "tokens_output": 20,
+                    "tokens_total": 200,
+                }
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    pred_manifest = {
+        "stage_run_root": str(pred_run),
+        "processed_run_root": str(pred_run),
+        "line_role_pipeline_telemetry_path": str(telemetry_path),
+    }
+
+    summary = build_prediction_run_prompt_budget_summary(pred_manifest, pred_run)
+    line_role_stage = summary["by_stage"]["line_role"]
+
+    assert line_role_stage["requested_shard_count"] == 5
+    assert line_role_stage["survivability_recommended_shard_count"] == 4
+    assert "line-role-pipeline/runtime/line_role/phase_plan.json" in line_role_stage["phase_plan_path"]

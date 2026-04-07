@@ -162,5 +162,8 @@ def test_prompt_budget_knowledge_stage_prefers_nonempty_top_level_telemetry() ->
     assert stage["visible_input_tokens"] == 2100
     assert stage["visible_output_tokens"] == 300
     assert stage["wrapper_overhead_tokens"] == 1400
+    assert stage.get("token_usage_status") == "complete"
+    assert stage.get("token_usage_available_call_count") == 2
+    assert stage.get("token_usage_missing_call_count") == 0
     assert stage["execution_mode_summary"]["other"]["call_count"] == 2
     assert stage["execution_mode_summary"]["other"]["tokens_total"] == 3800

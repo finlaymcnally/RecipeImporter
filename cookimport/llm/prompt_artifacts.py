@@ -166,6 +166,42 @@ def _resolve_structured_session_root(*, runtime_stage_root: Path | None, runtime
     return session_root
 
 
+def _runtime_context_identity_present(runtime_context: Mapping[str, Any] | None) -> bool:
+    if not isinstance(runtime_context, Mapping):
+        return False
+    runtime_shard_id = _clean_text(runtime_context.get('runtime_shard_id'))
+    runtime_worker_id = _clean_text(runtime_context.get('runtime_worker_id'))
+    return runtime_shard_id is not None or runtime_worker_id is not None
+
+
+def _has_observed_runtime_call_evidence(*, runtime_stage_root: Path | None, runtime_context: Mapping[str, Any] | None) -> bool:
+    if runtime_stage_root is None or not isinstance(runtime_context, Mapping):
+        return False
+    runtime_worker_id = _clean_text(runtime_context.get('runtime_worker_id'))
+    if runtime_worker_id is None:
+        return False
+    worker_root = runtime_stage_root / 'workers' / runtime_worker_id
+    evidence_paths = [
+        worker_root / 'task.json',
+        worker_root / 'prompt.txt',
+        worker_root / 'usage.json',
+        worker_root / 'events.jsonl',
+        worker_root / 'last_message.json',
+        worker_root / 'worker_manifest.json',
+        worker_root / 'live_status.json',
+    ]
+    runtime_shard_id = _clean_text(runtime_context.get('runtime_shard_id'))
+    if runtime_shard_id is not None:
+        shard_root = worker_root / 'shards' / runtime_shard_id
+        evidence_paths.extend(
+            [
+                shard_root / 'prompt.txt',
+                shard_root / 'live_status.json',
+            ]
+        )
+    return any(path.exists() and path.is_file() for path in evidence_paths)
+
+
 def _load_structured_session_turn_artifacts(*, session_root: Path | None) -> list[dict[str, Any]]:
     if session_root is None:
         return []
@@ -908,6 +944,15 @@ def render_prompt_artifacts_from_descriptors(*, pred_run: Path, eval_output_dir:
                                 turn_request_telemetry['activity_trace_path'] = activity_trace_payload.get('path')
                             full_prompt_log_handle.write(json.dumps(PromptCallRecord(schema_version=PROMPT_CALL_RECORD_SCHEMA_VERSION, row=turn_row_payload).to_row(), ensure_ascii=False) + '\n')
                             full_prompt_log_rows += 1
+                        continue
+                    if (
+                        request_payload_source == 'reconstructed_from_prompt_template'
+                        and _runtime_context_identity_present(runtime_context)
+                        and not _has_observed_runtime_call_evidence(
+                            runtime_stage_root=runtime_stage_root,
+                            runtime_context=runtime_context,
+                        )
+                    ):
                         continue
                     request_telemetry: dict[str, Any] | None = None
                     if isinstance(telemetry_row, dict):

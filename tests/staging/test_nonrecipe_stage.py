@@ -5,13 +5,18 @@ from pathlib import Path
 
 import pytest
 
-from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel
+from cookimport.parsing.label_source_of_truth import (
+    AuthoritativeBlockLabel,
+    AuthoritativeLabeledLine,
+)
+from cookimport.parsing.recipe_span_grouping import recipe_boundary_from_labels
 from cookimport.staging.nonrecipe_stage import (
     block_rows_for_nonrecipe_late_outputs,
     build_nonrecipe_authority_contract,
     build_nonrecipe_stage_result,
     refine_nonrecipe_stage_result,
 )
+from cookimport.staging.recipe_ownership import build_recipe_ownership_result
 from cookimport.staging.writer import (
     OutputStats,
     write_knowledge_outputs_artifact,
@@ -134,6 +139,60 @@ def test_nonrecipe_stage_normalizes_divested_recipe_local_labels_to_candidates()
     assert result.routing.warnings == [
         "block 1: divested recipe-local label 'RECIPE_NOTES' normalized to NONRECIPE_CANDIDATE for nonrecipe routing"
     ]
+
+
+def test_nonrecipe_stage_routes_rejected_recipe_boundary_span_to_candidate_queue() -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "Using Acid"},
+        {"index": 1, "block_id": "b1", "text": "Makes 1 cup"},
+    ]
+    labeled_lines = [
+        AuthoritativeLabeledLine(
+            source_block_id="b0",
+            source_block_index=0,
+            atomic_index=0,
+            text="Using Acid",
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="b1",
+            source_block_index=1,
+            atomic_index=1,
+            text="Makes 1 cup",
+            deterministic_label="YIELD_LINE",
+            final_label="YIELD_LINE",
+            decided_by="rule",
+        ),
+    ]
+    block_labels = [
+        _block_label(0, "RECIPE_TITLE"),
+        _block_label(1, "YIELD_LINE"),
+    ]
+
+    recipe_spans, span_decisions, normalized_blocks = recipe_boundary_from_labels(
+        block_labels,
+        labeled_lines,
+    )
+    ownership = build_recipe_ownership_result(
+        full_blocks=full_blocks,
+        recipe_spans=recipe_spans,
+        recipes=[],
+    )
+    result = build_nonrecipe_stage_result(
+        full_blocks=full_blocks,
+        final_block_labels=normalized_blocks,
+        recipe_ownership_result=ownership,
+    )
+
+    assert recipe_spans == []
+    assert span_decisions[0].decision == "rejected_pseudo_recipe_span"
+    assert ownership.owned_block_indices == []
+    assert ownership.available_to_nonrecipe_block_indices == [0, 1]
+    assert result.seed.seed_route_by_index == {0: "candidate", 1: "candidate"}
+    assert result.routing.candidate_block_indices == [0, 1]
+    assert result.routing.excluded_block_indices == []
 
 
 def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path) -> None:

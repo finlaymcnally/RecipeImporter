@@ -108,6 +108,44 @@ def test_build_stage_observability_report_for_knowledge_enabled_run(tmp_path: Pa
     )
 
 
+def test_build_stage_observability_report_can_scan_external_processed_output_root(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "benchmark-run"
+    processed_root = tmp_path / "processed-output"
+    recipe_root = processed_root / "raw" / "llm" / "book" / "recipe_phase_runtime"
+    recipe_root.mkdir(parents=True, exist_ok=True)
+    _write_json(
+        recipe_root.parent / RECIPE_MANIFEST_FILE_NAME,
+        {
+            "pipeline": RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
+            "paths": {
+                "recipe_phase_runtime_dir": str(recipe_root),
+                "recipe_phase_input_dir": str(recipe_root / "inputs"),
+                "recipe_phase_proposals_dir": str(recipe_root / "proposals"),
+            },
+            "process_runs": {"recipe_correction": {}},
+        },
+    )
+    (processed_root / "final drafts" / "book").mkdir(parents=True, exist_ok=True)
+
+    report = build_stage_observability_report(
+        run_root=run_root,
+        artifact_scan_root=processed_root,
+        run_kind="bench_pred_run",
+        created_at="2026-03-15T23:40:19",
+        run_config={},
+    )
+
+    assert _stage_keys(report) == [
+        "recipe_build_intermediate",
+        "recipe_refine",
+        "recipe_build_final",
+        "write_outputs",
+    ]
+    assert report.stages[1].workbooks[0].stage_dir == str(recipe_root)
+
+
 def test_write_stage_observability_report_writes_json(tmp_path: Path) -> None:
     run_root = tmp_path / "run"
     report = build_stage_observability_report(

@@ -256,8 +256,11 @@ def test_codex_outside_recipe_generic_lesson_heading_rejects_howto_to_reviewable
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "HOWTO_SECTION"
-    assert predictions[0].decided_by == "codex"
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions[0].decided_by == "fallback"
+    assert "codex_policy_rejected:howto_without_local_support" in (
+        predictions[0].reason_tags
+    )
 
 
 def test_codex_outside_recipe_narrative_prose_demotes_howto_to_other(tmp_path) -> None:
@@ -284,8 +287,11 @@ def test_codex_outside_recipe_narrative_prose_demotes_howto_to_other(tmp_path) -
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "HOWTO_SECTION"
-    assert predictions[0].decided_by == "codex"
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions[0].decided_by == "fallback"
+    assert "codex_policy_rejected:howto_without_local_support" in (
+        predictions[0].reason_tags
+    )
 
 
 def test_codex_outside_recipe_endorsement_demotes_knowledge_to_other(tmp_path) -> None:
@@ -368,6 +374,92 @@ def test_codex_outside_recipe_question_heading_demotes_knowledge_to_other(tmp_pa
     assert predictions[0].label == "NONRECIPE_CANDIDATE"
     assert predictions[0].decided_by == "codex"
     assert predictions[0].exclusion_reason is None
+
+
+def test_codex_outside_recipe_nonrecipe_exclude_without_support_falls_back_to_candidate(
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:knowledge:1",
+            block_index=1,
+            atomic_index=0,
+            text=(
+                "Salt enhances flavor by suppressing bitterness and amplifying aroma."
+            ),
+            within_recipe_span=False,
+            rule_tags=["explicit_prose"],
+        )
+    ]
+
+    def _output_builder(_payload):
+        return {
+            "rows": [
+                {
+                    "atomic_index": 0,
+                    "label": "NONRECIPE_EXCLUDE",
+                    "exclusion_reason": "navigation",
+                }
+            ]
+        }
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-route-v2"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner(output_builder=_output_builder),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions[0].decided_by == "fallback"
+    assert predictions[0].exclusion_reason is None
+    assert "codex_policy_rejected:nonrecipe_exclude_without_deterministic_support" in (
+        predictions[0].reason_tags
+    )
+
+
+def test_codex_outside_recipe_nonrecipe_exclude_reason_mismatch_falls_back_to_baseline(
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:endorsement:2",
+            block_index=2,
+            atomic_index=0,
+            text="-Alice Waters , New York Times bestselling author of The Art of Simple Food",
+            within_recipe_span=False,
+            rule_tags=[],
+        )
+    ]
+
+    def _output_builder(_payload):
+        return {
+            "rows": [
+                {
+                    "atomic_index": 0,
+                    "label": "NONRECIPE_EXCLUDE",
+                    "exclusion_reason": "navigation",
+                }
+            ]
+        }
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-route-v2"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner(output_builder=_output_builder),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[0].label == "NONRECIPE_EXCLUDE"
+    assert predictions[0].decided_by == "fallback"
+    assert predictions[0].exclusion_reason == "endorsement"
+    assert "codex_policy_rejected:nonrecipe_exclude_reason_mismatch" in (
+        predictions[0].reason_tags
+    )
 
 
 def test_codex_outside_recipe_knowledge_heading_with_context_stays_reviewable_other(
@@ -721,10 +813,14 @@ def test_codex_front_matter_title_list_demotes_recipe_titles_to_other(tmp_path) 
     assert [prediction.label for prediction in predictions] == [
         "NONRECIPE_EXCLUDE",
         "NONRECIPE_EXCLUDE",
-        "RECIPE_TITLE",
-        "RECIPE_TITLE",
-        "RECIPE_TITLE",
+        "NONRECIPE_EXCLUDE",
+        "NONRECIPE_EXCLUDE",
+        "NONRECIPE_EXCLUDE",
     ]
+    assert predictions[2].decided_by == "fallback"
+    assert "codex_policy_rejected:title_without_local_support" in (
+        predictions[2].reason_tags
+    )
 
 
 def test_codex_how_salt_works_rejects_howto_to_baseline(tmp_path) -> None:
@@ -762,8 +858,11 @@ def test_codex_how_salt_works_rejects_howto_to_baseline(tmp_path) -> None:
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "HOWTO_SECTION"
-    assert predictions[0].decided_by == "codex"
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions[0].decided_by == "fallback"
+    assert "codex_policy_rejected:howto_without_local_support" in (
+        predictions[0].reason_tags
+    )
 
 
 def test_codex_outside_recipe_generic_advice_demotes_instruction_to_other(
@@ -791,8 +890,11 @@ def test_codex_outside_recipe_generic_advice_demotes_instruction_to_other(
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "INSTRUCTION_LINE"
-    assert predictions[0].decided_by == "codex"
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions[0].decided_by == "fallback"
+    assert "codex_policy_rejected:instruction_without_local_support" in (
+        predictions[0].reason_tags
+    )
 
 
 def test_codex_exact_instruction_other_rows_stay_codex_other(tmp_path) -> None:

@@ -139,7 +139,7 @@ Label-first metadata note:
 - `label_deterministic`, `label_refine`, and `recipe_boundary` now publish explicit `decided_by`, `reason_tags`, and `escalation_reasons` on authoritative line/block/span artifacts.
 - `recipe_boundary/<workbook_slug>/recipe_spans.json` is the accepted authoritative span list only.
 - `span_decisions.json` is the compact reviewer/debug rollup for both accepted recipe spans and rejected pseudo-recipe runs, including explicit `decision` and `rejection_reason` fields.
-- Accepted grouped spans now already satisfy the minimum recipe-body rule. `build_conversion_result_from_label_spans(...)` no longer performs ordinary late `rejected_missing_recipe_body` demotion; an impossible title-only projection is surfaced only as an invariant warning.
+- Accepted grouped spans now already satisfy the stricter coherent-recipe rule: title anchor plus ingredient evidence plus instruction evidence. `build_conversion_result_from_label_spans(...)` no longer performs ordinary late recipe-body demotion; an impossible accepted projection is surfaced only as an invariant warning.
 
 Report contract note:
 - `<workbook_slug>.excel_import_report.json` can include `recipeLikeness` summary (backend/version, thresholds, tier counts, score stats, rejected count).
@@ -181,7 +181,7 @@ Stage-block `KNOWLEDGE` label contract:
 - `08_nonrecipe_route.json` is the deterministic `nonrecipe-route` artifact. It keeps candidate/exclude routing, exclusion reasons, block ids, and previews, but it does not publish final semantic category guesses.
 - `08_nonrecipe_route.json` may contain only blocks that were unowned at boundary time or explicitly divested later; recipe-owned blocks are forbidden input, not just low-priority output.
 - The nonrecipe router consumes authoritative block labels, not repair heuristics: `NONRECIPE_CANDIDATE` feeds the knowledge queue, `NONRECIPE_EXCLUDE` becomes immediate final `other`, and malformed authoritative labels are hard errors.
-- One explicit divestment bridge remains active at that seam: if recipe refine divests a block that still carries a recipe-local authoritative label such as `RECIPE_NOTES`, the nonrecipe router normalizes it to `NONRECIPE_CANDIDATE` so the block can re-enter outside-recipe review instead of failing contract validation.
+- One explicit divestment bridge remains active at that seam: if recipe refine divests a block that still carries a recipe-local authoritative label such as `RECIPE_NOTES`, the nonrecipe router normalizes it to `NONRECIPE_CANDIDATE` so the block can re-enter outside-recipe review instead of failing contract validation. Recipe-boundary coherence rejects now do the same thing earlier: incoherent recipe-shaped spans hand back to `NONRECIPE_CANDIDATE`, never `NONRECIPE_EXCLUDE`.
 - `build_nonrecipe_authority_result(...)` now hard-enforces that excluded block indices stay final `other` even if a later refine/projection map tries to leak them back into final `knowledge`.
 - `09_nonrecipe_authority.json` is the only final-truth artifact for outside-recipe `knowledge` versus `other`. It contains only authoritative spans, categories, and block indices.
 - `09_nonrecipe_knowledge_groups.json` is the explicit promoted-group artifact for packet-reviewed related ideas. It is reviewer/debug context, not the category-authority file.

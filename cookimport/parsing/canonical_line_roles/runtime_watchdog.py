@@ -643,6 +643,7 @@ def _should_attempt_line_role_repair(
             "row_not_a_json_object",
             "atomic_index_missing",
             "row_id_missing",
+            "semantic_pathology_rejected",
         }:
             return True
         if str(error).startswith(

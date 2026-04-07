@@ -15,10 +15,263 @@ from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 from .contracts import (
     CANONICAL_LINE_ROLE_ALLOWED_LABELS,
     CanonicalLineRolePrediction,
+    RECIPE_LOCAL_LINE_ROLE_LABELS,
     _normalize_exclusion_reason,
 )
-from .policy import _is_within_recipe_span
+from .policy import (
+    _is_within_recipe_span,
+    _looks_book_framing_or_exhortation_prose,
+    _looks_chapter_taxonomy_heading_candidate,
+    _looks_domain_knowledge_prose,
+    _looks_endorsement_credit,
+    _looks_endorsement_blurb_candidate,
+    _looks_explicit_knowledge_cue,
+    _looks_front_matter_exclusion_heading,
+    _looks_front_matter_navigation_heading,
+    _looks_knowledge_heading_with_context,
+    _looks_knowledge_prose_with_context,
+    _looks_navigation_title_list_entry,
+    _looks_publisher_promo,
+    _looks_publisher_promo_candidate,
+    _looks_table_of_contents_entry,
+)
 from .planning import ShardManifestEntryV1
+
+_RECIPE_LOCAL_LABELS = set(RECIPE_LOCAL_LINE_ROLE_LABELS)
+
+
+def _coerce_shard_input_rows(
+    shard: ShardManifestEntryV1,
+) -> list[tuple[int, str]]:
+    rows_payload = list((dict(shard.input_payload or {})).get("rows") or [])
+    rows: list[tuple[int, str]] = []
+    for row in rows_payload:
+        if not isinstance(row, (list, tuple)) or len(row) < 2:
+            continue
+        try:
+            atomic_index = int(row[0])
+        except (TypeError, ValueError):
+            continue
+        rows.append((atomic_index, str(row[1] or "")))
+    return rows
+
+
+def _build_line_role_profile_candidate(
+    *,
+    atomic_index: int,
+    text: str,
+    deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
+) -> AtomicLineCandidate:
+    baseline_prediction = deterministic_baseline_by_atomic_index.get(int(atomic_index))
+    return AtomicLineCandidate(
+        recipe_id=(baseline_prediction.recipe_id if baseline_prediction else None),
+        block_id=(baseline_prediction.block_id if baseline_prediction else f"block:{atomic_index}"),
+        block_index=int(baseline_prediction.block_index if baseline_prediction else atomic_index),
+        atomic_index=int(atomic_index),
+        text=str(text or ""),
+        within_recipe_span=(
+            baseline_prediction.within_recipe_span if baseline_prediction is not None else None
+        ),
+        rule_tags=[],
+    )
+
+
+def _semantic_profile_evidence_lines(
+    *,
+    front_matter_examples: Sequence[str],
+    navigation_examples: Sequence[str],
+    knowledge_examples: Sequence[str],
+    recipe_structure_examples: Sequence[str],
+    outside_recipe_only: bool,
+    owned_row_count: int,
+) -> list[str]:
+    evidence: list[str] = []
+    if outside_recipe_only:
+        evidence.append(
+            f"All {owned_row_count} owned rows are currently outside recipe context."
+        )
+    if front_matter_examples:
+        evidence.append(
+            "Front-matter signals appear in this shard: "
+            + ", ".join(f"`{example}`" for example in front_matter_examples[:4])
+            + "."
+        )
+    if navigation_examples:
+        evidence.append(
+            "Contents or taxonomy headings appear in this shard: "
+            + ", ".join(f"`{example}`" for example in navigation_examples[:4])
+            + "."
+        )
+    if knowledge_examples:
+        evidence.append(
+            "Some rows look like reusable lesson prose or lesson headings: "
+            + ", ".join(f"`{example}`" for example in knowledge_examples[:3])
+            + "."
+        )
+    if recipe_structure_examples:
+        evidence.append(
+            "Possible recipe-structure text is present nearby: "
+            + ", ".join(f"`{example}`" for example in recipe_structure_examples[:3])
+            + "."
+        )
+    if not recipe_structure_examples:
+        evidence.append("No strong ingredient, yield, or instruction-shaped evidence appears in the owned rows.")
+    return evidence
+
+
+def _build_line_role_semantic_profile(
+    *,
+    shard: ShardManifestEntryV1,
+    deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
+) -> dict[str, Any]:
+    rows = _coerce_shard_input_rows(shard)
+    by_atomic_index = {
+        atomic_index: _build_line_role_profile_candidate(
+            atomic_index=atomic_index,
+            text=text,
+            deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
+        )
+        for atomic_index, text in rows
+    }
+    front_matter_examples: list[str] = []
+    navigation_examples: list[str] = []
+    knowledge_examples: list[str] = []
+    recipe_structure_examples: list[str] = []
+    front_matter_signal_count = 0
+    navigation_signal_count = 0
+    knowledge_signal_count = 0
+    recipe_structure_signal_count = 0
+    outside_recipe_row_count = 0
+    baseline_recipe_local_count = 0
+    baseline_nonrecipe_exclude_count = 0
+    for atomic_index, text in rows:
+        candidate = by_atomic_index[atomic_index]
+        baseline_prediction = deterministic_baseline_by_atomic_index.get(atomic_index)
+        if baseline_prediction is not None:
+            if baseline_prediction.within_recipe_span is False:
+                outside_recipe_row_count += 1
+            if str(baseline_prediction.label or "").strip().upper() in _RECIPE_LOCAL_LABELS:
+                baseline_recipe_local_count += 1
+            if (
+                str(baseline_prediction.label or "").strip().upper() == "NONRECIPE_EXCLUDE"
+                and baseline_prediction.exclusion_reason
+            ):
+                baseline_nonrecipe_exclude_count += 1
+        stripped = str(text or "").strip()
+        if not stripped:
+            continue
+        if (
+            _looks_front_matter_navigation_heading(stripped)
+            or _looks_front_matter_exclusion_heading(stripped)
+            or _looks_publisher_promo(stripped)
+            or _looks_book_framing_or_exhortation_prose(stripped)
+            or _looks_endorsement_credit(stripped)
+            or _looks_endorsement_blurb_candidate(candidate, by_atomic_index=by_atomic_index)
+            or _looks_publisher_promo_candidate(candidate, by_atomic_index=by_atomic_index)
+        ):
+            front_matter_signal_count += 1
+            if stripped not in front_matter_examples:
+                front_matter_examples.append(stripped)
+        if (
+            _looks_table_of_contents_entry(stripped)
+            or _looks_navigation_title_list_entry(stripped)
+            or _looks_chapter_taxonomy_heading_candidate(stripped)
+        ):
+            navigation_signal_count += 1
+            if stripped not in navigation_examples:
+                navigation_examples.append(stripped)
+        if (
+            _looks_knowledge_heading_with_context(candidate, by_atomic_index=by_atomic_index)
+            or _looks_knowledge_prose_with_context(candidate, by_atomic_index=by_atomic_index)
+            or _looks_domain_knowledge_prose(stripped)
+            or _looks_explicit_knowledge_cue(stripped)
+        ):
+            knowledge_signal_count += 1
+            if stripped not in knowledge_examples:
+                knowledge_examples.append(stripped)
+        if baseline_prediction is None:
+            continue
+        if str(baseline_prediction.label or "").strip().upper() in {
+            "INGREDIENT_LINE",
+            "INSTRUCTION_LINE",
+            "YIELD_LINE",
+            "TIME_LINE",
+        }:
+            recipe_structure_signal_count += 1
+            if stripped not in recipe_structure_examples:
+                recipe_structure_examples.append(stripped)
+    owned_row_count = len(rows)
+    outside_recipe_only = bool(owned_row_count) and outside_recipe_row_count == owned_row_count
+    risk_flags: list[str] = []
+    if outside_recipe_only:
+        risk_flags.append("outside_recipe_only")
+    if front_matter_signal_count >= 3:
+        risk_flags.append("front_matter_cluster")
+    if navigation_signal_count >= 4:
+        risk_flags.append("contents_heading_cluster")
+    if knowledge_signal_count > 0:
+        risk_flags.append("knowledge_support_present")
+    if recipe_structure_signal_count == 0:
+        risk_flags.append("no_recipe_structure_support")
+    summary = "This shard reads like one live recipe."
+    if outside_recipe_only and front_matter_signal_count >= 3 and navigation_signal_count >= 4:
+        summary = "This shard reads like front matter and contents navigation, not one live recipe."
+    elif outside_recipe_only and navigation_signal_count >= 4:
+        summary = "This shard reads like outside-recipe contents or taxonomy headings."
+    elif outside_recipe_only and front_matter_signal_count >= 3:
+        summary = "This shard reads like outside-recipe front matter."
+    return {
+        "owned_row_count": owned_row_count,
+        "outside_recipe_only": outside_recipe_only,
+        "outside_recipe_row_count": outside_recipe_row_count,
+        "front_matter_signal_count": front_matter_signal_count,
+        "navigation_signal_count": navigation_signal_count,
+        "knowledge_signal_count": knowledge_signal_count,
+        "recipe_structure_signal_count": recipe_structure_signal_count,
+        "baseline_recipe_local_count": baseline_recipe_local_count,
+        "baseline_nonrecipe_exclude_count": baseline_nonrecipe_exclude_count,
+        "risk_flags": risk_flags,
+        "summary": summary,
+        "evidence": _semantic_profile_evidence_lines(
+            front_matter_examples=front_matter_examples,
+            navigation_examples=navigation_examples,
+            knowledge_examples=knowledge_examples,
+            recipe_structure_examples=recipe_structure_examples,
+            outside_recipe_only=outside_recipe_only,
+            owned_row_count=owned_row_count,
+        ),
+    }
+
+
+def _build_semantic_containment_rows(
+    *,
+    shard: ShardManifestEntryV1,
+    deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
+) -> list[dict[str, Any]]:
+    containment_rows: list[dict[str, Any]] = []
+    for atomic_index, _text in _coerce_shard_input_rows(shard):
+        baseline_prediction = deterministic_baseline_by_atomic_index.get(int(atomic_index))
+        if (
+            baseline_prediction is not None
+            and str(baseline_prediction.label or "").strip().upper() == "NONRECIPE_EXCLUDE"
+            and baseline_prediction.exclusion_reason is not None
+        ):
+            containment_rows.append(
+                {
+                    "atomic_index": int(atomic_index),
+                    "label": "NONRECIPE_EXCLUDE",
+                    "exclusion_reason": baseline_prediction.exclusion_reason,
+                }
+            )
+            continue
+        containment_rows.append(
+            {
+                "atomic_index": int(atomic_index),
+                "label": "NONRECIPE_CANDIDATE",
+            }
+        )
+    return containment_rows
+
 
 def _validate_line_role_shard_proposal(
     shard: ShardManifestEntryV1,
@@ -117,13 +370,140 @@ def _validate_line_role_shard_proposal(
 def _validate_line_role_payload_semantics(
     *,
     payload: Mapping[str, Any],
+    shard: ShardManifestEntryV1,
     deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
 ) -> tuple[tuple[str, ...], dict[str, Any]]:
-    del payload, deterministic_baseline_by_atomic_index
-    return (), {
-        "guard_applied": False,
-        "reason": "runtime_baseline_semantic_guard_disabled",
+    profile = _build_line_role_semantic_profile(
+        shard=shard,
+        deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
+    )
+    rows_payload = payload.get("rows")
+    if not isinstance(rows_payload, list):
+        return (), {
+            "guard_applied": False,
+            "reason": "rows_missing_or_not_a_list",
+            "semantic_profile": profile,
+        }
+    owned_row_count = int(profile.get("owned_row_count") or 0)
+    if owned_row_count < 4:
+        return (), {
+            "guard_applied": False,
+            "reason": "too_few_rows_for_guard",
+            "semantic_profile": profile,
+        }
+    label_counts: dict[str, int] = {}
+    recipe_local_count = 0
+    recipe_title_count = 0
+    howto_count = 0
+    structural_recipe_count = 0
+    for row in rows_payload:
+        if not isinstance(row, Mapping):
+            continue
+        label = str(row.get("label") or "").strip().upper()
+        if not label:
+            continue
+        label_counts[label] = label_counts.get(label, 0) + 1
+        if label in _RECIPE_LOCAL_LABELS:
+            recipe_local_count += 1
+        if label == "RECIPE_TITLE":
+            recipe_title_count += 1
+        if label == "HOWTO_SECTION":
+            howto_count += 1
+        if label in {"INGREDIENT_LINE", "INSTRUCTION_LINE", "YIELD_LINE", "TIME_LINE"}:
+            structural_recipe_count += 1
+    diagnostics: list[str] = []
+    risk_flags = set(str(value) for value in profile.get("risk_flags") or [])
+    if (
+        profile.get("outside_recipe_only")
+        and "front_matter_cluster" in risk_flags
+        and recipe_local_count >= max(4, owned_row_count // 3)
+    ):
+        diagnostics.append(
+            "outside-recipe front matter shard produced too many recipe-local labels"
+        )
+    if (
+        profile.get("outside_recipe_only")
+        and "contents_heading_cluster" in risk_flags
+        and howto_count >= max(4, owned_row_count // 4)
+    ):
+        diagnostics.append(
+            "contents or taxonomy headings were turned into recipe-internal HOWTO_SECTION rows"
+        )
+    if (
+        profile.get("outside_recipe_only")
+        and "contents_heading_cluster" in risk_flags
+        and recipe_title_count >= max(3, owned_row_count // 5)
+    ):
+        diagnostics.append(
+            "contents or navigation title lists were turned into recipe titles"
+        )
+    if (
+        profile.get("outside_recipe_only")
+        and "no_recipe_structure_support" in risk_flags
+        and structural_recipe_count == 0
+        and recipe_local_count >= max(8, owned_row_count // 2)
+    ):
+        diagnostics.append(
+            "the response invented recipe-local structure without ingredient, yield, or instruction support"
+        )
+    if not diagnostics:
+        return (), {
+            "guard_applied": True,
+            "semantic_profile": profile,
+            "semantic_response_label_counts": label_counts,
+        }
+    containment_rows = _build_semantic_containment_rows(
+        shard=shard,
+        deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
+    )
+    return ("semantic_pathology_rejected",), {
+        "guard_applied": True,
+        "semantic_rejected": True,
+        "semantic_diagnostics": diagnostics,
+        "semantic_profile": profile,
+        "semantic_response_label_counts": label_counts,
+        "semantic_containment_rows": containment_rows,
+        "accepted_rows": [],
+        "accepted_atomic_indices": [],
+        "unresolved_atomic_indices": [int(value) for value in shard.owned_ids if str(value).strip()],
+        "validated_row_count": 0,
     }
+
+
+def _apply_line_role_semantic_guard(
+    *,
+    shard: ShardManifestEntryV1,
+    validation_errors: Sequence[str],
+    validation_metadata: Mapping[str, Any] | None,
+    proposal_status: str,
+    payload: Mapping[str, Any] | None,
+    deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
+) -> tuple[tuple[str, ...], dict[str, Any], str]:
+    merged_metadata = dict(validation_metadata or {})
+    if proposal_status != "validated" or not isinstance(payload, Mapping):
+        if deterministic_baseline_by_atomic_index:
+            merged_metadata.setdefault(
+                "semantic_profile",
+                _build_line_role_semantic_profile(
+                    shard=shard,
+                    deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
+                ),
+            )
+        return tuple(validation_errors), merged_metadata, proposal_status
+    semantic_errors, semantic_metadata = _validate_line_role_payload_semantics(
+        payload=payload,
+        shard=shard,
+        deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
+    )
+    merged_metadata.update(dict(semantic_metadata or {}))
+    if not semantic_errors:
+        return tuple(validation_errors), merged_metadata, proposal_status
+    merged_errors = tuple(
+        dict.fromkeys(
+            [*(str(error).strip() for error in validation_errors if str(error).strip()), *semantic_errors]
+        )
+    )
+    return merged_errors, merged_metadata, "invalid"
 
 
 def _evaluate_line_role_response_with_pathology_guard(
@@ -136,12 +516,22 @@ def _evaluate_line_role_response_with_pathology_guard(
     ],
     deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
 ) -> tuple[dict[str, Any] | None, tuple[str, ...], dict[str, Any], str]:
-    del deterministic_baseline_by_atomic_index
-    return _evaluate_line_role_response(
+    payload, validation_errors, validation_metadata, proposal_status = _evaluate_line_role_response(
         shard=shard,
         response_text=response_text,
         validator=validator,
     )
+    final_validation_errors, final_validation_metadata, final_proposal_status = (
+        _apply_line_role_semantic_guard(
+            shard=shard,
+            validation_errors=validation_errors,
+            validation_metadata=validation_metadata,
+            proposal_status=proposal_status,
+            payload=payload,
+            deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
+        )
+    )
+    return payload, final_validation_errors, final_validation_metadata, final_proposal_status
 
 
 def _evaluate_line_role_workspace_response_with_pathology_guard(
@@ -153,8 +543,7 @@ def _evaluate_line_role_workspace_response_with_pathology_guard(
     | Sequence[Mapping[str, Any]]
     | None = None,
 ) -> tuple[dict[str, Any] | None, tuple[str, ...], dict[str, Any], str]:
-    del deterministic_baseline_by_atomic_index
-    return _evaluate_line_role_response(
+    payload, validation_errors, validation_metadata, proposal_status = _evaluate_line_role_response(
         shard=shard,
         response_text=response_text,
         validator=lambda proposal_shard, proposal_payload: _validate_line_role_shard_proposal(
@@ -163,6 +552,17 @@ def _evaluate_line_role_workspace_response_with_pathology_guard(
             frozen_rows_by_atomic_index=frozen_rows_by_atomic_index,
         ),
     )
+    final_validation_errors, final_validation_metadata, final_proposal_status = (
+        _apply_line_role_semantic_guard(
+            shard=shard,
+            validation_errors=validation_errors,
+            validation_metadata=validation_metadata,
+            proposal_status=proposal_status,
+            payload=payload,
+            deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
+        )
+    )
+    return payload, final_validation_errors, final_validation_metadata, final_proposal_status
 
 def _build_line_role_row_resolution(
     *,
@@ -170,6 +570,38 @@ def _build_line_role_row_resolution(
     validation_metadata: Mapping[str, Any] | None,
  ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     ordered_atomic_indices = [int(value) for value in shard.owned_ids]
+    containment_rows = [
+        dict(row)
+        for row in (validation_metadata or {}).get("semantic_containment_rows", [])
+        if isinstance(row, Mapping)
+    ]
+    if bool((validation_metadata or {}).get("semantic_rejected")) and containment_rows:
+        contained_by_atomic_index = {
+            int(row["atomic_index"]): dict(row)
+            for row in containment_rows
+            if row.get("atomic_index") is not None and str(row.get("atomic_index")).strip()
+        }
+        final_rows = [
+            contained_by_atomic_index[atomic_index]
+            for atomic_index in ordered_atomic_indices
+            if atomic_index in contained_by_atomic_index
+        ]
+        unresolved_atomic_indices = [
+            atomic_index
+            for atomic_index in ordered_atomic_indices
+            if atomic_index not in contained_by_atomic_index
+        ]
+        resolution_metadata = {
+            "accepted_atomic_indices": [],
+            "unresolved_atomic_indices": unresolved_atomic_indices,
+            "accepted_row_count": 0,
+            "semantic_containment_row_count": len(final_rows),
+            "unresolved_row_count": len(unresolved_atomic_indices),
+            "semantic_rejected": True,
+            "semantic_containment_applied": True,
+            "all_rows_resolved": not unresolved_atomic_indices,
+        }
+        return ({"rows": final_rows} if not unresolved_atomic_indices else None, resolution_metadata)
     accepted_rows = []
     if not bool((validation_metadata or {}).get("semantic_rejected")):
         accepted_rows = [
@@ -201,8 +633,10 @@ def _build_line_role_row_resolution(
         "accepted_atomic_indices": accepted_atomic_indices,
         "unresolved_atomic_indices": unresolved_atomic_indices,
         "accepted_row_count": len(accepted_atomic_indices),
+        "semantic_containment_row_count": 0,
         "unresolved_row_count": len(unresolved_atomic_indices),
         "semantic_rejected": bool((validation_metadata or {}).get("semantic_rejected")),
+        "semantic_containment_applied": False,
         "all_rows_resolved": all_rows_resolved,
     }
     return (
@@ -225,6 +659,7 @@ def _build_line_role_shard_status_row(
     repair_status: str,
     resumed_from_existing_output: bool,
     fresh_session_recovery_metadata: Mapping[str, Any] | None = None,
+    transport: str | None = None,
 ) -> dict[str, Any]:
     semantic_diagnostics = [
         str(value).strip()
@@ -252,6 +687,7 @@ def _build_line_role_shard_status_row(
         "suspicious_shard": bool(semantic_diagnostics),
         "semantic_diagnostics": semantic_diagnostics,
         "resumed_from_existing_output": bool(resumed_from_existing_output),
+        "transport": str(transport or "").strip() or None,
         "validation_errors": [
             str(error).strip() for error in validation_errors if str(error).strip()
         ],

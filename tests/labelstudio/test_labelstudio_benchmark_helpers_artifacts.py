@@ -1062,6 +1062,205 @@ def test_build_codex_farm_prompt_response_log_backfills_direct_runtime_telemetry
     assert row["request_telemetry"]["tokens_total"] == 859
     assert row["request_telemetry"]["worker_id"] == "worker-001"
 
+
+def test_build_codex_farm_prompt_response_log_skips_reconstructed_rows_without_runtime_call_evidence(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    run_dir = pred_run / "raw" / "llm" / "book"
+    recipe_phase_runtime_dir = run_dir / "recipe_phase_runtime"
+    correction_in = recipe_phase_runtime_dir / "inputs"
+    correction_out = recipe_phase_runtime_dir / "proposals"
+    worker_001_in = recipe_phase_runtime_dir / "workers" / "worker-001" / "in"
+    worker_002_in = recipe_phase_runtime_dir / "workers" / "worker-002" / "in"
+    worker_002_root = recipe_phase_runtime_dir / "workers" / "worker-002"
+    worker_001_shard_root = (
+        recipe_phase_runtime_dir
+        / "workers"
+        / "worker-001"
+        / "shards"
+        / "recipe-shard-0000"
+    )
+    worker_002_shard_root = (
+        recipe_phase_runtime_dir
+        / "workers"
+        / "worker-002"
+        / "shards"
+        / "recipe-shard-0001"
+    )
+    for folder in (
+        correction_in,
+        correction_out,
+        worker_001_in,
+        worker_002_in,
+        worker_001_shard_root,
+        worker_002_shard_root,
+    ):
+        folder.mkdir(parents=True, exist_ok=True)
+
+    (correction_in / "recipe-shard-0000.json").write_text(
+        json.dumps({"recipe_id": "recipe:c0", "evidence_rows": [[0, "Dish 0"]]}),
+        encoding="utf-8",
+    )
+    (correction_out / "recipe-shard-0000.json").write_text(
+        json.dumps({"recipe_id": "recipe:c0", "canonical_recipe": {"title": "Dish 0"}}),
+        encoding="utf-8",
+    )
+    (correction_in / "recipe-shard-0001.json").write_text(
+        json.dumps({"recipe_id": "recipe:c1", "evidence_rows": [[0, "Dish 1"]]}),
+        encoding="utf-8",
+    )
+    (correction_out / "recipe-shard-0001.json").write_text(
+        json.dumps({"recipe_id": "recipe:c1", "canonical_recipe": {"title": "Dish 1"}}),
+        encoding="utf-8",
+    )
+
+    (worker_001_shard_root / "status.json").write_text(
+        json.dumps({"finalization_path": "proposals/recipe-shard-0000.json"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (worker_002_shard_root / "status.json").write_text(
+        json.dumps({"finalization_path": "proposals/recipe-shard-0001.json"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (worker_002_root / "task.json").write_text(
+        json.dumps({"stage_key": "recipe_refine"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (worker_002_root / "prompt.txt").write_text(
+        "Observed runtime prompt body\n",
+        encoding="utf-8",
+    )
+    (worker_002_root / "usage.json").write_text(
+        json.dumps({"tokens_total": 111}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (worker_002_root / "events.jsonl").write_text(
+        json.dumps({"type": "thread.started"}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (worker_002_shard_root / "prompt.txt").write_text(
+        "Observed shard prompt body\n",
+        encoding="utf-8",
+    )
+
+    (recipe_phase_runtime_dir / "phase_manifest.json").write_text(
+        json.dumps({"pipeline_id": "recipe.correction.compact.v1"}, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    (recipe_phase_runtime_dir / "worker_assignments.json").write_text(
+        json.dumps(
+            [
+                {"worker_id": "worker-001", "shard_ids": ["recipe-shard-0000"]},
+                {"worker_id": "worker-002", "shard_ids": ["recipe-shard-0001"]},
+            ],
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (recipe_phase_runtime_dir / "shard_manifest.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "shard_id": "recipe-shard-0000",
+                        "owned_ids": ["recipe:c0"],
+                        "metadata": {},
+                    },
+                    sort_keys=True,
+                ),
+                json.dumps(
+                    {
+                        "shard_id": "recipe-shard-0001",
+                        "owned_ids": ["recipe:c1"],
+                        "metadata": {},
+                    },
+                    sort_keys=True,
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (recipe_phase_runtime_dir / "telemetry.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "task_id": "recipe-shard-0001",
+                        "worker_id": "worker-002",
+                        "status": "ok",
+                        "duration_ms": 321,
+                        "tokens_input": 90,
+                        "tokens_cached_input": 9,
+                        "tokens_output": 12,
+                        "tokens_reasoning": 0,
+                        "tokens_total": 111,
+                        "prompt_text": "Observed runtime prompt body",
+                        "finished_at_utc": "2026-03-19T12:35:56Z",
+                    }
+                ]
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    (run_dir / "recipe_manifest.json").write_text(
+        json.dumps(
+            {
+                "enabled": True,
+                "pipeline": "codex-recipe-shard-v1",
+                "process_runs": {
+                    "recipe_correction": {
+                        "run_id": "run-recipe-correction",
+                        "pipeline_id": "recipe.correction.compact.v1",
+                    }
+                },
+                "paths": {
+                    "recipe_phase_runtime_dir": str(recipe_phase_runtime_dir),
+                    "recipe_phase_input_dir": str(correction_in),
+                    "recipe_phase_proposals_dir": str(correction_out),
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    eval_output_dir = tmp_path / "eval"
+    log_path = prompt_artifacts.build_codex_farm_prompt_response_log(
+        pred_run=pred_run,
+        eval_output_dir=eval_output_dir,
+        repo_root=tmp_path,
+    )
+
+    assert log_path == eval_output_dir / "prompts" / "prompt_request_response_log.txt"
+    full_prompt_rows = [
+        json.loads(line)
+        for line in (eval_output_dir / "prompts" / "full_prompt_log.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    assert len(full_prompt_rows) == 1
+    assert full_prompt_rows[0]["runtime_shard_id"] == "recipe-shard-0001"
+    assert full_prompt_rows[0]["request_payload_source"] == "runtime_telemetry"
+
+    summary = json.loads(
+        (eval_output_dir / "prompts" / "prompt_log_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert summary["full_prompt_log_rows"] == 1
+    assert summary["runtime_shard_count"] == 1
+    assert summary["by_stage"]["recipe_refine"]["row_count"] == 1
+    assert summary["by_stage"]["recipe_refine"]["runtime_shard_count"] == 1
+
+
 def test_build_codex_farm_prompt_response_log_handles_missing_pass_dirs(
     tmp_path: Path,
 ) -> None:

@@ -2274,6 +2274,7 @@ def generate_pred_run_artifacts(
         run_kind=run_manifest_kind,
         created_at=run_dt.isoformat(timespec="seconds"),
         run_config=run_config,
+        artifact_scan_root=processed_run_root,
     )
     stage_observability_path = write_stage_observability_report(
         run_root=run_root,

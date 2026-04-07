@@ -876,11 +876,17 @@ def test_validate_line_role_payload_semantics_reports_uniform_diagnostic_against
                 {"atomic_index": 3, "label": "INGREDIENT_LINE"},
             ]
         },
+        shard=ShardManifestEntryV1(
+            shard_id="semantic-guard-fixture",
+            owned_ids=("0", "1", "2", "3"),
+            input_payload={"rows": [[0, "A"], [1, "B"], [2, "C"], [3, "D"]]},
+        ),
         deterministic_baseline_by_atomic_index=baseline,
     )
 
-    assert semantic_metadata["guard_applied"] is False
-    assert semantic_metadata["reason"] == "runtime_baseline_semantic_guard_disabled"
+    assert semantic_metadata["guard_applied"] is True
+    assert semantic_metadata["semantic_profile"]["outside_recipe_only"] is False
+    assert semantic_metadata["semantic_response_label_counts"] == {"INGREDIENT_LINE": 4}
     assert semantic_errors == ()
 
 

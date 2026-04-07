@@ -148,6 +148,8 @@ def build_prediction_run_prompt_budget_summary(
                 stage_summary = _build_codex_farm_stage_summary(
                     stage_name=canonical_name,
                     stage_payload=stage_payload,
+                    pred_manifest=pred_manifest,
+                    pred_run_dir=pred_run_dir,
                 )
                 if stage_summary is not None:
                     by_stage[canonical_name] = stage_summary
@@ -155,6 +157,8 @@ def build_prediction_run_prompt_budget_summary(
             recipe_summary = _build_codex_farm_stage_summary(
                 stage_name="recipe_refine",
                 stage_payload=llm_payload,
+                pred_manifest=pred_manifest,
+                pred_run_dir=pred_run_dir,
             )
             if recipe_summary is not None:
                 by_stage["recipe_refine"] = recipe_summary
@@ -163,6 +167,8 @@ def build_prediction_run_prompt_budget_summary(
             knowledge_summary = _build_codex_farm_stage_summary(
                 stage_name="nonrecipe_finalize",
                 stage_payload=knowledge_payload,
+                pred_manifest=pred_manifest,
+                pred_run_dir=pred_run_dir,
             )
             if knowledge_summary is not None:
                 authority_mode = str(knowledge_payload.get("authority_mode") or "").strip()
@@ -333,6 +339,8 @@ def _build_codex_farm_stage_summary(
     *,
     stage_name: str,
     stage_payload: Mapping[str, Any],
+    pred_manifest: Mapping[str, Any],
+    pred_run_dir: Path,
 ) -> dict[str, Any] | None:
     telemetry_rows = _extract_telemetry_rows(stage_payload=stage_payload)
     has_explicit_telemetry_rows = _has_explicit_telemetry_rows_surface(stage_payload)
@@ -387,16 +395,30 @@ def _build_codex_farm_stage_summary(
         for key in _BREAKDOWN_KEYS:
             if breakdown_totals.get(key) is None:
                 breakdown_totals[key] = _nonnegative_int(summary_payload.get(key))
-    token_usage_available_call_count = sum(
-        1 for summary in atomic_summaries if _summary_has_any_token_usage(summary)
-    )
-    token_usage_missing_call_count = sum(
-        1 for summary in atomic_summaries if _summary_looks_like_missing_token_usage(summary)
-    )
+    token_usage_available_call_count: int | None = None
+    token_usage_missing_call_count: int | None = None
     token_usage_status: str | None = None
-    if atomic_summaries and (
+    if isinstance(telemetry_rows, list) and not use_atomic_summary_fallback:
+        token_usage_available_call_count = _nonnegative_int(
+            pathology_summary.get("token_usage_available_call_count")
+        )
+        token_usage_missing_call_count = _nonnegative_int(
+            pathology_summary.get("token_usage_missing_call_count")
+        )
+        token_usage_status = pathology_summary.get("token_usage_status")
+        if not isinstance(token_usage_status, str) or not token_usage_status.strip():
+            token_usage_status = None
+    elif atomic_summaries and (
         not has_explicit_telemetry_rows or use_atomic_summary_fallback
     ):
+        token_usage_available_call_count = sum(
+            1 for summary in atomic_summaries if _summary_has_any_token_usage(summary)
+        )
+        token_usage_missing_call_count = sum(
+            1
+            for summary in atomic_summaries
+            if _summary_looks_like_missing_token_usage(summary)
+        )
         if token_usage_missing_call_count > 0:
             token_usage_status = (
                 "partial" if token_usage_available_call_count > 0 else "unavailable"
@@ -535,8 +557,11 @@ def _build_codex_farm_stage_summary(
             stage_payload=stage_payload,
         )
     _attach_phase_plan_artifacts(
+        stage_name=stage_name,
         stage_summary=stage_summary,
         stage_payload=stage_payload,
+        pred_manifest=pred_manifest,
+        pred_run_dir=pred_run_dir,
     )
     _attach_shared_payload_economics(stage_summary)
     return stage_summary
@@ -599,6 +624,8 @@ def _candidate_stage_root_paths(stage_payload: Mapping[str, Any]) -> list[Path]:
             candidate_paths.append(candidate)
 
     for key in (
+        "phase_plan_path",
+        "phase_plan_summary_path",
         "stage_status_path",
         "phase_manifest_path",
         "shard_manifest_path",
@@ -608,13 +635,25 @@ def _candidate_stage_root_paths(stage_payload: Mapping[str, Any]) -> list[Path]:
         "telemetry_path",
         "failures_path",
         "proposals_dir",
+        "run_root",
+        "knowledge_phase_dir",
+        "llmRawDir",
     ):
         _append_path(stage_payload.get(key))
-    for nested_key in ("process_run", "phase_worker_runtime", "phase_runtime", "runtime_artifacts"):
+    for nested_key in (
+        "paths",
+        "process_run",
+        "phase_worker_runtime",
+        "phase_runtime",
+        "runtime_artifacts",
+        "phase_manifest",
+    ):
         nested = stage_payload.get(nested_key)
         if not isinstance(nested, Mapping):
             continue
         for key in (
+            "phase_plan_path",
+            "phase_plan_summary_path",
             "stage_status_path",
             "phase_manifest_path",
             "shard_manifest_path",
@@ -624,19 +663,85 @@ def _candidate_stage_root_paths(stage_payload: Mapping[str, Any]) -> list[Path]:
             "telemetry_path",
             "failures_path",
             "proposals_dir",
+            "run_root",
+            "knowledge_phase_dir",
+            "llmRawDir",
         ):
             _append_path(nested.get(key))
     return candidate_paths
+
+
+def _manifest_aware_phase_plan_root_paths(
+    *,
+    stage_name: str,
+    stage_payload: Mapping[str, Any],
+    pred_manifest: Mapping[str, Any],
+    pred_run_dir: Path,
+) -> list[Path]:
+    def _append_if_missing(path: Path | None) -> None:
+        if path is None:
+            return
+        if path not in candidate_paths:
+            candidate_paths.append(path)
+
+    candidate_paths: list[Path] = []
+
+    stage_run_root = str(pred_manifest.get("stage_run_root") or "").strip()
+    processed_run_root = str(pred_manifest.get("processed_run_root") or "").strip()
+    if stage_name == "line_role":
+        if stage_run_root:
+            _append_if_missing(Path(stage_run_root) / "line-role-pipeline" / "runtime" / "line_role")
+        if processed_run_root:
+            _append_if_missing(
+                Path(processed_run_root) / "line-role-pipeline" / "runtime" / "line_role"
+            )
+        _append_if_missing(pred_run_dir / "line-role-pipeline" / "runtime" / "line_role")
+
+    for candidate in _candidate_stage_root_paths(stage_payload):
+        _append_if_missing(candidate)
+
+    llm_payload = (
+        pred_manifest.get("llm_codex_farm")
+        if isinstance(pred_manifest.get("llm_codex_farm"), Mapping)
+        else None
+    )
+    if isinstance(llm_payload, Mapping):
+        for candidate in _candidate_stage_root_paths(llm_payload):
+            _append_if_missing(candidate)
+        llm_raw_dir = str(llm_payload.get("llmRawDir") or "").strip()
+        if llm_raw_dir:
+            llm_raw_root = Path(llm_raw_dir)
+            if stage_name == "recipe_refine":
+                _append_if_missing(llm_raw_root / "recipe_phase_runtime")
+            elif stage_name == "nonrecipe_finalize":
+                _append_if_missing(llm_raw_root / "nonrecipe_finalize")
+        if stage_name == "nonrecipe_finalize":
+            knowledge_payload = llm_payload.get("knowledge")
+            if isinstance(knowledge_payload, Mapping):
+                for candidate in _candidate_stage_root_paths(knowledge_payload):
+                    _append_if_missing(candidate)
+
+    return candidate_paths
 def _attach_phase_plan_artifacts(
     *,
+    stage_name: str,
     stage_summary: dict[str, Any],
     stage_payload: Mapping[str, Any],
+    pred_manifest: Mapping[str, Any],
+    pred_run_dir: Path,
 ) -> None:
     stage_root = next(
         (
             candidate
-            for candidate in _candidate_stage_root_paths(stage_payload)
-            if candidate.exists() and candidate.is_dir()
+            for candidate in _manifest_aware_phase_plan_root_paths(
+                stage_name=stage_name,
+                stage_payload=stage_payload,
+                pred_manifest=pred_manifest,
+                pred_run_dir=pred_run_dir,
+            )
+            if candidate.exists()
+            and candidate.is_dir()
+            and (candidate / PHASE_PLAN_JSON_NAME).is_file()
         ),
         None,
     )
@@ -1250,6 +1355,13 @@ def _build_line_role_stage_summary(
                     )
             if isinstance(task_file_guardrails, Mapping):
                 stage_summary["task_file_guardrails"] = dict(task_file_guardrails)
+        _attach_phase_plan_artifacts(
+            stage_name="line_role",
+            stage_summary=stage_summary,
+            stage_payload=pred_manifest,
+            pred_manifest=pred_manifest,
+            pred_run_dir=pred_run_dir,
+        )
         _attach_shared_payload_economics(stage_summary)
         return stage_summary
     return None

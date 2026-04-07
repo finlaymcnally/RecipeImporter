@@ -291,7 +291,8 @@ def test_build_conversion_result_from_label_spans_records_rejected_title_only_sp
     assert any(
         row.span_id == "recipe_span_0"
         and row.decision == "rejected_pseudo_recipe_span"
-        and row.rejection_reason == "rejected_missing_recipe_body"
+        and row.rejection_reason
+        == "rejected_missing_ingredient_and_instruction_evidence"
         for row in updated.span_decisions
     )
     assert [row["index"] for row in updated.outside_recipe_blocks] == [0]
@@ -386,7 +387,7 @@ def test_build_conversion_result_from_label_spans_keeps_explicit_invariant_warni
     )
 
 
-def test_build_conversion_result_from_label_spans_keeps_title_plus_yield_stub() -> None:
+def test_build_conversion_result_from_label_spans_routes_title_plus_yield_stub_to_nonrecipe() -> None:
     archive_blocks = [
         {
             "index": 0,
@@ -439,20 +440,10 @@ def test_build_conversion_result_from_label_spans_keeps_title_plus_yield_stub() 
             decided_by="rule",
         ),
     ]
-    recipe_spans = [
-        RecipeSpan(
-            span_id="recipe_span_0",
-            start_block_index=0,
-            end_block_index=1,
-            block_indices=[0, 1],
-            source_block_ids=["block:0", "block:1"],
-            start_atomic_index=0,
-            end_atomic_index=1,
-            atomic_indices=[0, 1],
-            title_block_index=0,
-            title_atomic_index=0,
-        )
-    ]
+    recipe_spans, span_decisions, normalized_blocks = recipe_boundary_from_labels(
+        block_labels,
+        labeled_lines,
+    )
     original_result = _make_empty_label_first_original_result()
 
     updated = build_conversion_result_from_label_spans(
@@ -462,30 +453,24 @@ def test_build_conversion_result_from_label_spans_keeps_title_plus_yield_stub() 
         original_result=original_result,
         archive_blocks=archive_blocks,
         labeled_lines=labeled_lines,
-        block_labels=block_labels,
+        block_labels=normalized_blocks,
         recipe_spans=recipe_spans,
-        span_decisions=[
-            RecipeSpanDecision(
-                span_id="recipe_span_0",
-                decision="accepted_recipe_span",
-                start_block_index=0,
-                end_block_index=1,
-                block_indices=[0, 1],
-                source_block_ids=["block:0", "block:1"],
-                start_atomic_index=0,
-                end_atomic_index=1,
-                atomic_indices=[0, 1],
-                title_block_index=0,
-                title_atomic_index=0,
-            )
-        ],
+        span_decisions=span_decisions,
     )
 
     result = updated.updated_conversion_result
-    assert [recipe.name for recipe in result.recipes] == ["Tomato Vinaigrette"]
-    assert result.recipes[0].recipe_yield == "Makes about 1 cup"
-    assert updated.recipe_spans[0].span_id == "recipe_span_0"
-    assert updated.span_decisions[0].decision == "accepted_recipe_span"
+    assert result.recipes == []
+    assert updated.recipe_spans == []
+    assert updated.span_decisions[0].decision == "rejected_pseudo_recipe_span"
+    assert (
+        updated.span_decisions[0].rejection_reason
+        == "rejected_missing_ingredient_and_instruction_evidence"
+    )
+    assert [row["index"] for row in updated.outside_recipe_blocks] == [0, 1]
+    assert [row.final_label for row in updated.block_labels] == [
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
+    ]
 
 
 def test_atomize_archive_blocks_ignores_old_recipe_provenance_before_grouping() -> None:

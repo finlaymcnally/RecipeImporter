@@ -61,6 +61,7 @@ from .contracts import (
     CANONICAL_LINE_ROLE_ALLOWED_LABELS,
     CanonicalLineRolePrediction,
     RECIPE_LOCAL_LINE_ROLE_LABELS,
+    _normalize_exclusion_reason,
 )
 from .prompt_inputs import (
     serialize_line_role_debug_context_row,
@@ -916,6 +917,18 @@ def _codex_prediction_policy_rejection_reason(
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> str | None:
     label = str(prediction.label or "NONRECIPE_CANDIDATE")
+    if label == "NONRECIPE_EXCLUDE":
+        deterministic_exclusion_reason = _outside_recipe_exclusion_reason(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        )
+        prediction_exclusion_reason = _normalize_exclusion_reason(
+            prediction.exclusion_reason,
+        )
+        if deterministic_exclusion_reason is None:
+            return "nonrecipe_exclude_without_deterministic_support"
+        if prediction_exclusion_reason != deterministic_exclusion_reason:
+            return "nonrecipe_exclude_reason_mismatch"
     if (
         label == "KNOWLEDGE"
         and _is_within_recipe_span(candidate)

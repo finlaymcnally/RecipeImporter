@@ -20,13 +20,15 @@ _RECIPE_LOCAL_LABELS = {
     "RECIPE_VARIANT",
 }
 _TITLE_LIKE_LABELS = {"RECIPE_TITLE", "RECIPE_VARIANT"}
-_ACCEPTANCE_RECIPE_BODY_LABELS = {
+_RECIPE_STRUCTURE_LABELS = {
     "INGREDIENT_LINE",
     "INSTRUCTION_LINE",
     "HOWTO_SECTION",
     "YIELD_LINE",
     "TIME_LINE",
 }
+_INGREDIENT_EVIDENCE_LABELS = {"INGREDIENT_LINE"}
+_INSTRUCTION_EVIDENCE_LABELS = {"INSTRUCTION_LINE"}
 _BRIDGEABLE_RECIPE_STRUCTURE_LABELS = _RECIPE_LOCAL_LABELS - _TITLE_LIKE_LABELS
 _NONRECIPE_GAP_LABELS = {"NONRECIPE_CANDIDATE"}
 
@@ -132,18 +134,19 @@ def _build_span_decision(
         escalation_reasons.append(warning)
         decision_notes.append(warning)
     has_title_anchor = _has_title_anchor(block_rows)
-    has_acceptance_recipe_body = _has_acceptance_recipe_body(block_rows)
+    missing_core_fields = _missing_required_recipe_fields(block_rows)
     rejection_reason: str | None = None
     if not has_title_anchor:
         warnings.append("recipe_span_missing_title_label")
         escalation_reasons.append("missing_required_recipe_fields")
         decision_notes.append("span_missing_title_block")
         rejection_reason = "rejected_missing_title_anchor"
-    elif not has_acceptance_recipe_body:
-        warnings.append("recipe_span_missing_recipe_body")
+    elif missing_core_fields:
         escalation_reasons.append("missing_required_recipe_fields")
-        decision_notes.append("span_missing_recipe_body")
-        rejection_reason = "rejected_missing_recipe_body"
+        for field_name in missing_core_fields:
+            warnings.append(f"recipe_span_missing_{field_name}_label")
+            decision_notes.append(f"span_missing_{field_name}_block")
+        rejection_reason = _rejection_reason_for_missing_core_fields(missing_core_fields)
 
     if title_block_index is not None:
         title_row = next(
@@ -208,7 +211,7 @@ def _should_bridge_nonrecipe_gap(
     if next_position >= len(ordered_blocks):
         return False
     next_label = str(ordered_blocks[next_position].final_label or "NONRECIPE_CANDIDATE")
-    return next_label in _ACCEPTANCE_RECIPE_BODY_LABELS
+    return next_label in _RECIPE_STRUCTURE_LABELS
 
 
 def _has_title_anchor(block_rows: Sequence[AuthoritativeBlockLabel]) -> bool:
@@ -218,13 +221,42 @@ def _has_title_anchor(block_rows: Sequence[AuthoritativeBlockLabel]) -> bool:
     )
 
 
-def _has_acceptance_recipe_body(
+def _missing_required_recipe_fields(
+    block_rows: Sequence[AuthoritativeBlockLabel],
+) -> list[str]:
+    missing: list[str] = []
+    if not _has_ingredient_evidence(block_rows):
+        missing.append("ingredient")
+    if not _has_instruction_evidence(block_rows):
+        missing.append("instruction")
+    return missing
+
+
+def _has_ingredient_evidence(
     block_rows: Sequence[AuthoritativeBlockLabel],
 ) -> bool:
     return any(
-        str(row.final_label or "NONRECIPE_CANDIDATE") in _ACCEPTANCE_RECIPE_BODY_LABELS
+        str(row.final_label or "NONRECIPE_CANDIDATE") in _INGREDIENT_EVIDENCE_LABELS
         for row in block_rows
     )
+
+
+def _has_instruction_evidence(
+    block_rows: Sequence[AuthoritativeBlockLabel],
+) -> bool:
+    return any(
+        str(row.final_label or "NONRECIPE_CANDIDATE") in _INSTRUCTION_EVIDENCE_LABELS
+        for row in block_rows
+    )
+
+
+def _rejection_reason_for_missing_core_fields(missing_core_fields: Sequence[str]) -> str:
+    missing = tuple(missing_core_fields)
+    if missing == ("ingredient",):
+        return "rejected_missing_ingredient_evidence"
+    if missing == ("instruction",):
+        return "rejected_missing_instruction_evidence"
+    return "rejected_missing_ingredient_and_instruction_evidence"
 
 
 def _has_bridgeable_recipe_structure(
@@ -286,18 +318,14 @@ def _normalize_recipe_boundary_block_labels(
         normalized_blocks.append(
             block.model_copy(
                 update={
-                    "final_label": (
-                        "NONRECIPE_EXCLUDE"
-                        if block.exclusion_reason
-                        else "NONRECIPE_CANDIDATE"
-                    ),
+                    "final_label": "NONRECIPE_CANDIDATE",
                     "decided_by": "fallback",
                     "reason_tags": [*list(block.reason_tags), "recipe_span_rejected_to_route"],
                     "escalation_reasons": [
                         *list(block.escalation_reasons),
                         "recipe_span_rejected_to_route",
                     ],
-                    "exclusion_reason": block.exclusion_reason,
+                    "exclusion_reason": None,
                 }
             )
         )

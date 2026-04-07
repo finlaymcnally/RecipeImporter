@@ -282,7 +282,7 @@ def _build_scored_line_role_projection_spans(
     unresolved_route_by_stage_block_index: dict[int, str] = {}
     scored_spans: list[FreeformSpanPrediction] = []
     for span in spans:
-        if span.within_recipe_span or span.label not in {"KNOWLEDGE", "OTHER"}:
+        if span.within_recipe_span:
             scored_spans.append(span)
             continue
         block_index = int(span.block_index)

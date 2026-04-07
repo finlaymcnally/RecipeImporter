@@ -1249,6 +1249,71 @@ def test_line_role_artifacts_write_semantic_predictions_for_reviewed_nonrecipe_c
     assert summary["reviewed_candidate_block_indices"] == [1]
 
 
+def test_line_role_stage_payload_overrides_outside_recipe_howto_with_final_authority(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.epub"
+    source.write_text("source", encoding="utf-8")
+    fake_result = _make_projection_conversion_result(
+        source=source,
+        block_texts=["The Four Elements of Good Cooking"],
+    )
+    label_first_result = _make_label_first_result(
+        source=source,
+        raw_artifacts=fake_result.raw_artifacts,
+    )
+    label_first_result.labeled_lines = [
+        AuthoritativeLabeledLine(
+            source_block_id="block:0",
+            source_block_index=23,
+            atomic_index=0,
+            text="The Four Elements of Good Cooking",
+            deterministic_label="HOWTO_SECTION",
+            final_label="HOWTO_SECTION",
+            decided_by="codex",
+            reason_tags=["codex_line_role"],
+        )
+    ]
+    label_first_result.recipe_spans = []
+
+    nonrecipe_stage_result = make_stage_result(
+        seed=make_seed_result({23: "candidate"}),
+        routing=make_routing_result(candidate_block_indices=[23]),
+        authority=make_authority_result({23: "knowledge"}),
+        candidate_status=make_finalize_status_result(
+            reviewed_block_indices=[23],
+            unreviewed_block_category_by_index={},
+        ),
+        refinement_report={
+            "authority_mode": "knowledge_refined_final",
+            "scored_effect": "final_authority",
+            "changed_blocks": [{"block_index": 23}],
+        },
+    )
+
+    artifacts, _summary = _write_authoritative_line_role_artifacts(
+        run_root=tmp_path / "run",
+        source_file=str(source),
+        source_hash="hash",
+        workbook_slug="book",
+        label_first_result=label_first_result,
+        nonrecipe_stage_result=nonrecipe_stage_result,
+    )
+
+    route_rows = [
+        json.loads(line)
+        for line in artifacts["line_role_predictions_path"].read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert route_rows[0]["label"] == "HOWTO_SECTION"
+
+    stage_payload = json.loads(
+        artifacts["stage_block_predictions_path"].read_text(encoding="utf-8")
+    )
+    assert stage_payload["block_labels"]["0"] == "KNOWLEDGE"
+    assert stage_payload["unresolved_candidate_block_indices"] == []
+
+
 def test_authoritative_line_role_artifacts_preserve_runtime_telemetry_summary(
     tmp_path: Path,
 ) -> None:
