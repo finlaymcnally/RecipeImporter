@@ -61,6 +61,7 @@ from .contracts import (
     CANONICAL_LINE_ROLE_ALLOWED_LABELS,
     CanonicalLineRolePrediction,
     RECIPE_LOCAL_LINE_ROLE_LABELS,
+    sanitize_pre_grouping_line_role_candidates,
 )
 from .prompt_inputs import (
     serialize_line_role_debug_context_row,
@@ -169,6 +170,7 @@ def build_line_role_debug_input_payload(
     deterministic_baseline: Mapping[int, CanonicalLineRolePrediction],
     by_atomic_index: Mapping[int, AtomicLineCandidate] | None = None,
 ) -> dict[str, Any]:
+    sanitized_candidates = sanitize_pre_grouping_line_role_candidates(candidates)
     rows = [
         serialize_line_role_file_row(
             candidate=candidate,
@@ -176,7 +178,7 @@ def build_line_role_debug_input_payload(
                 int(candidate.atomic_index)
             ].escalation_reasons,
         )
-        for candidate in candidates
+        for candidate in sanitized_candidates
     ]
     payload = {
         "shard_id": shard_id,
@@ -184,7 +186,7 @@ def build_line_role_debug_input_payload(
         "rows": rows,
     }
     context_before_candidate, context_after_candidate = _build_line_role_boundary_context_candidates(
-        candidates=candidates,
+        candidates=sanitized_candidates,
         by_atomic_index=by_atomic_index,
     )
     if context_before_candidate is not None:
@@ -916,14 +918,8 @@ def _codex_prediction_policy_rejection_reason(
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> str | None:
     label = str(prediction.label or "NONRECIPE_CANDIDATE")
-    if (
-        label == "NONRECIPE_EXCLUDE"
-        and not _outside_recipe_exclude_allowed(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-    ):
-        return "nonrecipe_exclude_without_deterministic_support"
+    if label == "NONRECIPE_EXCLUDE" and _is_within_recipe_span(candidate):
+        return "nonrecipe_exclude_inside_recipe_not_allowed"
     if (
         label == "KNOWLEDGE"
         and _is_within_recipe_span(candidate)

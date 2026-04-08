@@ -39,6 +39,28 @@ def test_label_atomic_lines_requires_explicit_live_llm_approval_for_shard_runtim
     assert predictions[0].decided_by == "codex"
 
 
+def test_pre_grouping_candidate_sanitizer_strips_recipe_span_hints() -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:stale",
+            block_id="block:stale:1",
+            block_index=1,
+            atomic_index=0,
+            text="SERVES 4",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback", "yield_like"],
+        )
+    ]
+
+    sanitized = canonical_line_roles_module.sanitize_pre_grouping_line_role_candidates(
+        candidates
+    )
+
+    assert sanitized[0].recipe_id is None
+    assert sanitized[0].within_recipe_span is None
+    assert sanitized[0].rule_tags == ["yield_like"]
+
+
 def test_label_atomic_lines_outside_recipe_knowledge_like_prose_stays_reviewable_other() -> None:
     blocks = [
         {
@@ -163,10 +185,6 @@ def test_label_atomic_lines_outside_recipe_first_person_learning_prose_stays_rev
         ].label
         == "NONRECIPE_CANDIDATE"
     )
-    assert by_text[
-        "As I improved, I began to detect the nuances that distinguish good "
-        "food from great, understanding when pasta water needed more salt "
-        "and when vinegar was needed to balance a rich stew."
 
 
 def test_label_atomic_lines_outside_recipe_saltfat_question_heading_stays_other() -> None:

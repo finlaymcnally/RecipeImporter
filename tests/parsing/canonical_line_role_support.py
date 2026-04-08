@@ -128,6 +128,37 @@ def _line_role_runner(
         if (
             isinstance(payload, dict)
             and payload.get("stage_key") == "line_role"
+            and isinstance(payload.get("units"), list)
+        ):
+            edited = dict(payload)
+            edited_units = []
+            for unit_index, unit in enumerate(payload.get("units") or []):
+                if not isinstance(unit, dict):
+                    continue
+                unit_dict = dict(unit)
+                evidence = dict(unit.get("evidence") or {})
+                shard_id = str(evidence.get("shard_id") or "").strip()
+                row_id = str(evidence.get("row_id") or "").strip()
+                atomic_index: int | None = None
+                match = re.search(r"-a(\d+)-a(\d+)$", shard_id)
+                if match:
+                    atomic_index = int(match.group(1))
+                    row_match = re.fullmatch(r"r(\d+)", row_id)
+                    if row_match:
+                        atomic_index += max(0, int(row_match.group(1)) - 1)
+                label_key = atomic_index if atomic_index is not None else unit_index
+                unit_dict["answer"] = {
+                    "label": (label_by_atomic_index or {}).get(
+                        label_key,
+                        "NONRECIPE_CANDIDATE",
+                    )
+                }
+                edited_units.append(unit_dict)
+            edited["units"] = edited_units
+            return edited
+        if (
+            isinstance(payload, dict)
+            and payload.get("stage_key") == "line_role"
             and payload.get("atomic_index") is not None
         ):
             atomic_index = int(payload["atomic_index"])
@@ -170,6 +201,18 @@ def _line_role_runner(
         if not row_ids:
             prompt_text = payload if isinstance(payload, str) else json.dumps(payload, sort_keys=True)
             row_ids = re.findall(r'"row_id"\s*:\s*"([^"]+)"', prompt_text)
+        if structured_packet_rows:
+            return {
+                "labels": [
+                    (
+                        label_by_atomic_index or {}
+                    ).get(
+                        atomic_indices[index] if index < len(atomic_indices) else index,
+                        "NONRECIPE_CANDIDATE",
+                    )
+                    for index, _row in enumerate(structured_packet_rows)
+                ]
+            }
         if row_ids:
             return {
                 "rows": [

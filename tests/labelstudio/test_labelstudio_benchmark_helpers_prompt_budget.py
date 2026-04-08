@@ -219,6 +219,51 @@ def test_prompt_budget_summary_recovers_line_role_tokens_from_nested_batch_summa
     assert summary["totals"]["tokens_total"] == 36
 
 
+def test_prompt_budget_summary_surfaces_line_role_codex_policy_metadata(
+    tmp_path: Path,
+) -> None:
+    pred_run = tmp_path / "prediction-run"
+    pred_run.mkdir(parents=True, exist_ok=True)
+    telemetry_path = pred_run / "line-role-pipeline" / "telemetry_summary.json"
+    telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+    telemetry_path.write_text(
+        json.dumps(
+            {
+                "summary": {
+                    "batch_count": 2,
+                    "attempt_count": 2,
+                    "tokens_input": 50,
+                    "tokens_output": 10,
+                    "tokens_total": 60,
+                    "taskfile_session_count": 0,
+                    "structured_followup_call_count": 1,
+                    "structured_followup_tokens_total": 9,
+                    "codex_transport": "inline-json-v1",
+                    "codex_transport_counts": {"inline-json-v1": 2},
+                    "codex_policy_mode": "shell_disabled",
+                    "codex_policy_mode_counts": {"shell_disabled": 2},
+                    "codex_shell_tool_enabled": False,
+                    "codex_shell_tool_enabled_counts": {"false": 2},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = build_prediction_run_prompt_budget_summary(
+        {"line_role_pipeline_telemetry_path": str(telemetry_path)},
+        pred_run,
+    )
+
+    line_role_stage = summary["by_stage"]["line_role"]
+    assert line_role_stage["codex_transport"] == "inline-json-v1"
+    assert line_role_stage["codex_policy_mode"] == "shell_disabled"
+    assert line_role_stage["codex_shell_tool_enabled"] is False
+    assert line_role_stage["taskfile_session_count"] == 0
+    assert line_role_stage["structured_followup_call_count"] == 1
+    assert line_role_stage["structured_followup_tokens_total"] == 9
+
+
 def test_prompt_budget_summary_marks_line_role_partial_token_usage_unavailable(
     tmp_path: Path,
 ) -> None:

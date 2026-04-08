@@ -373,7 +373,7 @@ def test_codex_outside_recipe_question_heading_demotes_knowledge_to_other(tmp_pa
     assert predictions[0].decided_by == "codex"
 
 
-def test_codex_outside_recipe_nonrecipe_exclude_without_support_falls_back_to_candidate(
+def test_codex_outside_recipe_nonrecipe_exclude_without_support_stays_authoritative(
     tmp_path,
 ) -> None:
     candidates = [
@@ -408,9 +408,47 @@ def test_codex_outside_recipe_nonrecipe_exclude_without_support_falls_back_to_ca
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions[0].label == "NONRECIPE_EXCLUDE"
+    assert predictions[0].decided_by == "codex"
+    assert "codex_policy_rejected" not in (
+        predictions[0].reason_tags
+    )
+
+
+def test_codex_recipe_local_nonrecipe_exclude_falls_back_to_baseline(tmp_path) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:1",
+            block_id="block:recipe:1",
+            block_index=1,
+            atomic_index=0,
+            text="Whisk in the olive oil and season to taste.",
+            within_recipe_span=True,
+            rule_tags=["instruction_like"],
+        )
+    ]
+
+    def _output_builder(_payload):
+        return {
+            "rows": [
+                {
+                    "atomic_index": 0,
+                    "label": "NONRECIPE_EXCLUDE",
+                }
+            ]
+        }
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings("codex-line-role-route-v2"),
+        artifact_root=tmp_path,
+        codex_runner=_line_role_runner(output_builder=_output_builder),
+        live_llm_allowed=True,
+    )
+
+    assert predictions[0].label == "INSTRUCTION_LINE"
     assert predictions[0].decided_by == "fallback"
-    assert "codex_policy_rejected:nonrecipe_exclude_without_deterministic_support" in (
+    assert "codex_policy_rejected:nonrecipe_exclude_inside_recipe_not_allowed" in (
         predictions[0].reason_tags
     )
 

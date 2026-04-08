@@ -609,6 +609,102 @@ def _codex_policy_summary_from_telemetry_rows(
         if len(shell_tool_counts) == 1:
             summary["codex_shell_tool_enabled"] = next(iter(shell_tool_counts)) == "true"
     return summary
+
+
+def _codex_policy_summary_from_summary_payloads(
+    *summary_payloads: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    transport_counts: dict[str, int] = {}
+    policy_mode_counts: dict[str, int] = {}
+    shell_tool_counts: dict[str, int] = {}
+    for summary_payload in summary_payloads:
+        if not isinstance(summary_payload, Mapping):
+            continue
+        raw_transport_counts = summary_payload.get("codex_transport_counts")
+        if isinstance(raw_transport_counts, Mapping):
+            for key, value in raw_transport_counts.items():
+                transport = str(key or "").strip()
+                count = _nonnegative_int(value)
+                if not transport or count is None:
+                    continue
+                transport_counts[transport] = (
+                    int(transport_counts.get(transport) or 0) + count
+                )
+        else:
+            transport = str(summary_payload.get("codex_transport") or "").strip()
+            if transport:
+                transport_counts[transport] = int(transport_counts.get(transport) or 0) + 1
+        raw_policy_mode_counts = summary_payload.get("codex_policy_mode_counts")
+        if isinstance(raw_policy_mode_counts, Mapping):
+            for key, value in raw_policy_mode_counts.items():
+                policy_mode = str(key or "").strip()
+                count = _nonnegative_int(value)
+                if not policy_mode or count is None:
+                    continue
+                policy_mode_counts[policy_mode] = (
+                    int(policy_mode_counts.get(policy_mode) or 0) + count
+                )
+        else:
+            policy_mode = str(summary_payload.get("codex_policy_mode") or "").strip()
+            if policy_mode:
+                policy_mode_counts[policy_mode] = (
+                    int(policy_mode_counts.get(policy_mode) or 0) + 1
+                )
+        raw_shell_counts = summary_payload.get("codex_shell_tool_enabled_counts")
+        if isinstance(raw_shell_counts, Mapping):
+            for key, value in raw_shell_counts.items():
+                shell_key = str(key or "").strip().lower()
+                count = _nonnegative_int(value)
+                if shell_key not in {"true", "false"} or count is None:
+                    continue
+                shell_tool_counts[shell_key] = (
+                    int(shell_tool_counts.get(shell_key) or 0) + count
+                )
+        elif summary_payload.get("codex_shell_tool_enabled") is not None:
+            shell_key = (
+                "true" if bool(summary_payload.get("codex_shell_tool_enabled")) else "false"
+            )
+            shell_tool_counts[shell_key] = int(shell_tool_counts.get(shell_key) or 0) + 1
+    summary: dict[str, Any] = {}
+    if transport_counts:
+        summary["codex_transport_counts"] = dict(sorted(transport_counts.items()))
+        if len(transport_counts) == 1:
+            summary["codex_transport"] = next(iter(transport_counts))
+    if policy_mode_counts:
+        summary["codex_policy_mode_counts"] = dict(sorted(policy_mode_counts.items()))
+        if len(policy_mode_counts) == 1:
+            summary["codex_policy_mode"] = next(iter(policy_mode_counts))
+    if shell_tool_counts:
+        summary["codex_shell_tool_enabled_counts"] = dict(
+            sorted(shell_tool_counts.items())
+        )
+        if len(shell_tool_counts) == 1:
+            summary["codex_shell_tool_enabled"] = next(iter(shell_tool_counts)) == "true"
+    return summary
+
+
+def _summary_int_value_or_aggregate(
+    *,
+    primary_summary: Mapping[str, Any] | None,
+    nested_summaries: list[Mapping[str, Any]],
+    key: str,
+) -> int | None:
+    if isinstance(primary_summary, Mapping):
+        primary_value = _nonnegative_int(primary_summary.get(key))
+        if primary_value is not None:
+            return primary_value
+    total = 0
+    found_any = False
+    for summary in nested_summaries:
+        if not isinstance(summary, Mapping):
+            continue
+        value = _nonnegative_int(summary.get(key))
+        if value is None:
+            continue
+        total += value
+        found_any = True
+    return total if found_any else None
+
 def _execution_mode_summary_from_telemetry_rows(
     telemetry_rows: list[Any] | None,
 ) -> dict[str, dict[str, int]]:
@@ -1294,6 +1390,10 @@ def _build_line_role_stage_summary(
             summary,
             fallback=[],
         )
+        policy_summary = _codex_policy_summary_from_summary_payloads(
+            summary if isinstance(summary, Mapping) else None,
+            *nested_summaries,
+        )
 
         stage_summary = {
             "stage": "line_role",
@@ -1332,6 +1432,21 @@ def _build_line_role_stage_summary(
             "missing_output_shard_count": missing_output_shard_count_total or None,
             **token_totals,
             **breakdown_totals,
+            "taskfile_session_count": _summary_int_value_or_aggregate(
+                primary_summary=summary if isinstance(summary, Mapping) else None,
+                nested_summaries=nested_summaries,
+                key="taskfile_session_count",
+            ),
+            "structured_followup_call_count": _summary_int_value_or_aggregate(
+                primary_summary=summary if isinstance(summary, Mapping) else None,
+                nested_summaries=nested_summaries,
+                key="structured_followup_call_count",
+            ),
+            "structured_followup_tokens_total": _summary_int_value_or_aggregate(
+                primary_summary=summary if isinstance(summary, Mapping) else None,
+                nested_summaries=nested_summaries,
+                key="structured_followup_tokens_total",
+            ),
             "pathological_flags": pathological_flags,
             "cost_breakdown": {
                 "visible_input_tokens": breakdown_totals.get("visible_input_tokens"),
@@ -1341,6 +1456,7 @@ def _build_line_role_stage_summary(
                 "reasoning_tokens": token_totals.get("tokens_reasoning"),
                 "billed_total_tokens": token_totals.get("tokens_total"),
             },
+            **policy_summary,
         }
         if token_usage_status is not None:
             stage_summary["token_usage_status"] = token_usage_status
@@ -1405,6 +1521,12 @@ def _build_line_role_stage_summary(
                     )
             if isinstance(task_file_guardrails, Mapping):
                 stage_summary["task_file_guardrails"] = dict(task_file_guardrails)
+            if "codex_transport" not in stage_summary:
+                repair_recovery_policy = observability_summary.get("repair_recovery_policy")
+                if isinstance(repair_recovery_policy, Mapping):
+                    transport = str(repair_recovery_policy.get("transport") or "").strip()
+                    if transport:
+                        stage_summary["codex_transport"] = transport
         _attach_phase_plan_artifacts(
             stage_name="line_role",
             stage_summary=stage_summary,

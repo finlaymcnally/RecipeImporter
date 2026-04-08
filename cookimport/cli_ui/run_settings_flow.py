@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import textwrap
 from enum import Enum
@@ -86,6 +87,7 @@ _CODEX_STEP_MODE_COLUMN_ORDER: tuple[str, ...] = (
     CODEX_EXEC_STYLE_INLINE_JSON_V1,
     CODEX_EXEC_STYLE_TASKFILE_V1,
 )
+_LINE_ROLE_LINES_PER_SHARD_WARNING_LIMIT = 150
 INTERACTIVE_BENCHMARK_PRESET_SALT_FAT_ACID_HEAT_CUTDOWN_FAST = (
     "saltfatacidheatcutdown_fast_codex_exec"
 )
@@ -252,11 +254,67 @@ def _current_row_warning_messages(row: Mapping[str, Any]) -> list[str]:
             f"{int(budget_native)} shards. The rendered preview packetizer naturally split "
             "this work more finely at that count."
         )
+    line_role_line_warning = _current_line_role_lines_warning(row)
+    if line_role_line_warning is not None:
+        messages.append(line_role_line_warning)
     for warning in raw_warnings:
         if _is_budget_native_planning_warning(warning):
             continue
         messages.append(warning)
     return messages
+
+
+def _estimated_owned_units_total(row: Mapping[str, Any]) -> int | None:
+    owned_unit_count = row.get("owned_unit_count")
+    if owned_unit_count is not None:
+        return max(0, int(round(float(owned_unit_count))))
+    baseline_shard_count = max(
+        1,
+        int(
+            row.get("current_shard_count_baseline")
+            or row.get("current_shard_count")
+            or row.get("current_count")
+            or 1
+        ),
+    )
+    return _estimate_total_from_average(
+        row.get("owned_units_per_shard_avg"),
+        shard_count=baseline_shard_count,
+    )
+
+
+def _current_line_role_lines_warning(row: Mapping[str, Any]) -> str | None:
+    step_id = str(row.get("step_id") or "").strip().lower()
+    current_mode = str(row.get("current_mode") or _CODEX_STEP_MODE_OFF).strip().lower()
+    owned_unit_label = str(row.get("owned_unit_label") or "").strip().lower()
+    if step_id != "line_role" or current_mode == _CODEX_STEP_MODE_OFF:
+        return None
+    if owned_unit_label not in {"line", "lines", "row", "rows"}:
+        return None
+    current_count = max(1, int(row.get("current_count") or 1))
+    owned_unit_count = _estimated_owned_units_total(row)
+    if owned_unit_count is None:
+        return None
+    lines_per_shard = _estimate_per_shard_from_total(
+        owned_unit_count,
+        shard_count=current_count,
+    )
+    if (
+        lines_per_shard is None
+        or int(lines_per_shard) <= _LINE_ROLE_LINES_PER_SHARD_WARNING_LIMIT
+    ):
+        return None
+    advisory_shards = max(
+        current_count,
+        int(math.ceil(float(owned_unit_count) / _LINE_ROLE_LINES_PER_SHARD_WARNING_LIMIT)),
+    )
+    return (
+        f"Current shard count {current_count} leaves about {int(lines_per_shard)} lines per "
+        f"shard for line-role work, above the "
+        f"{_LINE_ROLE_LINES_PER_SHARD_WARNING_LIMIT}-line advisory cap. Raise it to "
+        f"{advisory_shards} shards or more to stay at "
+        f"{_LINE_ROLE_LINES_PER_SHARD_WARNING_LIMIT} lines/sh or lower."
+    )
 
 
 def _build_codex_shard_plan_warning_lines(

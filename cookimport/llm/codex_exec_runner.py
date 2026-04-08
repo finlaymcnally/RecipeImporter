@@ -897,13 +897,13 @@ class FakeCodexExecRunner:
         stage_key = str(task_file_payload.get("stage_key") or "").strip()
         if stage_key == "line_role":
             line_role_rows = []
-            for unit in units_payload:
+            for index, unit in enumerate(units_payload):
                 if not isinstance(unit, Mapping):
                     continue
                 evidence = dict(unit.get("evidence") or {})
                 line_role_rows.append(
                     [
-                        int(evidence.get("atomic_index") or 0),
+                        index,
                         str(evidence.get("text") or ""),
                     ]
                 )
@@ -916,34 +916,45 @@ class FakeCodexExecRunner:
                 )
             except Exception:  # noqa: BLE001
                 line_role_result = {}
-            if isinstance(line_role_result, Mapping) and isinstance(
-                line_role_result.get("rows"), list
-            ):
-                answer_by_atomic_index: dict[int, dict[str, Any]] = {}
-                for row in line_role_result.get("rows") or []:
-                    if not isinstance(row, Mapping):
-                        continue
-                    label = str(row.get("label") or "").strip()
-                    if not label:
-                        continue
-                    atomic_index = int(row.get("atomic_index") or 0)
-                    answer_by_atomic_index[atomic_index] = {"label": label}
-                if answer_by_atomic_index and len(answer_by_atomic_index) >= len(
-                    line_role_rows
-                ):
+            if isinstance(line_role_result, Mapping):
+                labels_payload = line_role_result.get("labels")
+                if isinstance(labels_payload, list) and len(labels_payload) >= len(line_role_rows):
                     edited_units = []
-                    for unit in units_payload:
+                    for index, unit in enumerate(units_payload):
                         if not isinstance(unit, Mapping):
                             continue
                         unit_dict = dict(unit)
-                        evidence = dict(unit_dict.get("evidence") or {})
-                        atomic_index = int(evidence.get("atomic_index") or 0)
-                        unit_dict["answer"] = dict(
-                            answer_by_atomic_index.get(atomic_index) or {}
-                        )
+                        label = str(labels_payload[index] or "").strip()
+                        unit_dict["answer"] = {"label": label} if label else {}
                         edited_units.append(unit_dict)
                     edited["units"] = edited_units
                     return edited
+                if isinstance(line_role_result.get("rows"), list):
+                    answer_by_ordinal: dict[int, dict[str, Any]] = {}
+                    for row_index, row in enumerate(line_role_result.get("rows") or []):
+                        if not isinstance(row, Mapping):
+                            continue
+                        label = str(row.get("label") or "").strip()
+                        if not label:
+                            continue
+                        atomic_index_value = row.get("atomic_index")
+                        try:
+                            ordinal = int(atomic_index_value) if atomic_index_value is not None else row_index
+                        except (TypeError, ValueError):
+                            ordinal = row_index
+                        if 1 <= ordinal <= len(line_role_rows):
+                            ordinal -= 1
+                        answer_by_ordinal[ordinal] = {"label": label}
+                    if answer_by_ordinal and len(answer_by_ordinal) >= len(line_role_rows):
+                        edited_units = []
+                        for index, unit in enumerate(units_payload):
+                            if not isinstance(unit, Mapping):
+                                continue
+                            unit_dict = dict(unit)
+                            unit_dict["answer"] = dict(answer_by_ordinal.get(index) or {})
+                            edited_units.append(unit_dict)
+                        edited["units"] = edited_units
+                        return edited
         edited_units: list[dict[str, Any]] = []
         for unit in units_payload:
             if not isinstance(unit, Mapping):
@@ -1043,11 +1054,19 @@ class FakeCodexExecRunner:
             )
             return dict(direct_output) if isinstance(direct_output, Mapping) else {}
         if stage_key == "line_role":
-            atomic_index = int(evidence.get("atomic_index") or 0)
+            raw_row_id = str(evidence.get("row_id") or "").strip()
+            raw_atomic_index = evidence.get("atomic_index")
+            if raw_atomic_index is not None and str(raw_atomic_index).strip():
+                atomic_index = int(raw_atomic_index)
+            elif raw_row_id.startswith("r") and raw_row_id[1:].isdigit():
+                atomic_index = max(0, int(raw_row_id[1:]) - 1)
+            else:
+                atomic_index = 0
             direct_output = self.output_builder(
                 {
                     "stage_key": stage_key,
                     "atomic_index": atomic_index,
+                    "row_id": raw_row_id,
                     "text": str(evidence.get("text") or ""),
                 }
             )

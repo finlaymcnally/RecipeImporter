@@ -1121,6 +1121,24 @@ def test_current_row_warning_messages_recalculate_when_shard_count_changes() -> 
     assert run_settings_flow._current_row_warning_messages(row) == []
 
 
+def test_current_row_warning_messages_warn_when_line_role_exceeds_150_lines_per_shard() -> None:
+    row = {
+        "step_id": "line_role",
+        "label": "Block labelling",
+        "current_mode": CODEX_EXEC_STYLE_INLINE_JSON_V1,
+        "current_count": 8,
+        "owned_unit_count": 1_471,
+        "owned_unit_label": "lines",
+    }
+
+    assert run_settings_flow._current_row_warning_messages(row) == [
+        "Current shard count 8 leaves about 184 lines per shard for line-role work, above the 150-line advisory cap. Raise it to 10 shards or more to stay at 150 lines/sh or lower."
+    ]
+
+    row["current_count"] = 10
+    assert run_settings_flow._current_row_warning_messages(row) == []
+
+
 def test_shard_plan_kpi_summary_updates_when_shard_count_changes() -> None:
     assert (
         run_settings_flow._render_shard_plan_kpi_summary(

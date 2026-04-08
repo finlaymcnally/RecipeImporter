@@ -748,7 +748,7 @@ def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: 
 
     summary = build_line_role_stage_summary(stage_root)
 
-    assert summary["schema_version"] == "line_role_stage_summary.v5"
+    assert summary["schema_version"] == "line_role_stage_summary.v6"
     assert summary["lines"]["canonical_line_total"] == 2
     assert summary["lines"]["llm_authoritative_row_count"] == 2
     assert summary["lines"]["unresolved_row_count"] == 0
@@ -864,6 +864,12 @@ def test_build_line_role_stage_summary_reports_inline_watchdog_and_repair_budget
         stage_root / "telemetry.json",
         {
             "summary": {
+                "codex_transport": "inline-json-v1",
+                "codex_transport_counts": {"inline-json-v1": 2},
+                "codex_policy_mode": "shell_disabled",
+                "codex_policy_mode_counts": {"shell_disabled": 2},
+                "codex_shell_tool_enabled": False,
+                "codex_shell_tool_enabled_counts": {"false": 2},
                 "prompt_input_mode_counts": {
                     "structured_session_repair": 1,
                     "inline_watchdog_retry": 1,
@@ -891,6 +897,10 @@ def test_build_line_role_stage_summary_reports_inline_watchdog_and_repair_budget
 
     summary = build_line_role_stage_summary(stage_root)
 
+    assert summary["schema_version"] == "line_role_stage_summary.v6"
+    assert summary["codex_transport"] == "inline-json-v1"
+    assert summary["codex_policy_mode"] == "shell_disabled"
+    assert summary["codex_shell_tool_enabled"] is False
     assert summary["repair_recovery_policy"]["transport"] == "inline-json-v1"
     assert (
         summary["repair_recovery_policy"]["budgets"]["structured_repair_followup"][
@@ -906,6 +916,62 @@ def test_build_line_role_stage_summary_reports_inline_watchdog_and_repair_budget
         "spent_attempts": 1,
         "remaining_attempts": 0,
     }
+
+
+def test_build_line_role_stage_summary_uses_shard_ledger_when_status_files_are_absent(
+    tmp_path: Path,
+) -> None:
+    stage_root = tmp_path / "line-role-pipeline" / "runtime" / "line_role"
+    (stage_root / "proposals").mkdir(parents=True, exist_ok=True)
+    _write_json(
+        stage_root / "phase_manifest.json",
+        {
+            "worker_count": 1,
+            "shard_count": 1,
+        },
+    )
+    _write_json(stage_root / "promotion_report.json", {"invalid_shards": 0, "missing_output_shards": 0})
+    (stage_root / "shard_manifest.jsonl").write_text(
+        json.dumps({"shard_id": "line-role-canonical-0001"}) + "\n",
+        encoding="utf-8",
+    )
+    (stage_root / "canonical_line_table.jsonl").write_text(
+        json.dumps({"line_id": "0", "atomic_index": 0}) + "\n",
+        encoding="utf-8",
+    )
+    (stage_root / "shard_status.jsonl").write_text(
+        json.dumps(
+            {
+                "shard_id": "line-role-canonical-0001",
+                "state": "validated",
+                "terminal_outcome": "validated",
+                "last_attempt_type": "structured_session_initial",
+                "metadata": {
+                    "llm_authoritative_row_count": 1,
+                    "unresolved_row_count": 0,
+                    "suspicious_row_count": 0,
+                    "suspicious_shard": False,
+                    "transport": "inline-json-v1",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _write_json(
+        stage_root / "telemetry.json",
+        {
+            "summary": {
+                "codex_transport": "inline-json-v1",
+            }
+        },
+    )
+
+    summary = build_line_role_stage_summary(stage_root)
+
+    assert summary["stage_state"] == "completed"
+    assert summary["parent_shards"]["completed_total"] == 0
+    assert summary["shards"]["state_counts"] == {"validated": 1}
 
 
 def test_summarize_knowledge_stage_artifacts_uses_status_file(tmp_path: Path) -> None:

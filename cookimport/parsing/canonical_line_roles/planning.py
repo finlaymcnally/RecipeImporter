@@ -690,21 +690,20 @@ def _resolve_line_role_cache_root(
 def _canonical_candidate_fingerprint(
     candidates: Sequence[AtomicLineCandidate],
 ) -> str:
-    by_atomic_index = build_atomic_index_lookup(candidates)
+    sanitized_candidates = runtime.sanitize_pre_grouping_line_role_candidates(candidates)
+    by_atomic_index = build_atomic_index_lookup(sanitized_candidates)
     payload: list[dict[str, Any]] = []
-    for candidate in candidates:
+    for candidate in sanitized_candidates:
         prev_text, next_text = get_atomic_line_neighbor_texts(
             candidate,
             by_atomic_index=by_atomic_index,
         )
         payload.append(
             {
-                "recipe_id": candidate.recipe_id,
                 "block_id": candidate.block_id,
                 "block_index": candidate.block_index,
                 "atomic_index": candidate.atomic_index,
                 "text": candidate.text,
-                "within_recipe_span": candidate.within_recipe_span,
                 "prev_text": prev_text,
                 "next_text": next_text,
                 "rule_tags": list(candidate.rule_tags),

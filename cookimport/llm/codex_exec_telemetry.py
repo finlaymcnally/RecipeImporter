@@ -148,6 +148,7 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
         ):
             watchdog_recovered_shards.add(shard_id)
             pathological_shards.add(shard_id)
+    summary.update(_codex_policy_summary_from_rows(rows))
     summary["cost_breakdown"] = {
         "visible_input_tokens": summary["visible_input_tokens"],
         "cached_input_tokens": summary["tokens_cached_input"],
@@ -201,6 +202,44 @@ def summarize_direct_telemetry_rows(rows: Sequence[Mapping[str, Any]]) -> dict[s
                 "billed_total_tokens": None,
             }
     summary["pathological_flags"] = _summary_pathological_flags(summary)
+    return summary
+
+
+def _codex_policy_summary_from_rows(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    transport_counts: dict[str, int] = {}
+    policy_mode_counts: dict[str, int] = {}
+    shell_tool_counts: dict[str, int] = {}
+    for row in rows:
+        transport = str(row.get("codex_transport") or "").strip()
+        if transport:
+            transport_counts[transport] = int(transport_counts.get(transport) or 0) + 1
+        policy_mode = str(row.get("codex_policy_mode") or "").strip()
+        if policy_mode:
+            policy_mode_counts[policy_mode] = (
+                int(policy_mode_counts.get(policy_mode) or 0) + 1
+            )
+        shell_tool_enabled = row.get("codex_shell_tool_enabled")
+        if shell_tool_enabled is None:
+            continue
+        shell_key = "true" if bool(shell_tool_enabled) else "false"
+        shell_tool_counts[shell_key] = int(shell_tool_counts.get(shell_key) or 0) + 1
+    summary: dict[str, Any] = {}
+    if transport_counts:
+        summary["codex_transport_counts"] = dict(sorted(transport_counts.items()))
+        if len(transport_counts) == 1:
+            summary["codex_transport"] = next(iter(transport_counts))
+    if policy_mode_counts:
+        summary["codex_policy_mode_counts"] = dict(sorted(policy_mode_counts.items()))
+        if len(policy_mode_counts) == 1:
+            summary["codex_policy_mode"] = next(iter(policy_mode_counts))
+    if shell_tool_counts:
+        summary["codex_shell_tool_enabled_counts"] = dict(
+            sorted(shell_tool_counts.items())
+        )
+        if len(shell_tool_counts) == 1:
+            summary["codex_shell_tool_enabled"] = next(iter(shell_tool_counts)) == "true"
     return summary
 
 

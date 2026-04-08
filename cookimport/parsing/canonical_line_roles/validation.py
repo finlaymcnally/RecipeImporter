@@ -18,7 +18,6 @@ from .contracts import (
     RECIPE_LOCAL_LINE_ROLE_LABELS,
 )
 from .policy import (
-    _is_within_recipe_span,
     _looks_book_framing_or_exhortation_prose,
     _looks_chapter_taxonomy_heading_candidate,
     _looks_domain_knowledge_prose,
@@ -59,15 +58,142 @@ def _line_role_packet_row_id(index: int) -> str:
     return f"r{index + 1:02d}"
 
 
-def _translate_line_role_row_ids_to_atomic_indices(
+def _translate_line_role_packet_local_ordinal_rows(
+    *,
+    ordered_rows: Sequence[tuple[int, str]],
+    rows_payload: Sequence[Any],
+) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
+    if not rows_payload:
+        return None, None
+    ordinal_values: list[int] = []
+    normalized_rows: list[dict[str, Any]] = []
+    for row in rows_payload:
+        if not isinstance(row, Mapping):
+            return None, None
+        row_dict = dict(row)
+        if str(row_dict.get("row_id") or "").strip():
+            return None, None
+        if row_dict.get("atomic_index") is None:
+            return None, None
+        try:
+            ordinal_value = int(row_dict.get("atomic_index"))
+        except (TypeError, ValueError):
+            return None, None
+        ordinal_values.append(ordinal_value)
+        normalized_rows.append(row_dict)
+    row_count = len(ordered_rows)
+    returned_row_count = len(normalized_rows)
+    if row_count == 0 or returned_row_count == 0 or returned_row_count > row_count + 1:
+        return None, None
+    ordinal_base: int | None = None
+    if ordinal_values == list(range(returned_row_count)):
+        ordinal_base = 0
+    elif ordinal_values == list(range(1, returned_row_count + 1)):
+        ordinal_base = 1
+    if ordinal_base is None:
+        return None, None
+    trimmed_trailing_row_count = 0
+    translated_source_rows = normalized_rows
+    translated_ordinal_values = ordinal_values
+    if returned_row_count == row_count + 1:
+        expected_with_spill = list(range(ordinal_base, ordinal_base + returned_row_count))
+        if ordinal_values != expected_with_spill:
+            return None, None
+        trimmed_trailing_row_count = 1
+        translated_source_rows = normalized_rows[:row_count]
+        translated_ordinal_values = ordinal_values[:row_count]
+    translated_rows: list[dict[str, Any]] = []
+    for row_dict, ordinal_value in zip(
+        translated_source_rows,
+        translated_ordinal_values,
+        strict=False,
+    ):
+        ordered_index = ordinal_value - ordinal_base
+        if ordered_index < 0 or ordered_index >= row_count:
+            return None, None
+        translated_rows.append(
+            {
+                **row_dict,
+                "atomic_index": int(ordered_rows[ordered_index][0]),
+            }
+        )
+    missing_row_ids = [
+        _line_role_packet_row_id(index)
+        for index in range(len(translated_rows), row_count)
+    ]
+    response_mode = "complete"
+    if trimmed_trailing_row_count:
+        response_mode = "trimmed_trailing_spill"
+    elif len(translated_rows) < row_count:
+        response_mode = "prefix"
+    return translated_rows, {
+        "atomic_index_alias_salvage": {
+            "applied": True,
+            "alias_kind": "packet_local_ordinal",
+            "ordinal_base": ordinal_base,
+            "salvaged_row_count": len(translated_rows),
+            "returned_row_count": returned_row_count,
+            "expected_row_count": row_count,
+            "response_mode": response_mode,
+            "trimmed_trailing_row_count": trimmed_trailing_row_count,
+        },
+        "returned_row_ids": [
+            _line_role_packet_row_id(index) for index in range(len(translated_rows))
+        ],
+        "missing_row_ids": missing_row_ids,
+        "duplicate_row_ids": [],
+        "unknown_row_ids": [],
+    }
+
+
+def _translate_line_role_ordered_labels_to_atomic_indices(
+    *,
+    ordered_rows: Sequence[tuple[int, str]],
+    labels_payload: Sequence[Any],
+) -> tuple[dict[str, Any], tuple[str, ...], dict[str, Any]]:
+    translated_rows: list[dict[str, Any]] = []
+    for index, label_value in enumerate(labels_payload):
+        row_payload: dict[str, Any] = {"label": label_value}
+        if index < len(ordered_rows):
+            row_payload["atomic_index"] = int(ordered_rows[index][0])
+        translated_rows.append(row_payload)
+    return (
+        {"rows": translated_rows},
+        (),
+        {
+            "ordered_label_vector": {
+                "applied": True,
+                "returned_label_count": len(labels_payload),
+                "expected_row_count": len(ordered_rows),
+            }
+        },
+    )
+
+
+def _translate_line_role_output_to_atomic_indices(
     *,
     shard: ShardManifestEntryV1,
     payload: Mapping[str, Any],
 ) -> tuple[dict[str, Any], tuple[str, ...], dict[str, Any]]:
+    ordered_rows = _coerce_shard_input_rows(shard)
+    labels_payload = payload.get("labels")
+    if isinstance(labels_payload, list) and not isinstance(payload.get("rows"), list):
+        return _translate_line_role_ordered_labels_to_atomic_indices(
+            ordered_rows=ordered_rows,
+            labels_payload=labels_payload,
+        )
     rows_payload = payload.get("rows")
     if not isinstance(rows_payload, list):
         return dict(payload), (), {}
-    ordered_rows = _coerce_shard_input_rows(shard)
+    translated_ordinal_rows, ordinal_metadata = _translate_line_role_packet_local_ordinal_rows(
+        ordered_rows=ordered_rows,
+        rows_payload=rows_payload,
+    )
+    if translated_ordinal_rows is not None:
+        return {
+            **dict(payload),
+            "rows": translated_ordinal_rows,
+        }, (), dict(ordinal_metadata or {})
     atomic_index_by_row_id = {
         _line_role_packet_row_id(index): atomic_index
         for index, (atomic_index, _text) in enumerate(ordered_rows)
@@ -149,9 +275,7 @@ def _build_line_role_profile_candidate(
         block_index=int(baseline_prediction.block_index if baseline_prediction else atomic_index),
         atomic_index=int(atomic_index),
         text=str(text or ""),
-        within_recipe_span=(
-            baseline_prediction.within_recipe_span if baseline_prediction is not None else None
-        ),
+        within_recipe_span=None,
         rule_tags=[],
     )
 
@@ -162,14 +286,8 @@ def _semantic_profile_evidence_lines(
     navigation_examples: Sequence[str],
     knowledge_examples: Sequence[str],
     recipe_structure_examples: Sequence[str],
-    outside_recipe_only: bool,
-    owned_row_count: int,
 ) -> list[str]:
     evidence: list[str] = []
-    if outside_recipe_only:
-        evidence.append(
-            f"All {owned_row_count} owned rows are currently outside recipe context."
-        )
     if front_matter_examples:
         evidence.append(
             "Front-matter signals appear in this shard: "
@@ -221,15 +339,12 @@ def _build_line_role_semantic_profile(
     navigation_signal_count = 0
     knowledge_signal_count = 0
     recipe_structure_signal_count = 0
-    outside_recipe_row_count = 0
     baseline_recipe_local_count = 0
     baseline_nonrecipe_exclude_count = 0
     for atomic_index, text in rows:
         candidate = by_atomic_index[atomic_index]
         baseline_prediction = deterministic_baseline_by_atomic_index.get(atomic_index)
         if baseline_prediction is not None:
-            if baseline_prediction.within_recipe_span is False:
-                outside_recipe_row_count += 1
             if str(baseline_prediction.label or "").strip().upper() in _RECIPE_LOCAL_LABELS:
                 baseline_recipe_local_count += 1
             if str(baseline_prediction.label or "").strip().upper() == "NONRECIPE_EXCLUDE":
@@ -278,10 +393,11 @@ def _build_line_role_semantic_profile(
             if stripped not in recipe_structure_examples:
                 recipe_structure_examples.append(stripped)
     owned_row_count = len(rows)
-    outside_recipe_only = bool(owned_row_count) and outside_recipe_row_count == owned_row_count
+    baseline_nonrecipe_dominant = bool(owned_row_count) and (
+        baseline_nonrecipe_exclude_count >= max(4, (owned_row_count * 3) // 5)
+        and baseline_recipe_local_count <= max(2, owned_row_count // 4)
+    )
     risk_flags: list[str] = []
-    if outside_recipe_only:
-        risk_flags.append("outside_recipe_only")
     if front_matter_signal_count >= 3:
         risk_flags.append("front_matter_cluster")
     if navigation_signal_count >= 4:
@@ -291,20 +407,23 @@ def _build_line_role_semantic_profile(
     if recipe_structure_signal_count == 0:
         risk_flags.append("no_recipe_structure_support")
     summary = "This shard reads like one live recipe."
-    if outside_recipe_only and front_matter_signal_count >= 3 and navigation_signal_count >= 4:
+    if (
+        recipe_structure_signal_count == 0
+        and front_matter_signal_count >= 3
+        and navigation_signal_count >= 4
+    ):
         summary = "This shard reads like front matter and contents navigation, not one live recipe."
-    elif outside_recipe_only and navigation_signal_count >= 4:
+    elif recipe_structure_signal_count == 0 and navigation_signal_count >= 4:
         summary = "This shard reads like outside-recipe contents or taxonomy headings."
-    elif outside_recipe_only and front_matter_signal_count >= 3:
+    elif recipe_structure_signal_count == 0 and front_matter_signal_count >= 3:
         summary = "This shard reads like outside-recipe front matter."
     return {
         "owned_row_count": owned_row_count,
-        "outside_recipe_only": outside_recipe_only,
-        "outside_recipe_row_count": outside_recipe_row_count,
         "front_matter_signal_count": front_matter_signal_count,
         "navigation_signal_count": navigation_signal_count,
         "knowledge_signal_count": knowledge_signal_count,
         "recipe_structure_signal_count": recipe_structure_signal_count,
+        "baseline_nonrecipe_dominant": baseline_nonrecipe_dominant,
         "baseline_recipe_local_count": baseline_recipe_local_count,
         "baseline_nonrecipe_exclude_count": baseline_nonrecipe_exclude_count,
         "risk_flags": risk_flags,
@@ -314,8 +433,6 @@ def _build_line_role_semantic_profile(
             navigation_examples=navigation_examples,
             knowledge_examples=knowledge_examples,
             recipe_structure_examples=recipe_structure_examples,
-            outside_recipe_only=outside_recipe_only,
-            owned_row_count=owned_row_count,
         ),
     }
 
@@ -477,8 +594,9 @@ def _validate_line_role_payload_semantics(
             structural_recipe_count += 1
     diagnostics: list[str] = []
     risk_flags = set(str(value) for value in profile.get("risk_flags") or [])
+    baseline_nonrecipe_dominant = bool(profile.get("baseline_nonrecipe_dominant"))
     if (
-        profile.get("outside_recipe_only")
+        baseline_nonrecipe_dominant
         and "front_matter_cluster" in risk_flags
         and recipe_local_count >= max(4, owned_row_count // 3)
     ):
@@ -486,7 +604,7 @@ def _validate_line_role_payload_semantics(
             "outside-recipe front matter shard produced too many recipe-local labels"
         )
     if (
-        profile.get("outside_recipe_only")
+        baseline_nonrecipe_dominant
         and "contents_heading_cluster" in risk_flags
         and howto_count >= max(4, owned_row_count // 4)
     ):
@@ -494,7 +612,7 @@ def _validate_line_role_payload_semantics(
             "contents or taxonomy headings were turned into recipe-internal HOWTO_SECTION rows"
         )
     if (
-        profile.get("outside_recipe_only")
+        baseline_nonrecipe_dominant
         and "contents_heading_cluster" in risk_flags
         and recipe_title_count >= max(3, owned_row_count // 5)
     ):
@@ -502,7 +620,7 @@ def _validate_line_role_payload_semantics(
             "contents or navigation title lists were turned into recipe titles"
         )
     if (
-        profile.get("outside_recipe_only")
+        baseline_nonrecipe_dominant
         and "no_recipe_structure_support" in risk_flags
         and structural_recipe_count == 0
         and recipe_local_count >= max(8, owned_row_count // 2)
@@ -811,7 +929,7 @@ def _evaluate_line_role_response(
             "invalid",
         )
     translated_payload, translation_errors, translation_metadata = (
-        _translate_line_role_row_ids_to_atomic_indices(
+        _translate_line_role_output_to_atomic_indices(
             shard=shard,
             payload=parsed_payload,
         )

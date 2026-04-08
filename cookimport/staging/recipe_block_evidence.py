@@ -151,7 +151,11 @@ def build_recipe_block_evidence(
             block_labels=block_labels,
             notes=notes,
         )
-    ownership_recipe_ids = {entry.recipe_id for entry in recipe_ownership_result.recipe_entries}
+    ownership_recipe_ids = {
+        entry.recipe_id
+        for entry in recipe_ownership_result.recipe_entries
+        if entry.owned_block_indices
+    }
     result_recipe_ids = {_require_recipe_id(recipe) for recipe in conversion_result.recipes}
     extra_ownership_ids = sorted(ownership_recipe_ids - result_recipe_ids)
     if extra_ownership_ids:

@@ -322,6 +322,74 @@ class _LineRoleCohortWatchdogState:
                 ]
 
 
+def _line_role_partial_authority_rows(
+    proposal_metadata: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    accepted_rows = [
+        dict(row)
+        for row in (proposal_metadata or {}).get("accepted_rows", [])
+        if isinstance(row, Mapping)
+    ]
+    if accepted_rows:
+        return accepted_rows
+    if bool((proposal_metadata or {}).get("semantic_rejected")):
+        return [
+            dict(row)
+            for row in (proposal_metadata or {}).get("semantic_containment_rows", [])
+            if isinstance(row, Mapping)
+        ]
+    return []
+
+
+def _line_role_partial_fallback_atomic_indices(
+    *,
+    phase_results: Sequence[_LineRolePhaseRuntimeResult],
+) -> set[int]:
+    fallback_atomic_indices: set[int] = set()
+    for phase_result in phase_results:
+        for shard_plan in phase_result.shard_plans:
+            proposal_metadata = dict(
+                phase_result.proposal_metadata_by_shard_id.get(shard_plan.shard_id) or {}
+            )
+            if not _line_role_partial_authority_rows(proposal_metadata):
+                continue
+            row_resolution = proposal_metadata.get("row_resolution")
+            if not isinstance(row_resolution, Mapping):
+                row_resolution = proposal_metadata
+            fallback_atomic_indices.update(
+                int(value)
+                for value in (row_resolution.get("unresolved_atomic_indices") or [])
+                if str(value).strip()
+            )
+    return fallback_atomic_indices
+
+
+def _line_role_partial_shard_fallback_prediction(
+    *,
+    baseline_prediction: CanonicalLineRolePrediction,
+) -> CanonicalLineRolePrediction:
+    reason_tags = list(
+        dict.fromkeys(
+            [
+                "codex_partial_shard_unresolved",
+                "deterministic_recovered",
+                *list(baseline_prediction.reason_tags),
+            ]
+        )
+    )
+    return CanonicalLineRolePrediction(
+        recipe_id=baseline_prediction.recipe_id,
+        block_id=str(baseline_prediction.block_id),
+        block_index=int(baseline_prediction.block_index),
+        atomic_index=int(baseline_prediction.atomic_index),
+        text=str(baseline_prediction.text),
+        within_recipe_span=baseline_prediction.within_recipe_span,
+        label=str(baseline_prediction.label),
+        decided_by="fallback",
+        reason_tags=reason_tags,
+    )
+
+
 def _label_atomic_lines_internal(
     candidates: Sequence[AtomicLineCandidate],
     settings: RunSettings,
@@ -445,9 +513,21 @@ def _label_atomic_lines_internal(
             runtime_result=runtime_result,
         )
         if live_llm_allowed:
+            for atomic_index in _line_role_partial_fallback_atomic_indices(
+                phase_results=runtime_result.phase_results
+            ):
+                if atomic_index in predictions:
+                    continue
+                baseline_prediction = deterministic_baseline.get(int(atomic_index))
+                if baseline_prediction is None:
+                    continue
+                predictions[atomic_index] = _line_role_partial_shard_fallback_prediction(
+                    baseline_prediction=baseline_prediction,
+                )
             _raise_if_line_role_runtime_incomplete(
                 ordered_candidates=ordered,
                 runtime_result=runtime_result,
+                predictions_by_atomic_index=predictions,
             )
         else:
             for candidate in ordered:
@@ -466,16 +546,6 @@ def _label_atomic_lines_internal(
     for candidate in ordered:
         current = predictions[candidate.atomic_index]
         baseline_prediction = deterministic_baseline[candidate.atomic_index]
-        if (
-            current.decided_by == "codex"
-            and _is_outside_recipe_span(candidate)
-            and str(current.label or "NONRECIPE_CANDIDATE") == "NONRECIPE_EXCLUDE"
-        ):
-            current = _normalize_prediction_metadata(
-                prediction=current,
-                candidate=candidate,
-                by_atomic_index=by_atomic_index,
-            )
         if current.decided_by == "codex":
             current = _reject_codex_prediction_to_baseline_if_policy_violated(
                 prediction=current,
@@ -750,9 +820,9 @@ def _run_line_role_shard_runtime(
         proposal_metadata = dict(
             phase_result.proposal_metadata_by_shard_id.get(shard_plan.shard_id) or {}
         )
-        if not isinstance(response_payload, dict):
-            continue
-        rows = response_payload.get("rows")
+        rows = response_payload.get("rows") if isinstance(response_payload, dict) else None
+        if not isinstance(rows, list):
+            rows = _line_role_partial_authority_rows(proposal_metadata)
         if not isinstance(rows, list):
             continue
         candidate_by_atomic_index = {
@@ -979,6 +1049,7 @@ def _run_line_role_phase_runtime(
         proposal_validation_metadata = dict(
             proposal_payload.get("validation_metadata") or {}
         )
+        proposal_metadata_by_shard_id[shard_plan.shard_id] = proposal_validation_metadata
         if proposal_validation_metadata.get("raw_output_invalid") or proposal_validation_metadata.get(
             "raw_output_missing"
         ):
@@ -1011,7 +1082,6 @@ def _run_line_role_phase_runtime(
             response_payload=response_payload,
         )
         response_payloads_by_shard_id[shard_plan.shard_id] = response_payload
-        proposal_metadata_by_shard_id[shard_plan.shard_id] = proposal_validation_metadata
     prompt_state.finalize(
         phase_key=shard_plans[0].phase_key,
         parse_error_count=raw_output_issue_count + missing_output_shard_count,

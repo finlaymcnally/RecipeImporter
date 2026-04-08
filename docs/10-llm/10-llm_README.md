@@ -5,14 +5,17 @@ read_when:
   - When debugging optional knowledge-stage artifacts
   - When auditing recipe pipeline enablement/default behavior
   - When reconciling Label Studio prediction-run LLM wiring vs stage wiring
+  - When auditing where deterministic repo code can reject, demote, or replace LLM outputs
 ---
 
 # LLM Section Reference
 
 LLM usage in this repo is optional. The direct-exec transport is now mixed by both attempt type and configured Codex style. `recipe_codex_exec_style=inline-json-v1`, `line_role_codex_exec_style=inline-json-v1`, and `knowledge_codex_exec_style=inline-json-v1` are the default thin paths. Recipe `taskfile-v1` remains available as an explicit fallback for comparison or debugging, but the normal recipe happy path is now one structured shard response with shell disabled. Deterministic repo code still owns validation, repair rewrites, grounding gates, and final artifact expansion.
 
-For inline-JSON line-role, the visible prompt is still transport-thin, but it is no longer semantically thin: the prompt now derives from the shared `line-role.shared-contract.v1.md` contract, carries shard-profile evidence for front-matter/contents risk, shows owned rows as packet-local `row_id` plus raw `text` rather than visible `atomic_index`, asks the turn output for packet-local `row_id` values, and can trigger one bounded semantic repair follow-up when structurally valid output is still obviously pathological. Deterministic code remains the owner of row-id coverage, `row_id -> atomic_index` translation, safety-boundary checks, semantic-pathology rejection, and conservative outside-recipe containment; it does not silently relabel ordinary ambiguous prose.
+For inline-JSON line-role, the visible prompt is still transport-thin, but it is no longer semantically thin: the prompt now derives from the shared `line-role.shared-contract.v1.md` contract, carries shard-profile evidence for front-matter/contents risk, shows owned rows as ordered raw-text entries rather than visible `atomic_index`, asks the turn output for one ordered `labels` array, and can trigger one bounded semantic repair follow-up when structurally valid output is still obviously pathological. Deterministic code remains the owner of shard order, label-to-row projection, safety-boundary checks, semantic-pathology rejection, and conservative outside-recipe containment; it does not silently relabel ordinary ambiguous prose or broad-veto ordinary outside-recipe `NONRECIPE_EXCLUDE` calls just because a local heuristic would have kept them reviewable.
+The active pre-grouping line-role runtime is now span-free in its repo-owned inputs as well: before cache planning, debug artifact writing, prompt preview, or worker validation, the runtime clears stale `recipe_id`, `within_recipe_span`, and span-derived rule tags from candidate rows. Recipe ownership still appears only after the later deterministic recipe-boundary grouping step.
 For inline-JSON line-role specifically, the output contract at the top of the prompt is now placeholder-shaped rather than a literal two-row answer example, and it calls out the packet's owned-row count explicitly. This is intended to reduce example-copy failures on large shards where the model might otherwise echo the schema sample instead of labeling every row.
+Line-role inline validation now also has one narrow salvage seam before repair: if a worker falls back to the older row-shaped output and returns packet-local `row_id` rows or `atomic_index` values that clearly form packet-local ordinals (`0..n-1` or `1..n`), deterministic code remaps that output back onto the shard's true `atomic_index` order and accepts it without spending a full repair turn. Ambiguous or partial legacy outputs still fail closed into the normal repair path.
 
 For inline-JSON knowledge, deterministic code now allows a small bounded series of shard-local repair followups for both classification and grouping before a shard is marked invalid. Those followups reuse the prepared execution workspace for stable local paths, but they no longer resume the previous Codex transcript, which keeps repair/grouping calls bounded instead of replaying the whole shard conversation. Grouping-response parsing still accepts `group_index` as a worker alias for `group_key`, and the structured response contract now works on packet-local `row_id` values instead of visible global block indices: ordered rows stay in reading order, the packet carries nearby context only when present, classification keeps only the small shared category catalog plus row-local candidate-tag hints, and the parser reports missing, duplicate, and unknown row ids explicitly. Untouched classification rows still fail as `knowledge_block_missing_decision` rather than generic `invalid_category`.
 
@@ -156,6 +159,188 @@ Benchmark split:
 - `cookimport bench speed-run` can include Codex permutations, but only with explicit confirmation.
 - `cookimport bench quality-run` is deterministic-only and now rejects `--include-codex-farm`.
 
+## Deterministic Override Map
+
+This section is the current inventory of places where repo-owned deterministic code can overrule, narrow, or discard a live LLM decision after the LLM surface has been enabled. The important distinction is:
+
+- `override`: deterministic code replaces or demotes an LLM answer
+- `validation reject`: deterministic code refuses to promote an LLM answer at all
+- `fallback`: deterministic code uses a non-LLM result because the LLM path failed, was incomplete, or never produced a promotable artifact
+- `observability only`: deterministic code records warnings or audits but does not change the final authority
+
+### Cross-stage fallback seams
+
+- `cookimport/staging/pipeline_runtime.py`
+  - `run_recipe_refine_stage(...)` falls back to deterministic recipe projection when the recipe LLM stage raises `CodexFarmRunnerError` and failure mode is `fallback`.
+  - `run_nonrecipe_finalize_stage(...)` falls back to route-only nonrecipe outputs when the knowledge LLM stage raises `CodexFarmRunnerError` and failure mode is `fallback`.
+- `cookimport/parsing/canonical_line_roles/runtime.py`
+  - line-role uses deterministic baseline labels for every row that never gets a validated Codex answer.
+  - partially resolved shards keep accepted Codex rows but fill unresolved rows back from the deterministic baseline via `codex_partial_shard_unresolved`.
+
+### Line-role override seams
+
+Primary owners:
+
+- `cookimport/parsing/canonical_line_roles/policy.py`
+- `cookimport/parsing/canonical_line_roles/validation.py`
+- `cookimport/parsing/canonical_line_roles/runtime.py`
+
+Deterministic baseline always exists first:
+
+- `_build_line_role_deterministic_baseline(...)` builds the repo baseline before any live Codex pass.
+- `_apply_repo_baseline_semantic_policy(...)` already performs deterministic rescue/sanitize rules on that baseline, including:
+  - `KNOWLEDGE -> RECIPE_NOTES` inside recipe when local knowledge support is missing
+  - weak `TIME_LINE`, `YIELD_LINE`, `RECIPE_TITLE`, `RECIPE_VARIANT`, `HOWTO_SECTION`, and `INSTRUCTION_LINE` relabeled to narrower fallback labels
+  - `OTHER` coerced to live-contract labels
+  - outside-recipe `KNOWLEDGE` coerced to `NONRECIPE_CANDIDATE`
+- `_normalize_prediction_metadata(...)` then forces the final line-role contract shape, including the no-raw-`OTHER` / no-raw-outside-`KNOWLEDGE` rules.
+
+Codex-specific override seams after a valid Codex answer exists:
+
+- `_reject_codex_prediction_to_baseline_if_policy_violated(...)` is the direct “Codex said X, repo replaced it with baseline Y” seam.
+  - current rejection reasons are:
+    - `nonrecipe_exclude_inside_recipe_not_allowed`
+    - `knowledge_inside_recipe_not_allowed`
+    - `time_line_not_primary`
+    - `title_without_local_support`
+    - `variant_without_local_support`
+    - `howto_without_local_support`
+    - `instruction_without_local_support`
+    - `knowledge_not_in_live_contract`
+    - `other_not_in_live_contract`
+- runtime applies that rejection only to `decided_by="codex"` rows, and rejected rows are retagged with `codex_policy_rejected:*`.
+
+Validation/promotion seams that can discard or partially replace Codex output:
+
+- `_translate_line_role_output_to_atomic_indices(...)` remaps packet-local `row_id` or obvious local ordinals back onto real `atomic_index` order. Ambiguous mapping fails closed into invalid output.
+- `_evaluate_line_role_response(...)` rejects non-JSON, wrong-shape, missing-row, duplicate-row, unknown-row, and invalid-label outputs.
+- `_apply_line_role_semantic_guard(...)` rejects structurally valid but obviously pathological outside-recipe shards.
+  - when `semantic_pathology_rejected` fires, `_build_line_role_row_resolution(...)` can still promote only the conservative `semantic_containment_rows`.
+  - unresolved rows from that shard then fall back to the deterministic baseline.
+- `_line_role_partial_fallback_atomic_indices(...)` plus `_line_role_partial_shard_fallback_prediction(...)` are the explicit partial-authority seam: accepted Codex rows stay, unresolved rows are replaced by baseline rows.
+
+Recovery seam that changes acceptance state but not semantic labels:
+
+- `runtime_recovery.py` can convert `workspace_final_message_missing_output` into completed if repo-owned shard outputs already prove completion. That changes whether the LLM run is accepted, but it does not relabel rows by itself.
+
+### Recipe override seams
+
+Primary owners:
+
+- `cookimport/llm/recipe_stage_shared.py`
+- `cookimport/staging/pipeline_runtime.py`
+- `cookimport/staging/recipe_ownership.py`
+
+Validation reject seams:
+
+- `_preflight_recipe_shard(...)` can reject a shard before launch when the repo-owned shard payload is malformed.
+- `_validate_recipe_shard_output(...)` requires exact owned `recipe_id` coverage. Missing, duplicate, unexpected, or wrong-shard outputs are not promotable.
+- `_evaluate_recipe_response(...)` only promotes validated shard payloads; invalid shard output becomes non-promoted worker output.
+
+Deterministic authority override seams after recipe output validates:
+
+- `_classify_recipe_authority_eligibility(...)` and `_classify_final_recipe_authority_status(...)` enforce the main promotion rule:
+  - only `repair_status="repaired"` is promotable
+  - valid `fragmentary` and `not_a_recipe` outputs are explicitly `not_promoted`
+- `_validate_recipe_output_divestments(...)` forces non-promotable recipe outcomes to divest every owned block back to nonrecipe and forbids a `repaired` result from divesting its entire owned surface.
+  - this is the main deterministic bridge where recipe LLM decisions can hand blocks back to nonrecipe authority.
+- in `run_codex_farm_recipe_pipeline(...)`, any validated recipe result whose `repair_status != "repaired"` is accepted as a valid task outcome but still removed from final recipe authority.
+  - the recipe candidate is dropped from `conversion_result.recipes`
+  - its divested blocks remain available to later nonrecipe routing/finalize
+- deterministic final assembly is authoritative even after a `repaired` result:
+  - `build_authoritative_recipe_semantics(...)`
+  - `authoritative_recipe_semantics_to_draft_v1(...)`
+  - `RecipeDraftV1.model_validate(...)`
+  if deterministic final assembly fails, the LLM recipe does not promote.
+
+Observability-only recipe seams:
+
+- `_classify_recipe_correction_structural_audit(...)` records degraded states such as `placeholder_title`, `placeholder_steps_only`, or `empty_mapping_without_reason`, but those audits do not themselves demote a promoted recipe.
+- mapping-status classification is also observability only.
+
+Bypass-but-not-override seam:
+
+- `_build_deterministic_terminal_recipe_task_payload(...)` / `handled_locally_skip_llm` lets repo code finalize obvious terminal non-promotable scaffolds without dispatching a worker. That is a deterministic bypass, not an override of an LLM answer.
+
+### Knowledge and nonrecipe override seams
+
+Primary owners:
+
+- `cookimport/llm/knowledge_stage/task_file_contracts.py`
+- `cookimport/llm/codex_farm_knowledge_ingest.py`
+- `cookimport/llm/knowledge_stage/promotion.py`
+- `cookimport/staging/nonrecipe_stage.py`
+- `cookimport/staging/nonrecipe_authority.py`
+
+Classification-time override seams:
+
+- `validate_knowledge_classification_task_file(...)` normalizes the worker grounding payload and can drop invalid grounding fields while keeping the row alive.
+- if a row is labeled `knowledge` but deterministic grounding normalization leaves no surviving existing tag and no surviving proposed tag, repo code demotes that row to canonical `other`.
+  - demotion reasons are currently:
+    - `missing_grounding`
+    - `invalid_grounding_dropped_to_empty`
+- `knowledge_category_only_grounding` fails closed instead of letting category keys alone keep a `knowledge` decision.
+- `other_grounding_forbidden` fails closed if an `other` row still carries grounding metadata.
+
+Grouping and shard-validation reject seams:
+
+- `validate_knowledge_grouping_task_file(...)` rejects kept-knowledge rows that do not receive both `group_key` and `topic_label`.
+- `validate_knowledge_shard_output(...)` requires exact packet coverage, exact block-decision coverage/order, valid grounding keys, and valid grouping.
+  - current reject paths include missing/unexpected packet results, missing/unexpected block decisions, unknown grounding keys, missing groups, conflicting groups, and groups attached to non-knowledge blocks.
+- `classify_knowledge_validation_failure(...)` decides whether invalid knowledge output is a repairable near miss or a hard invalid result.
+
+Partial-promotion seam:
+
+- `extract_promotable_knowledge_bundles(...)` can partially promote only the validated packet results from a multi-packet wrapper.
+  - valid packet ids keep their LLM decisions
+  - missing or invalid packet ids stay unpromoted and unresolved
+
+Promotion/staging override seams after packet validation:
+
+- `_collect_block_grounding_details(...)` in `knowledge_stage/promotion.py` keeps only final `category="knowledge"` rows as knowledge authority; `other` rows are counted as retrieval-gate rejections and do not contribute grounding/group outputs.
+- `refine_nonrecipe_stage_result(...)` only applies category updates to the deterministic candidate queue. Any attempted update on a non-candidate block is ignored.
+- `build_nonrecipe_authority_result(...)` forces all excluded rows to final `other` even if some later map tried to carry them as `knowledge`.
+- `_resolve_available_nonrecipe_route_label(...)` in `nonrecipe_stage.py` converts divested recipe-local labels back to `NONRECIPE_CANDIDATE` for outside-recipe review instead of letting recipe-local labels leak into nonrecipe routing.
+- recipe-owned blocks are forbidden from entering nonrecipe routing at all; if a later LLM output implies that, staging raises an ownership invariant instead of accepting it.
+
+Observability-only knowledge seams:
+
+- grounding-drop details, grounding-gate demotion counts, and proposal rollups are reporting surfaces only.
+- `09_nonrecipe_finalize_status.json` records unresolved candidate rows but does not itself relabel them.
+
+### Prelabel override seams
+
+Primary owners:
+
+- `cookimport/labelstudio/prelabel_parse.py`
+- `cookimport/labelstudio/prelabel_mapping.py`
+- `cookimport/labelstudio/prelabel.py`
+
+Narrow normalization/repair seams:
+
+- `_normalize_prelabel_selection_label(...)` normalizes worker label aliases such as `YIELD -> YIELD_LINE`, `TIME -> TIME_LINE`, `TIP -> KNOWLEDGE`, and `VARIANT -> RECIPE_VARIANT`.
+- `parse_block_label_output(...)` and `parse_span_label_output(...)` dedupe repeated selections and drop malformed items instead of promoting them.
+- `_build_results_for_block_mode(...)` and `_build_results_for_span_mode(...)` keep only allowed labels and only focus-block selections; out-of-scope or invalid selections are discarded.
+- `_repair_quote_selection(...)` is the one deterministic location-repair seam:
+  - if the worker points a quote at the wrong focus block but the same quote resolves uniquely in a nearby or uniquely matching focus block, repo code repairs the block assignment
+  - if the quote is ambiguous or cannot be resolved safely, repo code drops that selection
+
+What prelabel does not do:
+
+- it does not run a semantic fallback baseline like line-role
+- it does not rewrite one valid freeform label into another based on cookbook semantics beyond the explicit alias normalization above
+
+### Non-overrides worth keeping straight
+
+These are often confused with semantic overrides, but they are not:
+
+- benchmark scoring and scorer artifact assembly
+- recipe structural audits
+- line-role/knowledge telemetry summaries
+- stage observability rollups
+
+Those surfaces can explain that a decision was rejected, demoted, or never promoted, but they are not the place where the semantic authority changed.
+
 ## Prediction-run versus stage boundary
 
 - Stage/import runs can execute recipe Codex and optional knowledge extraction.
@@ -166,6 +351,7 @@ Benchmark split:
   - canonical line-role Codex labeling
   - freeform prelabel
 - `prompt_budget_summary.json` should preserve CodexFarm split token totals (`tokens_input`, `tokens_cached_input`, `tokens_output`) from per-call telemetry rows when they are present in the prediction manifest.
+- line-role prompt-budget summaries should now also preserve Codex policy/transport metadata (`codex_transport`, `codex_policy_mode`, `codex_shell_tool_enabled`) plus execution-count rollups such as `taskfile_session_count` and `structured_followup_call_count` when that stage is summarized from `line-role-pipeline/telemetry_summary.json`.
 
 ## Plain-English Pipeline
 

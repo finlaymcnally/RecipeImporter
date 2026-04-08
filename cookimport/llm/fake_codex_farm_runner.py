@@ -249,6 +249,8 @@ def _default_structured_line_role_output(payload: Mapping[str, Any]) -> dict[str
         )
         if isinstance(row, Mapping)
     ]
+    if rows:
+        return {"labels": ["RECIPE_NOTES" for _row in rows]}
     output_rows: list[dict[str, Any]] = []
     for row in rows:
         row_id = str(row.get("row_id") or "").strip()

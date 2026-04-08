@@ -61,6 +61,7 @@ from cookimport.parsing.canonical_line_roles import (
     LINE_ROLE_CODEX_BATCH_SIZE_DEFAULT,
     build_line_role_debug_input_payload,
     build_line_role_model_input_payload,
+    sanitize_pre_grouping_line_role_candidates,
 )
 from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel, RecipeSpan
 from cookimport.parsing.recipe_block_atomizer import (
@@ -1076,7 +1077,7 @@ def _build_line_role_candidates_from_labeled_lines(
                 block_index=block_index,
                 atomic_index=int(row.get("atomic_index", position)),
                 text=str(row.get("text") or ""),
-                within_recipe_span=row.get("within_recipe_span_hint"),
+                within_recipe_span=None,
                 rule_tags=[
                     str(tag)
                     for tag in row.get("reason_tags") or []
@@ -1084,7 +1085,7 @@ def _build_line_role_candidates_from_labeled_lines(
                 ],
             )
         )
-    return output
+    return sanitize_pre_grouping_line_role_candidates(output)
 
 
 def _line_role_preview_deterministic_labels(

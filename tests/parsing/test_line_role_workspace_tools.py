@@ -53,6 +53,31 @@ def test_line_role_workspace_shard_metadata_sets_owned_paths() -> None:
     assert metadata["owned_row_count"] == 1
 
 
+def test_line_role_validation_accepts_ordered_label_vector() -> None:
+    shard_row = {
+        "input_payload": {
+            "rows": [
+                [10, "L1", "Salt"],
+                [11, "L2", "Stir."],
+            ]
+        }
+    }
+
+    errors, metadata = validate_line_role_output_payload(
+        shard_row,
+        {"labels": ["INGREDIENT_LINE", "INSTRUCTION_LINE"]},
+    )
+
+    assert errors == ()
+    assert metadata["ordered_label_vector"] == {
+        "applied": True,
+        "returned_label_count": 2,
+        "expected_row_count": 2,
+    }
+    assert metadata["accepted_atomic_indices"] == [10, 11]
+    assert metadata["unresolved_atomic_indices"] == []
+
+
 def test_line_role_workspace_scaffold_can_load_rows_from_metadata_input_path(
     tmp_path: Path,
 ) -> None:

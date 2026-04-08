@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from cookimport.llm.editable_task_file import build_task_file, load_task_file, write_task_file
+from cookimport.llm.editable_task_file import build_task_file, write_task_file
 from cookimport.llm.knowledge_stage.task_file_contracts import (
     build_knowledge_classification_task_file,
 )
@@ -95,10 +95,9 @@ def test_queue_helpers_are_unavailable_for_direct_batch_classification(
         )
 
 
-def test_task_template_and_apply_still_work_for_recipe_stage(
+def test_task_template_and_apply_are_unavailable_for_recipe_stage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     task_file = build_task_file(
         stage_key="recipe_refine",
@@ -122,26 +121,10 @@ def test_task_template_and_apply_still_work_for_recipe_stage(
     write_task_file(path=tmp_path / "task.json", payload=task_file)
     monkeypatch.chdir(tmp_path)
 
-    assert single_file_command_main(["task-template", "answers.json"]) == 0
-    template_result = json.loads(capsys.readouterr().out)
-    assert template_result["status"] == "template_written"
-    assert template_result["unit_count"] == 1
-    assert "unit_ids" not in template_result
-    template_payload = json.loads((tmp_path / "answers.json").read_text(encoding="utf-8"))
-    assert template_payload["answers_by_unit_id"]["line::0"] == {"label": None}
-
-    (tmp_path / "answers.json").write_text(
-        json.dumps({"answers_by_unit_id": {"line::0": {"label": "RECIPE_NOTES"}}}),
-        encoding="utf-8",
-    )
-    assert single_file_command_main(["task-apply", "answers.json"]) == 0
-    apply_result = json.loads(capsys.readouterr().out)
-    assert apply_result["status"] == "answers_applied"
-    assert apply_result["applied_count"] == 1
-    assert apply_result["remaining_units"] == 0
-    assert "applied_unit_ids" not in apply_result
-    updated = load_task_file(tmp_path / "task.json")
-    assert updated["units"][0]["answer"] == {"label": "RECIPE_NOTES"}
+    with pytest.raises(SystemExit, match="edit task.json directly"):
+        single_file_command_main(["task-template", "answers.json"])
+    with pytest.raises(SystemExit, match="edit task.json directly"):
+        single_file_command_main(["task-apply", "answers.json"])
 
 
 def test_task_apply_is_unavailable_for_classification(

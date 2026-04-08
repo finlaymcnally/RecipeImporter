@@ -199,6 +199,35 @@ def test_build_stage_block_predictions_ignores_nonrecipe_finalize_other_blocks()
     assert payload["block_labels"]["8"] == "OTHER"
 
 
+def test_build_stage_block_predictions_ignores_divested_non_promoted_recipe_entries() -> None:
+    result = _build_result()
+    recipe_id = str(result.recipes[0].identifier)
+
+    payload = build_stage_block_predictions(
+        result,
+        "simple",
+        recipe_ownership_result=make_recipe_ownership_result(
+            owned_by_recipe_id={
+                recipe_id: list(range(8)),
+                "urn:recipe:test:divested": [],
+            },
+            divested_by_recipe_id={"urn:recipe:test:divested": [8]},
+            all_block_indices=list(range(9)),
+        ),
+        nonrecipe_stage_result=make_stage_result(
+            seed=make_seed_result({8: "candidate"}),
+            routing=make_routing_result(candidate_block_indices=[8]),
+            authority=make_authority_result({8: "knowledge"}),
+            candidate_status=make_candidate_status_result(
+                finalized_candidate_block_indices=[8],
+                unresolved_candidate_route_by_index={},
+            ),
+        ),
+    )
+
+    assert payload["block_labels"]["8"] == "KNOWLEDGE"
+
+
 def test_build_stage_block_predictions_ignores_unresolved_candidate_knowledge() -> None:
     result = _build_result()
 

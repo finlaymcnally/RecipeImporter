@@ -498,8 +498,8 @@ def _line_role_structured_row_maps(
 
 def _line_role_structured_packet_rows(shard: root.ShardManifestEntryV1) -> list[dict[str, root.Any]]:
     rows: list[dict[str, root.Any]] = []
-    for index, (_atomic_index, text) in enumerate(_line_role_structured_input_rows(shard)):
-        rows.append({"row_id": _line_role_structured_row_id(index), "text": text})
+    for _atomic_index, text in _line_role_structured_input_rows(shard):
+        rows.append({"text": text})
     return rows
 
 
@@ -523,7 +523,7 @@ def _build_line_role_structured_packet(*, shard: root.ShardManifestEntryV1, pack
         deterministic_baseline_by_atomic_index=dict(deterministic_baseline_by_atomic_index or {}),
     )
     payload: dict[str, root.Any] = {
-        "schema_version": "line_role_structured_packet.v1",
+        "schema_version": "line_role_structured_packet.v2",
         "stage_key": "line_role",
         "packet_kind": str(packet_kind or "initial"),
         "shard_id": shard.shard_id,
@@ -595,25 +595,11 @@ def _build_line_role_structured_prompt(*, packet: root.Mapping[str, root.Any]) -
         )
     owned_rows = packet.get("rows") or []
     owned_row_count = len(owned_rows) if isinstance(owned_rows, list) else 0
-    first_row_id = ""
-    last_row_id = ""
-    if owned_rows:
-        first_row = owned_rows[0] if isinstance(owned_rows[0], root.Mapping) else {}
-        last_row = owned_rows[-1] if isinstance(owned_rows[-1], root.Mapping) else {}
-        first_row_id = str(first_row.get("row_id") or "").strip()
-        last_row_id = str(last_row.get("row_id") or "").strip()
-    owned_row_count_note = (
-        f"This packet has {owned_row_count} owned row(s)"
-        + (
-            f" (`{first_row_id}` through `{last_row_id}`)."
-            if first_row_id and last_row_id
-            else "."
-        )
-    )
+    owned_row_count_note = f"This packet has {owned_row_count} owned row(s) in reading order."
     return (
         "Return JSON only.\n\n"
         "Review the canonical line-role packet and respond with one JSON object shaped like:\n"
-        '{"rows":[{"row_id":"<PACKET_ROW_ID>","label":"<ALLOWED_LABEL>"}]}\n\n'
+        '{"labels":["<ALLOWED_LABEL>","<ALLOWED_LABEL>"]}\n\n'
         "Shared labeling contract:\n"
         + shared_contract
         + "\n\n"
@@ -621,9 +607,12 @@ def _build_line_role_structured_prompt(*, packet: root.Mapping[str, root.Any]) -
         + "Rules:\n"
         f"- Allowed labels: {allowed_labels}\n"
         f"- {owned_row_count_note}\n"
-        "- Cover every owned `row_id` in this packet exactly once.\n"
-        "- Do not copy the placeholder schema literally; replace it with the full packet-local row coverage for this shard.\n"
-        f"- {context_note}Return only `row_id` and `label` for each owned row.\n"
+        f"- Return exactly {owned_row_count} label(s): one for each owned row shown in `rows`.\n"
+        "- Keep label order exactly aligned with the packet `rows` order.\n"
+        "- Finish the full owned-row list; do not stop early.\n"
+        "- Do not copy the placeholder schema literally; replace it with the full ordered label list for this shard.\n"
+        f"- {context_note}Do not label any `context_before_rows` or `context_after_rows`; they are reference-only.\n"
+        "- Return only the top-level `labels` array.\n"
         "- Do not include commentary, markdown, or extra keys.\n\n"
         + repair_note
         + repair_focus_note
@@ -675,6 +664,115 @@ def _line_role_structured_response_contract_metadata(
     }
 
 
+def _translate_line_role_structured_packet_local_ordinal_rows(
+    *,
+    rows_payload: root.Sequence[root.Any],
+    ordered_row_ids: root.Sequence[str],
+    atomic_index_by_row_id: root.Mapping[str, int],
+) -> tuple[list[dict[str, root.Any]] | None, dict[str, root.Any] | None]:
+    if not rows_payload:
+        return None, None
+    normalized_rows: list[dict[str, root.Any]] = []
+    ordinal_values: list[int] = []
+    for row_payload in rows_payload:
+        if not isinstance(row_payload, root.Mapping):
+            return None, None
+        row_dict = dict(row_payload)
+        if str(row_dict.get("row_id") or "").strip():
+            return None, None
+        if row_dict.get("atomic_index") is None:
+            return None, None
+        try:
+            ordinal_value = int(row_dict.get("atomic_index"))
+        except (TypeError, ValueError):
+            return None, None
+        normalized_rows.append(row_dict)
+        ordinal_values.append(ordinal_value)
+    row_count = len(ordered_row_ids)
+    returned_row_count = len(normalized_rows)
+    if row_count == 0 or returned_row_count == 0 or returned_row_count > row_count + 1:
+        return None, None
+    ordinal_base: int | None = None
+    if ordinal_values == list(range(returned_row_count)):
+        ordinal_base = 0
+    elif ordinal_values == list(range(1, returned_row_count + 1)):
+        ordinal_base = 1
+    if ordinal_base is None:
+        return None, None
+    trimmed_trailing_row_count = 0
+    translated_source_rows = normalized_rows
+    translated_ordinal_values = ordinal_values
+    if returned_row_count == row_count + 1:
+        expected_with_spill = list(range(ordinal_base, ordinal_base + returned_row_count))
+        if ordinal_values != expected_with_spill:
+            return None, None
+        trimmed_trailing_row_count = 1
+        translated_source_rows = normalized_rows[:row_count]
+        translated_ordinal_values = ordinal_values[:row_count]
+    translated_rows: list[dict[str, root.Any]] = []
+    returned_row_ids: list[str] = []
+    for row_dict, ordinal_value in zip(
+        translated_source_rows,
+        translated_ordinal_values,
+        strict=False,
+    ):
+        ordered_index = ordinal_value - ordinal_base
+        if ordered_index < 0 or ordered_index >= row_count:
+            return None, None
+        row_id = str(ordered_row_ids[ordered_index])
+        returned_row_ids.append(row_id)
+        translated_rows.append(
+            {
+                "atomic_index": int(atomic_index_by_row_id[row_id]),
+                "label": row_dict.get("label"),
+            }
+        )
+    missing_row_ids = [
+        row_id for row_id in ordered_row_ids if row_id not in set(returned_row_ids)
+    ]
+    response_mode = "complete"
+    if trimmed_trailing_row_count:
+        response_mode = "trimmed_trailing_spill"
+    elif len(translated_rows) < row_count:
+        response_mode = "prefix"
+    return translated_rows, {
+        "returned_row_ids": returned_row_ids,
+        "missing_row_ids": missing_row_ids,
+        "duplicate_row_ids": [],
+        "unknown_row_ids": [],
+        "atomic_index_alias_salvage": {
+            "applied": True,
+            "alias_kind": "packet_local_ordinal",
+            "ordinal_base": ordinal_base,
+            "salvaged_row_count": len(translated_rows),
+            "returned_row_count": returned_row_count,
+            "expected_row_count": row_count,
+            "response_mode": response_mode,
+            "trimmed_trailing_row_count": trimmed_trailing_row_count,
+        },
+    }
+
+
+def _translate_line_role_structured_labels_payload(
+    *,
+    labels_payload: root.Sequence[root.Any],
+    ordered_atomic_indices: root.Sequence[int],
+) -> tuple[list[dict[str, root.Any]], dict[str, root.Any]]:
+    translated_rows: list[dict[str, root.Any]] = []
+    for index, label_value in enumerate(labels_payload):
+        row_payload: dict[str, root.Any] = {"label": label_value}
+        if index < len(ordered_atomic_indices):
+            row_payload["atomic_index"] = int(ordered_atomic_indices[index])
+        translated_rows.append(row_payload)
+    return translated_rows, {
+        "ordered_label_vector": {
+            "applied": True,
+            "returned_label_count": len(labels_payload),
+            "expected_row_count": len(ordered_atomic_indices),
+        }
+    }
+
+
 def _evaluate_line_role_structured_response(
     *,
     shard: root.ShardManifestEntryV1,
@@ -696,64 +794,81 @@ def _evaluate_line_role_structured_response(
             {"response_type": type(parsed_payload).__name__},
             "invalid",
         )
+    labels_payload = parsed_payload.get("labels")
     rows_payload = parsed_payload.get("rows")
-    if not isinstance(rows_payload, list):
-        return None, ("rows_missing_or_not_a_list",), {}, "invalid"
+    if not isinstance(labels_payload, list) and not isinstance(rows_payload, list):
+        return None, ("labels_or_rows_missing_or_not_a_list",), {}, "invalid"
     (
         _row_id_by_atomic_index,
         atomic_index_by_row_id,
-        text_by_atomic_index,
+        _text_by_atomic_index,
         ordered_row_ids,
     ) = _line_role_structured_row_maps(shard)
+    ordered_atomic_indices = [int(value) for value in shard.owned_ids]
     translated_rows: list[dict[str, root.Any]] = []
     seen_row_ids: set[str] = set()
     duplicate_row_ids: set[str] = set()
     unknown_row_ids: set[str] = set()
     valid_row_ids: list[str] = []
-    for row_payload in rows_payload:
-        if not isinstance(row_payload, root.Mapping):
-            return None, ("row_not_a_json_object",), {}, "invalid"
-        row_id = str(row_payload.get("row_id") or "").strip()
-        if not row_id:
-            return None, ("row_id_missing",), {}, "invalid"
-        if row_id in seen_row_ids:
-            duplicate_row_ids.add(row_id)
-            continue
-        seen_row_ids.add(row_id)
-        atomic_index = atomic_index_by_row_id.get(row_id)
-        if atomic_index is None:
-            unknown_row_ids.add(row_id)
-            continue
-        valid_row_ids.append(row_id)
-        translated_row = {"atomic_index": atomic_index, "label": row_payload.get("label")}
-        translated_rows.append(translated_row)
-    missing_row_ids = [row_id for row_id in ordered_row_ids if row_id not in set(valid_row_ids)]
-    response_contract_errors, response_contract_metadata = (
-        _line_role_structured_response_contract_metadata(
-            shard=shard,
-            missing_row_ids=missing_row_ids,
-            duplicate_row_ids=sorted(duplicate_row_ids),
-            unknown_row_ids=sorted(unknown_row_ids),
+    salvage_metadata: dict[str, root.Any] = {}
+    response_contract_errors: tuple[str, ...] = ()
+    response_contract_metadata: dict[str, root.Any] = {}
+    if isinstance(labels_payload, list):
+        translated_rows, response_contract_metadata = (
+            _translate_line_role_structured_labels_payload(
+                labels_payload=labels_payload,
+                ordered_atomic_indices=ordered_atomic_indices,
+            )
         )
-    )
+    elif isinstance(rows_payload, list):
+        translated_ordinal_rows, ordinal_metadata_raw = _translate_line_role_structured_packet_local_ordinal_rows(
+            rows_payload=rows_payload,
+            ordered_row_ids=ordered_row_ids,
+            atomic_index_by_row_id=atomic_index_by_row_id,
+        )
+        salvaged_row_mode = translated_ordinal_rows is not None
+        if translated_ordinal_rows is not None:
+            translated_rows = translated_ordinal_rows
+            salvage_metadata = dict(ordinal_metadata_raw or {})
+            valid_row_ids = list(salvage_metadata.get("returned_row_ids") or [])
+        for row_payload in rows_payload:
+            if salvaged_row_mode:
+                break
+            if not isinstance(row_payload, root.Mapping):
+                return None, ("row_not_a_json_object",), {}, "invalid"
+            row_id = str(row_payload.get("row_id") or "").strip()
+            if not row_id:
+                return None, ("row_id_missing",), {}, "invalid"
+            if row_id in seen_row_ids:
+                duplicate_row_ids.add(row_id)
+                continue
+            seen_row_ids.add(row_id)
+            atomic_index = atomic_index_by_row_id.get(row_id)
+            if atomic_index is None:
+                unknown_row_ids.add(row_id)
+                continue
+            valid_row_ids.append(row_id)
+            translated_row = {"atomic_index": atomic_index, "label": row_payload.get("label")}
+            translated_rows.append(translated_row)
+        missing_row_ids = [row_id for row_id in ordered_row_ids if row_id not in set(valid_row_ids)]
+        response_contract_errors, response_contract_metadata = (
+            _line_role_structured_response_contract_metadata(
+                shard=shard,
+                missing_row_ids=missing_row_ids,
+                duplicate_row_ids=sorted(duplicate_row_ids),
+                unknown_row_ids=sorted(unknown_row_ids),
+            )
+        )
+        if translated_rows and salvage_metadata:
+            response_contract_metadata = {
+                **response_contract_metadata,
+                **salvage_metadata,
+            }
     validation_metadata: dict[str, root.Any] = {}
     validation_errors: tuple[str, ...] = ()
     if translated_rows:
-        validation_input_rows = [
-            [int(row["atomic_index"]), text_by_atomic_index.get(int(row["atomic_index"]), "")]
-            for row in translated_rows
-            if row.get("atomic_index") is not None
-        ]
-        validation_shard = root.ShardManifestEntryV1(
-            shard_id=shard.shard_id,
-            owned_ids=tuple(str(row[0]) for row in validation_input_rows),
-            evidence_refs=tuple(shard.evidence_refs),
-            input_payload={"rows": validation_input_rows},
-            input_text=shard.input_text,
-            metadata=dict(shard.metadata or {}),
-        )
         valid, validation_errors, validation_metadata_raw = validator(
-            validation_shard,
+            shard,
             {"rows": translated_rows},
         )
         del valid
@@ -885,15 +1000,21 @@ def _run_line_role_structured_assignment_v1(*, run_root: root.Path, assignment: 
         final_validation_metadata = dict(initial_validation_metadata or {})
         repair_attempted = False
         repair_status = 'not_attempted'
-        if root._should_attempt_line_role_repair(proposal_status=proposal_status, validation_errors=initial_validation_errors):
-            unresolved_atomic_indices = [
-                int(value)
-                for value in (
-                    (initial_validation_metadata or {}).get('unresolved_atomic_indices')
-                    or [int(value) for value in shard.owned_ids]
-                )
-                if str(value).strip()
-            ]
+        unresolved_atomic_indices = [
+            int(value)
+            for value in (
+                (initial_validation_metadata or {}).get('unresolved_atomic_indices')
+                or [int(value) for value in shard.owned_ids]
+            )
+            if str(value).strip()
+        ]
+        should_attempt_repair = root._should_attempt_line_role_repair(
+            proposal_status=proposal_status,
+            validation_errors=initial_validation_errors,
+        ) or (
+            proposal_status == 'invalid' and bool(unresolved_atomic_indices)
+        )
+        if should_attempt_repair:
             repair_followup_limit = root.structured_repair_followup_limit(stage_key=root.LINE_ROLE_POLICY_STAGE_KEY)
             for repair_attempt_index in range(1, repair_followup_limit + 1):
                 if not unresolved_atomic_indices:
@@ -1268,6 +1389,38 @@ def _line_role_command_policy_counts(value: root.Any) -> dict[str, int]:
         counts[policy] = int(counts.get(policy) or 0) + 1
     return dict(sorted(counts.items()))
 
+def _line_role_direct_summary_policy_fields(summary: root.Mapping[str, root.Any]) -> dict[str, root.Any]:
+    payload: dict[str, root.Any] = {}
+    for key in (
+        'taskfile_session_count',
+        'structured_followup_call_count',
+        'structured_repair_followup_call_count',
+        'watchdog_retry_call_count',
+        'structured_followup_tokens_total',
+    ):
+        value = root._safe_int_value(summary.get(key))
+        if value is not None:
+            payload[key] = value
+    for key in (
+        'codex_transport',
+        'codex_policy_mode',
+    ):
+        value = str(summary.get(key) or '').strip()
+        if value:
+            payload[key] = value
+    shell_tool_enabled = summary.get('codex_shell_tool_enabled')
+    if shell_tool_enabled is not None:
+        payload['codex_shell_tool_enabled'] = bool(shell_tool_enabled)
+    for key in (
+        'codex_transport_counts',
+        'codex_policy_mode_counts',
+        'codex_shell_tool_enabled_counts',
+    ):
+        counts = summary.get(key)
+        if isinstance(counts, dict):
+            payload[key] = dict(sorted(counts.items()))
+    return payload
+
 def _aggregate_line_role_worker_runner_payload(*, pipeline_id: str, worker_runs: root.Sequence[dict[str, root.Any]]) -> dict[str, root.Any]:
     rows: list[dict[str, root.Any]] = []
     for worker_run in worker_runs:
@@ -1313,7 +1466,7 @@ def _write_line_role_telemetry_summary(*, artifact_root: root.Path | None, runti
                     if not root._line_role_usage_present(attempt_usage):
                         attempt_usage = None
             batch_payloads.append({'prompt_index': plan.prompt_index, 'shard_id': plan.shard_id, 'candidate_count': len(plan.candidates), 'requested_atomic_indices': [int(candidate.atomic_index) for candidate in plan.candidates], 'attempt_count': len(matching_rows) or 1, 'attempts_with_usage': 1 if root._line_role_usage_present(attempt_usage) else 0, 'attempts': [{'attempt_index': 1, 'response_present': bool(str(runner_payload.get('response_text') or '').strip()), 'returncode': root._safe_int_value(runner_payload.get('subprocess_exit_code')), 'turn_failed_message': runner_payload.get('turn_failed_message'), 'usage': attempt_usage, 'process_run': runner_payload}]})
-        phase_payloads.append({'phase_key': phase_result.phase_key, 'phase_label': phase_result.phase_label, 'summary': {'batch_count': len(phase_result.shard_plans), 'attempt_count': len(telemetry_rows) or len(phase_result.shard_plans), 'attempts_with_usage': sum((1 for row in telemetry_rows if root._line_role_usage_present(row))), 'attempts_without_usage': max(0, (len(telemetry_rows) or len(phase_result.shard_plans)) - sum((1 for row in telemetry_rows if root._line_role_usage_present(row)))), 'tokens_input': phase_totals.get('tokens_input'), 'tokens_cached_input': phase_totals.get('tokens_cached_input'), 'tokens_output': phase_totals.get('tokens_output'), 'tokens_reasoning': phase_totals.get('tokens_reasoning'), 'tokens_total': phase_totals.get('tokens_total'), 'visible_input_tokens': phase_totals.get('visible_input_tokens'), 'visible_output_tokens': phase_totals.get('visible_output_tokens'), 'wrapper_overhead_tokens': phase_totals.get('wrapper_overhead_tokens'), 'command_execution_count_total': phase_direct_summary.get('command_execution_count_total'), 'command_executing_shard_count': phase_direct_summary.get('command_executing_shard_count'), 'command_execution_tokens_total': phase_direct_summary.get('command_execution_tokens_total'), 'reasoning_item_count_total': phase_direct_summary.get('reasoning_item_count_total'), 'reasoning_heavy_shard_count': phase_direct_summary.get('reasoning_heavy_shard_count'), 'reasoning_heavy_tokens_total': phase_direct_summary.get('reasoning_heavy_tokens_total'), 'invalid_output_shard_count': phase_direct_summary.get('invalid_output_shard_count'), 'invalid_output_tokens_total': phase_direct_summary.get('invalid_output_tokens_total'), 'missing_output_shard_count': phase_direct_summary.get('missing_output_shard_count'), 'preflight_rejected_shard_count': phase_direct_summary.get('preflight_rejected_shard_count'), 'watchdog_killed_shard_count': phase_direct_summary.get('watchdog_killed_shard_count'), 'watchdog_recovered_shard_count': phase_direct_summary.get('watchdog_recovered_shard_count'), 'repaired_shard_count': phase_direct_summary.get('repaired_shard_count'), 'pathological_shard_count': phase_direct_summary.get('pathological_shard_count'), 'pathological_flags': phase_direct_summary.get('pathological_flags'), 'prompt_input_mode': 'inline', 'request_input_file_bytes_total': phase_totals.get('request_input_file_bytes_total')}, 'batches': batch_payloads, 'runtime_artifacts': {'runtime_root': str(phase_result.runtime_root.relative_to(artifact_root)) if phase_result.runtime_root is not None else None, 'invalid_shard_count': phase_result.invalid_shard_count, 'missing_output_shard_count': phase_result.missing_output_shard_count, 'worker_count': len(phase_result.worker_reports)}})
+        phase_payloads.append({'phase_key': phase_result.phase_key, 'phase_label': phase_result.phase_label, 'summary': {'batch_count': len(phase_result.shard_plans), 'attempt_count': len(telemetry_rows) or len(phase_result.shard_plans), 'attempts_with_usage': sum((1 for row in telemetry_rows if root._line_role_usage_present(row))), 'attempts_without_usage': max(0, (len(telemetry_rows) or len(phase_result.shard_plans)) - sum((1 for row in telemetry_rows if root._line_role_usage_present(row)))), 'tokens_input': phase_totals.get('tokens_input'), 'tokens_cached_input': phase_totals.get('tokens_cached_input'), 'tokens_output': phase_totals.get('tokens_output'), 'tokens_reasoning': phase_totals.get('tokens_reasoning'), 'tokens_total': phase_totals.get('tokens_total'), 'visible_input_tokens': phase_totals.get('visible_input_tokens'), 'visible_output_tokens': phase_totals.get('visible_output_tokens'), 'wrapper_overhead_tokens': phase_totals.get('wrapper_overhead_tokens'), 'command_execution_count_total': phase_direct_summary.get('command_execution_count_total'), 'command_executing_shard_count': phase_direct_summary.get('command_executing_shard_count'), 'command_execution_tokens_total': phase_direct_summary.get('command_execution_tokens_total'), 'reasoning_item_count_total': phase_direct_summary.get('reasoning_item_count_total'), 'reasoning_heavy_shard_count': phase_direct_summary.get('reasoning_heavy_shard_count'), 'reasoning_heavy_tokens_total': phase_direct_summary.get('reasoning_heavy_tokens_total'), 'invalid_output_shard_count': phase_direct_summary.get('invalid_output_shard_count'), 'invalid_output_tokens_total': phase_direct_summary.get('invalid_output_tokens_total'), 'missing_output_shard_count': phase_direct_summary.get('missing_output_shard_count'), 'preflight_rejected_shard_count': phase_direct_summary.get('preflight_rejected_shard_count'), 'watchdog_killed_shard_count': phase_direct_summary.get('watchdog_killed_shard_count'), 'watchdog_recovered_shard_count': phase_direct_summary.get('watchdog_recovered_shard_count'), 'repaired_shard_count': phase_direct_summary.get('repaired_shard_count'), 'pathological_shard_count': phase_direct_summary.get('pathological_shard_count'), 'pathological_flags': phase_direct_summary.get('pathological_flags'), 'prompt_input_mode': 'inline', 'request_input_file_bytes_total': phase_totals.get('request_input_file_bytes_total'), **_line_role_direct_summary_policy_fields(phase_direct_summary)}, 'batches': batch_payloads, 'runtime_artifacts': {'runtime_root': str(phase_result.runtime_root.relative_to(artifact_root)) if phase_result.runtime_root is not None else None, 'invalid_shard_count': phase_result.invalid_shard_count, 'missing_output_shard_count': phase_result.missing_output_shard_count, 'worker_count': len(phase_result.worker_reports)}})
     totals = root._sum_runtime_usage(all_rows)
     direct_summary = root._summarize_direct_rows(all_rows)
-    summary_path.write_text(root.json.dumps({'schema_version': 1, 'pipeline': root.LINE_ROLE_PIPELINE_ROUTE_V2, 'codex_backend': 'codex_exec_direct', 'codex_farm_pipeline_id': root._LINE_ROLE_CODEX_FARM_PIPELINE_ID, 'runtime_mode': root.DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, 'token_usage_enabled': bool(all_rows), 'summary': {'batch_count': sum((len(phase_result.shard_plans) for phase_result in runtime_result.phase_results)), 'attempt_count': len(all_rows) or sum((len(phase_result.shard_plans) for phase_result in runtime_result.phase_results)), 'attempts_with_usage': sum((1 for row in all_rows if root._line_role_usage_present(row))), 'attempts_without_usage': max(0, (len(all_rows) or sum((len(phase_result.shard_plans) for phase_result in runtime_result.phase_results))) - sum((1 for row in all_rows if root._line_role_usage_present(row)))), 'tokens_input': totals.get('tokens_input'), 'tokens_cached_input': totals.get('tokens_cached_input'), 'tokens_output': totals.get('tokens_output'), 'tokens_reasoning': totals.get('tokens_reasoning'), 'tokens_total': totals.get('tokens_total'), 'visible_input_tokens': totals.get('visible_input_tokens'), 'visible_output_tokens': totals.get('visible_output_tokens'), 'wrapper_overhead_tokens': totals.get('wrapper_overhead_tokens'), 'command_execution_count_total': direct_summary.get('command_execution_count_total'), 'command_executing_shard_count': direct_summary.get('command_executing_shard_count'), 'command_execution_tokens_total': direct_summary.get('command_execution_tokens_total'), 'reasoning_item_count_total': direct_summary.get('reasoning_item_count_total'), 'reasoning_heavy_shard_count': direct_summary.get('reasoning_heavy_shard_count'), 'reasoning_heavy_tokens_total': direct_summary.get('reasoning_heavy_tokens_total'), 'invalid_output_shard_count': direct_summary.get('invalid_output_shard_count'), 'invalid_output_tokens_total': direct_summary.get('invalid_output_tokens_total'), 'missing_output_shard_count': direct_summary.get('missing_output_shard_count'), 'preflight_rejected_shard_count': direct_summary.get('preflight_rejected_shard_count'), 'watchdog_killed_shard_count': direct_summary.get('watchdog_killed_shard_count'), 'watchdog_recovered_shard_count': direct_summary.get('watchdog_recovered_shard_count'), 'repaired_shard_count': direct_summary.get('repaired_shard_count'), 'pathological_shard_count': direct_summary.get('pathological_shard_count'), 'pathological_flags': direct_summary.get('pathological_flags'), 'prompt_input_mode': 'inline', 'request_input_file_bytes_total': totals.get('request_input_file_bytes_total')}, 'phases': phase_payloads, 'runtime_artifacts': {'runtime_root': 'line-role-pipeline/runtime', 'phase_count': len(runtime_result.phase_results)}}, indent=2, sort_keys=True), encoding='utf-8')
+    summary_path.write_text(root.json.dumps({'schema_version': 1, 'pipeline': root.LINE_ROLE_PIPELINE_ROUTE_V2, 'codex_backend': 'codex_exec_direct', 'codex_farm_pipeline_id': root._LINE_ROLE_CODEX_FARM_PIPELINE_ID, 'runtime_mode': root.DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, 'token_usage_enabled': bool(all_rows), 'summary': {'batch_count': sum((len(phase_result.shard_plans) for phase_result in runtime_result.phase_results)), 'attempt_count': len(all_rows) or sum((len(phase_result.shard_plans) for phase_result in runtime_result.phase_results)), 'attempts_with_usage': sum((1 for row in all_rows if root._line_role_usage_present(row))), 'attempts_without_usage': max(0, (len(all_rows) or sum((len(phase_result.shard_plans) for phase_result in runtime_result.phase_results))) - sum((1 for row in all_rows if root._line_role_usage_present(row)))), 'tokens_input': totals.get('tokens_input'), 'tokens_cached_input': totals.get('tokens_cached_input'), 'tokens_output': totals.get('tokens_output'), 'tokens_reasoning': totals.get('tokens_reasoning'), 'tokens_total': totals.get('tokens_total'), 'visible_input_tokens': totals.get('visible_input_tokens'), 'visible_output_tokens': totals.get('visible_output_tokens'), 'wrapper_overhead_tokens': totals.get('wrapper_overhead_tokens'), 'command_execution_count_total': direct_summary.get('command_execution_count_total'), 'command_executing_shard_count': direct_summary.get('command_executing_shard_count'), 'command_execution_tokens_total': direct_summary.get('command_execution_tokens_total'), 'reasoning_item_count_total': direct_summary.get('reasoning_item_count_total'), 'reasoning_heavy_shard_count': direct_summary.get('reasoning_heavy_shard_count'), 'reasoning_heavy_tokens_total': direct_summary.get('reasoning_heavy_tokens_total'), 'invalid_output_shard_count': direct_summary.get('invalid_output_shard_count'), 'invalid_output_tokens_total': direct_summary.get('invalid_output_tokens_total'), 'missing_output_shard_count': direct_summary.get('missing_output_shard_count'), 'preflight_rejected_shard_count': direct_summary.get('preflight_rejected_shard_count'), 'watchdog_killed_shard_count': direct_summary.get('watchdog_killed_shard_count'), 'watchdog_recovered_shard_count': direct_summary.get('watchdog_recovered_shard_count'), 'repaired_shard_count': direct_summary.get('repaired_shard_count'), 'pathological_shard_count': direct_summary.get('pathological_shard_count'), 'pathological_flags': direct_summary.get('pathological_flags'), 'prompt_input_mode': 'inline', 'request_input_file_bytes_total': totals.get('request_input_file_bytes_total'), **_line_role_direct_summary_policy_fields(direct_summary)}, 'phases': phase_payloads, 'runtime_artifacts': {'runtime_root': 'line-role-pipeline/runtime', 'phase_count': len(runtime_result.phase_results)}}, indent=2, sort_keys=True), encoding='utf-8')

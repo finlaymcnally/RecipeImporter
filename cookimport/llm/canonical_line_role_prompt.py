@@ -229,22 +229,23 @@ def build_canonical_line_role_file_prompt(
             "- Do not describe your plan, reasoning, or heuristics.\n"
             "- Your first response must be the final JSON object.\n"
             "- Never invent lines or labels.\n\n"
-            "Return strict JSON as a JSON object with one `rows` array:\n"
-            '{"rows":[{"row_id":"r01","label":"<ALLOWED_LABEL>"}]}\n\n'
+            "Return strict JSON as a JSON object with one ordered `labels` array:\n"
+            '{"labels":["<ALLOWED_LABEL>","<ALLOWED_LABEL>"]}\n\n'
             "Task file shape:\n"
-            '{"v":2,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[{"text":"Earlier context"}],"rows":[{"row_id":"r01","text":"1 cup flour"}],"context_after_rows":[{"text":"Later context"}]}\n\n'
+            '{"v":2,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[{"text":"Earlier context"}],"rows":[{"text":"1 cup flour"}],"context_after_rows":[{"text":"Later context"}]}\n\n'
             "Rules:\n"
             "- Output only JSON.\n"
             "- Your final answer must be that JSON object and nothing else.\n"
-            "- Use only the keys `rows`, `row_id`, and `label`.\n"
-            "- Return one result for every owned input row in `rows`.\n"
-            "- Keep output order exactly as requested by the task file's `rows` array.\n"
+            "- Use only the top-level key `labels`.\n"
+            "- Return exactly one label for every owned input row in `rows`.\n"
+            "- Keep label order exactly aligned with the task file's `rows` array.\n"
+            "- Finish the full owned-row list; do not stop early.\n"
             "- Treat the task file as one ordered contiguous slice of the book.\n"
             "- The task file has one version marker `v`, one `shard_id`, optional `context_before_rows` / `context_after_rows`, and owned `rows` objects.\n"
-            "- Use packet-local `row_id` values in output JSON; do not return `atomic_index` in the answer.\n"
             "- `context_before_rows` and `context_after_rows`, when present, are reference-only neighboring rows containing only `text`.\n"
-            "- Never label reference-only neighboring rows and never invent ids for them.\n"
-            "- Each owned row object contains `row_id` and `text`.\n"
+            "- Never label reference-only neighboring rows.\n"
+            "- Do not label `context_before_rows` or `context_after_rows`; they are for interpretation only.\n"
+            "- Each owned row object contains only `text`.\n"
             "- Use the `text` field as the line to label.\n"
             "- Use neighboring rows in `rows[*]` for local context when needed.\n"
             "- Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`.\n"
@@ -283,11 +284,11 @@ def _render_authoritative_rows_for_prompt(
 ) -> str:
     rows = list((dict(input_payload or {})).get("rows") or [])
     rendered_rows: list[str] = []
-    for index, row in enumerate(rows):
+    for row in rows:
         if isinstance(row, (list, tuple)):
             rendered_rows.append(
                 json.dumps(
-                    {"row_id": f"r{index + 1:02d}", "text": str(row[1] or "")},
+                    {"text": str(row[1] or "")},
                     ensure_ascii=False,
                     sort_keys=True,
                 )

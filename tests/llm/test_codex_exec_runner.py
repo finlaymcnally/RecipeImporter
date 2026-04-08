@@ -281,6 +281,34 @@ def test_summarize_direct_telemetry_rows_counts_structured_followups() -> None:
     }
 
 
+def test_summarize_direct_telemetry_rows_rolls_up_codex_policy_metadata() -> None:
+    summary = summarize_direct_telemetry_rows(
+        [
+            {
+                "task_id": "shard-001",
+                "prompt_input_mode": "inline",
+                "codex_transport": "inline-json-v1",
+                "codex_policy_mode": "shell_disabled",
+                "codex_shell_tool_enabled": False,
+            },
+            {
+                "task_id": "shard-002",
+                "prompt_input_mode": "inline",
+                "codex_transport": "inline-json-v1",
+                "codex_policy_mode": "shell_disabled",
+                "codex_shell_tool_enabled": False,
+            },
+        ]
+    )
+
+    assert summary["codex_transport"] == "inline-json-v1"
+    assert summary["codex_transport_counts"] == {"inline-json-v1": 2}
+    assert summary["codex_policy_mode"] == "shell_disabled"
+    assert summary["codex_policy_mode_counts"] == {"shell_disabled": 2}
+    assert summary["codex_shell_tool_enabled"] is False
+    assert summary["codex_shell_tool_enabled_counts"] == {"false": 2}
+
+
 def test_summarize_direct_telemetry_rows_prefers_final_supervision_state() -> None:
     summary = summarize_direct_telemetry_rows(
         [

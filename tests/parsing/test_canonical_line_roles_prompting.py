@@ -154,7 +154,7 @@ def test_line_role_taskfile_worker_prompt_includes_title_yield_reset_contract() 
     assert "read the nearby rows directly in the ordered `task.json` ledger" in prompt
 
 
-def test_line_role_inline_packet_uses_local_row_ids_and_neighbor_context() -> None:
+def test_line_role_inline_packet_uses_ordered_rows_and_neighbor_context() -> None:
     shard = ShardManifestEntryV1(
         shard_id="line-role-canonical-0001-a000010-a000011",
         owned_ids=("10", "11"),
@@ -173,16 +173,15 @@ def test_line_role_inline_packet_uses_local_row_ids_and_neighbor_context() -> No
         packet=packet,
     )
 
-    assert [row["row_id"] for row in packet["rows"]] == ["r01", "r02"]
-    assert packet["rows"][0]["text"] == "Bright Cabbage Slaw"
+    assert packet["rows"] == [{"text": "Bright Cabbage Slaw"}, {"text": "Serves 4 generously"}]
     assert packet["context_before_rows"] == [{"text": "Variations"}]
     assert packet["context_after_rows"] == [
         {"text": "1/2 medium red onion, sliced thinly"}
     ]
     assert "owned_ids" not in packet
-    assert '"row_id":"<PACKET_ROW_ID>"' in prompt
+    assert '{"labels":["<ALLOWED_LABEL>","<ALLOWED_LABEL>"]}' in prompt
     assert "This packet has 2 owned row(s)" in prompt
-    assert "Cover every owned `row_id` in this packet exactly once." in prompt
+    assert "Keep label order exactly aligned with the packet `rows` order." in prompt
     assert "Do not copy the placeholder schema literally" in prompt
     assert "nearby context rows are shown" in prompt
 
@@ -250,6 +249,35 @@ def test_canonical_candidate_fingerprint_changes_when_neighbor_text_changes() ->
     ) != canonical_line_roles_module._canonical_candidate_fingerprint(updated)
 
 
+def test_canonical_candidate_fingerprint_ignores_pre_grouping_recipe_span_hints() -> None:
+    baseline = [
+        AtomicLineCandidate(
+            recipe_id=None,
+            block_id="block:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous line",
+            within_recipe_span=None,
+            rule_tags=["yield_like"],
+        )
+    ]
+    stale_hints = [
+        AtomicLineCandidate(
+            recipe_id="recipe:stale",
+            block_id="block:0",
+            block_index=0,
+            atomic_index=0,
+            text="Ambiguous line",
+            within_recipe_span=True,
+            rule_tags=["yield_like", "recipe_span_fallback"],
+        )
+    ]
+
+    assert canonical_line_roles_module._canonical_candidate_fingerprint(
+        baseline
+    ) == canonical_line_roles_module._canonical_candidate_fingerprint(stale_hints)
+
+
 def test_line_role_shard_plans_keep_owned_rows_without_hidden_task_splits() -> None:
     candidates = [
         AtomicLineCandidate(
@@ -299,6 +327,8 @@ def test_line_role_shard_plans_keep_owned_rows_without_hidden_task_splits() -> N
     assert "context_after_rows" not in shard_plan.debug_input_payload
     assert shard_plan.manifest_entry.owned_ids == tuple(str(index) for index in range(8))
     assert [row[0] for row in shard_plan.manifest_entry.input_payload["rows"]] == list(range(8))
+    assert "recipe_id" not in shard_plan.debug_input_payload["rows"][0]
+    assert "within_recipe_span" not in shard_plan.debug_input_payload["rows"][0]
 
 
 def test_line_role_shard_plans_include_boundary_neighbor_context_when_neighbors_exist() -> None:
@@ -381,22 +411,22 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     )
 
     assert (
-        '{"rows":[{"row_id":"r01","label":"<ALLOWED_LABEL>"}]}'
+        '{"labels":["<ALLOWED_LABEL>","<ALLOWED_LABEL>"]}'
         in prompt
     )
     assert "line-role-canonical-0001-a000123-a000456" in prompt
     assert "context_before_rows" in prompt
     assert "context_after_rows" in prompt
-    assert '{"row_id": "r01", "text": "1 cup flour"}' in prompt
+    assert '{"text": "1 cup flour"}' in prompt
     assert "The authoritative owned shard rows are embedded below." in prompt
     assert "Reference-only neighboring context may also be embedded below" in prompt
     assert "do not open it or inspect the workspace to answer" in prompt
     assert "Do not run shell commands, Python, or any other tools." in prompt
     assert "Do not describe your plan, reasoning, or heuristics." in prompt
     assert "Your first response must be the final JSON object." in prompt
-    assert "Use packet-local `row_id` values in output JSON" in prompt
-    assert "Each owned row object contains `row_id` and `text`." in prompt
-    assert "Return one result for every owned input row in `rows`." in prompt
+    assert "Use only the top-level key `labels`." in prompt
+    assert "Each owned row object contains only `text`." in prompt
+    assert "Return one label for every owned input row in `rows`." in prompt
     assert "Use the `text` field as the line to label." in prompt
     assert "Never label reference-only neighboring rows" in prompt
     assert "Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`." in prompt
@@ -430,13 +460,13 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
         in prompt
     )
     assert "This book will teach you the four elements of good cooking." in prompt
-    assert "Use only the keys `rows`, `row_id`, and `label`." in prompt
+    assert "Keep label order exactly aligned with the task file's `rows` array." in prompt
     assert "A single outside-recipe heading by itself is not enough" in prompt
     assert "Reference-only neighboring context:" in prompt
     assert "These neighboring rows are for context only. Do not label them." in prompt
     assert '<BEGIN_CONTEXT_BEFORE_ROWS>\n{"text": "Earlier context"}\n<END_CONTEXT_BEFORE_ROWS>' in prompt
     assert '<BEGIN_CONTEXT_AFTER_ROWS>\n{"text": "Later context"}\n<END_CONTEXT_AFTER_ROWS>' in prompt
-    assert '<BEGIN_AUTHORITATIVE_ROWS>\n{"row_id": "r01", "text": "1 cup flour"}\n<END_AUTHORITATIVE_ROWS>' in prompt
+    assert '<BEGIN_AUTHORITATIVE_ROWS>\n{"text": "1 cup flour"}\n<END_AUTHORITATIVE_ROWS>' in prompt
 
 
 def test_canonical_line_role_file_prompt_ignores_removed_shard_context_fields() -> None:

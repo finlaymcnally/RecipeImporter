@@ -84,6 +84,7 @@ from .contracts import (
     CANONICAL_LINE_ROLE_ALLOWED_LABELS,
     CanonicalLineRolePrediction,
     RECIPE_LOCAL_LINE_ROLE_LABELS,
+    sanitize_pre_grouping_line_role_candidates,
     _unique_string_list,
 )
 from .artifacts import (

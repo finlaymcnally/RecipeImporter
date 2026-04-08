@@ -170,14 +170,53 @@ def validate_line_role_output_payload(
     metadata["owned_row_count"] = len(expected_atomic_indices)
     if not isinstance(payload, Mapping):
         return ("payload_not_object",), metadata
-    extra_top_level_keys = sorted(key for key in payload.keys() if str(key) != "rows")
+    payload_dict = dict(payload)
+    rows_payload = payload_dict.get("rows")
+    labels_payload = payload_dict.get("labels")
+    if not isinstance(rows_payload, list) and isinstance(labels_payload, list):
+        translated_rows: list[dict[str, Any]] = []
+        for index, label_value in enumerate(labels_payload):
+            row_payload: dict[str, Any] = {"label": label_value}
+            if index < len(expected_atomic_indices):
+                row_payload["atomic_index"] = expected_atomic_indices[index]
+            translated_rows.append(row_payload)
+        payload_dict = {"rows": translated_rows}
+        rows_payload = translated_rows
+        metadata["ordered_label_vector"] = {
+            "applied": True,
+            "returned_label_count": len(labels_payload),
+            "expected_row_count": len(expected_atomic_indices),
+        }
+    extra_top_level_keys = sorted(key for key in payload_dict.keys() if str(key) != "rows")
     if extra_top_level_keys:
         errors.append("extra_top_level_keys")
         metadata["extra_top_level_keys"] = extra_top_level_keys
-    rows_payload = payload.get("rows")
     if not isinstance(rows_payload, list):
         errors.append("rows_not_list")
         return tuple(sorted(set(errors))), metadata
+    if len(rows_payload) == len(expected_atomic_indices) + 1:
+        obvious_trailing_spill = True
+        for position, expected_atomic_index in enumerate(expected_atomic_indices):
+            row_payload = rows_payload[position]
+            if not isinstance(row_payload, Mapping):
+                obvious_trailing_spill = False
+                break
+            try:
+                actual_atomic_index = int(row_payload.get("atomic_index"))
+            except (TypeError, ValueError):
+                obvious_trailing_spill = False
+                break
+            if actual_atomic_index != expected_atomic_index:
+                obvious_trailing_spill = False
+                break
+        if obvious_trailing_spill:
+            metadata["trimmed_trailing_row_spill"] = {
+                "applied": True,
+                "trimmed_row_count": 1,
+                "returned_row_count_before_trim": len(rows_payload),
+                "expected_row_count": len(expected_atomic_indices),
+            }
+            rows_payload = rows_payload[: len(expected_atomic_indices)]
     metadata["returned_row_count"] = len(rows_payload)
     if len(rows_payload) != len(expected_atomic_indices):
         errors.append("wrong_row_count")

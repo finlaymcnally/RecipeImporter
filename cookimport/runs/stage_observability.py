@@ -60,7 +60,21 @@ KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v10"
 RECIPE_STAGE_SUMMARY_FILE_NAME = "recipe_stage_summary.json"
 RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v8"
 LINE_ROLE_STAGE_SUMMARY_FILE_NAME = "line_role_stage_summary.json"
-LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION = "line_role_stage_summary.v5"
+LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION = "line_role_stage_summary.v6"
+_LINE_ROLE_TERMINAL_PACKET_STATES = frozenset(
+    {
+        "validated",
+        "repair_recovered",
+        "repair_failed",
+        "invalid_output",
+    }
+)
+_LINE_ROLE_FAILED_PACKET_STATES = frozenset(
+    {
+        "repair_failed",
+        "invalid_output",
+    }
+)
 
 _KNOWLEDGE_STAGE_ARTIFACT_KEYS: tuple[str, ...] = (
     "phase_manifest.json",
@@ -1144,6 +1158,33 @@ def _stage_summary_state(
     return "not_started"
 
 
+def _line_role_stage_state_totals(
+    *,
+    shard_status_counts: Mapping[str, int],
+    packet_state_counts: Mapping[str, int],
+) -> tuple[int, int]:
+    completed_from_status_files = sum(int(count or 0) for count in shard_status_counts.values())
+    failed_from_status_files = sum(
+        int(count or 0)
+        for status, count in shard_status_counts.items()
+        if status not in {"validated"}
+    )
+    completed_from_packet_ledger = sum(
+        int(count or 0)
+        for state, count in packet_state_counts.items()
+        if state in _LINE_ROLE_TERMINAL_PACKET_STATES
+    )
+    failed_from_packet_ledger = sum(
+        int(count or 0)
+        for state, count in packet_state_counts.items()
+        if state in _LINE_ROLE_FAILED_PACKET_STATES
+    )
+    return (
+        max(completed_from_status_files, completed_from_packet_ledger),
+        max(failed_from_status_files, failed_from_packet_ledger),
+    )
+
+
 def _recipe_active_transport(
     *,
     phase_manifest: Mapping[str, Any],
@@ -1200,6 +1241,28 @@ def _recipe_active_transport(
     if prompt_input_mode_counts.get("inline"):
         return INLINE_JSON_TRANSPORT
     return TASKFILE_TRANSPORT
+
+
+def _codex_policy_fields_from_summary_payload(
+    summary_payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key in ("codex_transport", "codex_policy_mode"):
+        value = str(summary_payload.get(key) or "").strip()
+        if value:
+            payload[key] = value
+    shell_tool_enabled = summary_payload.get("codex_shell_tool_enabled")
+    if shell_tool_enabled is not None:
+        payload["codex_shell_tool_enabled"] = bool(shell_tool_enabled)
+    for key in (
+        "codex_transport_counts",
+        "codex_policy_mode_counts",
+        "codex_shell_tool_enabled_counts",
+    ):
+        counts = summary_payload.get(key)
+        if isinstance(counts, Mapping):
+            payload[key] = dict(sorted(dict(counts).items()))
+    return payload
 
 
 def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
@@ -1387,10 +1450,14 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
     worker_status_rows = _load_worker_status_rows(stage_root)
     shard_status_paths = sorted(stage_root.glob("workers/*/shards/*/status.json"))
     shard_status_counts = _count_status_values(shard_status_paths)
-    failed_shard_total = sum(
-        count
-        for status, count in shard_status_counts.items()
-        if status not in {"validated"}
+    packet_state_counts = _count_value_rows(task_rows, "state")
+    packet_terminal_outcome_counts = _count_value_rows(task_rows, "terminal_outcome")
+    packet_attempt_type_counts = _count_value_rows(task_rows, "last_attempt_type")
+    completed_shard_total_for_stage_state, failed_shard_total_for_stage_state = (
+        _line_role_stage_state_totals(
+            shard_status_counts=shard_status_counts,
+            packet_state_counts=packet_state_counts,
+        )
     )
     repair_attempted, repair_completed, repair_running = _repair_rollup(stage_root)
     proposal_count = len(list(stage_root.glob("proposals/*.json")))
@@ -1412,9 +1479,6 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
         "failures_json": "failures.json",
         "proposals_dir": "proposals",
     }
-    packet_state_counts = _count_value_rows(task_rows, "state")
-    packet_terminal_outcome_counts = _count_value_rows(task_rows, "terminal_outcome")
-    packet_attempt_type_counts = _count_value_rows(task_rows, "last_attempt_type")
     llm_authoritative_row_count = sum(
         int(((row.get("metadata") or {}) if isinstance(row, dict) else {}).get("llm_authoritative_row_count") or 0)
         for row in task_rows
@@ -1449,6 +1513,7 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
         if isinstance(telemetry_summary.get("prompt_input_mode_counts"), Mapping)
         else {}
     )
+    codex_policy_fields = _codex_policy_fields_from_summary_payload(telemetry_summary)
     task_row_transport_counts = _count_metadata_value_rows(task_rows, "transport")
     if task_row_transport_counts.get(INLINE_JSON_TRANSPORT):
         active_transport = INLINE_JSON_TRANSPORT
@@ -1479,8 +1544,8 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
         "stage_key": "line_role",
         "stage_state": _stage_summary_state(
             planned_total=planned_shard_total,
-            completed_total=completed_shard_total,
-            failed_total=failed_shard_total,
+            completed_total=completed_shard_total_for_stage_state,
+            failed_total=failed_shard_total_for_stage_state,
         ),
         "lines": {
             "canonical_line_total": len(line_rows),
@@ -1548,6 +1613,7 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
             )
         ),
         "important_artifacts": important_artifacts,
+        **codex_policy_fields,
     }
     worker_session_guardrails = _runtime_guardrail_payload(
         phase_manifest_payload=phase_manifest,

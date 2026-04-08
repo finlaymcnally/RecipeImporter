@@ -177,13 +177,19 @@ def _raise_if_line_role_runtime_incomplete(
     *,
     ordered_candidates: Sequence[AtomicLineCandidate],
     runtime_result: _LineRoleRuntimeResult | None,
+    predictions_by_atomic_index: Mapping[int, CanonicalLineRolePrediction] | None = None,
 ) -> None:
     if runtime_result is None:
         return
+    prediction_index = (
+        predictions_by_atomic_index
+        if predictions_by_atomic_index is not None
+        else runtime_result.predictions_by_atomic_index
+    )
     missing_atomic_indices = [
         int(candidate.atomic_index)
         for candidate in ordered_candidates
-        if int(candidate.atomic_index) not in runtime_result.predictions_by_atomic_index
+        if int(candidate.atomic_index) not in prediction_index
     ]
     if not missing_atomic_indices:
         return

@@ -14,8 +14,6 @@ def serialize_line_role_file_row(
         "atomic_index": int(candidate.atomic_index),
         "block_index": int(candidate.block_index),
         "block_id": str(candidate.block_id),
-        "recipe_id": candidate.recipe_id,
-        "within_recipe_span": candidate.within_recipe_span,
         "rule_tags": list(candidate.rule_tags),
         "escalation_reasons": list(escalation_reasons),
         "current_line": str(candidate.text),
