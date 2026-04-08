@@ -768,6 +768,9 @@ def test_prompt_budget_summary_sums_call_count_and_duration_across_worker_rows(
                                         "tokens_cached_input": 10,
                                         "tokens_output": 20,
                                         "tokens_total": 120,
+                                        "codex_transport": "inline-json-v1",
+                                        "codex_policy_mode": "shell_disabled",
+                                        "codex_shell_tool_enabled": False,
                                     }
                                 ]
                             },
@@ -791,6 +794,9 @@ def test_prompt_budget_summary_sums_call_count_and_duration_across_worker_rows(
                                         "tokens_cached_input": 15,
                                         "tokens_output": 25,
                                         "tokens_total": 175,
+                                        "codex_transport": "inline-json-v1",
+                                        "codex_policy_mode": "shell_disabled",
+                                        "codex_shell_tool_enabled": False,
                                     }
                                 ]
                             },
@@ -819,6 +825,9 @@ def test_prompt_budget_summary_sums_call_count_and_duration_across_worker_rows(
     assert summary["by_stage"]["recipe_refine"]["tokens_cached_input"] == 25
     assert summary["by_stage"]["recipe_refine"]["tokens_output"] == 45
     assert summary["by_stage"]["recipe_refine"]["tokens_total"] == 295
+    assert summary["by_stage"]["recipe_refine"]["codex_transport"] == "inline-json-v1"
+    assert summary["by_stage"]["recipe_refine"]["codex_policy_mode"] == "shell_disabled"
+    assert summary["by_stage"]["recipe_refine"]["codex_shell_tool_enabled"] is False
 
 
 def test_prompt_budget_summary_prefers_top_level_knowledge_telemetry_over_worker_duplicates(

@@ -16,6 +16,7 @@ def build_codex_exec_command(
     output_schema_path: Path | None,
     model: str | None,
     reasoning_effort: str | None,
+    config_overrides: Sequence[str] | None = None,
     sandbox_mode: str = "read-only",
     resume_last: bool = False,
     persist_session: bool = False,
@@ -57,6 +58,10 @@ def build_codex_exec_command(
         command.extend(["--model", str(model)])
     if reasoning_effort:
         command.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
+    for override in config_overrides or ():
+        cleaned_override = str(override or "").strip()
+        if cleaned_override:
+            command.extend(["-c", cleaned_override])
     command.append("-")
     return command
 

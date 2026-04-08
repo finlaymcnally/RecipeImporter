@@ -163,10 +163,6 @@ def _preview_sanitized_nonrecipe_block_labels(
             block_label.model_copy(
                 update={
                     "final_label": "NONRECIPE_EXCLUDE",
-                    "exclusion_reason": (
-                        str(block_label.exclusion_reason or "").strip()
-                        or "prompt_preview_invalid_nonrecipe_label"
-                    ),
                 }
             )
         )

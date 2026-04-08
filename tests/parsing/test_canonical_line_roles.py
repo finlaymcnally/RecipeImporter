@@ -58,7 +58,6 @@ def test_label_atomic_lines_outside_recipe_knowledge_like_prose_stays_reviewable
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
     assert predictions[0].label == "NONRECIPE_CANDIDATE"
-    assert predictions[0].exclusion_reason is None
     assert predictions[0].within_recipe_span is False
 
 
@@ -84,7 +83,6 @@ def test_label_atomic_lines_outside_recipe_saltfat_science_prose_stays_reviewabl
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
     assert predictions[0].label == "NONRECIPE_CANDIDATE"
-    assert predictions[0].exclusion_reason is None
 
 
 def test_label_atomic_lines_outside_recipe_knowledge_heading_uses_neighbor_context_for_reviewable_other() -> None:
@@ -118,7 +116,6 @@ def test_label_atomic_lines_outside_recipe_knowledge_heading_uses_neighbor_conte
     predictions = label_atomic_lines(candidates, _settings())
     by_text = {prediction.text: prediction for prediction in predictions}
     assert by_text["Balancing Fat"].label == "NONRECIPE_CANDIDATE"
-    assert by_text["Balancing Fat"].exclusion_reason is None
     assert (
         by_text[
             "As with salt, the best way to correct overly fatty food is to rebalance the dish."
@@ -170,7 +167,6 @@ def test_label_atomic_lines_outside_recipe_first_person_learning_prose_stays_rev
         "As I improved, I began to detect the nuances that distinguish good "
         "food from great, understanding when pasta water needed more salt "
         "and when vinegar was needed to balance a rich stew."
-    ].exclusion_reason is None
 
 
 def test_label_atomic_lines_outside_recipe_saltfat_question_heading_stays_other() -> None:
@@ -189,7 +185,6 @@ def test_label_atomic_lines_outside_recipe_saltfat_question_heading_stays_other(
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
     assert predictions[0].label == "NONRECIPE_CANDIDATE"
-    assert predictions[0].exclusion_reason is None
 
 
 def test_label_atomic_lines_outside_recipe_saltfat_citrus_lesson_stays_reviewable_other() -> None:
@@ -221,7 +216,6 @@ def test_label_atomic_lines_outside_recipe_saltfat_citrus_lesson_stays_reviewabl
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
     assert predictions[0].label == "NONRECIPE_CANDIDATE"
-    assert predictions[0].exclusion_reason is None
 
 
 def test_label_atomic_lines_outside_recipe_note_prefix_is_recipe_notes() -> None:
@@ -331,7 +325,6 @@ def test_label_atomic_lines_unknown_pre_grouping_science_prose_stays_reviewable_
     assert len(predictions) == 1
     assert predictions[0].within_recipe_span is None
     assert predictions[0].label == "NONRECIPE_CANDIDATE"
-    assert predictions[0].exclusion_reason is None
 
 
 def test_label_atomic_lines_unknown_pre_grouping_knowledge_heading_uses_neighbor_context_for_reviewable_other() -> None:
@@ -366,7 +359,6 @@ def test_label_atomic_lines_unknown_pre_grouping_knowledge_heading_uses_neighbor
     predictions = label_atomic_lines(candidates, _settings())
     by_text = {prediction.text: prediction for prediction in predictions}
     assert by_text["SALT AND FLAVOR"].label == "NONRECIPE_CANDIDATE"
-    assert by_text["SALT AND FLAVOR"].exclusion_reason is None
     assert (
         by_text[
             "Salt affects texture and flavor because it changes how food absorbs moisture during cooking."
@@ -412,7 +404,6 @@ def test_label_atomic_lines_outside_recipe_saltfat_heading_stays_reviewable_othe
         "NONRECIPE_CANDIDATE",
         "NONRECIPE_CANDIDATE",
     ]
-    assert all(prediction.exclusion_reason is None for prediction in predictions)
 
 
 def test_label_atomic_lines_outside_recipe_saltfat_crouton_storage_step_stays_instruction_line() -> None:
@@ -458,7 +449,6 @@ def test_label_atomic_lines_outside_recipe_saltfat_crouton_storage_step_stays_in
         "INGREDIENT_LINE",
         "INSTRUCTION_LINE",
     ]
-    assert predictions[2].exclusion_reason is None
 
 
 def test_label_atomic_lines_outside_recipe_tail_step_with_instruction_neighbor_stays_instruction_line() -> None:
@@ -508,7 +498,6 @@ def test_label_atomic_lines_outside_recipe_tail_step_with_instruction_neighbor_s
         "INSTRUCTION_LINE",
         "RECIPE_NOTES",
     ]
-    assert predictions[1].exclusion_reason is None
 
 
 def test_label_atomic_lines_outside_recipe_instruction_like_endorsement_cluster_stays_other() -> None:
@@ -557,11 +546,6 @@ def test_label_atomic_lines_outside_recipe_instruction_like_endorsement_cluster_
         "NONRECIPE_EXCLUDE",
         "NONRECIPE_EXCLUDE",
         "NONRECIPE_EXCLUDE",
-    ]
-    assert [prediction.exclusion_reason for prediction in predictions] == [
-        "endorsement",
-        "endorsement",
-        "endorsement",
     ]
     assert all(
         "rescued_other_to_instruction" not in prediction.reason_tags
@@ -626,12 +610,6 @@ def test_label_atomic_lines_outside_recipe_publisher_signup_cluster_is_excluded(
         "NONRECIPE_EXCLUDE",
         "NONRECIPE_EXCLUDE",
         "NONRECIPE_EXCLUDE",
-    ]
-    assert [prediction.exclusion_reason for prediction in predictions] == [
-        "publisher_promo",
-        "publisher_promo",
-        "publisher_promo",
-        "publisher_promo",
     ]
 
 
@@ -1360,7 +1338,6 @@ def test_label_atomic_lines_exact_lesson_prose_recover_knowledge_rows() -> None:
         "NONRECIPE_CANDIDATE",
         "NONRECIPE_CANDIDATE",
     ]
-    assert all(prediction.exclusion_reason is None for prediction in predictions)
 
 
 def test_label_atomic_lines_front_matter_heading_and_title_list_stay_other() -> None:
@@ -1537,16 +1514,13 @@ def test_label_atomic_lines_front_matter_chapter_taxonomy_cluster_is_excluded() 
     by_text = {prediction.text: prediction for prediction in predictions}
 
     assert all(prediction.label == "NONRECIPE_EXCLUDE" for prediction in predictions)
-    assert by_text["PART ONE"].exclusion_reason == "navigation"
-    assert (
-        by_text["The Four Elements of Good Cooking"].exclusion_reason
-        == "navigation"
-    )
-    assert by_text["SALT"].exclusion_reason == "navigation"
-    assert by_text["What is Salt?"].exclusion_reason == "navigation"
-    assert by_text["Salt and Flavor"].exclusion_reason == "navigation"
-    assert by_text["How Salt Works"].exclusion_reason == "navigation"
-    assert by_text["Diffusion Calculus"].exclusion_reason == "navigation"
+    assert by_text["PART ONE"].label == "NONRECIPE_EXCLUDE"
+    assert by_text["The Four Elements of Good Cooking"].label == "NONRECIPE_EXCLUDE"
+    assert by_text["SALT"].label == "NONRECIPE_EXCLUDE"
+    assert by_text["What is Salt?"].label == "NONRECIPE_EXCLUDE"
+    assert by_text["Salt and Flavor"].label == "NONRECIPE_EXCLUDE"
+    assert by_text["How Salt Works"].label == "NONRECIPE_EXCLUDE"
+    assert by_text["Diffusion Calculus"].label == "NONRECIPE_EXCLUDE"
 
 
 def test_label_atomic_lines_atomized_chapter_taxonomy_heading_trio_stays_other() -> None:
@@ -1585,7 +1559,6 @@ def test_label_atomic_lines_atomized_chapter_taxonomy_heading_trio_stays_other()
         "NONRECIPE_CANDIDATE",
         "NONRECIPE_CANDIDATE",
     ]
-    assert all(prediction.exclusion_reason is None for prediction in predictions)
 
 
 def test_label_atomic_lines_exact_variations_block_stays_variant() -> None:
@@ -1917,7 +1890,6 @@ def test_label_atomic_lines_routes_outside_recipe_knowledge_headings_and_fragmen
         "NONRECIPE_CANDIDATE",
         "NONRECIPE_CANDIDATE",
     ]
-    assert all(prediction.exclusion_reason is None for prediction in predictions)
 
 
 def test_label_atomic_lines_outside_recipe_useful_prose_stays_reviewable_other() -> None:

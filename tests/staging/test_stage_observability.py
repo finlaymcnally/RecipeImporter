@@ -405,7 +405,6 @@ def test_build_stage_observability_report_surfaces_processing_attention_summarie
         json.dumps(
             {
                 "block_index": 7,
-                "exclusion_reason": "navigation",
             },
             sort_keys=True,
         )
@@ -537,7 +536,7 @@ def test_build_recipe_stage_summary_reports_task_followup_rollups(tmp_path: Path
 
     summary = build_recipe_stage_summary(stage_root)
 
-    assert summary["schema_version"] == "recipe_stage_summary.v7"
+    assert summary["schema_version"] == "recipe_stage_summary.v8"
     assert summary["followups"]["label"] == "task_followup"
     assert summary["followups"]["handled_locally_skip_llm_count"] == 2
     assert summary["followups"]["repair_completed_count"] == 1
@@ -568,6 +567,69 @@ def test_build_recipe_stage_summary_reports_task_followup_rollups(tmp_path: Path
         "fragmentary": 1,
         "not_a_recipe": 1,
     }
+
+
+def test_build_recipe_stage_summary_detects_inline_transport(tmp_path: Path) -> None:
+    stage_root = tmp_path / "raw" / "llm" / "book" / "recipe_phase_runtime"
+    (stage_root / "proposals").mkdir(parents=True, exist_ok=True)
+    (stage_root / "workers" / "worker-001" / "out").mkdir(parents=True, exist_ok=True)
+    (
+        stage_root / "workers" / "worker-001" / "shards" / "recipe-shard-0000"
+    ).mkdir(parents=True, exist_ok=True)
+    _write_json(
+        stage_root / "phase_manifest.json",
+        {
+            "worker_count": 1,
+            "shard_count": 1,
+            "settings": {"recipe_codex_exec_style": "inline-json-v1"},
+            "runtime_metadata": {"transport": "inline-json-v1"},
+        },
+    )
+    _write_json(
+        stage_root / "promotion_report.json",
+        {
+            "invalid_shards": 0,
+            "missing_output_shards": 0,
+            "handled_locally_skip_llm": {"count": 0, "status_counts": {}},
+            "recipe_result_counts": {"repaired": 1, "fragmentary": 0, "not_a_recipe": 0},
+        },
+    )
+    _write_json(stage_root.parent / RECIPE_MANIFEST_FILE_NAME, {"counts": {}})
+    (stage_root / "task_manifest.jsonl").write_text(
+        json.dumps({"task_id": "recipe-shard-0000.task-001"}) + "\n",
+        encoding="utf-8",
+    )
+    (
+        stage_root
+        / "workers"
+        / "worker-001"
+        / "out"
+        / "recipe-shard-0000.task-001.json"
+    ).write_text("{}", encoding="utf-8")
+    _write_json(
+        stage_root / "workers" / "worker-001" / "shards" / "recipe-shard-0000" / "status.json",
+        {"status": "validated"},
+    )
+    _write_json(
+        stage_root / "telemetry.json",
+        {
+            "rows": [
+                {
+                    "prompt_input_mode": "inline",
+                    "codex_transport": "inline-json-v1",
+                }
+            ],
+            "summary": {"prompt_input_mode_counts": {"inline": 1}},
+        },
+    )
+
+    summary = build_recipe_stage_summary(stage_root)
+
+    assert summary["schema_version"] == "recipe_stage_summary.v8"
+    assert summary["followups"]["label"] == "shard_finalization"
+    assert summary["repair_recovery_policy"]["transport"] == "inline-json-v1"
+    assert "worker_session_guardrails" not in summary
+    assert "task_file_guardrails" not in summary
 
 
 def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: Path) -> None:

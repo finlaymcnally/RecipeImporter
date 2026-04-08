@@ -456,6 +456,14 @@ def _load_task_status_state_counts(path: Path) -> dict[str, int]:
     return counts
 
 
+def _knowledge_task_state_is_pre_kill_failure(state: str) -> bool:
+    return state in {"pending", "leased", "running", "main_output_written"}
+
+
+def _knowledge_worker_state_is_pre_kill_failure(state: str) -> bool:
+    return bool(state) and state != "completed"
+
+
 def _knowledge_artifact_dir_has_files(path: Path) -> bool:
     return path.exists() and path.is_dir() and any(child.is_file() for child in path.iterdir())
 
@@ -470,9 +478,9 @@ def _collect_knowledge_pre_kill_failure_counts(stage_root: Path) -> dict[str, An
             continue
         state = str(payload.get("state") or "").strip()
         reason_code = str(payload.get("reason_code") or "").strip()
-        if state:
+        if _knowledge_worker_state_is_pre_kill_failure(state):
             worker_terminal_states[state] = worker_terminal_states.get(state, 0) + 1
-        if reason_code:
+        if _knowledge_worker_state_is_pre_kill_failure(state) and reason_code:
             worker_reason_codes[reason_code] = worker_reason_codes.get(reason_code, 0) + 1
         for code in payload.get("workspace_relaunch_reason_codes") or []:
             cleaned = str(code or "").strip()
@@ -484,6 +492,11 @@ def _collect_knowledge_pre_kill_failure_counts(stage_root: Path) -> dict[str, An
     task_state_counts = _load_task_status_state_counts(
         stage_root / _KNOWLEDGE_TASK_STATUS_FILE_NAME
     )
+    task_state_counts = {
+        state: count
+        for state, count in task_state_counts.items()
+        if _knowledge_task_state_is_pre_kill_failure(state)
+    }
     return {
         "worker_terminal_states": worker_terminal_states,
         "worker_reason_codes": worker_reason_codes,

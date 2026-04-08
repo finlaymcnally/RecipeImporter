@@ -239,8 +239,8 @@ _JS_BOOTSTRAP = """\
       numeric: true,
     },
     all_token_use: {
-      label: "All token use",
-      title: "Combined token view (discounted_total/input/output). Discounted total applies cached-input tokens at 10% weight.",
+      label: "Effective token use",
+      title: "Combined token view (effective_total/input/cached/output). Effective total applies cached-input tokens at 10% weight.",
       numeric: true,
     },
     quality_per_million_tokens: {
@@ -259,8 +259,8 @@ _JS_BOOTSTRAP = """\
       numeric: true,
     },
     all_token_use_per_recipe: {
-      label: "Token use / recipe",
-      title: "Discounted token use divided by predicted recipe count.",
+      label: "Effective token use / recipe",
+      title: "Cached-discounted effective token use divided by predicted recipe count.",
       numeric: true,
     },
     tokens_input: {

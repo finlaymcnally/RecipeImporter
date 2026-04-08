@@ -36,6 +36,7 @@ _STAGE_BENCHMARK_LAB_FIELDS = (
 )
 _STAGE_INTERNAL_FIELDS = (
     "recipe_prompt_target_count",
+    "recipe_codex_exec_style",
     "knowledge_prompt_target_count",
     "line_role_codex_exec_style",
     "knowledge_codex_exec_style",

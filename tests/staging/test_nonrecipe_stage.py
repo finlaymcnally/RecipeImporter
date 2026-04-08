@@ -28,8 +28,6 @@ from tests.nonrecipe_stage_helpers import make_recipe_ownership_result
 def _block_label(
     index: int,
     label: str,
-    *,
-    exclusion_reason: str | None = None,
 ) -> AuthoritativeBlockLabel:
     return AuthoritativeBlockLabel(
         source_block_id=f"b{index}",
@@ -39,7 +37,6 @@ def _block_label(
         final_label=label,
         decided_by="rule",
         reason_tags=[],
-        exclusion_reason=exclusion_reason,
     )
 
 
@@ -99,8 +96,8 @@ def test_nonrecipe_stage_groups_contiguous_candidate_and_excluded_routes() -> No
         final_block_labels=[
             _block_label(0, "NONRECIPE_CANDIDATE"),
             _block_label(1, "NONRECIPE_CANDIDATE"),
-            _block_label(2, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
-            _block_label(3, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
+            _block_label(2, "NONRECIPE_EXCLUDE"),
+            _block_label(3, "NONRECIPE_EXCLUDE"),
         ],
         recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
     )
@@ -124,7 +121,7 @@ def test_nonrecipe_stage_normalizes_divested_recipe_local_labels_to_candidates()
         final_block_labels=[
             _block_label(0, "RECIPE_TITLE"),
             _block_label(1, "RECIPE_NOTES"),
-            _block_label(2, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
+            _block_label(2, "NONRECIPE_EXCLUDE"),
         ],
         recipe_ownership_result=_ownership_result(
             full_blocks=full_blocks,
@@ -203,7 +200,7 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
     stage_result = build_nonrecipe_stage_result(
         full_blocks=full_blocks,
         final_block_labels=[
-            _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="navigation"),
+            _block_label(0, "NONRECIPE_EXCLUDE"),
             _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
         recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
@@ -265,7 +262,7 @@ def test_nonrecipe_stage_splits_routing_from_final_authority() -> None:
     seed = build_nonrecipe_stage_result(
         full_blocks=full_blocks,
         final_block_labels=[
-            _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
+            _block_label(0, "NONRECIPE_EXCLUDE"),
             _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
         recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
@@ -372,7 +369,7 @@ def test_nonrecipe_stage_writes_exclusion_ledger(tmp_path: Path) -> None:
     stage_result = build_nonrecipe_stage_result(
         full_blocks=full_blocks,
         final_block_labels=[
-            _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
+            _block_label(0, "NONRECIPE_EXCLUDE"),
             _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
         recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
@@ -398,7 +395,6 @@ def test_nonrecipe_stage_writes_exclusion_ledger(tmp_path: Path) -> None:
         {
             "block_id": "b0",
             "block_index": 0,
-            "exclusion_reason": "front_matter",
             "exclusion_source": "line_role",
             "final_category": "other",
             "preview": "Acknowledgments",
@@ -457,7 +453,7 @@ def test_nonrecipe_late_output_rows_use_candidate_queue_before_review() -> None:
     stage_result = build_nonrecipe_stage_result(
         full_blocks=full_blocks,
         final_block_labels=[
-            _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
+            _block_label(0, "NONRECIPE_EXCLUDE"),
             _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
         recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
@@ -480,7 +476,7 @@ def test_nonrecipe_authority_contract_uses_candidate_queue_before_review() -> No
     stage_result = build_nonrecipe_stage_result(
         full_blocks=full_blocks,
         final_block_labels=[
-            _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
+            _block_label(0, "NONRECIPE_EXCLUDE"),
             _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
         recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
@@ -538,7 +534,7 @@ def test_nonrecipe_stage_forces_excluded_rows_to_final_other_even_if_bad_map_lea
     seed = build_nonrecipe_stage_result(
         full_blocks=full_blocks,
         final_block_labels=[
-            _block_label(0, "NONRECIPE_EXCLUDE", exclusion_reason="front_matter"),
+            _block_label(0, "NONRECIPE_EXCLUDE"),
             _block_label(1, "NONRECIPE_CANDIDATE"),
         ],
         recipe_ownership_result=_ownership_result(full_blocks=full_blocks),

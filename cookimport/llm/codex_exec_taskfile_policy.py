@@ -11,6 +11,7 @@ from cookimport.config.runtime_support import workspace_allowed_temp_roots
 from .codex_exec_types import WorkspaceCommandClassification
 from .editable_task_file import TASK_FILE_NAME
 from .single_file_worker_commands import (
+    RECIPE_STAGE_KEY,
     TASK_ANSWER_CURRENT_COMMAND,
     TASK_APPLY_COMMAND,
     TASK_DOCTOR_COMMAND,
@@ -360,7 +361,13 @@ def _classify_single_file_workspace_command(
         )
     cleaned_stage_key = str(stage_key or "").strip()
     if (
-        cleaned_stage_key in {"line_role", "nonrecipe_classify", "knowledge_group"}
+        cleaned_stage_key
+        in {
+            RECIPE_STAGE_KEY,
+            "line_role",
+            "nonrecipe_classify",
+            "knowledge_group",
+        }
         and _references_single_file_visible_contract_file(cleaned_command)
     ):
         return WorkspaceCommandClassification(

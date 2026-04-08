@@ -61,7 +61,6 @@ from .contracts import (
     CANONICAL_LINE_ROLE_ALLOWED_LABELS,
     CanonicalLineRolePrediction,
     RECIPE_LOCAL_LINE_ROLE_LABELS,
-    _normalize_exclusion_reason,
 )
 from .prompt_inputs import (
     serialize_line_role_debug_context_row,
@@ -107,7 +106,7 @@ def _apply_prediction_decision_metadata(
         reasons.append("outside_span_structured_label")
     if _prediction_has_reason_tag(prediction, "sanitized_"):
         reasons.append("sanitized_label_adjustment")
-    if prediction.exclusion_reason is not None:
+    if str(prediction.label or "").strip().upper() == "NONRECIPE_EXCLUDE":
         reasons.append("nonrecipe_excluded")
 
     payload = prediction.model_dump(mode="python")
@@ -523,42 +522,42 @@ def _looks_publisher_promo_candidate(
     )
 
 
-def _outside_recipe_exclusion_reason(
+def _outside_recipe_exclude_allowed(
     candidate: AtomicLineCandidate,
     *,
     by_atomic_index: dict[int, AtomicLineCandidate] | None,
-) -> str | None:
+) -> bool:
     if _is_within_recipe_span(candidate):
-        return None
+        return False
     text = str(candidate.text or "").strip()
     if not text:
-        return None
+        return False
     if _looks_page_furniture(text):
-        return "page_furniture"
+        return True
     if _looks_copyright_legal(text):
-        return "copyright_legal"
+        return True
     if _looks_publishing_metadata(text):
-        return "publishing_metadata"
+        return True
     if _looks_endorsement_credit(text):
-        return "endorsement"
+        return True
     if _looks_endorsement_blurb_candidate(
         candidate,
         by_atomic_index=by_atomic_index,
     ):
-        return "endorsement"
+        return True
     if _looks_publisher_promo_candidate(
         candidate,
         by_atomic_index=by_atomic_index,
     ):
-        return "publisher_promo"
+        return True
     if _looks_front_matter_exclusion_heading(text):
-        return "front_matter"
+        return True
     if _looks_navigation_exclusion_candidate(
         candidate,
         by_atomic_index=by_atomic_index,
     ):
-        return "navigation"
-    return None
+        return True
+    return False
 
 def _deterministic_label(
     candidate: AtomicLineCandidate,
@@ -726,7 +725,6 @@ def _apply_repo_baseline_semantic_policy(
     )
     reason_tags = list(prediction.reason_tags)
     decided_by = prediction.decided_by
-    exclusion_reason = prediction.exclusion_reason
     if (
         label == "KNOWLEDGE"
         and _is_within_recipe_span(candidate)
@@ -872,7 +870,6 @@ def _apply_repo_baseline_semantic_policy(
         label=label,
         decided_by=decided_by,
         reason_tags=reason_tags,
-        exclusion_reason=exclusion_reason,
     )
 
 
@@ -883,19 +880,22 @@ def _normalize_prediction_metadata(
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> CanonicalLineRolePrediction:
     label = str(prediction.label or "NONRECIPE_CANDIDATE")
-    exclusion_reason = prediction.exclusion_reason
     if _is_within_recipe_span(candidate):
-        exclusion_reason = None
         if label in {"OTHER", "KNOWLEDGE"}:
             label = "RECIPE_NOTES"
     elif label not in _RECIPE_LOCAL_LABELS:
-        exclusion_reason = exclusion_reason or _outside_recipe_exclusion_reason(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-        label = "NONRECIPE_EXCLUDE" if exclusion_reason else "NONRECIPE_CANDIDATE"
-    else:
-        exclusion_reason = None
+        if prediction.decided_by == "codex":
+            if label in {"OTHER", "KNOWLEDGE"}:
+                label = "NONRECIPE_CANDIDATE"
+        else:
+            label = (
+                "NONRECIPE_EXCLUDE"
+                if _outside_recipe_exclude_allowed(
+                    candidate,
+                    by_atomic_index=by_atomic_index,
+                )
+                else "NONRECIPE_CANDIDATE"
+            )
     return CanonicalLineRolePrediction(
         recipe_id=prediction.recipe_id,
         block_id=prediction.block_id,
@@ -906,7 +906,6 @@ def _normalize_prediction_metadata(
         label=label,
         decided_by=prediction.decided_by,
         reason_tags=_unique_string_list(str(tag) for tag in prediction.reason_tags),
-        exclusion_reason=exclusion_reason,
     )
 
 
@@ -917,18 +916,14 @@ def _codex_prediction_policy_rejection_reason(
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> str | None:
     label = str(prediction.label or "NONRECIPE_CANDIDATE")
-    if label == "NONRECIPE_EXCLUDE":
-        deterministic_exclusion_reason = _outside_recipe_exclusion_reason(
+    if (
+        label == "NONRECIPE_EXCLUDE"
+        and not _outside_recipe_exclude_allowed(
             candidate,
             by_atomic_index=by_atomic_index,
         )
-        prediction_exclusion_reason = _normalize_exclusion_reason(
-            prediction.exclusion_reason,
-        )
-        if deterministic_exclusion_reason is None:
-            return "nonrecipe_exclude_without_deterministic_support"
-        if prediction_exclusion_reason != deterministic_exclusion_reason:
-            return "nonrecipe_exclude_reason_mismatch"
+    ):
+        return "nonrecipe_exclude_without_deterministic_support"
     if (
         label == "KNOWLEDGE"
         and _is_within_recipe_span(candidate)
@@ -1253,6 +1248,42 @@ def _outside_span_has_neighboring_component_structure(
     return False
 
 
+def _outside_span_has_title_led_recipe_cluster(
+    candidate: AtomicLineCandidate,
+    *,
+    by_atomic_index: dict[int, AtomicLineCandidate],
+    radius: int = 4,
+) -> bool:
+    center = int(candidate.atomic_index)
+    saw_supported_title = False
+    saw_recipe_cluster_support = False
+    for atomic_index in range(center - max(1, int(radius)), center + max(1, int(radius)) + 1):
+        if atomic_index == center:
+            continue
+        row = by_atomic_index.get(atomic_index)
+        if row is None:
+            continue
+        text = str(row.text or "").strip()
+        if not text:
+            continue
+        if _looks_recipe_title_with_context(
+            row,
+            by_atomic_index=by_atomic_index,
+        ):
+            saw_supported_title = True
+            continue
+        if (
+            _neighbor_is_ingredient_dominant(row)
+            or _looks_recipe_start_boundary(row)
+            or _looks_direct_instruction_start(row)
+            or _looks_instructional_neighbor(row)
+            or _looks_storage_or_serving_note(text)
+            or _looks_recipe_note_prose(text)
+        ):
+            saw_recipe_cluster_support = True
+    return saw_supported_title and saw_recipe_cluster_support
+
+
 def _classify_non_heading_howto_prose(
     candidate: AtomicLineCandidate,
     *,
@@ -1316,6 +1347,14 @@ def _classify_non_heading_howto_prose(
     if lowered.startswith("to serve"):
         if _is_within_recipe_span(candidate):
             return "INSTRUCTION_LINE", ["howto_prefix_prose", "serving_step_prose"]
+        if (
+            by_atomic_index is not None
+            and _instruction_line_label_allowed(
+                candidate,
+                by_atomic_index=by_atomic_index,
+            )
+        ):
+            return "INSTRUCTION_LINE", ["howto_prefix_prose", "outside_recipe_serving_step"]
         if _is_outside_recipe_span(candidate):
             return "OTHER", ["howto_prefix_prose", "outside_recipe_serving_prose"]
         return "OTHER", ["howto_prefix_prose", "default_other"]
@@ -1444,14 +1483,27 @@ def _instruction_line_label_allowed(
     *,
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> bool:
+    text = str(candidate.text or "").strip()
     if _is_within_recipe_span(candidate):
         return True
+    if not text:
+        return False
+    if _looks_storage_or_serving_note(text):
+        return False
+    if _looks_recipe_note_prose(text) and not _looks_direct_instruction_start(candidate):
+        return False
     if not (
         _looks_direct_instruction_start(candidate)
         or _looks_instructional_neighbor(candidate)
     ):
         return False
-    return _outside_span_has_neighboring_component_structure(
+    if _outside_span_has_neighboring_component_structure(
+        candidate,
+        by_atomic_index=by_atomic_index,
+        radius=4,
+    ):
+        return True
+    return _outside_span_has_title_led_recipe_cluster(
         candidate,
         by_atomic_index=by_atomic_index,
         radius=4,
@@ -1878,6 +1930,21 @@ def _looks_direct_instruction_start(candidate: AtomicLineCandidate) -> bool:
         return True
     if _INSTRUCTION_VERB_RE.match(text):
         return True
+    if re.match(r"^\s*taste\b", text, re.IGNORECASE):
+        return True
+    if re.match(r"^\s*to serve\b", text, re.IGNORECASE) and _RECIPE_ACTION_CUE_RE.search(
+        text
+    ):
+        return True
+    if (
+        _INSTRUCTION_LEADIN_RE.match(text)
+        and re.search(r"\blet\s+(?:the|them|it)\b", text, re.IGNORECASE)
+    ):
+        return True
+    if re.match(r"^\s*let\s+(?:the|them|it)\b", text, re.IGNORECASE) and _RECIPE_ACTION_CUE_RE.search(
+        text
+    ):
+        return True
     if _INSTRUCTION_LEADIN_RE.match(text) and _RECIPE_ACTION_CUE_RE.search(text):
         return True
     return False
@@ -2200,6 +2267,12 @@ def _variant_heading_label_allowed(
             neighbor = by_atomic_index.get(neighbor_index)
             if neighbor is None:
                 continue
+            howto_prose_label, _ = _classify_non_heading_howto_prose(
+                neighbor,
+                by_atomic_index=by_atomic_index,
+            )
+            if howto_prose_label == "RECIPE_VARIANT":
+                return True
             if _looks_variant_run_body_line(
                 neighbor,
                 by_atomic_index=by_atomic_index,

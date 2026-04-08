@@ -170,18 +170,6 @@ def build_nonrecipe_seed_result(
             int(index): str(category) for index, category in route_by_index.items()
         },
     )
-
-
-def count_nonrecipe_reason_values(values: Mapping[int, str]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for value in values.values():
-        normalized = str(value or "").strip()
-        if not normalized:
-            continue
-        counts[normalized] = int(counts.get(normalized) or 0) + 1
-    return counts
-
-
 def preview_nonrecipe_text(value: Any, limit: int = 120) -> str:
     rendered = " ".join(str(value or "").split())
     if len(rendered) <= limit:

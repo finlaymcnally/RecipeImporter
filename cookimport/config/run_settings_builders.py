@@ -121,6 +121,7 @@ def build_run_settings(
     recipe_score_min_instruction_lines: int = 1,
     llm_recipe_pipeline: str | LlmRecipePipeline = LlmRecipePipeline.off,
     recipe_prompt_target_count: int | None = 5,
+    recipe_codex_exec_style: str = "inline-json-v1",
     atomic_block_splitter: str | AtomicBlockSplitter = AtomicBlockSplitter.off,
     line_role_pipeline: str | LineRolePipeline = LineRolePipeline.off,
     line_role_codex_exec_style: str = "inline-json-v1",
@@ -161,6 +162,7 @@ def build_run_settings(
     resolved_line_role_codex_exec_style = _normalized_value(
         line_role_codex_exec_style
     )
+    resolved_recipe_codex_exec_style = _normalized_value(recipe_codex_exec_style)
     resolved_knowledge_codex_exec_style = _normalized_value(
         knowledge_codex_exec_style
     )
@@ -241,6 +243,7 @@ def build_run_settings(
                 if recipe_prompt_target_count is not None
                 else None
             ),
+            "recipe_codex_exec_style": resolved_recipe_codex_exec_style,
             "atomic_block_splitter": _normalized_value(atomic_block_splitter),
             "line_role_pipeline": _normalized_value(line_role_pipeline),
             "line_role_codex_exec_style": resolved_line_role_codex_exec_style,

@@ -12,23 +12,24 @@ Task boundary:
 - Never invent lines or labels.
 
 Return strict JSON as a JSON object with one `rows` array:
-{"rows":[{"atomic_index":<int>,"label":"<ALLOWED_LABEL>","exclusion_reason":"<OPTIONAL_REASON>"}]}
+{"rows":[{"row_id":"r01","label":"<ALLOWED_LABEL>"}]}
 
 Task file shape:
-{"v":2,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[[122,"Earlier context"]],"rows":[[123,"1 cup flour"]],"context_after_rows":[[124,"Later context"]]}
+{"v":2,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[{"text":"Earlier context"}],"rows":[{"row_id":"r01","text":"1 cup flour"}],"context_after_rows":[{"text":"Later context"}]}
 
 Rules:
 - Output only JSON.
 - Your final answer must be that JSON object and nothing else.
-- Use only the keys `rows`, `atomic_index`, `label`, and optional `exclusion_reason`.
+- Use only the keys `rows`, `row_id`, and `label`.
 - Return one result for every owned input row in `rows`.
 - Keep output order exactly as requested by the task file's `rows` array.
 - Treat the task file as one ordered contiguous slice of the book.
-- The task file has one version marker `v`, one `shard_id`, optional `context_before_rows` / `context_after_rows`, and owned `rows` tuples.
-- `context_before_rows` and `context_after_rows`, when present, are reference-only neighboring rows shaped like `[atomic_index, current_line]`.
-- Never label reference-only neighboring rows and never include their `atomic_index` values in output JSON.
-- Each row is `[atomic_index, current_line]`.
-- Use the second tuple item as the line to label.
+- The task file has one version marker `v`, one `shard_id`, optional `context_before_rows` / `context_after_rows`, and owned `rows` objects.
+- Use packet-local `row_id` values in output JSON; do not return `atomic_index` in the answer.
+- `context_before_rows` and `context_after_rows`, when present, are reference-only neighboring rows containing only `text`.
+- Never label reference-only neighboring rows and never invent ids for them.
+- Each owned row object contains `row_id` and `text`.
+- Use the `text` field as the line to label.
 - Use neighboring rows in `rows[*]` for local context when needed.
 - Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`.
 
@@ -39,7 +40,7 @@ Shared labeling contract:
 
 {{REFERENCE_CONTEXT_BLOCK}}
 
-Authoritative owned shard rows (each row is [atomic_index, current_line]):
+Authoritative owned shard rows:
 <BEGIN_AUTHORITATIVE_ROWS>
 {{AUTHORITATIVE_ROWS}}
 <END_AUTHORITATIVE_ROWS>

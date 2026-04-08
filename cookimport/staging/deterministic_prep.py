@@ -570,7 +570,6 @@ def _normalize_authoritative_labeled_line_row(
             "decided_by": row.get("decided_by"),
             "reason_tags": row.get("reason_tags") or [],
             "escalation_reasons": row.get("escalation_reasons") or [],
-            "exclusion_reason": row.get("exclusion_reason"),
         }
     )
 

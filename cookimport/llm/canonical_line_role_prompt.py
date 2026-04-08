@@ -32,7 +32,6 @@ _SHARED_CONTRACT_FALLBACK = """Label distinctions that matter:
 - `RECIPE_NOTES`: recipe-local prose that belongs with the current recipe but is not ingredient or instruction structure.
 - `NONRECIPE_CANDIDATE`: outside-recipe material that is not recipe-local and should be sent to knowledge later.
 - `NONRECIPE_EXCLUDE`: obvious outside-recipe junk that should never reach knowledge.
-- `exclusion_reason`: use only on `NONRECIPE_EXCLUDE` rows; allowed values are `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `publisher_promo`, `page_furniture`.
 
 Negative rules:
 - If a line contains explicit cooking action plus time mention, prefer `INSTRUCTION_LINE` over `TIME_LINE`.
@@ -56,13 +55,11 @@ Negative rules:
 - Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` stay `NONRECIPE_CANDIDATE` only when surrounding rows clearly carry reusable explanatory prose.
 - A lone question-style or topic heading such as `What is Heat?` or `Balancing Fat` usually stays `NONRECIPE_EXCLUDE` unless nearby rows clearly show reusable lesson prose worth knowledge review.
 - Contents-style title lists, endorsements, intro framing, and isolated topic headings default to `NONRECIPE_EXCLUDE` unless nearby rows clearly show reusable lesson prose or one live recipe.
-- Contents-style title lists such as `Winter: Roasted Radicchio and Roquefort` or `Torn Croutons` usually stay `NONRECIPE_EXCLUDE` with `navigation` unless nearby rows prove one live recipe.
+- Contents-style title lists such as `Winter: Roasted Radicchio and Roquefort` or `Torn Croutons` usually stay `NONRECIPE_EXCLUDE` unless nearby rows prove one live recipe.
 - Endorsements, intro framing, and isolated topic headings default to `NONRECIPE_EXCLUDE` unless nearby rows clearly show reusable lesson prose or one live recipe.
 - Obvious praise blurbs, foreword or preface setup, book-thesis or manifesto framing, and `this book will teach you ...` jacket-copy promises usually stay `NONRECIPE_EXCLUDE`, not `NONRECIPE_CANDIDATE`.
 - First-person narrative or memoir framing is usually `NONRECIPE_EXCLUDE` when it reads like foreword/introduction setup rather than reusable cooking knowledge.
 - Endorsements, acknowledgments, foreword/introduction framing, memoir setup, and broad book-encouragement prose usually stay `NONRECIPE_EXCLUDE`; use `NONRECIPE_CANDIDATE` only when the line itself carries reusable cooking knowledge.
-- When those obvious framing rows are excluded, prefer the matching `exclusion_reason` (`endorsement`, `publisher_promo`, or `front_matter`) instead of leaving the reason blank.
-- Use optional `exclusion_reason` only on rows labeled `NONRECIPE_EXCLUDE` when the text is overwhelmingly obvious junk.
 
 Few-shot examples:
 1) Context: inside recipe, heading line
@@ -108,7 +105,6 @@ Few-shot examples:
 11) Context: front matter or navigation heading
     Line: `Acknowledgments`
     Label: `NONRECIPE_EXCLUDE`
-    exclusion_reason: `front_matter`
 
 12) Context: broad outside-recipe action-verb advice
     Line: `Use limes in guacamole, pho ga, green papaya salad, and kachumbar.`
@@ -125,7 +121,6 @@ Few-shot examples:
 15) Context: outside recipe, memoir or introduction framing prose
     Line: `Then I fell in love with Johnny, who introduced me to San Francisco.`
     Label: `NONRECIPE_EXCLUDE`
-    exclusion_reason: `front_matter`
 
 16) Context: outside recipe, reusable lesson prose with brief first-person framing
     Line: `Salt, Fat, Acid, and Heat were the four elements that guided basic decision making in every single dish, no matter what.`
@@ -138,22 +133,18 @@ Few-shot examples:
 18) Context: outside recipe, lone question heading without explanatory support
     Line: `What is Heat?`
     Label: `NONRECIPE_EXCLUDE`
-    exclusion_reason: `navigation`
 
 19) Context: front matter or contents heading, not a live recipe
     Line: `The Four Elements of Good Cooking`
     Label: `NONRECIPE_EXCLUDE`
-    exclusion_reason: `navigation`
 
 20) Context: contents-style seasonal title list
     Line: `Winter: Roasted Radicchio and Roquefort`
     Label: `NONRECIPE_EXCLUDE`
-    exclusion_reason: `navigation`
 
 21) Context: outside recipe, publisher-style promise or thesis framing
     Line: `This book will teach you the four elements of good cooking.`
     Label: `NONRECIPE_EXCLUDE`
-    exclusion_reason: `publisher_promo`
 
 22) Context: outside recipe, obvious imperative prep step with nearby recipe structure
     Line: `Quarter the cabbage through the core. Use a sharp knife to cut the core out at an angle.`
@@ -239,21 +230,22 @@ def build_canonical_line_role_file_prompt(
             "- Your first response must be the final JSON object.\n"
             "- Never invent lines or labels.\n\n"
             "Return strict JSON as a JSON object with one `rows` array:\n"
-            '{"rows":[{"atomic_index":<int>,"label":"<ALLOWED_LABEL>","exclusion_reason":"<OPTIONAL_REASON>"}]}\n\n'
+            '{"rows":[{"row_id":"r01","label":"<ALLOWED_LABEL>"}]}\n\n'
             "Task file shape:\n"
-            '{"v":2,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[[122,"Earlier context"]],"rows":[[123,"1 cup flour"]],"context_after_rows":[[124,"Later context"]]}\n\n'
+            '{"v":2,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[{"text":"Earlier context"}],"rows":[{"row_id":"r01","text":"1 cup flour"}],"context_after_rows":[{"text":"Later context"}]}\n\n'
             "Rules:\n"
             "- Output only JSON.\n"
             "- Your final answer must be that JSON object and nothing else.\n"
-            "- Use only the keys `rows`, `atomic_index`, `label`, and optional `exclusion_reason`.\n"
+            "- Use only the keys `rows`, `row_id`, and `label`.\n"
             "- Return one result for every owned input row in `rows`.\n"
             "- Keep output order exactly as requested by the task file's `rows` array.\n"
             "- Treat the task file as one ordered contiguous slice of the book.\n"
-            "- The task file has one version marker `v`, one `shard_id`, optional `context_before_rows` / `context_after_rows`, and owned `rows` tuples.\n"
-            "- `context_before_rows` and `context_after_rows`, when present, are reference-only neighboring rows shaped like `[atomic_index, current_line]`.\n"
-            "- Never label reference-only neighboring rows and never include their `atomic_index` values in output JSON.\n"
-            "- Each row is `[atomic_index, current_line]`.\n"
-            "- Use the second tuple item as the line to label.\n"
+            "- The task file has one version marker `v`, one `shard_id`, optional `context_before_rows` / `context_after_rows`, and owned `rows` objects.\n"
+            "- Use packet-local `row_id` values in output JSON; do not return `atomic_index` in the answer.\n"
+            "- `context_before_rows` and `context_after_rows`, when present, are reference-only neighboring rows containing only `text`.\n"
+            "- Never label reference-only neighboring rows and never invent ids for them.\n"
+            "- Each owned row object contains `row_id` and `text`.\n"
+            "- Use the `text` field as the line to label.\n"
             "- Use neighboring rows in `rows[*]` for local context when needed.\n"
             "- Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`.\n"
             "\n"
@@ -262,7 +254,7 @@ def build_canonical_line_role_file_prompt(
             "\n"
             "{{PACKET_CONTEXT_BLOCK}}"
             "{{REFERENCE_CONTEXT_BLOCK}}"
-            "Authoritative owned shard rows (each row is [atomic_index, current_line]):\n"
+            "Authoritative owned shard rows:\n"
             "<BEGIN_AUTHORITATIVE_ROWS>\n"
             "{{AUTHORITATIVE_ROWS}}\n"
             "<END_AUTHORITATIVE_ROWS>\n"
@@ -291,9 +283,15 @@ def _render_authoritative_rows_for_prompt(
 ) -> str:
     rows = list((dict(input_payload or {})).get("rows") or [])
     rendered_rows: list[str] = []
-    for row in rows:
+    for index, row in enumerate(rows):
         if isinstance(row, (list, tuple)):
-            rendered_rows.append(json.dumps(list(row), ensure_ascii=False))
+            rendered_rows.append(
+                json.dumps(
+                    {"row_id": f"r{index + 1:02d}", "text": str(row[1] or "")},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
         elif isinstance(row, Mapping):
             rendered_rows.append(
                 json.dumps(dict(row), ensure_ascii=False, sort_keys=True)
@@ -314,18 +312,34 @@ def _render_reference_context_block(
         rendered_rows: list[str] = []
         for row in rows:
             if isinstance(row, (list, tuple)):
-                rendered_rows.append(json.dumps(list(row), ensure_ascii=False))
-            elif isinstance(row, Mapping):
                 rendered_rows.append(
-                    json.dumps(dict(row), ensure_ascii=False, sort_keys=True)
+                    json.dumps(
+                        {"text": str(row[1] or "")},
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                )
+            elif isinstance(row, Mapping):
+                row_dict = dict(row)
+                rendered_rows.append(
+                    json.dumps(
+                        {
+                            "text": str(
+                                row_dict.get("current_line")
+                                or row_dict.get("text")
+                                or ""
+                            )
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
                 )
         return "\n".join(rendered_rows) if rendered_rows else "[none]"
 
     lines = [
         "Reference-only neighboring context:",
         "- These neighboring rows are for context only. Do not label them.",
-        "- Never include any `atomic_index` from neighboring context in output JSON.",
-        "- `context_before_rows` and `context_after_rows` use `[atomic_index, current_line]` tuples.",
+        "- Neighboring context rows expose only raw text, not stable row identities.",
         "<BEGIN_CONTEXT_BEFORE_ROWS>",
         _render_rows(context_before_rows),
         "<END_CONTEXT_BEFORE_ROWS>",

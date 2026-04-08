@@ -20,6 +20,7 @@ def _run_line_role_taskfile_assignment_v1(*, run_root: root.Path, assignment: ro
     valid_shards: list[root.ShardManifestEntryV1] = []
     task_file_payload: dict[str, root.Any] | None = None
     unit_to_shard_id: dict[str, str] = {}
+    unit_to_atomic_index: dict[str, int] = {}
     for shard in assigned_shards:
         shard_root = shard_dir / shard.shard_id
         shard_root.mkdir(parents=True, exist_ok=True)
@@ -78,10 +79,10 @@ def _run_line_role_taskfile_assignment_v1(*, run_root: root.Path, assignment: ro
     fresh_worker_replacement_status = 'not_attempted'
     fresh_worker_replacement_metadata: dict[str, root.Any] = {}
     if runnable_shards:
-        task_file_payload, unit_to_shard_id = root._build_line_role_task_file(assignment=assignment, shards=runnable_shards, debug_payload_by_shard_id=debug_payload_by_shard_id, deterministic_baseline_by_shard_id=deterministic_baseline_by_shard_id)
+        task_file_payload, unit_to_shard_id, unit_to_atomic_index = root._build_line_role_task_file(assignment=assignment, shards=runnable_shards, debug_payload_by_shard_id=debug_payload_by_shard_id, deterministic_baseline_by_shard_id=deterministic_baseline_by_shard_id)
         task_file_guardrail = root.build_task_file_guardrail(payload=task_file_payload, assignment_id=assignment.worker_id, worker_id=assignment.worker_id)
         state_path = root._line_role_same_session_state_path(worker_root)
-        root.initialize_line_role_same_session_state(state_path=state_path, assignment_id=assignment.worker_id, worker_id=assignment.worker_id, task_file=task_file_payload, unit_to_shard_id=unit_to_shard_id, shards=[root.asdict(shard) for shard in runnable_shards], output_dir=out_dir)
+        root.initialize_line_role_same_session_state(state_path=state_path, assignment_id=assignment.worker_id, worker_id=assignment.worker_id, task_file=task_file_payload, unit_to_shard_id=unit_to_shard_id, unit_to_atomic_index=unit_to_atomic_index, shards=[root.asdict(shard) for shard in runnable_shards], output_dir=out_dir)
         root.write_task_file(path=worker_root / root.TASK_FILE_NAME, payload=task_file_payload)
         worker_prompt_text = root._build_line_role_taskfile_prompt(shards=runnable_shards)
         worker_prompt_path = worker_root / 'prompt.txt'
@@ -125,7 +126,7 @@ def _run_line_role_taskfile_assignment_v1(*, run_root: root.Path, assignment: ro
             if should_replace_worker:
                 fresh_worker_replacement_count = 1
                 fresh_worker_replacement_status = 'attempted'
-                line_role_same_session_state_payload = root._reset_line_role_workspace_for_fresh_worker_replacement(worker_root=worker_root, out_dir=out_dir, assignment=assignment, runnable_shards=runnable_shards, task_file_payload=task_file_payload, unit_to_shard_id=unit_to_shard_id)
+                line_role_same_session_state_payload = root._reset_line_role_workspace_for_fresh_worker_replacement(worker_root=worker_root, out_dir=out_dir, assignment=assignment, runnable_shards=runnable_shards, task_file_payload=task_file_payload, unit_to_shard_id=unit_to_shard_id, unit_to_atomic_index=unit_to_atomic_index)
                 replacement_prompt_path = worker_root / 'prompt_fresh_worker_replacement.txt'
                 replacement_prompt_text = root._build_line_role_fresh_worker_replacement_prompt(shards=runnable_shards)
                 replacement_prompt_path.write_text(replacement_prompt_text, encoding='utf-8')
@@ -592,18 +593,37 @@ def _build_line_role_structured_prompt(*, packet: root.Mapping[str, root.Any]) -
             + "\n".join(f"- {line}" for line in shard_profile_lines)
             + "\nTreat this as evidence, not a deterministic answer key.\n\n"
         )
+    owned_rows = packet.get("rows") or []
+    owned_row_count = len(owned_rows) if isinstance(owned_rows, list) else 0
+    first_row_id = ""
+    last_row_id = ""
+    if owned_rows:
+        first_row = owned_rows[0] if isinstance(owned_rows[0], root.Mapping) else {}
+        last_row = owned_rows[-1] if isinstance(owned_rows[-1], root.Mapping) else {}
+        first_row_id = str(first_row.get("row_id") or "").strip()
+        last_row_id = str(last_row.get("row_id") or "").strip()
+    owned_row_count_note = (
+        f"This packet has {owned_row_count} owned row(s)"
+        + (
+            f" (`{first_row_id}` through `{last_row_id}`)."
+            if first_row_id and last_row_id
+            else "."
+        )
+    )
     return (
         "Return JSON only.\n\n"
-        "Review the canonical line-role packet and respond with:\n"
-        '{"rows":[{"row_id":"r01","label":"RECIPE_NOTES"},{"row_id":"r02","label":"NONRECIPE_EXCLUDE","exclusion_reason":"navigation"}]}\n\n'
+        "Review the canonical line-role packet and respond with one JSON object shaped like:\n"
+        '{"rows":[{"row_id":"<PACKET_ROW_ID>","label":"<ALLOWED_LABEL>"}]}\n\n'
         "Shared labeling contract:\n"
         + shared_contract
         + "\n\n"
         + shard_profile_block
         + "Rules:\n"
         f"- Allowed labels: {allowed_labels}\n"
+        f"- {owned_row_count_note}\n"
         "- Cover every owned `row_id` in this packet exactly once.\n"
-        f"- {context_note}Only include `exclusion_reason` when `label` is `NONRECIPE_EXCLUDE`.\n"
+        "- Do not copy the placeholder schema literally; replace it with the full packet-local row coverage for this shard.\n"
+        f"- {context_note}Return only `row_id` and `label` for each owned row.\n"
         "- Do not include commentary, markdown, or extra keys.\n\n"
         + repair_note
         + repair_focus_note
@@ -706,8 +726,6 @@ def _evaluate_line_role_structured_response(
             continue
         valid_row_ids.append(row_id)
         translated_row = {"atomic_index": atomic_index, "label": row_payload.get("label")}
-        if row_payload.get("exclusion_reason") is not None:
-            translated_row["exclusion_reason"] = row_payload.get("exclusion_reason")
         translated_rows.append(translated_row)
     missing_row_ids = [row_id for row_id in ordered_row_ids if row_id not in set(valid_row_ids)]
     response_contract_errors, response_contract_metadata = (

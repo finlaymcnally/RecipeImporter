@@ -39,10 +39,10 @@ Data sources (read-only):
 
 Output: `.history/dashboard/` for repo-local outputs (configurable via `--out-dir`)
 - Main `index.html` diagnostics now includes a latest benchmark runtime card (model/thinking/pipeline when available).
-- Main `index.html` diagnostics runtime `Token use` now uses compact `k`/`m` display for large token values and sums discounted token totals across the latest benchmark run group (not a single book row).
+- Main `index.html` diagnostics runtime `Effective token use` now uses compact `k`/`m` display for large token values and sums cached-discounted token totals across the latest benchmark run group (not a single book row).
 - Main `index.html` diagnostics runtime now also includes quality-efficiency rows (`Quality / 1M tokens`, vanilla delta efficiency, and peer rank).
 - Main `index.html` `Previous Runs` now includes `AI Model + Effort` and source-slug fallbacks when `source_file` is missing.
-- Main `index.html` `Previous Runs` `All token use` cell now uses compact `k`/`m` display for large token values.
+- Main `index.html` `Previous Runs` `Effective token use` cells now show `effective | input | cached | output` token parts so the cached-discounted total is explicit.
 - Main `index.html` `Previous Runs` includes derived `Quality / 1M tokens` for token-efficiency sorting/filtering across runs.
 - Main `index.html` trend hover cards now show point-level context only (dot score + book/source label + variant + eval-row timestamp), without run-group/overall series summaries.
 - Main `index.html` rolling trend overlays now shrink their edge windows near the start/end of a series so tail segments reflect the latest runs instead of flattening from a repeated final full-window slice.

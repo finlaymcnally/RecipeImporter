@@ -39,7 +39,7 @@ def _shard() -> ShardManifestEntryV1:
 
 def _initialize_workspace(tmp_path: Path) -> tuple[Path, Path]:
     shard = _shard()
-    task_file, unit_to_shard_id = _build_line_role_task_file(
+    task_file, unit_to_shard_id, unit_to_atomic_index = _build_line_role_task_file(
         assignment=_assignment(tmp_path),
         shards=[shard],
         debug_payload_by_shard_id={shard.shard_id: {"rows": [{"atomic_index": 7, "block_id": "b7"}]}},
@@ -57,23 +57,21 @@ def _initialize_workspace(tmp_path: Path) -> tuple[Path, Path]:
         worker_id="worker-001",
         task_file=task_file,
         unit_to_shard_id=unit_to_shard_id,
+        unit_to_atomic_index=unit_to_atomic_index,
         shards=[asdict(shard)],
         output_dir=output_dir,
     )
     return workspace_root, state_path
 
 
-def test_line_role_same_session_handoff_repairs_invalid_exclusion_reason_and_completes(
+def test_line_role_same_session_handoff_repairs_invalid_label_and_completes(
     tmp_path: Path,
 ) -> None:
     workspace_root, state_path = _initialize_workspace(tmp_path)
 
     task_file = load_task_file(workspace_root / "task.json")
     edited = deepcopy(task_file)
-    edited["units"][0]["answer"] = {
-        "label": "NONRECIPE_EXCLUDE",
-        "exclusion_reason": "nonrecipe",
-    }
+    edited["units"][0]["answer"] = {"label": "NOT_A_LABEL"}
     write_task_file(path=workspace_root / "task.json", payload=edited)
 
     repair_result = advance_line_role_same_session_handoff(
@@ -88,10 +86,7 @@ def test_line_role_same_session_handoff_repairs_invalid_exclusion_reason_and_com
     assert "helper_commands" not in repair_task
     assert repair_task["answer_schema"]["example_answers"][0]["label"] == "RECIPE_NOTES"
 
-    repair_task["units"][0]["answer"] = {
-        "label": "NONRECIPE_EXCLUDE",
-        "exclusion_reason": "navigation",
-    }
+    repair_task["units"][0]["answer"] = {"label": "NONRECIPE_EXCLUDE"}
     write_task_file(path=workspace_root / "task.json", payload=repair_task)
     completed_result = advance_line_role_same_session_handoff(
         workspace_root=workspace_root,
@@ -103,9 +98,7 @@ def test_line_role_same_session_handoff_repairs_invalid_exclusion_reason_and_com
 
     assert completed_result["status"] == "completed"
     assert completed_result["completed_shard_count"] == 1
-    assert output_payload["rows"] == [
-        {"atomic_index": 7, "label": "NONRECIPE_EXCLUDE", "exclusion_reason": "navigation"}
-    ]
+    assert output_payload["rows"] == [{"atomic_index": 7, "label": "NONRECIPE_EXCLUDE"}]
 
 
 def test_line_role_same_session_handoff_stops_after_one_failed_repair_pass(
@@ -115,10 +108,7 @@ def test_line_role_same_session_handoff_stops_after_one_failed_repair_pass(
 
     task_file = load_task_file(workspace_root / "task.json")
     edited = deepcopy(task_file)
-    edited["units"][0]["answer"] = {
-        "label": "NONRECIPE_EXCLUDE",
-        "exclusion_reason": "nonrecipe",
-    }
+    edited["units"][0]["answer"] = {"label": "NOT_A_LABEL"}
     write_task_file(path=workspace_root / "task.json", payload=edited)
 
     repair_result = advance_line_role_same_session_handoff(

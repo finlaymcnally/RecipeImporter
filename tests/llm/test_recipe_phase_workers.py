@@ -362,6 +362,7 @@ def _run_multi_recipe_phase_fixture(
     tmp_path: Path,
     *,
     runner: FakeCodexExecRunner | None = None,
+    recipe_codex_exec_style: str = "taskfile-v1",
 ) -> dict[str, object]:
     source = tmp_path / "book.txt"
     source.write_text("source", encoding="utf-8")
@@ -372,6 +373,7 @@ def _run_multi_recipe_phase_fixture(
             "codex_farm_root": str(tmp_path / "pack"),
             "recipe_prompt_target_count": 2,
             "recipe_worker_count": 1,
+            "recipe_codex_exec_style": recipe_codex_exec_style,
         }
     )
     for name in ("pipelines", "prompts", "schemas"):
@@ -490,15 +492,13 @@ def test_recipe_phase_runtime_writes_worker_prompt_and_manifest_contract(
     worker_manifest = fixture["worker_manifest"]
 
     worker_prompt = (worker_root / "prompt.txt").read_text(encoding="utf-8")
-    assert "Start with `task-summary`." in worker_prompt
-    assert "`task-show-unit <unit_id>` or `task-show-unanswered --limit 5`." in worker_prompt
+    assert "Open `task.json`, edit only `/units/*/answer`" in worker_prompt
+    assert "`task-summary` is optional" in worker_prompt
+    assert "use `task-show-unit <unit_id>`." in worker_prompt
     assert "edit only `/units/*/answer`" in worker_prompt
     assert "`task.json` already contains the full job for this worker." in worker_prompt
-    assert "Prefer `task-summary` before opening raw file contents." in worker_prompt
-    assert "If you briefly reread part of the file or make a small local false start" in worker_prompt
     assert "Do not invent helper ledgers, queue files, or alternate output files." in worker_prompt
-    assert "`task-template answers.json`" in worker_prompt
-    assert "`task-apply answers.json`." in worker_prompt
+    assert "Stay on the direct file-edit path" in worker_prompt
     assert "Do not dump `task.json` with `cat` or `sed`" in worker_prompt
     assert "run `task-handoff`" in worker_prompt
     assert "The helper is the only repo-side handoff seam." in worker_prompt
@@ -645,6 +645,7 @@ def test_recipe_phase_runtime_repairs_invalid_task_file_answers_in_same_session(
             "codex_farm_root": str(tmp_path / "pack"),
             "recipe_prompt_target_count": 1,
             "recipe_worker_count": 1,
+            "recipe_codex_exec_style": "taskfile-v1",
         }
     )
     for name in ("pipelines", "prompts", "schemas"):
@@ -721,6 +722,7 @@ def test_recipe_phase_runtime_short_circuits_fragmentary_scaffolds_before_worker
             "codex_farm_root": str(tmp_path / "pack"),
             "recipe_prompt_target_count": 2,
             "recipe_worker_count": 1,
+            "recipe_codex_exec_style": "taskfile-v1",
         }
     )
     for name in ("pipelines", "prompts", "schemas"):
@@ -785,11 +787,41 @@ def test_recipe_phase_runtime_short_circuits_fragmentary_scaffolds_before_worker
         promotion_report["recipe_results"]["urn:recipe:test:fragmentary"]["llm_dispatch"]
         == "handled_locally_skip_llm"
     )
-    assert (
-        recipe_manifest["counts"]["recipe_correction_handled_locally_skip_llm"] == 1
+    assert recipe_manifest["counts"]["recipe_correction_handled_locally_skip_llm"] == 1
+
+
+def test_recipe_phase_runtime_defaults_to_inline_json_transport(
+    tmp_path: Path,
+) -> None:
+    fixture = _run_multi_recipe_phase_fixture(
+        tmp_path,
+        recipe_codex_exec_style="inline-json-v1",
     )
-    assert len(runner.calls) == 1
-    assert runner.calls[0]["mode"] == "taskfile"
+    worker_root = fixture["worker_root"]
+    worker_status = fixture["worker_status"]
+    phase_manifest = fixture["phase_manifest"]
+    runner = fixture["runner"]
+
+    assert len(runner.calls) == 2
+    assert {call["mode"] for call in runner.calls} == {"structured_prompt"}
+    assert {
+        call["policy_spec"]["policy_mode"] for call in runner.calls
+    } == {"shell_disabled"}
+    assert not (worker_root / "task.json").exists()
+    assert (worker_root / "assigned_shards.json").exists()
+    assert sorted(path.name for path in (worker_root / "prompts").glob("*.txt")) == [
+        "recipe-shard-0000-r0000-r0001.txt",
+        "recipe-shard-0001-r0002-r0002.txt",
+    ]
+    assert worker_status["runtime_mode_audit"]["output_schema_enforced"] is True
+    assert worker_status["runtime_mode_audit"]["tool_affordances_requested"] is False
+    assert worker_status["recovery_policy"]["transport"] == "inline-json-v1"
+    assert worker_status["recovery_policy"]["shell_disabled"] is True
+    assert worker_status["telemetry"]["summary"]["repair_recovery_policy"]["transport"] == (
+        "inline-json-v1"
+    )
+    assert "worker_session_guardrails" not in worker_status["telemetry"]["summary"]
+    assert phase_manifest["runtime_metadata"]["transport"] == "inline-json-v1"
 
 
 def test_recipe_phase_runtime_defaults_workers_to_shard_count_when_unspecified(
@@ -850,6 +882,7 @@ def test_recipe_phase_runtime_forwards_structured_progress(
             "codex_farm_root": str(tmp_path / "pack"),
             "recipe_prompt_target_count": 2,
             "recipe_worker_count": 2,
+            "recipe_codex_exec_style": "taskfile-v1",
         }
     )
     for name in ("pipelines", "prompts", "schemas"):
@@ -935,6 +968,7 @@ def test_recipe_phase_runtime_surfaces_worker_attention_in_progress(
             "codex_farm_root": str(tmp_path / "pack"),
             "recipe_prompt_target_count": 2,
             "recipe_worker_count": 1,
+            "recipe_codex_exec_style": "taskfile-v1",
         }
     )
     for name in ("pipelines", "prompts", "schemas"):
@@ -991,6 +1025,7 @@ def test_recipe_phase_runtime_uses_configured_codex_home_for_sterile_exec_worksp
             "codex_farm_root": str(tmp_path / "pack"),
             "recipe_prompt_target_count": 2,
             "recipe_worker_count": 1,
+            "recipe_codex_exec_style": "taskfile-v1",
         }
     )
     for name in ("pipelines", "prompts", "schemas"):
@@ -1125,6 +1160,7 @@ def test_recipe_pipeline_fails_closed_before_worker_launch_when_survivability_is
             "codex_farm_root": str(tmp_path / "pack"),
             "recipe_prompt_target_count": 1,
             "recipe_worker_count": 1,
+            "recipe_codex_exec_style": "taskfile-v1",
         }
     )
     for name in ("pipelines", "prompts", "schemas"):
@@ -1175,6 +1211,7 @@ def test_recipe_taskfile_worker_with_valid_files_and_prose_final_message_stays_v
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(tmp_path / "pack"),
             "recipe_worker_count": 1,
+            "recipe_codex_exec_style": "taskfile-v1",
         }
     )
     for name in ("pipelines", "prompts", "schemas"):
@@ -1224,6 +1261,7 @@ def test_recipe_taskfile_worker_with_valid_files_and_no_final_message_stays_vali
             "codex_farm_cmd": "codex-farm",
             "codex_farm_root": str(tmp_path / "pack"),
             "recipe_worker_count": 1,
+            "recipe_codex_exec_style": "taskfile-v1",
         }
     )
     for name in ("pipelines", "prompts", "schemas"):

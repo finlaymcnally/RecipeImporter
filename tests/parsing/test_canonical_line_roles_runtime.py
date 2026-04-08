@@ -1058,12 +1058,77 @@ def test_label_atomic_lines_inline_json_repairs_in_place(tmp_path) -> None:
         "structured_prompt",
         "structured_prompt_resume",
     ]
-    assert runner.calls[0]["persist_session"] is True
-    assert runner.calls[1]["resume_last"] is True
-    assert (
-        runner.calls[0]["execution_working_dir"]
-        == runner.calls[1]["execution_working_dir"]
+
+
+def test_label_atomic_lines_inline_json_prompt_avoids_literal_example_copy_failure(
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:structured:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=f"Front matter line {index}",
+            within_recipe_span=False,
+            rule_tags=["front_matter_navigation"],
+        )
+        for index in range(3)
+    ]
+
+    class _LiteralExampleCopyRunner(FakeCodexExecRunner):
+        def __init__(self) -> None:
+            super().__init__(output_builder=self._build_output)
+
+        def _build_output(self, payload):  # noqa: ANN001
+            prompt_text = str(self.calls[-1].get("prompt_text") or "")
+            if (
+                '{"rows":[{"row_id":"r01","label":"RECIPE_NOTES"},'
+                '{"row_id":"r02","label":"NONRECIPE_EXCLUDE"}]}'
+                in prompt_text
+            ):
+                return {
+                    "rows": [
+                        {"row_id": "r01", "label": "RECIPE_NOTES"},
+                        {"row_id": "r02", "label": "NONRECIPE_EXCLUDE"},
+                    ]
+                }
+            structured_packet_rows = (
+                payload.get("structured_packet_rows") if isinstance(payload, dict) else []
+            )
+            return {
+                "rows": [
+                    {
+                        "row_id": str(row.get("row_id")),
+                        "label": "NONRECIPE_EXCLUDE",
+                    }
+                    for row in structured_packet_rows or []
+                    if isinstance(row, dict) and str(row.get("row_id") or "").strip()
+                ]
+            }
+
+    runner = _LiteralExampleCopyRunner()
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-route-v2",
+            line_role_prompt_target_count=1,
+            line_role_worker_count=1,
+            line_role_codex_exec_style="inline-json-v1",
+        ),
+        artifact_root=tmp_path,
+        codex_runner=runner,
+        live_llm_allowed=True,
     )
+
+    assert [prediction.label for prediction in predictions] == [
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
+    ]
+    assert [call["mode"] for call in runner.calls] == ["structured_prompt"]
+    assert runner.calls[0]["persist_session"] is True
+    assert runner.calls[0]["resume_last"] is False
 
     lineage_path = next(
         (tmp_path / "line-role-pipeline" / "runtime" / "line_role" / "workers").rglob(
@@ -1071,11 +1136,8 @@ def test_label_atomic_lines_inline_json_repairs_in_place(tmp_path) -> None:
         )
     )
     lineage_payload = json.loads(lineage_path.read_text(encoding="utf-8"))
-    assert lineage_payload["turn_count"] == 2
-    assert [turn["turn_kind"] for turn in lineage_payload["turns"]] == [
-        "initial",
-        "repair",
-    ]
+    assert lineage_payload["turn_count"] == 1
+    assert [turn["turn_kind"] for turn in lineage_payload["turns"]] == ["initial"]
 
 
 def test_line_role_cache_path_changes_when_line_role_pipeline_changes(tmp_path) -> None:
@@ -1275,7 +1337,8 @@ def test_label_atomic_lines_workspace_manifest_matches_current_contract(
     assert task_file_payload["answer_schema"]["editable_pointer_pattern"] == "/units/*/answer"
     assert "helper_commands" not in task_file_payload
     assert task_file_payload["units"][0]["evidence"] == {
-        "atomic_index": 0,
+        "shard_id": "line-role-canonical-0001-a000000-a000000",
+        "row_id": "r01",
         "text": "Ambiguous line 0",
     }
     assigned_shards_payload = json.loads(
@@ -1425,7 +1488,8 @@ def test_label_atomic_lines_writes_one_shard_owned_ledger_without_line_role_task
     assert task_file_payload["answer_schema"]["example_answers"][0]["label"] == "RECIPE_NOTES"
     assert all(
         set(unit["evidence"]) == {
-            "atomic_index",
+            "shard_id",
+            "row_id",
             "text",
         }
         for unit in task_file_payload["units"]
@@ -1566,7 +1630,7 @@ def test_line_role_taskfile_worker_invalid_task_file_answer_fails_closed_without
         units = edited.get("units") or []
         if units and isinstance(units[0], dict):
             first_unit = dict(units[0])
-            first_unit["answer"] = {"label": "NOT_A_LABEL", "exclusion_reason": None}
+            first_unit["answer"] = {"label": "NOT_A_LABEL"}
             units = [first_unit, *units[1:]]
         edited["units"] = units
         return edited

@@ -28,7 +28,6 @@ from .nonrecipe_finalize_status import build_nonrecipe_finalize_status_result
 from .nonrecipe_routing import build_nonrecipe_routing_result
 from .nonrecipe_seed import (
     build_nonrecipe_seed_result,
-    count_nonrecipe_reason_values,
     normalize_nonrecipe_route_label,
     prepare_nonrecipe_full_blocks_by_index,
     preview_nonrecipe_text,
@@ -90,9 +89,6 @@ def _default_nonrecipe_refinement_report(
         "unresolved_candidate_block_count": len(
             candidate_status.unresolved_candidate_block_indices
         ),
-        "exclusion_reason_counts": count_nonrecipe_reason_values(
-            routing.exclusion_reason_by_block
-        ),
         "grounding_counts": {},
         "grounding_by_block": {},
         "changed_blocks": [],
@@ -120,7 +116,6 @@ def build_nonrecipe_stage_result(
     )
 
     route_by_index: dict[int, str] = {}
-    exclusion_reason_by_block: dict[int, str] = {}
     warnings: list[str] = []
     block_preview_by_index = {
         int(block_index): preview_nonrecipe_text(full_blocks_by_index[block_index].get("text"))
@@ -156,11 +151,6 @@ def build_nonrecipe_stage_result(
             warnings=warnings,
         )
         route_by_index[block_index] = route
-        exclusion_reason = str(
-            getattr(block_label, "exclusion_reason", None) or ""
-        ).strip()
-        if route == "exclude" and exclusion_reason:
-            exclusion_reason_by_block[block_index] = exclusion_reason
 
     seed = build_nonrecipe_seed_result(
         full_blocks_by_index=full_blocks_by_index,
@@ -174,7 +164,6 @@ def build_nonrecipe_stage_result(
         excluded_block_indices=[
             index for index, route in sorted(route_by_index.items()) if route == "exclude"
         ],
-        exclusion_reason_by_block=exclusion_reason_by_block,
         block_preview_by_index=block_preview_by_index,
         warnings=warnings,
     )
@@ -285,7 +274,6 @@ def refine_nonrecipe_stage_result(
             excluded_nonrecipe_spans=list(stage_result.routing.excluded_nonrecipe_spans),
             candidate_block_indices=list(stage_result.routing.candidate_block_indices),
             excluded_block_indices=list(stage_result.routing.excluded_block_indices),
-            exclusion_reason_by_block=dict(stage_result.routing.exclusion_reason_by_block),
             block_preview_by_index=dict(stage_result.routing.block_preview_by_index),
             warnings=warnings,
         ),
@@ -310,9 +298,6 @@ def refine_nonrecipe_stage_result(
             "final_authority_block_count": len(authority.authoritative_block_indices),
             "unresolved_candidate_block_count": len(
                 candidate_status.unresolved_candidate_block_indices
-            ),
-            "exclusion_reason_counts": count_nonrecipe_reason_values(
-                stage_result.routing.exclusion_reason_by_block
             ),
             "grounding_counts": dict(grounding_summary or {}),
             "grounding_by_block": {

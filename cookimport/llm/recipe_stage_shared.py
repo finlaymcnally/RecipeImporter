@@ -21,6 +21,7 @@ from .codex_farm_contracts import MergedRecipeRepairInput, MergedRecipeRepairOut
 from .codex_farm_ids import bundle_filename, ensure_recipe_id, sanitize_for_filename
 from .codex_farm_runner import CodexFarmRunnerError
 from .codex_exec_runner import DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, CodexExecLiveSnapshot, CodexExecRunResult, CodexExecRunner, CodexExecSupervisionDecision, SubprocessCodexExecRunner, classify_taskfile_worker_command, detect_taskfile_worker_boundary_violation, format_watchdog_command_reason_detail, format_watchdog_command_loop_reason_detail, is_single_file_workspace_command_drift_policy, should_terminate_workspace_command_loop, summarize_direct_telemetry_rows
+from .codex_exec_policy import build_codex_exec_policy_spec
 from .editable_task_file import TASK_FILE_NAME, build_repair_task_file, build_task_file, load_task_file, validate_edited_task_file, write_task_file
 from .phase_worker_runtime import PhaseManifestV1, ShardManifestEntryV1, ShardProposalV1, TaskManifestEntryV1, WorkerAssignmentV1, WorkerExecutionReportV1, resolve_phase_worker_count
 from .phase_plan import attach_survivability_to_phase_plan, build_phase_plan, write_phase_plan_artifacts
@@ -28,6 +29,7 @@ from .repair_recovery_policy import (
     FOLLOWUP_KIND_FRESH_SESSION_RETRY,
     FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT,
     FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE,
+    INLINE_JSON_TRANSPORT,
     RECIPE_POLICY_STAGE_KEY,
     TASKFILE_TRANSPORT,
     build_followup_budget_summary,
@@ -1088,6 +1090,152 @@ def _run_recipe_taskfile_assignment_v1(*, run_root: Path, assignment: WorkerAssi
     _write_json(worker_runner_payload, worker_root / 'status.json')
     return _DirectRecipeWorkerResult(report=WorkerExecutionReportV1(worker_id=assignment.worker_id, shard_ids=assignment.shard_ids, workspace_root=_relative_path(run_root, worker_root), status='ok' if worker_failure_count == 0 else 'partial_failure', proposal_count=worker_proposal_count, failure_count=worker_failure_count, runtime_mode_audit={'mode': DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, 'status': 'ok', 'output_schema_enforced': False, 'tool_affordances_requested': True}, runner_result=worker_runner_payload, metadata={'in_dir': _relative_path(run_root, in_dir), 'hints_dir': _relative_path(run_root, hints_dir), 'out_dir': _relative_path(run_root, out_dir), 'shards_dir': _relative_path(run_root, shard_dir), 'log_dir': _relative_path(run_root, logs_dir), 'task_file_guardrail': dict(task_file_guardrail or {}), 'repair_worker_session_count': repair_worker_session_count, 'fresh_session_retry_count': fresh_session_retry_count, 'fresh_session_retry_status': fresh_session_retry_status, 'fresh_worker_replacement_count': fresh_worker_replacement_count, 'fresh_worker_replacement_status': fresh_worker_replacement_status, **dict(fresh_worker_replacement_metadata)}), proposals=tuple(worker_proposals), failures=tuple(worker_failures), stage_rows=tuple(stage_rows))
 
+def _build_recipe_inline_runner_payload(
+    *,
+    pipeline_id: str,
+    worker_id: str,
+    shard_id: str,
+    run_result: CodexExecRunResult,
+    model: str | None,
+    reasoning_effort: str | None,
+    request_input_file: Path,
+    worker_prompt_path: Path,
+    artifact_root: Path,
+) -> dict[str, Any]:
+    payload = run_result.to_payload(worker_id=worker_id, shard_id=shard_id)
+    payload['pipeline_id'] = pipeline_id
+    telemetry = payload.get('telemetry')
+    row_payload = None
+    if isinstance(telemetry, Mapping):
+        rows = telemetry.get('rows')
+        if isinstance(rows, list) and rows:
+            first_row = rows[0]
+            if isinstance(first_row, Mapping):
+                row_payload = dict(first_row)
+    request_input_file_str = str(request_input_file)
+    request_input_file_bytes = request_input_file.stat().st_size if request_input_file.exists() else None
+    worker_prompt_file = str(worker_prompt_path)
+    if row_payload is not None:
+        row_payload['prompt_input_mode'] = 'inline'
+        row_payload['request_input_file'] = request_input_file_str
+        row_payload['request_input_file_bytes'] = request_input_file_bytes
+        row_payload['worker_prompt_file'] = worker_prompt_file
+        row_payload['runtime_parent_shard_id'] = shard_id
+        row_payload['events_path'] = str(artifact_root / 'events.jsonl')
+        row_payload['last_message_path'] = str(artifact_root / 'last_message.json')
+        row_payload['usage_path'] = str(artifact_root / 'usage.json')
+        row_payload['live_status_path'] = str(artifact_root / 'live_status.json')
+        row_payload['workspace_manifest_path'] = str(artifact_root / 'workspace_manifest.json')
+        row_payload['stdout_path'] = None
+        row_payload['stderr_path'] = None
+        telemetry['rows'] = [row_payload]
+        telemetry['summary'] = summarize_direct_telemetry_rows([row_payload])
+    payload['process_payload'] = {
+        'pipeline_id': pipeline_id,
+        'status': 'done' if run_result.subprocess_exit_code == 0 else 'failed',
+        'codex_model': model,
+        'codex_reasoning_effort': reasoning_effort,
+        'prompt_input_mode': 'inline',
+        'request_input_file': request_input_file_str,
+        'request_input_file_bytes': request_input_file_bytes,
+        'worker_prompt_file': worker_prompt_file,
+        'runtime_parent_shard_id': shard_id,
+        'events_path': str(artifact_root / 'events.jsonl'),
+        'last_message_path': str(artifact_root / 'last_message.json'),
+        'usage_path': str(artifact_root / 'usage.json'),
+        'live_status_path': str(artifact_root / 'live_status.json'),
+        'workspace_manifest_path': str(artifact_root / 'workspace_manifest.json'),
+        'stdout_path': None,
+        'stderr_path': None,
+        'codex_policy_mode': run_result.codex_policy_mode,
+        'codex_shell_tool_enabled': run_result.codex_shell_tool_enabled,
+        'codex_transport': run_result.codex_transport,
+    }
+    return payload
+
+def _write_recipe_inline_task_outputs(*, worker_root: Path, task_plans: Sequence[_RecipeTaskPlan], validated_payload: Mapping[str, Any]) -> None:
+    rows_by_recipe_id = {str(row.get('rid') or '').strip(): dict(row) for row in validated_payload.get('r') or [] if isinstance(row, Mapping) and str(row.get('rid') or '').strip()}
+    for task_plan in task_plans:
+        recipe_id = str((_coerce_dict((_coerce_dict(task_plan.manifest_entry.input_payload).get('r') or [{}])[0]).get('rid') or '').strip() or str(task_plan.manifest_entry.owned_ids[0]))
+        recipe_row = rows_by_recipe_id.get(recipe_id)
+        if recipe_row is None:
+            continue
+        _write_recipe_task_payload(output_path=worker_root / _recipe_task_result_path(task_plan), payload={'v': '1', 'sid': task_plan.task_id, 'r': [dict(recipe_row)]})
+
+def _run_recipe_inline_assignment_v1(*, run_root: Path, assignment: WorkerAssignmentV1, artifacts: Mapping[str, str], assigned_shards: Sequence[ShardManifestEntryV1], worker_root: Path, in_dir: Path, hints_dir: Path, shard_dir: Path, logs_dir: Path, runner: CodexExecRunner, pipeline_id: str, env: Mapping[str, str], model: str | None, reasoning_effort: str | None, output_schema_path: Path | None, settings: Mapping[str, Any], pipeline_assets: Mapping[str, Any], shard_completed_callback: Callable[..., None] | None) -> _DirectRecipeWorkerResult:
+    out_dir = worker_root / 'out'
+    prompts_dir = worker_root / 'prompts'
+    out_dir.mkdir(parents=True, exist_ok=True)
+    prompts_dir.mkdir(parents=True, exist_ok=True)
+    _write_json([asdict(shard) for shard in assigned_shards], worker_root / 'assigned_shards.json')
+    worker_failure_count = 0
+    worker_proposal_count = 0
+    worker_failures: list[dict[str, Any]] = []
+    worker_proposals: list[ShardProposalV1] = []
+    worker_runner_results: list[dict[str, Any]] = []
+    stage_rows: list[dict[str, Any]] = []
+    for shard in assigned_shards:
+        shard_root = shard_dir / shard.shard_id
+        shard_root.mkdir(parents=True, exist_ok=True)
+        preflight_failure = _preflight_recipe_shard(shard)
+        if preflight_failure is not None:
+            proposal_path = run_root / artifacts['proposals_dir'] / f'{shard.shard_id}.json'
+            preflight_error = str(preflight_failure.get('reason_code') or 'preflight_rejected')
+            _write_json({'shard_id': shard.shard_id, 'worker_id': assignment.worker_id, 'payload': None, 'validation_errors': [preflight_error], 'validation_metadata': {}, 'repair_attempted': False, 'repair_status': 'not_attempted', 'state': 'preflight_rejected', 'reason_code': preflight_error, 'reason_detail': str(preflight_failure.get('reason_detail') or ''), 'retryable': False}, proposal_path)
+            _write_json({'status': 'missing_output', 'validation_errors': [preflight_error], 'validation_metadata': {}, 'runtime_mode': DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, 'repair_attempted': False, 'repair_status': 'not_attempted', 'state': 'preflight_rejected', 'reason_code': preflight_error, 'reason_detail': str(preflight_failure.get('reason_detail') or ''), 'retryable': False}, shard_root / 'status.json')
+            worker_failure_count += 1
+            worker_failures.append({'worker_id': assignment.worker_id, 'shard_id': shard.shard_id, 'reason': 'preflight_rejected', 'validation_errors': [preflight_error], 'state': 'preflight_rejected', 'reason_code': preflight_error})
+            worker_proposals.append(ShardProposalV1(shard_id=shard.shard_id, worker_id=assignment.worker_id, status='missing_output', proposal_path=_relative_path(run_root, proposal_path), payload=None, validation_errors=(preflight_error,), metadata={'repair_attempted': False, 'repair_status': 'not_attempted', 'state': 'preflight_rejected', 'reason_code': preflight_error, 'reason_detail': str(preflight_failure.get('reason_detail') or ''), 'retryable': False}))
+            if shard_completed_callback is not None:
+                shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
+            continue
+        task_plans = _build_recipe_task_plans(shard)
+        request_payload = _coerce_dict(shard.input_payload)
+        request_input_file = in_dir / f'{shard.shard_id}.json'
+        serialized_input = _serialize_compact_prompt_json(request_payload)
+        _write_worker_input(request_input_file, payload=request_payload, input_text=serialized_input)
+        prompt_text = render_recipe_direct_prompt(pipeline_assets=pipeline_assets, input_text=serialized_input, input_path=request_input_file)
+        worker_prompt_path = prompts_dir / f'{shard.shard_id}.txt'
+        worker_prompt_path.write_text(prompt_text, encoding='utf-8')
+        run_result = runner.run_packet_worker(prompt_text=prompt_text, input_payload=request_payload, working_dir=worker_root, env=env, output_schema_path=output_schema_path, model=model, reasoning_effort=reasoning_effort, completed_termination_grace_seconds=float(settings.get('completed_termination_grace_seconds') or 15.0), workspace_task_label=f'recipe refine shard {shard.shard_id}', policy_spec=build_codex_exec_policy_spec(stage_key=RECIPE_POLICY_STAGE_KEY, transport=INLINE_JSON_TRANSPORT))
+        (shard_root / 'events.jsonl').write_text(_render_events_jsonl(run_result.events), encoding='utf-8')
+        _write_json({'text': run_result.response_text}, shard_root / 'last_message.json')
+        _write_json(dict(run_result.usage or {}), shard_root / 'usage.json')
+        _write_json(run_result.workspace_manifest(), shard_root / 'workspace_manifest.json')
+        worker_runner_payload = _build_recipe_inline_runner_payload(pipeline_id=pipeline_id, worker_id=assignment.worker_id, shard_id=shard.shard_id, run_result=run_result, model=model, reasoning_effort=reasoning_effort, request_input_file=request_input_file, worker_prompt_path=worker_prompt_path, artifact_root=shard_root)
+        telemetry_rows = worker_runner_payload.get('telemetry', {}).get('rows') if isinstance(worker_runner_payload.get('telemetry'), Mapping) else None
+        if isinstance(telemetry_rows, list):
+            for row_payload in telemetry_rows:
+                if isinstance(row_payload, dict):
+                    stage_rows.append(dict(row_payload))
+        worker_runner_results.append(dict(worker_runner_payload))
+        payload_candidate, validation_errors, validation_metadata, proposal_status = _evaluate_recipe_response(shard=shard, response_text=run_result.response_text)
+        if proposal_status == 'validated' and isinstance(payload_candidate, Mapping):
+            _write_recipe_inline_task_outputs(worker_root=worker_root, task_plans=task_plans, validated_payload=payload_candidate)
+        supervision_fields = _final_recipe_supervision_fields(run_result=run_result, proposal_status=proposal_status, repair_status='not_attempted')
+        proposal_path = run_root / artifacts['proposals_dir'] / f'{shard.shard_id}.json'
+        _write_json({'shard_id': shard.shard_id, 'worker_id': assignment.worker_id, 'payload': payload_candidate if proposal_status == 'validated' else None, 'validation_errors': list(validation_errors), 'validation_metadata': dict(validation_metadata or {}), 'repair_attempted': False, 'repair_status': 'not_attempted', 'state': supervision_fields['final_supervision_state'], 'reason_code': supervision_fields['final_supervision_reason_code'], 'reason_detail': supervision_fields['final_supervision_reason_detail'], 'retryable': run_result.supervision_retryable, **supervision_fields}, proposal_path)
+        _write_json({'status': proposal_status, 'validation_errors': list(validation_errors), 'validation_metadata': dict(validation_metadata or {}), 'runtime_mode': DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, 'repair_attempted': False, 'repair_status': 'not_attempted', 'state': supervision_fields['final_supervision_state'], 'reason_code': supervision_fields['final_supervision_reason_code'], 'reason_detail': supervision_fields['final_supervision_reason_detail'], 'retryable': run_result.supervision_retryable, **supervision_fields}, shard_root / 'status.json')
+        if proposal_status != 'validated':
+            worker_failure_count += 1
+            reason = str(supervision_fields['final_supervision_reason_code'] or _failure_reason_from_run_result(run_result=run_result, proposal_status=proposal_status))
+            worker_failures.append({'worker_id': assignment.worker_id, 'shard_id': shard.shard_id, 'reason': reason, 'validation_errors': list(validation_errors), 'state': supervision_fields['final_supervision_state'], 'reason_code': supervision_fields['final_supervision_reason_code']})
+        else:
+            worker_proposal_count += 1
+        worker_proposals.append(ShardProposalV1(shard_id=shard.shard_id, worker_id=assignment.worker_id, status=proposal_status, proposal_path=_relative_path(run_root, proposal_path), payload=payload_candidate if proposal_status == 'validated' else None, validation_errors=validation_errors, metadata={'repair_attempted': False, 'repair_status': 'not_attempted', 'state': supervision_fields['final_supervision_state'], 'reason_code': supervision_fields['final_supervision_reason_code'], 'reason_detail': supervision_fields['final_supervision_reason_detail'], 'retryable': run_result.supervision_retryable, **dict(validation_metadata or {}), **worker_runner_payload.get('process_payload', {}), **supervision_fields}))
+        if shard_completed_callback is not None:
+            shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)
+    worker_runner_payload = _aggregate_recipe_worker_runner_payload(pipeline_id=pipeline_id, worker_runs=worker_runner_results, stage_rows=stage_rows)
+    worker_summary = worker_runner_payload.get('telemetry', {}).get('summary')
+    if isinstance(worker_summary, dict):
+        worker_summary['repair_recovery_policy'] = build_followup_budget_summary(stage_key=RECIPE_POLICY_STAGE_KEY, transport=INLINE_JSON_TRANSPORT, spent_attempts_by_kind={})
+    worker_runner_payload['recovery_policy'] = {
+        'transport': INLINE_JSON_TRANSPORT,
+        'shell_disabled': True,
+    }
+    _write_json(worker_runner_payload, worker_root / 'status.json')
+    return _DirectRecipeWorkerResult(report=WorkerExecutionReportV1(worker_id=assignment.worker_id, shard_ids=assignment.shard_ids, workspace_root=_relative_path(run_root, worker_root), status='ok' if worker_failure_count == 0 else 'partial_failure', proposal_count=worker_proposal_count, failure_count=worker_failure_count, runtime_mode_audit={'mode': DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, 'status': 'ok', 'output_schema_enforced': True, 'tool_affordances_requested': False}, runner_result=worker_runner_payload, metadata={'in_dir': _relative_path(run_root, in_dir), 'hints_dir': _relative_path(run_root, hints_dir), 'out_dir': _relative_path(run_root, out_dir), 'shards_dir': _relative_path(run_root, shard_dir), 'log_dir': _relative_path(run_root, logs_dir), 'transport': INLINE_JSON_TRANSPORT}), proposals=tuple(worker_proposals), failures=tuple(worker_failures), stage_rows=tuple(stage_rows))
+
 def _run_direct_recipe_worker_assignment_v1(*, run_root: Path, assignment: WorkerAssignmentV1, artifacts: Mapping[str, str], shard_by_id: Mapping[str, ShardManifestEntryV1], runner: CodexExecRunner, pipeline_id: str, env: Mapping[str, str], model: str | None, reasoning_effort: str | None, output_schema_path: Path | None, settings: Mapping[str, Any], pipeline_assets: Mapping[str, Any], shard_completed_callback: Callable[..., None] | None) -> _DirectRecipeWorkerResult:
     worker_root = Path(assignment.workspace_root)
     runner_env = dict(env)
@@ -1100,12 +1248,16 @@ def _run_direct_recipe_worker_assignment_v1(*, run_root: Path, assignment: Worke
     shard_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
     assigned_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
+    recipe_transport = str(settings.get('recipe_codex_exec_style') or TASKFILE_TRANSPORT).strip() or TASKFILE_TRANSPORT
+    if recipe_transport == INLINE_JSON_TRANSPORT:
+        return _run_recipe_inline_assignment_v1(run_root=run_root, assignment=assignment, artifacts=artifacts, assigned_shards=assigned_shards, worker_root=worker_root, in_dir=in_dir, hints_dir=hints_dir, shard_dir=shard_dir, logs_dir=logs_dir, runner=runner, pipeline_id=pipeline_id, env=runner_env, model=model, reasoning_effort=reasoning_effort, output_schema_path=output_schema_path, settings=settings, pipeline_assets=pipeline_assets, shard_completed_callback=shard_completed_callback)
     (worker_root / 'assigned_shards.json').unlink(missing_ok=True)
     return _run_recipe_taskfile_assignment_v1(run_root=run_root, assignment=assignment, artifacts=artifacts, assigned_shards=assigned_shards, worker_root=worker_root, in_dir=in_dir, hints_dir=hints_dir, shard_dir=shard_dir, logs_dir=logs_dir, runner=runner, pipeline_id=pipeline_id, env=runner_env, model=model, reasoning_effort=reasoning_effort, output_schema_path=output_schema_path, settings=settings, shard_completed_callback=shard_completed_callback)
 
 def _run_direct_recipe_workers_v1(*, phase_key: str, pipeline_id: str, run_root: Path, shards: Sequence[ShardManifestEntryV1], runner: CodexExecRunner, worker_count: int, env: Mapping[str, str], model: str | None, reasoning_effort: str | None, output_schema_path: Path | None, settings: Mapping[str, Any], runtime_metadata: Mapping[str, Any], pipeline_assets: Mapping[str, Any], progress_callback: Callable[[str], None] | None=None, survivability_report: Mapping[str, Any] | None=None) -> tuple[PhaseManifestV1, list[WorkerExecutionReportV1]]:
     artifacts = {'phase_manifest': 'phase_manifest.json', 'shard_manifest': 'shard_manifest.jsonl', 'task_manifest': 'task_manifest.jsonl', 'worker_assignments': 'worker_assignments.json', 'promotion_report': 'promotion_report.json', 'telemetry': 'telemetry.json', 'failures': 'failures.json', 'proposals_dir': 'proposals'}
     run_root.mkdir(parents=True, exist_ok=True)
+    recipe_transport = str(settings.get('recipe_codex_exec_style') or TASKFILE_TRANSPORT).strip() or TASKFILE_TRANSPORT
     shard_by_id = {shard.shard_id: shard for shard in shards}
     assignments = _assign_recipe_workers_v1(run_root=run_root, shards=shards, worker_count=worker_count)
     _write_jsonl(run_root / artifacts['shard_manifest'], [asdict(shard) for shard in shards])
@@ -1247,32 +1399,53 @@ def _run_direct_recipe_workers_v1(*, phase_key: str, pipeline_id: str, run_root:
     handled_locally_skip_llm_rows = _collect_recipe_locally_finalized_skip_rows(all_proposals)
     promotion_report = {'schema_version': 'phase_worker_runtime.promotion_report.v1', 'phase_key': phase_key, 'pipeline_id': pipeline_id, 'validated_shards': sum((1 for proposal in all_proposals if proposal.status == 'validated')), 'invalid_shards': sum((1 for proposal in all_proposals if proposal.status == 'invalid')), 'missing_output_shards': sum((1 for proposal in all_proposals if proposal.status == 'missing_output')), 'recipe_results': recipe_result_rows, 'recipe_result_counts': {'repaired': sum((1 for row in recipe_result_rows.values() if row.get('repair_status') == 'repaired')), 'fragmentary': sum((1 for row in recipe_result_rows.values() if row.get('repair_status') == 'fragmentary')), 'not_a_recipe': sum((1 for row in recipe_result_rows.values() if row.get('repair_status') == 'not_a_recipe'))}, 'handled_locally_skip_llm': {'count': len(handled_locally_skip_llm_rows), 'status_counts': {'fragmentary': sum((1 for row in handled_locally_skip_llm_rows if row.get('repair_status') == 'fragmentary')), 'not_a_recipe': sum((1 for row in handled_locally_skip_llm_rows if row.get('repair_status') == 'not_a_recipe'))}, 'recipes': [dict(row) for row in handled_locally_skip_llm_rows]}, 'task_counts': {status: sum((1 for proposal in all_proposals for status_payload in [_coerce_dict(_coerce_dict(proposal.metadata).get('task_status_by_task_id'))] for task_row in status_payload.values() if str(_coerce_dict(task_row).get('task_status') or '').strip() == status)) for status in ('handled_locally_skip_llm', 'assigned_to_worker', 'validated', 'validated_after_repair', 'failed_after_repair', 'missing_output', 'queue_not_reached')}}
     telemetry = {'schema_version': 'phase_worker_runtime.telemetry.v1', 'phase_key': phase_key, 'pipeline_id': pipeline_id, 'runtime_mode': DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, 'worker_count': len(assignments), 'shard_count': len(shards), 'proposal_count': sum((report.proposal_count for report in worker_reports)), 'failure_count': len(failures), 'fresh_agent_count': len(assignments) + sum((int(dict(report.metadata or {}).get('fresh_worker_replacement_count') or 0) for report in worker_reports)), 'rows': stage_rows, 'summary': summarize_direct_telemetry_rows(stage_rows)}
-    task_file_guardrails = summarize_task_file_guardrails([dict(report.metadata or {}).get('task_file_guardrail') if isinstance(report.metadata, Mapping) else None for report in worker_reports])
-    worker_session_guardrails = build_worker_session_guardrails(planned_happy_path_worker_cap=len(assignments) * 3, actual_happy_path_worker_sessions=int(telemetry['summary'].get('taskfile_session_count') or 0), repair_worker_session_count=sum((int((dict(report.metadata or {}).get('repair_worker_session_count') if isinstance(report.metadata, Mapping) else 0) or 0) for report in worker_reports)))
-    telemetry['summary']['task_file_guardrails'] = task_file_guardrails
-    telemetry['summary']['worker_session_guardrails'] = worker_session_guardrails
-    telemetry['summary']['planned_happy_path_worker_cap'] = int(worker_session_guardrails['planned_happy_path_worker_cap'])
-    telemetry['summary']['actual_happy_path_worker_sessions'] = int(worker_session_guardrails['actual_happy_path_worker_sessions'])
-    telemetry['summary']['repair_worker_session_count'] = int(worker_session_guardrails['repair_worker_session_count'])
     total_repair_worker_session_count = sum((int((dict(report.metadata or {}).get('repair_worker_session_count') if isinstance(report.metadata, Mapping) else 0) or 0) for report in worker_reports))
     total_fresh_session_retry_count = sum((int(dict(report.metadata or {}).get('fresh_session_retry_count') or 0) for report in worker_reports))
     total_fresh_worker_replacement_count = sum((int(dict(report.metadata or {}).get('fresh_worker_replacement_count') or 0) for report in worker_reports))
-    telemetry['summary']['repair_recovery_policy'] = build_followup_budget_summary(
-        stage_key=RECIPE_POLICY_STAGE_KEY,
-        transport=TASKFILE_TRANSPORT,
-        spent_attempts_by_kind={
-            FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE: total_repair_worker_session_count,
-            FOLLOWUP_KIND_FRESH_SESSION_RETRY: total_fresh_session_retry_count,
-            FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT: total_fresh_worker_replacement_count,
-        },
-    )
+    runtime_metadata_payload = {
+        **dict(runtime_metadata or {}),
+        'transport': recipe_transport,
+        'phase_plan_path': str(phase_plan_path),
+        'phase_plan_summary_path': str(phase_plan_summary_path),
+    }
+    if recipe_transport == TASKFILE_TRANSPORT:
+        task_file_guardrails = summarize_task_file_guardrails([dict(report.metadata or {}).get('task_file_guardrail') if isinstance(report.metadata, Mapping) else None for report in worker_reports])
+        worker_session_guardrails = build_worker_session_guardrails(planned_happy_path_worker_cap=len(assignments) * 3, actual_happy_path_worker_sessions=int(telemetry['summary'].get('taskfile_session_count') or 0), repair_worker_session_count=total_repair_worker_session_count)
+        telemetry['summary']['task_file_guardrails'] = task_file_guardrails
+        telemetry['summary']['worker_session_guardrails'] = worker_session_guardrails
+        telemetry['summary']['planned_happy_path_worker_cap'] = int(worker_session_guardrails['planned_happy_path_worker_cap'])
+        telemetry['summary']['actual_happy_path_worker_sessions'] = int(worker_session_guardrails['actual_happy_path_worker_sessions'])
+        telemetry['summary']['repair_worker_session_count'] = int(worker_session_guardrails['repair_worker_session_count'])
+        telemetry['summary']['repair_recovery_policy'] = build_followup_budget_summary(
+            stage_key=RECIPE_POLICY_STAGE_KEY,
+            transport=TASKFILE_TRANSPORT,
+            spent_attempts_by_kind={
+                FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE: total_repair_worker_session_count,
+                FOLLOWUP_KIND_FRESH_SESSION_RETRY: total_fresh_session_retry_count,
+                FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT: total_fresh_worker_replacement_count,
+            },
+        )
+        runtime_metadata_payload.update(
+            {
+                'task_file_guardrails': task_file_guardrails,
+                'worker_session_guardrails': worker_session_guardrails,
+                'same_session_repair_rewrite_count': total_repair_worker_session_count,
+                'fresh_session_retry_count': total_fresh_session_retry_count,
+                'fresh_worker_replacement_count': total_fresh_worker_replacement_count,
+            }
+        )
+    else:
+        telemetry['summary']['repair_recovery_policy'] = build_followup_budget_summary(
+            stage_key=RECIPE_POLICY_STAGE_KEY,
+            transport=INLINE_JSON_TRANSPORT,
+            spent_attempts_by_kind={},
+        )
     _write_json(promotion_report, run_root / artifacts['promotion_report'])
     _write_json(telemetry, run_root / artifacts['telemetry'])
     _write_json(failures, run_root / artifacts['failures'])
-    runtime_metadata_payload = {**dict(runtime_metadata or {}), 'task_file_guardrails': task_file_guardrails, 'worker_session_guardrails': worker_session_guardrails, 'same_session_repair_rewrite_count': total_repair_worker_session_count, 'fresh_session_retry_count': total_fresh_session_retry_count, 'fresh_worker_replacement_count': total_fresh_worker_replacement_count, 'phase_plan_path': str(phase_plan_path), 'phase_plan_summary_path': str(phase_plan_summary_path)}
     manifest = PhaseManifestV1(schema_version='phase_worker_runtime.phase_manifest.v1', phase_key=phase_key, pipeline_id=pipeline_id, run_root=str(run_root), worker_count=len(assignments), shard_count=len(shards), assignment_strategy='round_robin_v1', runtime_mode=DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, max_turns_per_shard=1, settings=dict(settings or {}), artifact_paths=dict(artifacts), runtime_metadata=runtime_metadata_payload)
     _write_json(asdict(manifest), run_root / artifacts['phase_manifest'])
-    if bool(worker_session_guardrails.get('cap_exceeded')):
+    if recipe_transport == TASKFILE_TRANSPORT and bool(worker_session_guardrails.get('cap_exceeded')):
         raise CodexFarmRunnerError(f'Recipe happy-path worker sessions exceeded the planned cap: planned={worker_session_guardrails['planned_happy_path_worker_cap']} actual={worker_session_guardrails['actual_happy_path_worker_sessions']}.')
     return (manifest, worker_reports)
 
@@ -1332,7 +1505,7 @@ def _run_single_correction_recipe_pipeline(*, conversion_result: ConversionResul
         _write_json(survivability_report, phase_runtime_dir / 'shard_survivability_report.json')
         if str(survivability_report.get('survivability_verdict') or '') != 'safe':
             raise ShardSurvivabilityPreflightError(survivability_report)
-        phase_manifest, worker_reports = _run_direct_recipe_workers_v1(phase_key='recipe_refine', pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID, run_root=phase_runtime_dir, shards=[ShardManifestEntryV1(shard_id=plan.shard_id, owned_ids=tuple((state.recipe_id for state in plan.states)), evidence_refs=plan.evidence_refs, input_payload=serialize_recipe_correction_shard_input(plan.shard_input), metadata={'recipe_ids': [state.recipe_id for state in plan.states], 'bundle_names': [state.bundle_name for state in plan.states], 'recipe_count': len(plan.states), 'worker_hint_recipes': [{'recipe_id': prepared.state.recipe_id, 'bundle_name': prepared.state.bundle_name, 'title_hint': str(prepared.correction_input.recipe_candidate_hint.get('n') or '').strip(), 'quality_flags': list(prepared.candidate_quality_hint.get('f') or []), 'source_evidence_row_count': int(prepared.candidate_quality_hint.get('e') or 0), 'source_ingredient_like_count': int(prepared.candidate_quality_hint.get('ei') or 0), 'source_instruction_like_count': int(prepared.candidate_quality_hint.get('es') or 0), 'hint_ingredient_count': int(prepared.candidate_quality_hint.get('hi') or 0), 'hint_step_count': int(prepared.candidate_quality_hint.get('hs') or 0), 'pre_context_rows': [{'index': int(index), 'text': text} for index, text in prepared.pre_context_rows], 'post_context_rows': [{'index': int(index), 'text': text} for index, text in prepared.post_context_rows]} for prepared in plan.prepared_inputs]}) for plan in recipe_shards], runner=codex_runner, worker_count=_recipe_worker_count(run_settings, shard_count=len(recipe_shards)), env=env, model=codex_model, reasoning_effort=codex_reasoning_effort, output_schema_path=resolved_output_schema_path, settings={'llm_recipe_pipeline': run_settings.llm_recipe_pipeline.value, 'runtime_mode': DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, 'recipe_worker_count': run_settings.recipe_worker_count, 'recipe_prompt_target_count': run_settings.recipe_prompt_target_count}, runtime_metadata={'workbook_slug': workbook_slug, 'recipe_phase_input_dir': str(phase_input_dir), 'requested_shard_count': run_settings.recipe_prompt_target_count or len(recipe_shards), 'budget_native_shard_count': len(recipe_shards), 'planning_warnings': []}, pipeline_assets=pipeline_assets, progress_callback=progress_callback, survivability_report=survivability_report)
+        phase_manifest, worker_reports = _run_direct_recipe_workers_v1(phase_key='recipe_refine', pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID, run_root=phase_runtime_dir, shards=[ShardManifestEntryV1(shard_id=plan.shard_id, owned_ids=tuple((state.recipe_id for state in plan.states)), evidence_refs=plan.evidence_refs, input_payload=serialize_recipe_correction_shard_input(plan.shard_input), metadata={'recipe_ids': [state.recipe_id for state in plan.states], 'bundle_names': [state.bundle_name for state in plan.states], 'recipe_count': len(plan.states), 'worker_hint_recipes': [{'recipe_id': prepared.state.recipe_id, 'bundle_name': prepared.state.bundle_name, 'title_hint': str(prepared.correction_input.recipe_candidate_hint.get('n') or '').strip(), 'quality_flags': list(prepared.candidate_quality_hint.get('f') or []), 'source_evidence_row_count': int(prepared.candidate_quality_hint.get('e') or 0), 'source_ingredient_like_count': int(prepared.candidate_quality_hint.get('ei') or 0), 'source_instruction_like_count': int(prepared.candidate_quality_hint.get('es') or 0), 'hint_ingredient_count': int(prepared.candidate_quality_hint.get('hi') or 0), 'hint_step_count': int(prepared.candidate_quality_hint.get('hs') or 0), 'pre_context_rows': [{'index': int(index), 'text': text} for index, text in prepared.pre_context_rows], 'post_context_rows': [{'index': int(index), 'text': text} for index, text in prepared.post_context_rows]} for prepared in plan.prepared_inputs]}) for plan in recipe_shards], runner=codex_runner, worker_count=_recipe_worker_count(run_settings, shard_count=len(recipe_shards)), env=env, model=codex_model, reasoning_effort=codex_reasoning_effort, output_schema_path=resolved_output_schema_path, settings={'llm_recipe_pipeline': run_settings.llm_recipe_pipeline.value, 'runtime_mode': DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, 'recipe_worker_count': run_settings.recipe_worker_count, 'recipe_prompt_target_count': run_settings.recipe_prompt_target_count, 'recipe_codex_exec_style': run_settings.resolved_recipe_codex_exec_style(), 'completed_termination_grace_seconds': run_settings.completed_termination_grace_seconds}, runtime_metadata={'workbook_slug': workbook_slug, 'recipe_phase_input_dir': str(phase_input_dir), 'requested_shard_count': run_settings.recipe_prompt_target_count or len(recipe_shards), 'budget_native_shard_count': len(recipe_shards), 'planning_warnings': []}, pipeline_assets=pipeline_assets, progress_callback=progress_callback, survivability_report=survivability_report)
         phase_manifest_payload = json.loads((phase_runtime_dir / 'phase_manifest.json').read_text(encoding='utf-8'))
         promotion_report = json.loads((phase_runtime_dir / 'promotion_report.json').read_text(encoding='utf-8'))
         telemetry = json.loads((phase_runtime_dir / 'telemetry.json').read_text(encoding='utf-8'))

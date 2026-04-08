@@ -115,6 +115,9 @@ def run_labelstudio_import(
     llm_recipe_pipeline: str = "off",
     llm_knowledge_pipeline: str = "off",
     recipe_prompt_target_count: int = 5,
+    recipe_codex_exec_style: str = str(
+        serialized_run_setting_default("recipe_codex_exec_style")
+    ),
     knowledge_prompt_target_count: int = 5,
     knowledge_packet_input_char_budget: int | None = 18000,
     knowledge_packet_output_char_budget: int | None = 12000,
@@ -253,6 +256,7 @@ def run_labelstudio_import(
         llm_recipe_pipeline=llm_recipe_pipeline,
         llm_knowledge_pipeline=llm_knowledge_pipeline,
         recipe_prompt_target_count=recipe_prompt_target_count,
+        recipe_codex_exec_style=recipe_codex_exec_style,
         knowledge_prompt_target_count=knowledge_prompt_target_count,
         knowledge_packet_input_char_budget=knowledge_packet_input_char_budget,
         knowledge_packet_output_char_budget=knowledge_packet_output_char_budget,

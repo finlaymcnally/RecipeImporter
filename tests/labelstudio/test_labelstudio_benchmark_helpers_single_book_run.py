@@ -24,6 +24,14 @@ def test_single_book_module_binds_cross_owner_helpers() -> None:
     assert callable(bench_single_book.build_shard_recommendations_from_prep_bundle)
 
 
+def test_labelstudio_benchmark_command_accepts_transport_kwargs_from_run_settings() -> None:
+    signature = inspect.signature(bench_single_book._labelstudio_benchmark_command())
+
+    assert "recipe_codex_exec_style" in signature.parameters
+    assert "line_role_codex_exec_style" in signature.parameters
+    assert "knowledge_codex_exec_style" in signature.parameters
+
+
 def test_build_single_book_interactive_shard_recommendations_reads_preview_phase_plans(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

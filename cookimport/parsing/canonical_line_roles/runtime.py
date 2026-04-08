@@ -469,10 +469,7 @@ def _label_atomic_lines_internal(
         if (
             current.decided_by == "codex"
             and _is_outside_recipe_span(candidate)
-            and (
-                str(current.label or "NONRECIPE_CANDIDATE") == "NONRECIPE_EXCLUDE"
-                or current.exclusion_reason is not None
-            )
+            and str(current.label or "NONRECIPE_CANDIDATE") == "NONRECIPE_EXCLUDE"
         ):
             current = _normalize_prediction_metadata(
                 prediction=current,
@@ -792,7 +789,6 @@ def _run_line_role_shard_runtime(
                     label=str(contained_row["label"] or "NONRECIPE_CANDIDATE"),
                     decided_by="fallback",
                     reason_tags=reason_tags,
-                    exclusion_reason=contained_row.get("exclusion_reason"),
                 )
                 continue
             predictions_by_atomic_index[atomic_index] = CanonicalLineRolePrediction(
@@ -805,7 +801,6 @@ def _run_line_role_shard_runtime(
                 label=str(row["label"] or "NONRECIPE_CANDIDATE"),
                 decided_by="codex",
                 reason_tags=["codex_line_role"],
-                exclusion_reason=row.get("exclusion_reason"),
             )
     return _LineRoleRuntimeResult(
         predictions_by_atomic_index=predictions_by_atomic_index,

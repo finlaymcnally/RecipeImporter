@@ -150,6 +150,7 @@ def test_run_settings_defaults_use_current_codex_farm_pipeline_pack_ids() -> Non
     assert settings.recipe_prompt_target_count == 5
     assert settings.line_role_prompt_target_count == 5
     assert settings.knowledge_prompt_target_count == 5
+    assert settings.recipe_codex_exec_style.value == "inline-json-v1"
     assert settings.epub_unstructured_preprocess_mode.value == "br_split_v1"
 
 
@@ -193,7 +194,15 @@ def test_build_run_settings_accepts_codex_prompt_targets() -> None:
     assert settings.recipe_prompt_target_count == 10
     assert settings.line_role_prompt_target_count == 5
     assert settings.knowledge_prompt_target_count == 4
+    assert settings.recipe_codex_exec_style.value == "inline-json-v1"
     assert settings.llm_knowledge_pipeline.value == "codex-knowledge-candidate-v2"
+
+
+def test_run_settings_accept_recipe_codex_exec_style_round_trip() -> None:
+    settings = RunSettings.from_dict({"recipe_codex_exec_style": "taskfile-v1"})
+
+    assert settings.recipe_codex_exec_style.value == "taskfile-v1"
+    assert settings.resolved_recipe_codex_exec_style() == "taskfile-v1"
 
 
 def test_run_settings_rejects_removed_codex_farm_recipe_mode_aliases() -> None:

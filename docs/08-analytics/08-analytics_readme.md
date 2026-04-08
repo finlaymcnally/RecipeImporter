@@ -258,8 +258,9 @@ Current table/trend behavior:
 
 Current row semantics:
 - `AI Model`, `AI Effort`, and derived `AI Profile` are first-class fields.
+- `all_token_use` is an effective-token cost proxy, not a literal raw total; dashboard displays should keep cached input explicit so the discounted total is readable beside raw input/output counts.
 - `AI Model` can render `System error` when manifest enrichment detects codex runtime failure metadata.
-- `All token use` and `Quality / 1M tokens` are default columns.
+- `Effective token use` and `Quality / 1M tokens` are default columns.
 - Missing token telemetry stays unknown (`-`) instead of becoming numeric zero.
 - All-method benchmark sweeps collapse to one row whose timestamp jumps to the in-page `All-Method Sweeps` summary.
 
@@ -312,7 +313,7 @@ Current page behavior:
 - If they disagree, check whether you are looking at table filters versus compare/control-local analysis before changing collector logic.
 
 6. Dashboard token cells are not the same thing as whole-run actual cost.
-- `All token use` is a cached-discounted per-row dashboard proxy.
+- `Effective token use` is a cached-discounted per-row dashboard proxy.
 - raw CSV `tokens_total` is still just that one benchmark row's total.
 - finished-run `prompt_budget_summary.json` is the multi-stage actual-cost artifact when recipe, knowledge, and line-role all contributed spend.
 - prompt preview artifacts are forward-looking estimates, not retrospective billing truth.

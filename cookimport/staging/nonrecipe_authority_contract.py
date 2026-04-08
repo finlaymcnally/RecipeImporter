@@ -21,7 +21,6 @@ class NonRecipeRoutingResult:
     excluded_nonrecipe_spans: list[NonRecipeSpan]
     candidate_block_indices: list[int]
     excluded_block_indices: list[int]
-    exclusion_reason_by_block: dict[int, str]
     block_preview_by_index: dict[int, str]
     warnings: list[str]
 

@@ -284,9 +284,15 @@ def _resolve_line_role_worker_count(
 def _render_line_role_authoritative_rows(shard: ShardManifestEntryV1) -> str:
     rows = list((_coerce_mapping_dict(shard.input_payload)).get("rows") or [])
     rendered_rows: list[str] = []
-    for row in rows:
+    for index, row in enumerate(rows):
         if isinstance(row, (list, tuple)):
-            rendered_rows.append(json.dumps(list(row), ensure_ascii=False))
+            rendered_rows.append(
+                json.dumps(
+                    {"row_id": f"r{index + 1:02d}", "text": str(row[1] or "")},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+            )
         elif isinstance(row, Mapping):
             rendered_rows.append(
                 json.dumps(dict(row), ensure_ascii=False, sort_keys=True)
@@ -537,7 +543,6 @@ def _build_line_role_taskfile_prompt(
         ),
         section(
             "- Set `answer.label` for every unit.",
-            "- Use `answer.exclusion_reason` only when `answer.label=NONRECIPE_EXCLUDE`.",
             heading="Task-file answer rules",
         ),
         section(*shared_contract.splitlines(), heading="Shared labeling contract"),

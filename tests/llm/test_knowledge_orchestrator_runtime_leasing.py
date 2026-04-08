@@ -186,6 +186,7 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     phase_manifest = json.loads((phase_dir / "phase_manifest.json").read_text(encoding="utf-8"))
     telemetry = json.loads((phase_dir / "telemetry.json").read_text(encoding="utf-8"))
     worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+    stage_summary = summarize_knowledge_stage_artifacts(phase_dir)
     assert telemetry["summary"]["packet_economics"]["packet_count_total"] >= 2
     assert telemetry["summary"]["packet_economics"]["repair_packet_count_total"] == 0
     assert telemetry["summary"]["packet_economics"]["owned_row_count_total"] == 2
@@ -216,6 +217,7 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
         ]
         == 1
     )
+    assert stage_summary["pre_kill_failures_observed"] is False
 
 
 def test_knowledge_orchestrator_retries_one_fresh_session_after_preserved_progress(
@@ -408,6 +410,66 @@ def test_knowledge_orchestrator_inline_json_populates_top_level_telemetry_and_su
         survivability_report["shards"][0]["observed"]["token_usage_status"] == "complete"
     )
     assert survivability_report["shards"][0]["observed"]["total_billed_tokens"] > 0
+
+
+def test_knowledge_orchestrator_inline_json_updates_task_status_and_stage_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
+    pack_root, _run_root = make_runtime_pack_and_run_dirs(tmp_path)
+    settings = make_runtime_settings(
+        pack_root=pack_root,
+        worker_count=1,
+        knowledge_prompt_target_count=1,
+        knowledge_codex_exec_style="inline-json-v1",
+    )
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: build_structural_pipeline_output(
+            "recipe.knowledge.packet.v1",
+            dict(payload or {}),
+        )
+    )
+
+    fixture = _run_runtime_phase(
+        monkeypatch,
+        tmp_path,
+        runner=runner,
+        settings=settings,
+        block_texts=["Knowledge zero."],
+        spans=[knowledge_span(0)],
+    )
+    phase_dir = Path(fixture["phase_dir"])
+    task_status_rows = [
+        json.loads(line)
+        for line in (phase_dir / "task_status.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    telemetry = json.loads((phase_dir / "telemetry.json").read_text(encoding="utf-8"))
+    stage_status = json.loads((phase_dir / "stage_status.json").read_text(encoding="utf-8"))
+    summary = summarize_knowledge_stage_artifacts(phase_dir)
+
+    assert len(task_status_rows) == 1
+    assert task_status_rows[0]["state"] == "validated"
+    assert task_status_rows[0]["terminal"] is True
+    assert task_status_rows[0]["proposal_status"] == "validated"
+    assert telemetry["summary"]["packet_economics"]["packet_count_total"] == 2
+    assert telemetry["summary"]["packet_economics"]["owned_row_count_total"] == 1
+    assert telemetry["summary"]["packet_economics"]["classification_step_count_total"] == 1
+    assert telemetry["summary"]["packet_economics"]["grouping_step_count_total"] == 1
+    assert (
+        telemetry["summary"]["packet_economics"]["classification_validation_count_total"]
+        == 1
+    )
+    assert (
+        telemetry["summary"]["packet_economics"]["grouping_validation_count_total"] == 1
+    )
+    assert stage_status["pre_kill_failure_counts"]["task_terminal_states"] == {}
+    assert summary["pre_kill_failures_observed"] is False
+    assert summary["packets"]["state_counts"] == {"validated": 1}
+    assert summary["packets"]["topline"]["validated"] == 1
+    assert summary["attention_summary"]["context_counts"]["validated_packet_count"] == 1
+    assert summary["attention_summary"]["context_counts"]["owned_row_count_total"] == 1
 
 
 def test_knowledge_orchestrator_replaces_hard_boundary_failure_with_fresh_worker(

@@ -149,7 +149,7 @@ _HTML = """\
 
 	        <p class="section-note"><strong>Tokens (cost proxy; present when run telemetry is available)</strong></p>
 	        <ul class="metric-help-list">
-		          <li><code>all_token_use</code>: A single “quick scan” token number that combines input and output tokens, with cached input discounted. Cached tokens are treated as cheaper by counting them at 10% weight. Use this to compare overall cost between runs without staring at multiple token columns.</li>
+		          <li><code>all_token_use</code>: A single “quick scan” effective-token number that combines input and output tokens, with cached input discounted. Cached tokens are treated as cheaper by counting them at 10% weight. Use this as a cost proxy, not as a literal raw-total token count.</li>
 		          <li><code>quality_per_million_tokens</code>: Quality efficiency (preferred quality metric per 1,000,000 discounted tokens). Higher is better. Use this to compare whether token spend translated into score gains across runs.</li>
 		          <li><code>tokens_input</code>: How many input tokens were sent to the model across the run. More input tokens often means more context, which can help quality, but it also costs more and can slow things down. If this spikes, check whether chunk sizes or prompts got larger.</li>
 	          <li><code>tokens_cached_input</code>: Input tokens that came from cache (reused context) rather than being fully “paid for” again. This helps explain why a run can have high input tokens but lower effective cost. If cache tokens go up, cost can drop even if quality stays the same.</li>

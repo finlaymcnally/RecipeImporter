@@ -317,11 +317,18 @@ def test_recipe_orchestrator_can_run_through_fake_codex_farm_subprocess(
         path.name
         for path in (llm_root / "recipe_phase_runtime" / "proposals").glob("*.json")
     )
+    worker_root = llm_root / "recipe_phase_runtime" / "workers" / "worker-001"
+    worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
 
     assert manifest["counts"]["recipe_shards_total"] == 1
     assert manifest["counts"]["recipe_correction_ok"] == 1
     assert phase_manifest["pipeline_id"] == "recipe.correction.compact.v1"
     assert proposal_files == ["recipe-shard-0000-r0000-r0000.json"]
+    assert phase_manifest["settings"]["recipe_codex_exec_style"] == "inline-json-v1"
+    assert worker_status["runtime_mode_audit"]["output_schema_enforced"] is True
+    assert worker_status["runtime_mode_audit"]["tool_affordances_requested"] is False
+    assert not (worker_root / "task.json").exists()
+    assert (worker_root / "assigned_shards.json").exists()
 
 
 def test_recipe_taskfile_worker_can_run_through_fake_codex_farm_subprocess(
@@ -335,6 +342,7 @@ def test_recipe_taskfile_worker_can_run_through_fake_codex_farm_subprocess(
         {
             "llm_recipe_pipeline": "codex-recipe-shard-v1",
             "recipe_worker_count": 1,
+            "recipe_codex_exec_style": "taskfile-v1",
             "codex_farm_cmd": str(_script_path()),
             "codex_farm_root": str(Path(__file__).resolve().parents[2] / "llm_pipelines"),
         }
@@ -424,7 +432,6 @@ def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
             routing=make_routing_result(
                 candidate_block_indices=[4],
                 excluded_block_indices=[0],
-                exclusion_reason_by_block={0: "navigation"},
             ),
             authority=make_authority_result({0: "other"}),
             candidate_status=make_candidate_status_result(
@@ -521,7 +528,6 @@ def test_knowledge_taskfile_worker_can_run_through_fake_codex_farm_subprocess(
             routing=make_routing_result(
                 candidate_block_indices=[4],
                 excluded_block_indices=[0],
-                exclusion_reason_by_block={0: "navigation"},
             ),
             authority=make_authority_result({0: "other"}),
             candidate_status=make_candidate_status_result(

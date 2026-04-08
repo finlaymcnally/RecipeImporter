@@ -379,7 +379,11 @@ def _patch_interactive_settings(
 
 def _available_codex_step_modes(step_id: str) -> tuple[str, ...]:
     if step_id == "recipe":
-        return (_CODEX_STEP_MODE_OFF, CODEX_EXEC_STYLE_TASKFILE_V1)
+        return (
+            _CODEX_STEP_MODE_OFF,
+            CODEX_EXEC_STYLE_INLINE_JSON_V1,
+            CODEX_EXEC_STYLE_TASKFILE_V1,
+        )
     if step_id in {"line_role", "knowledge"}:
         return (
             _CODEX_STEP_MODE_OFF,
@@ -395,11 +399,9 @@ def _current_codex_step_mode(
     step_id: str,
 ) -> str:
     if step_id == "recipe":
-        return (
-            CODEX_EXEC_STYLE_TASKFILE_V1
-            if selected_settings.llm_recipe_pipeline.value != "off"
-            else _CODEX_STEP_MODE_OFF
-        )
+        if selected_settings.llm_recipe_pipeline.value == "off":
+            return _CODEX_STEP_MODE_OFF
+        return selected_settings.resolved_recipe_codex_exec_style()
     if step_id == "line_role":
         if selected_settings.line_role_pipeline.value != LINE_ROLE_PIPELINE_ROUTE_V2:
             return _CODEX_STEP_MODE_OFF
@@ -1263,6 +1265,7 @@ def _choose_interactive_codex_surfaces(
     )
     if "recipe" not in step_ids:
         patched_payload["llm_recipe_pipeline"] = "off"
+        patched_payload["recipe_codex_exec_style"] = CODEX_EXEC_STYLE_INLINE_JSON_V1
     if "line_role" not in step_ids:
         patched_payload["line_role_pipeline"] = "off"
         patched_payload["atomic_block_splitter"] = "off"
@@ -1282,6 +1285,11 @@ def _choose_interactive_codex_surfaces(
                 resolved_recipe_pipeline
                 if mode != _CODEX_STEP_MODE_OFF
                 else "off"
+            )
+            patched_payload["recipe_codex_exec_style"] = (
+                mode
+                if mode != _CODEX_STEP_MODE_OFF
+                else CODEX_EXEC_STYLE_INLINE_JSON_V1
             )
             continue
         if step_id == "line_role":
@@ -1547,6 +1555,7 @@ def build_interactive_benchmark_preset_settings(
         llm_recipe_pipeline=RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
         line_role_pipeline=LINE_ROLE_PIPELINE_ROUTE_V2,
         llm_knowledge_pipeline=KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
+        recipe_codex_exec_style=CODEX_EXEC_STYLE_INLINE_JSON_V1,
         line_role_codex_exec_style=CODEX_EXEC_STYLE_INLINE_JSON_V1,
         knowledge_codex_exec_style=CODEX_EXEC_STYLE_INLINE_JSON_V1,
         atomic_block_splitter=selected_settings.atomic_block_splitter.value,

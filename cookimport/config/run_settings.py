@@ -729,6 +729,20 @@ class RunSettings(BaseModel):
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
+    recipe_codex_exec_style: CodexExecStyle = Field(
+        default=CodexExecStyle.inline_json_v1,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Recipe Codex Exec Style",
+            order=110,
+            description=(
+                "Transport style for Codex-backed recipe refine. "
+                "Inline JSON is the default thin path; taskfile keeps the editable "
+                "task.json contract for comparison or debugging."
+            ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
     recipe_worker_count: int | None = Field(
         default=None,
         ge=1,
@@ -1233,6 +1247,14 @@ class RunSettings(BaseModel):
     ) -> str | LlmKnowledgePipeline:
         return normalize_llm_knowledge_pipeline_value(value)
 
+    @field_validator("recipe_codex_exec_style", mode="before")
+    @classmethod
+    def _normalize_recipe_codex_exec_style(
+        cls,
+        value: Any,
+    ) -> str | CodexExecStyle:
+        return normalize_codex_exec_style_value(value)
+
     @field_validator("line_role_codex_exec_style", mode="before")
     @classmethod
     def _normalize_line_role_codex_exec_style(
@@ -1288,11 +1310,18 @@ class RunSettings(BaseModel):
             data["line_role_codex_exec_style"] = normalize_codex_exec_style_value(
                 data.get("line_role_codex_exec_style")
             )
+        if "recipe_codex_exec_style" in data:
+            data["recipe_codex_exec_style"] = normalize_codex_exec_style_value(
+                data.get("recipe_codex_exec_style")
+            )
         if "knowledge_codex_exec_style" in data:
             data["knowledge_codex_exec_style"] = normalize_codex_exec_style_value(
                 data.get("knowledge_codex_exec_style")
             )
         return cls.model_validate(data)
+
+    def resolved_recipe_codex_exec_style(self) -> str:
+        return resolve_codex_exec_style_value(self.recipe_codex_exec_style)
 
     def resolved_line_role_codex_exec_style(self) -> str:
         return resolve_codex_exec_style_value(self.line_role_codex_exec_style)

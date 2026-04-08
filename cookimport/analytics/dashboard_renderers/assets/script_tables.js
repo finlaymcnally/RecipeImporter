@@ -1613,14 +1613,15 @@
     if (parts.total == null && parts.input == null && parts.output == null) {
       return "-";
     }
-    return (
-      formatTokenCountCompact(parts.total) +
-      " total | " +
-      formatTokenCountCompact(parts.input) +
-      " in | " +
-      formatTokenCountCompact(parts.output) +
-      " out"
-    );
+    const segments = [
+      formatTokenCountCompact(parts.total) + " eff",
+      formatTokenCountCompact(parts.input) + " in",
+    ];
+    if (parts.cached_input != null && parts.cached_input > 0) {
+      segments.push(formatTokenCountCompact(parts.cached_input) + " cached");
+    }
+    segments.push(formatTokenCountCompact(parts.output) + " out");
+    return segments.join(" | ");
   }
 
   function previousRunsAllTokenUseTitle(row) {
@@ -1634,7 +1635,7 @@
       return "";
     }
     return (
-      "discounted_total=" +
+      "effective_total=" +
       formatTokenCount(parts.total) +
       " (cached input at 0.1x), raw_total=" +
       formatTokenCount(parts.raw_total) +
@@ -1664,7 +1665,7 @@
       String(quality.metricKey || "-") +
       ", quality=" +
       fmt4(quality.value) +
-      ", discounted_total=" +
+      ", effective_total=" +
       formatTokenCount(parts.total) +
       ", quality_per_1M_tokens=" +
       fmt4(qualityPerMillionTokens)
@@ -2152,7 +2153,7 @@
     html += "<th>Configs</th>";
     html += "<th>strict_accuracy</th>";
     html += "<th>macro_f1_excluding_other</th>";
-    html += "<th>Token use</th>";
+    html += "<th>Effective token use</th>";
     html += "</tr></thead><tbody>";
     recentRows.forEach(row => {
       html += "<tr>";
@@ -2866,7 +2867,7 @@
       '<tr><td data-metric-tooltip-key="ai_model">Model</td><td>' + esc(model || (pipelineOff ? "off" : "-")) + '</td></tr>' +
       '<tr><td data-metric-tooltip-key="ai_effort">Thinking Effort</td><td>' + esc(effort || (pipelineOff ? "n/a (pipeline off)" : "-")) + '</td></tr>' +
       '<tr><td data-metric-tooltip-key="run_config.llm_recipe_pipeline">Pipeline</td><td>' + esc(pipelineMode || "-") + '</td></tr>' +
-      '<tr><td data-metric-tooltip-key="all_token_use">Token use</td><td>' + esc(totalTokenUse) + '</td></tr>' +
+      '<tr><td data-metric-tooltip-key="all_token_use">Effective token use</td><td>' + esc(totalTokenUse) + '</td></tr>' +
       '<tr><td data-metric-tooltip-key="' + esc(qualityMetricKey || "strict_accuracy") + '">Quality metric</td><td>' + esc(qualityMetricKey || "-") + '</td></tr>' +
       '<tr><td data-metric-tooltip-key="quality_per_million_tokens">Quality / 1M tokens</td><td>' + esc(qualityPerMillionTokensDisplay) + '</td></tr>' +
       '<tr><td data-metric-tooltip-key="strict_accuracy">Delta quality vs vanilla</td><td>' + esc(qualityDeltaVsVanillaDisplay) + '</td></tr>' +

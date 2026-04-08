@@ -36,7 +36,7 @@ def test_label_atomic_lines_invalid_task_file_answer_fails_closed_without_parse_
         units = edited.get("units") or []
         if units and isinstance(units[0], dict):
             first_unit = dict(units[0])
-            first_unit["answer"] = {"label": "NOT_A_LABEL", "exclusion_reason": None}
+            first_unit["answer"] = {"label": "NOT_A_LABEL"}
             units = [first_unit, *units[1:]]
         edited["units"] = units
         return edited
@@ -126,7 +126,7 @@ def test_line_role_shared_contract_block_includes_required_contract_text() -> No
     assert "Use limes in guacamole" in contract
     assert "Obvious praise blurbs, foreword or preface setup" in contract
     assert "This book will teach you the four elements of good cooking." in contract
-    assert "exclusion_reason: `publisher_promo`" in contract
+    assert "Label: `NONRECIPE_EXCLUDE`" in contract
 
 
 def test_line_role_taskfile_worker_prompt_includes_title_yield_reset_contract() -> None:
@@ -180,8 +180,10 @@ def test_line_role_inline_packet_uses_local_row_ids_and_neighbor_context() -> No
         {"text": "1/2 medium red onion, sliced thinly"}
     ]
     assert "owned_ids" not in packet
-    assert '"row_id":"r01"' in prompt
+    assert '"row_id":"<PACKET_ROW_ID>"' in prompt
+    assert "This packet has 2 owned row(s)" in prompt
     assert "Cover every owned `row_id` in this packet exactly once." in prompt
+    assert "Do not copy the placeholder schema literally" in prompt
     assert "nearby context rows are shown" in prompt
 
 
@@ -379,22 +381,23 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     )
 
     assert (
-        '{"rows":[{"atomic_index":<int>,"label":"<ALLOWED_LABEL>","exclusion_reason":"<OPTIONAL_REASON>"}]}'
+        '{"rows":[{"row_id":"r01","label":"<ALLOWED_LABEL>"}]}'
         in prompt
     )
     assert "line-role-canonical-0001-a000123-a000456" in prompt
     assert "context_before_rows" in prompt
     assert "context_after_rows" in prompt
-    assert '[123, "1 cup flour"]' in prompt
+    assert '{"row_id": "r01", "text": "1 cup flour"}' in prompt
     assert "The authoritative owned shard rows are embedded below." in prompt
     assert "Reference-only neighboring context may also be embedded below" in prompt
     assert "do not open it or inspect the workspace to answer" in prompt
     assert "Do not run shell commands, Python, or any other tools." in prompt
     assert "Do not describe your plan, reasoning, or heuristics." in prompt
     assert "Your first response must be the final JSON object." in prompt
-    assert "Each row is `[atomic_index, current_line]`." in prompt
+    assert "Use packet-local `row_id` values in output JSON" in prompt
+    assert "Each owned row object contains `row_id` and `text`." in prompt
     assert "Return one result for every owned input row in `rows`." in prompt
-    assert "Use the second tuple item as the line to label." in prompt
+    assert "Use the `text` field as the line to label." in prompt
     assert "Never label reference-only neighboring rows" in prompt
     assert "Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`." in prompt
     assert "If the shard rows are outside recipe context, default to `NONRECIPE_CANDIDATE`" in prompt
@@ -427,13 +430,13 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
         in prompt
     )
     assert "This book will teach you the four elements of good cooking." in prompt
-    assert "Use optional `exclusion_reason` only on rows labeled `NONRECIPE_EXCLUDE`" in prompt
+    assert "Use only the keys `rows`, `row_id`, and `label`." in prompt
     assert "A single outside-recipe heading by itself is not enough" in prompt
     assert "Reference-only neighboring context:" in prompt
     assert "These neighboring rows are for context only. Do not label them." in prompt
-    assert '<BEGIN_CONTEXT_BEFORE_ROWS>\n[122, "Earlier context"]\n<END_CONTEXT_BEFORE_ROWS>' in prompt
-    assert '<BEGIN_CONTEXT_AFTER_ROWS>\n[124, "Later context"]\n<END_CONTEXT_AFTER_ROWS>' in prompt
-    assert '<BEGIN_AUTHORITATIVE_ROWS>\n[123, "1 cup flour"]\n<END_AUTHORITATIVE_ROWS>' in prompt
+    assert '<BEGIN_CONTEXT_BEFORE_ROWS>\n{"text": "Earlier context"}\n<END_CONTEXT_BEFORE_ROWS>' in prompt
+    assert '<BEGIN_CONTEXT_AFTER_ROWS>\n{"text": "Later context"}\n<END_CONTEXT_AFTER_ROWS>' in prompt
+    assert '<BEGIN_AUTHORITATIVE_ROWS>\n{"row_id": "r01", "text": "1 cup flour"}\n<END_AUTHORITATIVE_ROWS>' in prompt
 
 
 def test_canonical_line_role_file_prompt_ignores_removed_shard_context_fields() -> None:
@@ -630,7 +633,7 @@ def test_codex_knowledge_inside_recipe_rejected_without_explicit_prose_tag(
     assert by_index[1].decided_by == "codex"
 
 
-def test_codex_mode_does_not_escalate_outside_recipe_span_candidates_without_reasons() -> None:
+def test_codex_mode_keeps_coarse_nonrecipe_exclude_without_subtype_metadata() -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -651,9 +654,7 @@ def test_codex_mode_does_not_escalate_outside_recipe_span_candidates_without_rea
     )
     assert len(predictions) == 1
     assert predictions[0].label == "NONRECIPE_EXCLUDE"
-    assert predictions[0].decided_by == "codex"
-    assert predictions[0].escalation_reasons == []
-    assert predictions[0].exclusion_reason is None
+    assert "nonrecipe_excluded" in predictions[0].escalation_reasons
 
 
 def test_label_atomic_lines_codex_cache_hit_skips_runner(tmp_path) -> None:
@@ -859,9 +860,10 @@ def test_label_atomic_lines_fails_closed_when_only_part_of_shard_validates(
                 continue
             unit_payload = dict(unit)
             evidence = dict(unit_payload.get("evidence") or {})
-            atomic_index = int(evidence.get("atomic_index") or 0)
             unit_payload["answer"] = (
-                {"label": "RECIPE_NOTES"} if atomic_index == 0 else {}
+                {"label": "RECIPE_NOTES"}
+                if str(evidence.get("row_id") or "").strip() == "r01"
+                else {}
             )
             units.append(unit_payload)
         edited["units"] = units
@@ -901,6 +903,8 @@ def test_label_atomic_lines_fails_closed_when_only_part_of_shard_validates(
         "accepted_atomic_indices": [],
         "accepted_row_count": 0,
         "all_rows_resolved": False,
+        "semantic_containment_applied": False,
+        "semantic_containment_row_count": 0,
         "semantic_rejected": False,
         "unresolved_atomic_indices": [0, 1],
         "unresolved_row_count": 2,
@@ -911,6 +915,8 @@ def test_label_atomic_lines_fails_closed_when_only_part_of_shard_validates(
         "accepted_atomic_indices": [0],
         "accepted_row_count": 1,
         "all_rows_resolved": False,
+        "semantic_containment_applied": False,
+        "semantic_containment_row_count": 0,
         "semantic_rejected": False,
         "unresolved_atomic_indices": [1],
         "unresolved_row_count": 1,

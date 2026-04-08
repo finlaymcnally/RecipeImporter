@@ -58,7 +58,7 @@ KNOWLEDGE_STAGE_STATUS_SCHEMA_VERSION = "knowledge_stage_status.v1"
 KNOWLEDGE_STAGE_SUMMARY_FILE_NAME = "knowledge_stage_summary.json"
 KNOWLEDGE_STAGE_SUMMARY_SCHEMA_VERSION = "knowledge_stage_summary.v10"
 RECIPE_STAGE_SUMMARY_FILE_NAME = "recipe_stage_summary.json"
-RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v7"
+RECIPE_STAGE_SUMMARY_SCHEMA_VERSION = "recipe_stage_summary.v8"
 LINE_ROLE_STAGE_SUMMARY_FILE_NAME = "line_role_stage_summary.json"
 LINE_ROLE_STAGE_SUMMARY_SCHEMA_VERSION = "line_role_stage_summary.v5"
 
@@ -502,19 +502,12 @@ def _build_recipe_boundary_attention_summary(workbook_dir: Path) -> dict[str, An
 
 def _build_nonrecipe_route_attention_summary(run_root: Path) -> dict[str, Any]:
     exclusion_rows = _load_jsonl_dicts(run_root / NONRECIPE_EXCLUSIONS_FILE_NAME)
-    reason_counts: Counter[str] = Counter()
-    for row in exclusion_rows:
-        reason = str(row.get("exclusion_reason") or "").strip()
-        if reason:
-            reason_counts[reason] += 1
     return _build_attention_summary(
         zero_target_counts={},
         context_counts={
             "excluded_row_count": len(exclusion_rows),
         },
-        reason_counts={
-            "exclusion_reason_counts": dict(sorted(reason_counts.items())),
-        },
+        reason_counts={},
     )
 
 
@@ -1151,6 +1144,64 @@ def _stage_summary_state(
     return "not_started"
 
 
+def _recipe_active_transport(
+    *,
+    phase_manifest: Mapping[str, Any],
+    telemetry_payload: Mapping[str, Any],
+) -> str:
+    settings_payload = (
+        phase_manifest.get("settings") if isinstance(phase_manifest, Mapping) else None
+    )
+    if isinstance(settings_payload, Mapping):
+        configured_transport = str(
+            settings_payload.get("recipe_codex_exec_style") or ""
+        ).strip()
+        if configured_transport in {INLINE_JSON_TRANSPORT, TASKFILE_TRANSPORT}:
+            return configured_transport
+    runtime_metadata = (
+        phase_manifest.get("runtime_metadata")
+        if isinstance(phase_manifest, Mapping)
+        else None
+    )
+    if isinstance(runtime_metadata, Mapping):
+        configured_transport = str(runtime_metadata.get("transport") or "").strip()
+        if configured_transport in {INLINE_JSON_TRANSPORT, TASKFILE_TRANSPORT}:
+            return configured_transport
+    telemetry_summary = (
+        telemetry_payload.get("summary")
+        if isinstance(telemetry_payload.get("summary"), Mapping)
+        else {}
+    )
+    repair_recovery_policy = telemetry_summary.get("repair_recovery_policy")
+    if isinstance(repair_recovery_policy, Mapping):
+        configured_transport = str(repair_recovery_policy.get("transport") or "").strip()
+        if configured_transport in {INLINE_JSON_TRANSPORT, TASKFILE_TRANSPORT}:
+            return configured_transport
+    telemetry_rows = (
+        telemetry_payload.get("rows")
+        if isinstance(telemetry_payload.get("rows"), list)
+        else []
+    )
+    for row in telemetry_rows:
+        if not isinstance(row, Mapping):
+            continue
+        configured_transport = str(
+            row.get("codex_transport") or row.get("transport") or ""
+        ).strip()
+        if configured_transport in {INLINE_JSON_TRANSPORT, TASKFILE_TRANSPORT}:
+            return configured_transport
+        if str(row.get("prompt_input_mode") or "").strip() == "inline":
+            return INLINE_JSON_TRANSPORT
+    prompt_input_mode_counts = (
+        telemetry_summary.get("prompt_input_mode_counts")
+        if isinstance(telemetry_summary.get("prompt_input_mode_counts"), Mapping)
+        else {}
+    )
+    if prompt_input_mode_counts.get("inline"):
+        return INLINE_JSON_TRANSPORT
+    return TASKFILE_TRANSPORT
+
+
 def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
     phase_manifest = _load_json_dict(stage_root / "phase_manifest.json") or {}
     promotion_report = _load_json_dict(stage_root / "promotion_report.json") or {}
@@ -1168,9 +1219,13 @@ def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
         for status, count in shard_status_counts.items()
         if status not in {"validated"}
     )
+    active_transport = _recipe_active_transport(
+        phase_manifest=phase_manifest,
+        telemetry_payload=telemetry_payload,
+    )
     repair_attempted, repair_completed, repair_running = _repair_rollup(stage_root)
     proposal_count = len(list(stage_root.glob("proposals/*.json")))
-    planned_task_total = _count_jsonl_rows(stage_root / "shard_manifest.jsonl")
+    planned_task_total = _count_jsonl_rows(stage_root / "task_manifest.jsonl")
     completed_task_total = len(list(stage_root.glob("workers/*/out/*.json")))
     planned_shard_total = max(
         0,
@@ -1216,7 +1271,11 @@ def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
             "reason_code_counts": worker_reason_code_counts,
         },
         "followups": {
-            "label": "task_followup",
+            "label": (
+                "task_followup"
+                if active_transport == TASKFILE_TRANSPORT
+                else "shard_finalization"
+            ),
             "handled_locally_skip_llm_count": int(
                 handled_locally_skip_llm.get("count") or 0
             ),
@@ -1225,23 +1284,31 @@ def build_recipe_stage_summary(stage_root: Path) -> dict[str, Any]:
             "repair_running_count": repair_running,
             "proposal_count": proposal_count,
         },
-        "repair_recovery_policy": build_followup_budget_summary(
-            stage_key=RECIPE_POLICY_STAGE_KEY,
-            transport=TASKFILE_TRANSPORT,
-            spent_attempts_by_kind={
-                FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE: _sum_worker_status_int(
-                    worker_status_rows,
-                    "repair_worker_session_count",
-                ),
-                FOLLOWUP_KIND_FRESH_SESSION_RETRY: _sum_worker_status_int(
-                    worker_status_rows,
-                    "fresh_session_retry_count",
-                ),
-                FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT: _sum_worker_status_int(
-                    worker_status_rows,
-                    "fresh_worker_replacement_count",
-                ),
-            },
+        "repair_recovery_policy": (
+            build_followup_budget_summary(
+                stage_key=RECIPE_POLICY_STAGE_KEY,
+                transport=TASKFILE_TRANSPORT,
+                spent_attempts_by_kind={
+                    FOLLOWUP_KIND_SAME_SESSION_REPAIR_REWRITE: _sum_worker_status_int(
+                        worker_status_rows,
+                        "repair_worker_session_count",
+                    ),
+                    FOLLOWUP_KIND_FRESH_SESSION_RETRY: _sum_worker_status_int(
+                        worker_status_rows,
+                        "fresh_session_retry_count",
+                    ),
+                    FOLLOWUP_KIND_FRESH_WORKER_REPLACEMENT: _sum_worker_status_int(
+                        worker_status_rows,
+                        "fresh_worker_replacement_count",
+                    ),
+                },
+            )
+            if active_transport == TASKFILE_TRANSPORT
+            else build_followup_budget_summary(
+                stage_key=RECIPE_POLICY_STAGE_KEY,
+                transport=INLINE_JSON_TRANSPORT,
+                spent_attempts_by_kind={},
+            )
         ),
         "important_artifacts": important_artifacts,
     }

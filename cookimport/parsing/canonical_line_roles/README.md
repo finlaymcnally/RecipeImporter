@@ -3,4 +3,5 @@ Private canonical line-role package. The live worker contract is single-file, as
 Change map:
 - For shard planning, taskfile shape, or runtime recovery changes, start in the matching `runtime_*` owner or `planning.py`, read `docs/04-parsing/04-parsing_readme.md`, and run `pytest tests/parsing/test_canonical_line_roles_runtime.py tests/parsing/test_canonical_line_roles_taskfile.py -q`.
 - For inline front-matter / contents regressions, start with `validation.py` and `runtime_workers.py`, then run `pytest tests/parsing/test_canonical_line_roles_front_matter_pathology.py -q`.
+- For row-level policy veto tuning, start with `policy.py` and run `pytest tests/parsing/test_canonical_line_roles_policy_tuning.py -q`.
 - If the change touches direct worker behavior, also check `cookimport/llm/README.md` because line-role now shares the same direct-exec runtime family and watchdog policy shape.

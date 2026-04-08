@@ -72,7 +72,6 @@ def make_routing_result(
     *,
     candidate_block_indices: Sequence[int] | None = None,
     excluded_block_indices: Sequence[int] = (),
-    exclusion_reason_by_block: Mapping[int, str] | None = None,
     candidate_nonrecipe_spans: Sequence[NonRecipeSpan] | None = None,
     excluded_nonrecipe_spans: Sequence[NonRecipeSpan] | None = None,
     route_by_block: Mapping[int, str] | None = None,
@@ -102,10 +101,6 @@ def make_routing_result(
         ),
         candidate_block_indices=candidate_indices,
         excluded_block_indices=excluded_indices,
-        exclusion_reason_by_block={
-            int(index): str(reason)
-            for index, reason in (exclusion_reason_by_block or {}).items()
-        },
         block_preview_by_index={
             int(index): str(preview)
             for index, preview in (block_preview_by_index or {}).items()

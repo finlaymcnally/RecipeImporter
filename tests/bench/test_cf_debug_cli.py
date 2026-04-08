@@ -220,7 +220,6 @@ def test_line_role_audit_uses_joined_atomic_index_for_prompt_and_route_metadata(
                         "label": "NONRECIPE_EXCLUDE",
                         "decided_by": "codex",
                         "escalation_reasons": ["nonrecipe_excluded"],
-                        "exclusion_reason": "front_matter",
                         "text": "Excluded memoir row",
                         "within_recipe_span": False,
                     },

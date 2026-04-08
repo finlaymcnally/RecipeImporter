@@ -11,7 +11,6 @@ def build_nonrecipe_routing_result(
     full_blocks_by_index: Mapping[int, Mapping[str, Any]],
     candidate_block_indices: Sequence[int],
     excluded_block_indices: Sequence[int],
-    exclusion_reason_by_block: Mapping[int, str],
     block_preview_by_index: Mapping[int, str],
     warnings: Sequence[str],
 ) -> NonRecipeRoutingResult:
@@ -37,10 +36,6 @@ def build_nonrecipe_routing_result(
         excluded_nonrecipe_spans=excluded_nonrecipe_spans,
         candidate_block_indices=[int(index) for index in candidate_block_indices],
         excluded_block_indices=[int(index) for index in excluded_block_indices],
-        exclusion_reason_by_block={
-            int(index): str(reason)
-            for index, reason in exclusion_reason_by_block.items()
-        },
         block_preview_by_index={
             int(index): str(preview)
             for index, preview in block_preview_by_index.items()

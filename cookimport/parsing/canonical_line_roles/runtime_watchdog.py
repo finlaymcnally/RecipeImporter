@@ -730,7 +730,10 @@ def _build_line_role_watchdog_retry_prompt(
 ) -> str:
     from . import runtime as root
 
-    owned_ids = ", ".join(str(value) for value in shard.owned_ids)
+    row_ids = ", ".join(
+        f"r{index + 1:02d}"
+        for index, _row in enumerate(list((shard.input_payload or {}).get("rows") or []))
+    )
     allowed_labels = ", ".join(root.CANONICAL_LINE_ROLE_ALLOWED_LABELS)
     authoritative_rows = root._render_line_role_authoritative_rows(shard)
     example_rows = [
@@ -754,10 +757,10 @@ def _build_line_role_watchdog_retry_prompt(
         "- Do not think step-by-step out loud.\n"
         "- The first emitted character must be `{`.\n"
         "- Your first response must be the final JSON object.\n"
-        "- Return one JSON object shaped like {\"rows\":[{\"atomic_index\":<int>,\"label\":\"<ALLOWED_LABEL>\"}]}.\n"
-        f"- Return each owned atomic_index exactly once, in input order: {owned_ids}\n"
+        "- Return one JSON object shaped like {\"rows\":[{\"row_id\":\"r01\",\"label\":\"<ALLOWED_LABEL>\"}]}.\n"
+        f"- Return each owned row_id exactly once, in input order: {row_ids}\n"
         f"- Allowed labels: {allowed_labels}\n"
-        "- Use only the keys `rows`, `atomic_index`, and `label`.\n\n"
+        "- Use only the keys `rows`, `row_id`, and `label`.\n\n"
         "- Treat span codes and hint lists as weak hints only, not final truth.\n"
         "- `INGREDIENT_LINE` means quantity/unit ingredients or bare ingredient-list items.\n"
         "- `INSTRUCTION_LINE` means a recipe-local procedural step, not generic cooking advice.\n"
@@ -767,7 +770,7 @@ def _build_line_role_watchdog_retry_prompt(
         "- `NONRECIPE_EXCLUDE` means obvious outside-recipe junk that should never go to knowledge.\n\n"
         f"Previous stop reason: {original_reason_code or '[unknown]'}\n"
         f"Reason detail: {original_reason_detail or '[none recorded]'}\n\n"
-        "Authoritative shard rows to relabel (each row is [atomic_index, current_line]):\n"
+        "Authoritative shard rows to relabel:\n"
         "<BEGIN_AUTHORITATIVE_ROWS>\n"
         f"{authoritative_rows}\n"
         "<END_AUTHORITATIVE_ROWS>\n\n"

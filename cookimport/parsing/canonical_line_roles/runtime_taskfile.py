@@ -20,6 +20,14 @@ from .contracts import CanonicalLineRolePrediction
 from .planning import _LineRoleRuntimeResult, _coerce_mapping_dict
 
 
+def _line_role_taskfile_row_id(index: int) -> str:
+    return f"r{index + 1:02d}"
+
+
+def _line_role_taskfile_unit_id(*, shard_id: str, row_id: str) -> str:
+    return f"line::{shard_id}::{row_id}"
+
+
 def _build_line_role_task_file(
     *,
     assignment: WorkerAssignmentV1,
@@ -28,34 +36,28 @@ def _build_line_role_task_file(
     deterministic_baseline_by_shard_id: Mapping[
         str, Mapping[int, CanonicalLineRolePrediction]
     ],
-) -> tuple[dict[str, Any], dict[str, str]]:
-    del deterministic_baseline_by_shard_id
+) -> tuple[dict[str, Any], dict[str, str], dict[str, int]]:
+    del debug_payload_by_shard_id, deterministic_baseline_by_shard_id
     units: list[dict[str, Any]] = []
     unit_to_shard_id: dict[str, str] = {}
+    unit_to_atomic_index: dict[str, int] = {}
     for shard in shards:
-        debug_rows = list(
-            _coerce_mapping_dict(debug_payload_by_shard_id.get(shard.shard_id)).get("rows")
-            or []
-        )
-        debug_row_by_atomic_index = {
-            int(row.get("atomic_index")): dict(row)
-            for row in debug_rows
-            if isinstance(row, Mapping) and row.get("atomic_index") is not None
-        }
-        for row in _coerce_mapping_dict(shard.input_payload).get("rows") or []:
+        for index, row in enumerate(_coerce_mapping_dict(shard.input_payload).get("rows") or []):
             if not isinstance(row, (list, tuple)) or len(row) < 2:
                 continue
             atomic_index = int(row[0])
             text = str(row[1] or "")
-            debug_row = debug_row_by_atomic_index.get(atomic_index) or {}
-            unit_id = f"line::{atomic_index}"
+            row_id = _line_role_taskfile_row_id(index)
+            unit_id = _line_role_taskfile_unit_id(shard_id=shard.shard_id, row_id=row_id)
             unit_to_shard_id[unit_id] = shard.shard_id
+            unit_to_atomic_index[unit_id] = atomic_index
             units.append(
                 {
                     "unit_id": unit_id,
-                    "owned_id": str(atomic_index),
+                    "owned_id": row_id,
                     "evidence": {
-                        "atomic_index": atomic_index,
+                        "shard_id": shard.shard_id,
+                        "row_id": row_id,
                         "text": text,
                     },
                     "answer": {},
@@ -70,7 +72,6 @@ def _build_line_role_task_file(
             answer_schema={
                 "editable_pointer_pattern": "/units/*/answer",
                 "required_keys": ["label"],
-                "optional_keys": ["exclusion_reason"],
                 "allowed_values": {
                     "label": [
                         "RECIPE_TITLE",
@@ -84,26 +85,15 @@ def _build_line_role_task_file(
                         "NONRECIPE_CANDIDATE",
                         "NONRECIPE_EXCLUDE",
                     ],
-                    "exclusion_reason": [
-                        "navigation",
-                        "front_matter",
-                        "publishing_metadata",
-                        "copyright_legal",
-                        "endorsement",
-                        "publisher_promo",
-                        "page_furniture",
-                    ],
                 },
                 "example_answers": [
                     {"label": "RECIPE_NOTES"},
-                    {
-                        "label": "NONRECIPE_EXCLUDE",
-                        "exclusion_reason": "navigation",
-                    },
+                    {"label": "NONRECIPE_EXCLUDE"},
                 ],
             },
         ),
         unit_to_shard_id,
+        unit_to_atomic_index,
     )
 
 
@@ -140,6 +130,7 @@ def _expand_line_role_task_file_outputs(
     original_task_file: Mapping[str, Any],
     task_file_path: Path,
     unit_to_shard_id: Mapping[str, str],
+    unit_to_atomic_index: Mapping[str, int] | None = None,
 ) -> dict[str, dict[str, Any]]:
     try:
         edited_task_file = load_task_file(task_file_path)
@@ -162,22 +153,18 @@ def _expand_line_role_task_file_outputs(
             continue
         evidence = dict(unit.get("evidence") or {})
         answer = dict((answers_by_unit_id or {}).get(unit_id) or {})
+        atomic_index = unit_to_atomic_index.get(unit_id) if unit_to_atomic_index else None
+        if atomic_index is None:
+            atomic_index = int(evidence.get("atomic_index") or 0)
         shard_rows.setdefault(shard_id, []).append(
-            (int(evidence.get("atomic_index") or 0), answer)
+            (int(atomic_index), answer)
         )
     return {
         shard_id: {
             "rows": [
                 {
-                    **{
-                        "atomic_index": atomic_index,
-                        "label": str(answer.get("label") or ""),
-                    },
-                    **(
-                        {"exclusion_reason": answer.get("exclusion_reason")}
-                        if answer.get("exclusion_reason") is not None
-                        else {}
-                    ),
+                    "atomic_index": atomic_index,
+                    "label": str(answer.get("label") or ""),
                 }
                 for atomic_index, answer in sorted(rows, key=lambda row: row[0])
             ]

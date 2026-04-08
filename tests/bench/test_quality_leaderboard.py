@@ -416,7 +416,6 @@ def test_quality_leaderboard_includes_line_role_artifacts_when_present(
             "outside_recipe_structured_count": 0,
             "outside_recipe_candidate_count": 1,
             "outside_recipe_excluded_count": 0,
-            "exclusion_reason_counts": {"publisher_promo": 0},
         },
     )
     _write_json(
@@ -440,6 +439,4 @@ def test_quality_leaderboard_includes_line_role_artifacts_when_present(
         line_role_payload.get("line_role_dir")
         == "experiments/baseline/source_a/config_001_example/line-role-pipeline"
     )
-    assert line_role_payload.get("routing_summary", {}).get("exclusion_reason_counts") == {
-        "publisher_promo": 0
-    }
+    assert line_role_payload.get("routing_summary", {}).get("outside_recipe_candidate_count") == 1

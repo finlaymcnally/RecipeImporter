@@ -1483,6 +1483,14 @@ def register(app: typer.Typer) -> dict[str, object]:
             hidden=True,
             help="Internal: preferred recipe shard count for Codex-backed benchmark runs.",
         )] = 5,
+        recipe_codex_exec_style: Annotated[str, typer.Option(
+            "--recipe-codex-exec-style",
+            hidden=True,
+            help=(
+                "Internal: direct Codex worker style for recipe correction "
+                "(taskfile-v1 or inline-json-v1)."
+            ),
+        )] = str(serialized_run_setting_default("recipe_codex_exec_style")),
         knowledge_prompt_target_count: Annotated[int, typer.Option(
             "--knowledge-prompt-target-count",
             min=1,
@@ -1846,6 +1854,9 @@ def register(app: typer.Typer) -> dict[str, object]:
         selected_codex_farm_model = (
             str(codex_farm_model or "").strip() or None
         )
+        selected_recipe_codex_exec_style = normalize_codex_exec_style_value(
+            recipe_codex_exec_style
+        )
         selected_line_role_codex_exec_style = normalize_codex_exec_style_value(
             line_role_codex_exec_style
         )
@@ -2034,6 +2045,7 @@ def register(app: typer.Typer) -> dict[str, object]:
                     llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
                     atomic_block_splitter=selected_atomic_block_splitter,
                     line_role_pipeline=selected_line_role_pipeline,
+                    recipe_codex_exec_style=selected_recipe_codex_exec_style,
                     knowledge_group_task_max_units=knowledge_group_task_max_units,
                     knowledge_group_task_max_evidence_chars=(
                         knowledge_group_task_max_evidence_chars
@@ -2176,6 +2188,9 @@ def register(app: typer.Typer) -> dict[str, object]:
                                     llm_recipe_pipeline=selected_llm_recipe_pipeline,
                                     llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
                                     recipe_prompt_target_count=recipe_prompt_target_count,
+                                    recipe_codex_exec_style=(
+                                        selected_recipe_codex_exec_style
+                                    ),
                                     knowledge_prompt_target_count=knowledge_prompt_target_count,
                                     knowledge_packet_input_char_budget=(
                                         knowledge_packet_input_char_budget
@@ -2327,6 +2342,9 @@ def register(app: typer.Typer) -> dict[str, object]:
                                 llm_recipe_pipeline=selected_llm_recipe_pipeline,
                                 llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
                                 recipe_prompt_target_count=recipe_prompt_target_count,
+                                recipe_codex_exec_style=(
+                                    selected_recipe_codex_exec_style
+                                ),
                                 knowledge_prompt_target_count=knowledge_prompt_target_count,
                                 knowledge_packet_input_char_budget=(
                                     knowledge_packet_input_char_budget
@@ -3144,6 +3162,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             "warm_models": warm_models,
             "llm_recipe_pipeline": selected_llm_recipe_pipeline,
             "recipe_prompt_target_count": recipe_prompt_target_count,
+            "recipe_codex_exec_style": selected_recipe_codex_exec_style,
             "llm_knowledge_pipeline": selected_llm_knowledge_pipeline,
             "knowledge_prompt_target_count": knowledge_prompt_target_count,
             "knowledge_packet_input_char_budget": knowledge_packet_input_char_budget,

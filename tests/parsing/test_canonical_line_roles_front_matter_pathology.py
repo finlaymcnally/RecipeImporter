@@ -219,9 +219,7 @@ def test_label_atomic_lines_contains_front_matter_pathology_fixture(tmp_path) ->
         for prediction in predictions
     )
     assert any(
-        prediction.exclusion_reason in {"publisher_promo", "navigation", "front_matter"}
-        for prediction in predictions
-        if prediction.label == "NONRECIPE_EXCLUDE"
+        prediction.label == "NONRECIPE_EXCLUDE" for prediction in predictions
     )
 
     summary = build_line_role_stage_summary(

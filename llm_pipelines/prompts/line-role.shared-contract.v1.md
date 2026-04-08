@@ -10,7 +10,6 @@ Label distinctions that matter:
 - `RECIPE_NOTES`: recipe-local prose that belongs with the current recipe but is not ingredient or instruction structure.
 - `NONRECIPE_CANDIDATE`: outside-recipe material that is not recipe-local and should be sent to knowledge later.
 - `NONRECIPE_EXCLUDE`: obvious outside-recipe junk that should never reach knowledge.
-- `exclusion_reason`: use only on `NONRECIPE_EXCLUDE` rows; allowed values are `navigation`, `front_matter`, `publishing_metadata`, `copyright_legal`, `endorsement`, `publisher_promo`, `page_furniture`.
 
 Negative rules:
 - If a line contains explicit cooking action plus time mention, prefer `INSTRUCTION_LINE` over `TIME_LINE`.
@@ -34,13 +33,11 @@ Negative rules:
 - Lesson headings such as `Balancing Fat` or `WHAT IS ACID?` stay `NONRECIPE_CANDIDATE` only when surrounding rows clearly carry reusable explanatory prose.
 - A lone question-style or topic heading such as `What is Heat?` or `Balancing Fat` usually stays `NONRECIPE_EXCLUDE` unless nearby rows clearly show reusable lesson prose worth knowledge review.
 - Contents-style title lists, endorsements, intro framing, and isolated topic headings default to `NONRECIPE_EXCLUDE` unless nearby rows clearly show reusable lesson prose or one live recipe.
-- Contents-style title lists such as `Winter: Roasted Radicchio and Roquefort` or `Torn Croutons` usually stay `NONRECIPE_EXCLUDE` with `navigation` unless nearby rows prove one live recipe.
+- Contents-style title lists such as `Winter: Roasted Radicchio and Roquefort` or `Torn Croutons` usually stay `NONRECIPE_EXCLUDE` unless nearby rows prove one live recipe.
 - Endorsements, intro framing, and isolated topic headings default to `NONRECIPE_EXCLUDE` unless nearby rows clearly show reusable lesson prose or one live recipe.
 - Obvious praise blurbs, foreword or preface setup, book-thesis or manifesto framing, and `this book will teach you ...` jacket-copy promises usually stay `NONRECIPE_EXCLUDE`, not `NONRECIPE_CANDIDATE`.
 - First-person narrative or memoir framing is usually `NONRECIPE_EXCLUDE` when it reads like foreword/introduction setup rather than reusable cooking knowledge.
 - Endorsements, acknowledgments, foreword/introduction framing, memoir setup, and broad book-encouragement prose usually stay `NONRECIPE_EXCLUDE`; use `NONRECIPE_CANDIDATE` only when the line itself carries reusable cooking knowledge.
-- When those obvious framing rows are excluded, prefer the matching `exclusion_reason` (`endorsement`, `publisher_promo`, or `front_matter`) instead of leaving the reason blank.
-- Use optional `exclusion_reason` only on rows labeled `NONRECIPE_EXCLUDE` when the text is overwhelmingly obvious junk.
 
 Few-shot examples:
 1) Context: inside recipe, heading line
@@ -86,7 +83,6 @@ Few-shot examples:
 11) Context: front matter or navigation heading
     Line: `Acknowledgments`
     Label: `NONRECIPE_EXCLUDE`
-    exclusion_reason: `front_matter`
 
 12) Context: broad outside-recipe action-verb advice
     Line: `Use limes in guacamole, pho ga, green papaya salad, and kachumbar.`
@@ -103,7 +99,6 @@ Few-shot examples:
 15) Context: outside recipe, memoir or introduction framing prose
     Line: `Then I fell in love with Johnny, who introduced me to San Francisco.`
     Label: `NONRECIPE_EXCLUDE`
-    exclusion_reason: `front_matter`
 
 16) Context: outside recipe, reusable lesson prose with brief first-person framing
     Line: `Salt, Fat, Acid, and Heat were the four elements that guided basic decision making in every single dish, no matter what.`
@@ -116,22 +111,18 @@ Few-shot examples:
 18) Context: outside recipe, lone question heading without explanatory support
     Line: `What is Heat?`
     Label: `NONRECIPE_EXCLUDE`
-    exclusion_reason: `navigation`
 
 19) Context: front matter or contents heading, not a live recipe
     Line: `The Four Elements of Good Cooking`
     Label: `NONRECIPE_EXCLUDE`
-    exclusion_reason: `navigation`
 
 20) Context: contents-style seasonal title list
     Line: `Winter: Roasted Radicchio and Roquefort`
     Label: `NONRECIPE_EXCLUDE`
-    exclusion_reason: `navigation`
 
 21) Context: outside recipe, publisher-style promise or thesis framing
     Line: `This book will teach you the four elements of good cooking.`
     Label: `NONRECIPE_EXCLUDE`
-    exclusion_reason: `publisher_promo`
 
 22) Context: outside recipe, obvious imperative prep step with nearby recipe structure
     Line: `Quarter the cabbage through the core. Use a sharp knife to cut the core out at an angle.`

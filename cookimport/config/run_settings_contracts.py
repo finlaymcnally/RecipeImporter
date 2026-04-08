@@ -79,6 +79,7 @@ _SUMMARY_ORDER = (
     "warm_models",
     "llm_recipe_pipeline",
     "recipe_prompt_target_count",
+    "recipe_codex_exec_style",
     "llm_knowledge_pipeline",
     "knowledge_prompt_target_count",
     "knowledge_packet_input_char_budget",

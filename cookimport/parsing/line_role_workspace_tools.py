@@ -18,13 +18,6 @@ LINE_ROLE_ALLOWED_LABELS: tuple[str, ...] = (
 )
 
 _VALID_EXCLUSION_REASONS = {
-    "navigation",
-    "front_matter",
-    "publishing_metadata",
-    "copyright_legal",
-    "endorsement",
-    "publisher_promo",
-    "page_furniture",
 }
 
 
@@ -152,9 +145,6 @@ def _normalize_frozen_rows_by_atomic_index(
             "atomic_index": atomic_index,
             "label": str(row.get("label") or "").strip().upper(),
         }
-        exclusion_reason = str(row.get("exclusion_reason") or "").strip()
-        if exclusion_reason:
-            normalized_row["exclusion_reason"] = exclusion_reason
         normalized[atomic_index] = normalized_row
     return normalized
 
@@ -210,7 +200,7 @@ def validate_line_role_output_payload(
         extra_row_keys = sorted(
             key
             for key in row_payload.keys()
-            if str(key) not in {"atomic_index", "label", "exclusion_reason"}
+            if str(key) not in {"atomic_index", "label"}
         )
         if extra_row_keys:
             row_errors.append("extra_row_keys")
@@ -224,12 +214,6 @@ def validate_line_role_output_payload(
         label = str(row_payload.get("label") or "").strip().upper()
         if label not in LINE_ROLE_ALLOWED_LABELS:
             row_errors.append("invalid_label")
-        exclusion_reason = str(row_payload.get("exclusion_reason") or "").strip()
-        if exclusion_reason:
-            if label != "NONRECIPE_EXCLUDE":
-                row_errors.append("exclusion_reason_requires_nonrecipe_exclude")
-            if exclusion_reason not in _VALID_EXCLUSION_REASONS:
-                row_errors.append("invalid_exclusion_reason")
         if atomic_index not in expected_atomic_indices:
             row_errors.append("unowned_atomic_index")
         if atomic_index in seen_atomic_indices:
@@ -244,8 +228,6 @@ def validate_line_role_output_payload(
             "atomic_index": atomic_index,
             "label": label,
         }
-        if exclusion_reason:
-            normalized_row["exclusion_reason"] = exclusion_reason
         parsed_rows.append(normalized_row)
     if returned_atomic_indices != expected_atomic_indices:
         if len(returned_atomic_indices) == len(expected_atomic_indices):

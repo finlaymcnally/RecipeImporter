@@ -43,6 +43,16 @@ class StageTransportPolicy:
 _POLICY_TABLE: dict[tuple[str, str, str | None], StageTransportPolicy] = {
     (
         RECIPE_POLICY_STAGE_KEY,
+        INLINE_JSON_TRANSPORT,
+        None,
+    ): StageTransportPolicy(
+        stage_key=RECIPE_POLICY_STAGE_KEY,
+        transport=INLINE_JSON_TRANSPORT,
+        semantic_step_key=None,
+        allowed_followups=(),
+    ),
+    (
+        RECIPE_POLICY_STAGE_KEY,
         TASKFILE_TRANSPORT,
         None,
     ): StageTransportPolicy(

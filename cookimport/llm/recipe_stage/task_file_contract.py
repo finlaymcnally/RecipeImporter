@@ -104,15 +104,12 @@ def _build_recipe_task_file_worker_prompt(*, task_count: int, repair_mode: bool,
             'Resume from the existing `task.json` and current workspace state.'
             if fresh_session_resume
             else (
-                f'Start with `task-summary`. If you need the payload for specific '
-                f'units, use `task-show-unit <unit_id>` or `task-show-unanswered '
-                f'--limit 5`. Then edit only `/units/*/answer` in `{TASK_FILE_NAME}`, '
-                'save the same file, and run `task-handoff`.'
+                f'Open `{TASK_FILE_NAME}`, edit only `/units/*/answer`, save the '
+                'same file, and run `task-handoff`.'
             )
         ),
         '`task.json` already contains the full job for this worker. You do not need extra manifests, queue state, or hidden context before editing it.',
         'The helper is the only repo-side handoff seam. It validates the edited file and either completes the assignment or rewrites `task.json` into repair mode for the same session.',
-        'If you briefly reread part of the file or make a small local false start, correct it and continue.',
         'Do not rewrite immutable metadata or evidence fields.',
         'Do not invent helper ledgers, queue files, or alternate output files.',
         'The repo will expand accepted answers into final artifacts after the helper validates them.',
@@ -131,18 +128,15 @@ def _build_recipe_task_file_worker_prompt(*, task_count: int, repair_mode: bool,
         section(*intro_lines),
         repair_section,
         section(
-            '- Start with `task.json`.',
-            '- Prefer `task-summary` before opening raw file contents.',
-            '- If the file is large, inspect only the units you need with `task-show-unit <unit_id>` or `task-show-unanswered --limit 5`.',
-            '- If you need orientation first, run `task-status`.',
-            '- If the workspace feels inconsistent, run `task-doctor` before inventing shell scripts.',
+            f'- Start with `{TASK_FILE_NAME}`.',
+            '- `task-summary` is optional if you want a quick rollup before editing.',
+            '- If you need a narrow reread, use `task-show-unit <unit_id>`.',
             '- Edit only the `answer` object inside each unit.',
-            '- If you want a repo-owned batch write path, run `task-template answers.json`, fill only the answer payloads, then run `task-apply answers.json`.',
             '- After each edit pass, run `task-handoff` from the workspace root.',
             '- If the helper reports `repair_required`, reopen the rewritten `task.json` immediately, fix only the named issues, and run the helper again.',
             '- Stop only after the helper reports `completed`.',
             '- Do not dump `task.json` with `cat` or `sed`, do not use `ls` or `find` just to orient yourself, and do not write ad hoc inline Python, Node, or heredoc rewrites against `task.json`.',
-            '- Other than repo-owned helper commands and tiny temp-file helpers, avoid shell on the happy path.',
+            '- Stay on the direct file-edit path; do not invent batch-answer helper files for this stage.',
             heading='Worker contract',
         ),
         section(

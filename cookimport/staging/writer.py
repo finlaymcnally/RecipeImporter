@@ -1061,10 +1061,6 @@ def write_nonrecipe_route_artifact(
         "candidate_block_ids": candidate_block_ids,
         "excluded_block_indices": list(routing.excluded_block_indices),
         "excluded_block_ids": excluded_block_ids,
-        "exclusion_reason_by_block": {
-            str(index): reason
-            for index, reason in sorted(routing.exclusion_reason_by_block.items())
-        },
         "seed_nonrecipe_spans": [
             _serialize_nonrecipe_span(span)
             for span in stage_result.seed.seed_nonrecipe_spans
@@ -1104,11 +1100,10 @@ def write_nonrecipe_exclusions_ledger(
             "block_index": int(block_index),
             "block_id": _block_id_for_stage_result(stage_result, int(block_index)),
             "final_category": "other",
-            "exclusion_reason": reason,
             "preview": str(routing.block_preview_by_index.get(int(block_index)) or ""),
             "exclusion_source": "line_role",
         }
-        for block_index, reason in sorted(routing.exclusion_reason_by_block.items())
+        for block_index in sorted(routing.excluded_block_indices)
     ]
     exclusion_payload = "\n".join(
         json.dumps(row, sort_keys=True) for row in exclusion_rows

@@ -329,6 +329,7 @@ def _reset_line_role_workspace_for_fresh_worker_replacement(
     runnable_shards: Sequence[ShardManifestEntryV1],
     task_file_payload: Mapping[str, Any],
     unit_to_shard_id: Mapping[str, str],
+    unit_to_atomic_index: Mapping[str, int],
 ) -> dict[str, Any]:
     for artifact_name in (
         "events.jsonl",
@@ -352,6 +353,7 @@ def _reset_line_role_workspace_for_fresh_worker_replacement(
         worker_id=assignment.worker_id,
         task_file=task_file_payload,
         unit_to_shard_id=unit_to_shard_id,
+        unit_to_atomic_index=unit_to_atomic_index,
         shards=[asdict(shard) for shard in runnable_shards],
         output_dir=out_dir,
     )

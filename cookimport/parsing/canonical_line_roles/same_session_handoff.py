@@ -42,6 +42,7 @@ def initialize_line_role_same_session_state(
     worker_id: str,
     task_file: Mapping[str, Any],
     unit_to_shard_id: Mapping[str, str],
+    unit_to_atomic_index: Mapping[str, int],
     shards: Sequence[Mapping[str, Any]],
     output_dir: Path,
 ) -> dict[str, Any]:
@@ -53,6 +54,10 @@ def initialize_line_role_same_session_state(
         "unit_to_shard_id": {
             str(unit_id): str(shard_id)
             for unit_id, shard_id in unit_to_shard_id.items()
+        },
+        "unit_to_atomic_index": {
+            str(unit_id): int(atomic_index)
+            for unit_id, atomic_index in unit_to_atomic_index.items()
         },
         "shards": [dict(shard) for shard in shards if isinstance(shard, Mapping)],
         "output_dir": str(output_dir),
@@ -230,7 +235,7 @@ def _build_line_role_feedback(
         ],
         "repair_instruction": (
             "Fix the named line-role answers, keep immutable evidence unchanged, "
-            "and use only allowed exclusion_reason codes."
+            "and return only allowed line-role labels."
         ),
     }
 
@@ -290,6 +295,11 @@ def advance_line_role_same_session_handoff(
     unit_to_shard_id = {
         str(unit_id): str(shard_id)
         for unit_id, shard_id in dict(state.get("unit_to_shard_id") or {}).items()
+    }
+    unit_to_atomic_index = {
+        str(unit_id): int(atomic_index)
+        for unit_id, atomic_index in dict(state.get("unit_to_atomic_index") or {}).items()
+        if str(unit_id).strip()
     }
     shard_records = [
         dict(record) for record in (state.get("shards") or []) if isinstance(record, Mapping)
@@ -403,8 +413,11 @@ def advance_line_role_same_session_handoff(
             continue
         evidence = dict(unit.get("evidence") or {})
         answer = dict(answers_by_unit_id.get(unit_id) or {})
+        atomic_index = unit_to_atomic_index.get(unit_id)
+        if atomic_index is None:
+            atomic_index = int(evidence.get("atomic_index") or 0)
         shard_rows.setdefault(shard_id, []).append(
-            (int(evidence.get("atomic_index") or 0), answer)
+            (int(atomic_index), answer)
         )
 
     for shard_id, rows in sorted(shard_rows.items()):
@@ -414,15 +427,8 @@ def advance_line_role_same_session_handoff(
         payload = {
             "rows": [
                 {
-                    **{
-                        "atomic_index": atomic_index,
-                        "label": str(answer.get("label") or ""),
-                    },
-                    **(
-                        {"exclusion_reason": answer.get("exclusion_reason")}
-                        if answer.get("exclusion_reason") is not None
-                        else {}
-                    ),
+                    "atomic_index": atomic_index,
+                    "label": str(answer.get("label") or ""),
                 }
                 for atomic_index, answer in sorted(rows, key=lambda row: row[0])
             ]

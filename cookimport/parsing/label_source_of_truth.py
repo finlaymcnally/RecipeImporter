@@ -29,7 +29,6 @@ from cookimport.labelstudio.label_config_freeform import (
 from cookimport.parsing.canonical_line_roles import (
     CANONICAL_LINE_ROLE_ALLOWED_LABELS,
     CanonicalLineRolePrediction,
-    _normalize_exclusion_reason,
     label_atomic_lines_with_baseline,
 )
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
@@ -116,13 +115,11 @@ class AuthoritativeLabeledLine(BaseModel):
     decided_by: Literal["rule", "codex", "fallback"]
     reason_tags: list[str] = Field(default_factory=list)
     escalation_reasons: list[str] = Field(default_factory=list)
-    exclusion_reason: str | None = None
 
     @model_validator(mode="after")
     def _normalize_metadata(self) -> "AuthoritativeLabeledLine":
         self.escalation_reasons = _unique_string_list(self.escalation_reasons)
         self.reason_tags = _unique_string_list(self.reason_tags)
-        self.exclusion_reason = _normalize_exclusion_reason(self.exclusion_reason)
         return self
 
 
@@ -137,13 +134,11 @@ class AuthoritativeBlockLabel(BaseModel):
     decided_by: Literal["rule", "codex", "fallback"]
     reason_tags: list[str] = Field(default_factory=list)
     escalation_reasons: list[str] = Field(default_factory=list)
-    exclusion_reason: str | None = None
 
     @model_validator(mode="after")
     def _normalize_metadata(self) -> "AuthoritativeBlockLabel":
         self.escalation_reasons = _unique_string_list(self.escalation_reasons)
         self.reason_tags = _unique_string_list(self.reason_tags)
-        self.exclusion_reason = _normalize_exclusion_reason(self.exclusion_reason)
         return self
 
 
@@ -546,7 +541,6 @@ def authoritative_lines_to_canonical_predictions(
                 decided_by=row.decided_by,
                 reason_tags=list(row.reason_tags),
                 escalation_reasons=list(row.escalation_reasons),
-                exclusion_reason=row.exclusion_reason,
             )
         )
     return predictions
@@ -746,7 +740,6 @@ def _build_authoritative_lines(
                 decided_by=prediction.decided_by,
                 reason_tags=list(prediction.reason_tags),
                 escalation_reasons=list(prediction.escalation_reasons),
-                exclusion_reason=prediction.exclusion_reason,
             )
         )
     labeled_lines.sort(key=lambda row: row.atomic_index)
@@ -789,17 +782,6 @@ def _build_authoritative_block_labels(
             for row in rows
             for tag in row.reason_tags
         )
-        exclusion_reason: str | None = None
-        if selected_final == "NONRECIPE_EXCLUDE" and all(
-            row.final_label == "NONRECIPE_EXCLUDE" for row in rows
-        ):
-            row_reasons = [
-                str(row.exclusion_reason).strip()
-                for row in rows
-                if str(row.exclusion_reason or "").strip()
-            ]
-            if len(row_reasons) == len(rows) and len(set(row_reasons)) == 1:
-                exclusion_reason = row_reasons[0]
         if len({row.final_label for row in rows}) > 1:
             escalation_reasons.append("mixed_block_labels")
         output.append(
@@ -812,7 +794,6 @@ def _build_authoritative_block_labels(
                 decided_by=representative.decided_by,
                 reason_tags=reason_tags,
                 escalation_reasons=escalation_reasons,
-                exclusion_reason=exclusion_reason,
             )
         )
     return output

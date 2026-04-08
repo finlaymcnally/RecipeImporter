@@ -148,6 +148,7 @@ Current interactive contracts:
 - paired benchmark variants now share the same selected `atomic_block_splitter`; benchmark helpers no longer hardcode `off` for `vanilla` and `atomic-v1` for `codex-exec`
 - warm reruns of the same interactive single-book target can now reuse finished prediction artifacts across sessions before comparison/report publication runs
 - benchmark prediction/import runs now resolve the same hidden runtime defaults as stage for EPUB segmentation, knowledge grouping caps, and workspace completion grace; support-only benchmark constants such as split-cache wait/poll, single-profile scheduler policy, and Oracle upload shard/poll budgets now live behind shared resolver helpers instead of scattered literals
+- benchmark runtime contracts now preserve all three Codex Exec transport selections from `RunSettings` into `labelstudio-benchmark`: recipe, line-role, and knowledge. Interactive single-book and matched-book runs should keep those per-surface transport choices through prediction generation and manifests.
 - paired success can emit:
   - `codex_vs_vanilla_comparison.json`
   - `single_book_summary.md`
@@ -157,6 +158,7 @@ Current interactive contracts:
 - vanilla-only single-book `upload_bundle_v1` runs still leave pair-only sections empty, but they now preserve single-run recipe-span counts from `line-role-pipeline/telemetry_summary.json` / benchmark `manifest.json` and avoid misleading “no spans discovered” triage notes
 - paired single-book starter-pack / upload-bundle call inventory exports now retain `line_role` prompt rows and include row-level runtime/token/cost columns when `request_telemetry` provides them; stage-level fallback totals in `prompt_budget_summary.json` still backfill the summary when per-call rows are sparse
 - upload-bundle runtime/token summaries now also fall back stage-by-stage to `prompt_budget_summary.json` when the call inventory has the expected rows but a stage's per-call telemetry is blank; this keeps topline spend honest without inventing per-call values that were never recorded
+- `prompt_budget_summary.json` now also records recipe transport/policy labels from direct-exec telemetry. For recipe cost review, check `by_stage.recipe_refine.codex_transport`, `codex_policy_mode`, and `codex_shell_tool_enabled` before comparing semantic payload versus protocol overhead.
 - upload-bundle recipe-correction accounting must parse both single-recipe outputs and compact shard outputs (`payload.r[].cr` / `payload.r[].m`); `empty_output_signal` now means the parsed correction payload was actually empty, not just that the mapping object was empty
 - upload-bundle warning summaries now keep empty-mapping counts separate from actual empty-output counts, and recipe-correction status rollups prefer output-aware labels such as `nonempty_output_without_manifest_status` when manifest/runtime status is missing but parsed outputs exist
 - upload-bundle recipe-stage observability now reads recipe manifest diagnostics from `processed_output_run_dir` / `stage_run_dir` (and explicit `recipe_manifest_json`) when no `pred_run_dir` exists, so final mapping / structural statuses are not silently downgraded to generic projection gaps
@@ -310,7 +312,7 @@ Canonical-text diagnostics commonly include:
 - `line_role_flips_vs_baseline.jsonl`
 - `slice_metrics.json`
 - `routing_summary.json`
-  - this routing artifact is now the plain-language upstream-diversion summary for line-role. In addition to recipe-local versus outside-recipe counts, it also carries `exclusion_reason_counts` so reviewers can see which obvious-junk families were filtered before the knowledge stage.
+  - this routing artifact is now the plain-language upstream-diversion summary for line-role. It reports the coarse route split and whether outside-recipe rows were kept for knowledge review or filtered before the knowledge stage.
 - `prompt_eval_alignment.md`
 
 When `--line-role-gated` is enabled, canonical-text runs also write:

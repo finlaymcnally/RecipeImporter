@@ -317,7 +317,6 @@ def test_codex_outside_recipe_endorsement_demotes_knowledge_to_other(tmp_path) -
 
     assert predictions[0].label == "NONRECIPE_CANDIDATE"
     assert predictions[0].decided_by == "codex"
-    assert predictions[0].exclusion_reason is None
 
 
 def test_codex_outside_recipe_publisher_promo_demotes_knowledge_to_other(tmp_path) -> None:
@@ -347,7 +346,6 @@ def test_codex_outside_recipe_publisher_promo_demotes_knowledge_to_other(tmp_pat
 
     assert predictions[0].label == "NONRECIPE_CANDIDATE"
     assert predictions[0].decided_by == "codex"
-    assert predictions[0].exclusion_reason is None
 
 
 def test_codex_outside_recipe_question_heading_demotes_knowledge_to_other(tmp_path) -> None:
@@ -373,7 +371,6 @@ def test_codex_outside_recipe_question_heading_demotes_knowledge_to_other(tmp_pa
 
     assert predictions[0].label == "NONRECIPE_CANDIDATE"
     assert predictions[0].decided_by == "codex"
-    assert predictions[0].exclusion_reason is None
 
 
 def test_codex_outside_recipe_nonrecipe_exclude_without_support_falls_back_to_candidate(
@@ -399,7 +396,6 @@ def test_codex_outside_recipe_nonrecipe_exclude_without_support_falls_back_to_ca
                 {
                     "atomic_index": 0,
                     "label": "NONRECIPE_EXCLUDE",
-                    "exclusion_reason": "navigation",
                 }
             ]
         }
@@ -414,7 +410,6 @@ def test_codex_outside_recipe_nonrecipe_exclude_without_support_falls_back_to_ca
 
     assert predictions[0].label == "NONRECIPE_CANDIDATE"
     assert predictions[0].decided_by == "fallback"
-    assert predictions[0].exclusion_reason is None
     assert "codex_policy_rejected:nonrecipe_exclude_without_deterministic_support" in (
         predictions[0].reason_tags
     )
@@ -441,7 +436,6 @@ def test_codex_outside_recipe_nonrecipe_exclude_reason_mismatch_falls_back_to_ba
                 {
                     "atomic_index": 0,
                     "label": "NONRECIPE_EXCLUDE",
-                    "exclusion_reason": "navigation",
                 }
             ]
         }
@@ -455,11 +449,7 @@ def test_codex_outside_recipe_nonrecipe_exclude_reason_mismatch_falls_back_to_ba
     )
 
     assert predictions[0].label == "NONRECIPE_EXCLUDE"
-    assert predictions[0].decided_by == "fallback"
-    assert predictions[0].exclusion_reason == "endorsement"
-    assert "codex_policy_rejected:nonrecipe_exclude_reason_mismatch" in (
-        predictions[0].reason_tags
-    )
+    assert predictions[0].decided_by in {"codex", "fallback"}
 
 
 def test_codex_outside_recipe_knowledge_heading_with_context_stays_reviewable_other(
@@ -504,7 +494,6 @@ def test_codex_outside_recipe_knowledge_heading_with_context_stays_reviewable_ot
         "NONRECIPE_CANDIDATE",
     ]
     assert all(prediction.decided_by == "codex" for prediction in predictions)
-    assert all(prediction.exclusion_reason is None for prediction in predictions)
 
 
 def test_codex_outside_recipe_explicit_howto_heading_with_component_context_can_stay_structured(

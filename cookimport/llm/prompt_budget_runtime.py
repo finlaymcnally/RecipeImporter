@@ -478,6 +478,7 @@ def _build_codex_farm_stage_summary(
         )
     )
     execution_mode_summary = _execution_mode_summary_from_telemetry_rows(telemetry_rows)
+    policy_summary = _codex_policy_summary_from_telemetry_rows(telemetry_rows)
 
     stage_summary = {
         "stage": stage_name,
@@ -533,6 +534,7 @@ def _build_codex_farm_stage_summary(
             "reasoning_tokens": token_totals.get("tokens_reasoning"),
             "billed_total_tokens": token_totals.get("tokens_total"),
         },
+        **policy_summary,
     }
     if token_usage_status is not None:
         stage_summary["token_usage_status"] = token_usage_status
@@ -565,6 +567,48 @@ def _build_codex_farm_stage_summary(
     )
     _attach_shared_payload_economics(stage_summary)
     return stage_summary
+
+
+def _codex_policy_summary_from_telemetry_rows(
+    telemetry_rows: list[Any] | None,
+) -> dict[str, Any]:
+    transport_counts: dict[str, int] = {}
+    policy_mode_counts: dict[str, int] = {}
+    shell_tool_counts: dict[str, int] = {}
+    if not isinstance(telemetry_rows, list):
+        return {}
+    for row in telemetry_rows:
+        if not isinstance(row, Mapping):
+            continue
+        transport = str(row.get("codex_transport") or "").strip()
+        if transport:
+            transport_counts[transport] = int(transport_counts.get(transport) or 0) + 1
+        policy_mode = str(row.get("codex_policy_mode") or "").strip()
+        if policy_mode:
+            policy_mode_counts[policy_mode] = (
+                int(policy_mode_counts.get(policy_mode) or 0) + 1
+            )
+        shell_tool_enabled = row.get("codex_shell_tool_enabled")
+        if shell_tool_enabled is None:
+            continue
+        shell_key = "true" if bool(shell_tool_enabled) else "false"
+        shell_tool_counts[shell_key] = int(shell_tool_counts.get(shell_key) or 0) + 1
+    summary: dict[str, Any] = {}
+    if transport_counts:
+        summary["codex_transport_counts"] = dict(sorted(transport_counts.items()))
+        if len(transport_counts) == 1:
+            summary["codex_transport"] = next(iter(transport_counts))
+    if policy_mode_counts:
+        summary["codex_policy_mode_counts"] = dict(sorted(policy_mode_counts.items()))
+        if len(policy_mode_counts) == 1:
+            summary["codex_policy_mode"] = next(iter(policy_mode_counts))
+    if shell_tool_counts:
+        summary["codex_shell_tool_enabled_counts"] = dict(
+            sorted(shell_tool_counts.items())
+        )
+        if len(shell_tool_counts) == 1:
+            summary["codex_shell_tool_enabled"] = next(iter(shell_tool_counts)) == "true"
+    return summary
 def _execution_mode_summary_from_telemetry_rows(
     telemetry_rows: list[Any] | None,
 ) -> dict[str, dict[str, int]]:
@@ -929,6 +973,7 @@ def _attach_recipe_stage_observability(
     parent_shards = recipe_summary.get("parent_shards")
     workers = recipe_summary.get("workers")
     followups = recipe_summary.get("followups")
+    repair_recovery_policy = recipe_summary.get("repair_recovery_policy")
     worker_session_guardrails = recipe_summary.get("worker_session_guardrails")
     task_file_guardrails = recipe_summary.get("task_file_guardrails")
     stage_summary["stage_state"] = recipe_summary.get("stage_state")
@@ -964,6 +1009,11 @@ def _attach_recipe_stage_observability(
             "proposal_count",
         ):
             stage_summary[key] = _nonnegative_int(followups.get(key))
+    if isinstance(repair_recovery_policy, Mapping):
+        stage_summary["repair_recovery_policy"] = dict(repair_recovery_policy)
+        transport = str(repair_recovery_policy.get("transport") or "").strip()
+        if transport:
+            stage_summary["codex_transport"] = transport
     if isinstance(worker_session_guardrails, Mapping):
         stage_summary["worker_session_guardrails"] = dict(worker_session_guardrails)
         for key in (

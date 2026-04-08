@@ -307,7 +307,6 @@ def _normalize_recipe_boundary_block_labels(
                             *list(block.escalation_reasons),
                             "accepted_recipe_span_nonrecipe_gap_to_notes",
                         ],
-                        "exclusion_reason": None,
                     }
                 )
             )
@@ -325,7 +324,6 @@ def _normalize_recipe_boundary_block_labels(
                         *list(block.escalation_reasons),
                         "recipe_span_rejected_to_route",
                     ],
-                    "exclusion_reason": None,
                 }
             )
         )

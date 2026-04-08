@@ -33,13 +33,13 @@ def _base_task_file() -> dict[str, object]:
                 "unit_id": "line::0",
                 "owned_id": "0",
                 "evidence": {"atomic_index": 0, "text": "Ambiguous line"},
-                "answer": {"label": "NONRECIPE_CANDIDATE", "exclusion_reason": None},
+                "answer": {"label": "NONRECIPE_CANDIDATE"},
             },
             {
                 "unit_id": "line::1",
                 "owned_id": "1",
                 "evidence": {"atomic_index": 1, "text": "Discard me"},
-                "answer": {"label": "NONRECIPE_CANDIDATE", "exclusion_reason": None},
+                "answer": {"label": "NONRECIPE_CANDIDATE"},
             },
         ],
     )
@@ -50,7 +50,6 @@ def test_validate_edited_task_file_accepts_answer_only_edits() -> None:
     edited = _base_task_file()
     edited["units"][0]["answer"] = {  # type: ignore[index]
         "label": "RECIPE_NOTES",
-        "exclusion_reason": None,
     }
 
     answers_by_unit_id, errors, metadata = validate_edited_task_file(
@@ -61,8 +60,8 @@ def test_validate_edited_task_file_accepts_answer_only_edits() -> None:
     assert errors == ()
     assert metadata["changed_unit_count"] == 1
     assert answers_by_unit_id == {
-        "line::0": {"label": "RECIPE_NOTES", "exclusion_reason": None},
-        "line::1": {"label": "NONRECIPE_CANDIDATE", "exclusion_reason": None},
+        "line::0": {"label": "RECIPE_NOTES"},
+        "line::1": {"label": "NONRECIPE_CANDIDATE"},
     }
 
 
@@ -93,7 +92,6 @@ def test_validate_edited_task_file_can_recover_answers_while_ignoring_immutable_
     edited["units"][0]["evidence"]["text"] = "mutated"  # type: ignore[index]
     edited["units"][0]["answer"] = {  # type: ignore[index]
         "label": "RECIPE_NOTES",
-        "exclusion_reason": None,
     }
 
     answers_by_unit_id, errors, metadata = validate_edited_task_file(
@@ -113,8 +111,8 @@ def test_validate_edited_task_file_can_recover_answers_while_ignoring_immutable_
         }
     ]
     assert answers_by_unit_id == {
-        "line::0": {"label": "RECIPE_NOTES", "exclusion_reason": None},
-        "line::1": {"label": "NONRECIPE_CANDIDATE", "exclusion_reason": None},
+        "line::0": {"label": "RECIPE_NOTES"},
+        "line::1": {"label": "NONRECIPE_CANDIDATE"},
     }
 
 
@@ -128,7 +126,6 @@ def test_build_repair_task_file_keeps_only_failed_units_with_feedback() -> None:
         previous_answers_by_unit_id={
             "line::1": {
                 "label": "NONRECIPE_CANDIDATE",
-                "exclusion_reason": None,
             }
         },
         validation_feedback_by_unit_id={
@@ -141,7 +138,6 @@ def test_build_repair_task_file_keeps_only_failed_units_with_feedback() -> None:
     assert [unit["unit_id"] for unit in repair["units"]] == ["line::1"]  # type: ignore[index]
     assert repair["units"][0]["previous_answer"] == {  # type: ignore[index]
         "label": "NONRECIPE_CANDIDATE",
-        "exclusion_reason": None,
     }
     assert repair["units"][0]["validation_feedback"] == {  # type: ignore[index]
         "errors": ["label_not_allowed_here"]
@@ -168,7 +164,6 @@ def test_summarize_task_file_reports_answer_progress() -> None:
     task_file = _base_task_file()
     task_file["units"][0]["answer"] = {  # type: ignore[index]
         "label": "RECIPE_NOTES",
-        "exclusion_reason": None,
     }
 
     summary = summarize_task_file(payload=task_file, task_file_path="task.json")
@@ -271,7 +266,6 @@ def test_inspect_task_file_units_can_filter_and_page_unanswered_rows() -> None:
     task_file = _base_task_file()
     task_file["units"][0]["answer"] = {  # type: ignore[index]
         "label": "RECIPE_NOTES",
-        "exclusion_reason": None,
     }
     task_file["units"][1]["answer"] = {}  # type: ignore[index]
 

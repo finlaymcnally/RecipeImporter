@@ -545,6 +545,10 @@ def test_interactive_benchmark_single_book_codex_shaped_simulated_runtime(
         "low",
         "low",
     ]
+    assert [call["recipe_codex_exec_style"] for call in generate_calls] == [
+        "inline-json-v1",
+        "inline-json-v1",
+    ]
 
     comparison_paths = list(benchmark_root.rglob("codex_vs_vanilla_comparison.json"))
     assert len(comparison_paths) == 1

@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Protocol
 
+from .codex_exec_policy import CodexExecPolicySpec
+
 DirectExecWorkerContract = Literal["packet", "taskfile"]
 DirectExecWorkspaceMode = DirectExecWorkerContract
 FinalAgentMessageState = Literal["absent", "informational", "malformed", "json_object"]
@@ -30,6 +32,7 @@ class CodexExecRunner(Protocol):
         resume_last: bool = False,
         persist_session: bool = False,
         prepared_execution_working_dir: Path | None = None,
+        policy_spec: CodexExecPolicySpec | None = None,
     ) -> "CodexExecRunResult":
         """Run one non-interactive packet worker call."""
 
@@ -48,6 +51,7 @@ class CodexExecRunner(Protocol):
             ["CodexExecLiveSnapshot"], "CodexExecSupervisionDecision | None"
         ]
         | None = None,
+        policy_spec: CodexExecPolicySpec | None = None,
     ) -> "CodexExecRunResult":
         """Run one long-lived taskfile worker session against local workspace files."""
 

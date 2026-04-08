@@ -113,7 +113,6 @@ def _build_existing_run_at(run_dir: Path) -> Path:
                     "decided_by": "rule",
                     "reason_tags": ["other"],
                     "escalation_reasons": [],
-                    "exclusion_reason": "navigation",
                 },
             ],
         },
@@ -194,7 +193,6 @@ def _build_existing_run_at(run_dir: Path) -> Path:
                     "decided_by": "rule",
                     "reason_tags": ["other"],
                     "escalation_reasons": [],
-                    "exclusion_reason": "navigation",
                 },
             ]
         ),
@@ -665,7 +663,6 @@ def test_prompt_preview_knowledge_uses_unresolved_candidate_spans_not_seed_spans
             routing=make_routing_result(
                 candidate_block_indices=[2],
                 excluded_block_indices=[3],
-                exclusion_reason_by_block={3: "navigation"},
             ),
             authority=make_authority_result({3: "other"}),
             candidate_status=make_candidate_status_result(
@@ -719,7 +716,6 @@ def test_prompt_preview_knowledge_excludes_stale_recipe_like_nonrecipe_labels(
     for row in labels_payload["block_labels"]:
         if row["source_block_index"] == 3:
             row["final_label"] = "RECIPE_TITLE"
-            row["exclusion_reason"] = None
             break
     labels_path.write_text(
         json.dumps(labels_payload, indent=2, sort_keys=True) + "\n",

@@ -40,6 +40,7 @@ BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES = (
     "ocr_batch_size",
     "workspace_completion_quiescence_seconds",
     "completed_termination_grace_seconds",
+    "recipe_codex_exec_style",
     "line_role_codex_exec_style",
     "knowledge_codex_exec_style",
     "knowledge_group_task_max_units",

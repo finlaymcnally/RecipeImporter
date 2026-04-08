@@ -16,7 +16,6 @@ from .contracts import (
     CANONICAL_LINE_ROLE_ALLOWED_LABELS,
     CanonicalLineRolePrediction,
     RECIPE_LOCAL_LINE_ROLE_LABELS,
-    _normalize_exclusion_reason,
 )
 from .policy import (
     _is_within_recipe_span,
@@ -54,6 +53,87 @@ def _coerce_shard_input_rows(
             continue
         rows.append((atomic_index, str(row[1] or "")))
     return rows
+
+
+def _line_role_packet_row_id(index: int) -> str:
+    return f"r{index + 1:02d}"
+
+
+def _translate_line_role_row_ids_to_atomic_indices(
+    *,
+    shard: ShardManifestEntryV1,
+    payload: Mapping[str, Any],
+) -> tuple[dict[str, Any], tuple[str, ...], dict[str, Any]]:
+    rows_payload = payload.get("rows")
+    if not isinstance(rows_payload, list):
+        return dict(payload), (), {}
+    ordered_rows = _coerce_shard_input_rows(shard)
+    atomic_index_by_row_id = {
+        _line_role_packet_row_id(index): atomic_index
+        for index, (atomic_index, _text) in enumerate(ordered_rows)
+    }
+    translated_rows: list[dict[str, Any]] = []
+    seen_row_ids: set[str] = set()
+    duplicate_row_ids: set[str] = set()
+    unknown_row_ids: set[str] = set()
+    used_row_ids: list[str] = []
+    saw_row_id_mode = False
+    for row in rows_payload:
+        if not isinstance(row, Mapping):
+            translated_rows.append(dict(row) if isinstance(row, dict) else {"value": row})
+            continue
+        row_dict = dict(row)
+        if row_dict.get("atomic_index") is not None:
+            translated_rows.append(row_dict)
+            continue
+        row_id = str(row_dict.get("row_id") or "").strip()
+        if not row_id:
+            translated_rows.append(row_dict)
+            continue
+        saw_row_id_mode = True
+        if row_id in seen_row_ids:
+            duplicate_row_ids.add(row_id)
+            continue
+        seen_row_ids.add(row_id)
+        atomic_index = atomic_index_by_row_id.get(row_id)
+        if atomic_index is None:
+            unknown_row_ids.add(row_id)
+            continue
+        used_row_ids.append(row_id)
+        translated_rows.append(
+            {
+                **row_dict,
+                "atomic_index": atomic_index,
+            }
+        )
+    if not saw_row_id_mode:
+        return dict(payload), (), {}
+    expected_row_ids = list(atomic_index_by_row_id.keys())
+    missing_row_ids = [
+        row_id for row_id in expected_row_ids if row_id not in set(used_row_ids)
+    ]
+    translation_errors: list[str] = []
+    if missing_row_ids:
+        translation_errors.append("missing_row_ids:" + ",".join(missing_row_ids))
+    translation_errors.extend(
+        f"duplicate_row_id:{row_id}" for row_id in sorted(duplicate_row_ids)
+    )
+    translation_errors.extend(
+        f"unknown_row_id:{row_id}" for row_id in sorted(unknown_row_ids)
+    )
+    return (
+        {
+            **dict(payload),
+            "rows": translated_rows,
+        },
+        tuple(translation_errors),
+        {
+            "returned_row_ids": used_row_ids,
+            "missing_row_ids": missing_row_ids,
+            "duplicate_row_ids": sorted(duplicate_row_ids),
+            "unknown_row_ids": sorted(unknown_row_ids),
+        },
+    )
 
 
 def _build_line_role_profile_candidate(
@@ -152,10 +232,7 @@ def _build_line_role_semantic_profile(
                 outside_recipe_row_count += 1
             if str(baseline_prediction.label or "").strip().upper() in _RECIPE_LOCAL_LABELS:
                 baseline_recipe_local_count += 1
-            if (
-                str(baseline_prediction.label or "").strip().upper() == "NONRECIPE_EXCLUDE"
-                and baseline_prediction.exclusion_reason
-            ):
+            if str(baseline_prediction.label or "").strip().upper() == "NONRECIPE_EXCLUDE":
                 baseline_nonrecipe_exclude_count += 1
         stripped = str(text or "").strip()
         if not stripped:
@@ -254,13 +331,11 @@ def _build_semantic_containment_rows(
         if (
             baseline_prediction is not None
             and str(baseline_prediction.label or "").strip().upper() == "NONRECIPE_EXCLUDE"
-            and baseline_prediction.exclusion_reason is not None
         ):
             containment_rows.append(
                 {
                     "atomic_index": int(atomic_index),
                     "label": "NONRECIPE_EXCLUDE",
-                    "exclusion_reason": baseline_prediction.exclusion_reason,
                 }
             )
             continue
@@ -323,17 +398,6 @@ def _validate_line_role_shard_proposal(
             if row_error == "invalid_label":
                 mapped_errors.append(
                     f"invalid_label:{atomic_index}:{str(row_payload.get('label') or '').strip()}"
-                )
-            elif row_error == "exclusion_reason_requires_nonrecipe_exclude":
-                mapped_errors.append(
-                    f"exclusion_reason_requires_nonrecipe_exclude:{atomic_index}"
-                )
-            elif row_error == "invalid_exclusion_reason":
-                exclusion_reason = str(
-                    row_payload.get("exclusion_reason") or ""
-                ).strip()
-                mapped_errors.append(
-                    f"invalid_exclusion_reason:{atomic_index}:{exclusion_reason or '<blank>'}"
                 )
             elif row_error == "unowned_atomic_index":
                 mapped_errors.append(f"unowned_atomic_index:{atomic_index}")
@@ -746,13 +810,27 @@ def _evaluate_line_role_response(
             {"response_type": type(parsed_payload).__name__},
             "invalid",
         )
-    payload = parsed_payload
+    translated_payload, translation_errors, translation_metadata = (
+        _translate_line_role_row_ids_to_atomic_indices(
+            shard=shard,
+            payload=parsed_payload,
+        )
+    )
+    payload = translated_payload
     valid, validation_errors, validation_metadata = validator(
         shard,
-        parsed_payload,
+        translated_payload,
     )
-    proposal_status = "validated" if valid else "invalid"
-    return payload, tuple(validation_errors), dict(validation_metadata or {}), proposal_status
+    merged_errors = tuple(
+        dict.fromkeys(
+            [
+                *[str(error).strip() for error in translation_errors if str(error).strip()],
+                *[str(error).strip() for error in validation_errors if str(error).strip()],
+            ]
+        )
+    )
+    proposal_status = "validated" if valid and not translation_errors else "invalid"
+    return payload, merged_errors, {**dict(validation_metadata or {}), **dict(translation_metadata or {})}, proposal_status
 
 
 def _line_role_resume_reason_fields(*, resumed_from_existing_outputs: bool) -> tuple[str, str]:
@@ -1205,23 +1283,11 @@ def _parse_codex_line_role_response(
         normalized_label = normalize_freeform_label(str(row.get("label") or ""))
         if normalized_label not in CANONICAL_LINE_ROLE_ALLOWED_LABELS:
             return [], f"unknown_label:{normalized_label}"
-        candidate = requested_by_index[atomic_index]
-        exclusion_reason = row.get("exclusion_reason")
-        try:
-            normalized_exclusion_reason = _normalize_exclusion_reason(exclusion_reason)
-        except ValueError as exc:
-            return [], str(exc)
-        if normalized_exclusion_reason is not None:
-            if normalized_label != "NONRECIPE_EXCLUDE":
-                return [], "exclusion_reason_requires_nonrecipe_exclude"
-            if _is_within_recipe_span(candidate):
-                return [], "exclusion_reason_requires_outside_recipe"
         seen.add(atomic_index)
         parsed.append(
             {
                 "atomic_index": atomic_index,
                 "label": normalized_label,
-                "exclusion_reason": normalized_exclusion_reason,
             }
         )
 

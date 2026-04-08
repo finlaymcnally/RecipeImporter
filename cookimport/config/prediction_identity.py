@@ -48,6 +48,7 @@ ALL_METHOD_PREDICTION_IDENTITY_FIELDS = (
     "ocr_batch_size",
     "pdf_column_gap_ratio",
     "llm_recipe_pipeline",
+    "recipe_codex_exec_style",
     "codex_farm_recipe_mode",
     "codex_farm_model",
     "codex_farm_reasoning_effort",

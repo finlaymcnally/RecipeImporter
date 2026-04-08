@@ -557,6 +557,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
     settings: Mapping[str, Any],
     shard_completed_callback: Callable[..., None] | None,
     progress_state: _KnowledgePhaseProgressState | None,
+    task_status_tracker: _KnowledgeTaskStatusTracker | None,
 ) -> _DirectKnowledgeWorkerResult:
     worker_root = Path(assignment.workspace_root)
     out_dir = worker_root / "out"
@@ -577,6 +578,10 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
         run_result: CodexExecRunResult,
         shard_id: str,
         prompt_input_mode: str,
+        semantic_step_key: str,
+        owned_row_count: int,
+        validation_count: int,
+        is_repair_attempt: bool,
         events_path: Path,
         last_message_path: Path,
         usage_path: Path,
@@ -604,7 +609,31 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
             return
         for row in rows:
             if isinstance(row, Mapping):
-                stage_rows.append(dict(row))
+                row_payload = dict(row)
+                row_payload["knowledge_semantic_step"] = semantic_step_key
+                row_payload["is_repair_attempt"] = bool(is_repair_attempt)
+                row_payload["owned_row_count"] = int(max(owned_row_count, 0))
+                row_payload["classification_owned_row_count"] = (
+                    int(max(owned_row_count, 0))
+                    if semantic_step_key == KNOWLEDGE_CLASSIFY_STEP_KEY
+                    else 0
+                )
+                row_payload["grouping_owned_row_count"] = (
+                    int(max(owned_row_count, 0))
+                    if semantic_step_key == KNOWLEDGE_GROUP_STEP_KEY
+                    else 0
+                )
+                row_payload["classification_validation_count"] = (
+                    int(max(validation_count, 0))
+                    if semantic_step_key == KNOWLEDGE_CLASSIFY_STEP_KEY
+                    else 0
+                )
+                row_payload["grouping_validation_count"] = (
+                    int(max(validation_count, 0))
+                    if semantic_step_key == KNOWLEDGE_GROUP_STEP_KEY
+                    else 0
+                )
+                stage_rows.append(row_payload)
 
     for shard in requested_shards:
         preflight_failure = _preflight_knowledge_shard(shard)
@@ -641,10 +670,39 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     metadata={},
                 )
             )
+            if task_status_tracker is not None:
+                task_status_tracker.mark_terminal(
+                    task_id=shard.shard_id,
+                    worker_id=assignment.worker_id,
+                    terminal_state="preflight_rejected",
+                    attempt_type="preflight",
+                    proposal_status="preflight_rejected",
+                    validation_errors=(reason_code,),
+                    metadata={
+                        "reason_detail": str(
+                            preflight_failure.get("reason_detail") or ""
+                        ).strip()
+                        or None,
+                    },
+                    terminal_reason_code=reason_code,
+                    terminal_reason_detail=str(
+                        preflight_failure.get("reason_detail") or ""
+                    ).strip()
+                    or None,
+                )
             continue
 
         session_root = shard_dir / shard.shard_id / "structured_session"
         session_root.mkdir(parents=True, exist_ok=True)
+        if task_status_tracker is not None:
+            task_status_tracker.start_attempt(
+                task_id=shard.shard_id,
+                worker_id=assignment.worker_id,
+                attempt_type="main_worker",
+                metadata={
+                    "workspace_processing_contract": "knowledge_structured_session_v1",
+                },
+            )
         classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
             assignment=assignment,
             shards=[shard],
@@ -687,6 +745,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
             reasoning_effort=reasoning_effort,
             workspace_task_label="knowledge structured classification session",
         )
+        terminal_run_result = initial_run_result
         execution_workspace = Path(initial_run_result.execution_working_dir or session_root)
         initialize_structured_session_lineage(
             worker_root=session_root,
@@ -722,6 +781,10 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
             run_result=initial_run_result,
             shard_id=shard.shard_id,
             prompt_input_mode="structured_session_classification_initial",
+            semantic_step_key=KNOWLEDGE_CLASSIFY_STEP_KEY,
+            owned_row_count=len(classification_task_file.get("units") or []),
+            validation_count=1,
+            is_repair_attempt=False,
             events_path=classification_events_path,
             last_message_path=classification_last_message_path,
             usage_path=classification_usage_path,
@@ -840,6 +903,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     prepared_execution_working_dir=execution_workspace,
                     workspace_task_label="knowledge structured classification repair session",
                 )
+                terminal_run_result = repair_run_result
                 repair_response_path.write_text(
                     str(repair_run_result.response_text or ""),
                     encoding="utf-8",
@@ -870,6 +934,10 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     run_result=repair_run_result,
                     shard_id=shard.shard_id,
                     prompt_input_mode="structured_session_classification_repair",
+                    semantic_step_key=KNOWLEDGE_CLASSIFY_STEP_KEY,
+                    owned_row_count=len(repair_task_file.get("units") or []),
+                    validation_count=0,
+                    is_repair_attempt=True,
                     events_path=repair_events_path,
                     last_message_path=repair_last_message_path,
                     usage_path=repair_usage_path,
@@ -1004,6 +1072,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     prepared_execution_working_dir=execution_workspace,
                     workspace_task_label="knowledge structured grouping session",
                 )
+                terminal_run_result = grouping_run_result
                 grouping_response_path.write_text(
                     str(grouping_run_result.response_text or ""),
                     encoding="utf-8",
@@ -1030,6 +1099,10 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     run_result=grouping_run_result,
                     shard_id=shard.shard_id,
                     prompt_input_mode="structured_session_grouping",
+                    semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
+                    owned_row_count=len(grouping_task_file.get("units") or []),
+                    validation_count=1,
+                    is_repair_attempt=False,
                     events_path=grouping_events_path,
                     last_message_path=grouping_last_message_path,
                     usage_path=grouping_usage_path,
@@ -1148,6 +1221,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                             prepared_execution_working_dir=execution_workspace,
                             workspace_task_label="knowledge structured grouping repair session",
                         )
+                        terminal_run_result = repair_grouping_run_result
                         repair_grouping_response_path.write_text(
                             str(repair_grouping_run_result.response_text or ""),
                             encoding="utf-8",
@@ -1184,6 +1258,10 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                             run_result=repair_grouping_run_result,
                             shard_id=shard.shard_id,
                             prompt_input_mode="structured_session_grouping_repair",
+                            semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
+                            owned_row_count=len(repair_grouping_task_file.get("units") or []),
+                            validation_count=0,
+                            is_repair_attempt=True,
                             events_path=repair_grouping_events_path,
                             last_message_path=repair_grouping_last_message_path,
                             usage_path=repair_grouping_usage_path,
@@ -1315,6 +1393,28 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                 metadata=dict(proposal_metadata or {}),
             )
         )
+        if task_status_tracker is not None:
+            terminal_reason_code, terminal_reason_detail = _terminal_reason_for_knowledge_task(
+                proposal_status=proposal_status,
+                validation_errors=proposal_errors,
+                validation_metadata=proposal_metadata,
+                run_result=terminal_run_result,
+            )
+            task_status_tracker.mark_terminal(
+                task_id=shard.shard_id,
+                worker_id=assignment.worker_id,
+                terminal_state=_terminal_knowledge_task_state(
+                    proposal_status=proposal_status,
+                    supervision_state=terminal_run_result.supervision_state,
+                    terminal_reason_code=terminal_reason_code,
+                ),
+                attempt_type="main_worker",
+                proposal_status=proposal_status,
+                validation_errors=proposal_errors,
+                metadata=dict(proposal_metadata or {}),
+                terminal_reason_code=terminal_reason_code,
+                terminal_reason_detail=terminal_reason_detail,
+            )
         if progress_state is not None:
             progress_state.mark_task_packet_terminal(
                 worker_id=assignment.worker_id,
@@ -1409,6 +1509,7 @@ def _run_phase_knowledge_worker_assignment_v1(
             settings=settings,
             shard_completed_callback=shard_completed_callback,
             progress_state=progress_state,
+            task_status_tracker=task_status_tracker,
         )
 
     worker_failure_count = 0

@@ -246,6 +246,11 @@ def _build_knowledge_packet_economics(
     same_session_rows = [
         row for row in normalized_rows if bool(row.get("knowledge_same_session"))
     ]
+    shard_ids = {
+        str(row.get("task_id") or row.get("shard_id") or "").strip()
+        for row in normalized_rows
+        if str(row.get("task_id") or row.get("shard_id") or "").strip()
+    }
     packet_count_total = sum(int(row.get("workspace_packet_count") or 0) for row in normalized_rows)
     step_rows = [
         row
@@ -330,15 +335,24 @@ def _build_knowledge_packet_economics(
         classification_rows = [
             row
             for row in step_rows
-            if str(row.get("knowledge_semantic_step") or "").strip() == "classification"
+            if str(row.get("knowledge_semantic_step") or "").strip()
+            == KNOWLEDGE_CLASSIFY_STEP_KEY
             and not bool(row.get("is_repair_attempt"))
         ]
         grouping_rows = [
             row
             for row in step_rows
-            if str(row.get("knowledge_semantic_step") or "").strip() == "grouping"
+            if str(row.get("knowledge_semantic_step") or "").strip()
+            == KNOWLEDGE_GROUP_STEP_KEY
             and not bool(row.get("is_repair_attempt"))
         ]
+        classification_validation_count_total = sum(
+            int(row.get("classification_validation_count") or 0)
+            for row in classification_rows
+        ) or len(classification_rows)
+        grouping_validation_count_total = sum(
+            int(row.get("grouping_validation_count") or 0) for row in grouping_rows
+        ) or len(grouping_rows)
         classification_owned_row_count_total = sum(
             int(row.get("owned_row_count") or 0) for row in classification_rows
         )
@@ -350,13 +364,15 @@ def _build_knowledge_packet_economics(
         classification_repair_packet_count_total = sum(
             1
             for row in step_rows
-            if str(row.get("knowledge_semantic_step") or "").strip() == "classification"
+            if str(row.get("knowledge_semantic_step") or "").strip()
+            == KNOWLEDGE_CLASSIFY_STEP_KEY
             and bool(row.get("is_repair_attempt"))
         )
         grouping_repair_packet_count_total = sum(
             1
             for row in step_rows
-            if str(row.get("knowledge_semantic_step") or "").strip() == "grouping"
+            if str(row.get("knowledge_semantic_step") or "").strip()
+            == KNOWLEDGE_GROUP_STEP_KEY
             and bool(row.get("is_repair_attempt"))
         )
         owned_row_count_total = (
@@ -375,7 +391,7 @@ def _build_knowledge_packet_economics(
         )
     if step_rows:
         packet_count_total = len(step_rows)
-    shard_count = len(normalized_rows)
+    shard_count = len(shard_ids) or len(normalized_rows)
     primary_packet_count_total = max(packet_count_total - repair_packet_count_total, 0)
     visible_input_tokens = _nonnegative_int(telemetry_summary.get("visible_input_tokens"))
     visible_output_tokens = _nonnegative_int(telemetry_summary.get("visible_output_tokens"))

@@ -87,7 +87,11 @@ def build_single_file_worker_surface(*, stage_key: str) -> SingleFileWorkerSurfa
             queue_helpers_allowed=False,
             direct_task_file_reads_allowed=True,
         )
-    if cleaned_stage_key in {LINE_ROLE_STAGE_KEY, KNOWLEDGE_GROUP_STAGE_KEY}:
+    if cleaned_stage_key in {
+        RECIPE_STAGE_KEY,
+        LINE_ROLE_STAGE_KEY,
+        KNOWLEDGE_GROUP_STAGE_KEY,
+    }:
         return SingleFileWorkerSurface(
             helper_commands=shared_commands,
             workflow=(

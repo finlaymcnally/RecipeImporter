@@ -84,12 +84,12 @@
   ],
   "bad_repair_response": {
     "rows": [
-      {"row_id": "r01", "label": "NONRECIPE_EXCLUDE", "exclusion_reason": "navigation"},
-      {"row_id": "r02", "label": "NONRECIPE_EXCLUDE", "exclusion_reason": "navigation"},
-      {"row_id": "r03", "label": "NONRECIPE_EXCLUDE", "exclusion_reason": "navigation"},
-      {"row_id": "r04", "label": "NONRECIPE_EXCLUDE", "exclusion_reason": "navigation"},
-      {"row_id": "r05", "label": "NONRECIPE_EXCLUDE", "exclusion_reason": "navigation"},
-      {"row_id": "r06", "label": "NONRECIPE_EXCLUDE", "exclusion_reason": "navigation"},
+      {"row_id": "r01", "label": "NONRECIPE_EXCLUDE"},
+      {"row_id": "r02", "label": "NONRECIPE_EXCLUDE"},
+      {"row_id": "r03", "label": "NONRECIPE_EXCLUDE"},
+      {"row_id": "r04", "label": "NONRECIPE_EXCLUDE"},
+      {"row_id": "r05", "label": "NONRECIPE_EXCLUDE"},
+      {"row_id": "r06", "label": "NONRECIPE_EXCLUDE"},
       {"row_id": "r07", "label": "HOWTO_SECTION"},
       {"row_id": "r08", "label": "HOWTO_SECTION"},
       {"row_id": "r09", "label": "HOWTO_SECTION"},

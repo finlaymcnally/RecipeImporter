@@ -897,6 +897,26 @@ def test_build_codex_exec_command_can_request_workspace_write(tmp_path: Path) ->
     assert command[command.index("--sandbox") + 1] == "workspace-write"
 
 
+def test_build_codex_exec_command_appends_config_overrides_after_reasoning(tmp_path: Path) -> None:
+    working_dir = tmp_path / "runtime-worker"
+
+    command = _build_codex_exec_command(
+        cmd="codex exec",
+        working_dir=working_dir,
+        output_schema_path=None,
+        model=None,
+        reasoning_effort="medium",
+        config_overrides=("features.shell_tool=false",),
+    )
+
+    override_indexes = [
+        index for index, token in enumerate(command) if token == "-c"
+    ]
+    assert len(override_indexes) == 2
+    assert command[override_indexes[0] + 1] == 'model_reasoning_effort="medium"'
+    assert command[override_indexes[1] + 1] == "features.shell_tool=false"
+
+
 def test_build_codex_exec_command_can_persist_initial_session(tmp_path: Path) -> None:
     working_dir = tmp_path / "runtime-worker"
     schema_path = tmp_path / "schema.json"
@@ -972,6 +992,7 @@ def test_fake_codex_exec_runner_records_inline_json_call(tmp_path: Path) -> None
             "workspace_task_label": None,
             "resume_last": True,
             "persist_session": True,
+            "policy_spec": None,
         }
     ]
     assert result.command == ["codex", "exec", "resume", "--last"]

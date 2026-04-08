@@ -256,21 +256,21 @@ def test_expand_line_role_task_file_outputs_recovers_answers_despite_immutable_d
         "answer_schema": {"editable_pointer_pattern": "/units/*/answer"},
         "units": [
             {
-                "unit_id": "line::589",
-                "owned_id": "589",
+                "unit_id": "line::line-role-canonical-0003-a000589-a000590::r01",
+                "owned_id": "r01",
                 "evidence": {
-                    "atomic_index": 589,
-                    "block_id": "b877",
+                    "shard_id": "line-role-canonical-0003-a000589-a000590",
+                    "row_id": "r01",
                     "text": "Original line 589",
                 },
                 "answer": {},
             },
             {
-                "unit_id": "line::590",
-                "owned_id": "590",
+                "unit_id": "line::line-role-canonical-0003-a000589-a000590::r02",
+                "owned_id": "r02",
                 "evidence": {
-                    "atomic_index": 590,
-                    "block_id": "b878",
+                    "shard_id": "line-role-canonical-0003-a000589-a000590",
+                    "row_id": "r02",
                     "text": "Original line 590",
                 },
                 "answer": {},
@@ -281,21 +281,21 @@ def test_expand_line_role_task_file_outputs_recovers_answers_despite_immutable_d
         **original_task_file,
         "units": [
             {
-                "unit_id": "line::589",
-                "owned_id": "589",
+                "unit_id": "line::line-role-canonical-0003-a000589-a000590::r01",
+                "owned_id": "r01",
                 "evidence": {
-                    "atomic_index": 123456,
-                    "block_id": "b589",
+                    "shard_id": "line-role-canonical-0003-a000589-a000590",
+                    "row_id": "r01",
                     "text": "Corrupted replacement text",
                 },
                 "answer": {"label": "INSTRUCTION_LINE"},
             },
             {
-                "unit_id": "line::590",
-                "owned_id": "590",
+                "unit_id": "line::line-role-canonical-0003-a000589-a000590::r02",
+                "owned_id": "r02",
                 "evidence": {
-                    "atomic_index": 999999,
-                    "block_id": "b590",
+                    "shard_id": "line-role-canonical-0003-a000589-a000590",
+                    "row_id": "r02",
                     "text": "More corrupted text",
                 },
                 "answer": {"label": "NONRECIPE_CANDIDATE"},
@@ -309,8 +309,12 @@ def test_expand_line_role_task_file_outputs_recovers_answers_despite_immutable_d
         original_task_file=original_task_file,
         task_file_path=task_file_path,
         unit_to_shard_id={
-            "line::589": "line-role-canonical-0003-a000589-a000590",
-            "line::590": "line-role-canonical-0003-a000589-a000590",
+            "line::line-role-canonical-0003-a000589-a000590::r01": "line-role-canonical-0003-a000589-a000590",
+            "line::line-role-canonical-0003-a000589-a000590::r02": "line-role-canonical-0003-a000589-a000590",
+        },
+        unit_to_atomic_index={
+            "line::line-role-canonical-0003-a000589-a000590::r01": 589,
+            "line::line-role-canonical-0003-a000589-a000590::r02": 590,
         },
     )
 

@@ -178,7 +178,7 @@ def test_line_role_phase_workers_reject_invalid_task_file_answer_after_one_repai
         units = list(edited.get("units") or [])
         if units and isinstance(units[0], dict):
             first_unit = dict(units[0])
-            first_unit["answer"] = {"label": "NOT_A_LABEL", "exclusion_reason": None}
+            first_unit["answer"] = {"label": "NOT_A_LABEL"}
             units[0] = first_unit
         edited["units"] = units
         return edited

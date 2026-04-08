@@ -8,7 +8,7 @@ ANALYSIS_FIELD_LABEL_OVERRIDES = {
     "source_file_basename": "Book",
     "run_config.single_book_split_cache.conversion_seconds": "Conversion seconds",
     "conversion_seconds_per_recipe": "Conversion seconds per recipe",
-    "all_token_use_per_recipe": "Token use per recipe",
+    "all_token_use_per_recipe": "Effective token use per recipe",
 }
 COMPARE_CONTROL_OUTCOME_PREFERRED = (
     "strict_accuracy",

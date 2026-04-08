@@ -425,7 +425,7 @@ class TestRenderer:
         assert result["numeric_chart_type"] == "scatter"
         assert result["numeric_series_count"] == 2
         assert result["numeric_point_total"] == 6
-        assert result["numeric_title"] == "Strict Accuracy vs All Token Use"
+        assert result["numeric_title"] == "Strict Accuracy vs Effective Token Use"
         assert result["numeric_subtitle"] == "Raw comparison, split by Source"
         assert result["numeric_first_compare_value"] == pytest.approx(990)
         assert result["numeric_first_outcome_value"] == pytest.approx(0.60)
@@ -433,7 +433,7 @@ class TestRenderer:
         assert result["time_chart_type"] == "scatter"
         assert result["time_series_count"] == 2
         assert result["time_point_total"] == 6
-        assert result["time_title"] == "All Token Use over Timestamp"
+        assert result["time_title"] == "Effective Token Use over Timestamp"
         assert result["time_x_axis_type"] == "datetime"
         assert result["time_first_series_type"] == "scatter"
         assert result["time_first_compare_value"] == "2026-03-04T10:00:00"
@@ -442,7 +442,7 @@ class TestRenderer:
         assert result["per_run_chart_type"] == "scatter"
         assert result["per_run_series_count"] == 2
         assert result["per_run_point_total"] == 6
-        assert result["per_run_title"] == "All Token Use over Runs"
+        assert result["per_run_title"] == "Effective Token Use over Runs"
         assert result["per_run_x_axis_type"] == ""
         assert result["per_run_x_axis_allow_decimals"] is True
         assert result["per_run_first_compare_value"] == "#1"
@@ -639,7 +639,7 @@ class TestRenderer:
         assert "previousRunsDiscountedTokenTotal(" in js
         assert "rawTotalTokenUse" not in js
         assert "AI Runtime" not in js
-        assert "'<tr><td data-metric-tooltip-key=\"all_token_use\">Token use</td><td>' + esc(totalTokenUse) + '</td></tr>'" in js
+        assert "'<tr><td data-metric-tooltip-key=\"all_token_use\">Effective token use</td><td>' + esc(totalTokenUse) + '</td></tr>'" in js
         assert "Raw total tokens" not in js
         assert "link.href = href;" in js
 
@@ -1026,7 +1026,7 @@ class TestRenderer:
         assert result["missing_telemetry_ai_model"] == "gpt-5.1-codex-mini"
         assert result["missing_telemetry_token_display"] == "-"
         assert result["missing_telemetry_all_token_use"] is None
-        assert result["explicit_zero_telemetry_token_display"] == "0 total | 0 in | 0 out"
+        assert result["explicit_zero_telemetry_token_display"] == "0 eff | 0 in | 0 out"
         assert result["explicit_zero_telemetry_all_token_use"] == pytest.approx(0.0)
         assert result["runtime_error_ai_model"] == "System error"
         assert result["runtime_error_effort_label"] == "Recipe only"

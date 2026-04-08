@@ -549,7 +549,7 @@ def test_fake_taskfile_worker_reads_local_inputs_and_syncs_outputs(
     assert synced_output == {"rows": [{"atomic_index": 1, "label": "OTHER"}]}
 
 
-def test_fake_taskfile_worker_loops_line_role_same_session_repair_until_completed(
+def test_fake_taskfile_worker_completes_line_role_same_session_without_reason_repair(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "repo" / "runtime" / "workers" / "worker-001"
@@ -560,7 +560,7 @@ def test_fake_taskfile_worker_loops_line_role_same_session_repair_until_complete
         input_payload={"rows": [[7, "Variation"]]},
         metadata={},
     )
-    task_file, unit_to_shard_id = line_role_runtime_module._build_line_role_task_file(
+    task_file, unit_to_shard_id, unit_to_atomic_index = line_role_runtime_module._build_line_role_task_file(
         assignment=WorkerAssignmentV1(
             worker_id="worker-001",
             shard_ids=(shard.shard_id,),
@@ -578,6 +578,7 @@ def test_fake_taskfile_worker_loops_line_role_same_session_repair_until_complete
         worker_id="worker-001",
         task_file=task_file,
         unit_to_shard_id=unit_to_shard_id,
+        unit_to_atomic_index=unit_to_atomic_index,
         shards=[asdict(shard)],
         output_dir=source_root / "out",
     )
@@ -590,9 +591,6 @@ def test_fake_taskfile_worker_loops_line_role_same_session_repair_until_complete
                     continue
                 unit["answer"] = {
                     "label": "NONRECIPE_EXCLUDE",
-                    "exclusion_reason": (
-                        "navigation" if payload.get("mode") == "repair" else "nonrecipe"
-                    ),
                 }
             return edited
         return {}
@@ -613,11 +611,9 @@ def test_fake_taskfile_worker_loops_line_role_same_session_repair_until_complete
     )
     state_payload = json.loads(state_path.read_text(encoding="utf-8"))
 
-    assert output_payload["rows"] == [
-        {"atomic_index": 7, "label": "NONRECIPE_EXCLUDE", "exclusion_reason": "navigation"}
-    ]
+    assert output_payload["rows"] == [{"atomic_index": 7, "label": "NONRECIPE_EXCLUDE"}]
     assert state_payload["completed"] is True
-    assert state_payload["same_session_repair_rewrite_count"] == 1
+    assert state_payload["same_session_repair_rewrite_count"] == 0
 
 
 def test_subprocess_taskfile_worker_parses_token_usage_from_text_stream(
@@ -987,9 +983,13 @@ def test_single_file_taskfile_worker_rewrites_same_session_state_into_execution_
         worker_id="worker-001",
         units=[
             {
-                "unit_id": "line::0",
-                "owned_id": "0",
-                "evidence": {"atomic_index": 0, "text": "Variation"},
+                "unit_id": "line::line-role-shard-0000::r01",
+                "owned_id": "r01",
+                "evidence": {
+                    "shard_id": "line-role-shard-0000",
+                    "row_id": "r01",
+                    "text": "Variation",
+                },
                 "answer": {},
             }
         ],
@@ -1001,7 +1001,8 @@ def test_single_file_taskfile_worker_rewrites_same_session_state_into_execution_
         assignment_id="worker-001",
         worker_id="worker-001",
         task_file=task_file,
-        unit_to_shard_id={"line::0": "line-role-shard-0000"},
+        unit_to_shard_id={"line::line-role-shard-0000::r01": "line-role-shard-0000"},
+        unit_to_atomic_index={"line::line-role-shard-0000::r01": 0},
         shards=[{"shard_id": "line-role-shard-0000", "owned_ids": ["0"]}],
         output_dir=source_root / "out",
     )

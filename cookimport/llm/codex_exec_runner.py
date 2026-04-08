@@ -66,6 +66,7 @@ from .codex_exec_telemetry import (
     should_terminate_workspace_command_loop,
     summarize_direct_telemetry_rows,
 )
+from .codex_exec_policy import CodexExecPolicySpec, build_codex_exec_policy_spec
 from . import codex_exec_command_builder as _command_builder_module
 from .recipe_same_session_handoff import (
     RECIPE_SAME_SESSION_STATE_ENV,
@@ -201,6 +202,10 @@ class CodexExecRunResult:
     supervision_reason_code: str | None = None
     supervision_reason_detail: str | None = None
     supervision_retryable: bool = False
+    codex_policy_mode: str | None = None
+    codex_shell_tool_enabled: bool | None = None
+    codex_transport: str | None = None
+    codex_policy_stage_key: str | None = None
 
     @property
     def worker_contract(self) -> DirectExecWorkerContract:
@@ -304,6 +309,10 @@ class CodexExecRunResult:
             "supervision_reason_code": self.supervision_reason_code,
             "supervision_reason_detail": self.supervision_reason_detail,
             "supervision_retryable": self.supervision_retryable,
+            "codex_policy_mode": self.codex_policy_mode,
+            "codex_shell_tool_enabled": self.codex_shell_tool_enabled,
+            "codex_transport": self.codex_transport,
+            "codex_policy_stage_key": self.codex_policy_stage_key,
             "final_agent_message_state": final_agent_message.state,
             "final_agent_message_reason": final_agent_message.reason,
             "turn_failed_message": self.turn_failed_message,
@@ -329,6 +338,10 @@ class CodexExecRunResult:
                 "visible_output_tokens": row.get("visible_output_tokens"),
                 "wrapper_overhead_tokens": row.get("wrapper_overhead_tokens"),
                 "codex_event_count_total": row.get("codex_event_count"),
+                "codex_policy_mode": row.get("codex_policy_mode"),
+                "codex_shell_tool_enabled": row.get("codex_shell_tool_enabled"),
+                "codex_transport": row.get("codex_transport"),
+                "codex_policy_stage_key": row.get("codex_policy_stage_key"),
             },
         }
         token_usage_status = _token_usage_status_from_direct_rows([row])
@@ -385,6 +398,35 @@ class CodexExecRunResult:
         )
 
 
+def _packet_policy_spec_for_input_payload(
+    input_payload: Mapping[str, Any] | None,
+) -> CodexExecPolicySpec | None:
+    if not isinstance(input_payload, Mapping):
+        return None
+    stage_key = str(input_payload.get("stage_key") or "").strip() or None
+    if stage_key is None:
+        return None
+    return build_codex_exec_policy_spec(
+        stage_key=stage_key,
+        transport="inline-json-v1",
+    )
+
+
+def _taskfile_policy_spec_for_workspace(working_dir: Path) -> CodexExecPolicySpec | None:
+    task_file_path = Path(working_dir).resolve(strict=False) / TASK_FILE_NAME
+    if not task_file_path.exists():
+        return None
+    try:
+        payload = load_task_file(task_file_path)
+    except Exception:  # noqa: BLE001
+        return None
+    stage_key = str(payload.get("stage_key") or "").strip() or None
+    return build_codex_exec_policy_spec(
+        stage_key=stage_key,
+        transport="taskfile-v1",
+    )
+
+
 @dataclass(frozen=True)
 class SubprocessCodexExecRunner:
     cmd: str = "codex exec"
@@ -409,6 +451,7 @@ class SubprocessCodexExecRunner:
         resume_last: bool = False,
         persist_session: bool = False,
         prepared_execution_working_dir: Path | None = None,
+        policy_spec: CodexExecPolicySpec | None = None,
     ) -> CodexExecRunResult:
         return self._run_prompt_in_prepared_workspace(
             prompt_text=prompt_text,
@@ -428,6 +471,7 @@ class SubprocessCodexExecRunner:
             resume_last=resume_last,
             persist_session=persist_session,
             prepared_execution_working_dir=prepared_execution_working_dir,
+            policy_spec=policy_spec or _packet_policy_spec_for_input_payload(input_payload),
         )
 
     def run_taskfile_worker(
@@ -445,6 +489,7 @@ class SubprocessCodexExecRunner:
             [CodexExecLiveSnapshot], CodexExecSupervisionDecision | None
         ]
         | None = None,
+        policy_spec: CodexExecPolicySpec | None = None,
     ) -> CodexExecRunResult:
         return self._run_prompt_in_prepared_workspace(
             prompt_text=prompt_text,
@@ -475,6 +520,7 @@ class SubprocessCodexExecRunner:
             resume_last=False,
             persist_session=False,
             prepared_execution_working_dir=None,
+            policy_spec=policy_spec or _taskfile_policy_spec_for_workspace(working_dir),
         )
 
     def _run_prompt_in_prepared_workspace(
@@ -500,6 +546,7 @@ class SubprocessCodexExecRunner:
         resume_last: bool,
         persist_session: bool,
         prepared_execution_working_dir: Path | None,
+        policy_spec: CodexExecPolicySpec | None,
     ) -> CodexExecRunResult:
         process_env = _merge_env(env)
         if resume_last and prepared_execution_working_dir is None:
@@ -551,10 +598,13 @@ class SubprocessCodexExecRunner:
                 env=process_env,
                 import_root=helper_import_root,
             )
-            process_env = _prepend_path(
-                env=process_env,
-                path_entries=(helper_import_root / "bin",),
-            )
+            if policy_spec is not None and policy_spec.restrict_worker_path:
+                process_env["PATH"] = str(helper_import_root / "bin")
+            else:
+                process_env = _prepend_path(
+                    env=process_env,
+                    path_entries=(helper_import_root / "bin",),
+                )
         execution_prompt_text = rewrite_direct_exec_prompt_paths(
             prompt_text=prompt_text,
             source_working_dir=working_dir,
@@ -566,6 +616,9 @@ class SubprocessCodexExecRunner:
             output_schema_path=None if resume_last else output_schema_path,
             model=model,
             reasoning_effort=reasoning_effort,
+            config_overrides=(
+                policy_spec.config_overrides if policy_spec is not None else ()
+            ),
             sandbox_mode=sandbox_mode,
             resume_last=resume_last,
             persist_session=persist_session,
@@ -667,6 +720,16 @@ class SubprocessCodexExecRunner:
                 completed.termination_decision.retryable
                 if completed.termination_decision is not None
                 else False
+            ),
+            codex_policy_mode=(
+                policy_spec.policy_mode if policy_spec is not None else None
+            ),
+            codex_shell_tool_enabled=(
+                policy_spec.shell_tool_enabled if policy_spec is not None else None
+            ),
+            codex_transport=policy_spec.transport if policy_spec is not None else None,
+            codex_policy_stage_key=(
+                policy_spec.stage_key if policy_spec is not None else None
             ),
         )
 
@@ -864,11 +927,7 @@ class FakeCodexExecRunner:
                     if not label:
                         continue
                     atomic_index = int(row.get("atomic_index") or 0)
-                    answer_payload: dict[str, Any] = {"label": label}
-                    exclusion_reason = str(row.get("exclusion_reason") or "").strip()
-                    if exclusion_reason:
-                        answer_payload["exclusion_reason"] = exclusion_reason
-                    answer_by_atomic_index[atomic_index] = answer_payload
+                    answer_by_atomic_index[atomic_index] = {"label": label}
                 if answer_by_atomic_index and len(answer_by_atomic_index) >= len(
                     line_role_rows
                 ):
@@ -1014,11 +1073,6 @@ class FakeCodexExecRunner:
                     label = str(matching_row.get("label") or "").strip()
                     if label:
                         answer_payload["label"] = label
-                    exclusion_reason = str(
-                        matching_row.get("exclusion_reason") or ""
-                    ).strip()
-                    if exclusion_reason:
-                        answer_payload["exclusion_reason"] = exclusion_reason
                     return answer_payload
             return {}
         return {}
@@ -1043,6 +1097,7 @@ class FakeCodexExecRunner:
         resume_last: bool = False,
         persist_session: bool = False,
         prepared_execution_working_dir: Path | None = None,
+        policy_spec: CodexExecPolicySpec | None = None,
     ) -> CodexExecRunResult:
         execution_working_dir = (
             Path(prepared_execution_working_dir).resolve(strict=False)
@@ -1064,6 +1119,9 @@ class FakeCodexExecRunner:
                 "workspace_task_label": workspace_task_label,
                 "resume_last": bool(resume_last),
                 "persist_session": bool(persist_session),
+                "policy_spec": (
+                    dict(policy_spec.to_metadata()) if policy_spec is not None else None
+                ),
             }
         )
         payload = self.output_builder(input_payload)
@@ -1134,6 +1192,16 @@ class FakeCodexExecRunner:
             finished_at_utc="2026-01-01T00:00:00Z",
             workspace_mode="packet",
             supervision_state="completed",
+            codex_policy_mode=(
+                policy_spec.policy_mode if policy_spec is not None else None
+            ),
+            codex_shell_tool_enabled=(
+                policy_spec.shell_tool_enabled if policy_spec is not None else None
+            ),
+            codex_transport=policy_spec.transport if policy_spec is not None else None,
+            codex_policy_stage_key=(
+                policy_spec.stage_key if policy_spec is not None else None
+            ),
         )
 
     def run_taskfile_worker(
@@ -1151,6 +1219,7 @@ class FakeCodexExecRunner:
             [CodexExecLiveSnapshot], CodexExecSupervisionDecision | None
         ]
         | None = None,
+        policy_spec: CodexExecPolicySpec | None = None,
     ) -> CodexExecRunResult:
         process_env = _merge_env(env)
         prepared_workspace = prepare_direct_exec_workspace(
@@ -1178,6 +1247,9 @@ class FakeCodexExecRunner:
                 "timeout_seconds": timeout_seconds,
                 "completed_termination_grace_seconds": completed_termination_grace_seconds,
                 "workspace_task_label": workspace_task_label,
+                "policy_spec": (
+                    dict(policy_spec.to_metadata()) if policy_spec is not None else None
+                ),
             }
         )
         out_dir = execution_working_dir / _DIRECT_EXEC_OUTPUT_DIR_NAME
@@ -1415,6 +1487,16 @@ class FakeCodexExecRunner:
             finished_at_utc="2026-01-01T00:00:00Z",
             workspace_mode="taskfile",
             supervision_state="completed",
+            codex_policy_mode=(
+                policy_spec.policy_mode if policy_spec is not None else None
+            ),
+            codex_shell_tool_enabled=(
+                policy_spec.shell_tool_enabled if policy_spec is not None else None
+            ),
+            codex_transport=policy_spec.transport if policy_spec is not None else None,
+            codex_policy_stage_key=(
+                policy_spec.stage_key if policy_spec is not None else None
+            ),
         )
 
 
@@ -1440,6 +1522,7 @@ def _build_codex_exec_command(
     output_schema_path: Path | None,
     model: str | None,
     reasoning_effort: str | None,
+    config_overrides: Sequence[str] | None = None,
     sandbox_mode: str = "read-only",
     resume_last: bool = False,
     persist_session: bool = False,
@@ -1450,6 +1533,7 @@ def _build_codex_exec_command(
         output_schema_path=output_schema_path,
         model=model,
         reasoning_effort=reasoning_effort,
+        config_overrides=config_overrides,
         sandbox_mode=sandbox_mode,
         resume_last=resume_last,
         persist_session=persist_session,

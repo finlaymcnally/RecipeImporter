@@ -23,19 +23,6 @@ CANONICAL_LINE_ROLE_ALLOWED_LABELS: tuple[str, ...] = (
     *NONRECIPE_ROUTE_LABELS,
 )
 
-_EXCLUSION_REASON_CODES = frozenset(
-    {
-        "navigation",
-        "front_matter",
-        "publishing_metadata",
-        "copyright_legal",
-        "endorsement",
-        "publisher_promo",
-        "page_furniture",
-    }
-)
-
-
 def _unique_string_list(values: Sequence[Any]) -> list[str]:
     output: list[str] = []
     seen: set[str] = set()
@@ -46,17 +33,6 @@ def _unique_string_list(values: Sequence[Any]) -> list[str]:
         seen.add(rendered)
         output.append(rendered)
     return output
-
-
-def _normalize_exclusion_reason(value: Any) -> str | None:
-    rendered = str(value or "").strip().lower()
-    if not rendered:
-        return None
-    if rendered not in _EXCLUSION_REASON_CODES:
-        raise ValueError(f"unknown exclusion reason: {rendered}")
-    return rendered
-
-
 class CanonicalLineRolePrediction(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -70,11 +46,9 @@ class CanonicalLineRolePrediction(BaseModel):
     decided_by: Literal["rule", "codex", "fallback"]
     reason_tags: list[str] = Field(default_factory=list)
     escalation_reasons: list[str] = Field(default_factory=list)
-    exclusion_reason: str | None = None
 
     @model_validator(mode="after")
     def _normalize_metadata(self) -> "CanonicalLineRolePrediction":
         self.escalation_reasons = _unique_string_list(self.escalation_reasons)
         self.reason_tags = _unique_string_list(self.reason_tags)
-        self.exclusion_reason = _normalize_exclusion_reason(self.exclusion_reason)
         return self

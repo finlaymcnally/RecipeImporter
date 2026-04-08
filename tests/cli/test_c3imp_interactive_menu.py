@@ -740,6 +740,7 @@ def test_choose_run_settings_workflow_menu_uses_family_labels_only(
 
     assert selected is not None
     assert captured_titles == ["Vanilla / no Codex", "Codex Exec"]
+    assert selected.recipe_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
     assert selected.line_role_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
     assert selected.knowledge_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
 
@@ -749,6 +750,7 @@ def test_run_settings_default_surface_codex_exec_styles_prefer_inline_json() -> 
         {},
         warn_context="test surface codex exec style defaults",
     )
+    assert selected.recipe_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
     assert selected.line_role_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
     assert selected.knowledge_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
 
@@ -786,6 +788,7 @@ def test_choose_run_settings_benchmark_step_planning_applies_modes_independently
 
     assert selected is not None
     assert selected.llm_recipe_pipeline.value == "codex-recipe-shard-v1"
+    assert selected.recipe_codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
     assert selected.line_role_pipeline.value == "off"
     assert selected.atomic_block_splitter.value == "off"
     assert selected.llm_knowledge_pipeline.value == "off"
@@ -839,11 +842,12 @@ def test_choose_run_settings_step_planner_surfaces_defaults_and_applies_counts(
     ]
     assert [str(row["current_mode"]) for row in captured_rows] == [
         CODEX_EXEC_STYLE_INLINE_JSON_V1,
-        CODEX_EXEC_STYLE_TASKFILE_V1,
+        CODEX_EXEC_STYLE_INLINE_JSON_V1,
         CODEX_EXEC_STYLE_INLINE_JSON_V1,
     ]
     assert any("Exact survivability estimates appear" in line for line in captured_summary_lines)
     assert selected.recipe_prompt_target_count == 3
+    assert selected.recipe_codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
     assert selected.knowledge_prompt_target_count == 6
     assert selected.line_role_prompt_target_count == 5
     assert selected.line_role_pipeline.value == "off"
@@ -895,6 +899,7 @@ def test_choose_run_settings_benchmark_prompts_codex_steps_in_runtime_stage_orde
     assert selected.line_role_prompt_target_count == 10
     assert selected.recipe_prompt_target_count == 5
     assert selected.knowledge_prompt_target_count == 10
+    assert selected.recipe_codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
     assert selected.line_role_codex_exec_style.value == CODEX_EXEC_STYLE_TASKFILE_V1
     assert selected.knowledge_codex_exec_style.value == CODEX_EXEC_STYLE_INLINE_JSON_V1
 
