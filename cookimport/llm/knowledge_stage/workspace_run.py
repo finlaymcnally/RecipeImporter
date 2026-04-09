@@ -58,7 +58,7 @@ from .structured_session_contract import (
     build_knowledge_structured_prompt as _build_knowledge_structured_prompt,
     knowledge_failed_unit_ids as _knowledge_failed_unit_ids,
     knowledge_merge_answers as _knowledge_merge_answers,
-    knowledge_same_session_grounding_gate_metadata_by_shard as _knowledge_same_session_grounding_gate_metadata_by_shard,
+    knowledge_same_session_weak_grounding_metadata_by_shard as _knowledge_same_session_weak_grounding_metadata_by_shard,
     knowledge_task_file_to_structured_packet as _knowledge_task_file_to_structured_packet,
     render_validation_reason_detail as _render_validation_reason_detail,
     write_knowledge_task_file_snapshot as _write_task_file_snapshot,
@@ -2053,10 +2053,10 @@ def _run_phase_knowledge_worker_assignment_v1(
         )
     )
     task_file_errors_by_shard: dict[str, tuple[tuple[str, ...], dict[str, Any]]] = {}
-    same_session_grounding_gate_metadata_by_shard: dict[str, dict[str, Any]] = {}
+    same_session_weak_grounding_metadata_by_shard: dict[str, dict[str, Any]] = {}
     if task_file_payload is not None:
-        same_session_grounding_gate_metadata_by_shard = (
-            _knowledge_same_session_grounding_gate_metadata_by_shard(
+        same_session_weak_grounding_metadata_by_shard = (
+            _knowledge_same_session_weak_grounding_metadata_by_shard(
                 initial_task_file=task_file_payload,
                 state_payload=same_session_state_payload,
             )
@@ -2236,9 +2236,9 @@ def _run_phase_knowledge_worker_assignment_v1(
             **dict(shard_summary),
             **dict(explicit_terminal_reason_metadata or {}),
         }
-        if shard.shard_id in same_session_grounding_gate_metadata_by_shard:
+        if shard.shard_id in same_session_weak_grounding_metadata_by_shard:
             validation_metadata.update(
-                dict(same_session_grounding_gate_metadata_by_shard[shard.shard_id])
+                dict(same_session_weak_grounding_metadata_by_shard[shard.shard_id])
             )
         if fresh_worker_replacement_metadata:
             validation_metadata["fresh_worker_replacement"] = dict(

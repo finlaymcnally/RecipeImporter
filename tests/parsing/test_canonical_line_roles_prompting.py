@@ -181,7 +181,9 @@ def test_line_role_inline_packet_uses_ordered_rows_and_neighbor_context() -> Non
     assert "owned_ids" not in packet
     assert '{"labels":["<ALLOWED_LABEL>","<ALLOWED_LABEL>"]}' in prompt
     assert "This packet has 2 owned row(s)" in prompt
+    assert "Return exactly 2 label(s): one for each owned row shown in `rows`." in prompt
     assert "Keep label order exactly aligned with the packet `rows` order." in prompt
+    assert "Finish the full owned-row list; do not stop early." in prompt
     assert "Do not copy the placeholder schema literally" in prompt
     assert "nearby context rows are shown" in prompt
 
@@ -426,9 +428,11 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert "Your first response must be the final JSON object." in prompt
     assert "Use only the top-level key `labels`." in prompt
     assert "Each owned row object contains only `text`." in prompt
-    assert "Return one label for every owned input row in `rows`." in prompt
+    assert "Return exactly one label for every owned input row in `rows`." in prompt
+    assert "Finish the full owned-row list; do not stop early." in prompt
     assert "Use the `text` field as the line to label." in prompt
     assert "Never label reference-only neighboring rows" in prompt
+    assert "Do not label `context_before_rows` or `context_after_rows`; they are for interpretation only." in prompt
     assert "Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`." in prompt
     assert "If the shard rows are outside recipe context, default to `NONRECIPE_CANDIDATE`" in prompt
     assert (

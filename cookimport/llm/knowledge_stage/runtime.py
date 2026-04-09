@@ -546,18 +546,15 @@ def run_codex_farm_nonrecipe_finalize(
                 "retrieval_gate_rejected_block_count": int(
                     grounding_counts.get("retrieval_gate_rejected_block_count") or 0
                 ),
-                "grounding_gate_demoted_block_count": int(
-                    grounding_counts.get("grounding_gate_demoted_block_count") or 0
+                "weak_grounding_block_count": int(
+                    grounding_counts.get("weak_grounding_block_count") or 0
                 ),
-                "grounding_gate_demoted_after_invalid_grounding_drop_count": int(
-                    grounding_counts.get(
-                        "grounding_gate_demoted_after_invalid_grounding_drop_count"
-                    )
+                "weak_grounding_after_invalid_grounding_drop_count": int(
+                    grounding_counts.get("weak_grounding_after_invalid_grounding_drop_count")
                     or 0
                 ),
-                "grounding_gate_demoted_for_category_only_count": int(
-                    grounding_counts.get("grounding_gate_demoted_for_category_only_count")
-                    or 0
+                "weak_grounding_category_only_count": int(
+                    grounding_counts.get("weak_grounding_category_only_count") or 0
                 ),
                 "knowledge_blocks_grounded_to_existing_tags": int(
                     grounding_counts.get("knowledge_blocks_grounded_to_existing_tags") or 0

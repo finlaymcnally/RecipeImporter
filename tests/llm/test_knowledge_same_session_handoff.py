@@ -163,7 +163,7 @@ def test_same_session_handoff_advances_from_classification_to_grouping_and_compl
     ]
 
 
-def test_same_session_handoff_demotes_ungrounded_knowledge_without_repair(
+def test_same_session_handoff_keeps_weakly_grounded_knowledge_and_advances_to_grouping(
     tmp_path: Path,
 ) -> None:
     workspace_root, state_path = _initialize_workspace(tmp_path)
@@ -180,7 +180,30 @@ def test_same_session_handoff_demotes_ungrounded_knowledge_without_repair(
     }
     write_task_file(path=workspace_root / "task.json", payload=edited)
 
-    result = advance_knowledge_same_session_handoff(
+    classification_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    grouping_task = load_task_file(workspace_root / "task.json")
+
+    assert classification_result["status"] == "advance_to_grouping"
+    assert classification_result["same_session_repair_rewrite_count"] == 0
+    assert classification_result["validation_errors"] == []
+    assert classification_result["validation_metadata"]["weak_grounding_unit_ids"] == [
+        "knowledge::8"
+    ]
+    assert classification_result["validation_metadata"]["weak_grounding_reason_counts"] == {
+        "invalid_grounding_dropped_to_empty": 1
+    }
+    assert grouping_task["stage_key"] == "knowledge_group"
+
+    grouping_task["units"][0]["answer"] = {
+        "group_key": "heat-control",
+        "topic_label": "Heat control",
+    }
+    write_task_file(path=workspace_root / "task.json", payload=grouping_task)
+
+    grouping_result = advance_knowledge_same_session_handoff(
         workspace_root=workspace_root,
         state_path=state_path,
     )
@@ -188,19 +211,11 @@ def test_same_session_handoff_demotes_ungrounded_knowledge_without_repair(
         (workspace_root / "out" / "book.ks0000.nr.json").read_text(encoding="utf-8")
     )
 
-    assert result["status"] == "completed_without_grouping"
-    assert result["same_session_repair_rewrite_count"] == 0
-    assert result["validation_errors"] == []
-    assert result["validation_metadata"]["grounding_gate_demoted_unit_ids"] == [
-        "knowledge::8"
-    ]
-    assert result["validation_metadata"]["grounding_gate_demotion_reason_counts"] == {
-        "invalid_grounding_dropped_to_empty": 1
-    }
+    assert grouping_result["status"] == "completed_with_grouping"
     assert output_payload["block_decisions"] == [
         {
             "block_index": 8,
-            "category": "other",
+            "category": "knowledge",
             "grounding": {
                 "tag_keys": [],
                 "category_keys": [],
@@ -208,10 +223,12 @@ def test_same_session_handoff_demotes_ungrounded_knowledge_without_repair(
             },
         }
     ]
-    assert output_payload["idea_groups"] == []
+    assert output_payload["idea_groups"] == [
+        {"group_id": "g01", "topic_label": "Heat control", "block_indices": [8]}
+    ]
 
 
-def test_same_session_handoff_rewrites_category_only_grounding_into_repair_mode(
+def test_same_session_handoff_accepts_category_only_grounding_and_advances_to_grouping(
     tmp_path: Path,
 ) -> None:
     workspace_root, state_path = _initialize_workspace(tmp_path)
@@ -228,20 +245,20 @@ def test_same_session_handoff_rewrites_category_only_grounding_into_repair_mode(
     }
     write_task_file(path=workspace_root / "task.json", payload=edited)
 
-    repair_result = advance_knowledge_same_session_handoff(
+    classification_result = advance_knowledge_same_session_handoff(
         workspace_root=workspace_root,
         state_path=state_path,
     )
-    repair_task = load_task_file(workspace_root / "task.json")
+    grouping_task = load_task_file(workspace_root / "task.json")
 
-    assert repair_result["status"] == "repair_required"
-    assert repair_result["validation_errors"] == ["knowledge_category_only_grounding"]
-    assert repair_result["same_session_repair_rewrite_count"] == 1
-    assert repair_task["mode"] == "repair"
-    assert repair_task["stage_key"] == "nonrecipe_classify"
-    assert repair_task["units"][0]["validation_feedback"]["validation_errors"] == [
-        "knowledge_category_only_grounding"
-    ]
+    assert classification_result["status"] == "advance_to_grouping"
+    assert classification_result["validation_errors"] == []
+    assert classification_result["same_session_repair_rewrite_count"] == 0
+    assert classification_result["validation_metadata"]["weak_grounding_reason_counts"] == {
+        "category_only_grounding": 1
+    }
+    assert grouping_task["mode"] == "initial"
+    assert grouping_task["stage_key"] == "knowledge_group"
 
 
 def test_same_session_handoff_rewrites_invalid_classification_into_repair_mode(

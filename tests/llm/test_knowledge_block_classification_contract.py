@@ -175,7 +175,7 @@ def test_classification_validator_rejects_invalid_other_grounding_and_preserves_
     assert [unit["unit_id"] for unit in repair_task_file["units"]] == ["knowledge::21"]
 
 
-def test_classification_validator_demotes_ungrounded_knowledge_to_other() -> None:
+def test_classification_validator_keeps_ungrounded_knowledge_and_records_weak_grounding() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
@@ -203,14 +203,12 @@ def test_classification_validator_demotes_ungrounded_knowledge_to_other() -> Non
 
     assert errors == ()
     assert metadata["failed_unit_ids"] == []
-    assert metadata["grounding_gate_demoted_unit_ids"] == ["knowledge::31"]
-    assert metadata["grounding_gate_demoted_block_indices"] == [31]
-    assert metadata["grounding_gate_demotion_reason_counts"] == {
-        "missing_grounding": 1
-    }
+    assert metadata["weak_grounding_unit_ids"] == ["knowledge::31"]
+    assert metadata["weak_grounding_block_indices"] == [31]
+    assert metadata["weak_grounding_reason_counts"] == {"missing_grounding": 1}
     assert answers_by_unit_id == {
         "knowledge::31": {
-            "category": "other",
+            "category": "knowledge",
             "grounding": {
                 "tag_keys": [],
                 "category_keys": [],

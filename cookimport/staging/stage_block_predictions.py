@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
+from cookimport.core.models import AuthoritativeRecipeSemantics
 from cookimport.core.models import ConversionResult
+from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel
 from cookimport.staging.block_label_resolution import (
     FREEFORM_LABELS,
     RECIPE_LOCAL_LABELS,
@@ -10,6 +12,7 @@ from cookimport.staging.block_label_resolution import (
 )
 from cookimport.staging.knowledge_block_evidence import build_knowledge_block_evidence
 from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
+from cookimport.staging.recipe_authority_decisions import RecipeAuthorityDecision
 from cookimport.staging.recipe_block_evidence import (
     build_recipe_block_evidence,
     is_howto_section_text as _is_howto_section_text,
@@ -24,6 +27,8 @@ from cookimport.staging.recipe_ownership import (
 
 UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY = "unresolved_candidate_block_indices"
 UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY = "unresolved_candidate_route_by_index"
+UNRESOLVED_RECIPE_OWNED_BLOCK_INDICES_KEY = "unresolved_recipe_owned_block_indices"
+UNRESOLVED_RECIPE_OWNED_BY_INDEX_KEY = "unresolved_recipe_owned_recipe_id_by_index"
 
 
 def build_stage_block_predictions(
@@ -31,10 +36,13 @@ def build_stage_block_predictions(
     workbook_slug: str,
     *,
     recipe_ownership_result: RecipeOwnershipResult,
+    authoritative_payloads_by_recipe_id: Mapping[str, AuthoritativeRecipeSemantics | dict[str, Any]] | None = None,
+    recipe_authority_decisions_by_recipe_id: Mapping[str, RecipeAuthorityDecision | dict[str, Any]] | None = None,
     source_file: str | None = None,
     source_hash: str | None = None,
     archive_blocks: list[dict[str, Any]] | None = None,
     nonrecipe_stage_result: NonRecipeStageResult | None = None,
+    boundary_block_labels: list[AuthoritativeBlockLabel] | None = None,
 ) -> dict[str, Any]:
     """Build a deterministic per-block label manifest from staged outputs."""
     archive = load_stage_prediction_archive(conversion_result, archive_blocks)
@@ -42,6 +50,9 @@ def build_stage_block_predictions(
         conversion_result,
         archive=archive,
         recipe_ownership_result=recipe_ownership_result,
+        authoritative_payloads_by_recipe_id=authoritative_payloads_by_recipe_id,
+        recipe_authority_decisions_by_recipe_id=recipe_authority_decisions_by_recipe_id,
+        boundary_block_labels=boundary_block_labels,
     )
     knowledge_evidence = build_knowledge_block_evidence(nonrecipe_stage_result)
 
@@ -107,11 +118,17 @@ def build_stage_block_predictions(
             "blocks": recipe_evidence.block_count,
             "authoritative_knowledge_blocks": len(knowledge_evidence.knowledge_indices),
             "unresolved_candidate_blocks": len(knowledge_evidence.unresolved_block_indices),
+            "unresolved_recipe_owned_blocks": len(recipe_evidence.unresolved_recipe_owned_indices),
         },
         UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY: list(knowledge_evidence.unresolved_block_indices),
         UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY: {
             str(index): category
             for index, category in sorted(knowledge_evidence.unresolved_categories.items())
+        },
+        UNRESOLVED_RECIPE_OWNED_BLOCK_INDICES_KEY: list(recipe_evidence.unresolved_recipe_owned_indices),
+        UNRESOLVED_RECIPE_OWNED_BY_INDEX_KEY: {
+            str(index): recipe_id
+            for index, recipe_id in sorted(recipe_evidence.unresolved_recipe_owned_recipe_id_by_index.items())
         },
         "conflicts": conflicts,
         "notes": sorted(set(note for note in notes if note)),

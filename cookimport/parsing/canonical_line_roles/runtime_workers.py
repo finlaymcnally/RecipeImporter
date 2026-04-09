@@ -929,7 +929,34 @@ def _merge_line_role_validation_metadata(*, original_shard: root.ShardManifestEn
     accepted_by_atomic_index = {int(row['atomic_index']): dict(row) for row in accepted_rows if row.get('atomic_index') is not None and str(row.get('atomic_index')).strip()}
     ordered_atomic_indices = [int(value) for value in original_shard.owned_ids]
     merged_rows = [accepted_by_atomic_index[atomic_index] for atomic_index in ordered_atomic_indices if atomic_index in accepted_by_atomic_index]
-    return {**dict(initial_metadata or {}), **dict(repair_metadata or {}), 'accepted_rows': merged_rows, 'accepted_atomic_indices': [int(row['atomic_index']) for row in merged_rows if row.get('atomic_index') is not None and str(row.get('atomic_index')).strip()]}
+    accepted_atomic_indices = [
+        int(row['atomic_index'])
+        for row in merged_rows
+        if row.get('atomic_index') is not None and str(row.get('atomic_index')).strip()
+    ]
+    accepted_atomic_index_set = set(accepted_atomic_indices)
+    unresolved_atomic_indices = [
+        atomic_index
+        for atomic_index in ordered_atomic_indices
+        if atomic_index not in accepted_atomic_index_set
+    ]
+    accepted_row_ids = [
+        _line_role_structured_row_id(index)
+        for index, atomic_index in enumerate(ordered_atomic_indices)
+        if atomic_index in accepted_atomic_index_set
+    ]
+    return {
+        **dict(initial_metadata or {}),
+        **dict(repair_metadata or {}),
+        'owned_row_count': len(ordered_atomic_indices),
+        'expected_atomic_indices': ordered_atomic_indices,
+        'accepted_rows': merged_rows,
+        'accepted_atomic_indices': accepted_atomic_indices,
+        'accepted_row_ids': accepted_row_ids,
+        'returned_row_ids': accepted_row_ids,
+        'unresolved_atomic_indices': unresolved_atomic_indices,
+        'validated_row_count': len(accepted_atomic_indices),
+    }
 
 def _run_line_role_structured_assignment_v1(*, run_root: root.Path, assignment: root.WorkerAssignmentV1, artifacts: dict[str, str], assigned_shards: root.Sequence[root.ShardManifestEntryV1], worker_root: root.Path, in_dir: root.Path, debug_dir: root.Path, hints_dir: root.Path, shard_dir: root.Path, logs_dir: root.Path, debug_payload_by_shard_id: root.Mapping[str, root.Any], deterministic_baseline_by_shard_id: root.Mapping[str, root.Mapping[int, root.CanonicalLineRolePrediction]], runner: root.CodexExecRunner, pipeline_id: str, env: dict[str, str], model: str | None, reasoning_effort: str | None, settings: root.Mapping[str, root.Any], output_schema_path: root.Path | None, timeout_seconds: int, cohort_watchdog_state: root._LineRoleCohortWatchdogState, shard_completed_callback: root.Callable[..., None] | None, prompt_state: '_PromptArtifactState' | None, validator: root.Callable[[root.ShardManifestEntryV1, dict[str, root.Any]], tuple[bool, root.Sequence[str], dict[str, root.Any] | None]]) -> root._DirectLineRoleWorkerResult:
     del debug_payload_by_shard_id, in_dir, debug_dir, hints_dir, logs_dir

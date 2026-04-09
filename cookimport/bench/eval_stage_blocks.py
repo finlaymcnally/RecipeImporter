@@ -16,6 +16,8 @@ from cookimport.staging.stage_block_predictions import (
     FREEFORM_LABELS,
     UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY,
     UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY,
+    UNRESOLVED_RECIPE_OWNED_BLOCK_INDICES_KEY,
+    UNRESOLVED_RECIPE_OWNED_BY_INDEX_KEY,
 )
 
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
@@ -1344,6 +1346,8 @@ class LoadedStageBlockPredictionManifest:
     labels: dict[int, str]
     unresolved_block_indices: list[int]
     unresolved_block_category_by_index: dict[int, str]
+    unresolved_recipe_owned_block_indices: list[int]
+    unresolved_recipe_owned_recipe_id_by_index: dict[int, str]
 
 
 def load_stage_block_prediction_manifest(
@@ -1443,12 +1447,55 @@ def load_stage_block_prediction_manifest(
         raise ValueError(
             "Stage block predictions unresolved category metadata must exactly match unresolved block indices."
         )
+    raw_unresolved_recipe_owned_indices = payload.get(UNRESOLVED_RECIPE_OWNED_BLOCK_INDICES_KEY) or []
+    if not isinstance(raw_unresolved_recipe_owned_indices, list):
+        raise ValueError(
+            f"Stage block predictions field {UNRESOLVED_RECIPE_OWNED_BLOCK_INDICES_KEY!r} must be a list."
+        )
+    unresolved_recipe_owned_block_indices: list[int] = []
+    for raw_index in raw_unresolved_recipe_owned_indices:
+        index = _coerce_int(raw_index)
+        if index is None:
+            raise ValueError(f"Invalid unresolved recipe-owned block index in stage predictions: {raw_index!r}")
+        if index not in labels:
+            raise ValueError(
+                "Stage block predictions unresolved recipe-owned block index is missing from block_labels: "
+                f"{index}"
+            )
+        unresolved_recipe_owned_block_indices.append(index)
+    unresolved_recipe_owned_block_indices = sorted(set(unresolved_recipe_owned_block_indices))
+    raw_unresolved_recipe_owned_by_index = payload.get(UNRESOLVED_RECIPE_OWNED_BY_INDEX_KEY) or {}
+    if not isinstance(raw_unresolved_recipe_owned_by_index, dict):
+        raise ValueError(
+            f"Stage block predictions field {UNRESOLVED_RECIPE_OWNED_BY_INDEX_KEY!r} must be an object."
+        )
+    unresolved_recipe_owned_recipe_id_by_index: dict[int, str] = {}
+    for raw_index, raw_recipe_id in raw_unresolved_recipe_owned_by_index.items():
+        index = _coerce_int(raw_index)
+        if index is None:
+            raise ValueError(
+                f"Invalid unresolved recipe-owned block index in stage predictions: {raw_index!r}"
+            )
+        recipe_id = str(raw_recipe_id or "").strip()
+        if not recipe_id:
+            raise ValueError(
+                f"Invalid unresolved recipe-owned recipe id at block {index}: {raw_recipe_id!r}"
+            )
+        unresolved_recipe_owned_recipe_id_by_index[index] = recipe_id
+    if unresolved_recipe_owned_recipe_id_by_index and set(unresolved_recipe_owned_recipe_id_by_index) != set(
+        unresolved_recipe_owned_block_indices
+    ):
+        raise ValueError(
+            "Stage block predictions unresolved recipe-owned metadata must exactly match unresolved recipe-owned block indices."
+        )
 
     if not resolve_howto_sections:
         return LoadedStageBlockPredictionManifest(
             labels={index: label for index, label in sorted(labels.items())},
             unresolved_block_indices=unresolved_block_indices,
             unresolved_block_category_by_index=unresolved_block_category_by_index,
+            unresolved_recipe_owned_block_indices=unresolved_recipe_owned_block_indices,
+            unresolved_recipe_owned_recipe_id_by_index=unresolved_recipe_owned_recipe_id_by_index,
         )
 
     resolved_label_sets = resolve_howto_label_sets_by_index(
@@ -1475,6 +1522,8 @@ def load_stage_block_prediction_manifest(
         labels=resolved_labels,
         unresolved_block_indices=unresolved_block_indices,
         unresolved_block_category_by_index=unresolved_block_category_by_index,
+        unresolved_recipe_owned_block_indices=unresolved_recipe_owned_block_indices,
+        unresolved_recipe_owned_recipe_id_by_index=unresolved_recipe_owned_recipe_id_by_index,
     )
 
 
@@ -1837,7 +1886,14 @@ def evaluate_stage_blocks(
         for index in pred_manifest.unresolved_block_indices
         if index in pred
     )
-    unresolved_block_index_set = set(unresolved_block_indices)
+    unresolved_recipe_owned_block_indices = sorted(
+        index
+        for index in pred_manifest.unresolved_recipe_owned_block_indices
+        if index in pred
+    )
+    unresolved_block_index_set = set(unresolved_block_indices).union(
+        unresolved_recipe_owned_block_indices
+    )
     scored_gold = {
         index: labels
         for index, labels in gold.items()
@@ -1855,6 +1911,7 @@ def evaluate_stage_blocks(
         "total_prediction_blocks": len(pred),
         "scored_prediction_blocks": len(scored_pred),
         "unresolved_candidate_blocks": len(unresolved_block_indices),
+        "unresolved_recipe_owned_blocks": len(unresolved_recipe_owned_block_indices),
         "prediction_coverage": (
             (len(scored_pred) / len(pred))
             if pred
@@ -1865,6 +1922,12 @@ def evaluate_stage_blocks(
             index: pred_manifest.unresolved_block_category_by_index[index]
             for index in unresolved_block_indices
             if index in pred_manifest.unresolved_block_category_by_index
+        },
+        "unresolved_recipe_owned_block_indices": unresolved_recipe_owned_block_indices,
+        "unresolved_recipe_owned_recipe_id_by_index": {
+            index: pred_manifest.unresolved_recipe_owned_recipe_id_by_index[index]
+            for index in unresolved_recipe_owned_block_indices
+            if index in pred_manifest.unresolved_recipe_owned_recipe_id_by_index
         },
     }
 
@@ -2040,6 +2103,7 @@ def evaluate_stage_blocks(
             "prediction_block_count": float(len(pred)),
             "scored_prediction_block_count": float(len(scored_pred)),
             "unresolved_candidate_block_count": float(len(unresolved_block_indices)),
+            "unresolved_recipe_owned_block_count": float(len(unresolved_recipe_owned_block_indices)),
             "prediction_authority_coverage": float(
                 (len(scored_pred) / len(pred))
                 if pred

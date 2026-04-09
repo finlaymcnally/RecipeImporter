@@ -131,12 +131,7 @@ class KnowledgeBlockDecisionV1(BaseModel):
 
     @model_validator(mode="after")
     def _validate_grounding(self) -> "KnowledgeBlockDecisionV1":
-        if self.category == "knowledge":
-            if not self.grounding.tag_keys and not self.grounding.proposed_tags:
-                raise ValueError(
-                    "knowledge rows must include grounding tag_keys or proposed_tags."
-                )
-        else:
+        if self.category != "knowledge":
             if (
                 self.grounding.tag_keys
                 or self.grounding.category_keys
@@ -327,12 +322,7 @@ class KnowledgeSemanticBlockDecisionV1(BaseModel):
 
     @model_validator(mode="after")
     def _validate_grounding(self) -> "KnowledgeSemanticBlockDecisionV1":
-        if self.category == "knowledge":
-            if not self.grounding.tag_keys and not self.grounding.proposed_tags:
-                raise ValueError(
-                    "knowledge rows must include grounding tag_keys or proposed_tags."
-                )
-        else:
+        if self.category != "knowledge":
             if (
                 self.grounding.tag_keys
                 or self.grounding.category_keys

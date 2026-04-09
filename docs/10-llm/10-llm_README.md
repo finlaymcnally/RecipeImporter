@@ -10,12 +10,12 @@ read_when:
 
 # LLM Section Reference
 
-LLM usage in this repo is optional. The direct-exec transport is now mixed by both attempt type and configured Codex style. `recipe_codex_exec_style=inline-json-v1`, `line_role_codex_exec_style=inline-json-v1`, and `knowledge_codex_exec_style=inline-json-v1` are the default thin paths. Recipe `taskfile-v1` remains available as an explicit fallback for comparison or debugging, but the normal recipe happy path is now one structured shard response with shell disabled. Deterministic repo code still owns validation, repair rewrites, grounding gates, and final artifact expansion.
+LLM usage in this repo is optional. The direct-exec transport is now mixed by both attempt type and configured Codex style. `recipe_codex_exec_style=inline-json-v1`, `line_role_codex_exec_style=inline-json-v1`, and `knowledge_codex_exec_style=inline-json-v1` are the default thin paths. Recipe `taskfile-v1` remains available as an explicit fallback for comparison or debugging, but the normal recipe happy path is now one structured shard response with shell disabled. Deterministic repo code still owns validation, repair rewrites, grounding normalization/quality reporting, and final artifact expansion.
 
-For inline-JSON line-role, the visible prompt is still transport-thin, but it is no longer semantically thin: the prompt now derives from the shared `line-role.shared-contract.v1.md` contract, carries shard-profile evidence for front-matter/contents risk, shows owned rows as ordered raw-text entries rather than visible `atomic_index`, asks the turn output for one ordered `labels` array, and can trigger one bounded semantic repair follow-up when structurally valid output is still obviously pathological. Deterministic code remains the owner of shard order, label-to-row projection, safety-boundary checks, semantic-pathology rejection, and conservative outside-recipe containment; it does not silently relabel ordinary ambiguous prose or broad-veto ordinary outside-recipe `NONRECIPE_EXCLUDE` calls just because a local heuristic would have kept them reviewable.
+For inline-JSON line-role, the visible prompt is still transport-thin, but it is no longer semantically thin: the prompt now derives from the shared `line-role.shared-contract.v1.md` contract, carries shard-profile evidence for front-matter/contents risk, shows owned rows as ordered raw-text entries rather than visible `atomic_index`, and asks the turn output for one ordered `labels` array. Deterministic code remains the owner of shard order, label-to-row projection, safety-boundary checks, repair routing, and final incompleteness handling; it no longer semantically rejects structurally valid outside-recipe-heavy shards or silently replaces unresolved rows with deterministic baseline guesses.
 The active pre-grouping line-role runtime is now span-free in its repo-owned inputs as well: before cache planning, debug artifact writing, prompt preview, or worker validation, the runtime clears stale `recipe_id`, `within_recipe_span`, and span-derived rule tags from candidate rows. Recipe ownership still appears only after the later deterministic recipe-boundary grouping step.
 For inline-JSON line-role specifically, the output contract at the top of the prompt is now placeholder-shaped rather than a literal two-row answer example, and it calls out the packet's owned-row count explicitly. This is intended to reduce example-copy failures on large shards where the model might otherwise echo the schema sample instead of labeling every row.
-Line-role inline validation now also has one narrow salvage seam before repair: if a worker falls back to the older row-shaped output and returns packet-local `row_id` rows or `atomic_index` values that clearly form packet-local ordinals (`0..n-1` or `1..n`), deterministic code remaps that output back onto the shard's true `atomic_index` order and accepts it without spending a full repair turn. Ambiguous or partial legacy outputs still fail closed into the normal repair path.
+Line-role inline validation now accepts both ordered `labels` replies and unambiguous packet-local ordinal `rows` replies. If a worker falls back to the row-shaped output and returns packet-local `row_id` rows or `atomic_index` values that clearly form packet-local ordinals (`0..n-1` or `1..n`), deterministic code remaps that output back onto the shard's true `atomic_index` order, preserves any validated prefix rows, trims one obvious extra trailing spill, and narrows any follow-up packet to only the unresolved owned rows. Ambiguous wider malformed outputs still fail closed into the normal repair path.
 
 For inline-JSON knowledge, deterministic code now allows a small bounded series of shard-local repair followups for both classification and grouping before a shard is marked invalid. Those followups reuse the prepared execution workspace for stable local paths, but they no longer resume the previous Codex transcript, which keeps repair/grouping calls bounded instead of replaying the whole shard conversation. Grouping-response parsing still accepts `group_index` as a worker alias for `group_key`, and the structured response contract now works on packet-local `row_id` values instead of visible global block indices: ordered rows stay in reading order, the packet carries nearby context only when present, classification keeps only the small shared category catalog plus row-local candidate-tag hints, and the parser reports missing, duplicate, and unknown row ids explicitly. Untouched classification rows still fail as `knowledge_block_missing_decision` rather than generic `invalid_category`.
 
@@ -212,12 +212,10 @@ Codex-specific override seams after a valid Codex answer exists:
 
 Validation/promotion seams that can discard or partially replace Codex output:
 
-- `_translate_line_role_output_to_atomic_indices(...)` remaps packet-local `row_id` or obvious local ordinals back onto real `atomic_index` order. Ambiguous mapping fails closed into invalid output.
+- `_translate_line_role_output_to_atomic_indices(...)` remaps packet-local `row_id` or obvious local ordinals back onto real `atomic_index` order, preserving validated prefixes and trimming the one obvious trailing spill case before validation. Ambiguous mapping fails closed into invalid output.
 - `_evaluate_line_role_response(...)` rejects non-JSON, wrong-shape, missing-row, duplicate-row, unknown-row, and invalid-label outputs.
-- `_apply_line_role_semantic_guard(...)` rejects structurally valid but obviously pathological outside-recipe shards.
-  - when `semantic_pathology_rejected` fires, `_build_line_role_row_resolution(...)` can still promote only the conservative `semantic_containment_rows`.
-  - unresolved rows from that shard then fall back to the deterministic baseline.
-- `_line_role_partial_fallback_atomic_indices(...)` plus `_line_role_partial_shard_fallback_prediction(...)` are the explicit partial-authority seam: accepted Codex rows stay, unresolved rows are replaced by baseline rows.
+- `_apply_line_role_semantic_guard(...)` is now metadata-only for shard-profile observability; it does not change proposal validity or replace model rows.
+- partial-authority shards now either resolve through repair/retry or remain incomplete/invalid. Accepted Codex rows stay accepted, but unresolved rows are no longer replaced by deterministic baseline rows.
 
 Recovery seam that changes acceptance state but not semantic labels:
 
@@ -242,16 +240,20 @@ Deterministic authority override seams after recipe output validates:
 - `_classify_recipe_authority_eligibility(...)` and `_classify_final_recipe_authority_status(...)` enforce the main promotion rule:
   - only `repair_status="repaired"` is promotable
   - valid `fragmentary` and `not_a_recipe` outputs are explicitly `not_promoted`
-- `_validate_recipe_output_divestments(...)` forces non-promotable recipe outcomes to divest every owned block back to nonrecipe and forbids a `repaired` result from divesting its entire owned surface.
+- `_validate_recipe_output_divestments(...)` now treats divestment as an explicit ownership handoff rather than an automatic semantic rewrite:
+  - `repaired` may divest some owned blocks, but not all of them
+  - `fragmentary` may divest none, some, or all owned blocks
+  - `not_a_recipe` must still divest every owned block
   - this is the main deterministic bridge where recipe LLM decisions can hand blocks back to nonrecipe authority.
 - in `run_codex_farm_recipe_pipeline(...)`, any validated recipe result whose `repair_status != "repaired"` is accepted as a valid task outcome but still removed from final recipe authority.
-  - the recipe candidate is dropped from `conversion_result.recipes`
-  - its divested blocks remain available to later nonrecipe routing/finalize
+  - `fragmentary` now means partial recipe authority, not automatic nonrecipe fallback
+  - published recipe drafts come only from promoted `repaired` outputs
+  - retained-but-withheld outcomes are recorded in `recipe_authority/<workbook_slug>/recipe_authority_decisions.json`
 - deterministic final assembly is authoritative even after a `repaired` result:
   - `build_authoritative_recipe_semantics(...)`
   - `authoritative_recipe_semantics_to_draft_v1(...)`
   - `RecipeDraftV1.model_validate(...)`
-  if deterministic final assembly fails, the LLM recipe does not promote.
+  if deterministic final assembly fails, the recipe is withheld from published `cookbook3`, but the repaired semantic payload is still kept for recipe-local evidence instead of silently falling back to the original deterministic recipe candidate.
 
 Observability-only recipe seams:
 
@@ -275,11 +277,11 @@ Primary owners:
 Classification-time override seams:
 
 - `validate_knowledge_classification_task_file(...)` normalizes the worker grounding payload and can drop invalid grounding fields while keeping the row alive.
-- if a row is labeled `knowledge` but deterministic grounding normalization leaves no surviving existing tag and no surviving proposed tag, repo code demotes that row to canonical `other`.
-  - demotion reasons are currently:
+- if a row is labeled `knowledge` but deterministic grounding normalization leaves no surviving existing tag and no surviving proposed tag, repo code now keeps the `knowledge` label and records weak-grounding metadata instead of demoting the row.
+  - weak-grounding reasons are currently:
     - `missing_grounding`
     - `invalid_grounding_dropped_to_empty`
-- `knowledge_category_only_grounding` fails closed instead of letting category keys alone keep a `knowledge` decision.
+    - `category_only_grounding`
 - `other_grounding_forbidden` fails closed if an `other` row still carries grounding metadata.
 
 Grouping and shard-validation reject seams:

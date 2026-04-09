@@ -219,7 +219,7 @@ def test_codex_mode_allows_outside_span_title_override() -> None:
     assert predictions[0].escalation_reasons == []
 
 
-def test_codex_outside_recipe_generic_lesson_heading_rejects_howto_to_reviewable_other(
+def test_codex_outside_recipe_generic_lesson_heading_keeps_howto_authoritative(
     tmp_path,
 ) -> None:
     candidates = [
@@ -256,14 +256,11 @@ def test_codex_outside_recipe_generic_lesson_heading_rejects_howto_to_reviewable
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "NONRECIPE_CANDIDATE"
-    assert predictions[0].decided_by == "fallback"
-    assert "codex_policy_rejected:howto_without_local_support" in (
-        predictions[0].reason_tags
-    )
+    assert predictions[0].label == "HOWTO_SECTION"
+    assert predictions[0].decided_by == "codex"
 
 
-def test_codex_outside_recipe_narrative_prose_demotes_howto_to_other(tmp_path) -> None:
+def test_codex_outside_recipe_narrative_prose_keeps_howto_authoritative(tmp_path) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -287,11 +284,8 @@ def test_codex_outside_recipe_narrative_prose_demotes_howto_to_other(tmp_path) -
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "NONRECIPE_CANDIDATE"
-    assert predictions[0].decided_by == "fallback"
-    assert "codex_policy_rejected:howto_without_local_support" in (
-        predictions[0].reason_tags
-    )
+    assert predictions[0].label == "HOWTO_SECTION"
+    assert predictions[0].decided_by == "codex"
 
 
 def test_codex_outside_recipe_endorsement_demotes_knowledge_to_other(tmp_path) -> None:
@@ -772,7 +766,7 @@ def test_codex_exact_lesson_prose_other_rows_stay_reviewable_other(tmp_path) -> 
     ]
 
 
-def test_codex_front_matter_title_list_demotes_recipe_titles_to_other(tmp_path) -> None:
+def test_codex_front_matter_title_list_keeps_codex_titles_when_output_is_valid(tmp_path) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -840,17 +834,14 @@ def test_codex_front_matter_title_list_demotes_recipe_titles_to_other(tmp_path) 
     assert [prediction.label for prediction in predictions] == [
         "NONRECIPE_EXCLUDE",
         "NONRECIPE_EXCLUDE",
-        "NONRECIPE_EXCLUDE",
-        "NONRECIPE_EXCLUDE",
-        "NONRECIPE_EXCLUDE",
+        "RECIPE_TITLE",
+        "RECIPE_TITLE",
+        "RECIPE_TITLE",
     ]
-    assert predictions[2].decided_by == "fallback"
-    assert "codex_policy_rejected:title_without_local_support" in (
-        predictions[2].reason_tags
-    )
+    assert all(prediction.decided_by == "codex" for prediction in predictions)
 
 
-def test_codex_how_salt_works_rejects_howto_to_baseline(tmp_path) -> None:
+def test_codex_how_salt_works_keeps_howto_authoritative(tmp_path) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -885,14 +876,11 @@ def test_codex_how_salt_works_rejects_howto_to_baseline(tmp_path) -> None:
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "NONRECIPE_CANDIDATE"
-    assert predictions[0].decided_by == "fallback"
-    assert "codex_policy_rejected:howto_without_local_support" in (
-        predictions[0].reason_tags
-    )
+    assert predictions[0].label == "HOWTO_SECTION"
+    assert predictions[0].decided_by == "codex"
 
 
-def test_codex_outside_recipe_generic_advice_demotes_instruction_to_other(
+def test_codex_outside_recipe_generic_advice_keeps_instruction_authoritative(
     tmp_path,
 ) -> None:
     candidates = [
@@ -917,11 +905,8 @@ def test_codex_outside_recipe_generic_advice_demotes_instruction_to_other(
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "NONRECIPE_CANDIDATE"
-    assert predictions[0].decided_by == "fallback"
-    assert "codex_policy_rejected:instruction_without_local_support" in (
-        predictions[0].reason_tags
-    )
+    assert predictions[0].label == "INSTRUCTION_LINE"
+    assert predictions[0].decided_by == "codex"
 
 
 def test_codex_exact_instruction_other_rows_stay_codex_other(tmp_path) -> None:

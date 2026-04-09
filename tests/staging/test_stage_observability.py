@@ -1135,15 +1135,15 @@ def _build_knowledge_stage_rollup_fixture(tmp_path: Path) -> dict[str, object]:
                 "counts": {
                     "kept_knowledge_block_count": 2,
                     "retrieval_gate_rejected_block_count": 1,
-                    "grounding_gate_demoted_block_count": 1,
-                    "grounding_gate_demoted_after_invalid_grounding_drop_count": 1,
-                    "grounding_gate_demoted_for_category_only_count": 0,
+                    "weak_grounding_block_count": 1,
+                    "weak_grounding_after_invalid_grounding_drop_count": 1,
+                    "weak_grounding_category_only_count": 0,
                     "knowledge_blocks_grounded_to_existing_tags": 1,
                     "knowledge_blocks_using_proposed_tags": 1,
                     "tag_proposal_count": 1,
                 },
                 "grounding_counts": {
-                    "grounding_gate_demotion_reason_counts": {
+                    "weak_grounding_reason_counts": {
                         "invalid_grounding_dropped_to_empty": 1
                     }
                 },
@@ -1370,13 +1370,13 @@ def test_summarize_knowledge_stage_artifacts_reports_packet_and_worker_rollups(
     assert summary["grounding_counts"] == {
         "kept_knowledge_block_count": 2,
         "retrieval_gate_rejected_block_count": 1,
-        "grounding_gate_demoted_block_count": 1,
-        "grounding_gate_demoted_after_invalid_grounding_drop_count": 1,
-        "grounding_gate_demoted_for_category_only_count": 0,
+        "weak_grounding_block_count": 1,
+        "weak_grounding_after_invalid_grounding_drop_count": 1,
+        "weak_grounding_category_only_count": 0,
         "knowledge_blocks_grounded_to_existing_tags": 1,
         "knowledge_blocks_using_proposed_tags": 1,
         "tag_proposal_count": 1,
-        "grounding_gate_demotion_reason_counts": {
+        "weak_grounding_reason_counts": {
             "invalid_grounding_dropped_to_empty": 1
         },
     }

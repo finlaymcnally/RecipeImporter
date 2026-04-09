@@ -76,7 +76,7 @@ def test_line_role_inline_prompt_includes_front_matter_profile_guidance() -> Non
     assert "`What is Salt?`" in prompt
 
 
-def test_line_role_semantic_guard_rejects_saved_front_matter_pathology() -> None:
+def test_line_role_structured_response_keeps_front_matter_like_labels_when_valid() -> None:
     from cookimport.parsing.canonical_line_roles import runtime_workers as runtime_workers_module
 
     fixture = _front_matter_fixture()
@@ -92,13 +92,8 @@ def test_line_role_semantic_guard_rejects_saved_front_matter_pathology() -> None
         )
     )
 
-    assert proposal_status == "invalid"
-    assert "semantic_pathology_rejected" in validation_errors
-    assert validation_metadata["semantic_rejected"] is True
-    assert any(
-        "front matter" in diagnostic or "contents" in diagnostic
-        for diagnostic in validation_metadata["semantic_diagnostics"]
-    )
+    assert proposal_status == "validated"
+    assert "semantic_pathology_rejected" not in validation_errors
     row_resolution_payload, row_resolution_metadata = (
         canonical_line_roles_module._build_line_role_row_resolution(  # noqa: SLF001
             shard=shard,
@@ -106,15 +101,14 @@ def test_line_role_semantic_guard_rejects_saved_front_matter_pathology() -> None
         )
     )
     assert row_resolution_payload is not None
-    assert row_resolution_metadata["semantic_containment_applied"] is True
-    assert row_resolution_metadata["accepted_row_count"] == 0
-    assert row_resolution_metadata["semantic_containment_row_count"] == len(
+    assert row_resolution_metadata["semantic_containment_applied"] is False
+    assert row_resolution_metadata["accepted_row_count"] == len(
         fixture["rows"]
     )
+    assert row_resolution_metadata["semantic_containment_row_count"] == 0
     labels = {row["label"] for row in row_resolution_payload["rows"]}
-    assert labels <= {"NONRECIPE_CANDIDATE", "NONRECIPE_EXCLUDE"}
-    assert "RECIPE_TITLE" not in labels
-    assert "HOWTO_SECTION" not in labels
+    assert "RECIPE_TITLE" in labels
+    assert "HOWTO_SECTION" in labels
 
 
 def test_line_role_semantic_guard_allows_real_knowledge_heading_cluster() -> None:
@@ -186,7 +180,7 @@ def test_line_role_semantic_guard_allows_real_knowledge_heading_cluster() -> Non
     assert validation_metadata.get("semantic_rejected") is not True
 
 
-def test_label_atomic_lines_contains_front_matter_pathology_fixture(tmp_path) -> None:
+def test_label_atomic_lines_keeps_front_matter_pathology_fixture_labels(tmp_path) -> None:
     from cookimport.runs.stage_observability import build_line_role_stage_summary
 
     fixture = _front_matter_fixture()
@@ -209,22 +203,18 @@ def test_label_atomic_lines_contains_front_matter_pathology_fixture(tmp_path) ->
     )
 
     assert len(predictions) == len(candidates)
-    assert {prediction.label for prediction in predictions} <= {
-        "NONRECIPE_CANDIDATE",
-        "NONRECIPE_EXCLUDE",
-    }
-    assert any("semantic_pathology_contained" in prediction.reason_tags for prediction in predictions)
+    assert any(prediction.label == "NONRECIPE_EXCLUDE" for prediction in predictions)
+    assert any(prediction.label == "RECIPE_TITLE" for prediction in predictions)
+    assert any(prediction.label == "HOWTO_SECTION" for prediction in predictions)
     assert all(
-        prediction.label not in {"RECIPE_TITLE", "HOWTO_SECTION"}
+        "semantic_pathology_contained" not in prediction.reason_tags
         for prediction in predictions
     )
-    assert any(
-        prediction.label == "NONRECIPE_EXCLUDE" for prediction in predictions
-    )
+    assert all(prediction.decided_by == "codex" for prediction in predictions)
 
     summary = build_line_role_stage_summary(
         tmp_path / "line-role-pipeline" / "runtime" / "line_role"
     )
     assert summary["repair_recovery_policy"]["transport"] == "inline-json-v1"
-    assert summary["shards"]["suspicious_shard_count"] == 1
-    assert summary["attention_summary"]["needs_attention"] is True
+    assert summary["shards"]["suspicious_shard_count"] == 0
+    assert summary["attention_summary"]["needs_attention"] is False

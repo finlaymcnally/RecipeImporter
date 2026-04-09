@@ -38,6 +38,10 @@ from cookimport.staging.nonrecipe_stage import (
     build_nonrecipe_authority_contract,
     build_nonrecipe_stage_result,
 )
+from cookimport.staging.recipe_authority_decisions import (
+    RecipeAuthorityDecision,
+    classify_recipe_ownership_action,
+)
 from cookimport.staging.recipe_ownership import (
     RecipeDivestment,
     RecipeOwnershipResult,
@@ -124,6 +128,8 @@ class RecipeRefineResult:
     conversion_result: ConversionResult
     recipe_ownership_result: RecipeOwnershipResult
     authoritative_recipe_payloads_by_recipe_id: dict[str, AuthoritativeRecipeSemantics]
+    recipe_evidence_payloads_by_recipe_id: dict[str, AuthoritativeRecipeSemantics]
+    recipe_authority_decisions_by_recipe_id: dict[str, RecipeAuthorityDecision]
     llm_report: dict[str, Any]
     refinement_mode: str
     llm_apply_result: CodexFarmApplyResult | None = None
@@ -224,6 +230,43 @@ def run_recipe_boundary_stage(
     )
 
 
+def _build_default_recipe_authority_decisions(
+    *,
+    conversion_result: ConversionResult,
+    recipe_ownership_result: RecipeOwnershipResult,
+) -> dict[str, RecipeAuthorityDecision]:
+    decisions: dict[str, RecipeAuthorityDecision] = {}
+    for recipe in conversion_result.recipes:
+        recipe_id = str(recipe.identifier or "").strip()
+        if not recipe_id:
+            continue
+        ownership_entry = recipe_ownership_result.recipe_entry_by_recipe_id(recipe_id)
+        owned_block_indices = (
+            list(ownership_entry.owned_block_indices) if ownership_entry is not None else []
+        )
+        divested_block_indices = (
+            list(ownership_entry.divested_block_indices) if ownership_entry is not None else []
+        )
+        retained_block_indices = [
+            index for index in owned_block_indices if index not in set(divested_block_indices)
+        ]
+        decisions[recipe_id] = RecipeAuthorityDecision(
+            recipe_id=recipe_id,
+            semantic_outcome="recipe",
+            publish_status="published",
+            ownership_action=classify_recipe_ownership_action(
+                owned_block_indices=owned_block_indices,
+                divested_block_indices=divested_block_indices,
+            ),
+            owned_block_indices=owned_block_indices,
+            divested_block_indices=divested_block_indices,
+            retained_block_indices=retained_block_indices,
+            final_recipe_authority_status="promoted",
+            final_recipe_authority_reason="deterministic_recipe_projection",
+        )
+    return decisions
+
+
 def run_recipe_refine_stage(
     *,
     recipe_boundary_result: RecipeBoundaryResult,
@@ -238,6 +281,8 @@ def run_recipe_refine_stage(
     llm_report: dict[str, Any] = {"enabled": False, "pipeline": "off"}
     llm_apply_result: CodexFarmApplyResult | None = None
     authoritative_recipe_payloads_by_recipe_id: dict[str, AuthoritativeRecipeSemantics] = {}
+    recipe_evidence_payloads_by_recipe_id: dict[str, AuthoritativeRecipeSemantics] = {}
+    recipe_authority_decisions_by_recipe_id: dict[str, RecipeAuthorityDecision] = {}
     refinement_mode = "deterministic_only"
     recipe_divestments: list[RecipeDivestment] = []
 
@@ -271,6 +316,12 @@ def run_recipe_refine_stage(
             authoritative_recipe_payloads_by_recipe_id = dict(
                 llm_apply_result.authoritative_recipe_payloads_by_recipe_id
             )
+            recipe_evidence_payloads_by_recipe_id = dict(
+                llm_apply_result.recipe_evidence_payloads_by_recipe_id
+            )
+            recipe_authority_decisions_by_recipe_id = dict(
+                llm_apply_result.recipe_authority_decisions_by_recipe_id
+            )
             recipe_divestments = list(llm_apply_result.recipe_divestments)
             llm_report = dict(llm_apply_result.llm_report)
             refinement_mode = "codex_recipe_refine"
@@ -285,18 +336,28 @@ def run_recipe_refine_stage(
                 instruction_step_options=run_settings.to_run_config_dict(),
             )
             authoritative_recipe_payloads_by_recipe_id[semantics.recipe_id] = semantics
+    if not recipe_evidence_payloads_by_recipe_id:
+        recipe_evidence_payloads_by_recipe_id = dict(authoritative_recipe_payloads_by_recipe_id)
 
     recipe_ownership_result = apply_recipe_divestments(
         ownership_result=recipe_boundary_result.recipe_ownership_result,
         divestments=recipe_divestments,
         ownership_mode="recipe_boundary_with_explicit_divestment",
     )
+    default_decisions = _build_default_recipe_authority_decisions(
+        conversion_result=result,
+        recipe_ownership_result=recipe_ownership_result,
+    )
+    for recipe_id, decision in default_decisions.items():
+        recipe_authority_decisions_by_recipe_id.setdefault(recipe_id, decision)
 
     return RecipeRefineResult(
         recipe_boundary_result=recipe_boundary_result,
         conversion_result=result,
         recipe_ownership_result=recipe_ownership_result,
         authoritative_recipe_payloads_by_recipe_id=authoritative_recipe_payloads_by_recipe_id,
+        recipe_evidence_payloads_by_recipe_id=recipe_evidence_payloads_by_recipe_id,
+        recipe_authority_decisions_by_recipe_id=recipe_authority_decisions_by_recipe_id,
         llm_report=llm_report,
         refinement_mode=refinement_mode,
         llm_apply_result=llm_apply_result,

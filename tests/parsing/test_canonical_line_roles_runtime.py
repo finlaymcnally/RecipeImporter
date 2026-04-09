@@ -1127,7 +1127,11 @@ def test_label_atomic_lines_inline_json_salvages_packet_local_atomic_index_alias
         "applied": True,
         "alias_kind": "packet_local_ordinal",
         "ordinal_base": 1,
+        "expected_row_count": 2,
+        "response_mode": "complete",
+        "returned_row_count": 2,
         "salvaged_row_count": 2,
+        "trimmed_trailing_row_count": 0,
     }
 
 
@@ -1738,7 +1742,7 @@ def test_line_role_taskfile_worker_invalid_task_file_answer_fails_closed_without
     assert proposal_payload["validation_metadata"]["row_resolution"]["unresolved_atomic_indices"] == [0]
 
 
-def test_label_atomic_lines_preserves_partial_inline_shard_authority_and_falls_back_missing_rows(
+def test_label_atomic_lines_preserves_partial_inline_shard_authority_and_repairs_only_missing_rows(
     tmp_path,
 ) -> None:
     candidates = [
@@ -1776,7 +1780,7 @@ def test_label_atomic_lines_preserves_partial_inline_shard_authority_and_falls_b
         if packet_kind == "initial":
             return {"labels": ["RECIPE_TITLE", "YIELD_LINE"]}
         if packet_kind == "repair":
-            return {"labels": []}
+            return {"labels": ["INGREDIENT_LINE"]}
         return {"labels": []}
 
     predictions = label_atomic_lines(
@@ -1796,14 +1800,13 @@ def test_label_atomic_lines_preserves_partial_inline_shard_authority_and_falls_b
     assert [prediction.label for prediction in predictions] == [
         "RECIPE_TITLE",
         "YIELD_LINE",
-        "RECIPE_NOTES",
+        "INGREDIENT_LINE",
     ]
     assert [prediction.decided_by for prediction in predictions] == [
         "codex",
         "codex",
-        "fallback",
+        "codex",
     ]
-    assert "codex_partial_shard_unresolved" in predictions[2].reason_tags
 
     proposal_payload = json.loads(
         (
@@ -1815,16 +1818,31 @@ def test_label_atomic_lines_preserves_partial_inline_shard_authority_and_falls_b
             / "line-role-canonical-0001-a000000-a000002.json"
         ).read_text(encoding="utf-8")
     )
-    assert proposal_payload["payload"] is None
-    assert proposal_payload["repair_attempted"] is False
-    assert proposal_payload["repair_status"] == "not_attempted"
-    assert proposal_payload["validation_metadata"]["accepted_atomic_indices"] == [0, 1]
-    assert proposal_payload["validation_metadata"]["unresolved_atomic_indices"] == [2]
-    assert proposal_payload["validation_metadata"]["ordered_label_vector"] == {
-        "applied": True,
-        "expected_row_count": 3,
-        "returned_label_count": 2,
-    }
+    assert proposal_payload["payload"]["rows"] == [
+        {"atomic_index": 0, "label": "RECIPE_TITLE"},
+        {"atomic_index": 1, "label": "YIELD_LINE"},
+        {"atomic_index": 2, "label": "INGREDIENT_LINE"},
+    ]
+    assert proposal_payload["repair_attempted"] is True
+    assert proposal_payload["repair_status"] == "repaired"
+    assert proposal_payload["validation_metadata"]["accepted_atomic_indices"] == [0, 1, 2]
+    assert proposal_payload["validation_metadata"]["unresolved_atomic_indices"] == []
+
+    repair_packet = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "workers"
+            / "worker-001"
+            / "shards"
+            / "line-role-canonical-0001-a000000-a000002"
+            / "structured_session"
+            / "repair_packet_01.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert repair_packet["rows"] == [{"text": "1 cup thinly sliced cabbage"}]
 
     shard_status_rows = [
         json.loads(line)
@@ -1837,6 +1855,153 @@ def test_label_atomic_lines_preserves_partial_inline_shard_authority_and_falls_b
         ).read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    assert shard_status_rows[0]["state"] == "invalid_output"
-    assert shard_status_rows[0]["metadata"]["llm_authoritative_row_count"] == 2
-    assert shard_status_rows[0]["metadata"]["unresolved_row_count"] == 1
+    assert shard_status_rows[0]["state"] == "repair_recovered"
+    assert shard_status_rows[0]["metadata"]["llm_authoritative_row_count"] == 3
+    assert shard_status_rows[0]["metadata"]["unresolved_row_count"] == 0
+
+
+def test_label_atomic_lines_repairs_partial_packet_local_ordinal_prefix_only_for_missing_rows(
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:inline-ordinal:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=text,
+            within_recipe_span=True,
+            rule_tags=[],
+        )
+        for index, text in enumerate(
+            [
+                "Bright Cabbage Slaw",
+                "Serves 4 generously",
+                "1 cup thinly sliced cabbage",
+            ]
+        )
+    ]
+
+    def _partial_ordinal_builder(payload):
+        packet_kind = str((payload or {}).get("packet_kind") or "").strip()
+        if packet_kind == "initial":
+            return {
+                "rows": [
+                    {"atomic_index": 0, "label": "RECIPE_TITLE"},
+                    {"atomic_index": 1, "label": "YIELD_LINE"},
+                ]
+            }
+        if packet_kind == "repair":
+            return {"rows": [{"atomic_index": 0, "label": "INGREDIENT_LINE"}]}
+        return {"rows": []}
+
+    runner = FakeCodexExecRunner(output_builder=_partial_ordinal_builder)
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-route-v2",
+            line_role_codex_exec_style="inline-json-v1",
+            line_role_prompt_target_count=1,
+            line_role_worker_count=1,
+        ),
+        artifact_root=tmp_path,
+        codex_runner=runner,
+        live_llm_allowed=True,
+    )
+
+    assert [prediction.label for prediction in predictions] == [
+        "RECIPE_TITLE",
+        "YIELD_LINE",
+        "INGREDIENT_LINE",
+    ]
+    assert [call["mode"] for call in runner.calls] == [
+        "structured_prompt",
+        "structured_prompt_resume",
+    ]
+
+    repair_packet = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "workers"
+            / "worker-001"
+            / "shards"
+            / "line-role-canonical-0001-a000000-a000002"
+            / "structured_session"
+            / "repair_packet_01.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert repair_packet["rows"] == [{"text": "1 cup thinly sliced cabbage"}]
+
+
+def test_label_atomic_lines_inline_json_trims_single_trailing_packet_local_spill(
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:local-ordinal",
+            block_id="block:structured:184",
+            block_index=184,
+            atomic_index=184,
+            text="Recipe note line one",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:local-ordinal",
+            block_id="block:structured:185",
+            block_index=185,
+            atomic_index=185,
+            text="Recipe note line two",
+            within_recipe_span=True,
+            rule_tags=["recipe_span_fallback"],
+        ),
+    ]
+
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: {
+            "rows": [
+                {"atomic_index": 0, "label": "RECIPE_NOTES"},
+                {"atomic_index": 1, "label": "RECIPE_NOTES"},
+                {"atomic_index": 2, "label": "NONRECIPE_CANDIDATE"},
+            ]
+        }
+    )
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-route-v2",
+            line_role_prompt_target_count=1,
+            line_role_worker_count=1,
+            line_role_codex_exec_style="inline-json-v1",
+        ),
+        artifact_root=tmp_path,
+        codex_runner=runner,
+        live_llm_allowed=True,
+    )
+
+    assert [row.atomic_index for row in predictions] == [184, 185]
+    assert [row.label for row in predictions] == ["RECIPE_NOTES", "RECIPE_NOTES"]
+    proposal_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "proposals"
+            / "line-role-canonical-0001-a000184-a000185.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert proposal_payload["validation_errors"] == []
+    assert proposal_payload["validation_metadata"]["atomic_index_alias_salvage"] == {
+        "applied": True,
+        "alias_kind": "packet_local_ordinal",
+        "ordinal_base": 0,
+        "expected_row_count": 2,
+        "response_mode": "trimmed_trailing_spill",
+        "returned_row_count": 3,
+        "salvaged_row_count": 2,
+        "trimmed_trailing_row_count": 1,
+    }

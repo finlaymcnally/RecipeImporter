@@ -136,3 +136,35 @@ def test_line_role_validation_rejects_unowned_and_frozen_rows() -> None:
     assert metadata["accepted_atomic_indices"] == [2]
     assert metadata["unresolved_atomic_indices"] == [0, 1]
     assert "unowned_atomic_index" in metadata["row_errors_by_atomic_index"]["999"]
+
+
+def test_line_role_validation_trims_obvious_single_trailing_spill() -> None:
+    shard_row = {
+        "input_payload": {
+            "rows": [
+                [10, "L1", "Salt"],
+                [11, "L2", "Stir."],
+            ]
+        }
+    }
+
+    errors, metadata = validate_line_role_output_payload(
+        shard_row,
+        {
+            "rows": [
+                {"atomic_index": 10, "label": "INGREDIENT_LINE"},
+                {"atomic_index": 11, "label": "INSTRUCTION_LINE"},
+                {"atomic_index": 12, "label": "NONRECIPE_CANDIDATE"},
+            ]
+        },
+    )
+
+    assert errors == ()
+    assert metadata["trimmed_trailing_row_spill"] == {
+        "applied": True,
+        "trimmed_row_count": 1,
+        "returned_row_count_before_trim": 3,
+        "expected_row_count": 2,
+    }
+    assert metadata["returned_row_count"] == 2
+    assert metadata["accepted_atomic_indices"] == [10, 11]

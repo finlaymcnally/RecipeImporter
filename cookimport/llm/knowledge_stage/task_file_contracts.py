@@ -543,7 +543,7 @@ def validate_knowledge_classification_task_file(
     unresolved_block_indices: list[int] = []
     missing_block_indices: list[int] = []
     validated_answers: dict[str, dict[str, Any]] = {}
-    grounding_gate_demotion_details: list[dict[str, Any]] = []
+    weak_grounding_details: list[dict[str, Any]] = []
     grounding_drop_details: list[dict[str, Any]] = []
     units_by_id = {
         str(unit.get("unit_id") or "").strip(): dict(unit)
@@ -728,37 +728,26 @@ def validate_knowledge_classification_task_file(
                 and not normalized_grounding["tag_keys"]
                 and not normalized_grounding["proposed_tags"]
             ):
-                if normalized_grounding["category_keys"]:
-                    next_errors.append("knowledge_category_only_grounding")
-                    error_details.append(
-                        {
-                            "path": f"/units/{unit_id}/answer/grounding/category_keys",
-                            "code": "knowledge_category_only_grounding",
-                            "message": "knowledge grounding must include at least one existing tag key or one proposed tag; category_keys alone are not enough",
-                        }
-                    )
-                    unit_failed = True
-                else:
-                    demotion_reason = "missing_grounding"
+                weak_grounding_reason = "category_only_grounding"
+                if not normalized_grounding["category_keys"]:
+                    weak_grounding_reason = "missing_grounding"
                     if unit_grounding_drop_details:
-                        demotion_reason = "invalid_grounding_dropped_to_empty"
-                    grounding_gate_demotion_details.append(
-                        {
-                            "unit_id": unit_id,
-                            "block_index": block_index,
-                            "reason": demotion_reason,
-                            "retained_category_keys": list(normalized_grounding["category_keys"]),
-                            "dropped_grounding_error_codes": sorted(
-                                {
-                                    str(code).strip()
-                                    for code in unit_grounding_drop_codes
-                                    if str(code).strip()
-                                }
-                            ),
-                        }
-                    )
-                    validated_answers[unit_id] = _canonical_other_classification_answer()
-                    continue
+                        weak_grounding_reason = "invalid_grounding_dropped_to_empty"
+                weak_grounding_details.append(
+                    {
+                        "unit_id": unit_id,
+                        "block_index": block_index,
+                        "reason": weak_grounding_reason,
+                        "retained_category_keys": list(normalized_grounding["category_keys"]),
+                        "dropped_grounding_error_codes": sorted(
+                            {
+                                str(code).strip()
+                                for code in unit_grounding_drop_codes
+                                if str(code).strip()
+                            }
+                        ),
+                    }
+                )
         elif category == "other":
             if (
                 normalized_grounding["tag_keys"]
@@ -793,45 +782,34 @@ def validate_knowledge_classification_task_file(
         "unresolved_block_indices": sorted(set(unresolved_block_indices)),
         "missing_block_indices": sorted(set(missing_block_indices)),
         "validated_answers_by_unit_id": validated_answers,
-        "grounding_gate_demotion_details": grounding_gate_demotion_details,
-        "grounding_gate_demoted_unit_ids": [
+        "weak_grounding_details": weak_grounding_details,
+        "weak_grounding_unit_ids": [
             str(detail.get("unit_id") or "").strip()
-            for detail in grounding_gate_demotion_details
+            for detail in weak_grounding_details
             if str(detail.get("unit_id") or "").strip()
         ],
-        "grounding_gate_demoted_block_indices": sorted(
+        "weak_grounding_block_indices": sorted(
             {
                 int(detail.get("block_index"))
-                for detail in grounding_gate_demotion_details
+                for detail in weak_grounding_details
                 if detail.get("block_index") is not None
             }
         ),
-        "grounding_gate_demotion_reason_counts": {
+        "weak_grounding_reason_counts": {
             reason: sum(
                 1
-                for detail in grounding_gate_demotion_details
+                for detail in weak_grounding_details
                 if str(detail.get("reason") or "").strip() == reason
             )
             for reason in sorted(
                 {
                     str(detail.get("reason") or "").strip()
-                    for detail in grounding_gate_demotion_details
+                    for detail in weak_grounding_details
                     if str(detail.get("reason") or "").strip()
                 }
             )
         },
-        "grounding_gate_demoted_after_invalid_grounding_drop_unit_ids": [
-            str(detail.get("unit_id") or "").strip()
-            for detail in grounding_gate_demotion_details
-            if str(detail.get("reason") or "").strip() == "invalid_grounding_dropped_to_empty"
-            and str(detail.get("unit_id") or "").strip()
-        ],
-        "grounding_gate_demoted_for_category_only_unit_ids": [
-            str(detail.get("unit_id") or "").strip()
-            for detail in grounding_gate_demotion_details
-            if str(detail.get("reason") or "").strip() == "category_only_grounding"
-            and str(detail.get("unit_id") or "").strip()
-        ],
+        "weak_grounding_block_count": len(weak_grounding_details),
         "grounding_drop_details": grounding_drop_details,
     }
     if next_errors:

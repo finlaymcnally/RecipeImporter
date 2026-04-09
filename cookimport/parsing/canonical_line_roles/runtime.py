@@ -330,64 +330,7 @@ def _line_role_partial_authority_rows(
         for row in (proposal_metadata or {}).get("accepted_rows", [])
         if isinstance(row, Mapping)
     ]
-    if accepted_rows:
-        return accepted_rows
-    if bool((proposal_metadata or {}).get("semantic_rejected")):
-        return [
-            dict(row)
-            for row in (proposal_metadata or {}).get("semantic_containment_rows", [])
-            if isinstance(row, Mapping)
-        ]
-    return []
-
-
-def _line_role_partial_fallback_atomic_indices(
-    *,
-    phase_results: Sequence[_LineRolePhaseRuntimeResult],
-) -> set[int]:
-    fallback_atomic_indices: set[int] = set()
-    for phase_result in phase_results:
-        for shard_plan in phase_result.shard_plans:
-            proposal_metadata = dict(
-                phase_result.proposal_metadata_by_shard_id.get(shard_plan.shard_id) or {}
-            )
-            if not _line_role_partial_authority_rows(proposal_metadata):
-                continue
-            row_resolution = proposal_metadata.get("row_resolution")
-            if not isinstance(row_resolution, Mapping):
-                row_resolution = proposal_metadata
-            fallback_atomic_indices.update(
-                int(value)
-                for value in (row_resolution.get("unresolved_atomic_indices") or [])
-                if str(value).strip()
-            )
-    return fallback_atomic_indices
-
-
-def _line_role_partial_shard_fallback_prediction(
-    *,
-    baseline_prediction: CanonicalLineRolePrediction,
-) -> CanonicalLineRolePrediction:
-    reason_tags = list(
-        dict.fromkeys(
-            [
-                "codex_partial_shard_unresolved",
-                "deterministic_recovered",
-                *list(baseline_prediction.reason_tags),
-            ]
-        )
-    )
-    return CanonicalLineRolePrediction(
-        recipe_id=baseline_prediction.recipe_id,
-        block_id=str(baseline_prediction.block_id),
-        block_index=int(baseline_prediction.block_index),
-        atomic_index=int(baseline_prediction.atomic_index),
-        text=str(baseline_prediction.text),
-        within_recipe_span=baseline_prediction.within_recipe_span,
-        label=str(baseline_prediction.label),
-        decided_by="fallback",
-        reason_tags=reason_tags,
-    )
+    return accepted_rows
 
 
 def _label_atomic_lines_internal(
@@ -513,17 +456,6 @@ def _label_atomic_lines_internal(
             runtime_result=runtime_result,
         )
         if live_llm_allowed:
-            for atomic_index in _line_role_partial_fallback_atomic_indices(
-                phase_results=runtime_result.phase_results
-            ):
-                if atomic_index in predictions:
-                    continue
-                baseline_prediction = deterministic_baseline.get(int(atomic_index))
-                if baseline_prediction is None:
-                    continue
-                predictions[atomic_index] = _line_role_partial_shard_fallback_prediction(
-                    baseline_prediction=baseline_prediction,
-                )
             _raise_if_line_role_runtime_incomplete(
                 ordered_candidates=ordered,
                 runtime_result=runtime_result,
@@ -831,36 +763,6 @@ def _run_line_role_shard_runtime(
         for row in rows:
             atomic_index = int(row["atomic_index"])
             candidate = candidate_by_atomic_index[atomic_index]
-            semantic_containment_rows = {
-                int(contained_row["atomic_index"]): dict(contained_row)
-                for contained_row in proposal_metadata.get("semantic_containment_rows", [])
-                if isinstance(contained_row, Mapping)
-                and contained_row.get("atomic_index") is not None
-                and str(contained_row.get("atomic_index")).strip()
-            }
-            contained_row = semantic_containment_rows.get(atomic_index)
-            if contained_row is not None:
-                baseline_prediction = deterministic_baseline[atomic_index]
-                reason_tags = list(
-                    dict.fromkeys(
-                        [
-                            *list(baseline_prediction.reason_tags),
-                            "semantic_pathology_contained",
-                        ]
-                    )
-                )
-                predictions_by_atomic_index[atomic_index] = CanonicalLineRolePrediction(
-                    recipe_id=candidate.recipe_id,
-                    block_id=str(candidate.block_id),
-                    block_index=int(candidate.block_index),
-                    atomic_index=atomic_index,
-                    text=str(candidate.text),
-                    within_recipe_span=candidate.within_recipe_span,
-                    label=str(contained_row["label"] or "NONRECIPE_CANDIDATE"),
-                    decided_by="fallback",
-                    reason_tags=reason_tags,
-                )
-                continue
             predictions_by_atomic_index[atomic_index] = CanonicalLineRolePrediction(
                 recipe_id=candidate.recipe_id,
                 block_id=str(candidate.block_id),

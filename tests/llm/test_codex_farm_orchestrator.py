@@ -548,7 +548,7 @@ def test_orchestrator_keeps_fragmentary_proposal_visible_but_non_promoted(
                     "sr": "incomplete_recipe_source",
                     "cr": None,
                     "mr": "not_applicable_fragmentary",
-                    "db": [1, 2, 3, 4, 5],
+                    "db": [],
                     "g": [],
                     "w": ["incomplete_recipe_source"],
                 }
@@ -584,11 +584,10 @@ def test_orchestrator_keeps_fragmentary_proposal_visible_but_non_promoted(
     )
 
     assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
-    assert [divestment.block_indices for divestment in apply_result.recipe_divestments] == [
-        [1, 2, 3, 4, 5]
-    ]
+    assert apply_result.recipe_divestments == []
     assert apply_result.updated_conversion_result.recipes == []
     assert manifest["recipes"][recipe_id]["correction_output_status"] == "fragmentary"
+    assert manifest["recipes"][recipe_id]["publish_status"] == "withheld_partial"
     assert manifest["recipes"][recipe_id]["final_recipe_authority_status"] == "not_promoted"
     assert (
         manifest["recipes"][recipe_id]["final_recipe_authority_reason"]
@@ -600,6 +599,62 @@ def test_orchestrator_keeps_fragmentary_proposal_visible_but_non_promoted(
     )
     assert audit["task_outcome"]["status"] == "fragmentary"
     assert audit["final_recipe_authority"]["status"] == "not_promoted"
+    assert apply_result.recipe_authority_decisions_by_recipe_id[recipe_id].publish_status == (
+        "withheld_partial"
+    )
+    assert apply_result.recipe_authority_decisions_by_recipe_id[recipe_id].ownership_action == (
+        "retain"
+    )
+
+
+def test_orchestrator_withholds_repaired_recipe_when_final_assembly_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "book.txt"
+    source.write_text("source", encoding="utf-8")
+    result = _build_conversion_result(source)
+    settings = _build_run_settings(
+        tmp_path / "pack",
+        llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
+    )
+    runner = _ValidRecipeWorkspaceRunner(
+        output_builder=lambda payload: _build_valid_recipe_task_output(dict(payload or {}))
+    )
+
+    original_model_validate = recipe_module.RecipeDraftV1.model_validate
+
+    def _boom(value, *args, **kwargs):
+        if isinstance(value, dict) and value.get("recipe", {}).get("title") == "Toast":
+            raise ValueError("forced final assembly failure")
+        return original_model_validate(value, *args, **kwargs)
+
+    monkeypatch.setattr(recipe_module.RecipeDraftV1, "model_validate", _boom)
+
+    apply_result = run_codex_farm_recipe_pipeline(
+        conversion_result=result,
+        run_settings=settings,
+        run_root=tmp_path / "run",
+        workbook_slug="book",
+        runner=runner,
+    )
+
+    recipe_id = "urn:recipe:test:toast"
+    manifest = json.loads(
+        (apply_result.llm_raw_dir / "recipe_manifest.json").read_text(encoding="utf-8")
+    )
+
+    assert apply_result.updated_conversion_result.recipes == []
+    assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
+    assert sorted(apply_result.recipe_evidence_payloads_by_recipe_id) == [recipe_id]
+    assert manifest["counts"]["withheld_invalid_recipe_count"] == 1
+    assert manifest["recipes"][recipe_id]["publish_status"] == "withheld_invalid"
+    assert apply_result.recipe_authority_decisions_by_recipe_id[recipe_id].publish_status == (
+        "withheld_invalid"
+    )
+    assert apply_result.recipe_authority_decisions_by_recipe_id[recipe_id].semantic_outcome == (
+        "recipe"
+    )
 
 
 def test_orchestrator_rejects_complex_empty_mapping_without_reason_and_skips_promotion(

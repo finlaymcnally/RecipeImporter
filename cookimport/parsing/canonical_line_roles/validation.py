@@ -437,34 +437,6 @@ def _build_line_role_semantic_profile(
     }
 
 
-def _build_semantic_containment_rows(
-    *,
-    shard: ShardManifestEntryV1,
-    deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
-) -> list[dict[str, Any]]:
-    containment_rows: list[dict[str, Any]] = []
-    for atomic_index, _text in _coerce_shard_input_rows(shard):
-        baseline_prediction = deterministic_baseline_by_atomic_index.get(int(atomic_index))
-        if (
-            baseline_prediction is not None
-            and str(baseline_prediction.label or "").strip().upper() == "NONRECIPE_EXCLUDE"
-        ):
-            containment_rows.append(
-                {
-                    "atomic_index": int(atomic_index),
-                    "label": "NONRECIPE_EXCLUDE",
-                }
-            )
-            continue
-        containment_rows.append(
-            {
-                "atomic_index": int(atomic_index),
-                "label": "NONRECIPE_CANDIDATE",
-            }
-        )
-    return containment_rows
-
-
 def _validate_line_role_shard_proposal(
     shard: ShardManifestEntryV1,
     payload: dict[str, Any],
@@ -548,35 +520,24 @@ def _validate_line_role_shard_proposal(
     )
     return len(deduped_errors) == 0, deduped_errors, runtime_metadata
 
-def _validate_line_role_payload_semantics(
+def _summarize_line_role_payload_semantics(
     *,
     payload: Mapping[str, Any],
     shard: ShardManifestEntryV1,
     deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
-) -> tuple[tuple[str, ...], dict[str, Any]]:
+) -> dict[str, Any]:
     profile = _build_line_role_semantic_profile(
         shard=shard,
         deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
     )
     rows_payload = payload.get("rows")
     if not isinstance(rows_payload, list):
-        return (), {
+        return {
             "guard_applied": False,
             "reason": "rows_missing_or_not_a_list",
             "semantic_profile": profile,
         }
-    owned_row_count = int(profile.get("owned_row_count") or 0)
-    if owned_row_count < 4:
-        return (), {
-            "guard_applied": False,
-            "reason": "too_few_rows_for_guard",
-            "semantic_profile": profile,
-        }
     label_counts: dict[str, int] = {}
-    recipe_local_count = 0
-    recipe_title_count = 0
-    howto_count = 0
-    structural_recipe_count = 0
     for row in rows_payload:
         if not isinstance(row, Mapping):
             continue
@@ -584,72 +545,24 @@ def _validate_line_role_payload_semantics(
         if not label:
             continue
         label_counts[label] = label_counts.get(label, 0) + 1
-        if label in _RECIPE_LOCAL_LABELS:
-            recipe_local_count += 1
-        if label == "RECIPE_TITLE":
-            recipe_title_count += 1
-        if label == "HOWTO_SECTION":
-            howto_count += 1
-        if label in {"INGREDIENT_LINE", "INSTRUCTION_LINE", "YIELD_LINE", "TIME_LINE"}:
-            structural_recipe_count += 1
-    diagnostics: list[str] = []
-    risk_flags = set(str(value) for value in profile.get("risk_flags") or [])
-    baseline_nonrecipe_dominant = bool(profile.get("baseline_nonrecipe_dominant"))
-    if (
-        baseline_nonrecipe_dominant
-        and "front_matter_cluster" in risk_flags
-        and recipe_local_count >= max(4, owned_row_count // 3)
-    ):
-        diagnostics.append(
-            "outside-recipe front matter shard produced too many recipe-local labels"
-        )
-    if (
-        baseline_nonrecipe_dominant
-        and "contents_heading_cluster" in risk_flags
-        and howto_count >= max(4, owned_row_count // 4)
-    ):
-        diagnostics.append(
-            "contents or taxonomy headings were turned into recipe-internal HOWTO_SECTION rows"
-        )
-    if (
-        baseline_nonrecipe_dominant
-        and "contents_heading_cluster" in risk_flags
-        and recipe_title_count >= max(3, owned_row_count // 5)
-    ):
-        diagnostics.append(
-            "contents or navigation title lists were turned into recipe titles"
-        )
-    if (
-        baseline_nonrecipe_dominant
-        and "no_recipe_structure_support" in risk_flags
-        and structural_recipe_count == 0
-        and recipe_local_count >= max(8, owned_row_count // 2)
-    ):
-        diagnostics.append(
-            "the response invented recipe-local structure without ingredient, yield, or instruction support"
-        )
-    if not diagnostics:
-        return (), {
-            "guard_applied": True,
-            "semantic_profile": profile,
-            "semantic_response_label_counts": label_counts,
-        }
-    containment_rows = _build_semantic_containment_rows(
+    return {
+        "guard_applied": True,
+        "semantic_profile": profile,
+        "semantic_response_label_counts": label_counts,
+    }
+
+
+def _validate_line_role_payload_semantics(
+    *,
+    payload: Mapping[str, Any],
+    shard: ShardManifestEntryV1,
+    deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
+) -> tuple[tuple[str, ...], dict[str, Any]]:
+    return (), _summarize_line_role_payload_semantics(
+        payload=payload,
         shard=shard,
         deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
     )
-    return ("semantic_pathology_rejected",), {
-        "guard_applied": True,
-        "semantic_rejected": True,
-        "semantic_diagnostics": diagnostics,
-        "semantic_profile": profile,
-        "semantic_response_label_counts": label_counts,
-        "semantic_containment_rows": containment_rows,
-        "accepted_rows": [],
-        "accepted_atomic_indices": [],
-        "unresolved_atomic_indices": [int(value) for value in shard.owned_ids if str(value).strip()],
-        "validated_row_count": 0,
-    }
 
 
 def _apply_line_role_semantic_guard(
@@ -662,30 +575,24 @@ def _apply_line_role_semantic_guard(
     deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
 ) -> tuple[tuple[str, ...], dict[str, Any], str]:
     merged_metadata = dict(validation_metadata or {})
+    if deterministic_baseline_by_atomic_index:
+        merged_metadata.setdefault(
+            "semantic_profile",
+            _build_line_role_semantic_profile(
+                shard=shard,
+                deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
+            ),
+        )
     if proposal_status != "validated" or not isinstance(payload, Mapping):
-        if deterministic_baseline_by_atomic_index:
-            merged_metadata.setdefault(
-                "semantic_profile",
-                _build_line_role_semantic_profile(
-                    shard=shard,
-                    deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
-                ),
-            )
         return tuple(validation_errors), merged_metadata, proposal_status
-    semantic_errors, semantic_metadata = _validate_line_role_payload_semantics(
-        payload=payload,
-        shard=shard,
-        deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
-    )
-    merged_metadata.update(dict(semantic_metadata or {}))
-    if not semantic_errors:
-        return tuple(validation_errors), merged_metadata, proposal_status
-    merged_errors = tuple(
-        dict.fromkeys(
-            [*(str(error).strip() for error in validation_errors if str(error).strip()), *semantic_errors]
+    merged_metadata.update(
+        _summarize_line_role_payload_semantics(
+            payload=payload,
+            shard=shard,
+            deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
         )
     )
-    return merged_errors, merged_metadata, "invalid"
+    return tuple(validation_errors), merged_metadata, proposal_status
 
 
 def _evaluate_line_role_response_with_pathology_guard(
@@ -752,45 +659,12 @@ def _build_line_role_row_resolution(
     validation_metadata: Mapping[str, Any] | None,
  ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     ordered_atomic_indices = [int(value) for value in shard.owned_ids]
-    containment_rows = [
+    accepted_rows = []
+    accepted_rows = [
         dict(row)
-        for row in (validation_metadata or {}).get("semantic_containment_rows", [])
+        for row in (validation_metadata or {}).get("accepted_rows", [])
         if isinstance(row, Mapping)
     ]
-    if bool((validation_metadata or {}).get("semantic_rejected")) and containment_rows:
-        contained_by_atomic_index = {
-            int(row["atomic_index"]): dict(row)
-            for row in containment_rows
-            if row.get("atomic_index") is not None and str(row.get("atomic_index")).strip()
-        }
-        final_rows = [
-            contained_by_atomic_index[atomic_index]
-            for atomic_index in ordered_atomic_indices
-            if atomic_index in contained_by_atomic_index
-        ]
-        unresolved_atomic_indices = [
-            atomic_index
-            for atomic_index in ordered_atomic_indices
-            if atomic_index not in contained_by_atomic_index
-        ]
-        resolution_metadata = {
-            "accepted_atomic_indices": [],
-            "unresolved_atomic_indices": unresolved_atomic_indices,
-            "accepted_row_count": 0,
-            "semantic_containment_row_count": len(final_rows),
-            "unresolved_row_count": len(unresolved_atomic_indices),
-            "semantic_rejected": True,
-            "semantic_containment_applied": True,
-            "all_rows_resolved": not unresolved_atomic_indices,
-        }
-        return ({"rows": final_rows} if not unresolved_atomic_indices else None, resolution_metadata)
-    accepted_rows = []
-    if not bool((validation_metadata or {}).get("semantic_rejected")):
-        accepted_rows = [
-            dict(row)
-            for row in (validation_metadata or {}).get("accepted_rows", [])
-            if isinstance(row, Mapping)
-        ]
     accepted_by_atomic_index = {
         int(row["atomic_index"]): dict(row)
         for row in accepted_rows
@@ -808,16 +682,14 @@ def _build_line_role_row_resolution(
         for atomic_index in ordered_atomic_indices
         if atomic_index not in set(accepted_atomic_indices)
     ]
-    all_rows_resolved = not unresolved_atomic_indices and not bool(
-        (validation_metadata or {}).get("semantic_rejected")
-    )
+    all_rows_resolved = not unresolved_atomic_indices
     resolution_metadata = {
         "accepted_atomic_indices": accepted_atomic_indices,
         "unresolved_atomic_indices": unresolved_atomic_indices,
         "accepted_row_count": len(accepted_atomic_indices),
         "semantic_containment_row_count": 0,
         "unresolved_row_count": len(unresolved_atomic_indices),
-        "semantic_rejected": bool((validation_metadata or {}).get("semantic_rejected")),
+        "semantic_rejected": False,
         "semantic_containment_applied": False,
         "all_rows_resolved": all_rows_resolved,
     }

@@ -19,6 +19,8 @@ from cookimport.parsing.label_source_of_truth import (
 from cookimport.staging.stage_block_predictions import (
     UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY,
     UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY,
+    UNRESOLVED_RECIPE_OWNED_BLOCK_INDICES_KEY,
+    UNRESOLVED_RECIPE_OWNED_BY_INDEX_KEY,
     _is_howto_section_text,
     build_stage_block_predictions,
 )
@@ -254,6 +256,109 @@ def test_build_stage_block_predictions_ignores_unresolved_candidate_knowledge() 
         "Candidate non-recipe blocks without final authority were marked unresolved and excluded from semantic scoring."
         in payload["notes"]
     )
+
+
+def test_build_stage_block_predictions_uses_boundary_labels_for_withheld_fragmentary_recipe() -> None:
+    result = _build_result()
+    recipe_id = str(result.recipes[0].identifier)
+    result.recipes = []
+
+    payload = build_stage_block_predictions(
+        result,
+        "simple",
+        recipe_ownership_result=make_recipe_ownership_result(
+            owned_by_recipe_id={recipe_id: list(range(8))},
+            all_block_indices=list(range(9)),
+        ),
+        recipe_authority_decisions_by_recipe_id={
+            recipe_id: {
+                "recipe_id": recipe_id,
+                "semantic_outcome": "partial_recipe",
+                "publish_status": "withheld_partial",
+                "ownership_action": "retain",
+                "owned_block_indices": list(range(8)),
+                "divested_block_indices": [],
+                "retained_block_indices": list(range(8)),
+                "worker_repair_status": "fragmentary",
+            }
+        },
+        boundary_block_labels=[
+            AuthoritativeBlockLabel(
+                source_block_id=f"b{index}",
+                source_block_index=index,
+                supporting_atomic_indices=[],
+                deterministic_label=label,
+                final_label=label,
+                decided_by="rule",
+                reason_tags=[],
+                escalation_reasons=[],
+            )
+            for index, label in [
+                (0, "RECIPE_TITLE"),
+                (1, "YIELD_LINE"),
+                (2, "TIME_LINE"),
+                (3, "INGREDIENT_LINE"),
+                (4, "INGREDIENT_LINE"),
+                (5, "INSTRUCTION_LINE"),
+                (6, "INSTRUCTION_LINE"),
+                (7, "RECIPE_NOTES"),
+                (8, "NONRECIPE_CANDIDATE"),
+            ]
+        ],
+    )
+
+    assert payload["block_labels"]["0"] == "RECIPE_TITLE"
+    assert payload["block_labels"]["7"] == "RECIPE_NOTES"
+    assert payload[UNRESOLVED_RECIPE_OWNED_BLOCK_INDICES_KEY] == []
+    assert payload[UNRESOLVED_RECIPE_OWNED_BY_INDEX_KEY] == {}
+
+
+def test_build_stage_block_predictions_marks_recipe_owned_blocks_unresolved_when_withheld_recipe_has_no_evidence() -> None:
+    result = _build_result()
+    recipe_id = str(result.recipes[0].identifier)
+    result.recipes = []
+
+    payload = build_stage_block_predictions(
+        result,
+        "simple",
+        recipe_ownership_result=make_recipe_ownership_result(
+            owned_by_recipe_id={recipe_id: [0, 1, 2]},
+            all_block_indices=list(range(9)),
+        ),
+        recipe_authority_decisions_by_recipe_id={
+            recipe_id: {
+                "recipe_id": recipe_id,
+                "semantic_outcome": "partial_recipe",
+                "publish_status": "withheld_partial",
+                "ownership_action": "retain",
+                "owned_block_indices": [0, 1, 2],
+                "divested_block_indices": [],
+                "retained_block_indices": [0, 1, 2],
+                "worker_repair_status": "fragmentary",
+            }
+        },
+        boundary_block_labels=[
+            AuthoritativeBlockLabel(
+                source_block_id=f"b{index}",
+                source_block_index=index,
+                supporting_atomic_indices=[],
+                deterministic_label="OTHER",
+                final_label="OTHER",
+                decided_by="rule",
+                reason_tags=[],
+                escalation_reasons=[],
+            )
+            for index in range(9)
+        ],
+    )
+
+    assert payload[UNRESOLVED_RECIPE_OWNED_BLOCK_INDICES_KEY] == [0, 1, 2]
+    assert payload[UNRESOLVED_RECIPE_OWNED_BY_INDEX_KEY] == {
+        "0": recipe_id,
+        "1": recipe_id,
+        "2": recipe_id,
+    }
+    assert payload["counts"]["unresolved_recipe_owned_blocks"] == 3
 
 
 def test_build_stage_block_predictions_marks_notes_from_description_only() -> None:

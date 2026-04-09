@@ -10,6 +10,48 @@ globals().update({
 })
 
 
+def test_deterministic_outside_recipe_technique_heading_routes_to_candidate(tmp_path) -> None:
+    predictions = label_atomic_lines(
+        [
+            AtomicLineCandidate(
+                recipe_id=None,
+                block_id="block:technique:0",
+                block_index=0,
+                atomic_index=0,
+                text="Balancing Fat",
+                within_recipe_span=False,
+                rule_tags=["title_like"],
+            )
+        ],
+        _settings("off"),
+        artifact_root=tmp_path,
+        live_llm_allowed=False,
+    )
+
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+
+
+def test_deterministic_outside_recipe_copyright_boilerplate_stays_excluded(tmp_path) -> None:
+    predictions = label_atomic_lines(
+        [
+            AtomicLineCandidate(
+                recipe_id=None,
+                block_id="block:legal:0",
+                block_index=0,
+                atomic_index=0,
+                text="Copyright 2024 by Example Press. All rights reserved.",
+                within_recipe_span=False,
+                rule_tags=["explicit_prose"],
+            )
+        ],
+        _settings("off"),
+        artifact_root=tmp_path,
+        live_llm_allowed=False,
+    )
+
+    assert predictions[0].label == "NONRECIPE_EXCLUDE"
+
+
 def test_codex_outside_recipe_title_led_cluster_accepts_instruction_lines(tmp_path) -> None:
     candidates = [
         AtomicLineCandidate(
@@ -303,7 +345,7 @@ def test_codex_outside_recipe_variation_heading_accepts_named_variant_continuati
     assert all(prediction.decided_by == "codex" for prediction in predictions)
 
 
-def test_codex_outside_recipe_narrative_warning_still_rejects_instruction(tmp_path) -> None:
+def test_codex_outside_recipe_narrative_warning_keeps_instruction_authoritative(tmp_path) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -354,14 +396,11 @@ def test_codex_outside_recipe_narrative_warning_still_rejects_instruction(tmp_pa
         live_llm_allowed=True,
     )
 
-    assert predictions[2].label == "NONRECIPE_CANDIDATE"
-    assert predictions[2].decided_by == "fallback"
-    assert "codex_policy_rejected:instruction_without_local_support" in (
-        predictions[2].reason_tags
-    )
+    assert predictions[2].label == "INSTRUCTION_LINE"
+    assert predictions[2].decided_by == "codex"
 
 
-def test_codex_outside_recipe_storage_note_still_rejects_instruction(tmp_path) -> None:
+def test_codex_outside_recipe_storage_note_keeps_instruction_authoritative(tmp_path) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id=None,
@@ -406,8 +445,5 @@ def test_codex_outside_recipe_storage_note_still_rejects_instruction(tmp_path) -
         live_llm_allowed=True,
     )
 
-    assert predictions[1].label == "RECIPE_NOTES"
-    assert predictions[1].decided_by == "fallback"
-    assert "codex_policy_rejected:instruction_without_local_support" in (
-        predictions[1].reason_tags
-    )
+    assert predictions[1].label == "INSTRUCTION_LINE"
+    assert predictions[1].decided_by == "codex"

@@ -109,7 +109,7 @@ def test_grounding_validator_accepts_existing_and_proposed_tag_answers() -> None
     ]
 
 
-def test_grounding_validator_demotes_unknown_or_empty_grounding_to_other() -> None:
+def test_grounding_validator_keeps_knowledge_with_weak_grounding_after_invalid_drop() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[_shard(text="Good advice, but not grounded.")],
@@ -131,13 +131,13 @@ def test_grounding_validator_demotes_unknown_or_empty_grounding_to_other() -> No
 
     assert errors == ()
     assert metadata["failed_unit_ids"] == []
-    assert metadata["grounding_gate_demoted_unit_ids"] == ["knowledge::10"]
-    assert metadata["grounding_gate_demotion_reason_counts"] == {
+    assert metadata["weak_grounding_unit_ids"] == ["knowledge::10"]
+    assert metadata["weak_grounding_reason_counts"] == {
         "invalid_grounding_dropped_to_empty": 1
     }
     assert answers_by_unit_id == {
         "knowledge::10": {
-            "category": "other",
+            "category": "knowledge",
             "grounding": {
                 "tag_keys": [],
                 "category_keys": [],
@@ -147,7 +147,7 @@ def test_grounding_validator_demotes_unknown_or_empty_grounding_to_other() -> No
     }
 
 
-def test_grounding_validator_rejects_category_only_grounding_for_knowledge() -> None:
+def test_grounding_validator_accepts_category_only_grounding_as_weak_knowledge() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[_shard(text="Salt early so it has time to penetrate.")],
@@ -167,18 +167,20 @@ def test_grounding_validator_rejects_category_only_grounding_for_knowledge() -> 
         edited_task_file=edited,
     )
 
-    assert answers_by_unit_id is None
-    assert errors == ("knowledge_category_only_grounding",)
-    assert metadata["failed_unit_ids"] == ["knowledge::10"]
-    assert metadata["grounding_gate_demoted_unit_ids"] == []
-    assert metadata["grounding_gate_demotion_reason_counts"] == {}
-    assert metadata["error_details"] == [
-        {
-            "path": "/units/knowledge::10/answer/grounding/category_keys",
-            "code": "knowledge_category_only_grounding",
-            "message": "knowledge grounding must include at least one existing tag key or one proposed tag; category_keys alone are not enough",
+    assert errors == ()
+    assert metadata["failed_unit_ids"] == []
+    assert metadata["weak_grounding_unit_ids"] == ["knowledge::10"]
+    assert metadata["weak_grounding_reason_counts"] == {"category_only_grounding": 1}
+    assert answers_by_unit_id == {
+        "knowledge::10": {
+            "category": "knowledge",
+            "grounding": {
+                "tag_keys": [],
+                "category_keys": ["techniques"],
+                "proposed_tags": [],
+            },
         }
-    ]
+    }
 
 
 def test_grounding_validator_drops_invalid_entries_when_valid_grounding_survives() -> None:
@@ -214,7 +216,7 @@ def test_grounding_validator_drops_invalid_entries_when_valid_grounding_survives
 
     assert errors == ()
     assert metadata["failed_unit_ids"] == []
-    assert metadata["grounding_gate_demoted_unit_ids"] == []
+    assert metadata["weak_grounding_unit_ids"] == []
     assert answers_by_unit_id is not None
     assert answers_by_unit_id["knowledge::10"]["grounding"] == {
         "tag_keys": ["emulsify"],

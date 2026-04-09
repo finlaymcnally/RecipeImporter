@@ -51,6 +51,7 @@ def _no_op_writers(monkeypatch) -> None:
     monkeypatch.setattr(import_session, "write_knowledge_outputs_artifact", lambda *args, **kwargs: None)
     monkeypatch.setattr(import_session, "write_recipe_block_ownership", lambda *args, **kwargs: None)
     monkeypatch.setattr(import_session, "write_authoritative_recipe_semantics", lambda *args, **kwargs: None)
+    monkeypatch.setattr(import_session, "write_recipe_authority_decisions", lambda *args, **kwargs: None)
     monkeypatch.setattr(import_session, "write_intermediate_outputs", lambda *args, **kwargs: None)
     monkeypatch.setattr(import_session, "write_draft_outputs", lambda *args, **kwargs: None)
     monkeypatch.setattr(import_session, "write_section_outputs", lambda *args, **kwargs: None)

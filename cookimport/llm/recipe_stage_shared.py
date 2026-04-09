@@ -15,6 +15,7 @@ from cookimport.core.progress_messages import format_stage_progress
 from cookimport.core.models import AuthoritativeRecipeSemantics, ConversionResult, RecipeCandidate, RecipeDraftV1
 from cookimport.runs import RECIPE_MANIFEST_FILE_NAME
 from cookimport.runs.stage_names import stage_label
+from cookimport.staging.recipe_authority_decisions import RecipeAuthorityDecision, classify_recipe_ownership_action
 from cookimport.staging.recipe_ownership import RecipeDivestment
 from cookimport.staging.draft_v1 import authoritative_recipe_semantics_to_draft_v1, build_authoritative_recipe_semantics
 from .codex_farm_contracts import MergedRecipeRepairInput, MergedRecipeRepairOutput, RecipeCorrectionShardInput, RecipeCorrectionShardOutput, RecipeCorrectionShardRecipeInput, StructuralAuditResult, load_contract_json, serialize_merged_recipe_repair_input, serialize_recipe_correction_shard_input
@@ -75,6 +76,8 @@ def _effort_override_value(value: object | None) -> str | None:
 class CodexFarmApplyResult:
     updated_conversion_result: ConversionResult
     authoritative_recipe_payloads_by_recipe_id: dict[str, AuthoritativeRecipeSemantics]
+    recipe_evidence_payloads_by_recipe_id: dict[str, AuthoritativeRecipeSemantics]
+    recipe_authority_decisions_by_recipe_id: dict[str, RecipeAuthorityDecision]
     llm_report: dict[str, Any]
     llm_raw_dir: Path
     recipe_divestments: list[RecipeDivestment] = field(default_factory=list)
@@ -626,6 +629,37 @@ def _classify_final_recipe_authority_status(*, correction_output_status: str | N
         return ('not_promoted', 'promotion_skipped')
     return ('pending', 'promotion_pending')
 
+def _classify_recipe_semantic_outcome(*, correction_output_status: str | None) -> str:
+    status = str(correction_output_status or '').strip()
+    if status == 'repaired':
+        return 'recipe'
+    if status == 'fragmentary':
+        return 'partial_recipe'
+    if status == 'not_a_recipe':
+        return 'not_recipe'
+    return 'unknown'
+
+def _classify_recipe_publish_status(*, correction_output_status: str | None, final_assembly_status: str) -> str:
+    status = str(correction_output_status or '').strip()
+    assembly_status = str(final_assembly_status or '').strip()
+    if status == 'repaired' and assembly_status == 'ok':
+        return 'published'
+    if status == 'fragmentary':
+        return 'withheld_partial'
+    if status == 'repaired' and assembly_status == 'error':
+        return 'withheld_invalid'
+    if status == 'not_a_recipe':
+        return 'rejected'
+    return 'unknown'
+
+def _build_recipe_authority_decision(*, recipe_id: str, correction_output_status: str | None, status_reason: str | None, owned_block_indices: Sequence[int], divested_block_indices: Sequence[int], single_correction_status: str | None, final_assembly_status: str, structural_status: str, structural_reason_codes: Sequence[str], mapping_status: str | None, mapping_reason: str | None) -> RecipeAuthorityDecision:
+    final_recipe_authority_status, final_recipe_authority_reason = _classify_final_recipe_authority_status(correction_output_status=correction_output_status, final_assembly_status=final_assembly_status)
+    normalized_owned_block_indices = sorted({int(index) for index in owned_block_indices})
+    normalized_divested_block_indices = sorted({int(index) for index in divested_block_indices})
+    divested_block_index_set = set(normalized_divested_block_indices)
+    retained_block_indices = [index for index in normalized_owned_block_indices if index not in divested_block_index_set]
+    return RecipeAuthorityDecision(recipe_id=recipe_id, semantic_outcome=_classify_recipe_semantic_outcome(correction_output_status=correction_output_status), publish_status=_classify_recipe_publish_status(correction_output_status=correction_output_status, final_assembly_status=final_assembly_status), ownership_action=classify_recipe_ownership_action(owned_block_indices=normalized_owned_block_indices, divested_block_indices=normalized_divested_block_indices), owned_block_indices=normalized_owned_block_indices, divested_block_indices=normalized_divested_block_indices, retained_block_indices=retained_block_indices, worker_repair_status=str(correction_output_status or '').strip() or None, status_reason=str(status_reason or '').strip() or None, single_correction_status=str(single_correction_status or '').strip() or None, final_assembly_status=final_assembly_status, structural_status=structural_status, structural_reason_codes=[str(code).strip() for code in structural_reason_codes if str(code).strip()], mapping_status=str(mapping_status or '').strip() or None, mapping_reason=str(mapping_reason or '').strip() or None, final_recipe_authority_status=final_recipe_authority_status, final_recipe_authority_reason=final_recipe_authority_reason)
+
 def _load_pipeline_assets(*, pipeline_root: Path, pipeline_id: str) -> dict[str, Any]:
     pipeline_path = pipeline_root / 'pipelines' / f'{pipeline_id}.json'
     if not pipeline_path.exists():
@@ -668,7 +702,7 @@ def _build_single_correction_manifest(*, run_settings: RunSettings, llm_raw_dir:
     failures: list[dict[str, Any]] = []
     for state in states:
         final_recipe_authority_status, final_recipe_authority_reason = _classify_final_recipe_authority_status(correction_output_status=state.correction_output_status, final_assembly_status=state.final_assembly_status)
-        row = {'recipe_build_intermediate': 'ok', 'recipe_refine': state.single_correction_status, 'recipe_build_final': state.final_assembly_status, 'final_recipe_authority_status': final_recipe_authority_status, 'final_recipe_authority_reason': final_recipe_authority_reason, 'warnings': list(state.warnings), 'errors': list(state.errors), 'structural_status': state.structural_status, 'structural_reason_codes': list(state.structural_reason_codes)}
+        row = {'recipe_build_intermediate': 'ok', 'recipe_refine': state.single_correction_status, 'recipe_build_final': state.final_assembly_status, 'final_recipe_authority_status': final_recipe_authority_status, 'final_recipe_authority_reason': final_recipe_authority_reason, 'semantic_outcome': _classify_recipe_semantic_outcome(correction_output_status=state.correction_output_status), 'publish_status': _classify_recipe_publish_status(correction_output_status=state.correction_output_status, final_assembly_status=state.final_assembly_status), 'warnings': list(state.warnings), 'errors': list(state.errors), 'structural_status': state.structural_status, 'structural_reason_codes': list(state.structural_reason_codes)}
         if state.correction_output_status:
             row['correction_output_status'] = state.correction_output_status
         if state.correction_output_reason:
@@ -682,7 +716,7 @@ def _build_single_correction_manifest(*, run_settings: RunSettings, llm_raw_dir:
         recipe_rows[state.recipe_id] = row
         if state.errors:
             failures.append({'recipe_id': state.recipe_id, 'errors': list(state.errors)})
-    return {'enabled': True, 'pipeline': SINGLE_CORRECTION_RECIPE_PIPELINE_ID, 'codex_farm_cmd': run_settings.codex_farm_cmd, 'codex_farm_model': run_settings.codex_farm_model, 'codex_farm_reasoning_effort': _effort_override_value(run_settings.codex_farm_reasoning_effort), 'codex_farm_root': run_settings.codex_farm_root, 'codex_farm_workspace_root': run_settings.codex_farm_workspace_root, 'counts': {'recipes_total': len(states), 'recipe_build_intermediate_ok': len(states), 'recipe_shards_total': len(recipe_shards), 'recipe_workers_total': int((phase_runtime_summary or {}).get('worker_count') or 0), 'recipe_correction_handled_locally_skip_llm': int((((phase_runtime_summary or {}).get('promotion_report') or {}).get('handled_locally_skip_llm') or {}).get('count') or 0), 'recipe_correction_inputs': len(states), 'recipe_correction_ok': sum((1 for state in states if state.single_correction_status == 'ok')), 'recipe_correction_error': sum((1 for state in states if state.single_correction_status == 'error')), 'recipe_correction_repaired': sum((1 for state in states if state.correction_output_status == 'repaired')), 'recipe_correction_fragmentary': sum((1 for state in states if state.correction_output_status == 'fragmentary')), 'recipe_correction_not_a_recipe': sum((1 for state in states if state.correction_output_status == 'not_a_recipe')), 'recipe_build_final_ok': sum((1 for state in states if state.final_assembly_status == 'ok')), 'recipe_build_final_error': sum((1 for state in states if state.final_assembly_status == 'error')), 'recipe_build_final_skipped': sum((1 for state in states if state.final_assembly_status == 'skipped')), 'final_recipe_authority_promoted': sum((1 for state in states if _classify_final_recipe_authority_status(correction_output_status=state.correction_output_status, final_assembly_status=state.final_assembly_status)[0] == 'promoted')), 'final_recipe_authority_not_promoted': sum((1 for state in states if _classify_final_recipe_authority_status(correction_output_status=state.correction_output_status, final_assembly_status=state.final_assembly_status)[0] == 'not_promoted')), 'final_recipe_authority_error': sum((1 for state in states if _classify_final_recipe_authority_status(correction_output_status=state.correction_output_status, final_assembly_status=state.final_assembly_status)[0] == 'error'))}, 'timing': {'recipe_correction_seconds': round(timing_seconds, 3)}, 'pipelines': {'recipe_correction': SINGLE_CORRECTION_STAGE_PIPELINE_ID}, 'output_schema_paths': dict(output_schema_paths), 'paths': {'recipe_correction_audit_dir': str(correction_audit_dir), 'recipe_phase_input_dir': str(phase_runtime_dir / 'inputs') if phase_runtime_dir else None, 'recipe_phase_proposals_dir': str(phase_runtime_dir / 'proposals') if phase_runtime_dir else None, 'recipe_manifest': str(manifest_path), 'recipe_phase_runtime_dir': str(phase_runtime_dir) if phase_runtime_dir else None}, 'process_runs': dict(process_runs), 'phase_runtime': dict(phase_runtime_summary or {}), 'failures': failures, 'recipes': recipe_rows, 'llm_raw_dir': str(llm_raw_dir)}
+    return {'enabled': True, 'pipeline': SINGLE_CORRECTION_RECIPE_PIPELINE_ID, 'codex_farm_cmd': run_settings.codex_farm_cmd, 'codex_farm_model': run_settings.codex_farm_model, 'codex_farm_reasoning_effort': _effort_override_value(run_settings.codex_farm_reasoning_effort), 'codex_farm_root': run_settings.codex_farm_root, 'codex_farm_workspace_root': run_settings.codex_farm_workspace_root, 'counts': {'recipes_total': len(states), 'recipe_build_intermediate_ok': len(states), 'recipe_shards_total': len(recipe_shards), 'recipe_workers_total': int((phase_runtime_summary or {}).get('worker_count') or 0), 'recipe_correction_handled_locally_skip_llm': int((((phase_runtime_summary or {}).get('promotion_report') or {}).get('handled_locally_skip_llm') or {}).get('count') or 0), 'recipe_correction_inputs': len(states), 'recipe_correction_ok': sum((1 for state in states if state.single_correction_status == 'ok')), 'recipe_correction_error': sum((1 for state in states if state.single_correction_status == 'error')), 'recipe_correction_repaired': sum((1 for state in states if state.correction_output_status == 'repaired')), 'recipe_correction_fragmentary': sum((1 for state in states if state.correction_output_status == 'fragmentary')), 'recipe_correction_not_a_recipe': sum((1 for state in states if state.correction_output_status == 'not_a_recipe')), 'recipe_build_final_ok': sum((1 for state in states if state.final_assembly_status == 'ok')), 'recipe_build_final_error': sum((1 for state in states if state.final_assembly_status == 'error')), 'recipe_build_final_skipped': sum((1 for state in states if state.final_assembly_status == 'skipped')), 'published_recipe_count': sum((1 for state in states if _classify_recipe_publish_status(correction_output_status=state.correction_output_status, final_assembly_status=state.final_assembly_status) == 'published')), 'withheld_partial_recipe_count': sum((1 for state in states if _classify_recipe_publish_status(correction_output_status=state.correction_output_status, final_assembly_status=state.final_assembly_status) == 'withheld_partial')), 'withheld_invalid_recipe_count': sum((1 for state in states if _classify_recipe_publish_status(correction_output_status=state.correction_output_status, final_assembly_status=state.final_assembly_status) == 'withheld_invalid')), 'rejected_recipe_count': sum((1 for state in states if _classify_recipe_publish_status(correction_output_status=state.correction_output_status, final_assembly_status=state.final_assembly_status) == 'rejected')), 'final_recipe_authority_promoted': sum((1 for state in states if _classify_final_recipe_authority_status(correction_output_status=state.correction_output_status, final_assembly_status=state.final_assembly_status)[0] == 'promoted')), 'final_recipe_authority_not_promoted': sum((1 for state in states if _classify_final_recipe_authority_status(correction_output_status=state.correction_output_status, final_assembly_status=state.final_assembly_status)[0] == 'not_promoted')), 'final_recipe_authority_error': sum((1 for state in states if _classify_final_recipe_authority_status(correction_output_status=state.correction_output_status, final_assembly_status=state.final_assembly_status)[0] == 'error'))}, 'timing': {'recipe_correction_seconds': round(timing_seconds, 3)}, 'pipelines': {'recipe_correction': SINGLE_CORRECTION_STAGE_PIPELINE_ID}, 'output_schema_paths': dict(output_schema_paths), 'paths': {'recipe_correction_audit_dir': str(correction_audit_dir), 'recipe_phase_input_dir': str(phase_runtime_dir / 'inputs') if phase_runtime_dir else None, 'recipe_phase_proposals_dir': str(phase_runtime_dir / 'proposals') if phase_runtime_dir else None, 'recipe_manifest': str(manifest_path), 'recipe_phase_runtime_dir': str(phase_runtime_dir) if phase_runtime_dir else None}, 'process_runs': dict(process_runs), 'phase_runtime': dict(phase_runtime_summary or {}), 'failures': failures, 'recipes': recipe_rows, 'llm_raw_dir': str(llm_raw_dir)}
 
 def _coerce_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
@@ -782,11 +816,11 @@ def _validate_recipe_output_divestments(*, prepared: _PreparedRecipeInput, corre
     unexpected = [index for index in requested_divestments if index not in owned_block_index_set]
     if unexpected:
         raise ValueError(f'recipe output divested unknown block indices {unexpected}; owned block indices are {owned_block_indices}')
-    if correction_output.repair_status != 'repaired':
+    if correction_output.repair_status == 'not_a_recipe':
         missing = [index for index in owned_block_indices if index not in requested_divestments]
         if missing:
             raise ValueError(f'recipe outputs with status {correction_output.repair_status!r} must divest every owned block; missing {missing}')
-    elif owned_block_indices and len(requested_divestments) == len(owned_block_indices):
+    elif correction_output.repair_status == 'repaired' and owned_block_indices and len(requested_divestments) == len(owned_block_indices):
         raise ValueError("recipe outputs with status 'repaired' cannot divest every owned block")
     if not requested_divestments:
         return []
@@ -1466,7 +1500,7 @@ def _run_single_correction_recipe_pipeline(*, conversion_result: ConversionResul
         manifest_path = llm_raw_dir / RECIPE_MANIFEST_FILE_NAME
         manifest = _build_single_correction_manifest(run_settings=run_settings, llm_raw_dir=llm_raw_dir, correction_audit_dir=correction_audit_dir, manifest_path=manifest_path, states=[], process_runs={}, output_schema_paths={}, timing_seconds=0.0, recipe_shards=[], phase_runtime_dir=None, phase_runtime_summary={})
         _write_json(manifest, manifest_path)
-        return CodexFarmApplyResult(updated_conversion_result=conversion_result, authoritative_recipe_payloads_by_recipe_id={}, llm_report={'enabled': True, 'pipeline': SINGLE_CORRECTION_RECIPE_PIPELINE_ID, 'counts': manifest['counts'], 'timing': manifest['timing'], 'process_runs': {}, 'phase_runtime': {}, 'llmRawDir': str(llm_raw_dir)}, llm_raw_dir=llm_raw_dir, recipe_divestments=[])
+        return CodexFarmApplyResult(updated_conversion_result=conversion_result, authoritative_recipe_payloads_by_recipe_id={}, recipe_evidence_payloads_by_recipe_id={}, recipe_authority_decisions_by_recipe_id={}, llm_report={'enabled': True, 'pipeline': SINGLE_CORRECTION_RECIPE_PIPELINE_ID, 'counts': manifest['counts'], 'timing': manifest['timing'], 'process_runs': {}, 'phase_runtime': {}, 'llmRawDir': str(llm_raw_dir)}, llm_raw_dir=llm_raw_dir, recipe_divestments=[])
     pipeline_root = _resolve_pipeline_root(run_settings)
     pipeline_assets = _load_pipeline_assets(pipeline_root=pipeline_root, pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID)
     env = {'CODEX_FARM_ROOT': str(pipeline_root), _CODEX_FARM_RECIPE_MODE_ENV: run_settings.codex_farm_recipe_mode.value}
@@ -1493,6 +1527,7 @@ def _run_single_correction_recipe_pipeline(*, conversion_result: ConversionResul
         prepared_input = _build_prepared_recipe_input(state=state, workbook_slug=workbook_slug, source_hash=source_hash, included_blocks=included_blocks, full_blocks_by_index=full_blocks_by_index)
         correction_inputs_by_recipe_id[state.recipe_id] = prepared_input.correction_input
         prepared_inputs.append(prepared_input)
+    prepared_inputs_by_recipe_id = {prepared.state.recipe_id: prepared for prepared in prepared_inputs}
     recipe_shards = _build_recipe_shard_plans(prepared_inputs=prepared_inputs, run_settings=run_settings)
     for recipe_shard in recipe_shards:
         payload = serialize_recipe_correction_shard_input(recipe_shard.shard_input)
@@ -1518,10 +1553,12 @@ def _run_single_correction_recipe_pipeline(*, conversion_result: ConversionResul
     updated_result = conversion_result.model_copy(deep=True)
     updated_recipes_by_id: dict[str, RecipeCandidate] = {str(recipe.identifier or ''): recipe for recipe in updated_result.recipes}
     authoritative_recipe_payloads: dict[str, AuthoritativeRecipeSemantics] = {}
+    recipe_evidence_payloads: dict[str, AuthoritativeRecipeSemantics] = {}
     intermediate_overrides: dict[str, dict[str, Any]] = {}
     final_overrides: dict[str, dict[str, Any]] = {}
     explicitly_rejected_recipe_ids: set[str] = set()
     recipe_divestments: list[RecipeDivestment] = []
+    recipe_authority_decisions_by_recipe_id: dict[str, RecipeAuthorityDecision] = {}
     proposals_by_shard_id: dict[str, dict[str, Any]] = {}
     proposals_dir = phase_runtime_dir / 'proposals'
     for proposal_path in sorted(proposals_dir.glob('*.json')):
@@ -1583,6 +1620,7 @@ def _run_single_correction_recipe_pipeline(*, conversion_result: ConversionResul
             recipe_divestments.extend(output_divestments)
             corrected_candidate = _corrected_candidate_from_output(state=state, output=correction_output)
             authoritative_payload = build_authoritative_recipe_semantics(corrected_candidate, semantic_authority=SINGLE_CORRECTION_RECIPE_PIPELINE_ID, ingredient_parser_options=run_settings.to_run_config_dict(), instruction_step_options=run_settings.to_run_config_dict(), ingredient_step_mapping_override=correction_output.ingredient_step_mapping, ingredient_step_mapping_reason=correction_output.ingredient_step_mapping_reason)
+            recipe_evidence_payloads[state.recipe_id] = authoritative_payload
             final_payload = authoritative_recipe_semantics_to_draft_v1(authoritative_payload, ingredient_parser_options=run_settings.to_run_config_dict(), instruction_step_options=run_settings.to_run_config_dict())
             structural_audit = _classify_recipe_correction_structural_audit(correction_output=correction_output, draft_payload=final_payload)
             _merge_structural_audit(state=state, audit=structural_audit)
@@ -1590,9 +1628,10 @@ def _run_single_correction_recipe_pipeline(*, conversion_result: ConversionResul
             try:
                 draft_model = RecipeDraftV1.model_validate(final_payload)
             except Exception as exc:
-                state.single_correction_status = 'error'
+                state.single_correction_status = 'ok'
                 state.final_assembly_status = 'error'
                 state.errors.append(f'deterministic final assembly validation failed: {exc}')
+                explicitly_rejected_recipe_ids.add(state.recipe_id)
                 _write_json(_build_recipe_correction_audit(state=state, correction_input=correction_inputs_by_recipe_id[state.recipe_id], correction_output=correction_output, corrected_candidate=corrected_candidate, final_payload=final_payload, final_assembly_status='error', structural_audit=structural_audit, mapping_status=state.correction_mapping_status, mapping_reason=state.correction_mapping_reason), correction_audit_dir / _recipe_artifact_filename(state.recipe_id))
                 continue
             state.single_correction_status = 'ok'
@@ -1602,11 +1641,21 @@ def _run_single_correction_recipe_pipeline(*, conversion_result: ConversionResul
             authoritative_recipe_payloads[state.recipe_id] = authoritative_payload
             final_overrides[state.recipe_id] = draft_model.model_dump(mode='json', by_alias=True, exclude_none=True)
             updated_recipes_by_id[state.recipe_id] = corrected_candidate
+    divested_block_indices_by_recipe_id: dict[str, list[int]] = {}
+    for divestment in recipe_divestments:
+        divested_block_indices_by_recipe_id.setdefault(divestment.recipe_id, []).extend((int(index) for index in divestment.block_indices))
+    for recipe_id, indices in list(divested_block_indices_by_recipe_id.items()):
+        divested_block_indices_by_recipe_id[recipe_id] = sorted(set(indices))
+    for state in states:
+        prepared = prepared_inputs_by_recipe_id.get(state.recipe_id)
+        if prepared is None or not state.correction_output_status:
+            continue
+        recipe_authority_decisions_by_recipe_id[state.recipe_id] = _build_recipe_authority_decision(recipe_id=state.recipe_id, correction_output_status=state.correction_output_status, status_reason=state.correction_output_reason, owned_block_indices=prepared.block_indices, divested_block_indices=divested_block_indices_by_recipe_id.get(state.recipe_id, []), single_correction_status=state.single_correction_status, final_assembly_status=state.final_assembly_status, structural_status=state.structural_status, structural_reason_codes=state.structural_reason_codes, mapping_status=state.correction_mapping_status, mapping_reason=state.correction_mapping_reason)
     updated_result.recipes = [updated_recipes_by_id.get(str(recipe.identifier or ''), recipe) for recipe in updated_result.recipes if str(recipe.identifier or '') not in explicitly_rejected_recipe_ids]
     manifest_path = llm_raw_dir / RECIPE_MANIFEST_FILE_NAME
     manifest = _build_single_correction_manifest(run_settings=run_settings, llm_raw_dir=llm_raw_dir, correction_audit_dir=correction_audit_dir, manifest_path=manifest_path, states=states, process_runs=process_runs, output_schema_paths=output_schema_paths, timing_seconds=correction_seconds, recipe_shards=recipe_shards, phase_runtime_dir=phase_runtime_dir if recipe_shards else None, phase_runtime_summary=phase_runtime_summary)
     _write_json(manifest, manifest_path)
-    return CodexFarmApplyResult(updated_conversion_result=updated_result, authoritative_recipe_payloads_by_recipe_id=authoritative_recipe_payloads, llm_report={'enabled': True, 'pipeline': SINGLE_CORRECTION_RECIPE_PIPELINE_ID, 'counts': manifest['counts'], 'timing': manifest['timing'], 'process_runs': manifest['process_runs'], 'output_schema_paths': dict(output_schema_paths), 'phase_runtime': dict(phase_runtime_summary), 'llmRawDir': str(llm_raw_dir)}, llm_raw_dir=llm_raw_dir, recipe_divestments=recipe_divestments)
+    return CodexFarmApplyResult(updated_conversion_result=updated_result, authoritative_recipe_payloads_by_recipe_id=authoritative_recipe_payloads, recipe_evidence_payloads_by_recipe_id=recipe_evidence_payloads, recipe_authority_decisions_by_recipe_id=recipe_authority_decisions_by_recipe_id, llm_report={'enabled': True, 'pipeline': SINGLE_CORRECTION_RECIPE_PIPELINE_ID, 'counts': manifest['counts'], 'timing': manifest['timing'], 'process_runs': manifest['process_runs'], 'output_schema_paths': dict(output_schema_paths), 'phase_runtime': dict(phase_runtime_summary), 'llmRawDir': str(llm_raw_dir)}, llm_raw_dir=llm_raw_dir, recipe_divestments=recipe_divestments)
 
 def _build_single_correction_execution_plan(*, conversion_result: ConversionResult, run_settings: RunSettings, workbook_slug: str) -> dict[str, Any]:
     states = _build_states(conversion_result, workbook_slug=workbook_slug)
@@ -1630,7 +1679,7 @@ def _build_single_correction_execution_plan(*, conversion_result: ConversionResu
 
 def run_codex_farm_recipe_pipeline(*, conversion_result: ConversionResult, run_settings: RunSettings, run_root: Path, workbook_slug: str, runner: CodexExecRunner | None=None, full_blocks: list[dict[str, Any]] | None=None, progress_callback: Callable[[str], None] | None=None) -> CodexFarmApplyResult:
     if run_settings.llm_recipe_pipeline.value == 'off':
-        return CodexFarmApplyResult(updated_conversion_result=conversion_result, authoritative_recipe_payloads_by_recipe_id={}, llm_report={'enabled': False, 'pipeline': 'off'}, llm_raw_dir=run_root / 'raw' / 'llm' / sanitize_for_filename(workbook_slug), recipe_divestments=[])
+        return CodexFarmApplyResult(updated_conversion_result=conversion_result, authoritative_recipe_payloads_by_recipe_id={}, recipe_evidence_payloads_by_recipe_id={}, recipe_authority_decisions_by_recipe_id={}, llm_report={'enabled': False, 'pipeline': 'off'}, llm_raw_dir=run_root / 'raw' / 'llm' / sanitize_for_filename(workbook_slug), recipe_divestments=[])
     return _run_single_correction_recipe_pipeline(conversion_result=conversion_result, run_settings=run_settings, run_root=run_root, workbook_slug=workbook_slug, runner=runner, full_blocks=full_blocks, progress_callback=progress_callback)
 
 def build_codex_farm_recipe_execution_plan(*, conversion_result: ConversionResult, run_settings: RunSettings, workbook_slug: str, full_blocks: list[dict[str, Any]] | None=None) -> dict[str, Any]:

@@ -162,7 +162,7 @@ def apply_knowledge_same_session_row_metadata(
     row["final_output_shard_count"] = int(state_payload.get("final_output_shard_count") or 0)
 
 
-def knowledge_same_session_grounding_gate_metadata_by_shard(
+def knowledge_same_session_weak_grounding_metadata_by_shard(
     *,
     initial_task_file: Mapping[str, Any],
     state_payload: Mapping[str, Any],
@@ -188,7 +188,7 @@ def knowledge_same_session_grounding_gate_metadata_by_shard(
         ):
             continue
         validation_metadata = _coerce_dict(transition.get("validation_metadata"))
-        for raw_detail in validation_metadata.get("grounding_gate_demotion_details") or []:
+        for raw_detail in validation_metadata.get("weak_grounding_details") or []:
             detail = _coerce_dict(raw_detail)
             unit_id = str(detail.get("unit_id") or "").strip()
             shard_id = str(unit_to_shard_id.get(unit_id) or "").strip()
@@ -203,48 +203,43 @@ def knowledge_same_session_grounding_gate_metadata_by_shard(
             shard_row = shard_metadata.setdefault(
                 shard_id,
                 {
-                    "grounding_gate_demotion_details": [],
-                    "grounding_gate_demoted_unit_ids": set(),
-                    "grounding_gate_demoted_block_indices": set(),
-                    "grounding_gate_demotion_reason_counts": {},
+                    "weak_grounding_details": [],
+                    "weak_grounding_unit_ids": set(),
+                    "weak_grounding_block_indices": set(),
+                    "weak_grounding_reason_counts": {},
                 },
             )
-            shard_row["grounding_gate_demotion_details"].append(
+            shard_row["weak_grounding_details"].append(
                 {
                     "unit_id": unit_id,
                     "block_index": block_index,
                     "reason": reason,
                 }
             )
-            shard_row["grounding_gate_demoted_unit_ids"].add(unit_id)
-            shard_row["grounding_gate_demoted_block_indices"].add(block_index)
-            shard_row["grounding_gate_demotion_reason_counts"][reason] = (
-                int(shard_row["grounding_gate_demotion_reason_counts"].get(reason) or 0)
+            shard_row["weak_grounding_unit_ids"].add(unit_id)
+            shard_row["weak_grounding_block_indices"].add(block_index)
+            shard_row["weak_grounding_reason_counts"][reason] = (
+                int(shard_row["weak_grounding_reason_counts"].get(reason) or 0)
                 + 1
             )
     finalized: dict[str, dict[str, Any]] = {}
     for shard_id, metadata in shard_metadata.items():
-        reason_counts = dict(metadata.get("grounding_gate_demotion_reason_counts") or {})
+        reason_counts = dict(metadata.get("weak_grounding_reason_counts") or {})
         finalized[shard_id] = {
-            "grounding_gate_demotion_details": list(
-                metadata.get("grounding_gate_demotion_details") or []
+            "weak_grounding_details": list(metadata.get("weak_grounding_details") or []),
+            "weak_grounding_unit_ids": sorted(
+                str(unit_id) for unit_id in (metadata.get("weak_grounding_unit_ids") or set())
             ),
-            "grounding_gate_demoted_unit_ids": sorted(
-                str(unit_id)
-                for unit_id in (metadata.get("grounding_gate_demoted_unit_ids") or set())
-            ),
-            "grounding_gate_demoted_block_indices": sorted(
+            "weak_grounding_block_indices": sorted(
                 int(block_index)
-                for block_index in (
-                    metadata.get("grounding_gate_demoted_block_indices") or set()
-                )
+                for block_index in (metadata.get("weak_grounding_block_indices") or set())
             ),
-            "grounding_gate_demotion_reason_counts": dict(sorted(reason_counts.items())),
-            "grounding_gate_demoted_block_count": sum(reason_counts.values()),
-            "grounding_gate_demoted_after_invalid_grounding_drop_count": int(
+            "weak_grounding_reason_counts": dict(sorted(reason_counts.items())),
+            "weak_grounding_block_count": sum(reason_counts.values()),
+            "weak_grounding_after_invalid_grounding_drop_count": int(
                 reason_counts.get("invalid_grounding_dropped_to_empty") or 0
             ),
-            "grounding_gate_demoted_for_category_only_count": int(
+            "weak_grounding_category_only_count": int(
                 reason_counts.get("category_only_grounding") or 0
             ),
         }

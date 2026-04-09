@@ -920,41 +920,6 @@ def _codex_prediction_policy_rejection_reason(
     label = str(prediction.label or "NONRECIPE_CANDIDATE")
     if label == "NONRECIPE_EXCLUDE" and _is_within_recipe_span(candidate):
         return "nonrecipe_exclude_inside_recipe_not_allowed"
-    if (
-        label == "KNOWLEDGE"
-        and _is_within_recipe_span(candidate)
-        and not _knowledge_allowed_inside_recipe(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-    ):
-        return "knowledge_inside_recipe_not_allowed"
-    if label == "TIME_LINE" and not _is_primary_time_line(candidate.text):
-        return "time_line_not_primary"
-    if (
-        label == "RECIPE_TITLE"
-        and _is_outside_recipe_span(candidate)
-        and not _looks_recipe_title_with_context(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-    ):
-        return "title_without_local_support"
-    if label == "RECIPE_VARIANT" and not _variant_label_allowed(
-        candidate,
-        by_atomic_index=by_atomic_index,
-    ):
-        return "variant_without_local_support"
-    if label == "HOWTO_SECTION" and not _howto_section_label_allowed(
-        candidate,
-        by_atomic_index=by_atomic_index,
-    ):
-        return "howto_without_local_support"
-    if label == "INSTRUCTION_LINE" and not _instruction_line_label_allowed(
-        candidate,
-        by_atomic_index=by_atomic_index,
-    ):
-        return "instruction_without_local_support"
     if label == "KNOWLEDGE":
         return "knowledge_not_in_live_contract"
     if label == "OTHER":

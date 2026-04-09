@@ -468,31 +468,32 @@ def _collect_block_grounding_details(
         "retrieval_gate_rejected_block_count": 0,
         "knowledge_blocks_grounded_to_existing_tags": 0,
         "knowledge_blocks_using_proposed_tags": 0,
-        "grounding_gate_demoted_block_count": 0,
-        "grounding_gate_demoted_after_invalid_grounding_drop_count": 0,
-        "grounding_gate_demoted_for_category_only_count": 0,
+        "weak_grounding_block_count": 0,
+        "weak_grounding_after_invalid_grounding_drop_count": 0,
+        "weak_grounding_category_only_count": 0,
     }
-    demotion_reason_counts: dict[str, int] = {}
+    weak_grounding_reason_counts: dict[str, int] = {}
     for packet_id, output in outputs.items():
         packet_metadata = _coerce_dict((proposal_metadata_by_packet_id or {}).get(packet_id))
-        packet_demoted_block_count = int(
-            packet_metadata.get("grounding_gate_demoted_block_count") or 0
+        packet_weak_grounding_block_count = int(
+            packet_metadata.get("weak_grounding_block_count") or 0
         )
-        counts["grounding_gate_demoted_block_count"] += packet_demoted_block_count
-        counts["grounding_gate_demoted_after_invalid_grounding_drop_count"] += int(
-            packet_metadata.get("grounding_gate_demoted_after_invalid_grounding_drop_count") or 0
+        counts["weak_grounding_block_count"] += packet_weak_grounding_block_count
+        counts["weak_grounding_after_invalid_grounding_drop_count"] += int(
+            packet_metadata.get("weak_grounding_after_invalid_grounding_drop_count") or 0
         )
-        counts["grounding_gate_demoted_for_category_only_count"] += int(
-            packet_metadata.get("grounding_gate_demoted_for_category_only_count") or 0
+        counts["weak_grounding_category_only_count"] += int(
+            packet_metadata.get("weak_grounding_category_only_count") or 0
         )
         for reason, value in _coerce_dict(
-            packet_metadata.get("grounding_gate_demotion_reason_counts")
+            packet_metadata.get("weak_grounding_reason_counts")
         ).items():
             cleaned_reason = str(reason).strip()
             if not cleaned_reason:
                 continue
-            demotion_reason_counts[cleaned_reason] = (
-                int(demotion_reason_counts.get(cleaned_reason) or 0) + int(value or 0)
+            weak_grounding_reason_counts[cleaned_reason] = (
+                int(weak_grounding_reason_counts.get(cleaned_reason) or 0)
+                + int(value or 0)
             )
         for decision in getattr(output, "block_decisions", ()) or ():
             block_index = int(getattr(decision, "block_index", 0) or 0)
@@ -547,7 +548,7 @@ def _collect_block_grounding_details(
         )
     ]
     counts["tag_proposal_count"] = len(proposal_rows)
-    counts["grounding_gate_demotion_reason_counts"] = dict(
-        sorted(demotion_reason_counts.items())
+    counts["weak_grounding_reason_counts"] = dict(
+        sorted(weak_grounding_reason_counts.items())
     )
     return grounding_by_block, counts, proposal_rows

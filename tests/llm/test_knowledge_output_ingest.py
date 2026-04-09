@@ -193,6 +193,50 @@ def test_read_validated_knowledge_outputs_from_proposals_promotes_only_valid_sha
     assert outputs["book.ks0000.nr"].idea_groups[0].topic_label == "Heat control"
 
 
+def test_read_validated_knowledge_outputs_from_proposals_accepts_weak_grounding(
+    tmp_path: Path,
+) -> None:
+    payload = _semantic_payload(
+        block_decisions=[
+            {
+                "block_index": 4,
+                "category": "knowledge",
+                "grounding": {
+                    "tag_keys": [],
+                    "category_keys": ["techniques"],
+                    "proposed_tags": [],
+                },
+            },
+            {
+                "block_index": 5,
+                "category": "other",
+                "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
+            },
+        ],
+    )
+    _write_json(
+        tmp_path / "book.ks0000.nr.json",
+        {
+            "payload": payload,
+            "validation_errors": [],
+            "validation_metadata": {
+                "bundle_id": "book.ks0000.nr",
+                "weak_grounding_block_count": 1,
+                "weak_grounding_reason_counts": {"category_only_grounding": 1},
+            },
+        },
+    )
+
+    outputs, payloads_by_shard_id = read_validated_knowledge_outputs_from_proposals(tmp_path)
+
+    assert sorted(outputs) == ["book.ks0000.nr"]
+    assert sorted(payloads_by_shard_id) == ["book.ks0000.nr"]
+    assert outputs["book.ks0000.nr"].block_decisions[0].grounding.tag_keys == []
+    assert outputs["book.ks0000.nr"].block_decisions[0].grounding.category_keys == [
+        "techniques"
+    ]
+
+
 def test_read_validated_knowledge_outputs_from_proposals_rejects_duplicate_ids(
     tmp_path: Path,
 ) -> None:

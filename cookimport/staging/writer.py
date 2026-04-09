@@ -61,6 +61,10 @@ from cookimport.staging.recipe_ownership import (
     RecipeOwnershipResult,
     recipe_ownership_to_payload,
 )
+from cookimport.staging.recipe_authority_decisions import (
+    RecipeAuthorityDecision,
+    recipe_authority_decisions_to_payload,
+)
 from cookimport.staging.stage_block_predictions import build_stage_block_predictions
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -740,6 +744,27 @@ def write_authoritative_recipe_semantics(
     return out_path
 
 
+def write_recipe_authority_decisions(
+    *,
+    decisions_by_recipe_id: Mapping[str, RecipeAuthorityDecision | dict[str, Any]],
+    out_path: Path,
+    workbook_slug: str,
+    refinement_mode: str,
+    output_stats: OutputStats | None = None,
+) -> Path:
+    _write_json_payload(
+        recipe_authority_decisions_to_payload(
+            decisions_by_recipe_id=decisions_by_recipe_id,
+            workbook_slug=workbook_slug,
+            refinement_mode=refinement_mode,
+        ),
+        out_path,
+        output_stats=output_stats,
+        category=_OUTPUT_CATEGORY_RECIPE_AUTHORITY,
+    )
+    return out_path
+
+
 def write_recipe_block_ownership(
     *,
     ownership_result: RecipeOwnershipResult,
@@ -933,6 +958,8 @@ def write_stage_block_predictions(
     run_root: Path,
     workbook_slug: str,
     recipe_ownership_result: RecipeOwnershipResult,
+    authoritative_payloads_by_recipe_id: Mapping[str, AuthoritativeRecipeSemantics | dict[str, Any]] | None = None,
+    recipe_authority_decisions_by_recipe_id: Mapping[str, RecipeAuthorityDecision | dict[str, Any]] | None = None,
     source_file: str | None = None,
     source_hash: str | None = None,
     archive_blocks: list[dict[str, Any]] | None = None,
@@ -945,6 +972,8 @@ def write_stage_block_predictions(
         results,
         workbook_slug,
         recipe_ownership_result=recipe_ownership_result,
+        authoritative_payloads_by_recipe_id=authoritative_payloads_by_recipe_id,
+        recipe_authority_decisions_by_recipe_id=recipe_authority_decisions_by_recipe_id,
         source_file=source_file,
         source_hash=source_hash or (label_first_result.source_hash if label_first_result is not None else None),
         archive_blocks=archive_blocks or (
@@ -953,6 +982,11 @@ def write_stage_block_predictions(
             else None
         ),
         nonrecipe_stage_result=nonrecipe_stage_result,
+        boundary_block_labels=(
+            list(label_first_result.block_labels)
+            if label_first_result is not None
+            else None
+        ),
     )
     out_path = run_root / ".bench" / workbook_slug / "stage_block_predictions.json"
     _write_json_payload(
@@ -1173,18 +1207,15 @@ def write_nonrecipe_authority_artifact(
             "authoritative_other_spans": len(authority.authoritative_other_spans),
             "final_authority_blocks": len(authority.authoritative_block_indices),
             **_knowledge_counts_for_block_map(authority.authoritative_block_category_by_index),
-            "grounding_gate_demoted_block_count": int(
-                grounding_counts.get("grounding_gate_demoted_block_count") or 0
+            "weak_grounding_block_count": int(
+                grounding_counts.get("weak_grounding_block_count") or 0
             ),
-            "grounding_gate_demoted_after_invalid_grounding_drop_count": int(
-                grounding_counts.get(
-                    "grounding_gate_demoted_after_invalid_grounding_drop_count"
-                )
+            "weak_grounding_after_invalid_grounding_drop_count": int(
+                grounding_counts.get("weak_grounding_after_invalid_grounding_drop_count")
                 or 0
             ),
-            "grounding_gate_demoted_for_category_only_count": int(
-                grounding_counts.get("grounding_gate_demoted_for_category_only_count")
-                or 0
+            "weak_grounding_category_only_count": int(
+                grounding_counts.get("weak_grounding_category_only_count") or 0
             ),
             "knowledge_blocks_grounded_to_existing_tags": int(
                 grounding_counts.get("knowledge_blocks_grounded_to_existing_tags") or 0

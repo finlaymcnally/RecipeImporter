@@ -147,7 +147,7 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
         assert metadata["knowledge_decision_count"] >= 0
 
 
-def test_grounding_detail_rollup_includes_grounding_gate_demotions() -> None:
+def test_grounding_detail_rollup_includes_weak_grounding_counts() -> None:
     outputs = {
         "book.ks0000.nr": SimpleNamespace(
             block_decisions=(
@@ -178,9 +178,9 @@ def test_grounding_detail_rollup_includes_grounding_gate_demotions() -> None:
         allowed_block_indices={10: "candidate", 11: "candidate"},
         proposal_metadata_by_packet_id={
             "book.ks0000.nr": {
-                "grounding_gate_demoted_block_count": 1,
-                "grounding_gate_demoted_after_invalid_grounding_drop_count": 1,
-                "grounding_gate_demotion_reason_counts": {
+                "weak_grounding_block_count": 1,
+                "weak_grounding_after_invalid_grounding_drop_count": 1,
+                "weak_grounding_reason_counts": {
                     "invalid_grounding_dropped_to_empty": 1
                 },
             }
@@ -189,10 +189,10 @@ def test_grounding_detail_rollup_includes_grounding_gate_demotions() -> None:
 
     assert counts["kept_knowledge_block_count"] == 1
     assert counts["retrieval_gate_rejected_block_count"] == 1
-    assert counts["grounding_gate_demoted_block_count"] == 1
-    assert counts["grounding_gate_demoted_after_invalid_grounding_drop_count"] == 1
-    assert counts["grounding_gate_demoted_for_category_only_count"] == 0
-    assert counts["grounding_gate_demotion_reason_counts"] == {
+    assert counts["weak_grounding_block_count"] == 1
+    assert counts["weak_grounding_after_invalid_grounding_drop_count"] == 1
+    assert counts["weak_grounding_category_only_count"] == 0
+    assert counts["weak_grounding_reason_counts"] == {
         "invalid_grounding_dropped_to_empty": 1
     }
     assert counts["knowledge_blocks_grounded_to_existing_tags"] == 1

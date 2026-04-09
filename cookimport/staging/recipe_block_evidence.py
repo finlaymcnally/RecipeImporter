@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
-from cookimport.core.models import ConversionResult, HowToStep, RecipeCandidate
+from cookimport.core.models import AuthoritativeRecipeSemantics, ConversionResult, HowToStep, RecipeCandidate, RecipeComment
 from cookimport.labelstudio.archive import build_extracted_archive, normalize_display_text
+from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel
+from cookimport.parsing.canonical_line_roles.contracts import RECIPE_LOCAL_LINE_ROLE_LABELS
 from cookimport.parsing.sections import (
     extract_ingredient_sections,
     extract_instruction_sections,
 )
 from cookimport.parsing.tips import extract_recipe_specific_notes
+from cookimport.staging.recipe_authority_decisions import RecipeAuthorityDecision
 from cookimport.staging.recipe_ownership import (
     RecipeOwnershipInvariantError,
     RecipeOwnershipResult,
@@ -54,6 +57,8 @@ class RecipeBlockEvidence:
     archive: list[ArchiveBlockView]
     block_count: int
     block_labels: dict[int, set[str]]
+    unresolved_recipe_owned_indices: list[int]
+    unresolved_recipe_owned_recipe_id_by_index: dict[int, str]
     notes: list[str]
 
 
@@ -131,42 +136,77 @@ def build_recipe_block_evidence(
     *,
     archive: list[ArchiveBlockView],
     recipe_ownership_result: RecipeOwnershipResult,
+    authoritative_payloads_by_recipe_id: Mapping[str, AuthoritativeRecipeSemantics | dict[str, Any]] | None = None,
+    recipe_authority_decisions_by_recipe_id: Mapping[str, RecipeAuthorityDecision | Mapping[str, Any]] | None = None,
+    boundary_block_labels: Iterable[AuthoritativeBlockLabel] | None = None,
 ) -> RecipeBlockEvidence:
     notes: list[str] = []
     max_index = max((block.index for block in archive), default=-1)
     block_count = max_index + 1 if max_index >= 0 else 0
     block_labels: dict[int, set[str]] = {index: set() for index in range(block_count)}
     archive_by_index = {block.index: block for block in archive}
-    for recipe in conversion_result.recipes:
-        recipe_id = _require_recipe_id(recipe)
-        ownership_entry = recipe_ownership_result.recipe_entry_by_recipe_id(recipe_id)
-        if ownership_entry is None:
-            raise RecipeOwnershipInvariantError(
-                f"Recipe-local evidence could not be projected because '{recipe_id}' has no ownership entry."
+    conversion_recipes_by_id = {
+        _require_recipe_id(recipe): recipe for recipe in conversion_result.recipes
+    }
+    authoritative_payload_rows = {
+        str(recipe_id).strip(): _coerce_authoritative_payload(payload)
+        for recipe_id, payload in (authoritative_payloads_by_recipe_id or {}).items()
+        if str(recipe_id).strip()
+    }
+    decision_rows = {
+        str(recipe_id).strip(): _coerce_recipe_authority_decision(decision)
+        for recipe_id, decision in (recipe_authority_decisions_by_recipe_id or {}).items()
+        if str(recipe_id).strip()
+    }
+    boundary_labels_by_index = {
+        int(row.source_block_index): str(row.final_label or "").strip()
+        for row in (boundary_block_labels or [])
+    }
+    unresolved_recipe_owned_indices: set[int] = set()
+    unresolved_recipe_owned_recipe_id_by_index: dict[int, str] = {}
+
+    for ownership_entry in recipe_ownership_result.recipe_entries:
+        recipe_id = str(ownership_entry.recipe_id).strip()
+        if not recipe_id or not ownership_entry.owned_block_indices:
+            continue
+        recipe_payload = authoritative_payload_rows.get(recipe_id)
+        recipe = (
+            _recipe_candidate_from_authoritative_payload(recipe_payload)
+            if recipe_payload is not None
+            else conversion_recipes_by_id.get(recipe_id)
+        )
+        if recipe is not None:
+            _label_recipe_blocks(
+                recipe,
+                archive_by_index=archive_by_index,
+                owned_block_indices=ownership_entry.owned_block_indices,
+                block_labels=block_labels,
+                notes=notes,
             )
-        _label_recipe_blocks(
-            recipe,
-            archive_by_index=archive_by_index,
+            continue
+        labeled_from_boundary = _label_recipe_blocks_from_boundary_labels(
+            recipe_id=recipe_id,
             owned_block_indices=ownership_entry.owned_block_indices,
+            boundary_labels_by_index=boundary_labels_by_index,
             block_labels=block_labels,
             notes=notes,
         )
-    ownership_recipe_ids = {
-        entry.recipe_id
-        for entry in recipe_ownership_result.recipe_entries
-        if entry.owned_block_indices
-    }
-    result_recipe_ids = {_require_recipe_id(recipe) for recipe in conversion_result.recipes}
-    extra_ownership_ids = sorted(ownership_recipe_ids - result_recipe_ids)
-    if extra_ownership_ids:
-        raise RecipeOwnershipInvariantError(
-            "Recipe ownership referenced recipes that were not present in the conversion result: "
-            f"{extra_ownership_ids}."
+        if labeled_from_boundary:
+            continue
+        decision = decision_rows.get(recipe_id)
+        for block_index in ownership_entry.owned_block_indices:
+            unresolved_recipe_owned_indices.add(int(block_index))
+            unresolved_recipe_owned_recipe_id_by_index[int(block_index)] = recipe_id
+        notes.append(
+            "Recipe-owned blocks remained withheld without recipe-local evidence: "
+            f"{recipe_id} ({getattr(decision, 'publish_status', 'unknown') or 'unknown'})."
         )
     return RecipeBlockEvidence(
         archive=archive,
         block_count=block_count,
         block_labels=block_labels,
+        unresolved_recipe_owned_indices=sorted(unresolved_recipe_owned_indices),
+        unresolved_recipe_owned_recipe_id_by_index=unresolved_recipe_owned_recipe_id_by_index,
         notes=notes,
     )
 
@@ -380,6 +420,81 @@ def _require_recipe_id(recipe: RecipeCandidate) -> str:
     raise RecipeOwnershipInvariantError(
         f"Recipe '{getattr(recipe, 'name', '')}' is missing an identifier."
     )
+
+
+def _coerce_authoritative_payload(
+    payload: AuthoritativeRecipeSemantics | Mapping[str, Any],
+) -> AuthoritativeRecipeSemantics:
+    if isinstance(payload, AuthoritativeRecipeSemantics):
+        return payload
+    return AuthoritativeRecipeSemantics.model_validate(payload)
+
+
+def _coerce_recipe_authority_decision(
+    decision: RecipeAuthorityDecision | Mapping[str, Any],
+) -> RecipeAuthorityDecision:
+    if isinstance(decision, RecipeAuthorityDecision):
+        return decision
+    return RecipeAuthorityDecision(
+        recipe_id=str(decision.get("recipe_id") or "").strip(),
+        semantic_outcome=str(decision.get("semantic_outcome") or "").strip(),
+        publish_status=str(decision.get("publish_status") or "").strip(),
+        ownership_action=str(decision.get("ownership_action") or "").strip(),
+        owned_block_indices=[int(value) for value in decision.get("owned_block_indices") or []],
+        divested_block_indices=[int(value) for value in decision.get("divested_block_indices") or []],
+        retained_block_indices=[int(value) for value in decision.get("retained_block_indices") or []],
+        worker_repair_status=str(decision.get("worker_repair_status") or "").strip() or None,
+        status_reason=str(decision.get("status_reason") or "").strip() or None,
+        single_correction_status=str(decision.get("single_correction_status") or "").strip() or None,
+        final_assembly_status=str(decision.get("final_assembly_status") or "").strip() or None,
+        structural_status=str(decision.get("structural_status") or "").strip() or None,
+        structural_reason_codes=[str(value).strip() for value in decision.get("structural_reason_codes") or [] if str(value).strip()],
+        mapping_status=str(decision.get("mapping_status") or "").strip() or None,
+        mapping_reason=str(decision.get("mapping_reason") or "").strip() or None,
+        final_recipe_authority_status=str(decision.get("final_recipe_authority_status") or "").strip() or None,
+        final_recipe_authority_reason=str(decision.get("final_recipe_authority_reason") or "").strip() or None,
+    )
+
+
+def _recipe_candidate_from_authoritative_payload(
+    payload: AuthoritativeRecipeSemantics,
+) -> RecipeCandidate:
+    return RecipeCandidate(
+        name=payload.title,
+        identifier=payload.recipe_id,
+        recipeIngredient=list(payload.ingredients),
+        recipeInstructions=list(payload.instructions),
+        description=payload.description,
+        recipeYield=payload.recipe_yield,
+        comment=[RecipeComment(text=text) for text in payload.notes],
+        tags=list(payload.tags),
+        provenance=dict(payload.provenance),
+        source=payload.source,
+    )
+
+
+def _label_recipe_blocks_from_boundary_labels(
+    *,
+    recipe_id: str,
+    owned_block_indices: list[int],
+    boundary_labels_by_index: Mapping[int, str],
+    block_labels: dict[int, set[str]],
+    notes: list[str],
+) -> bool:
+    labeled_indices: list[int] = []
+    for block_index in owned_block_indices:
+        label = str(boundary_labels_by_index.get(int(block_index)) or "").strip()
+        if label not in RECIPE_LOCAL_LINE_ROLE_LABELS:
+            continue
+        _mark_label(block_labels, int(block_index), label)
+        labeled_indices.append(int(block_index))
+    if not labeled_indices:
+        return False
+    notes.append(
+        "Recipe-local stage evidence fell back to boundary labels for withheld recipe "
+        f"{recipe_id} ({len(labeled_indices)} blocks)."
+    )
+    return True
 
 
 def _normalize_for_match(text: str) -> str:
