@@ -27,7 +27,7 @@ Current ownership split:
 - Repo code owns shard planning, immutable assignment files, exact ownership validation, proposal assembly, bounded repair, promotion, and telemetry.
 - The model owns the fuzzy semantic calls inside the assignment contract.
 - File-backed validated `out/*.json` is authoritative on the `taskfile` path; final prose messages are telemetry only.
-- For knowledge classification specifically, repo code owns the checked-in tag catalog and validates catalog membership, but the model still decides whether a block is retrieval-grade enough to keep.
+- For knowledge classification specifically, repo code owns the checked-in tag catalog, exposes the real existing tag list to workers, and validates catalog membership; the model still makes the main retrieval-grade judgment, but ingest now owns one narrow deterministic demotion seam for memoir/framing/navigation/decorative-heading/true-but-low-utility rows.
 
 Runtime notes:
 - Workspace-worker sessions run from a sterile mirrored workspace under `~/.codex-recipe/...` with a repo-written `AGENTS.md` plus one visible `task.json`; the repo artifact root stays authoritative for manifests, debug files, and promoted outputs.
@@ -38,7 +38,7 @@ Runtime notes:
 - `taskfile_progress.py` is the shared operator-summary helper: it reads repo-owned `live_status.json`, derives compact attention labels plus `last_activity_at`, and lets recipe/knowledge/line-role progress callbacks surface stuck or suspicious workers without giving deterministic code semantic authority over model answers. Its missing-output label is conservative on purpose: transient in-flight `has_final_agent_message` snapshots should not be treated as terminal by themselves.
 - Completion timing is now one shared runtime policy surface: `workspace_completion_quiescence_seconds` and `completed_termination_grace_seconds` default to 15 seconds and are threaded through stage, benchmark, Label Studio import/prediction, and direct-exec runtime paths from canonical run settings.
 - `scripts/fake-codex-farm.py` mirrors the live direct-exec contract closely enough for zero-token tests; fake direct-exec workers now synthesize assignment-owned outputs rather than queue or phase control loops.
-- Knowledge grounding now rides through the normal runtime artifacts: kept blocks emit only `category` plus `grounding`, under-grounded `knowledge` rows are demoted to `other` instead of forcing tag-invention repair, `knowledge_manifest.json` plus `knowledge_stage_summary.json` expose existing-tag versus proposed-tag counts and grounding-gate demotions, and the stage writes `knowledge_tag_proposals.jsonl` when the model needs a new tag under an existing category.
+- Knowledge grounding now rides through the normal runtime artifacts: kept blocks emit only `category` plus `grounding`, workers see the real existing tag catalog instead of repo-generated candidate-tag hints, `knowledge_manifest.json` plus `knowledge_stage_summary.json` expose existing-tag versus proposed-tag counts, and ingest records deterministic low-utility demotions plus `knowledge_tag_proposals.jsonl` when the model needs a new tag under an existing category.
 
 Owner packages:
 - Recipe: `recipe_stage/` owns the extracted helpers. `recipe_stage_shared.py` is now the shrinking runtime coordinator, with `recipe_stage/task_file_contract.py` owning worker-visible task payload/schema helpers and `recipe_stage/worker_io.py` owning prompt/jsonl/input writing plus local path helpers.

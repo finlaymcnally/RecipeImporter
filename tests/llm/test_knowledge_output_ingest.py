@@ -9,6 +9,7 @@ from cookimport.llm.codex_farm_knowledge_ingest import (
     classify_knowledge_validation_failure,
     normalize_knowledge_worker_payload,
     read_validated_knowledge_outputs_from_proposals,
+    sanitize_knowledge_worker_payload_for_shard,
     validate_knowledge_shard_output,
 )
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
@@ -154,6 +155,129 @@ def test_validate_knowledge_shard_output_rejects_unknown_grounding_tag_keys() ->
     assert valid is False
     assert "unknown_grounding_tag_key" in errors
     assert metadata["unknown_grounding_tag_keys"] == ["not-a-real-tag"]
+
+
+def test_sanitize_knowledge_worker_payload_demotes_book_framing_rows() -> None:
+    framing_shard = ShardManifestEntryV1(
+        shard_id="book.ks0000.nr",
+        owned_ids=("book.ks0000.nr",),
+        input_payload={
+            "v": "1",
+            "bid": "book.ks0000.nr",
+            "b": [
+                {
+                    "i": 4,
+                    "t": "Fifteen years after arriving at the idea for this book, I began to write in earnest.",
+                },
+                {"i": 5, "t": "Marketing copy."},
+            ],
+        },
+        metadata={"owned_block_indices": [4, 5]},
+    )
+    payload, metadata = sanitize_knowledge_worker_payload_for_shard(
+        framing_shard,
+        _semantic_payload(
+            block_decisions=[
+                {
+                    "block_index": 4,
+                    "category": "knowledge",
+                    "grounding": {
+                        "tag_keys": [],
+                        "category_keys": ["techniques"],
+                        "proposed_tags": [
+                            {
+                                "key": "salt-fat-acid-heat",
+                                "display_name": "Salt Fat Acid Heat",
+                                "category_key": "techniques",
+                            }
+                        ],
+                    },
+                },
+                {
+                    "block_index": 5,
+                    "category": "other",
+                    "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
+                },
+            ],
+            idea_groups=[
+                {
+                    "group_id": "g01",
+                    "topic_label": "Book thesis",
+                    "block_indices": [4],
+                }
+            ],
+        ),
+    )
+
+    assert payload["d"][0]["c"] == "other"
+    assert payload["d"][0]["gr"] == {"tk": [], "ck": [], "pt": []}
+    assert payload["g"] == []
+    assert metadata["deterministic_other_bypass_block_count"] == 1
+    assert metadata["deterministic_other_bypass_reason_counts"] == {
+        "book_framing_or_marketing": 1
+    }
+
+
+def test_validate_knowledge_shard_output_demotes_low_utility_rows_before_group_checks() -> None:
+    framing_shard = ShardManifestEntryV1(
+        shard_id="book.ks0000.nr",
+        owned_ids=("book.ks0000.nr",),
+        input_payload={
+            "v": "1",
+            "bid": "book.ks0000.nr",
+            "b": [
+                {
+                    "i": 4,
+                    "t": "Fifteen years after arriving at the idea for this book, I began to write in earnest.",
+                },
+                {"i": 5, "t": "Marketing copy."},
+            ],
+        },
+        metadata={"owned_block_indices": [4, 5]},
+    )
+
+    valid, errors, metadata = validate_knowledge_shard_output(
+        framing_shard,
+        _semantic_payload(
+            block_decisions=[
+                {
+                    "block_index": 4,
+                    "category": "knowledge",
+                    "grounding": {
+                        "tag_keys": [],
+                        "category_keys": ["techniques"],
+                        "proposed_tags": [
+                            {
+                                "key": "salt-fat-acid-heat",
+                                "display_name": "Salt Fat Acid Heat",
+                                "category_key": "techniques",
+                            }
+                        ],
+                    },
+                },
+                {
+                    "block_index": 5,
+                    "category": "other",
+                    "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
+                },
+            ],
+            idea_groups=[
+                {
+                    "group_id": "g01",
+                    "topic_label": "Book thesis",
+                    "block_indices": [4],
+                }
+            ],
+        ),
+    )
+
+    assert valid is True
+    assert errors == ()
+    assert metadata["knowledge_decision_count"] == 0
+    assert metadata["reviewed_all_other"] is True
+    assert metadata["deterministic_other_bypass_reason_counts"] == {
+        "book_framing_or_marketing": 1
+    }
 
 
 def test_classify_knowledge_validation_failure_marks_near_miss() -> None:

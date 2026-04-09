@@ -72,6 +72,7 @@ from ..task_file_guardrails import (
     build_worker_session_guardrails,
     summarize_task_file_guardrails,
 )
+from ..codex_farm_knowledge_ingest import sanitize_knowledge_worker_payload_for_shard
 
 for _module in (_shared_module, _planning_module, _recovery_module):
     globals().update(
@@ -326,7 +327,8 @@ def _evaluate_knowledge_output_file(
     if not isinstance(payload, Mapping):
         return None, ("response_not_json_object",), {}, "invalid"
     try:
-        normalized_payload, normalization_metadata = normalize_knowledge_worker_payload(
+        normalized_payload, normalization_metadata = sanitize_knowledge_worker_payload_for_shard(
+            shard,
             dict(payload)
         )
     except Exception as exc:  # noqa: BLE001

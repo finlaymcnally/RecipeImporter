@@ -68,6 +68,7 @@ from .recovery_status import (
     _terminal_reason_for_knowledge_task,
     _write_knowledge_stage_status,
 )
+from ..codex_farm_knowledge_ingest import sanitize_knowledge_worker_payload_for_shard
 from ..editable_task_file import TASK_FILE_NAME, load_task_file
 from ..taskfile_prompt_contract import render_taskfile_prompt, section
 
@@ -169,11 +170,14 @@ def _build_knowledge_taskfile_prompt(
             "- Read the full classification file once, then fill every answer object in place before you run `task-handoff`.",
             "- Answer each unit with `category` and `grounding`.",
             f"- Final categories must be exactly one of `{'`, `'.join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)}`.",
+            "- Use the provided existing tag catalog first whenever a real tag fit exists.",
             "- If `category` is `knowledge`, `grounding` must include at least one existing `tag_key` or one proposed tag.",
+            "- Propose a new tag only when no existing tag fits cleanly and the block is still retrieval-grade standalone cooking knowledge.",
             "- If you cannot point to a specific existing tag fit, and you also cannot name a real catalog gap, answer `other` instead of inventing a weak tag.",
             "- If `category` is `other`, keep grounding empty.",
             "- Memoir, scene-setting, or personal story with an embedded cooking lesson is still usually `other`; keep only the specific block that independently stands as reusable guidance.",
             "- Praise, endorsement, foreword, thesis, manifesto, `this book will teach you`, and broad inspiration-about-cooking prose are `other` even when they contain true cooking claims.",
+            "- Navigation rows, chapter taxonomy, and decorative heading-only rows are `other` even if a plausible tag comes to mind.",
             "- A heading alone is not enough for `knowledge`.",
             "- Short conceptual headings can still be `knowledge` when they introduce real explanatory content; shortness alone is not enough to drop a block.",
             "- If a heading is decorative, thesis-like, or unsupported by reusable explanatory body text in the owned packet, answer `other`.",
@@ -660,7 +664,10 @@ def _evaluate_knowledge_response(
             "invalid",
         )
     try:
-        payload, normalization_metadata = normalize_knowledge_worker_payload(parsed_payload)
+        payload, normalization_metadata = sanitize_knowledge_worker_payload_for_shard(
+            shard,
+            parsed_payload,
+        )
     except Exception as exc:  # noqa: BLE001
         return None, ("schema_invalid",), {"parse_error": str(exc)}, "invalid"
     valid, validation_errors, validation_metadata = validate_knowledge_shard_output(

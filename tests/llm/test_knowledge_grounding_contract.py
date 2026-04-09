@@ -273,6 +273,7 @@ def test_structured_prompt_explicitly_forbids_category_only_grounding() -> None:
 
     assert "category-only grounding is invalid" in prompt
     assert "return `other` with empty grounding" in prompt
+    assert "Use the provided existing `tags` catalog first" in prompt
 
 
 def test_structured_packet_uses_local_row_ids_and_compact_hints() -> None:
@@ -313,5 +314,7 @@ def test_structured_packet_uses_local_row_ids_and_compact_hints() -> None:
     assert packet["rows"][0]["context_after"] == "Next row."
     assert "candidate_tag_keys" not in packet["rows"][0]
     assert "categories" in packet
+    assert "tags" in packet
+    assert any(tag["key"] == "emulsify" for tag in packet["tags"])
     assert "ontology" not in packet
     assert "review_contract" not in packet

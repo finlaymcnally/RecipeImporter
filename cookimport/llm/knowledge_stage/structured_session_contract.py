@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from ..knowledge_tag_catalog import empty_grounding_payload
 from .task_file_contracts import (
     KNOWLEDGE_CLASSIFY_STAGE_KEY,
     KNOWLEDGE_GROUP_STAGE_KEY,
@@ -323,6 +322,17 @@ def knowledge_task_file_to_structured_packet(
         ]
         if categories:
             packet["categories"] = categories
+        tags = [
+            {
+                "key": str(tag.get("key") or "").strip(),
+                "display_name": str(tag.get("display_name") or "").strip(),
+                "category_key": str(tag.get("category_key") or "").strip(),
+            }
+            for tag in (task_file_payload.get("ontology") or {}).get("tags") or []
+            if isinstance(tag, Mapping) and str(tag.get("key") or "").strip()
+        ]
+        if tags:
+            packet["tags"] = tags
     if isinstance(task_file_payload.get("grouping_batch"), Mapping):
         packet["grouping_batch"] = dict(task_file_payload.get("grouping_batch") or {})
     if validation_errors:
@@ -356,14 +366,17 @@ def build_knowledge_structured_prompt(
         )
     else:
         response_shape = (
-            '{"rows":[{"row_id":"r01","category":"knowledge","grounding":{"tag_keys":[],"category_keys":["techniques"],"proposed_tags":[{"key":"heat-control","display_name":"Heat control","category_key":"techniques"}]}}]}'
+            '{"rows":[{"row_id":"r01","category":"knowledge","grounding":{"tag_keys":["emulsify"],"category_keys":["techniques"],"proposed_tags":[]}}]}'
         )
         task_note = (
             "Review the ordered knowledge rows and answer every `row_id` exactly once.\n"
             "Classify each row as `knowledge` or `other` and include `grounding`.\n"
+            "Use the provided existing `tags` catalog first whenever a real tag fit exists.\n"
             "If `category` is `knowledge`, grounding must include at least one existing `tag_key` or one proposed tag.\n"
+            "Only propose a new tag when no existing tag fits cleanly and the row is still clearly worth retrieving later as standalone cooking knowledge.\n"
             "`category_keys` may support that grounding, but category-only grounding is invalid and will be returned for repair.\n"
             "If you cannot name a real existing tag fit or a concrete proposed tag, return `other` with empty grounding.\n"
+            "Memoir, book framing, navigation, decorative headings, and true-but-low-utility prose belong in `other` even if they mention cooking.\n"
             "Treat category labels, heading hints, and row order as weak hints only.\n"
         )
     context_note = (

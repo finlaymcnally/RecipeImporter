@@ -177,15 +177,9 @@ def _knowledge_classification_answer_schema() -> dict[str, Any]:
             {
                 "category": "knowledge",
                 "grounding": {
-                    "tag_keys": [],
-                    "category_keys": [],
-                    "proposed_tags": [
-                        {
-                            "key": "heat-control",
-                            "display_name": "Heat control",
-                            "category_key": "techniques",
-                        }
-                    ],
+                    "tag_keys": ["emulsify"],
+                    "category_keys": ["techniques"],
+                    "proposed_tags": [],
                 },
             },
             {
@@ -216,12 +210,16 @@ def _knowledge_classification_review_contract() -> dict[str, Any]:
             "Use nearby context only to disambiguate edge cases, not to force nearby rows into the same answer.",
             "Treat heading shape and packet position as weak hints only.",
             "A heading alone is not enough for knowledge; keep a heading only when it directly introduces reusable explanatory content in the owned packet.",
+            "Ground knowledge to existing tags from the provided catalog whenever a real fit exists.",
+            "Propose a new tag only when no existing tag fits cleanly and the exact block is still worth retrieving later as standalone cooking knowledge.",
             "Short conceptual headings can still be knowledge when they introduce real explanatory content; shortness alone is not enough to drop a block.",
         ],
         "anti_patterns": [
             "Do not invent a rule that classifies many rows at once from heading level, casing, length, or title shape.",
             "Do not treat the whole packet as one semantic unit just because the rows are adjacent.",
             "Do not keep memoir, praise, endorsement, foreword, thesis, manifesto, or broad inspiration-about-cooking prose as knowledge just because it contains true cooking claims.",
+            "Do not invent a new tag just because the text vaguely gestures at cooking; real catalog matches come first.",
+            "Navigation, decorative headings, book framing, memoir scene-setting, and true-but-low-utility filler belong in `other` even when you can imagine a plausible tag.",
             "If you feel tempted to batch or script the decision, stop and reread the actual owned block text instead.",
         ],
     }

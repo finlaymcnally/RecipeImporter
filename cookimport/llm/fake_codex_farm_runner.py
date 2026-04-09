@@ -121,17 +121,9 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
                 {
                     "block_index": int(knowledge_input_block_index(block) or 0),
                     "category": "knowledge",
-                    "grounding": {
-                        "tag_keys": [],
-                        "category_keys": [],
-                        "proposed_tags": [
-                            {
-                                "key": "fake-knowledge-concept",
-                                "display_name": "Fake Knowledge Concept",
-                                "category_key": "techniques",
-                            }
-                        ],
-                    },
+                    "grounding": _default_fake_knowledge_grounding(
+                        str(knowledge_input_block_text(block) or "")
+                    ),
                 }
                 for block in blocks
                 if isinstance(block, dict)
@@ -173,6 +165,39 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
 def _structured_knowledge_row_id(row: Mapping[str, Any]) -> str:
     return str(row.get("row_id") or "").strip()
 
+
+def _default_fake_knowledge_grounding(text: str) -> dict[str, Any]:
+    lowered = str(text or "").strip().lower()
+    if "emulsif" in lowered or "whisk" in lowered:
+        return {
+            "tag_keys": ["emulsify"],
+            "category_keys": ["techniques"],
+            "proposed_tags": [],
+        }
+    if "saute" in lowered or "sauté" in lowered or "pan" in lowered or "heat" in lowered:
+        return {
+            "tag_keys": ["saute"],
+            "category_keys": ["cooking-method"],
+            "proposed_tags": [],
+        }
+    if "acid" in lowered or "vinegar" in lowered or "lemon" in lowered:
+        return {
+            "tag_keys": ["bright"],
+            "category_keys": ["flavor-profile"],
+            "proposed_tags": [],
+        }
+    return {
+        "tag_keys": [],
+        "category_keys": [],
+        "proposed_tags": [
+            {
+                "key": "fake-knowledge-concept",
+                "display_name": "Fake Knowledge Concept",
+                "category_key": "techniques",
+            }
+        ],
+    }
+
 def _default_structured_knowledge_classification_output(
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -182,17 +207,7 @@ def _default_structured_knowledge_classification_output(
             {
                 "row_id": _structured_knowledge_row_id(row),
                 "category": "knowledge",
-                "grounding": {
-                    "tag_keys": [],
-                    "category_keys": [],
-                    "proposed_tags": [
-                        {
-                            "key": "fake-knowledge-concept",
-                            "display_name": "Fake Knowledge Concept",
-                            "category_key": "techniques",
-                        }
-                    ],
-                },
+                "grounding": _default_fake_knowledge_grounding(str(row.get("text") or "")),
             }
             for row in rows
         ]
@@ -372,17 +387,7 @@ def _default_recipe_refine_task_output(payload: dict[str, Any]) -> dict[str, Any
 def _default_knowledge_classification_task_output(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "category": "knowledge",
-        "grounding": {
-            "tag_keys": [],
-            "category_keys": [],
-            "proposed_tags": [
-                {
-                    "key": "heat-control",
-                    "display_name": "Heat control",
-                    "category_key": "techniques",
-                }
-            ],
-        },
+        "grounding": _default_fake_knowledge_grounding(str(payload.get("text") or "")),
     }
 
 

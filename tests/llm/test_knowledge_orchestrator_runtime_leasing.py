@@ -175,14 +175,20 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert first_output["packet_id"] == "book.ks0000.nr"
     assert first_output["block_decisions"][0]["block_index"] == 0
     assert first_output["block_decisions"][0]["category"] == "knowledge"
-    assert first_output["block_decisions"][0]["grounding"]["proposed_tags"]
+    assert (
+        first_output["block_decisions"][0]["grounding"]["tag_keys"]
+        or first_output["block_decisions"][0]["grounding"]["proposed_tags"]
+    )
     assert first_output["idea_groups"] == [
         {"group_id": "g01", "topic_label": "Fake knowledge group", "block_indices": [0]}
     ]
     assert second_output["packet_id"] == "book.ks0001.nr"
     assert second_output["block_decisions"][0]["block_index"] == 2
     assert second_output["block_decisions"][0]["category"] == "knowledge"
-    assert second_output["block_decisions"][0]["grounding"]["proposed_tags"]
+    assert (
+        second_output["block_decisions"][0]["grounding"]["tag_keys"]
+        or second_output["block_decisions"][0]["grounding"]["proposed_tags"]
+    )
     phase_manifest = json.loads((phase_dir / "phase_manifest.json").read_text(encoding="utf-8"))
     telemetry = json.loads((phase_dir / "telemetry.json").read_text(encoding="utf-8"))
     worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
