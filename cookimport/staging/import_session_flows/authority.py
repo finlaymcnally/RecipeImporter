@@ -11,6 +11,11 @@ from cookimport.staging.output_names import (
     LABEL_DETERMINISTIC_SCHEMA_VERSION,
     LABEL_REFINE_DIR_NAME,
     LABEL_REFINE_SCHEMA_VERSION,
+    LINE_ROLE_AUTHORITATIVE_BLOCK_LABELS_FILE_NAME,
+    LINE_ROLE_AUTHORITATIVE_BLOCK_LABELS_SCHEMA_VERSION,
+    LINE_ROLE_AUTHORITATIVE_LABELED_LINES_FILE_NAME,
+    LINE_ROLE_LABEL_DIFFS_FILE_NAME,
+    LINE_ROLE_PIPELINE_DIR_NAME,
     RECIPE_BOUNDARY_DECISIONS_SCHEMA_VERSION,
     RECIPE_BOUNDARY_DIR_NAME,
     RECIPE_BOUNDARY_SCHEMA_VERSION,
@@ -55,6 +60,14 @@ def _write_label_first_artifacts(
     authoritative_blocks_path = (
         run_root / RECIPE_BOUNDARY_DIR_NAME / workbook_slug / "authoritative_block_labels.json"
     )
+    line_role_pipeline_dir = run_root / LINE_ROLE_PIPELINE_DIR_NAME
+    line_role_authoritative_lines_path = (
+        line_role_pipeline_dir / LINE_ROLE_AUTHORITATIVE_LABELED_LINES_FILE_NAME
+    )
+    line_role_authoritative_blocks_path = (
+        line_role_pipeline_dir / LINE_ROLE_AUTHORITATIVE_BLOCK_LABELS_FILE_NAME
+    )
+    line_role_label_diffs_path = line_role_pipeline_dir / LINE_ROLE_LABEL_DIFFS_FILE_NAME
 
     det_line_rows = [
         {
@@ -87,11 +100,14 @@ def _write_label_first_artifacts(
             for row in label_first_result.block_labels
         ],
     }
-    _write_jsonl(det_lines_path, det_line_rows)
-    _write_json(det_blocks_path, det_block_rows)
+    authoritative_stage_key = label_first_result.authoritative_label_stage_key
+    wrote_line_role_stage = str(line_role_pipeline or "off").strip().lower() != "off"
+    wrote_label_stage_dirs = authoritative_stage_key != "line_role"
+    if wrote_label_stage_dirs:
+        _write_jsonl(det_lines_path, det_line_rows)
+        _write_json(det_blocks_path, det_block_rows)
 
-    wrote_final_stage = str(line_role_pipeline or "off").strip().lower() != "off"
-    if wrote_final_stage:
+    if wrote_line_role_stage:
         final_line_rows = [
             {
                 "source_block_id": row.source_block_id,
@@ -107,7 +123,11 @@ def _write_label_first_artifacts(
             for row in label_first_result.labeled_lines
         ]
         final_block_rows = {
-            "schema_version": LABEL_REFINE_SCHEMA_VERSION,
+            "schema_version": (
+                LINE_ROLE_AUTHORITATIVE_BLOCK_LABELS_SCHEMA_VERSION
+                if authoritative_stage_key == "line_role"
+                else LABEL_REFINE_SCHEMA_VERSION
+            ),
             "workbook_slug": workbook_slug,
             "block_labels": [
                 row.model_dump(mode="json")
@@ -125,9 +145,14 @@ def _write_label_first_artifacts(
             for row in label_first_result.labeled_lines
             if row.deterministic_label != row.final_label
         ]
-        _write_jsonl(final_lines_path, final_line_rows)
-        _write_json(final_blocks_path, final_block_rows)
-        _write_jsonl(final_diffs_path, diff_rows)
+        if authoritative_stage_key == "line_role":
+            _write_jsonl(line_role_authoritative_lines_path, final_line_rows)
+            _write_json(line_role_authoritative_blocks_path, final_block_rows)
+            _write_jsonl(line_role_label_diffs_path, diff_rows)
+        else:
+            _write_jsonl(final_lines_path, final_line_rows)
+            _write_json(final_blocks_path, final_block_rows)
+            _write_jsonl(final_diffs_path, diff_rows)
 
     _write_json(
         span_path,
@@ -162,18 +187,40 @@ def _write_label_first_artifacts(
     )
 
     paths = {
-        "label_deterministic_lines_path": det_lines_path,
-        "label_deterministic_blocks_path": det_blocks_path,
         "recipe_spans_path": span_path,
         "span_decisions_path": span_decisions_path,
         "authoritative_block_labels_path": authoritative_blocks_path,
     }
-    if wrote_final_stage:
+    if wrote_label_stage_dirs:
         paths.update(
             {
-                "label_llm_lines_path": final_lines_path,
-                "label_llm_blocks_path": final_blocks_path,
-                "label_llm_diffs_path": final_diffs_path,
+                "label_deterministic_lines_path": det_lines_path,
+                "label_deterministic_blocks_path": det_blocks_path,
+            }
+        )
+    if wrote_line_role_stage:
+        if authoritative_stage_key == "line_role":
+            paths.update(
+                {
+                    "line_role_authoritative_lines_path": line_role_authoritative_lines_path,
+                    "line_role_authoritative_blocks_path": line_role_authoritative_blocks_path,
+                    "line_role_label_diffs_path": line_role_label_diffs_path,
+                }
+            )
+        else:
+            paths.update(
+                {
+                    "label_llm_lines_path": final_lines_path,
+                    "label_llm_blocks_path": final_blocks_path,
+                    "label_llm_diffs_path": final_diffs_path,
+                }
+            )
+    elif not wrote_label_stage_dirs:
+        paths.update(
+            {
+                "line_role_authoritative_lines_path": line_role_authoritative_lines_path,
+                "line_role_authoritative_blocks_path": line_role_authoritative_blocks_path,
+                "line_role_label_diffs_path": line_role_label_diffs_path,
             }
         )
     return paths

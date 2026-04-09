@@ -220,6 +220,45 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert stage_summary["pre_kill_failures_observed"] is False
 
 
+def test_knowledge_orchestrator_can_skip_grouping_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
+    pack_root, _run_root = make_runtime_pack_and_run_dirs(tmp_path)
+    settings = make_runtime_settings(
+        pack_root=pack_root,
+        worker_count=1,
+        knowledge_prompt_target_count=1,
+        knowledge_grouping_enabled=False,
+    )
+    runner = FakeCodexExecRunner(
+        output_builder=lambda payload: build_structural_pipeline_output(
+            "recipe.knowledge.packet.v1",
+            dict(payload or {}),
+        )
+    )
+
+    fixture = _run_runtime_phase(
+        monkeypatch,
+        tmp_path,
+        runner=runner,
+        settings=settings,
+        block_texts=["Knowledge zero."],
+        spans=[knowledge_span(0)],
+    )
+    phase_dir = Path(fixture["phase_dir"])
+    worker_root = Path(fixture["worker_root"])
+    output_payload = json.loads(
+        (worker_root / "out" / "book.ks0000.nr.json").read_text(encoding="utf-8")
+    )
+    telemetry = json.loads((phase_dir / "telemetry.json").read_text(encoding="utf-8"))
+
+    assert output_payload["idea_groups"] == []
+    assert telemetry["summary"]["packet_economics"]["grouping_step_count_total"] == 0
+    assert telemetry["summary"]["packet_economics"]["grouping_validation_count_total"] == 0
+
+
 def test_knowledge_orchestrator_retries_one_fresh_session_after_preserved_progress(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

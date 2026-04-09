@@ -34,14 +34,14 @@ def _shard(*, text: str) -> ShardManifestEntryV1:
     )
 
 
-def test_classification_task_file_exposes_ontology_once_and_candidate_tags_per_unit() -> None:
+def test_classification_task_file_exposes_ontology_once_without_repo_tag_hints() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[_shard(text="Whisk oil into vinegar slowly to emulsify the dressing.")],
     )
 
     assert task_file["ontology"]["catalog_version"] == "cookbook-tag-catalog-2026-03-30"
-    assert "emulsify" in task_file["units"][0]["evidence"]["candidate_tag_keys"]
+    assert "candidate_tag_keys" not in task_file["units"][0]["evidence"]
     assert task_file["units"][0]["answer"] == {
         "category": None,
         "grounding": {
@@ -311,7 +311,7 @@ def test_structured_packet_uses_local_row_ids_and_compact_hints() -> None:
     ]
     assert packet["rows"][0]["context_before"] == "Previous row."
     assert packet["rows"][0]["context_after"] == "Next row."
-    assert "candidate_tag_keys" in packet["rows"][0]
+    assert "candidate_tag_keys" not in packet["rows"][0]
     assert "categories" in packet
     assert "ontology" not in packet
     assert "review_contract" not in packet

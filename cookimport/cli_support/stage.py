@@ -162,6 +162,7 @@ def _write_stage_run_manifest(
     for path_key, artifact_key in (
         ("label_deterministic", "label_deterministic_dir"),
         ("label_refine", "label_refine_dir"),
+        ("line-role-pipeline", "line_role_pipeline_dir"),
         ("recipe_boundary", "recipe_boundary_dir"),
         ("intermediate drafts", "intermediate_drafts_dir"),
         ("final drafts", "final_drafts_dir"),

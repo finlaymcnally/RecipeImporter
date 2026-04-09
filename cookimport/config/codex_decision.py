@@ -262,6 +262,7 @@ def apply_top_tier_profile_contract(
         normalized.update(_TOP_TIER_VANILLA_PATCH)
     else:
         normalized.update(_TOP_TIER_CODEXFARM_PATCH)
+        normalized.setdefault("knowledge_grouping_enabled", False)
     return normalized
 
 
@@ -279,6 +280,7 @@ def apply_benchmark_codex_contract_from_baseline(
 ) -> dict[str, Any]:
     codex_payload = dict(baseline_payload)
     codex_payload.update(_BENCHMARK_CODEXFARM_PATCH)
+    codex_payload.setdefault("knowledge_grouping_enabled", False)
     codex_payload["atomic_block_splitter"] = _normalize_atomic_block_splitter_for_benchmark(
         baseline_payload.get("atomic_block_splitter")
     )

@@ -945,6 +945,20 @@ class RunSettings(BaseModel):
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
+    knowledge_grouping_enabled: bool = Field(
+        default=True,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Knowledge Grouping Enabled",
+            order=115,
+            description=(
+                "Whether the knowledge second pass groups kept knowledge blocks into "
+                "idea groups after classification. Turning this off keeps the "
+                "knowledge-vs-other decisions but writes no knowledge groups."
+            ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
     knowledge_group_task_max_units: int = Field(
         default=40,
         ge=1,

@@ -451,6 +451,78 @@ def test_build_stage_observability_report_surfaces_processing_attention_summarie
     assert final_recipe_stage["workbooks"][0]["attention_summary"]["zero_target_counts"]["final_recipe_not_promoted_count"] == 2
 
 
+def test_build_stage_observability_report_treats_line_role_as_early_authority_stage(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run"
+    line_role_root = run_root / "line-role-pipeline"
+    stage_root = line_role_root / "runtime" / "line_role"
+    stage_root.mkdir(parents=True, exist_ok=True)
+    _write_json(stage_root / "phase_manifest.json", {"worker_count": 1, "shard_count": 1})
+    _write_json(stage_root / "promotion_report.json", {"invalid_shards": 0, "missing_output_shards": 0})
+    (stage_root / "shard_manifest.jsonl").write_text(
+        json.dumps({"shard_id": "line-role-canonical-0001"}) + "\n",
+        encoding="utf-8",
+    )
+    (stage_root / "shard_status.jsonl").write_text(
+        json.dumps(
+            {
+                "shard_id": "line-role-canonical-0001",
+                "state": "validated",
+                "terminal_outcome": "validated",
+                "metadata": {"llm_authoritative_row_count": 2, "unresolved_row_count": 0},
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (stage_root / "canonical_line_table.jsonl").write_text(
+        json.dumps({"atomic_index": 0, "text": "Toast"}) + "\n",
+        encoding="utf-8",
+    )
+    (line_role_root / "authoritative_labeled_lines.jsonl").write_text(
+        json.dumps(
+            {
+                "atomic_index": 0,
+                "label": "RECIPE_TITLE",
+                "deterministic_label": "NONRECIPE_CANDIDATE",
+                "decided_by": "codex",
+                "reason_tags": [],
+                "escalation_reasons": [],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    boundary_dir = run_root / "recipe_boundary" / "book"
+    boundary_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(boundary_dir / "span_decisions.json", {"span_decisions": []})
+
+    report = build_stage_observability_report(
+        run_root=run_root,
+        run_kind="stage",
+        created_at="2026-04-09T16:30:00",
+        run_config={},
+    )
+    payload = report.model_dump(exclude_none=True)
+
+    stage_keys = [stage["stage_key"] for stage in payload["stages"]]
+    assert "line_role" in stage_keys
+    assert "label_refine" not in stage_keys
+    assert "label_deterministic" not in stage_keys
+    line_role_stage = next(stage for stage in payload["stages"] if stage["stage_key"] == "line_role")
+    recipe_boundary_stage = next(
+        stage for stage in payload["stages"] if stage["stage_key"] == "recipe_boundary"
+    )
+    assert line_role_stage["stage_order"] < recipe_boundary_stage["stage_order"]
+    assert (
+        line_role_stage["workbooks"][0]["artifact_paths"]["authoritative_labeled_lines_jsonl"]
+        == "line-role-pipeline/authoritative_labeled_lines.jsonl"
+    )
+
+
 def test_build_recipe_stage_summary_reports_task_followup_rollups(tmp_path: Path) -> None:
     stage_root = tmp_path / "raw" / "llm" / "book" / "recipe_phase_runtime"
     (stage_root / "proposals").mkdir(parents=True, exist_ok=True)

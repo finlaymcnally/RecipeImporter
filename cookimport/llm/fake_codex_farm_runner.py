@@ -13,7 +13,6 @@ from .codex_farm_knowledge_contracts import (
     knowledge_input_blocks,
     knowledge_input_bundle_id,
 )
-from .knowledge_tag_catalog import load_knowledge_tag_catalog
 from .recipe_tagging_guide import build_recipe_tagging_guide, recipe_tagging_guide_categories
 
 OutputBuilder = Callable[[dict[str, Any] | str], dict[str, Any]]
@@ -116,11 +115,6 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
         if stage_key == "knowledge_group" and payload.get("block_index") is not None:
             return _default_knowledge_grouping_task_output(payload)
         blocks = knowledge_input_blocks(payload)
-        first_block = blocks[0] if isinstance(blocks, list) and blocks else {}
-        block_index = knowledge_input_block_index(first_block) or 0
-        block_text = knowledge_input_block_text(first_block).strip()
-        catalog = load_knowledge_tag_catalog()
-        candidate_tag_keys = catalog.candidate_tag_keys_for_text(block_text)
         return {
             "packet_id": knowledge_input_bundle_id(payload),
             "block_decisions": [
@@ -128,19 +122,15 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
                     "block_index": int(knowledge_input_block_index(block) or 0),
                     "category": "knowledge",
                     "grounding": {
-                        "tag_keys": candidate_tag_keys[:1],
+                        "tag_keys": [],
                         "category_keys": [],
-                        "proposed_tags": (
-                            []
-                            if candidate_tag_keys
-                            else [
-                                {
-                                    "key": "fake-knowledge-concept",
-                                    "display_name": "Fake Knowledge Concept",
-                                    "category_key": "techniques",
-                                }
-                            ]
-                        ),
+                        "proposed_tags": [
+                            {
+                                "key": "fake-knowledge-concept",
+                                "display_name": "Fake Knowledge Concept",
+                                "category_key": "techniques",
+                            }
+                        ],
                     },
                 }
                 for block in blocks
@@ -183,15 +173,9 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
 def _structured_knowledge_row_id(row: Mapping[str, Any]) -> str:
     return str(row.get("row_id") or "").strip()
 
-
-def _structured_knowledge_row_text(row: Mapping[str, Any]) -> str:
-    return str(row.get("text") or "").strip()
-
-
 def _default_structured_knowledge_classification_output(
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
-    catalog = load_knowledge_tag_catalog()
     rows = [dict(row) for row in (payload.get("rows") or []) if isinstance(row, Mapping)]
     return {
         "rows": [
@@ -199,23 +183,15 @@ def _default_structured_knowledge_classification_output(
                 "row_id": _structured_knowledge_row_id(row),
                 "category": "knowledge",
                 "grounding": {
-                    "tag_keys": catalog.candidate_tag_keys_for_text(
-                        _structured_knowledge_row_text(row)
-                    )[:1],
+                    "tag_keys": [],
                     "category_keys": [],
-                    "proposed_tags": (
-                        []
-                        if catalog.candidate_tag_keys_for_text(
-                            _structured_knowledge_row_text(row)
-                        )
-                        else [
-                            {
-                                "key": "fake-knowledge-concept",
-                                "display_name": "Fake Knowledge Concept",
-                                "category_key": "techniques",
-                            }
-                        ]
-                    ),
+                    "proposed_tags": [
+                        {
+                            "key": "fake-knowledge-concept",
+                            "display_name": "Fake Knowledge Concept",
+                            "category_key": "techniques",
+                        }
+                    ],
                 },
             }
             for row in rows
@@ -394,24 +370,6 @@ def _default_recipe_refine_task_output(payload: dict[str, Any]) -> dict[str, Any
 
 
 def _default_knowledge_classification_task_output(payload: dict[str, Any]) -> dict[str, Any]:
-    text = str(payload.get("text") or "").strip()
-    catalog = load_knowledge_tag_catalog()
-    candidate_tag_keys = [
-        str(value).strip()
-        for value in (payload.get("candidate_tag_keys") or [])
-        if str(value).strip()
-    ]
-    if not candidate_tag_keys:
-        candidate_tag_keys = catalog.candidate_tag_keys_for_text(text)
-    if candidate_tag_keys:
-        return {
-            "category": "knowledge",
-            "grounding": {
-                "tag_keys": candidate_tag_keys[:1],
-                "category_keys": [],
-                "proposed_tags": [],
-            },
-        }
     return {
         "category": "knowledge",
         "grounding": {

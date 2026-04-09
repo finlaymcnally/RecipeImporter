@@ -204,6 +204,7 @@ class LabelStageResult(BaseModel):
 class LabelFirstStageResult(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
+    authoritative_label_stage_key: Literal["label_refine", "line_role"] = "label_refine"
     labeled_lines: list[AuthoritativeLabeledLine] = Field(default_factory=list)
     block_labels: list[AuthoritativeBlockLabel] = Field(default_factory=list)
     recipe_spans: list[RecipeSpan] = Field(default_factory=list)
@@ -226,6 +227,11 @@ def build_label_first_stage_result(
     live_llm_allowed: bool = False,
     progress_callback: Any | None = None,
 ) -> LabelFirstStageResult:
+    authoritative_label_stage_key = (
+        "line_role"
+        if str(getattr(run_settings.line_role_pipeline, "value", "off")).strip().lower() != "off"
+        else "label_refine"
+    )
     archive_blocks = _archive_block_rows(
         conversion_result=conversion_result,
         full_blocks=full_blocks,
@@ -322,6 +328,7 @@ def build_label_first_stage_result(
         recipe_spans=recipe_spans,
         span_decisions=span_decisions,
         run_settings=run_settings,
+        authoritative_label_stage_key=authoritative_label_stage_key,
     )
 
 
@@ -337,6 +344,7 @@ def build_conversion_result_from_label_spans(
     recipe_spans: Sequence[RecipeSpan],
     span_decisions: Sequence[RecipeSpanDecision],
     run_settings: RunSettings | None = None,
+    authoritative_label_stage_key: Literal["label_refine", "line_role"] = "label_refine",
 ) -> LabelFirstStageResult:
     lines_by_block: dict[int, list[AuthoritativeLabeledLine]] = defaultdict(list)
     for row in labeled_lines:
@@ -458,6 +466,7 @@ def build_conversion_result_from_label_spans(
         workbook_path=original_result.workbook_path,
     )
     return LabelFirstStageResult(
+        authoritative_label_stage_key=authoritative_label_stage_key,
         labeled_lines=list(labeled_lines),
         block_labels=list(block_labels),
         recipe_spans=accepted_recipe_spans,

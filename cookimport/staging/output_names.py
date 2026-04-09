@@ -4,12 +4,18 @@ from __future__ import annotations
 LABEL_DETERMINISTIC_DIR_NAME = "label_deterministic"
 LABEL_REFINE_DIR_NAME = "label_refine"
 RECIPE_BOUNDARY_DIR_NAME = "recipe_boundary"
+LINE_ROLE_PIPELINE_DIR_NAME = "line-role-pipeline"
 
 LABEL_DETERMINISTIC_SCHEMA_VERSION = "label_deterministic.v1"
 LABEL_REFINE_SCHEMA_VERSION = "label_refine.v1"
 RECIPE_BOUNDARY_SCHEMA_VERSION = "recipe_boundary.v1"
 RECIPE_BOUNDARY_DECISIONS_SCHEMA_VERSION = "recipe_boundary_decisions.v1"
 AUTHORITATIVE_BLOCK_LABELS_SCHEMA_VERSION = "authoritative_block_labels.v1"
+LINE_ROLE_AUTHORITATIVE_BLOCK_LABELS_SCHEMA_VERSION = "line_role_authoritative_block_labels.v1"
+
+LINE_ROLE_AUTHORITATIVE_LABELED_LINES_FILE_NAME = "authoritative_labeled_lines.jsonl"
+LINE_ROLE_AUTHORITATIVE_BLOCK_LABELS_FILE_NAME = "authoritative_block_labels.json"
+LINE_ROLE_LABEL_DIFFS_FILE_NAME = "label_diffs.jsonl"
 
 NONRECIPE_ROUTE_FILE_NAME = "08_nonrecipe_route.json"
 NONRECIPE_EXCLUSIONS_FILE_NAME = "08_nonrecipe_exclusions.jsonl"

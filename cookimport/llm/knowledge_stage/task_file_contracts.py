@@ -214,14 +214,13 @@ def _knowledge_classification_review_contract() -> dict[str, Any]:
         "decision_policy": [
             "Read the owned block text first. That text is the primary evidence.",
             "Use nearby context only to disambiguate edge cases, not to force nearby rows into the same answer.",
-            "Treat candidate tags, heading shape, and packet position as weak hints only.",
+            "Treat heading shape and packet position as weak hints only.",
             "A heading alone is not enough for knowledge; keep a heading only when it directly introduces reusable explanatory content in the owned packet.",
             "Short conceptual headings can still be knowledge when they introduce real explanatory content; shortness alone is not enough to drop a block.",
         ],
         "anti_patterns": [
             "Do not invent a rule that classifies many rows at once from heading level, casing, length, or title shape.",
             "Do not treat the whole packet as one semantic unit just because the rows are adjacent.",
-            "Do not treat candidate tags as votes or proof that a block is knowledge.",
             "Do not keep memoir, praise, endorsement, foreword, thesis, manifesto, or broad inspiration-about-cooking prose as knowledge just because it contains true cooking claims.",
             "If you feel tempted to batch or script the decision, stop and reread the actual owned block text instead.",
         ],
@@ -329,11 +328,6 @@ def _collect_knowledge_grouping_units(
                     "context_before": evidence.get("context_before"),
                     "context_after": evidence.get("context_after"),
                     "structure": dict(_coerce_dict(evidence.get("structure"))),
-                    "candidate_tag_keys": [
-                        str(value).strip()
-                        for value in (evidence.get("candidate_tag_keys") or [])
-                        if str(value).strip()
-                    ],
                 },
                 "answer": {},
             }
@@ -495,9 +489,6 @@ def build_knowledge_classification_task_file(
                                 else None
                             ),
                         },
-                        "candidate_tag_keys": catalog.candidate_tag_keys_for_text(
-                            block.get("t"),
-                        ),
                         "routing_hints": [],
                     },
                     "answer": _blank_classification_answer(),
@@ -989,6 +980,7 @@ def transition_knowledge_classification_task_file(
     original_task_file: Mapping[str, Any],
     edited_task_file: Mapping[str, Any],
     unit_to_shard_id: Mapping[str, str],
+    knowledge_grouping_enabled: bool = True,
     classification_task_file: Mapping[str, Any] | None = None,
     existing_classification_answers_by_unit_id: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> KnowledgeTaskFileTransition:
@@ -1092,6 +1084,27 @@ def transition_knowledge_classification_task_file(
             or KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS
         ),
     )
+    if not knowledge_grouping_enabled:
+        return KnowledgeTaskFileTransition(
+            status="completed_without_grouping",
+            current_stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY,
+            final_outputs=combine_knowledge_task_file_outputs(
+                classification_task_file=classification_source_task_file,
+                classification_answers_by_unit_id=combined_answers_by_unit_id,
+                grouping_answers_by_unit_id=None,
+                unit_to_shard_id=unit_to_shard_id,
+            ),
+            validated_answers_by_unit_id=combined_answers_by_unit_id,
+            validation_metadata={
+                **dict(validation_metadata),
+                "knowledge_grouping_enabled": False,
+            },
+            transition_metadata={
+                "knowledge_grouping_enabled": False,
+                "grouping_skipped_reason": "knowledge_grouping_disabled",
+                "grouping_unit_count": len(grouping_task_file.get("units") or []),
+            },
+        )
     if grouping_task_file.get("units"):
         total_grouping_unit_count = len(grouping_task_file.get("units") or [])
         return KnowledgeTaskFileTransition(

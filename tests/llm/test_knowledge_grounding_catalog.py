@@ -5,16 +5,13 @@ from scripts.sync_cookbook_tag_catalog import build_catalog_payload
 from cookimport.llm.knowledge_tag_catalog import load_knowledge_tag_catalog
 
 
-def test_checked_in_knowledge_tag_catalog_loads_and_shortlists_candidates() -> None:
+def test_checked_in_knowledge_tag_catalog_loads() -> None:
     catalog = load_knowledge_tag_catalog()
 
     assert len(catalog.categories) == 20
     assert len(catalog.tags) == 203
     assert catalog.has_category_key("techniques") is True
     assert catalog.has_tag_key("emulsify") is True
-    assert catalog.candidate_tag_keys_for_text(
-        "Whisk oil in slowly so the dressing emulsifies instead of breaking."
-    )
 
 
 def test_sync_builder_parses_sql_seed_shape() -> None:

@@ -46,6 +46,10 @@ from cookimport.staging.book_cache import (
 )
 from cookimport.staging.pipeline_runtime import ExtractedBookBundle, RecipeBoundaryResult
 from cookimport.staging.recipe_ownership import recipe_ownership_from_payload
+from cookimport.staging.output_names import (
+    LINE_ROLE_AUTHORITATIVE_LABELED_LINES_FILE_NAME,
+    LINE_ROLE_PIPELINE_DIR_NAME,
+)
 
 _DETERMINISTIC_PREP_BUNDLE_SCHEMA_VERSION = "deterministic_prep_bundle.v2"
 _DETERMINISTIC_PREP_KEY_SCHEMA_VERSION = "deterministic_prep_key.v2"
@@ -155,6 +159,7 @@ def _workbook_slug_candidates(processed_run_root: Path, workbook_slug: str) -> t
         processed_run_root / "label_deterministic" / workbook_slug,
         processed_run_root / "recipe_boundary" / workbook_slug,
         processed_run_root / "recipe_authority" / workbook_slug,
+        processed_run_root / LINE_ROLE_PIPELINE_DIR_NAME,
         processed_run_root / ".bench" / workbook_slug,
     )
 
@@ -781,8 +786,14 @@ def load_recipe_boundary_result_from_deterministic_prep_bundle(
         else _load_archive_blocks(processed_run_root)
     )
     labeled_lines_path = (
-        processed_run_root / "label_refine" / workbook_slug / "labeled_lines.jsonl"
+        processed_run_root
+        / LINE_ROLE_PIPELINE_DIR_NAME
+        / LINE_ROLE_AUTHORITATIVE_LABELED_LINES_FILE_NAME
     )
+    if not labeled_lines_path.exists():
+        labeled_lines_path = (
+            processed_run_root / "label_refine" / workbook_slug / "labeled_lines.jsonl"
+        )
     if not labeled_lines_path.exists():
         labeled_lines_path = (
             processed_run_root / "label_deterministic" / workbook_slug / "labeled_lines.jsonl"
@@ -846,6 +857,15 @@ def load_recipe_boundary_result_from_deterministic_prep_bundle(
         if int(block.get("index", -1)) not in owned_block_indices
     ]
     label_first_result = LabelFirstStageResult(
+        authoritative_label_stage_key=(
+            "line_role"
+            if (
+                processed_run_root
+                / LINE_ROLE_PIPELINE_DIR_NAME
+                / LINE_ROLE_AUTHORITATIVE_LABELED_LINES_FILE_NAME
+            ).exists()
+            else "label_refine"
+        ),
         labeled_lines=labeled_lines,
         block_labels=block_labels,
         recipe_spans=recipe_spans,
@@ -977,6 +997,10 @@ def persist_deterministic_prep_bundle_from_stage_run(
         _copy_cache_payload_path(
             stage_run_root / "recipe_boundary" / workbook_slug,
             processed_run_root / "recipe_boundary" / workbook_slug,
+        )
+        _copy_cache_payload_path(
+            stage_run_root / LINE_ROLE_PIPELINE_DIR_NAME,
+            processed_run_root / LINE_ROLE_PIPELINE_DIR_NAME,
         )
         _copy_cache_payload_path(
             stage_run_root / "recipe_authority" / workbook_slug,

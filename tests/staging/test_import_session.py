@@ -241,6 +241,101 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
     assert '"rejection_reason": "rejected_missing_title_anchor"' in decision_payload
 
 
+def test_execute_stage_import_session_writes_line_role_authority_artifacts_for_codex_runs(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _no_op_writers(monkeypatch)
+    source = tmp_path / "book.txt"
+    source.write_text("book", encoding="utf-8")
+
+    authoritative_result = ConversionResult(
+        recipes=[_recipe("Toast", 0, 1)],
+        sourceBlocks=[
+            SourceBlock(
+                blockId="b0",
+                orderIndex=0,
+                text="Toast",
+                sourceText="Toast",
+                location={"line_index": 0},
+            ),
+            SourceBlock(
+                blockId="b1",
+                orderIndex=1,
+                text="1 slice bread",
+                sourceText="1 slice bread",
+                location={"line_index": 1},
+            ),
+        ],
+        rawArtifacts=[],
+        report=ConversionReport(),
+        workbook="book",
+        workbookPath=str(source),
+    )
+    label_result = LabelFirstStageResult(
+        authoritative_label_stage_key="line_role",
+        labeled_lines=[],
+        block_labels=[_label_block(0, "RECIPE_TITLE"), _label_block(1, "INGREDIENT_LINE")],
+        recipe_spans=[
+            RecipeSpan(
+                span_id="span-1",
+                start_block_index=0,
+                end_block_index=1,
+                block_indices=[0, 1],
+                source_block_ids=["b0", "b1"],
+                atomic_indices=[0, 1],
+                title_block_index=0,
+                title_atomic_index=0,
+            )
+        ],
+        updated_conversion_result=authoritative_result,
+        archive_blocks=[
+            {"index": 0, "block_id": "b0", "text": "Toast"},
+            {"index": 1, "block_id": "b1", "text": "1 slice bread"},
+        ],
+        source_hash="hash-123",
+    )
+    monkeypatch.setattr(
+        import_session,
+        "run_recipe_boundary_stage",
+        lambda **_kwargs: _boundary_result(
+            _kwargs["extracted_bundle"],
+            label_result,
+            authoritative_result,
+        ),
+    )
+    monkeypatch.setattr(import_session, "extract_and_annotate_tables", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        output_stage_flow,
+        "chunks_from_non_recipe_blocks",
+        lambda *args, **kwargs: [],
+    )
+
+    session = import_session.execute_stage_import_session_from_result(
+        result=authoritative_result,
+        source_file=source,
+        run_root=tmp_path / "out",
+        run_dt=dt.datetime(2026, 4, 9, 16, 0, 0),
+        importer_name="text",
+        run_settings=RunSettings.from_dict(
+            {"line_role_pipeline": "codex-line-role-route-v2"},
+            warn_context="test",
+        ),
+        run_config={},
+        run_config_hash=None,
+        run_config_summary=None,
+        write_raw_artifacts_enabled=False,
+    )
+
+    assert "label_deterministic_lines_path" not in (session.label_artifact_paths or {})
+    assert "label_llm_lines_path" not in (session.label_artifact_paths or {})
+    assert session.label_artifact_paths["line_role_authoritative_lines_path"].is_file()
+    assert session.label_artifact_paths["line_role_authoritative_blocks_path"].is_file()
+    assert not (tmp_path / "out" / "label_deterministic").exists()
+    assert not (tmp_path / "out" / "label_refine").exists()
+    assert (tmp_path / "out" / "line-role-pipeline" / "authoritative_labeled_lines.jsonl").exists()
+
+
 def test_execute_stage_import_session_uses_candidate_nonrecipe_rows_for_late_outputs_when_nonrecipe_finalize_is_off(
     monkeypatch,
     tmp_path: Path,

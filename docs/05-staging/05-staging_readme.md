@@ -71,7 +71,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
 - `cookimport/staging/import_session_contracts.py`
   - Shared public result dataclass/types used by `import_session_flows/` and the public session facade.
 - `cookimport/staging/import_session_flows/`
-  - `output_stage.py` owns the active shared stage-session implementation, but it now reads late outputs from the canonical non-recipe authority contract instead of re-deciding that boundary inline. It also exposes a boundary-resume entrypoint so benchmark callers can restart from a cached deterministic recipe-boundary result instead of rerunning label-first prep. `authority.py` owns label-first artifact writes, and the sibling modules keep the stage-session responsibilities split by concern.
+  - `output_stage.py` owns the active shared stage-session implementation, but it now reads late outputs from the canonical non-recipe authority contract instead of re-deciding that boundary inline. It also exposes a boundary-resume entrypoint so benchmark callers can restart from a cached deterministic recipe-boundary result instead of rerunning label-first prep. `authority.py` owns authoritative label artifact writes: deterministic runs still publish `label_deterministic` / `label_refine`, while Codex-backed line-role runs publish the visible authority mirror under `line-role-pipeline/`.
 
 Progress telemetry note:
 
@@ -102,10 +102,11 @@ Per workbook (slugified file stem):
 - `09_nonrecipe_finalize_status.json`
 - `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json`
 - `recipe_authority/<workbook_slug>/recipe_block_ownership.json`
-- `label_deterministic/<workbook_slug>/labeled_lines.jsonl`
-- `label_deterministic/<workbook_slug>/block_labels.json`
-- `label_refine/<workbook_slug>/labeled_lines.jsonl`
-- `label_refine/<workbook_slug>/block_labels.json`
+- `label_deterministic/<workbook_slug>/labeled_lines.jsonl` and `block_labels.json` on deterministic/vanilla runs
+- `label_refine/<workbook_slug>/labeled_lines.jsonl` and `block_labels.json` on deterministic-backed refine runs
+- `line-role-pipeline/authoritative_labeled_lines.jsonl`
+- `line-role-pipeline/authoritative_block_labels.json`
+- `line-role-pipeline/label_diffs.jsonl`
 - `recipe_boundary/<workbook_slug>/recipe_spans.json`
 - `recipe_boundary/<workbook_slug>/span_decisions.json`
 - `recipe_boundary/<workbook_slug>/authoritative_block_labels.json`
@@ -136,7 +137,7 @@ Per workbook (slugified file stem):
 
 Label-first metadata note:
 
-- `label_deterministic`, `label_refine`, and `recipe_boundary` now publish explicit `decided_by`, `reason_tags`, and `escalation_reasons` on authoritative line/block/span artifacts.
+- deterministic `label_deterministic` / `label_refine`, Codex-backed `line-role-pipeline` authority mirrors, and `recipe_boundary` now publish explicit `decided_by`, `reason_tags`, and `escalation_reasons` on authoritative line/block/span artifacts.
 - `recipe_boundary/<workbook_slug>/recipe_spans.json` is the accepted authoritative span list only.
 - `span_decisions.json` is the compact reviewer/debug rollup for both accepted recipe spans and rejected pseudo-recipe runs, including explicit `decision` and `rejection_reason` fields.
 - Accepted grouped spans now already satisfy the stricter coherent-recipe rule: title anchor plus ingredient evidence plus instruction evidence. `build_conversion_result_from_label_spans(...)` no longer performs ordinary late recipe-body demotion; an impossible accepted projection is surfaced only as an invariant warning.

@@ -1034,11 +1034,6 @@ class FakeCodexExecRunner:
                     "block_id": str(evidence.get("block_id") or f"block-{block_index}"),
                     "block_index": block_index,
                     "text": str(evidence.get("text") or ""),
-                    "candidate_tag_keys": [
-                        str(value).strip()
-                        for value in (evidence.get("candidate_tag_keys") or [])
-                        if str(value).strip()
-                    ],
                 }
             )
             return dict(direct_output) if isinstance(direct_output, Mapping) else {}

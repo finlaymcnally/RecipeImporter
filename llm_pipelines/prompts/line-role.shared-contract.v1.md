@@ -38,6 +38,11 @@ Negative rules:
 - Obvious praise blurbs, foreword or preface setup, book-thesis or manifesto framing, and `this book will teach you ...` jacket-copy promises usually stay `NONRECIPE_EXCLUDE`, not `NONRECIPE_CANDIDATE`.
 - First-person narrative or memoir framing is usually `NONRECIPE_EXCLUDE` when it reads like foreword/introduction setup rather than reusable cooking knowledge.
 - Endorsements, acknowledgments, foreword/introduction framing, memoir setup, and broad book-encouragement prose usually stay `NONRECIPE_EXCLUDE`; use `NONRECIPE_CANDIDATE` only when the line itself carries reusable cooking knowledge.
+- Dedications, acknowledgments, author biography, restaurant backstory, travel scenes, childhood food memories, and chef-origin stories usually stay `NONRECIPE_EXCLUDE` even when they mention real dishes, ingredients, or kitchen lessons.
+- Broad encouragement or manifesto prose such as `you can become a great cook`, `keep reading and I'll teach you how`, or `trust your palate` usually stays `NONRECIPE_EXCLUDE`, not `NONRECIPE_CANDIDATE`.
+- Do not rescue a memoir or intro paragraph into `NONRECIPE_CANDIDATE` just because it contains one true cooking claim near the end. If the row still reads mainly like story, framing, or inspiration, keep it `NONRECIPE_EXCLUDE`.
+- Use `NONRECIPE_CANDIDATE` only when the row itself would be worth retrieving later as a standalone cooking concept without needing the memoir, chapter setup, or book-thesis wrapper around it.
+- Mixed anecdote-plus-moral rows usually stay `NONRECIPE_EXCLUDE`. If a later row states the reusable lesson directly and can stand on its own, that later row may be `NONRECIPE_CANDIDATE`.
 
 Few-shot examples:
 1) Context: inside recipe, heading line
@@ -143,3 +148,15 @@ Few-shot examples:
 26) Context: ingredient row immediately after the reset title and yield
     Line: `1/2 medium red onion, sliced thinly`
     Label: `INGREDIENT_LINE`
+
+27) Context: outside recipe, memoir anecdote with an embedded cooking takeaway
+    Line: `After years of cooking, I finally understood why that bowl of polenta needed more salt.`
+    Label: `NONRECIPE_EXCLUDE`
+
+28) Context: outside recipe, explicit standalone lesson stated after the anecdote
+    Line: `Taste constantly as you cook, and adjust seasoning before serving.`
+    Label: `NONRECIPE_CANDIDATE`
+
+29) Context: outside recipe, broad book promise or encouragement prose
+    Line: `Keep reading and I'll teach you how to cook with confidence.`
+    Label: `NONRECIPE_EXCLUDE`

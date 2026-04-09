@@ -237,12 +237,20 @@ def _current_row_warning_messages(row: Mapping[str, Any]) -> list[str]:
     minimum_safe = _coerce_int(row.get("minimum_safe_shard_count"))
     budget_native = _coerce_int(row.get("budget_native_shard_count"))
     binding_limit = str(row.get("binding_limit") or "").strip()
+    step_id = str(row.get("step_id") or "").strip().lower()
     raw_warnings = [
         str(item).strip()
         for item in row.get("planning_warnings") or []
         if str(item).strip()
     ]
     messages: list[str] = []
+    if step_id == "knowledge" and not bool(row.get("knowledge_grouping_enabled", True)):
+        messages.append(
+            "Knowledge grouping second step is disabled right now. This run will still "
+            "classify `knowledge` versus `other`, but it will skip idea grouping and "
+            "write empty knowledge-group artifacts until `knowledge_grouping_enabled` "
+            "is turned back on."
+        )
     if minimum_safe is not None and current_count < int(minimum_safe):
         messages.append(
             f"Current shard count {current_count} is below the advisory survivability minimum "
@@ -693,6 +701,11 @@ def _build_codex_shard_plan_rows(
                     "owned_units_per_shard_avg"
                 ),
                 "owned_unit_label": recommendation_payload.get("owned_unit_label"),
+                "knowledge_grouping_enabled": (
+                    bool(selected_settings.knowledge_grouping_enabled)
+                    if step_id == "knowledge"
+                    else True
+                ),
                 "kpi_summary": kpi_summary,
                 "budget_summary": (
                     f"in {_format_shard_budget_value(stage_budget.max_input_tokens)} / "

@@ -300,13 +300,6 @@ def knowledge_task_file_to_structured_packet(
         context_after = str(evidence.get("context_after") or "").strip()
         if context_after:
             row_payload["context_after"] = context_after
-        candidate_tag_keys = [
-            str(value).strip()
-            for value in (evidence.get("candidate_tag_keys") or [])
-            if str(value).strip()
-        ][:4]
-        if candidate_tag_keys:
-            row_payload["candidate_tag_keys"] = candidate_tag_keys
         rows.append(row_payload)
     packet = {
         "schema_version": "knowledge_structured_packet.v1",
@@ -371,7 +364,7 @@ def build_knowledge_structured_prompt(
             "If `category` is `knowledge`, grounding must include at least one existing `tag_key` or one proposed tag.\n"
             "`category_keys` may support that grounding, but category-only grounding is invalid and will be returned for repair.\n"
             "If you cannot name a real existing tag fit or a concrete proposed tag, return `other` with empty grounding.\n"
-            "Treat candidate tags, candidate categories, heading hints, and row order as weak hints only.\n"
+            "Treat category labels, heading hints, and row order as weak hints only.\n"
         )
     context_note = (
         "Use nearby context only when the row includes `context_before` or `context_after`, and only to disambiguate that row.\n"

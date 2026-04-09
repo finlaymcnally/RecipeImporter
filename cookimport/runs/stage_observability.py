@@ -43,6 +43,10 @@ from cookimport.runs.stage_names import (
     stage_order,
 )
 from cookimport.staging.output_names import (
+    LINE_ROLE_AUTHORITATIVE_BLOCK_LABELS_FILE_NAME,
+    LINE_ROLE_AUTHORITATIVE_LABELED_LINES_FILE_NAME,
+    LINE_ROLE_LABEL_DIFFS_FILE_NAME,
+    LINE_ROLE_PIPELINE_DIR_NAME,
     NONRECIPE_AUTHORITY_FILE_NAME,
     NONRECIPE_EXCLUSIONS_FILE_NAME,
     NONRECIPE_FINALIZE_STATUS_FILE_NAME,
@@ -447,6 +451,17 @@ def _load_all_label_llm_rows(run_root: Path) -> list[dict[str, Any]]:
     for workbook_dir in sorted(path for path in label_root.iterdir() if path.is_dir()):
         rows.extend(_load_jsonl_dicts(workbook_dir / "labeled_lines.jsonl"))
     return rows
+
+
+def _load_line_role_authoritative_rows(run_root: Path) -> list[dict[str, Any]]:
+    authoritative_path = (
+        run_root
+        / LINE_ROLE_PIPELINE_DIR_NAME
+        / LINE_ROLE_AUTHORITATIVE_LABELED_LINES_FILE_NAME
+    )
+    if authoritative_path.exists():
+        return _load_jsonl_dicts(authoritative_path)
+    return _load_all_label_llm_rows(run_root)
 
 
 def _build_label_llm_attention_summary(workbook_dir: Path) -> dict[str, Any]:
@@ -1445,7 +1460,7 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
     telemetry_payload = _load_json_dict(stage_root / "telemetry.json") or {}
     task_rows = _load_jsonl_dicts(stage_root / "shard_status.jsonl")
     line_rows = _load_jsonl_dicts(stage_root / "canonical_line_table.jsonl")
-    labeled_line_rows = _load_all_label_llm_rows(_line_role_run_root(stage_root))
+    labeled_line_rows = _load_line_role_authoritative_rows(_line_role_run_root(stage_root))
     worker_state_counts, worker_reason_code_counts = _collect_worker_status_counts(stage_root)
     worker_status_rows = _load_worker_status_rows(stage_root)
     shard_status_paths = sorted(stage_root.glob("workers/*/shards/*/status.json"))
@@ -1904,6 +1919,7 @@ def build_stage_observability_report(
     line_role_stage_dir = observed_root / "line-role-pipeline" / "runtime" / "line_role"
     if line_role_stage_dir.exists() and line_role_stage_dir.is_dir():
         stage_key = "line_role"
+        line_role_root = observed_root / LINE_ROLE_PIPELINE_DIR_NAME
         stage_rows.setdefault(
             stage_key,
             ObservedStage(
@@ -1938,6 +1954,18 @@ def build_stage_observability_report(
                         ),
                         "telemetry_json": _relative_to(
                             run_root, line_role_stage_dir / "telemetry.json"
+                        ),
+                        "authoritative_labeled_lines_jsonl": _relative_to(
+                            run_root,
+                            line_role_root / LINE_ROLE_AUTHORITATIVE_LABELED_LINES_FILE_NAME,
+                        ),
+                        "authoritative_block_labels_json": _relative_to(
+                            run_root,
+                            line_role_root / LINE_ROLE_AUTHORITATIVE_BLOCK_LABELS_FILE_NAME,
+                        ),
+                        "label_diffs_jsonl": _relative_to(
+                            run_root,
+                            line_role_root / LINE_ROLE_LABEL_DIFFS_FILE_NAME,
                         ),
                     }.items()
                     if value

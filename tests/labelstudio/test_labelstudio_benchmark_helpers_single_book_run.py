@@ -898,6 +898,190 @@ def test_load_recipe_boundary_result_from_deterministic_prep_bundle_prefers_sour
     assert result.recipe_ownership_result.owned_block_indices == [0, 1, 2]
 
 
+def test_load_recipe_boundary_result_from_deterministic_prep_bundle_reads_line_role_authority_file(
+    tmp_path: Path,
+) -> None:
+    import cookimport.staging.deterministic_prep as deterministic_prep
+    from cookimport.core.models import ConversionReport, ConversionResult
+
+    artifact_root = tmp_path / "prep-cache" / "entry"
+    processed_run_root = artifact_root / "processed-output" / "2026-04-09_16.45.00"
+    workbook_slug = "book"
+    source_dir = processed_run_root / "raw" / "source" / workbook_slug
+    source_dir.mkdir(parents=True, exist_ok=True)
+    (source_dir / "source_blocks.jsonl").write_text(
+        json.dumps(
+            {
+                "blockId": "b0",
+                "orderIndex": 0,
+                "text": "Toast",
+                "sourceText": "Toast",
+                "location": {},
+                "features": {},
+                "provenance": {},
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (source_dir / "source_support.json").write_text("[]\n", encoding="utf-8")
+    line_role_dir = processed_run_root / "line-role-pipeline"
+    line_role_dir.mkdir(parents=True, exist_ok=True)
+    (line_role_dir / "authoritative_labeled_lines.jsonl").write_text(
+        json.dumps(
+            {
+                "source_block_id": "b0",
+                "source_block_index": 0,
+                "atomic_index": 0,
+                "text": "Toast",
+                "deterministic_label": "NONRECIPE_CANDIDATE",
+                "label": "RECIPE_TITLE",
+                "decided_by": "codex",
+                "reason_tags": [],
+                "escalation_reasons": [],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    boundary_dir = processed_run_root / "recipe_boundary" / workbook_slug
+    boundary_dir.mkdir(parents=True, exist_ok=True)
+    (boundary_dir / "authoritative_block_labels.json").write_text(
+        json.dumps(
+            {
+                "block_labels": [
+                    {
+                        "source_block_id": "b0",
+                        "source_block_index": 0,
+                        "supporting_atomic_indices": [0],
+                        "deterministic_label": "NONRECIPE_CANDIDATE",
+                        "final_label": "RECIPE_TITLE",
+                        "decided_by": "codex",
+                        "reason_tags": [],
+                        "escalation_reasons": [],
+                    }
+                ]
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (boundary_dir / "recipe_spans.json").write_text(
+        json.dumps(
+            {
+                "recipe_spans": [
+                    {
+                        "span_id": "span-1",
+                        "start_block_index": 0,
+                        "end_block_index": 0,
+                        "block_indices": [0],
+                        "source_block_ids": ["b0"],
+                        "atomic_indices": [0],
+                        "title_block_index": 0,
+                        "title_atomic_index": 0,
+                        "warnings": [],
+                        "escalation_reasons": [],
+                        "decision_notes": [],
+                    }
+                ]
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (boundary_dir / "span_decisions.json").write_text(
+        json.dumps(
+            {
+                "span_decisions": [
+                    {
+                        "span_id": "span-1",
+                        "decision": "accepted_recipe_span",
+                        "rejection_reason": None,
+                        "start_block_index": 0,
+                        "end_block_index": 0,
+                        "block_indices": [0],
+                        "source_block_ids": ["b0"],
+                        "atomic_indices": [0],
+                        "title_block_index": 0,
+                        "title_atomic_index": 0,
+                        "warnings": [],
+                        "escalation_reasons": [],
+                        "decision_notes": [],
+                    }
+                ]
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    recipe_authority_dir = processed_run_root / "recipe_authority" / workbook_slug
+    recipe_authority_dir.mkdir(parents=True, exist_ok=True)
+    (recipe_authority_dir / "recipe_block_ownership.json").write_text(
+        json.dumps(
+            {
+                "ownership_mode": "recipe_boundary",
+                "recipes": [
+                    {
+                        "recipe_id": "urn:test:toast",
+                        "recipe_span_id": "span-1",
+                        "owned_block_indices": [0],
+                        "divested_block_indices": [],
+                    }
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    conversion_result_path = artifact_root / "conversion_result.json"
+    conversion_result_path.parent.mkdir(parents=True, exist_ok=True)
+    conversion_result_path.write_text(
+        ConversionResult(
+            recipes=[],
+            report=ConversionReport(),
+            sourceBlocks=[],
+            rawArtifacts=[],
+        ).model_dump_json(indent=2, by_alias=True),
+        encoding="utf-8",
+    )
+
+    prep_bundle = deterministic_prep.DeterministicPrepBundleResult(
+        prep_key="prep-key",
+        source_file=tmp_path / "book.txt",
+        source_hash="hash-123",
+        workbook_slug=workbook_slug,
+        importer_name="text",
+        artifact_root=artifact_root,
+        manifest_path=artifact_root / "deterministic_prep_bundle_manifest.json",
+        processed_run_root=processed_run_root,
+        prediction_run_root=artifact_root / "prediction-run",
+        conversion_result_path=conversion_result_path,
+        processed_report_path=None,
+        stage_block_predictions_path=None,
+        cache_hit=True,
+        timing={},
+        deterministic_settings={},
+    )
+
+    result = deterministic_prep.load_recipe_boundary_result_from_deterministic_prep_bundle(
+        prep_bundle
+    )
+
+    assert result.label_first_result.authoritative_label_stage_key == "line_role"
+    assert result.label_first_result.labeled_lines[0].final_label == "RECIPE_TITLE"
+    assert result.label_first_result.labeled_lines[0].deterministic_label == "NONRECIPE_CANDIDATE"
+
+
 def test_interactive_single_book_benchmark_reuses_prediction_artifacts_across_runs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

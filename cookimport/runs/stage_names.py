@@ -70,7 +70,7 @@ _STAGE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "label": "Line Role",
         "artifact_stem": LINE_ROLE_STAGE_KEY,
         "family": "line_role_llm",
-        "order": 35,
+        "order": 4,
     },
     WRITE_OUTPUTS_STAGE_KEY: {
         "label": "Write Outputs",

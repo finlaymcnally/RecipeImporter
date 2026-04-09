@@ -56,7 +56,7 @@ Architecture priorities:
 - `cookimport/staging/nonrecipe_stage.py` and `cookimport/staging/stage_block_predictions.py` are now thin public seams. The owned logic lives under `nonrecipe_authority_contract.py`, `nonrecipe_seed.py`, `nonrecipe_routing.py`, `nonrecipe_authority.py`, `nonrecipe_finalize_status.py`, `recipe_block_evidence.py`, `knowledge_block_evidence.py`, and `block_label_resolution.py`.
 - output-writing primitives live in `cookimport/staging/writer.py`.
 - recipe-ID reassignment logic lives in `cookimport/staging/pdf_jobs.py`.
-- stage import session now builds the label-first authority seam before drafting: `label_deterministic`, optional `label_refine`, and `recipe_boundary` artifacts are written under the stage run root and drive downstream stage block predictions.
+- stage import session now builds recipe-boundary authority before drafting from one of two label owners: deterministic runs still write `label_deterministic`, optional `label_refine`, and `recipe_boundary`, while Codex-backed line-role runs publish their authoritative labeled-line mirrors under `line-role-pipeline/` and feed `recipe_boundary` from that earlier line-role authority.
 - when label-first regrouping yields zero recipes, the run explains that outcome through `recipe_boundary/<workbook_slug>/recipe_spans.json` and `span_decisions.json`; stage-backed flows no longer compare against importer recipe candidates.
 - The old numbered non-recipe lane was replaced by explicit `nonrecipe-route` and `nonrecipe-finalize` runtime results; final authority lives on the stage runtime objects and published non-recipe artifacts rather than on `ConversionResult`.
 
@@ -207,8 +207,9 @@ For `cookimport stage`, each run uses a timestamped root:
 - `<out>/<timestamp>/run_manifest.json`
 
 Optional stage lanes:
-- `<out>/<timestamp>/label_deterministic/<workbook_slug>/...` for deterministic authoritative labeled-line and block-label artifacts
-- `<out>/<timestamp>/label_refine/<workbook_slug>/...` for final corrected authoritative labels plus label diffs when line-role correction is enabled
+- `<out>/<timestamp>/label_deterministic/<workbook_slug>/...` for deterministic authoritative labeled-line and block-label artifacts on deterministic/vanilla runs
+- `<out>/<timestamp>/label_refine/<workbook_slug>/...` for final corrected authoritative labels plus label diffs on deterministic-backed refine runs
+- `<out>/<timestamp>/line-role-pipeline/authoritative_labeled_lines.jsonl`, `authoritative_block_labels.json`, and `label_diffs.jsonl` for Codex-backed line-role authority runs
 - `<out>/<timestamp>/recipe_boundary/<workbook_slug>/...` for deterministic recipe-span grouping and normalized authoritative block-label outputs
 - `<out>/<timestamp>/knowledge/<workbook_slug>/...` and `<out>/<timestamp>/knowledge/knowledge_index.json` when knowledge-pass artifacts exist
 
@@ -353,7 +354,7 @@ Current architecture is still deterministic-first:
 When you need the shortest accurate mental model, describe the repo this way:
 
 - The current runtime is a label-first staging system, not an importer-candidates-first writer pipeline.
-- `cookimport/staging/import_session.py` writes authoritative label artifacts first (`label_deterministic`, optional `label_refine`, `recipe_boundary`) and only then builds recipe drafts.
+- `cookimport/staging/import_session.py` writes authoritative label artifacts first and only then builds recipe drafts. On deterministic runs that means `label_deterministic`, optional `label_refine`, then `recipe_boundary`; on Codex-backed line-role runs the visible authority artifact family is `line-role-pipeline/` plus `recipe_boundary`.
 - If authoritative regrouping finds zero recipes, inspect `recipe_boundary/<workbook_slug>/recipe_spans.json` and `span_decisions.json`; those are the recipe-boundary explanation surfaces.
 - `09_nonrecipe_authority.json` is the machine-readable authority for outside-recipe `knowledge` vs `other`; `08_nonrecipe_route.json`, `08_nonrecipe_exclusions.jsonl`, and `09_nonrecipe_finalize_status.json` answer routing/debugging questions but are not truth surfaces.
 - The non-recipe route/finalize split now has an explicit routing-vs-final authority seam: deterministic labels can exclude obvious junk and package a candidate queue, optional knowledge harvest can merge block decisions into the final non-recipe authority, and scored benchmark artifacts should project that final authority rather than the provisional queue.

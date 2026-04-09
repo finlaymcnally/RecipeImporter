@@ -71,7 +71,7 @@ def test_classification_task_file_uses_split_schema_and_local_evidence_only() ->
     assert unit["evidence"]["context_before"] == "Previous local context."
     assert unit["evidence"]["context_after"] == "Next local context."
     assert unit["evidence"]["structure"] == {"heading_level": 2, "table_hint": None}
-    assert isinstance(unit["evidence"]["candidate_tag_keys"], list)
+    assert "candidate_tag_keys" not in unit["evidence"]
 
 
 def test_classification_validator_rejects_invalid_other_grounding_and_preserves_repair_scope() -> None:

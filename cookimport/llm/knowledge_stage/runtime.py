@@ -324,6 +324,7 @@ def run_codex_farm_nonrecipe_finalize(
                 "knowledge_prompt_target_count": run_settings.knowledge_prompt_target_count,
                 "knowledge_packet_input_char_budget": run_settings.knowledge_packet_input_char_budget,
                 "knowledge_packet_output_char_budget": run_settings.knowledge_packet_output_char_budget,
+                "knowledge_grouping_enabled": run_settings.knowledge_grouping_enabled,
                 "knowledge_worker_count": run_settings.knowledge_worker_count,
                 "knowledge_shard_max_turns": run_settings.knowledge_shard_max_turns,
                 "codex_farm_pipeline_knowledge": pipeline_id,
@@ -336,6 +337,7 @@ def run_codex_farm_nonrecipe_finalize(
                 "input_mode": "nonrecipe_candidate_spans",
                 "workspace_root": str(workspace_root) if workspace_root is not None else None,
                 "configured_prompt_target_count": run_settings.knowledge_prompt_target_count,
+                "knowledge_grouping_enabled": run_settings.knowledge_grouping_enabled,
                 "requested_shard_count": build_report.requested_shard_count,
                 "budget_native_shard_count": build_report.packet_count_before_partition,
                 "planning_warnings": list(build_report.planning_warnings),
@@ -623,6 +625,7 @@ def run_codex_farm_nonrecipe_finalize(
                 "configured_prompt_target_count": run_settings.knowledge_prompt_target_count,
                 "configured_packet_input_char_budget": run_settings.knowledge_packet_input_char_budget,
                 "configured_packet_output_char_budget": run_settings.knowledge_packet_output_char_budget,
+                "knowledge_grouping_enabled": run_settings.knowledge_grouping_enabled,
                 "configured_worker_count": run_settings.knowledge_worker_count,
                 "worker_count": (
                     int(phase_manifest.worker_count)

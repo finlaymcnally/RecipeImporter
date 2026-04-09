@@ -92,7 +92,7 @@ def test_worker_prompt_describes_task_file_contract() -> None:
     assert "Read the full classification file once" in prompt
     assert "Answer each unit with `category` and `grounding`." in prompt
     assert "You are doing close semantic review, not building a heuristic classifier" in prompt
-    assert "Treat `candidate_tag_keys`, heading shape, and packet position as weak hints only" in prompt
+    assert "Treat heading shape and packet position as weak hints only" in prompt
     assert "If you feel tempted to invent a rule that covers many rows at once" in prompt
     assert "If `category` is `knowledge`, `grounding` must include at least one existing `tag_key`" in prompt
     assert "personal story with an embedded cooking lesson is still usually `other`" in prompt
@@ -156,7 +156,7 @@ def test_knowledge_worker_hint_stays_compact_and_keeps_high_signal_sections(
     assert "Nearby recipe guardrail block indices: `2, 3`." in rendered
     assert "gap_from_prev=14" in rendered
     assert "table_hint" in rendered
-    assert "Do not turn heading shape, candidate tags, or packet profile into a bulk heuristic" in rendered
+    assert "Do not turn heading shape or packet profile into a bulk heuristic" in rendered
     assert "If a short heading feels ambiguous, ask whether it introduces portable cooking knowledge and is supported by reusable body text" in rendered
     assert "Memoir, praise, endorsement, foreword, and thesis-like framing are usually `other`" in rendered
     assert rendered.count("## ") == 5
@@ -194,7 +194,7 @@ def test_knowledge_task_file_summary_surfaces_semantic_review_contract() -> None
     assert isinstance(review_contract, dict)
     assert review_contract.get("mode") == "semantic_review"
     assert "close semantic review" in str(review_contract.get("worker_role") or "")
-    assert "candidate tags" in " ".join(review_contract.get("anti_patterns") or []).lower()
+    assert "candidate tags" not in " ".join(review_contract.get("anti_patterns") or []).lower()
 
     summary = summarize_task_file(payload=task_file)
     summary_contract = summary.get("review_contract")

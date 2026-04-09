@@ -1139,6 +1139,20 @@ def test_current_row_warning_messages_warn_when_line_role_exceeds_150_lines_per_
     assert run_settings_flow._current_row_warning_messages(row) == []
 
 
+def test_current_row_warning_messages_warn_when_knowledge_grouping_is_disabled() -> None:
+    row = {
+        "step_id": "knowledge",
+        "label": "Knowledge",
+        "current_mode": CODEX_EXEC_STYLE_INLINE_JSON_V1,
+        "current_count": 5,
+        "knowledge_grouping_enabled": False,
+    }
+
+    assert run_settings_flow._current_row_warning_messages(row) == [
+        "Knowledge grouping second step is disabled right now. This run will still classify `knowledge` versus `other`, but it will skip idea grouping and write empty knowledge-group artifacts until `knowledge_grouping_enabled` is turned back on."
+    ]
+
+
 def test_shard_plan_kpi_summary_updates_when_shard_count_changes() -> None:
     assert (
         run_settings_flow._render_shard_plan_kpi_summary(

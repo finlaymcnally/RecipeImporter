@@ -70,7 +70,11 @@ def _valid_classification_answer() -> dict[str, object]:
     }
 
 
-def _initialize_workspace(tmp_path: Path) -> tuple[Path, Path]:
+def _initialize_workspace(
+    tmp_path: Path,
+    *,
+    knowledge_grouping_enabled: bool = True,
+) -> tuple[Path, Path]:
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(tmp_path),
         shards=[_shard()],
@@ -88,6 +92,7 @@ def _initialize_workspace(tmp_path: Path) -> tuple[Path, Path]:
         classification_task_file=classification_task_file,
         unit_to_shard_id=unit_to_shard_id,
         output_dir=output_dir,
+        knowledge_grouping_enabled=knowledge_grouping_enabled,
     )
     return workspace_root, state_path
 
@@ -96,6 +101,7 @@ def _initialize_workspace_with_shards(
     tmp_path: Path,
     *,
     shards: list[ShardManifestEntryV1],
+    knowledge_grouping_enabled: bool = True,
 ) -> tuple[Path, Path]:
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(tmp_path),
@@ -114,6 +120,7 @@ def _initialize_workspace_with_shards(
         classification_task_file=classification_task_file,
         unit_to_shard_id=unit_to_shard_id,
         output_dir=output_dir,
+        knowledge_grouping_enabled=knowledge_grouping_enabled,
     )
     return workspace_root, state_path
 
@@ -259,6 +266,33 @@ def test_same_session_handoff_accepts_category_only_grounding_and_advances_to_gr
     }
     assert grouping_task["mode"] == "initial"
     assert grouping_task["stage_key"] == "knowledge_group"
+
+
+def test_same_session_handoff_can_complete_without_grouping_when_disabled(
+    tmp_path: Path,
+) -> None:
+    workspace_root, state_path = _initialize_workspace(
+        tmp_path,
+        knowledge_grouping_enabled=False,
+    )
+
+    task_file = load_task_file(workspace_root / "task.json")
+    edited = deepcopy(task_file)
+    edited["units"][0]["answer"] = _valid_classification_answer()
+    write_task_file(path=workspace_root / "task.json", payload=edited)
+
+    result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    output_payload = json.loads(
+        (workspace_root / "out" / "book.ks0000.nr.json").read_text(encoding="utf-8")
+    )
+
+    assert result["status"] == "completed_without_grouping"
+    assert result["grouping_transition_count"] == 0
+    assert output_payload["block_decisions"][0]["category"] == "knowledge"
+    assert output_payload["idea_groups"] == []
 
 
 def test_same_session_handoff_rewrites_invalid_classification_into_repair_mode(

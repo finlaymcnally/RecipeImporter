@@ -230,7 +230,7 @@ def _build_knowledge_taskfile_prompt(
             "- You are doing close semantic review, not building a heuristic classifier for the whole packet.",
             "- Read the actual owned block text before deciding. That text is primary evidence.",
             "- Use nearby rows only to disambiguate edge cases; do not force nearby rows into the same answer just because they are adjacent.",
-            "- Treat `candidate_tag_keys`, heading shape, and packet position as weak hints only, not votes or proof.",
+            "- Treat heading shape and packet position as weak hints only, not votes or proof.",
             "- If you feel tempted to invent a rule that covers many rows at once, stop and reread the actual owned rows instead.",
             *task_specific_semantics,
             heading="Shard semantics",
@@ -370,7 +370,7 @@ def _build_knowledge_hint_profile_and_policy(
     decision_policy = [
         "Decide `knowledge` versus `other` block-by-block before thinking about grouping.",
         "Use your own semantic judgment; the repo will validate only structure and coverage.",
-        "Do not turn heading shape, candidate tags, or packet profile into a bulk heuristic; read the actual owned block text.",
+        "Do not turn heading shape or packet profile into a bulk heuristic; read the actual owned block text.",
         "If a short heading feels ambiguous, ask whether it introduces portable cooking knowledge and is supported by reusable body text, not whether it is merely short.",
         "Memoir, praise, endorsement, foreword, and thesis-like framing are usually `other` even when they contain a true cooking lesson.",
         "Open `examples/` only when you need a contrast case or tie-breaker.",
