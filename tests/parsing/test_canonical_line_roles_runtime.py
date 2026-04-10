@@ -1893,6 +1893,123 @@ def test_label_atomic_lines_repairs_partial_labels_reply_only_for_missing_rows(
     assert repair_packet["rows"] == ["1 cup thinly sliced cabbage"]
 
 
+def test_label_atomic_lines_inline_json_allows_three_incremental_repair_attempts(
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id=f"block:inline-repair:{index}",
+            block_index=index,
+            atomic_index=index,
+            text=text,
+            within_recipe_span=True,
+            rule_tags=[],
+        )
+        for index, text in enumerate(
+            [
+                "Bright Cabbage Slaw",
+                "Serves 4 generously",
+                "1 cup thinly sliced cabbage",
+            ]
+        )
+    ]
+
+    repair_rows_seen: list[list[str]] = []
+
+    def _incremental_builder(payload):
+        packet_kind = str((payload or {}).get("packet_kind") or "").strip()
+        rows = list((payload or {}).get("structured_packet_rows") or [])
+        row_texts = [str(row) for row in rows]
+        if packet_kind == "initial":
+            return {"labels": ["RECIPE_TITLE"]}
+        repair_rows_seen.append(row_texts)
+        if len(repair_rows_seen) == 1:
+            return {"labels": ["YIELD_LINE"]}
+        if len(repair_rows_seen) == 2:
+            return {"labels": []}
+        return {"labels": ["INGREDIENT_LINE"]}
+
+    runner = FakeCodexExecRunner(output_builder=_incremental_builder)
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-route-v2",
+            line_role_codex_exec_style="inline-json-v1",
+            line_role_prompt_target_count=1,
+            line_role_worker_count=1,
+        ),
+        artifact_root=tmp_path,
+        codex_runner=runner,
+        live_llm_allowed=True,
+    )
+
+    assert [prediction.label for prediction in predictions] == [
+        "RECIPE_TITLE",
+        "YIELD_LINE",
+        "INGREDIENT_LINE",
+    ]
+    assert [call["mode"] for call in runner.calls] == [
+        "structured_prompt",
+        "structured_prompt_resume",
+        "structured_prompt_resume",
+        "structured_prompt_resume",
+    ]
+    assert repair_rows_seen == [
+        ["Serves 4 generously", "1 cup thinly sliced cabbage"],
+        ["1 cup thinly sliced cabbage"],
+        ["1 cup thinly sliced cabbage"],
+    ]
+
+    proposal_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "proposals"
+            / "line-role-canonical-0001-a000000-a000002.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert proposal_payload["repair_attempted"] is True
+    assert proposal_payload["repair_status"] == "repaired"
+    assert proposal_payload["validation_errors"] == []
+
+    structured_session_root = (
+        tmp_path
+        / "line-role-pipeline"
+        / "runtime"
+        / "line_role"
+        / "workers"
+        / "worker-001"
+        / "shards"
+        / "line-role-canonical-0001-a000000-a000002"
+        / "structured_session"
+    )
+    assert (structured_session_root / "repair_packet_01.json").exists()
+    assert (structured_session_root / "repair_packet_02.json").exists()
+    assert (structured_session_root / "repair_packet_03.json").exists()
+
+    third_repair_packet = json.loads(
+        (structured_session_root / "repair_packet_03.json").read_text(encoding="utf-8")
+    )
+    assert third_repair_packet["rows"] == ["1 cup thinly sliced cabbage"]
+
+    shard_status_rows = [
+        json.loads(line)
+        for line in (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "shard_status.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert shard_status_rows[0]["state"] == "repair_recovered"
+    assert shard_status_rows[0]["metadata"]["repair_path"].endswith("repair_packet_03.json")
+
+
 def test_label_atomic_lines_inline_json_repairs_when_initial_labels_array_is_too_long(
     tmp_path,
 ) -> None:

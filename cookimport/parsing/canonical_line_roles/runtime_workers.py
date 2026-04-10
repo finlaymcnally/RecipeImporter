@@ -823,12 +823,15 @@ def _run_line_role_structured_assignment_v1(*, run_root: root.Path, assignment: 
         )
         final_validation_errors = tuple(initial_validation_errors)
         final_validation_metadata = dict(initial_validation_metadata or {})
+        current_validation_errors = tuple(initial_validation_errors)
+        current_validation_metadata = dict(initial_validation_metadata or {})
         repair_attempted = False
         repair_status = 'not_attempted'
+        latest_repair_packet_path: root.Path | None = None
         unresolved_atomic_indices = [
             int(value)
             for value in (
-                (initial_validation_metadata or {}).get('unresolved_atomic_indices')
+                current_validation_metadata.get('unresolved_atomic_indices')
                 or [int(value) for value in shard.owned_ids]
             )
             if str(value).strip()
@@ -849,8 +852,8 @@ def _run_line_role_structured_assignment_v1(*, run_root: root.Path, assignment: 
                 repair_packet = root._build_line_role_structured_packet(
                     shard=repair_shard,
                     packet_kind='repair',
-                    validation_errors=initial_validation_errors,
-                    validation_metadata=initial_validation_metadata,
+                    validation_errors=current_validation_errors,
+                    validation_metadata=current_validation_metadata,
                     deterministic_baseline_by_atomic_index=baseline_by_atomic_index,
                 )
                 repair_packet_path = session_root / f'repair_packet_{repair_attempt_index:02d}.json'
@@ -862,11 +865,12 @@ def _run_line_role_structured_assignment_v1(*, run_root: root.Path, assignment: 
                 repair_workspace_manifest_path = session_root / f'repair_workspace_manifest_{repair_attempt_index:02d}.json'
                 repair_stdout_path = session_root / f'repair_stdout_{repair_attempt_index:02d}.txt'
                 repair_stderr_path = session_root / f'repair_stderr_{repair_attempt_index:02d}.txt'
+                latest_repair_packet_path = repair_packet_path
                 repair_packet_path.write_text(root.json.dumps(repair_packet, indent=2, sort_keys=True) + '\n', encoding='utf-8')
                 repair_prompt_text = root._build_line_role_structured_prompt(packet=repair_packet)
                 repair_prompt_path.write_text(repair_prompt_text, encoding='utf-8')
                 root.assert_structured_session_can_resume(worker_root=session_root, execution_working_dir=execution_workspace)
-                repair_run_result = runner.run_packet_worker(prompt_text=repair_prompt_text, input_payload={**root._coerce_mapping_dict(repair_shard.input_payload), 'shard_id': shard.shard_id, 'owned_ids': list(repair_shard.owned_ids), 'packet_kind': 'repair', 'stage_key': 'line_role', 'validation_errors': list(initial_validation_errors), 'structured_packet_rows': list(repair_packet.get('rows') or [])}, working_dir=session_root, env=env, output_schema_path=output_schema_path, model=model, reasoning_effort=reasoning_effort, timeout_seconds=timeout_seconds, workspace_task_label='canonical line-role structured repair session', resume_last=True, prepared_execution_working_dir=execution_workspace)
+                repair_run_result = runner.run_packet_worker(prompt_text=repair_prompt_text, input_payload={**root._coerce_mapping_dict(repair_shard.input_payload), 'shard_id': shard.shard_id, 'owned_ids': list(repair_shard.owned_ids), 'packet_kind': 'repair', 'stage_key': 'line_role', 'validation_errors': list(current_validation_errors), 'structured_packet_rows': list(repair_packet.get('rows') or [])}, working_dir=session_root, env=env, output_schema_path=output_schema_path, model=model, reasoning_effort=reasoning_effort, timeout_seconds=timeout_seconds, workspace_task_label='canonical line-role structured repair session', resume_last=True, prepared_execution_working_dir=execution_workspace)
                 repair_response_path.write_text(str(repair_run_result.response_text or ''), encoding='utf-8')
                 repair_events_path.write_text(root._render_codex_events_jsonl(repair_run_result.events), encoding='utf-8')
                 root._write_runtime_json(repair_last_message_path, {'text': repair_run_result.response_text})
@@ -886,12 +890,14 @@ def _run_line_role_structured_assignment_v1(*, run_root: root.Path, assignment: 
                 )
                 repair_status = 'repaired' if repair_proposal_status == 'validated' else 'failed'
                 final_validation_errors = tuple(repair_validation_errors)
-                final_validation_metadata = root._merge_line_role_validation_metadata(original_shard=shard, initial_metadata=initial_validation_metadata, repair_metadata=repair_validation_metadata)
+                final_validation_metadata = root._merge_line_role_validation_metadata(original_shard=shard, initial_metadata=current_validation_metadata, repair_metadata=repair_validation_metadata)
+                current_validation_errors = final_validation_errors
+                current_validation_metadata = dict(final_validation_metadata or {})
                 proposal_status = 'validated' if root._build_line_role_row_resolution(shard=shard, validation_metadata=final_validation_metadata)[0] is not None else 'invalid'
                 unresolved_atomic_indices = [
                     int(value)
                     for value in (
-                        (final_validation_metadata or {}).get('unresolved_atomic_indices')
+                        current_validation_metadata.get('unresolved_atomic_indices')
                         or [int(value) for value in shard.owned_ids]
                     )
                     if str(value).strip()
@@ -911,8 +917,8 @@ def _run_line_role_structured_assignment_v1(*, run_root: root.Path, assignment: 
         else:
             worker_failure_count += 1
             worker_failures.append({'worker_id': assignment.worker_id, 'shard_id': shard.shard_id, 'reason': 'validation_failed', 'validation_errors': list(final_validation_errors), 'state': 'invalid_output', 'reason_code': 'structured_validation_failed'})
-        stage_rows.append(root._build_line_role_shard_status_row(shard=shard, worker_id=assignment.worker_id, state='repair_recovered' if proposal_payload is not None and repair_status == 'repaired' else 'validated' if proposal_payload is not None else 'repair_failed', last_attempt_type='repair' if repair_attempted else 'structured_session_initial', output_path=output_path if proposal_payload is not None else None, repair_path=session_root / 'repair_packet_01.json' if repair_attempted else None, validation_errors=final_validation_errors, validation_metadata=final_validation_metadata, row_resolution_metadata=row_resolution_metadata, repair_attempted=repair_attempted, repair_status=repair_status, resumed_from_existing_output=False, transport=root.INLINE_JSON_TRANSPORT))
-        task_status_rows.append(root._build_line_role_shard_status_row(shard=shard, worker_id=assignment.worker_id, state='repair_recovered' if proposal_payload is not None and repair_status == 'repaired' else 'validated' if proposal_payload is not None else 'invalid_output', last_attempt_type='repair' if repair_attempted else 'structured_session_initial', output_path=output_path if proposal_payload is not None else None, repair_path=session_root / 'repair_packet_01.json' if repair_attempted else None, validation_errors=final_validation_errors, validation_metadata=final_validation_metadata, row_resolution_metadata=row_resolution_metadata, repair_attempted=repair_attempted, repair_status=repair_status, resumed_from_existing_output=False, transport=root.INLINE_JSON_TRANSPORT))
+        stage_rows.append(root._build_line_role_shard_status_row(shard=shard, worker_id=assignment.worker_id, state='repair_recovered' if proposal_payload is not None and repair_status == 'repaired' else 'validated' if proposal_payload is not None else 'repair_failed', last_attempt_type='repair' if repair_attempted else 'structured_session_initial', output_path=output_path if proposal_payload is not None else None, repair_path=latest_repair_packet_path if repair_attempted else None, validation_errors=final_validation_errors, validation_metadata=final_validation_metadata, row_resolution_metadata=row_resolution_metadata, repair_attempted=repair_attempted, repair_status=repair_status, resumed_from_existing_output=False, transport=root.INLINE_JSON_TRANSPORT))
+        task_status_rows.append(root._build_line_role_shard_status_row(shard=shard, worker_id=assignment.worker_id, state='repair_recovered' if proposal_payload is not None and repair_status == 'repaired' else 'validated' if proposal_payload is not None else 'invalid_output', last_attempt_type='repair' if repair_attempted else 'structured_session_initial', output_path=output_path if proposal_payload is not None else None, repair_path=latest_repair_packet_path if repair_attempted else None, validation_errors=final_validation_errors, validation_metadata=final_validation_metadata, row_resolution_metadata=row_resolution_metadata, repair_attempted=repair_attempted, repair_status=repair_status, resumed_from_existing_output=False, transport=root.INLINE_JSON_TRANSPORT))
         worker_proposals.append(root.ShardProposalV1(shard_id=shard.shard_id, worker_id=assignment.worker_id, status=proposal_status, proposal_path=root._relative_runtime_path(run_root, proposal_path), payload=proposal_payload if proposal_payload is not None else None, validation_errors=tuple(final_validation_errors), metadata=dict(final_validation_metadata or {})))
         if shard_completed_callback is not None:
             shard_completed_callback(worker_id=assignment.worker_id, shard_id=shard.shard_id)

@@ -121,7 +121,7 @@ _POLICY_TABLE: dict[tuple[str, str, str | None], StageTransportPolicy] = {
             FollowupBudget(
                 kind=FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP,
                 surface="structured_session",
-                max_attempts=1,
+                max_attempts=3,
                 scope=FOLLOWUP_SCOPE_SHARD_RESULT,
             ),
             FollowupBudget(
