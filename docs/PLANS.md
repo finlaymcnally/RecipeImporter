@@ -17,6 +17,16 @@ When implementing an executable specification (ExecPlan), do not prompt the user
 When discussing an executable specification (ExecPlan), record decisions in a log in the spec for posterity; it should be unambiguously clear why any change to the specification was made. ExecPlans are living documents, and it should always be possible to restart from _only_ the ExecPlan and no other work.
  
 When researching a design with challenging requirements or significant unknowns, use milestones to implement proof of concepts, "toy implementations", etc., that allow validating whether the user's proposal is feasible. Read the source code of libraries by finding or acquiring them, research deeply, and include prototypes to guide a fuller implementation.
+
+## ExecPlans and Beads
+
+This repository uses beads (`bd`) for task tracking. ExecPlans and beads are complementary, not interchangeable.
+
+Use an ExecPlan for the design and implementation narrative of a substantial feature, refactor, or cross-cutting change. The ExecPlan should explain the goal, the approach, the concrete edits, the validation steps, and the decisions made as the work unfolds. A finished ExecPlan should read like a self-contained guide to what was built and why.
+
+Use beads for execution tracking. Create a beads issue for the overall effort before writing code, and create child issues when the plan naturally breaks into independently actionable chunks. Beads should hold the moving parts: what is ready, what is blocked, who is working on what, and what remains. The ExecPlan should hold the stable understanding: the design, rationale, evidence, and implementation story.
+
+Do not copy a whole ExecPlan into beads. Instead, turn the plan into a small set of concrete beads with clear dependencies. A good default is one parent beads issue for the overall plan plus child issues for the milestones or workstreams that can be completed and validated separately. As implementation proceeds, keep both artifacts current: update beads when task status changes, and update the ExecPlan when design knowledge or implementation reality changes.
  
 ## Requirements
  
@@ -39,6 +49,8 @@ Format and envelope are simple and strict. Each ExecPlan must be one single fenc
 When writing an ExecPlan to a Markdown (.md) file where the content of the file *is only* the single ExecPlan, you should omit the triple backticks.
  
 Write in plain prose. Prefer sentences over lists. Avoid checklists, tables, and long enumerations unless brevity would obscure meaning. Checklists are permitted only in the `Progress` section, where they are mandatory. Narrative sections must remain prose-first.
+
+When you include timestamps in an ExecPlan, use this repository's timestamp format: `YYYY-MM-DD_HH.MM.SS`.
  
 ## Guidelines
  
@@ -92,7 +104,7 @@ Prefer additive code changes followed by subtractions that keep tests passing. P
  
     Use a list with checkboxes to summarize granular steps. Every stopping point must be documented here, even if it requires splitting a partially completed task into two (“done” vs. “remaining”). This section must always reflect the actual current state of the work.
  
-    - [x] (2025-10-01 13:00Z) Example completed step.
+    - [x] (2025-10-01_13.00.00) Example completed step.
     - [ ] Example incomplete step.
     - [ ] Example partially completed step (completed: X; remaining: Y).
  
