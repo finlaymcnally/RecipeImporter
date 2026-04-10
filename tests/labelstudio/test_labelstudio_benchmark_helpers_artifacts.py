@@ -1885,6 +1885,263 @@ def test_build_codex_farm_prompt_response_log_records_line_role_only_prompt_rows
     assert manifest_lines == [str(eval_output_dir / "prompts" / "prompt_line_role.txt")]
 
 
+def test_build_codex_farm_prompt_response_log_expands_line_role_structured_session_turns(
+    tmp_path: Path,
+) -> None:
+    processed_run = tmp_path / "processed" / "2026-03-16_18.11.25"
+    prompt_dir = processed_run / "line-role-pipeline" / "prompts" / "line_role"
+    prompt_dir.mkdir(parents=True, exist_ok=True)
+    (prompt_dir / "line_role_prompt_0001.txt").write_text(
+        "legacy line role prompt body\n",
+        encoding="utf-8",
+    )
+    (prompt_dir / "line_role_prompt_response_0001.txt").write_text(
+        '{"labels":["RECIPE_TITLE"]}\n',
+        encoding="utf-8",
+    )
+    (processed_run / "line-role-pipeline" / "telemetry_summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "codex_backend": "codex-exec",
+                "codex_farm_pipeline_id": "line-role.canonical.v1",
+                "phases": [
+                    {
+                        "phase_key": "line_role",
+                        "batches": [
+                            {
+                                "prompt_index": 1,
+                                "candidate_count": 3,
+                                "requested_atomic_indices": [1, 2, 3],
+                                "attempts": [
+                                    {
+                                        "attempt_index": 1,
+                                        "process_run": {
+                                            "pipeline_id": "line-role.canonical.v1",
+                                            "process_payload": {
+                                                "run_id": "line-role-run-1",
+                                                "status": "done",
+                                                "pipeline_id": "line-role.canonical.v1",
+                                                "codex_model": "gpt-5.3-codex-spark",
+                                                "codex_reasoning_effort": "low",
+                                            },
+                                        },
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    runtime_root = processed_run / "line-role-pipeline" / "runtime" / "line_role"
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    (runtime_root / "phase_manifest.json").write_text(
+        json.dumps({"pipeline_id": "line-role.canonical.v1"}, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    (runtime_root / "worker_assignments.json").write_text(
+        json.dumps([{"worker_id": "worker-001", "shard_ids": ["line-role-shard-0001"]}]),
+        encoding="utf-8",
+    )
+    (runtime_root / "shard_manifest.jsonl").write_text(
+        json.dumps(
+            {
+                "shard_id": "line-role-shard-0001",
+                "owned_ids": ["1", "2", "3"],
+                "metadata": {"prompt_index": 1},
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (runtime_root / "telemetry.json").write_text(
+        json.dumps({"rows": [{"task_id": "line-role-shard-0001", "worker_id": "worker-001"}]}, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    session_root = (
+        runtime_root
+        / "workers"
+        / "worker-001"
+        / "shards"
+        / "line-role-shard-0001"
+        / "structured_session"
+    )
+    session_root.mkdir(parents=True, exist_ok=True)
+    (session_root / "session_lineage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "structured_session_lineage.v1",
+                "turns": [
+                    {
+                        "turn_index": 1,
+                        "turn_kind": "initial",
+                        "packet_path": str(session_root / "initial_packet.json"),
+                        "prompt_path": str(session_root / "prompt_initial.txt"),
+                        "response_path": str(session_root / "response_initial.json"),
+                    },
+                    {
+                        "turn_index": 2,
+                        "turn_kind": "repair",
+                        "packet_path": str(session_root / "repair_packet_01.json"),
+                        "prompt_path": str(session_root / "repair_prompt_01.txt"),
+                        "response_path": str(session_root / "repair_response_01.json"),
+                    },
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (session_root / "initial_packet.json").write_text(
+        json.dumps({"rows": [{"row_id": "r1", "text": "Title"}]}, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    (session_root / "prompt_initial.txt").write_text(
+        "line role initial prompt body\n",
+        encoding="utf-8",
+    )
+    (session_root / "response_initial.json").write_text(
+        '{"rows":[{"row_id":"r1","label":"RECIPE_TITLE"}]}\n',
+        encoding="utf-8",
+    )
+    (session_root / "usage_initial.json").write_text(
+        json.dumps(
+            {
+                "input_tokens": 30,
+                "cached_input_tokens": 4,
+                "output_tokens": 5,
+                "reasoning_tokens": 0,
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (session_root / "events_initial.jsonl").write_text(
+        json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "initial ok"}}, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
+    (session_root / "last_message_initial.json").write_text(
+        json.dumps({"text": "initial ok"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (session_root / "workspace_manifest_initial.json").write_text(
+        json.dumps({"execution_working_dir": "/tmp/line-role-initial"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (session_root / "repair_packet_01.json").write_text(
+        json.dumps({"rows": [{"row_id": "r2", "text": "Needs repair"}]}, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    (session_root / "repair_prompt_01.txt").write_text(
+        "line role repair prompt body\n",
+        encoding="utf-8",
+    )
+    (session_root / "repair_response_01.json").write_text(
+        '{"rows":[{"row_id":"r2","label":"INGREDIENT_LINE"}]}\n',
+        encoding="utf-8",
+    )
+    (session_root / "repair_usage_01.json").write_text(
+        json.dumps(
+            {
+                "input_tokens": 50,
+                "cached_input_tokens": 7,
+                "output_tokens": 6,
+                "reasoning_tokens": 0,
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    (session_root / "repair_events_01.jsonl").write_text(
+        json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "repair ok"}}, sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
+    (session_root / "repair_last_message_01.json").write_text(
+        json.dumps({"text": "repair ok"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    (session_root / "repair_workspace_manifest_01.json").write_text(
+        json.dumps({"execution_working_dir": "/tmp/line-role-repair"}, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    eval_output_dir = tmp_path / "eval"
+    eval_output_dir.mkdir(parents=True, exist_ok=True)
+    (eval_output_dir / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "source": {"path": str(tmp_path / "book.epub")},
+                "artifacts": {"stage_run_dir": str(processed_run)},
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    prompt_artifacts.build_codex_farm_prompt_response_log(
+        pred_run=eval_output_dir,
+        eval_output_dir=eval_output_dir,
+        repo_root=tmp_path,
+    )
+
+    full_prompt_rows = [
+        json.loads(line)
+        for line in (eval_output_dir / "prompts" / "full_prompt_log.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    assert len(full_prompt_rows) == 2
+    assert [row["call_id"] for row in full_prompt_rows] == [
+        "line-role-shard-0001__turn_01_initial",
+        "line-role-shard-0001__turn_02_repair",
+    ]
+    assert [row["prompt_input_mode"] for row in full_prompt_rows] == [
+        "structured_session_initial",
+        "structured_session_repair",
+    ]
+    assert [row["runtime_turn_kind"] for row in full_prompt_rows] == [
+        "initial",
+        "repair",
+    ]
+    assert [row["request_telemetry"]["tokens_total"] for row in full_prompt_rows] == [
+        39,
+        63,
+    ]
+    assert all(row["runtime_shard_id"] == "line-role-shard-0001" for row in full_prompt_rows)
+
+    summary = json.loads(
+        (eval_output_dir / "prompts" / "prompt_log_summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert summary["full_prompt_log_rows"] == 2
+    assert summary["runtime_shard_count"] == 1
+    assert summary["by_stage"]["line_role"]["row_count"] == 2
+    assert summary["by_stage"]["line_role"]["runtime_shard_count"] == 1
+
+    category_log = (
+        eval_output_dir / "prompts" / "prompt_line_role.txt"
+    ).read_text(encoding="utf-8")
+    assert "PROMPT line_role => initial" in category_log
+    assert "PROMPT line_role => repair" in category_log
+    assert "line role repair prompt body" in category_log
+
+
 def test_prompt_artifact_renderer_supports_non_pass_stage_descriptors(
     tmp_path: Path,
 ) -> None:

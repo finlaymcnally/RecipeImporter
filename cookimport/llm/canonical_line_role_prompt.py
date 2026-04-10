@@ -249,23 +249,25 @@ def build_canonical_line_role_file_prompt(
             "Return strict JSON as a JSON object with one ordered `labels` array:\n"
             '{"labels":["<ALLOWED_LABEL>","<ALLOWED_LABEL>"]}\n\n'
             "Task file shape:\n"
-            '{"v":2,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[{"text":"Earlier context"}],"rows":[{"text":"1 cup flour"}],"context_after_rows":[{"text":"Later context"}]}\n\n'
+            '{"v":2,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":["Earlier context"],"rows":["1 cup flour"],"context_after_rows":["Later context"]}\n\n'
             "Rules:\n"
             "- Output only JSON.\n"
             "- Your final answer must be that JSON object and nothing else.\n"
             "- Use only the top-level key `labels`.\n"
             "- Return exactly one label for every owned input row in `rows`.\n"
+            "- `rows` is an ordered array of raw text strings.\n"
             "- Keep label order exactly aligned with the task file's `rows` array.\n"
+            "- The first label applies to `rows[0]`, the second label applies to `rows[1]`, and so on.\n"
             "- Finish the full owned-row list; do not stop early.\n"
             "- Treat the task file as one ordered contiguous slice of the book.\n"
-            "- The task file has one version marker `v`, one `shard_id`, optional `context_before_rows` / `context_after_rows`, and owned `rows` objects.\n"
-            "- `context_before_rows` and `context_after_rows`, when present, are reference-only neighboring rows containing only `text`.\n"
+            "- The task file has one version marker `v`, one `shard_id`, optional `context_before_rows` / `context_after_rows`, and owned `rows` arrays.\n"
+            "- `context_before_rows` and `context_after_rows`, when present, are reference-only neighboring raw-text rows.\n"
             "- Never label reference-only neighboring rows.\n"
             "- Do not label `context_before_rows` or `context_after_rows`; they are for interpretation only.\n"
-            "- Each owned row object contains only `text`.\n"
-            "- Use the `text` field as the line to label.\n"
+            "- Use each `rows[*]` string as the line to label.\n"
             "- Use neighboring rows in `rows[*]` for local context when needed.\n"
             "- Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`.\n"
+            "- Return one JSON object with only the top-level key `labels`.\n"
             "\n"
             "Shared labeling contract:\n"
             "{{SHARED_CONTRACT_BLOCK}}\n"
@@ -304,15 +306,19 @@ def _render_authoritative_rows_for_prompt(
     for row in rows:
         if isinstance(row, (list, tuple)):
             rendered_rows.append(
-                json.dumps(
-                    {"text": str(row[1] or "")},
-                    ensure_ascii=False,
-                    sort_keys=True,
-                )
+                json.dumps(str(row[1] or ""), ensure_ascii=False)
             )
         elif isinstance(row, Mapping):
+            row_dict = dict(row)
             rendered_rows.append(
-                json.dumps(dict(row), ensure_ascii=False, sort_keys=True)
+                json.dumps(
+                    str(
+                        row_dict.get("current_line")
+                        or row_dict.get("text")
+                        or ""
+                    ),
+                    ensure_ascii=False,
+                )
             )
     return "\n".join(rendered_rows) if rendered_rows else "[no shard rows available]"
 
@@ -331,25 +337,18 @@ def _render_reference_context_block(
         for row in rows:
             if isinstance(row, (list, tuple)):
                 rendered_rows.append(
-                    json.dumps(
-                        {"text": str(row[1] or "")},
-                        ensure_ascii=False,
-                        sort_keys=True,
-                    )
+                    json.dumps(str(row[1] or ""), ensure_ascii=False)
                 )
             elif isinstance(row, Mapping):
                 row_dict = dict(row)
                 rendered_rows.append(
                     json.dumps(
-                        {
-                            "text": str(
-                                row_dict.get("current_line")
-                                or row_dict.get("text")
-                                or ""
-                            )
-                        },
+                        str(
+                            row_dict.get("current_line")
+                            or row_dict.get("text")
+                            or ""
+                        ),
                         ensure_ascii=False,
-                        sort_keys=True,
                     )
                 )
         return "\n".join(rendered_rows) if rendered_rows else "[none]"

@@ -1091,10 +1091,15 @@ def _build_existing_upload_bundle_fixture(tmp_path: Path) -> dict[str, object]:
         prune_output_dir=False,
     )
 
-    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    quality_dir = bundle_dir / module.oracle_upload_contract.ORACLE_REVIEW_PROFILE_QUALITY
+    token_dir = bundle_dir / module.oracle_upload_contract.ORACLE_REVIEW_PROFILE_TOKEN
+    index_payload = _read_json(quality_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    token_index_payload = _read_json(token_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    quality_payload = _read_json(quality_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
+    token_payload = _read_json(token_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
     artifact_paths = {
         str(row.get("path") or "")
-        for row in index_payload["artifact_index"]
+        for row in quality_payload.get("rows") or []
         if isinstance(row, dict)
     }
 
@@ -1104,9 +1109,12 @@ def _build_existing_upload_bundle_fixture(tmp_path: Path) -> dict[str, object]:
         "bundle_dir": bundle_dir,
         "codex_run_id": codex_run_id,
         "index_payload": index_payload,
+        "quality_payload": quality_payload,
         "metadata": metadata,
         "module": module,
         "session_root": session_root,
+        "token_index_payload": token_index_payload,
+        "token_payload": token_payload,
     }
 
 
@@ -1315,10 +1323,15 @@ def _build_existing_upload_bundle_fixture(tmp_path: Path) -> dict[str, object]:
         prune_output_dir=False,
     )
 
-    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    quality_dir = bundle_dir / module.oracle_upload_contract.ORACLE_REVIEW_PROFILE_QUALITY
+    token_dir = bundle_dir / module.oracle_upload_contract.ORACLE_REVIEW_PROFILE_TOKEN
+    index_payload = _read_json(quality_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    token_index_payload = _read_json(token_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    quality_payload = _read_json(quality_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
+    token_payload = _read_json(token_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
     artifact_paths = {
         str(row.get("path") or "")
-        for row in index_payload["artifact_index"]
+        for row in quality_payload.get("rows") or []
         if isinstance(row, dict)
     }
 
@@ -1328,7 +1341,10 @@ def _build_existing_upload_bundle_fixture(tmp_path: Path) -> dict[str, object]:
         "bundle_dir": bundle_dir,
         "codex_run_id": codex_run_id,
         "index_payload": index_payload,
+        "quality_payload": quality_payload,
         "metadata": metadata,
         "module": module,
         "session_root": session_root,
+        "token_index_payload": token_index_payload,
+        "token_payload": token_payload,
     }

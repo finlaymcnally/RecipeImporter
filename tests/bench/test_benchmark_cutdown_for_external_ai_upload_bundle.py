@@ -20,12 +20,14 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     artifact_paths = fixture["artifact_paths"]
     codex_run_id = fixture["codex_run_id"]
     baseline_run_id = fixture["baseline_run_id"]
+    token_index_payload = fixture["token_index_payload"]
     assert isinstance(session_root, Path)
     assert isinstance(bundle_dir, Path)
     assert isinstance(index_payload, dict)
     assert isinstance(artifact_paths, set)
     assert isinstance(codex_run_id, str)
     assert isinstance(baseline_run_id, str)
+    assert isinstance(token_index_payload, dict)
 
     assert fixture["metadata"]["source_dir"] == str(session_root.resolve())
     assert fixture["metadata"]["output_dir"] == str(bundle_dir.resolve())
@@ -34,12 +36,27 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
         for path in bundle_dir.iterdir()
         if path.is_dir()
     } == set(module.UPLOAD_BUNDLE_REVIEW_PROFILE_DIR_NAMES)
-    assert f"{codex_run_id}/run_manifest.json" in artifact_paths
-    assert f"{baseline_run_id}/run_manifest.json" in artifact_paths
+    assert artifact_paths == {
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/comparison_summary.json",
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/per_recipe_or_per_span_breakdown.json",
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/01_recipe_triage.packet.jsonl",
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/net_error_blame_summary.json",
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/config_version_metadata.json",
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/explicit_escalation_changed_lines.packet.jsonl",
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/group_high_level_packet.json",
+    }
     assert int(index_payload["topline"]["run_count"]) == 2
     assert int(index_payload["topline"]["pair_count"]) == 1
     assert int(index_payload["topline"]["changed_lines_total"]) >= 1
     assert int(index_payload["topline"]["additional_pairs_needed_for_generalization"]) == 1
+    review_packet = index_payload.get("review_packet")
+    assert isinstance(review_packet, dict)
+    assert review_packet["packet_policy"] == "compact_turn1_only"
+    assert int(review_packet["estimated_bundle_size_bytes"]) > 0
+    assert int(review_packet["summary_only_row_count"]) >= 0
+    assert "codex-exec/run_manifest.json" in review_packet["missing_paths"]
+    assert "vanilla/run_manifest.json" in review_packet["missing_paths"]
+    assert token_index_payload["review_profile"] == module.oracle_upload_contract.ORACLE_REVIEW_PROFILE_TOKEN
     assert index_payload["topline"]["full_prompt_log_status"] == "complete"
     assert index_payload["topline"]["full_prompt_log_status_source"] in {
         "process_manifest",
@@ -125,11 +142,20 @@ def test_build_upload_bundle_explicit_escalation_packet_matches_atomic_index_onl
         prune_output_dir=False,
     )
 
-    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
-    escalation_packet = index_payload["analysis"]["explicit_escalation_changed_lines_packet"]
-    assert escalation_packet["available"] is True
-    assert escalation_packet["row_count"] == 1
-    sample_row = escalation_packet["sample_rows"][0]
+    payload_json = _read_json(
+        bundle_dir
+        / module.oracle_upload_contract.ORACLE_REVIEW_PROFILE_QUALITY
+        / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME
+    )
+    payload_rows = payload_json["rows"]
+    escalation_row = next(
+        row
+        for row in payload_rows
+        if str(row.get("path") or "").endswith(
+            module.STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME
+        )
+    )
+    sample_row = escalation_row["content_jsonl_rows"][0]
     assert sample_row["line_index"] == 1
     assert sample_row["atomic_index"] == 1
     assert sample_row["escalation_reasons"] == ["nonrecipe_finalize_excluded"]
@@ -447,23 +473,18 @@ def test_build_upload_bundle_for_existing_output_includes_analysis_payloads(
         == "codex-recipe-shard-v1"
     )
     assert codex_settings["line_role_pipeline"] == "codex-line-role-route-v2"
-    assert isinstance(index_payload["analysis"].get("stage_separated_comparison"), dict)
     structure_report = index_payload["analysis"].get("structure_label_report")
     assert isinstance(structure_report, dict)
-    assert structure_report.get("schema_version") == "benchmark_structure_label_report.v1"
+    assert structure_report.get("schema_version") in {
+        "benchmark_structure_label_report.v1",
+        "",
+    }
     assert isinstance(structure_report.get("slices"), dict)
     assert isinstance(structure_report.get("boundary"), dict)
-    assert isinstance(index_payload["analysis"].get("failure_ledger"), dict)
-    assert isinstance(index_payload["analysis"].get("regression_casebook"), dict)
-    escalation_packet = index_payload["analysis"].get("explicit_escalation_changed_lines_packet")
-    assert isinstance(escalation_packet, dict)
-    assert escalation_packet.get("available") is True
-    escalation_row_count = int(escalation_packet.get("row_count") or 0)
-    assert escalation_row_count >= 0
-    if escalation_row_count == 0:
-        assert "No changed lines intersected" in str(
-            escalation_packet.get("empty_packet_note") or ""
-        )
+    review_packet = index_payload.get("review_packet")
+    assert isinstance(review_packet, dict)
+    assert review_packet.get("packet_policy") == "compact_turn1_only"
+    assert int(review_packet.get("summary_only_row_count") or 0) >= 0
     assert isinstance(index_payload["analysis"].get("call_inventory_runtime"), dict)
     line_role_signal = index_payload["analysis"].get("line_role_escalation")
     assert isinstance(line_role_signal, dict)
@@ -472,9 +493,15 @@ def test_build_upload_bundle_for_existing_output_includes_analysis_payloads(
     runtime_summary = index_payload["analysis"]["call_inventory_runtime"]["summary"]
     assert isinstance(runtime_summary.get("cost_signal"), dict)
     assert runtime_summary["cost_signal"]["available"] is False
-    assert "recipe_build_final" in runtime_summary["by_stage"]
-    assert "recipe_refine" in runtime_summary["by_stage"]
-    assert "recipe_build_final" in runtime_summary["by_stage"]
+    by_stage_rows = runtime_summary["by_stage"]
+    assert isinstance(by_stage_rows, list)
+    stage_keys = {
+        str(row.get("stage_key") or "")
+        for row in by_stage_rows
+        if isinstance(row, dict)
+    }
+    assert "recipe_build_final" in stage_keys
+    assert "recipe_refine" in stage_keys
     assert (
         "recognized cost fields"
         in str(runtime_summary["cost_signal"]["unavailable_reason"])
@@ -514,6 +541,7 @@ def test_build_upload_bundle_for_existing_output_includes_navigation_and_locator
 ) -> None:
     fixture = _build_existing_upload_bundle_fixture(tmp_path)
     module = fixture["module"]
+    codex_run_id = fixture["codex_run_id"]
     index_payload = fixture["index_payload"]
     artifact_paths = fixture["artifact_paths"]
     assert isinstance(index_payload, dict)
@@ -521,67 +549,29 @@ def test_build_upload_bundle_for_existing_output_includes_navigation_and_locator
 
     navigation_payload = index_payload.get("navigation")
     assert isinstance(navigation_payload, dict)
-    default_views = navigation_payload.get("default_initial_views")
-    assert isinstance(default_views, list)
-    assert default_views.index("analysis.turn1_summary") < default_views.index(
-        "analysis.benchmark_pair_inventory"
+    recommended_read_order = navigation_payload.get("recommended_read_order")
+    assert isinstance(recommended_read_order, list)
+    assert recommended_read_order[0] == "analysis.benchmark_pair_inventory"
+    assert "analysis.triage_packet" in recommended_read_order
+    assert "analysis.recipe_pipeline_context" not in recommended_read_order
+    selected_rows = navigation_payload.get("selected_payload_rows")
+    assert isinstance(selected_rows, list)
+    assert all(isinstance(row, dict) for row in selected_rows)
+    comparison_row = next(
+        row
+        for row in selected_rows
+        if str(row.get("path") or "")
+        == f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/comparison_summary.json"
     )
-    assert default_views.index("analysis.benchmark_pair_inventory") < default_views.index(
-        "analysis.triage_packet"
+    assert int(comparison_row.get("payload_row") or 0) > 0
+    assert str(navigation_payload.get("followup_policy") or "").startswith(
+        "Turn 1 is intentionally summary-first"
     )
-    assert default_views.index("analysis.active_recipe_span_breakout") < default_views.index(
-        "analysis.triage_packet"
+    assert any(
+        str(row.get("path") or "").endswith(module.STARTER_PACK_TRIAGE_PACKET_FILE_NAME)
+        for row in selected_rows
     )
-    assert "analysis.triage_packet" in default_views
-    assert "analysis.explicit_escalation_changed_lines_packet" in default_views
-    assert "analysis.recipe_pipeline_context" in default_views
-    assert "analysis.structure_label_report" in default_views
-    row_locators = navigation_payload.get("row_locators")
-    assert isinstance(row_locators, dict)
-    root_locators = row_locators.get("root_files")
-    assert isinstance(root_locators, dict)
-    assert all(isinstance(locator, dict) for locator in root_locators.values())
-    comparison_locator = root_locators.get("comparison_summary_json")
-    assert isinstance(comparison_locator, dict)
-    assert comparison_locator.get("path") in {
-        "codex_vs_vanilla_comparison.json",
-        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/comparison_summary.json",
-    }
-    starter_locators = row_locators.get("starter_pack")
-    assert isinstance(starter_locators, dict)
-    for key in (
-        "triage_jsonl",
-        "triage_packet_jsonl",
-        "call_inventory_jsonl",
-        "changed_lines_jsonl",
-        "warning_trace_summary_json",
-        "bridge_summary_jsonl",
-        "selected_packets_jsonl",
-        "casebook_md",
-        "manifest_json",
-    ):
-        assert isinstance(starter_locators.get(key), dict)
-    triage_packet_locator = root_locators.get("triage_packet_jsonl")
-    assert isinstance(triage_packet_locator, dict)
-    assert triage_packet_locator.get("path") == (
-        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/{module.STARTER_PACK_TRIAGE_PACKET_FILE_NAME}"
-    )
-    assert triage_packet_locator.get("alias_path") == (
-        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/{module.STARTER_PACK_DIR_NAME}/{module.STARTER_PACK_TRIAGE_PACKET_FILE_NAME}"
-    )
-    assert isinstance(root_locators.get("net_error_blame_summary_json"), dict)
-    assert isinstance(root_locators.get("config_version_metadata_json"), dict)
-    assert isinstance(root_locators.get("explicit_escalation_changed_lines_packet_jsonl"), dict)
-    alias_dedupe = navigation_payload.get("alias_dedupe")
-    assert isinstance(alias_dedupe, dict)
-    assert int(alias_dedupe.get("content_equivalent_group_count") or 0) >= 1
-    derived_root_run_index = (
-        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/run_index.json"
-    )
-    assert derived_root_run_index in artifact_paths
-    self_check = index_payload.get("self_check")
-    assert isinstance(self_check, dict)
-    assert float(self_check.get("critical_row_locators_coverage_ratio") or 0.0) >= 0.9
+    assert f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/comparison_summary.json" in artifact_paths
 
 
 def test_regression_casebook_uses_signal_fallback_when_no_negative_delta() -> None:
@@ -650,35 +640,22 @@ def test_build_upload_bundle_for_existing_output_surfaces_run_diagnostics_and_ov
     module = fixture["module"]
     bundle_dir = fixture["bundle_dir"]
     index_payload = fixture["index_payload"]
-    codex_run_id = fixture["codex_run_id"]
-    baseline_run_id = fixture["baseline_run_id"]
     assert isinstance(bundle_dir, Path)
     assert isinstance(index_payload, dict)
-    assert isinstance(codex_run_id, str)
-    assert isinstance(baseline_run_id, str)
-
-    run_diagnostics = index_payload.get("run_diagnostics")
-    assert isinstance(run_diagnostics, list)
-    codex_diag = next(
-        row for row in run_diagnostics if str(row.get("run_id") or "") == codex_run_id
+    review_packet = index_payload.get("review_packet")
+    assert isinstance(review_packet, dict)
+    assert int(review_packet.get("payload_size_bytes") or 0) > 0
+    assert int(review_packet.get("index_size_bytes") or 0) > 0
+    assert int(review_packet.get("overview_size_bytes") or 0) > 0
+    overview_text = _read_text(
+        bundle_dir
+        / module.oracle_upload_contract.ORACLE_REVIEW_PROFILE_QUALITY
+        / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME
     )
-    assert codex_diag["prompt_warning_aggregate_status"] == "written"
-    assert codex_diag["projection_trace_status"] == "written"
-    assert codex_diag["wrong_label_full_context_status"] == "written"
-    assert codex_diag["preprocess_trace_failures_status"] == "written"
-    baseline_diag = next(
-        row for row in run_diagnostics if str(row.get("run_id") or "") == baseline_run_id
-    )
-    assert baseline_diag["prompt_warning_aggregate_status"] == "not_applicable"
-    assert baseline_diag["projection_trace_status"] == "not_applicable"
-    assert baseline_diag["preprocess_trace_failures_status"] == "not_applicable"
-    overview_text = _read_text(bundle_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME)
+    assert "summary-first" in overview_text
+    assert "## Shared Benchmark Overview" in overview_text
     assert "## Turn-1 Summary" in overview_text
-    assert "## Active Recipe Span Breakout" in overview_text
-    assert "## Runtime / Cost Snapshot" in overview_text
-    assert "## Stage Observability" in overview_text
-    assert "## Top Confusion Deltas" in overview_text
-    assert "suggested_available_targets" in overview_text
+    assert "## Recipe Pipeline Context" in overview_text
 
 
 def test_build_upload_bundle_for_existing_output_derives_diagnostics_without_cutdown_summary(
@@ -734,56 +711,29 @@ def test_build_upload_bundle_for_existing_output_derives_diagnostics_without_cut
         prune_output_dir=False,
     )
 
-    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
+    quality_dir = (
+        bundle_dir / module.oracle_upload_contract.ORACLE_REVIEW_PROFILE_QUALITY
+    )
+    index_payload = _read_json(quality_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
     assert index_payload["topline"]["full_prompt_log_status"] == "complete"
     assert (
         index_payload["topline"]["full_prompt_log_status_source"]
         == "derived_from_run_diagnostics"
     )
-    regression_casebook = index_payload["analysis"]["regression_casebook"]
-    assert regression_casebook["target_request_status"] == "none_found"
-    assert isinstance(regression_casebook.get("suggested_targets"), list)
-    assert regression_casebook["suggested_target_source"] == "top_negative_delta_recipes"
-    run_diagnostics = index_payload.get("run_diagnostics")
-    assert isinstance(run_diagnostics, list)
-    codex_diag = next(
-        row for row in run_diagnostics if str(row.get("run_id") or "") == codex_run_id
-    )
-    assert codex_diag["prompt_warning_aggregate_status"] == "written"
-    assert codex_diag["projection_trace_status"] == "written"
-    assert codex_diag["wrong_label_full_context_status"] == "written"
-    assert codex_diag["preprocess_trace_failures_status"] == "written"
-    payload_rows = _read_jsonl(bundle_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
-    baseline_trace_parity = next(
-        row["content_json"]
-        for row in payload_rows
-        if row.get("path")
-        == f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/16_baseline_trace_parity.json"
-    )
-    pair_row = baseline_trace_parity["pair_rows"][0]
-    assert pair_row["codex_statuses"][module.PROMPT_WARNING_AGGREGATE_FILE_NAME] == "present"
-    assert pair_row["codex_statuses"][module.PROJECTION_TRACE_FILE_NAME] == "present"
-    assert pair_row["codex_statuses"][module.PREPROCESS_TRACE_FAILURES_FILE_NAME] == "present"
-    assert pair_row["parity_flags"]["codex_only_trace_fields_present_for_codex"] is True
-
-    artifact_index = index_payload.get("artifact_index")
-    assert isinstance(artifact_index, list)
-    artifact_paths = {
+    turn1_summary = index_payload["analysis"]["turn1_summary"]
+    targeted_affordance = turn1_summary["targeted_regression_affordance"]
+    assert targeted_affordance["target_request_status"] == "none_found"
+    assert isinstance(targeted_affordance.get("suggested_targets"), list)
+    review_packet = index_payload["review_packet"]
+    assert int(review_packet["row_count"]) >= 1
+    quality_payload = _read_json(quality_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
+    payload_paths = {
         str(row.get("path") or "")
-        for row in artifact_index
+        for row in quality_payload["rows"]
         if isinstance(row, dict)
     }
-    derived_prefix = f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/runs/{codex_run_id}/"
-    assert f"{derived_prefix}{module.PROMPT_WARNING_AGGREGATE_FILE_NAME}" in artifact_paths
-    assert f"{derived_prefix}{module.PROJECTION_TRACE_FILE_NAME}" in artifact_paths
-    assert (
-        f"{derived_prefix}{module.WRONG_LABEL_FULL_CONTEXT_FILE_NAME.replace('.gz', '')}"
-        in artifact_paths
-    )
-    assert (
-        f"{derived_prefix}{module.PREPROCESS_TRACE_FAILURES_FILE_NAME.replace('.gz', '')}"
-        in artifact_paths
-    )
+    assert f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/net_error_blame_summary.json" in payload_paths
+    assert f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/config_version_metadata.json" in payload_paths
 
 
 def test_upload_bundle_sort_recipe_triage_rows_deprioritizes_zero_change_empty_mapping_rows() -> None:
@@ -851,7 +801,7 @@ def test_upload_bundle_select_triage_packet_sample_rows_omits_zero_signal_rows()
     assert "No triage rows had recipe-local signal" in sample_note
 
 
-def test_build_upload_bundle_stage_separated_comparison_scores_recipe_correction_and_final_recipe(
+def test_oracle_review_index_omits_stage_separated_comparison_but_keeps_structure_summary(
     tmp_path: Path,
 ) -> None:
     module = _load_cutdown_module()
@@ -905,28 +855,27 @@ def test_build_upload_bundle_stage_separated_comparison_scores_recipe_correction
         prune_output_dir=False,
     )
 
-    index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
-    stage_separated = index_payload["analysis"]["stage_separated_comparison"]
-    per_label_rows = stage_separated["per_label"]
-    ingredient_row = next(
-        row for row in per_label_rows if str(row.get("label") or "") == "INGREDIENT_LINE"
+    index_payload = _read_json(
+        bundle_dir
+        / module.oracle_upload_contract.ORACLE_REVIEW_PROFILE_QUALITY
+        / module.UPLOAD_BUNDLE_INDEX_FILE_NAME
     )
-    recipe_stages = {
-        str(stage.get("stage_key") or ""): stage
-        for stage in ingredient_row["recipe_stages"]
-        if isinstance(stage, dict)
-    }
-    correction_stage = recipe_stages["recipe_refine"]
-    final_stage = recipe_stages["recipe_build_final"]
-    intermediate_stage = recipe_stages["recipe_build_intermediate"]
-
-    assert correction_stage["label_scored"] is True
-    assert final_stage["label_scored"] is True
-    assert intermediate_stage["label_scored"] is False
-    assert int(correction_stage["runs_scored"]) == 1
-    assert int(final_stage["runs_scored"]) == 1
-    assert "unavailable_reason" not in correction_stage
-    assert "unavailable_reason" not in final_stage
-    assert "unavailable_reason" in intermediate_stage
-    assert float(correction_stage["f1_avg"]) > 0.0
-    assert float(final_stage["f1_avg"]) > 0.0
+    assert "stage_separated_comparison" not in index_payload["analysis"]
+    structure_report = index_payload["analysis"]["structure_label_report"]
+    assert isinstance(structure_report.get("slices"), dict)
+    assert isinstance(structure_report.get("boundary"), dict)
+    recipe_pipeline_context = index_payload["analysis"]["recipe_pipeline_context"]
+    assert recipe_pipeline_context["recipe_stages"] == [
+        {
+            "stage_key": "recipe_build_intermediate",
+            "stage_label": "Recipe Build Intermediate",
+        },
+        {
+            "stage_key": "recipe_refine",
+            "stage_label": "Recipe Refine",
+        },
+        {
+            "stage_key": "recipe_build_final",
+            "stage_label": "Recipe Build Final",
+        },
+    ]

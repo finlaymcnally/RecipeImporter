@@ -691,6 +691,38 @@ def run_codex_farm_nonrecipe_finalize(
             finalization_completeness="interrupted_before_finalization",
         )
         raise
+    except ValueError as exc:
+        elapsed_seconds = round(time.perf_counter() - started, 3)
+        llm_report = _build_runtime_failed_knowledge_llm_report(
+            run_settings=run_settings,
+            pipeline_id=pipeline_id,
+            output_schema_path=output_schema_path,
+            manifest_path=manifest_path,
+            run_root=run_root,
+            knowledge_in_dir=knowledge_in_dir,
+            knowledge_stage_dir=knowledge_stage_dir,
+            build_report=build_report,
+            seed_nonrecipe_span_count=seed_nonrecipe_span_count,
+            candidate_nonrecipe_span_count=candidate_nonrecipe_span_count,
+            excluded_block_count=excluded_block_count,
+            elapsed_seconds=elapsed_seconds,
+            error=f"post_validation_finalize_failed: {exc}",
+        )
+        _write_json(llm_report, manifest_path)
+        _write_knowledge_stage_status(
+            stage_root=knowledge_stage_dir,
+            manifest_path=manifest_path,
+            stage_state="runtime_failed",
+            termination_cause="post_validation_finalize_error",
+            finalization_completeness="complete",
+        )
+        return CodexFarmNonrecipeFinalizeResult(
+            llm_report=llm_report,
+            llm_raw_dir=llm_raw_dir,
+            manifest_path=manifest_path,
+            refined_stage_result=nonrecipe_stage_result,
+            write_report=None,
+        )
     except Exception:
         _write_knowledge_stage_status(
             stage_root=knowledge_stage_dir,

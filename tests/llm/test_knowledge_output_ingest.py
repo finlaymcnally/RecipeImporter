@@ -194,7 +194,7 @@ def test_validate_knowledge_shard_output_requires_existing_tag_for_exact_name_du
     assert metadata["knowledge_grounding_existing_tag_required_blocks"] == [4]
 
 
-def test_sanitize_knowledge_worker_payload_demotes_book_framing_rows() -> None:
+def test_sanitize_knowledge_worker_payload_preserves_model_categories_and_groups() -> None:
     framing_shard = ShardManifestEntryV1(
         shard_id="book.ks0000.nr",
         owned_ids=("book.ks0000.nr",),
@@ -246,16 +246,30 @@ def test_sanitize_knowledge_worker_payload_demotes_book_framing_rows() -> None:
         ),
     )
 
-    assert payload["d"][0]["c"] == "other"
-    assert payload["d"][0]["gr"] == {"tk": [], "ck": [], "pt": []}
-    assert payload["g"] == []
-    assert metadata["deterministic_other_bypass_block_count"] == 1
-    assert metadata["deterministic_other_bypass_reason_counts"] == {
-        "book_framing_or_marketing": 1
+    assert payload["d"][0]["c"] == "knowledge"
+    assert payload["d"][0]["gr"] == {
+        "tk": [],
+        "ck": ["techniques"],
+        "pt": [
+            {
+                "k": "salt-fat-acid-heat",
+                "d": "Salt Fat Acid Heat",
+                "ck": "techniques",
+            }
+        ],
     }
+    assert payload["g"] == [
+        {
+            "gid": "g01",
+            "l": "Book thesis",
+            "bi": [4],
+            "s": [],
+        }
+    ]
+    assert metadata["worker_output_contract"] == "semantic_packet_result_v2"
 
 
-def test_validate_knowledge_shard_output_demotes_low_utility_rows_before_group_checks() -> None:
+def test_validate_knowledge_shard_output_keeps_model_knowledge_rows_for_group_checks() -> None:
     framing_shard = ShardManifestEntryV1(
         shard_id="book.ks0000.nr",
         owned_ids=("book.ks0000.nr",),
@@ -310,11 +324,8 @@ def test_validate_knowledge_shard_output_demotes_low_utility_rows_before_group_c
 
     assert valid is True
     assert errors == ()
-    assert metadata["knowledge_decision_count"] == 0
-    assert metadata["reviewed_all_other"] is True
-    assert metadata["deterministic_other_bypass_reason_counts"] == {
-        "book_framing_or_marketing": 1
-    }
+    assert metadata["knowledge_decision_count"] == 1
+    assert metadata["reviewed_all_other"] is False
 
 
 def test_classify_knowledge_validation_failure_marks_near_miss() -> None:

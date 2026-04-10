@@ -838,6 +838,18 @@ def _normalize_prediction_metadata(
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> CanonicalLineRolePrediction:
     label = str(prediction.label or "NONRECIPE_CANDIDATE")
+    if prediction.decided_by == "codex":
+        return CanonicalLineRolePrediction(
+            recipe_id=prediction.recipe_id,
+            block_id=prediction.block_id,
+            block_index=prediction.block_index,
+            atomic_index=prediction.atomic_index,
+            text=prediction.text,
+            within_recipe_span=prediction.within_recipe_span,
+            label=label,
+            decided_by=prediction.decided_by,
+            reason_tags=_unique_string_list(str(tag) for tag in prediction.reason_tags),
+        )
     if _is_within_recipe_span(candidate):
         if label in {"OTHER", "KNOWLEDGE", "NONRECIPE_CANDIDATE", "NONRECIPE_EXCLUDE"}:
             label = "RECIPE_NOTES"

@@ -714,16 +714,6 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
             ).items()
         )
     )
-    deterministic_bypass_reason_code_counts: Counter[str] = Counter()
-    for row in task_rows:
-        if str(row.get("last_attempt_type") or "").strip() != "deterministic_bypass":
-            continue
-        metadata = row.get("metadata")
-        if not isinstance(metadata, Mapping):
-            continue
-        reason_code = str(metadata.get("deterministic_bypass_reason_code") or "").strip()
-        if reason_code:
-            deterministic_bypass_reason_code_counts[reason_code] += 1
     terminal_outcome_counts = {
         state: count
         for state, count in packet_state_counts.items()
@@ -880,7 +870,6 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
             }
     replay_summary = replay_knowledge_runtime(knowledge_root=stage_root)
     packet_total = len(task_rows) if task_rows else int(replay_summary.rollup.packet_total)
-    deterministic_bypass_total = int(packet_attempt_type_counts.get("deterministic_bypass") or 0)
     failed_followup_total = sum(_int_count(value) for value in followup_failed_counts.values())
     manifest_counts = (
         knowledge_manifest_payload.get("counts")
@@ -956,16 +945,11 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
             "terminal_reason_code_counts": terminal_reason_code_counts,
             "no_final_output_shard_count": no_final_output_shard_count,
             "no_final_output_reason_code_counts": no_final_output_reason_code_counts,
-            "deterministic_bypass_total": deterministic_bypass_total,
-            "llm_review_total": max(packet_total - deterministic_bypass_total, 0),
-            "deterministic_bypass_reason_code_counts": dict(
-                sorted(deterministic_bypass_reason_code_counts.items())
-            ),
+            "llm_review_total": packet_total,
             "topline": {
                 "validated": int(packet_state_counts.get("validated") or 0),
                 "retry_recovered": int(packet_state_counts.get("retry_recovered") or 0),
                 "repair_recovered": int(packet_state_counts.get("repair_recovered") or 0),
-                "deterministic_bypass": deterministic_bypass_total,
                 "failed": sum(
                     int(packet_state_counts.get(key) or 0) for key in _KNOWLEDGE_FAILED_PACKET_STATES
                 ),
@@ -1035,8 +1019,7 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
         },
         context_counts={
             "packet_total": packet_total,
-            "llm_review_total": max(packet_total - deterministic_bypass_total, 0),
-            "deterministic_bypass_total": deterministic_bypass_total,
+            "llm_review_total": packet_total,
             "validated_packet_count": packet_state_counts.get("validated"),
             "retry_recovered_packet_count": packet_state_counts.get("retry_recovered"),
             "repair_recovered_packet_count": packet_state_counts.get("repair_recovered"),
@@ -1046,9 +1029,6 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
         reason_counts={
             "terminal_reason_code_counts": terminal_reason_code_counts,
             "no_final_output_reason_code_counts": no_final_output_reason_code_counts,
-            "deterministic_bypass_reason_code_counts": dict(
-                sorted(deterministic_bypass_reason_code_counts.items())
-            ),
             "followup_failed_counts": followup_failed_counts,
         },
     )

@@ -4,9 +4,6 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from cookimport.core.models import KnowledgeChunk
-from cookimport.parsing.chunks import summarize_chunk_utility_profile
-
 from .codex_farm_knowledge_contracts import knowledge_input_packets
 from .phase_worker_runtime import ShardManifestEntryV1
 from .codex_farm_knowledge_models import (
@@ -94,147 +91,30 @@ def normalize_knowledge_worker_payload(
         "allowed_reason_codes": list(ALLOWED_KNOWLEDGE_REASON_CODES),
     }
 
-
-def _block_rows_by_index_for_shard(
-    shard: ShardManifestEntryV1,
-) -> dict[int, dict[str, Any]]:
-    rows: dict[int, dict[str, Any]] = {}
-    for packet in knowledge_input_packets(dict(shard.input_payload or {})):
-        for block in (packet.get("b") or packet.get("blocks") or []):
-            if not isinstance(block, Mapping):
-                continue
-            block_index = block.get("i")
-            if block_index is None:
-                block_index = block.get("block_index")
-            try:
-                normalized_block_index = int(block_index)
-            except (TypeError, ValueError):
-                continue
-            rows[normalized_block_index] = dict(block)
-    return rows
-
-
-def _low_utility_reason_for_block(
-    block_row: Mapping[str, Any] | None,
-) -> tuple[str | None, dict[str, Any]]:
-    row = _coerce_dict(block_row)
-    text = str(row.get("t") or row.get("text") or "").strip()
-    if not text:
-        return "not_cooking_knowledge", {
-            "text": "",
-            "positive_cues": [],
-            "negative_cues": [],
-            "strong_negative_cue": False,
-            "borderline": False,
-        }
-    utility_profile = summarize_chunk_utility_profile(KnowledgeChunk(text=text))
-    positive_cues = [
-        str(value).strip()
-        for value in (utility_profile.get("positive_cues") or [])
-        if str(value).strip()
-    ]
-    negative_cues = [
-        str(value).strip()
-        for value in (utility_profile.get("negative_cues") or [])
-        if str(value).strip()
-    ]
-    strong_negative_cue = bool(utility_profile.get("strong_negative_cue"))
-    borderline = bool(utility_profile.get("borderline"))
-    reason_code: str | None = None
-
-    if "book_framing_or_marketing" in negative_cues:
-        reason_code = "book_framing_or_marketing"
-    elif "navigation_or_taxonomy" in negative_cues:
-        reason_code = "navigation_or_chapter_taxonomy"
-    elif "rhetorical_heading" in negative_cues and not positive_cues:
-        reason_code = "decorative_heading_only"
-    elif "memoir_or_voice" in negative_cues and not positive_cues:
-        reason_code = "memoir_or_scene_setting"
-    elif "true_but_low_utility" in negative_cues and not strong_negative_cue:
-        reason_code = "true_but_low_utility"
-
-    return reason_code, {
-        "text": text,
-        "positive_cues": positive_cues,
-        "negative_cues": negative_cues,
-        "strong_negative_cue": strong_negative_cue,
-        "borderline": borderline,
-    }
-
-
 def sanitize_knowledge_worker_payload_for_shard(
     shard: ShardManifestEntryV1,
     payload: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    del shard
     normalized_payload, normalization_metadata = normalize_knowledge_worker_payload(payload)
     parsed = KnowledgeBundleOutputV2.model_validate(normalized_payload)
-    block_rows_by_index = _block_rows_by_index_for_shard(shard)
-
-    demoted_block_indices: set[int] = set()
-    demotion_details: list[dict[str, Any]] = []
     serialized_decisions: list[dict[str, Any]] = []
     for decision in parsed.block_decisions:
-        block_index = int(decision.block_index)
-        category = str(decision.category)
-        if category != "knowledge":
-            serialized_decisions.append(
-                {
-                    "i": block_index,
-                    "c": category,
-                    "gr": _serialize_grounding_for_payload(decision.grounding),
-                }
-            )
-            continue
-        reason_code, utility_metadata = _low_utility_reason_for_block(
-            block_rows_by_index.get(block_index)
-        )
-        if reason_code is not None:
-            demoted_block_indices.add(block_index)
-            demotion_details.append(
-                {
-                    "block_index": block_index,
-                    "reason_code": reason_code,
-                    "positive_cues": list(utility_metadata.get("positive_cues") or []),
-                    "negative_cues": list(utility_metadata.get("negative_cues") or []),
-                    "strong_negative_cue": bool(
-                        utility_metadata.get("strong_negative_cue")
-                    ),
-                    "borderline": bool(utility_metadata.get("borderline")),
-                    "text": str(utility_metadata.get("text") or ""),
-                }
-            )
-            serialized_decisions.append(
-                {
-                    "i": block_index,
-                    "c": "other",
-                    "gr": {"tk": [], "ck": [], "pt": []},
-                }
-            )
-            continue
         serialized_decisions.append(
             {
-                "i": block_index,
-                "c": category,
+                "i": int(decision.block_index),
+                "c": str(decision.category),
                 "gr": _serialize_grounding_for_payload(decision.grounding),
             }
         )
 
     serialized_groups: list[dict[str, Any]] = []
-    dropped_group_ids: list[str] = []
     for group in parsed.idea_groups:
-        surviving_block_indices = [
-            int(block_index)
-            for block_index in group.block_indices
-            if int(block_index) not in demoted_block_indices
-        ]
-        if not surviving_block_indices:
-            dropped_group_ids.append(str(group.group_id))
-            continue
         serialized_groups.append(
             {
                 "gid": str(group.group_id),
                 "l": str(group.topic_label),
-                "bi": surviving_block_indices,
+                "bi": [int(block_index) for block_index in group.block_indices],
                 "s": [
                     {
                         "b": str(snippet.body),
@@ -251,35 +131,12 @@ def sanitize_knowledge_worker_payload_for_shard(
             }
         )
 
-    reason_counts: dict[str, int] = {}
-    for detail in demotion_details:
-        reason_code = str(detail.get("reason_code") or "").strip()
-        if not reason_code:
-            continue
-        reason_counts[reason_code] = int(reason_counts.get(reason_code) or 0) + 1
-    primary_reason_code = None
-    if reason_counts:
-        primary_reason_code = sorted(
-            reason_counts.items(),
-            key=lambda row: (-int(row[1]), str(row[0])),
-        )[0][0]
-
     return {
         "v": "3",
         "bid": parsed.bundle_id,
         "d": serialized_decisions,
         "g": serialized_groups,
-    }, {
-        **dict(normalization_metadata),
-        "deterministic_other_bypass_block_count": len(demotion_details),
-        "deterministic_other_bypass_reason_counts": dict(sorted(reason_counts.items())),
-        "deterministic_other_bypass_details": demotion_details,
-        "dropped_idea_group_count_after_bypass": len(dropped_group_ids),
-        "dropped_idea_group_ids_after_bypass": sorted(
-            group_id for group_id in dropped_group_ids if group_id
-        ),
-        "deterministic_bypass_reason_code": primary_reason_code,
-    }
+    }, dict(normalization_metadata)
 
 
 def _serialize_grounding_for_payload(grounding: Any) -> dict[str, Any]:

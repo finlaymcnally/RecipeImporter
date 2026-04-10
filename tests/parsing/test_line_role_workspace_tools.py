@@ -168,3 +168,33 @@ def test_line_role_validation_trims_obvious_single_trailing_spill() -> None:
     }
     assert metadata["returned_row_count"] == 2
     assert metadata["accepted_atomic_indices"] == [10, 11]
+
+
+def test_line_role_validation_does_not_trim_extra_label_in_labels_mode() -> None:
+    shard_row = {
+        "input_payload": {
+            "rows": [
+                [10, "L1", "Salt"],
+                [11, "L2", "Stir."],
+            ]
+        }
+    }
+
+    errors, metadata = validate_line_role_output_payload(
+        shard_row,
+        {
+            "labels": [
+                "INGREDIENT_LINE",
+                "INSTRUCTION_LINE",
+                "NONRECIPE_CANDIDATE",
+            ]
+        },
+    )
+
+    assert "wrong_row_count" in errors
+    assert "trimmed_trailing_row_spill" not in metadata
+    assert metadata["ordered_label_vector"] == {
+        "applied": True,
+        "returned_label_count": 3,
+        "expected_row_count": 2,
+    }

@@ -143,6 +143,8 @@ def _structured_session_sidecar_path(*, response_path: Path, suffix: str, extens
     if '_response_' in stem:
         prefix, tail = stem.split('_response_', 1)
         sibling_stem = f'{prefix}_{suffix}_{tail}'
+    elif stem.startswith('response_'):
+        sibling_stem = f'{suffix}_{stem[len("response_"):]}'
     elif stem.endswith('_response'):
         sibling_stem = f'{stem[:-len("_response")]}_{suffix}'
     else:
@@ -453,7 +455,8 @@ def _build_line_role_prompt_rows(*, pred_run: Path, eval_output_dir: Path, repo_
         for source_path in sorted(phase_prompt_dir.iterdir(), key=lambda path: path.name):
             if source_path.is_file():
                 _copy_prompt_artifact_file(source=source_path, target=phase_export_dir / source_path.name)
-        runtime_index = _load_phase_runtime_index(stage_run_root / 'line-role-pipeline' / 'runtime' / phase_key)
+        runtime_stage_root = stage_run_root / 'line-role-pipeline' / 'runtime' / phase_key
+        runtime_index = _load_phase_runtime_index(runtime_stage_root)
         phase_payload = phases_by_key.get(phase_key) or {}
         phase_batches = phase_payload.get('batches')
         batches_by_prompt_index: dict[int, dict[str, Any]] = {}
@@ -498,27 +501,6 @@ def _build_line_role_prompt_rows(*, pred_run: Path, eval_output_dir: Path, repo_
             if debug_input_file is not None and debug_input_file.exists():
                 exported_debug_input_file = phase_export_dir / 'debug' / debug_input_file.name
                 _copy_prompt_artifact_file(source=debug_input_file, target=exported_debug_input_file)
-            detail_lines.append(f'INPUT {spec['stage_key']} => {prompt_file.name}')
-            if exported_input_file is not None:
-                detail_lines.append(f'task_file: {exported_input_file}')
-            if exported_debug_input_file is not None:
-                detail_lines.append(f'debug_task_file: {exported_debug_input_file}')
-            detail_lines.append('-' * 80)
-            detail_lines.append(prompt_text)
-            detail_lines.append('-' * 80)
-            detail_lines.append('')
-            if response_file.exists():
-                detail_lines.append(f'OUTPUT {spec['stage_key']} => {response_file.name}')
-                detail_lines.append('-' * 80)
-                detail_lines.append(response_text)
-                detail_lines.append('-' * 80)
-                detail_lines.append('')
-            if parsed_file.exists():
-                detail_lines.append(f'PARSED {spec['stage_key']} => {parsed_file.name}')
-                detail_lines.append('-' * 80)
-                detail_lines.append(_safe_read_text(parsed_file))
-                detail_lines.append('-' * 80)
-                detail_lines.append('')
             batch_payload = batches_by_prompt_index.get(prompt_index, {})
             attempts = batch_payload.get('attempts')
             attempt_payload = attempts[0] if isinstance(attempts, list) and attempts else {}
@@ -542,6 +524,144 @@ def _build_line_role_prompt_rows(*, pred_run: Path, eval_output_dir: Path, repo_
                 usage_payload = {}
             timestamp_utc = _timestamp_utc_for_path(prompt_file)
             call_id = f'{spec['prompt_stem']}_{prompt_index:04d}'
+            structured_session_turns = _load_structured_session_turn_artifacts(
+                session_root=_resolve_structured_session_root(
+                    runtime_stage_root=runtime_stage_root,
+                    runtime_context=runtime_context,
+                )
+            )
+            if structured_session_turns:
+                for turn_artifact in structured_session_turns:
+                    turn_prompt_text = str(turn_artifact.get('prompt_text') or '')
+                    turn_packet_text = str(turn_artifact.get('packet_text') or '')
+                    turn_response_text = str(turn_artifact.get('response_text') or '')
+                    turn_parsed_input = turn_artifact.get('parsed_input')
+                    turn_parsed_response = turn_artifact.get('parsed_response')
+                    turn_index = _coerce_int(turn_artifact.get('turn_index')) or 0
+                    turn_kind = _clean_text(turn_artifact.get('turn_kind')) or f'turn_{turn_index or 0}'
+                    turn_call_id = f"{runtime_context.get('runtime_shard_id') or call_id}__turn_{turn_index:02d}_{turn_kind}"
+                    turn_request_messages = [{'role': 'user', 'content': turn_prompt_text}]
+                    turn_usage_payload = dict(turn_artifact.get('usage_payload')) if isinstance(turn_artifact.get('usage_payload'), Mapping) else {}
+                    turn_tokens_input = _coerce_int(turn_usage_payload.get('input_tokens')) or _coerce_int(turn_usage_payload.get('tokens_input'))
+                    turn_tokens_cached_input = _coerce_int(turn_usage_payload.get('cached_input_tokens')) or _coerce_int(turn_usage_payload.get('tokens_cached_input'))
+                    turn_tokens_output = _coerce_int(turn_usage_payload.get('output_tokens')) or _coerce_int(turn_usage_payload.get('tokens_output'))
+                    turn_tokens_reasoning = _coerce_int(turn_usage_payload.get('reasoning_tokens')) or _coerce_int(turn_usage_payload.get('tokens_reasoning'))
+                    turn_tokens_total = _coerce_int(turn_usage_payload.get('tokens_total'))
+                    if turn_tokens_total is None:
+                        turn_tokens_total = sum(value or 0 for value in (turn_tokens_input, turn_tokens_cached_input, turn_tokens_output, turn_tokens_reasoning))
+                    turn_response_path = turn_artifact.get('response_path')
+                    turn_request_telemetry = {
+                        'status': 'ok' if turn_response_text.strip() else None,
+                        'duration_ms': None,
+                        'attempt_index': turn_index,
+                        'prompt_index': prompt_index,
+                        'candidate_count': _coerce_int(batch_payload.get('candidate_count')),
+                        'requested_atomic_indices': list(batch_payload.get('requested_atomic_indices') or []),
+                        'returncode': None,
+                        'response_present': bool(turn_response_text.strip()),
+                        'turn_failed_message': None,
+                        'tokens_input': turn_tokens_input,
+                        'tokens_cached_input': turn_tokens_cached_input,
+                        'tokens_output': turn_tokens_output,
+                        'tokens_reasoning': turn_tokens_reasoning,
+                        'tokens_total': turn_tokens_total,
+                        'worker_id': runtime_context.get('runtime_worker_id'),
+                        'shard_id': runtime_context.get('runtime_shard_id'),
+                        'owned_ids': list(runtime_context.get('runtime_owned_ids') or []),
+                        'events_path': str(turn_artifact.get('events_path')) if isinstance(turn_artifact.get('events_path'), Path) else None,
+                        'last_message_path': str(turn_artifact.get('last_message_path')) if isinstance(turn_artifact.get('last_message_path'), Path) else None,
+                        'usage_path': str(turn_artifact.get('usage_path')) if isinstance(turn_artifact.get('usage_path'), Path) else None,
+                        'live_status_path': None,
+                        'workspace_manifest_path': str(turn_artifact.get('workspace_manifest_path')) if isinstance(turn_artifact.get('workspace_manifest_path'), Path) else None,
+                        'stdout_path': None,
+                        'stderr_path': None,
+                    }
+                    turn_row_payload = {
+                        'run_id': eval_output_dir.name,
+                        'schema_version': PROMPT_CALL_RECORD_SCHEMA_VERSION,
+                        'call_id': turn_call_id,
+                        'timestamp_utc': _clean_text(turn_artifact.get('timestamp_utc')) or timestamp_utc,
+                        'recipe_id': f'{phase_key}_{prompt_index:04d}',
+                        'source_file': source_file,
+                        'pipeline_id': pipeline_id,
+                        'stage_key': spec['stage_key'],
+                        'stage_heading_key': spec['stage_key'],
+                        'stage_label': spec['stage_label'],
+                        'stage_artifact_stem': spec['stage_artifact_stem'],
+                        'stage_dir_name': 'line-role-pipeline',
+                        'stage_order': spec['stage_order'],
+                        'process_run_id': _clean_text(process_payload.get('run_id')),
+                        'model': model_value,
+                        'prompt_input_mode': f'structured_session_{turn_kind}',
+                        'request_payload_source': 'structured_session_prompt_artifact',
+                        'request_messages': turn_request_messages,
+                        'system_prompt': None,
+                        'developer_prompt': None,
+                        'user_prompt': turn_prompt_text,
+                        'rendered_prompt_text': turn_prompt_text,
+                        'rendered_messages': turn_request_messages,
+                        'prompt_templates': {'prompt_template_text': None, 'prompt_template_path': None},
+                        'template_vars': {'INPUT_PATH': str(turn_artifact.get('packet_path')) if isinstance(turn_artifact.get('packet_path'), Path) else None, 'INPUT_TEXT': turn_packet_text or None},
+                        'inserted_context_blocks': _collect_inserted_context_blocks(turn_parsed_input),
+                        'request': {'messages': turn_request_messages, 'tools': [], 'response_format': response_format_payload, 'model': model_value, 'reasoning_effort': reasoning_effort_value, 'temperature': None, 'top_p': None, 'max_output_tokens': None, 'seed': None, 'pipeline_id': pipeline_id, 'sandbox': None, 'ask_for_approval': None, 'web_search': None, 'output_schema_path': output_schema_path},
+                        'request_input_payload': turn_parsed_input,
+                        'request_input_text': turn_packet_text or None,
+                        'debug_input_payload': None,
+                        'debug_input_text': None,
+                        'task_prompt_text': turn_packet_text or None,
+                        'tools': [],
+                        'response_format': response_format_payload,
+                        'decoding_params': {'temperature': None, 'top_p': None, 'max_output_tokens': None, 'seed': None, 'reasoning_effort': reasoning_effort_value},
+                        'raw_response': {'output_text': turn_response_text or None, 'output_file': str(turn_response_path) if isinstance(turn_response_path, Path) else None},
+                        'parsed_response': turn_parsed_response,
+                        'request_input_file': str(turn_artifact.get('packet_path')) if isinstance(turn_artifact.get('packet_path'), Path) else None,
+                        'debug_input_file': None,
+                        'request_telemetry': turn_request_telemetry,
+                        'runtime_shard_id': runtime_context.get('runtime_shard_id'),
+                        'runtime_worker_id': runtime_context.get('runtime_worker_id'),
+                        'runtime_owned_ids': list(runtime_context.get('runtime_owned_ids') or []),
+                        'runtime_turn_index': turn_index,
+                        'runtime_turn_kind': turn_kind,
+                        'activity_trace': None,
+                    }
+                    activity_trace_payload = _export_prompt_activity_trace(row_payload=turn_row_payload, prompts_dir=prompts_dir, repo_root=repo_root)
+                    turn_row_payload['activity_trace'] = activity_trace_payload
+                    if isinstance(activity_trace_payload, dict):
+                        turn_request_telemetry['activity_trace_path'] = activity_trace_payload.get('path')
+                    rows.append(turn_row_payload)
+                    _append_structured_session_turn_to_category_log(
+                        category=detail_lines,
+                        stage_key=spec['stage_key'],
+                        turn_kind=turn_kind,
+                        turn_index=turn_index,
+                        turn_prompt_text=turn_prompt_text,
+                        turn_packet_text=turn_packet_text,
+                        turn_response_text=turn_response_text,
+                        turn_packet_path=turn_artifact.get('packet_path') if isinstance(turn_artifact.get('packet_path'), Path) else None,
+                        turn_response_path=turn_response_path if isinstance(turn_response_path, Path) else None,
+                    )
+                continue
+            detail_lines.append(f'INPUT {spec['stage_key']} => {prompt_file.name}')
+            if exported_input_file is not None:
+                detail_lines.append(f'task_file: {exported_input_file}')
+            if exported_debug_input_file is not None:
+                detail_lines.append(f'debug_task_file: {exported_debug_input_file}')
+            detail_lines.append('-' * 80)
+            detail_lines.append(prompt_text)
+            detail_lines.append('-' * 80)
+            detail_lines.append('')
+            if response_file.exists():
+                detail_lines.append(f'OUTPUT {spec['stage_key']} => {response_file.name}')
+                detail_lines.append('-' * 80)
+                detail_lines.append(response_text)
+                detail_lines.append('-' * 80)
+                detail_lines.append('')
+            if parsed_file.exists():
+                detail_lines.append(f'PARSED {spec['stage_key']} => {parsed_file.name}')
+                detail_lines.append('-' * 80)
+                detail_lines.append(_safe_read_text(parsed_file))
+                detail_lines.append('-' * 80)
+                detail_lines.append('')
             request_messages = [{'role': 'user', 'content': prompt_text}]
             row_payload = {'run_id': eval_output_dir.name, 'schema_version': PROMPT_CALL_RECORD_SCHEMA_VERSION, 'call_id': call_id, 'timestamp_utc': timestamp_utc, 'recipe_id': f'{phase_key}_{prompt_index:04d}', 'source_file': source_file, 'pipeline_id': pipeline_id, 'stage_key': spec['stage_key'], 'stage_heading_key': spec['stage_key'], 'stage_label': spec['stage_label'], 'stage_artifact_stem': spec['stage_artifact_stem'], 'stage_dir_name': 'line-role-pipeline', 'stage_order': spec['stage_order'], 'process_run_id': _clean_text(process_payload.get('run_id')), 'model': model_value, 'prompt_input_mode': _clean_text(runtime_telemetry_row.get('prompt_input_mode')) or 'path', 'request_payload_source': 'line_role_saved_prompt_text', 'request_messages': request_messages, 'system_prompt': None, 'developer_prompt': None, 'user_prompt': prompt_text, 'rendered_prompt_text': prompt_text, 'rendered_messages': request_messages, 'prompt_templates': {'prompt_template_text': None, 'prompt_template_path': None}, 'template_vars': {'INPUT_PATH': str(exported_input_file) if exported_input_file is not None else None, 'INPUT_TEXT': input_text or None}, 'inserted_context_blocks': [], 'request': {'messages': request_messages, 'tools': [], 'response_format': response_format_payload, 'model': model_value, 'reasoning_effort': reasoning_effort_value, 'temperature': None, 'top_p': None, 'max_output_tokens': None, 'seed': None, 'pipeline_id': pipeline_id, 'sandbox': None, 'ask_for_approval': None, 'web_search': None, 'output_schema_path': output_schema_path}, 'request_input_payload': input_payload, 'request_input_text': input_text or None, 'debug_input_payload': debug_input_payload, 'debug_input_text': debug_input_text or None, 'task_prompt_text': input_text or None, 'tools': [], 'response_format': response_format_payload, 'decoding_params': {'temperature': None, 'top_p': None, 'max_output_tokens': None, 'seed': None, 'reasoning_effort': reasoning_effort_value}, 'raw_response': {'output_text': response_text or None, 'output_file': str(exported_response_file) if response_file.exists() else None}, 'parsed_response': parsed_response, 'request_input_file': str(exported_input_file) if exported_input_file is not None else None, 'debug_input_file': str(exported_debug_input_file) if exported_debug_input_file is not None else None, 'request_telemetry': {'status': _clean_text(process_payload.get('status')) or _clean_text(runtime_telemetry_row.get('status')), 'duration_ms': _coerce_int(runtime_telemetry_row.get('duration_ms')), 'attempt_index': _coerce_int(attempt_payload.get('attempt_index')), 'prompt_index': prompt_index, 'candidate_count': _coerce_int(batch_payload.get('candidate_count')), 'requested_atomic_indices': list(batch_payload.get('requested_atomic_indices') or []), 'returncode': _coerce_int(attempt_payload.get('returncode')), 'response_present': _coerce_bool(attempt_payload.get('response_present')), 'turn_failed_message': _clean_text(attempt_payload.get('turn_failed_message')) or _clean_text(runtime_telemetry_row.get('turn_failed_message')), 'tokens_input': _coerce_int(usage_payload.get('tokens_input')) or _coerce_int(runtime_telemetry_row.get('tokens_input')), 'tokens_cached_input': _coerce_int(usage_payload.get('tokens_cached_input')) or _coerce_int(runtime_telemetry_row.get('tokens_cached_input')), 'tokens_output': _coerce_int(usage_payload.get('tokens_output')) or _coerce_int(runtime_telemetry_row.get('tokens_output')), 'tokens_reasoning': _coerce_int(usage_payload.get('tokens_reasoning')) or _coerce_int(runtime_telemetry_row.get('tokens_reasoning')), 'tokens_total': _coerce_int(usage_payload.get('tokens_total')) or _coerce_int(runtime_telemetry_row.get('tokens_total')), 'worker_id': runtime_context.get('runtime_worker_id'), 'shard_id': runtime_context.get('runtime_shard_id'), 'owned_ids': list(runtime_context.get('runtime_owned_ids') or []), 'events_path': _clean_text(runtime_telemetry_row.get('events_path')) or _clean_text(process_payload.get('events_path')), 'last_message_path': _clean_text(runtime_telemetry_row.get('last_message_path')) or _clean_text(process_payload.get('last_message_path')), 'usage_path': _clean_text(runtime_telemetry_row.get('usage_path')) or _clean_text(process_payload.get('usage_path')), 'live_status_path': _clean_text(runtime_telemetry_row.get('live_status_path')) or _clean_text(process_payload.get('live_status_path')), 'workspace_manifest_path': _clean_text(runtime_telemetry_row.get('workspace_manifest_path')) or _clean_text(process_payload.get('workspace_manifest_path')), 'stdout_path': _clean_text(runtime_telemetry_row.get('stdout_path')) or _clean_text(process_payload.get('stdout_path')), 'stderr_path': _clean_text(runtime_telemetry_row.get('stderr_path')) or _clean_text(process_payload.get('stderr_path'))}, 'runtime_shard_id': runtime_context.get('runtime_shard_id'), 'runtime_worker_id': runtime_context.get('runtime_worker_id'), 'runtime_owned_ids': list(runtime_context.get('runtime_owned_ids') or []), 'activity_trace': None}
             activity_trace_payload = _export_prompt_activity_trace(row_payload=row_payload, prompts_dir=prompts_dir, repo_root=repo_root)

@@ -1276,10 +1276,9 @@ def _build_knowledge_stage_rollup_fixture(tmp_path: Path) -> dict[str, object]:
                     {
                         "task_id": "book.ks0000.nr.task-001",
                         "state": "validated",
-                        "last_attempt_type": "deterministic_bypass",
-                        "terminal_reason_code": "deterministic_other_bypass",
+                        "last_attempt_type": "primary_review",
+                        "terminal_reason_code": "validated",
                         "metadata": {
-                            "deterministic_bypass_reason_code": "book_framing_or_marketing",
                             "watchdog_retry_status": "not_attempted",
                             "retry_status": "not_attempted",
                             "repair_status": "not_attempted",
@@ -1436,11 +1435,7 @@ def test_summarize_knowledge_stage_artifacts_reports_packet_and_worker_rollups(
     summary = fixture["summary"]
 
     assert summary["packets"]["packet_total"] == 3
-    assert summary["packets"]["deterministic_bypass_total"] == 1
-    assert summary["packets"]["llm_review_total"] == 2
-    assert summary["packets"]["deterministic_bypass_reason_code_counts"] == {
-        "book_framing_or_marketing": 1
-    }
+    assert summary["packets"]["llm_review_total"] == 3
     assert summary["packets"]["state_counts"] == {
         "repair_failed": 1,
         "retry_recovered": 1,
@@ -1453,7 +1448,6 @@ def test_summarize_knowledge_stage_artifacts_reports_packet_and_worker_rollups(
     }
     assert summary["packets"]["no_final_output_shard_count"] == 0
     assert summary["packets"]["no_final_output_reason_code_counts"] == {}
-    assert summary["packets"]["topline"]["deterministic_bypass"] == 1
     assert summary["workers"]["outcome_counts"] == {
         "completed_outputs_stabilized": 1,
     }

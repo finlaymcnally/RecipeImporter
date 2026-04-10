@@ -4,27 +4,25 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "rows"
+    "labels"
   ],
   "properties": {
-    "rows": {
+    "labels": {
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "atomic_index",
-          "label"
-        ],
-        "properties": {
-          "atomic_index": {
-            "type": "integer"
-          },
-          "label": {
-            "type": "string",
-            "minLength": 1
-          }
-        }
+        "type": "string",
+        "enum": [
+          "RECIPE_TITLE",
+          "INGREDIENT_LINE",
+          "INSTRUCTION_LINE",
+          "HOWTO_SECTION",
+          "YIELD_LINE",
+          "TIME_LINE",
+          "RECIPE_NOTES",
+          "RECIPE_VARIANT",
+          "NONRECIPE_CANDIDATE",
+          "NONRECIPE_EXCLUDE"
+        ]
       }
     }
   }

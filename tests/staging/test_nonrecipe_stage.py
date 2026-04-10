@@ -557,3 +557,21 @@ def test_nonrecipe_stage_forces_excluded_rows_to_final_other_even_if_bad_map_lea
     assert [span.span_id for span in refined.authority.authoritative_knowledge_spans] == [
         "nr.knowledge.1.2"
     ]
+
+
+def test_nonrecipe_stage_refinement_rejects_invalid_final_category() -> None:
+    full_blocks = [
+        {"index": 0, "block_id": "b0", "text": "Useful technique"},
+    ]
+    seed = build_nonrecipe_stage_result(
+        full_blocks=full_blocks,
+        final_block_labels=[_block_label(0, "NONRECIPE_CANDIDATE")],
+        recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
+    )
+
+    with pytest.raises(ValueError, match="Invalid final non-recipe label at block 0"):
+        refine_nonrecipe_stage_result(
+            stage_result=seed,
+            full_blocks=full_blocks,
+            block_category_updates={0: "maybe"},
+        )

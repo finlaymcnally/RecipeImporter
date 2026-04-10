@@ -464,10 +464,6 @@ def _run_line_role_direct_worker_assignment_v1(*, run_root: root.Path, assignmen
         return root._run_line_role_structured_assignment_v1(run_root=run_root, assignment=assignment, artifacts=artifacts, assigned_shards=assigned_shards, worker_root=worker_root, in_dir=in_dir, debug_dir=debug_dir, hints_dir=hints_dir, shard_dir=shard_dir, logs_dir=logs_dir, debug_payload_by_shard_id=debug_payload_by_shard_id, deterministic_baseline_by_shard_id=deterministic_baseline_by_shard_id, runner=runner, pipeline_id=pipeline_id, env=env, model=model, reasoning_effort=reasoning_effort, settings=settings, output_schema_path=output_schema_path, timeout_seconds=timeout_seconds, cohort_watchdog_state=cohort_watchdog_state, shard_completed_callback=shard_completed_callback, prompt_state=prompt_state, validator=validator)
     return root._run_line_role_taskfile_assignment_v1(run_root=run_root, assignment=assignment, artifacts=artifacts, assigned_shards=assigned_shards, worker_root=worker_root, in_dir=in_dir, debug_dir=debug_dir, hints_dir=hints_dir, shard_dir=shard_dir, logs_dir=logs_dir, debug_payload_by_shard_id=debug_payload_by_shard_id, deterministic_baseline_by_shard_id=deterministic_baseline_by_shard_id, runner=runner, pipeline_id=pipeline_id, env=env, model=model, reasoning_effort=reasoning_effort, settings=settings, output_schema_path=output_schema_path, timeout_seconds=timeout_seconds, cohort_watchdog_state=cohort_watchdog_state, shard_completed_callback=shard_completed_callback, prompt_state=prompt_state, validator=validator)
 
-def _line_role_structured_row_id(index: int) -> str:
-    return f"r{index + 1:02d}"
-
-
 def _line_role_structured_input_rows(
     shard: root.ShardManifestEntryV1,
 ) -> list[tuple[int, str]]:
@@ -480,26 +476,14 @@ def _line_role_structured_input_rows(
     return rows
 
 
-def _line_role_structured_row_maps(
-    shard: root.ShardManifestEntryV1,
-) -> tuple[dict[str, int], dict[int, str], dict[int, str], list[str]]:
-    row_id_by_atomic_index: dict[int, str] = {}
-    atomic_index_by_row_id: dict[str, int] = {}
-    text_by_atomic_index: dict[int, str] = {}
-    ordered_row_ids: list[str] = []
-    for index, (atomic_index, text) in enumerate(_line_role_structured_input_rows(shard)):
-        row_id = _line_role_structured_row_id(index)
-        row_id_by_atomic_index[atomic_index] = row_id
-        atomic_index_by_row_id[row_id] = atomic_index
-        text_by_atomic_index[atomic_index] = text
-        ordered_row_ids.append(row_id)
-    return row_id_by_atomic_index, atomic_index_by_row_id, text_by_atomic_index, ordered_row_ids
+def _line_role_structured_row_id(index: int) -> str:
+    return f"r{index + 1:02d}"
 
 
-def _line_role_structured_packet_rows(shard: root.ShardManifestEntryV1) -> list[dict[str, root.Any]]:
-    rows: list[dict[str, root.Any]] = []
+def _line_role_structured_packet_rows(shard: root.ShardManifestEntryV1) -> list[str]:
+    rows: list[str] = []
     for _atomic_index, text in _line_role_structured_input_rows(shard):
-        rows.append({"text": text})
+        rows.append(text)
     return rows
 
 
@@ -507,17 +491,18 @@ def _line_role_structured_context_rows(
     *,
     shard: root.ShardManifestEntryV1,
     key: str,
-) -> list[dict[str, root.Any]]:
+) -> list[str]:
     rows_payload = root._coerce_mapping_dict(shard.input_payload).get(key) or []
-    rows: list[dict[str, root.Any]] = []
+    rows: list[str] = []
     for row in rows_payload:
         if not isinstance(row, (list, tuple)) or len(row) < 2:
             continue
-        rows.append({"text": str(row[1] or "")})
+        rows.append(str(row[1] or ""))
     return rows
 
 
 def _build_line_role_structured_packet(*, shard: root.ShardManifestEntryV1, packet_kind: str, validation_errors: root.Sequence[str] | None=None, validation_metadata: root.Mapping[str, root.Any] | None=None, deterministic_baseline_by_atomic_index: root.Mapping[int, root.CanonicalLineRolePrediction] | None=None) -> dict[str, root.Any]:
+    del validation_metadata
     del deterministic_baseline_by_atomic_index
     payload: dict[str, root.Any] = {
         "schema_version": "line_role_structured_packet.v2",
@@ -543,6 +528,28 @@ def _build_line_role_structured_packet(*, shard: root.ShardManifestEntryV1, pack
     return payload
 
 
+def _build_line_role_structured_prompt_packet(
+    packet: root.Mapping[str, root.Any],
+) -> dict[str, root.Any]:
+    prompt_packet: dict[str, root.Any] = {
+        "rows": list(packet.get("rows") or []),
+    }
+    context_before_rows = list(packet.get("context_before_rows") or [])
+    if context_before_rows:
+        prompt_packet["context_before_rows"] = context_before_rows
+    context_after_rows = list(packet.get("context_after_rows") or [])
+    if context_after_rows:
+        prompt_packet["context_after_rows"] = context_after_rows
+    validation_errors = [
+        str(error).strip()
+        for error in (packet.get("validation_errors") or [])
+        if str(error).strip()
+    ]
+    if validation_errors:
+        prompt_packet["validation_errors"] = validation_errors
+    return prompt_packet
+
+
 def _build_line_role_structured_prompt(*, packet: root.Mapping[str, root.Any]) -> str:
     allowed_labels = ", ".join(root.CANONICAL_LINE_ROLE_ALLOWED_LABELS)
     shared_contract = root.build_line_role_shared_contract_block()
@@ -560,6 +567,7 @@ def _build_line_role_structured_prompt(*, packet: root.Mapping[str, root.Any]) -
     owned_rows = packet.get("rows") or []
     owned_row_count = len(owned_rows) if isinstance(owned_rows, list) else 0
     owned_row_count_note = f"This packet has {owned_row_count} owned row(s) in reading order."
+    prompt_packet = _build_line_role_structured_prompt_packet(packet)
     return (
         "Return JSON only.\n\n"
         "Review the canonical line-role packet and respond with one JSON object shaped like:\n"
@@ -571,148 +579,19 @@ def _build_line_role_structured_prompt(*, packet: root.Mapping[str, root.Any]) -
         f"- Allowed labels: {allowed_labels}\n"
         f"- {owned_row_count_note}\n"
         f"- Return exactly {owned_row_count} label(s): one for each owned row shown in `rows`.\n"
+        "- `rows` is an ordered array of raw text strings.\n"
         "- Keep label order exactly aligned with the packet `rows` order.\n"
+        "- The first label applies to `rows[0]`, the second label applies to `rows[1]`, and so on.\n"
         "- Finish the full owned-row list; do not stop early.\n"
         "- Do not copy the placeholder schema literally; replace it with the full ordered label list for this shard.\n"
         f"- {context_note}Do not label any `context_before_rows` or `context_after_rows`; they are reference-only.\n"
-        "- Return only the top-level `labels` array.\n"
+        "- Return one JSON object with only the top-level key `labels`.\n"
         "- Do not include commentary, markdown, or extra keys.\n\n"
         + repair_note
         + "Packet JSON:\n"
-        + root.json.dumps(dict(packet), indent=2, sort_keys=True)
+        + root.json.dumps(prompt_packet, indent=2, ensure_ascii=False)
         + "\n"
     )
-
-
-def _line_role_structured_response_contract_metadata(
-    *,
-    shard: root.ShardManifestEntryV1,
-    missing_row_ids: root.Sequence[str],
-    duplicate_row_ids: root.Sequence[str],
-    unknown_row_ids: root.Sequence[str],
-) -> tuple[tuple[str, ...], dict[str, root.Any]]:
-    (
-        _row_id_by_atomic_index,
-        atomic_index_by_row_id,
-        _text_by_atomic_index,
-        ordered_row_ids,
-    ) = _line_role_structured_row_maps(shard)
-    missing_row_id_list = [
-        str(value).strip() for value in missing_row_ids if str(value).strip()
-    ]
-    duplicate_row_id_list = sorted(
-        {str(value).strip() for value in duplicate_row_ids if str(value).strip()}
-    )
-    unknown_row_id_list = sorted(
-        {str(value).strip() for value in unknown_row_ids if str(value).strip()}
-    )
-    errors: list[str] = []
-    if missing_row_id_list:
-        errors.append("missing_row_ids:" + ",".join(missing_row_id_list))
-    for row_id in duplicate_row_id_list:
-        errors.append(f"duplicate_row_id:{row_id}")
-    for row_id in unknown_row_id_list:
-        errors.append(f"unknown_row_id:{row_id}")
-    unresolved_atomic_indices = [
-        int(atomic_index_by_row_id[row_id])
-        for row_id in ordered_row_ids
-        if row_id in set(missing_row_id_list)
-    ]
-    return tuple(errors), {
-        "missing_row_ids": missing_row_id_list,
-        "duplicate_row_ids": duplicate_row_id_list,
-        "unknown_row_ids": unknown_row_id_list,
-        "unresolved_atomic_indices": unresolved_atomic_indices,
-    }
-
-
-def _translate_line_role_structured_packet_local_ordinal_rows(
-    *,
-    rows_payload: root.Sequence[root.Any],
-    ordered_row_ids: root.Sequence[str],
-    atomic_index_by_row_id: root.Mapping[str, int],
-) -> tuple[list[dict[str, root.Any]] | None, dict[str, root.Any] | None]:
-    if not rows_payload:
-        return None, None
-    normalized_rows: list[dict[str, root.Any]] = []
-    ordinal_values: list[int] = []
-    for row_payload in rows_payload:
-        if not isinstance(row_payload, root.Mapping):
-            return None, None
-        row_dict = dict(row_payload)
-        if str(row_dict.get("row_id") or "").strip():
-            return None, None
-        if row_dict.get("atomic_index") is None:
-            return None, None
-        try:
-            ordinal_value = int(row_dict.get("atomic_index"))
-        except (TypeError, ValueError):
-            return None, None
-        normalized_rows.append(row_dict)
-        ordinal_values.append(ordinal_value)
-    row_count = len(ordered_row_ids)
-    returned_row_count = len(normalized_rows)
-    if row_count == 0 or returned_row_count == 0 or returned_row_count > row_count + 1:
-        return None, None
-    ordinal_base: int | None = None
-    if ordinal_values == list(range(returned_row_count)):
-        ordinal_base = 0
-    elif ordinal_values == list(range(1, returned_row_count + 1)):
-        ordinal_base = 1
-    if ordinal_base is None:
-        return None, None
-    trimmed_trailing_row_count = 0
-    translated_source_rows = normalized_rows
-    translated_ordinal_values = ordinal_values
-    if returned_row_count == row_count + 1:
-        expected_with_spill = list(range(ordinal_base, ordinal_base + returned_row_count))
-        if ordinal_values != expected_with_spill:
-            return None, None
-        trimmed_trailing_row_count = 1
-        translated_source_rows = normalized_rows[:row_count]
-        translated_ordinal_values = ordinal_values[:row_count]
-    translated_rows: list[dict[str, root.Any]] = []
-    returned_row_ids: list[str] = []
-    for row_dict, ordinal_value in zip(
-        translated_source_rows,
-        translated_ordinal_values,
-        strict=False,
-    ):
-        ordered_index = ordinal_value - ordinal_base
-        if ordered_index < 0 or ordered_index >= row_count:
-            return None, None
-        row_id = str(ordered_row_ids[ordered_index])
-        returned_row_ids.append(row_id)
-        translated_rows.append(
-            {
-                "atomic_index": int(atomic_index_by_row_id[row_id]),
-                "label": row_dict.get("label"),
-            }
-        )
-    missing_row_ids = [
-        row_id for row_id in ordered_row_ids if row_id not in set(returned_row_ids)
-    ]
-    response_mode = "complete"
-    if trimmed_trailing_row_count:
-        response_mode = "trimmed_trailing_spill"
-    elif len(translated_rows) < row_count:
-        response_mode = "prefix"
-    return translated_rows, {
-        "returned_row_ids": returned_row_ids,
-        "missing_row_ids": missing_row_ids,
-        "duplicate_row_ids": [],
-        "unknown_row_ids": [],
-        "atomic_index_alias_salvage": {
-            "applied": True,
-            "alias_kind": "packet_local_ordinal",
-            "ordinal_base": ordinal_base,
-            "salvaged_row_count": len(translated_rows),
-            "returned_row_count": returned_row_count,
-            "expected_row_count": row_count,
-            "response_mode": response_mode,
-            "trimmed_trailing_row_count": trimmed_trailing_row_count,
-        },
-    }
 
 
 def _translate_line_role_structured_labels_payload(
@@ -757,75 +636,35 @@ def _evaluate_line_role_structured_response(
             "invalid",
         )
     labels_payload = parsed_payload.get("labels")
-    rows_payload = parsed_payload.get("rows")
-    if not isinstance(labels_payload, list) and not isinstance(rows_payload, list):
-        return None, ("labels_or_rows_missing_or_not_a_list",), {}, "invalid"
-    (
-        _row_id_by_atomic_index,
-        atomic_index_by_row_id,
-        _text_by_atomic_index,
-        ordered_row_ids,
-    ) = _line_role_structured_row_maps(shard)
+    if not isinstance(labels_payload, list):
+        return None, ("labels_missing_or_not_a_list",), {}, "invalid"
     ordered_atomic_indices = [int(value) for value in shard.owned_ids]
-    translated_rows: list[dict[str, root.Any]] = []
-    seen_row_ids: set[str] = set()
-    duplicate_row_ids: set[str] = set()
-    unknown_row_ids: set[str] = set()
-    valid_row_ids: list[str] = []
-    salvage_metadata: dict[str, root.Any] = {}
-    response_contract_errors: tuple[str, ...] = ()
-    response_contract_metadata: dict[str, root.Any] = {}
-    if isinstance(labels_payload, list):
-        translated_rows, response_contract_metadata = (
-            _translate_line_role_structured_labels_payload(
-                labels_payload=labels_payload,
-                ordered_atomic_indices=ordered_atomic_indices,
-            )
+    translated_rows, response_contract_metadata = (
+        _translate_line_role_structured_labels_payload(
+            labels_payload=labels_payload,
+            ordered_atomic_indices=ordered_atomic_indices,
         )
-    elif isinstance(rows_payload, list):
-        translated_ordinal_rows, ordinal_metadata_raw = _translate_line_role_structured_packet_local_ordinal_rows(
-            rows_payload=rows_payload,
-            ordered_row_ids=ordered_row_ids,
-            atomic_index_by_row_id=atomic_index_by_row_id,
-        )
-        salvaged_row_mode = translated_ordinal_rows is not None
-        if translated_ordinal_rows is not None:
-            translated_rows = translated_ordinal_rows
-            salvage_metadata = dict(ordinal_metadata_raw or {})
-            valid_row_ids = list(salvage_metadata.get("returned_row_ids") or [])
-        for row_payload in rows_payload:
-            if salvaged_row_mode:
-                break
-            if not isinstance(row_payload, root.Mapping):
-                return None, ("row_not_a_json_object",), {}, "invalid"
-            row_id = str(row_payload.get("row_id") or "").strip()
-            if not row_id:
-                return None, ("row_id_missing",), {}, "invalid"
-            if row_id in seen_row_ids:
-                duplicate_row_ids.add(row_id)
-                continue
-            seen_row_ids.add(row_id)
-            atomic_index = atomic_index_by_row_id.get(row_id)
-            if atomic_index is None:
-                unknown_row_ids.add(row_id)
-                continue
-            valid_row_ids.append(row_id)
-            translated_row = {"atomic_index": atomic_index, "label": row_payload.get("label")}
-            translated_rows.append(translated_row)
-        missing_row_ids = [row_id for row_id in ordered_row_ids if row_id not in set(valid_row_ids)]
-        response_contract_errors, response_contract_metadata = (
-            _line_role_structured_response_contract_metadata(
-                shard=shard,
-                missing_row_ids=missing_row_ids,
-                duplicate_row_ids=sorted(duplicate_row_ids),
-                unknown_row_ids=sorted(unknown_row_ids),
-            )
-        )
-        if translated_rows and salvage_metadata:
-            response_contract_metadata = {
-                **response_contract_metadata,
-                **salvage_metadata,
-            }
+    )
+    response_contract_error_list: list[str] = []
+    if len(labels_payload) != len(ordered_atomic_indices):
+        response_contract_error_list.append("wrong_label_count")
+        response_contract_metadata = {
+            **response_contract_metadata,
+            "label_count_mismatch": {
+                "expected_row_count": len(ordered_atomic_indices),
+                "returned_label_count": len(labels_payload),
+            },
+        }
+    extra_top_level_keys = sorted(
+        key for key in parsed_payload.keys() if str(key).strip() != "labels"
+    )
+    if extra_top_level_keys:
+        response_contract_error_list.append("extra_top_level_keys")
+        response_contract_metadata = {
+            **response_contract_metadata,
+            "extra_top_level_keys": extra_top_level_keys,
+        }
+    response_contract_errors = tuple(dict.fromkeys(response_contract_error_list))
     validation_metadata: dict[str, root.Any] = {}
     validation_errors: tuple[str, ...] = ()
     if translated_rows:
@@ -849,13 +688,7 @@ def _evaluate_line_role_structured_response(
         **validation_metadata,
         **response_contract_metadata,
         "expected_atomic_indices": [int(value) for value in shard.owned_ids],
-        "returned_row_ids": [str(value).strip() for value in valid_row_ids],
         "accepted_atomic_indices": accepted_atomic_indices,
-        "accepted_row_ids": [
-            _line_role_structured_row_id(index)
-            for index, (atomic_index, _text) in enumerate(_line_role_structured_input_rows(shard))
-            if atomic_index in set(accepted_atomic_indices)
-        ],
         "unresolved_atomic_indices": unresolved_atomic_indices,
     }
     merged_errors = tuple(
@@ -1030,7 +863,7 @@ def _run_line_role_structured_assignment_v1(*, run_root: root.Path, assignment: 
                 repair_prompt_text = root._build_line_role_structured_prompt(packet=repair_packet)
                 repair_prompt_path.write_text(repair_prompt_text, encoding='utf-8')
                 root.assert_structured_session_can_resume(worker_root=session_root, execution_working_dir=execution_workspace)
-                repair_run_result = runner.run_packet_worker(prompt_text=repair_prompt_text, input_payload={**root._coerce_mapping_dict(repair_shard.input_payload), 'shard_id': shard.shard_id, 'owned_ids': list(repair_shard.owned_ids), 'packet_kind': 'repair', 'stage_key': 'line_role', 'validation_errors': list(initial_validation_errors), 'structured_packet_rows': list(repair_packet.get('rows') or [])}, working_dir=session_root, env=env, output_schema_path=None, model=model, reasoning_effort=reasoning_effort, timeout_seconds=timeout_seconds, workspace_task_label='canonical line-role structured repair session', resume_last=True, prepared_execution_working_dir=execution_workspace)
+                repair_run_result = runner.run_packet_worker(prompt_text=repair_prompt_text, input_payload={**root._coerce_mapping_dict(repair_shard.input_payload), 'shard_id': shard.shard_id, 'owned_ids': list(repair_shard.owned_ids), 'packet_kind': 'repair', 'stage_key': 'line_role', 'validation_errors': list(initial_validation_errors), 'structured_packet_rows': list(repair_packet.get('rows') or [])}, working_dir=session_root, env=env, output_schema_path=output_schema_path, model=model, reasoning_effort=reasoning_effort, timeout_seconds=timeout_seconds, workspace_task_label='canonical line-role structured repair session', resume_last=True, prepared_execution_working_dir=execution_workspace)
                 repair_response_path.write_text(str(repair_run_result.response_text or ''), encoding='utf-8')
                 repair_events_path.write_text(root._render_codex_events_jsonl(repair_run_result.events), encoding='utf-8')
                 root._write_runtime_json(repair_last_message_path, {'text': repair_run_result.response_text})

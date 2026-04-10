@@ -219,13 +219,12 @@ def refine_nonrecipe_stage_result(
     reviewed_block_indices: set[int] = set()
 
     for block_index, raw_category in sorted(block_category_updates.items()):
-        normalized_category, warning = _normalize_nonrecipe_final_category(str(raw_category))
+        normalized_category = require_nonrecipe_final_category(
+            raw_category,
+            block_index=int(block_index),
+        )
         if block_index not in candidate_index_set:
-            if warning is not None:
-                warnings.append(f"block {block_index}: {warning}")
             continue
-        if warning is not None:
-            warnings.append(f"block {block_index}: {warning}")
         prior_final_category = final_block_category_by_index.get(block_index)
         final_block_category_by_index[block_index] = normalized_category
         reviewed_block_indices.add(int(block_index))
@@ -310,18 +309,6 @@ def refine_nonrecipe_stage_result(
             "scored_effect": scored_effect,
         },
     )
-
-
-def _normalize_nonrecipe_final_category(raw_label: str | None) -> tuple[str, str | None]:
-    try:
-        return require_nonrecipe_final_category(raw_label, block_index=-1), None
-    except ValueError as exc:
-        message = str(exc)
-        if "Missing final non-recipe label" in message:
-            return "other", "missing final label"
-        return "other", message.removeprefix(
-            "Invalid final non-recipe label at block -1: "
-        ).strip()
 
 
 __all__ = [

@@ -313,6 +313,13 @@ UPLOAD_BUNDLE_REVIEW_PROFILE_DIR_NAMES = (
     oracle_upload_contract.ORACLE_REVIEW_PROFILE_QUALITY,
     oracle_upload_contract.ORACLE_REVIEW_PROFILE_TOKEN,
 )
+ORACLE_REVIEW_PACKET_TARGET_BYTES = 820_000
+ORACLE_REVIEW_PACKET_MAX_ROW_BYTES = 48 * 1024
+ORACLE_REVIEW_PACKET_PROMPT_TOTAL_BYTES = 16 * 1024
+ORACLE_REVIEW_PACKET_PROMPT_SECTION_BYTES = 3 * 1024
+ORACLE_REVIEW_PACKET_PROMPT_SECTION_LIMIT = 4
+ORACLE_REVIEW_PACKET_COMPACT_LIST_LIMIT = 8
+ORACLE_REVIEW_PACKET_COMPACT_EXCERPT_LIMIT = 240
 UPLOAD_BUNDLE_DERIVED_DIR_NAME = "_upload_bundle_derived"
 STARTER_PACK_DIR_NAME = "starter_pack_v1"
 STARTER_PACK_README_FILE_NAME = "README.md"
@@ -7772,14 +7779,6 @@ def _write_upload_bundle_three_files(
         for row in payload_rows
         if isinstance(row, dict) and str(row.get("path") or "").strip()
     }
-    payload_rows_with_locators = [
-        {
-            **dict(row),
-            "payload_row": int(artifact_row_lookup.get(str(row.get("path") or "")) or 0),
-        }
-        for row in payload_rows
-        if isinstance(row, dict)
-    ]
     bundle_target = oracle_upload_contract.OracleBenchmarkBundleTarget(
         requested_path=output_root,
         source_root=source_root,
@@ -7789,6 +7788,553 @@ def _write_upload_bundle_three_files(
 
     def _review_packet_dir(review_profile: str) -> Path:
         return output_root / review_profile
+
+    def _compact_turn1_value(
+        value: Any,
+        *,
+        item_limit: int = ORACLE_REVIEW_PACKET_COMPACT_LIST_LIMIT,
+        excerpt_limit: int = ORACLE_REVIEW_PACKET_COMPACT_EXCERPT_LIMIT,
+        max_depth: int = 5,
+    ) -> Any:
+        if max_depth <= 0:
+            return "<clipped>"
+        if isinstance(value, str):
+            return _excerpt(value, max_len=excerpt_limit)
+        if isinstance(value, list):
+            clipped_items = [
+                _compact_turn1_value(
+                    item,
+                    item_limit=item_limit,
+                    excerpt_limit=excerpt_limit,
+                    max_depth=max_depth - 1,
+                )
+                for item in value[:item_limit]
+            ]
+            if len(value) > item_limit:
+                clipped_items.append(
+                    f"<{len(value) - item_limit} additional items omitted>"
+                )
+            return clipped_items
+        if isinstance(value, dict):
+            clipped: dict[str, Any] = {}
+            items = list(value.items())
+            for key, item in items[:item_limit]:
+                clipped[str(key)] = _compact_turn1_value(
+                    item,
+                    item_limit=item_limit,
+                    excerpt_limit=excerpt_limit,
+                    max_depth=max_depth - 1,
+                )
+            if len(items) > item_limit:
+                clipped["_omitted_key_count"] = len(items) - item_limit
+            return clipped
+        return value
+
+    def _take_lines_to_byte_limit(lines: list[str], *, max_bytes: int) -> tuple[list[str], bool]:
+        selected: list[str] = []
+        total_bytes = 0
+        clipped = False
+        for line in lines:
+            line_bytes = len((line + "\n").encode("utf-8"))
+            if selected and total_bytes + line_bytes > max_bytes:
+                clipped = True
+                break
+            if not selected and line_bytes > max_bytes:
+                selected.append(_excerpt(line, max_len=max_bytes))
+                clipped = True
+                total_bytes = max_bytes
+                break
+            selected.append(line)
+            total_bytes += line_bytes
+        return selected, clipped
+
+    def _build_prompt_sample_digest(text: str) -> str:
+        if not text.strip():
+            return "# Prompt Digest\n\nPrompt samples were unavailable.\n"
+        lines = text.splitlines()
+        first_section_index = next(
+            (index for index, line in enumerate(lines) if line.startswith("## ")),
+            len(lines),
+        )
+        preamble_lines, preamble_clipped = _take_lines_to_byte_limit(
+            lines[:first_section_index],
+            max_bytes=ORACLE_REVIEW_PACKET_PROMPT_SECTION_BYTES,
+        )
+        section_chunks: list[tuple[str, list[str], bool]] = []
+        current_heading = ""
+        current_lines: list[str] = []
+        for line in lines[first_section_index:]:
+            if line.startswith("## "):
+                if current_heading:
+                    selected_lines, clipped = _take_lines_to_byte_limit(
+                        current_lines,
+                        max_bytes=ORACLE_REVIEW_PACKET_PROMPT_SECTION_BYTES,
+                    )
+                    section_chunks.append((current_heading, selected_lines, clipped))
+                current_heading = line
+                current_lines = []
+                continue
+            current_lines.append(line)
+        if current_heading:
+            selected_lines, clipped = _take_lines_to_byte_limit(
+                current_lines,
+                max_bytes=ORACLE_REVIEW_PACKET_PROMPT_SECTION_BYTES,
+            )
+            section_chunks.append((current_heading, selected_lines, clipped))
+
+        digest_lines: list[str] = ["# Prompt Digest", ""]
+        digest_lines.extend(preamble_lines)
+        if preamble_lines and digest_lines[-1] != "":
+            digest_lines.append("")
+        if preamble_clipped:
+            digest_lines.append("_Preamble clipped for Oracle turn 1._")
+            digest_lines.append("")
+        selected_sections = section_chunks[:ORACLE_REVIEW_PACKET_PROMPT_SECTION_LIMIT]
+        for heading, section_lines, clipped in selected_sections:
+            digest_lines.append(heading)
+            digest_lines.append("")
+            digest_lines.extend(section_lines)
+            if section_lines and section_lines[-1] != "":
+                digest_lines.append("")
+            if clipped:
+                digest_lines.append("_Section clipped for Oracle turn 1._")
+                digest_lines.append("")
+        if len(section_chunks) > ORACLE_REVIEW_PACKET_PROMPT_SECTION_LIMIT:
+            omitted = len(section_chunks) - ORACLE_REVIEW_PACKET_PROMPT_SECTION_LIMIT
+            digest_lines.extend(
+                [
+                    f"_Omitted {omitted} additional prompt sections for Oracle turn 1._",
+                    "",
+                ]
+            )
+
+        digest_text = "\n".join(digest_lines).strip() + "\n"
+        if len(digest_text.encode("utf-8")) <= ORACLE_REVIEW_PACKET_PROMPT_TOTAL_BYTES:
+            return digest_text
+        return (
+            _excerpt(digest_text, max_len=ORACLE_REVIEW_PACKET_PROMPT_TOTAL_BYTES)
+            + "\n"
+        )
+
+    def _eval_report_top_per_label_rows(value: Any) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        if isinstance(value, dict):
+            for label, payload in value.items():
+                if not isinstance(payload, dict):
+                    continue
+                row = {"label": str(label)}
+                row.update(payload)
+                rows.append(row)
+        elif isinstance(value, list):
+            rows = [dict(item) for item in value if isinstance(item, dict)]
+        rows.sort(
+            key=lambda row: (
+                _coerce_float(row.get("f1")) if _coerce_float(row.get("f1")) is not None else 1.0,
+                _coerce_float(row.get("recall"))
+                if _coerce_float(row.get("recall")) is not None
+                else 1.0,
+                -int(_coerce_int(row.get("gold_total")) or _coerce_int(row.get("line_total")) or 0),
+                str(row.get("label") or ""),
+            )
+        )
+        compact_rows: list[dict[str, Any]] = []
+        for row in rows[:ORACLE_REVIEW_PACKET_COMPACT_LIST_LIMIT]:
+            compact_rows.append(
+                {
+                    "label": str(row.get("label") or ""),
+                    "f1": _coerce_float(row.get("f1")),
+                    "precision": _coerce_float(row.get("precision")),
+                    "recall": _coerce_float(row.get("recall")),
+                    "gold_total": _coerce_int(row.get("gold_total") or row.get("line_total")),
+                    "pred_total": _coerce_int(
+                        row.get("pred_total") or row.get("predicted_total")
+                    ),
+                    "wrong_total": _coerce_int(
+                        row.get("wrong_total") or row.get("wrong_count")
+                    ),
+                }
+            )
+        return compact_rows
+
+    def _build_eval_report_digest(payload: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "schema_version": "oracle_turn1_eval_report_digest.v1",
+            "source_schema_version": str(payload.get("schema_version") or ""),
+            "eval_mode": str(payload.get("eval_mode") or ""),
+            "eval_type": str(payload.get("eval_type") or ""),
+            "unit": str(payload.get("unit") or ""),
+            "strict_accuracy": _coerce_float(payload.get("strict_accuracy")),
+            "overall_line_accuracy": _coerce_float(payload.get("overall_line_accuracy")),
+            "overall_block_accuracy": _coerce_float(payload.get("overall_block_accuracy")),
+            "macro_f1_excluding_other": _coerce_float(
+                payload.get("macro_f1_excluding_other")
+            ),
+            "worst_label_recall": _coerce_float(payload.get("worst_label_recall")),
+            "counts": _compact_turn1_value(payload.get("counts")),
+            "boundary": _compact_turn1_value(payload.get("boundary")),
+            "authority_coverage": _compact_turn1_value(
+                payload.get("authority_coverage")
+            ),
+            "top_per_label_rows": _eval_report_top_per_label_rows(
+                payload.get("per_label")
+            ),
+            "confusion_excerpt": _compact_turn1_value(payload.get("confusion")),
+        }
+
+    def _compact_payload_jsonl_rows(rows: list[Any]) -> list[Any]:
+        sample_rows = rows
+        if len(rows) > ORACLE_REVIEW_PACKET_COMPACT_LIST_LIMIT:
+            sample_rows = _sample_rows_evenly(
+                [row for row in rows if isinstance(row, dict)],
+                ORACLE_REVIEW_PACKET_COMPACT_LIST_LIMIT,
+            )
+            if not sample_rows:
+                sample_rows = rows[:ORACLE_REVIEW_PACKET_COMPACT_LIST_LIMIT]
+        compact_rows: list[Any] = []
+        for row in sample_rows:
+            if isinstance(row, dict):
+                compact_rows.append(
+                    _clip_large_text_fields(
+                        _compact_turn1_value(row),
+                        excerpt_limit=ORACLE_REVIEW_PACKET_COMPACT_EXCERPT_LIMIT,
+                    )
+                )
+            else:
+                compact_rows.append(
+                    _compact_turn1_value(
+                        row,
+                        excerpt_limit=ORACLE_REVIEW_PACKET_COMPACT_EXCERPT_LIMIT,
+                    )
+                )
+        return compact_rows
+
+    def _compact_review_payload_row(row: dict[str, Any]) -> dict[str, Any]:
+        row_copy = dict(row)
+        logical_path = str(row_copy.get("path") or "")
+        source_bytes = int(_coerce_int(row_copy.get("bytes")) or 0)
+        summary_only = False
+        policy = ""
+
+        if logical_path.endswith("prompts/prompt_type_samples_from_full_prompt_log.md"):
+            content_text = row_copy.get("content_text")
+            if isinstance(content_text, str):
+                row_copy["content_text"] = _build_prompt_sample_digest(content_text)
+                summary_only = True
+                policy = "prompt_digest"
+        elif logical_path.endswith("eval_report.json"):
+            content_json = row_copy.get("content_json")
+            if isinstance(content_json, dict):
+                row_copy["content_json"] = _build_eval_report_digest(content_json)
+                summary_only = True
+                policy = "eval_report_digest"
+
+        rendered_bytes = _upload_bundle_payload_row_line_bytes(row_copy)
+        if rendered_bytes > ORACLE_REVIEW_PACKET_MAX_ROW_BYTES:
+            if isinstance(row_copy.get("content_jsonl_rows"), list):
+                original_rows = list(row_copy.get("content_jsonl_rows") or [])
+                row_copy["content_jsonl_rows"] = _compact_payload_jsonl_rows(original_rows)
+                row_copy["oracle_turn1_source_row_count"] = len(original_rows)
+                summary_only = True
+                policy = policy or "sampled_jsonl"
+            elif isinstance(row_copy.get("content_json"), (dict, list)):
+                row_copy["content_json"] = _compact_turn1_value(row_copy.get("content_json"))
+                summary_only = True
+                policy = policy or "compact_json"
+            elif isinstance(row_copy.get("content_text"), str):
+                row_copy["content_text"] = _excerpt(
+                    str(row_copy.get("content_text") or ""),
+                    max_len=ORACLE_REVIEW_PACKET_PROMPT_TOTAL_BYTES,
+                )
+                summary_only = True
+                policy = policy or "clipped_text"
+            rendered_bytes = _upload_bundle_payload_row_line_bytes(row_copy)
+
+        if summary_only:
+            row_copy["oracle_turn1_summary_only"] = True
+            row_copy["oracle_turn1_policy"] = policy
+            row_copy["oracle_turn1_source_bytes"] = source_bytes
+            row_copy["oracle_turn1_rendered_bytes"] = int(rendered_bytes)
+        return row_copy
+
+    def _compact_bucket_rows(value: Any) -> list[dict[str, Any]]:
+        rows = value if isinstance(value, list) else []
+        compact_rows: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            compact_rows.append(
+                {
+                    "bucket": str(row.get("bucket") or ""),
+                    "new_error_count": int(_coerce_int(row.get("new_error_count")) or 0),
+                    "fixed_error_count": int(_coerce_int(row.get("fixed_error_count")) or 0),
+                    "net_error_count": int(_coerce_int(row.get("net_error_count")) or 0),
+                    "share_of_new_errors": _coerce_float(
+                        row.get("share_of_new_errors")
+                    ),
+                    "share_of_fixed_errors": _coerce_float(
+                        row.get("share_of_fixed_errors")
+                    ),
+                    "share_of_net_error": _coerce_float(row.get("share_of_net_error")),
+                }
+            )
+        return compact_rows
+
+    def _compact_triage_packet_summary(value: Any) -> dict[str, Any]:
+        payload = value if isinstance(value, dict) else {}
+        sample_rows = payload.get("sample_rows") if isinstance(payload.get("sample_rows"), list) else []
+        return {
+            "schema_version": str(payload.get("schema_version") or ""),
+            "row_count": int(_coerce_int(payload.get("row_count")) or 0),
+            "signal_row_count": int(_coerce_int(payload.get("signal_row_count")) or 0),
+            "sample_rows_note": str(payload.get("sample_rows_note") or ""),
+            "empty_packet_note": str(payload.get("empty_packet_note") or ""),
+            "sample_rows": [
+                _clip_large_text_fields(
+                    _compact_turn1_value(row),
+                    excerpt_limit=ORACLE_REVIEW_PACKET_COMPACT_EXCERPT_LIMIT,
+                )
+                for row in sample_rows[:ORACLE_REVIEW_PACKET_COMPACT_LIST_LIMIT]
+                if isinstance(row, dict)
+            ],
+        }
+
+    def _compact_config_version_metadata(value: Any) -> dict[str, Any]:
+        payload = value if isinstance(value, dict) else {}
+        compact_runs: list[dict[str, Any]] = []
+        for row in payload.get("runs") if isinstance(payload.get("runs"), list) else []:
+            if not isinstance(row, dict):
+                continue
+            compact_runs.append(
+                {
+                    "run_id": str(row.get("run_id") or ""),
+                    "llm_recipe_pipeline": str(row.get("llm_recipe_pipeline") or ""),
+                    "line_role_pipeline": str(row.get("line_role_pipeline") or ""),
+                    "atomic_block_splitter": str(row.get("atomic_block_splitter") or ""),
+                    "eval_mode": str(row.get("eval_mode") or ""),
+                }
+            )
+        return {
+            "schema_version": str(payload.get("schema_version") or ""),
+            "pair_comparability": _compact_turn1_value(payload.get("pair_comparability")),
+            "runs": compact_runs,
+        }
+
+    def _compact_structure_label_report(value: Any) -> dict[str, Any]:
+        payload = value if isinstance(value, dict) else {}
+        return {
+            "schema_version": str(payload.get("schema_version") or ""),
+            "boundary": _compact_turn1_value(payload.get("boundary")),
+            "slices": _compact_turn1_value(payload.get("slices")),
+        }
+
+    def _compact_runtime_inventory(value: Any) -> dict[str, Any]:
+        payload = value if isinstance(value, dict) else {}
+        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+        by_stage = summary.get("by_stage") if isinstance(summary.get("by_stage"), dict) else {}
+        compact_stages: list[dict[str, Any]] = []
+        for stage_key, stage_payload in by_stage.items():
+            if not isinstance(stage_payload, dict):
+                continue
+            compact_stages.append(
+                {
+                    "stage_key": str(stage_key),
+                    "total_tokens": int(_coerce_int(stage_payload.get("total_tokens")) or 0),
+                    "call_count": int(_coerce_int(stage_payload.get("call_count")) or 0),
+                    "duration_total_ms": int(
+                        _coerce_int(stage_payload.get("duration_total_ms")) or 0
+                    ),
+                    "token_share": _coerce_float(stage_payload.get("token_share")),
+                    "runtime_share": _coerce_float(stage_payload.get("runtime_share")),
+                }
+            )
+        compact_stages.sort(
+            key=lambda row: (-int(row.get("total_tokens") or 0), str(row.get("stage_key") or ""))
+        )
+        compact_summary = dict(summary)
+        compact_summary["by_stage"] = compact_stages[:ORACLE_REVIEW_PACKET_COMPACT_LIST_LIMIT]
+        return {"summary": compact_summary}
+
+    def _compact_line_role_escalation(value: Any) -> dict[str, Any]:
+        payload = value if isinstance(value, dict) else {}
+        return {
+            "schema_version": str(payload.get("schema_version") or ""),
+            "summary": _compact_turn1_value(payload.get("summary")),
+            "selective_escalation_signal": _compact_turn1_value(
+                payload.get("selective_escalation_signal")
+            ),
+        }
+
+    def _compact_top_confusions(value: Any) -> list[dict[str, Any]]:
+        rows = value if isinstance(value, list) else []
+        compact_rows: list[dict[str, Any]] = []
+        for row in rows[:ORACLE_REVIEW_PACKET_COMPACT_LIST_LIMIT]:
+            if not isinstance(row, dict):
+                continue
+            compact_rows.append(
+                {
+                    "gold_label": str(row.get("gold_label") or ""),
+                    "pred_label": str(row.get("pred_label") or ""),
+                    "delta_count": int(_coerce_int(row.get("delta_count")) or 0),
+                    "codex_count": int(_coerce_int(row.get("codex_count")) or 0),
+                    "baseline_count": int(_coerce_int(row.get("baseline_count")) or 0),
+                }
+            )
+        return compact_rows
+
+    def _compact_prompt_budget_highlights() -> dict[str, Any]:
+        prompt_budget_row = payload_row_by_path.get("codex-exec/prompt_budget_summary.json")
+        prompt_budget_payload = (
+            prompt_budget_row.get("content_json")
+            if isinstance(prompt_budget_row, dict)
+            and isinstance(prompt_budget_row.get("content_json"), dict)
+            else {}
+        )
+        by_stage = (
+            prompt_budget_payload.get("by_stage")
+            if isinstance(prompt_budget_payload.get("by_stage"), dict)
+            else {}
+        )
+        stage_rows: list[dict[str, Any]] = []
+        for stage_key, stage_payload in by_stage.items():
+            if not isinstance(stage_payload, dict):
+                continue
+            stage_rows.append(
+                {
+                    "stage_key": str(stage_key),
+                    "tokens_total": int(_coerce_int(stage_payload.get("tokens_total")) or 0),
+                    "call_count": int(_coerce_int(stage_payload.get("call_count")) or 0),
+                    "wrapper_overhead_tokens": int(
+                        _coerce_int(stage_payload.get("wrapper_overhead_tokens"))
+                        or _coerce_int(stage_payload.get("protocol_overhead_tokens_total"))
+                        or 0
+                    ),
+                    "protocol_overhead_share": _coerce_float(
+                        stage_payload.get("protocol_overhead_share")
+                    ),
+                }
+            )
+        stage_rows.sort(
+            key=lambda row: (-int(row.get("tokens_total") or 0), str(row.get("stage_key") or ""))
+        )
+        return {
+            "schema_version": "oracle_turn1_prompt_budget_highlights.v1",
+            "stage_rows": stage_rows[:ORACLE_REVIEW_PACKET_COMPACT_LIST_LIMIT],
+        }
+
+    def _selected_payload_row_summaries(
+        selected_rows: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        summaries: list[dict[str, Any]] = []
+        for row in selected_rows:
+            if not isinstance(row, dict):
+                continue
+            summaries.append(
+                {
+                    "path": str(row.get("path") or ""),
+                    "payload_row": int(_coerce_int(row.get("payload_row")) or 0),
+                    "content_type": str(row.get("content_type") or ""),
+                    "category": str(row.get("category") or ""),
+                    "source_bytes": int(_coerce_int(row.get("bytes")) or 0),
+                    "summary_only": bool(row.get("oracle_turn1_summary_only")),
+                    "turn1_policy": str(row.get("oracle_turn1_policy") or "literal"),
+                    "rendered_bytes": int(
+                        _coerce_int(row.get("oracle_turn1_rendered_bytes"))
+                        or _upload_bundle_payload_row_line_bytes(row)
+                    ),
+                }
+            )
+        return summaries
+
+    def _review_packet_analysis_payload(
+        review_profile: oracle_upload_contract.OracleBenchmarkReviewProfile,
+    ) -> dict[str, Any]:
+        analysis_payload = (
+            index_payload.get("analysis") if isinstance(index_payload.get("analysis"), dict) else {}
+        )
+        compact_analysis = {
+            "turn1_summary": analysis_payload.get("turn1_summary") or {},
+            "benchmark_pair_inventory": {
+                "pair_count": int(
+                    _coerce_int(
+                        ((analysis_payload.get("benchmark_pair_inventory") or {}).get("pair_count"))
+                    )
+                    or 0
+                ),
+                "delta_summary": _compact_turn1_value(
+                    ((analysis_payload.get("benchmark_pair_inventory") or {}).get("delta_summary"))
+                ),
+                "generalization_readiness": _compact_turn1_value(
+                    (
+                        (analysis_payload.get("benchmark_pair_inventory") or {}).get(
+                            "generalization_readiness"
+                        )
+                    )
+                ),
+            },
+            "active_recipe_span_breakout": analysis_payload.get("active_recipe_span_breakout")
+            or {},
+            "triage_packet": _compact_triage_packet_summary(
+                analysis_payload.get("triage_packet")
+            ),
+            "net_error_blame_summary": {
+                "new_error_lines": int(
+                    _coerce_int(
+                        (analysis_payload.get("net_error_blame_summary") or {}).get(
+                            "new_error_lines"
+                        )
+                    )
+                    or 0
+                ),
+                "fixed_error_lines": int(
+                    _coerce_int(
+                        (analysis_payload.get("net_error_blame_summary") or {}).get(
+                            "fixed_error_lines"
+                        )
+                    )
+                    or 0
+                ),
+                "net_error_delta_lines": int(
+                    _coerce_int(
+                        (analysis_payload.get("net_error_blame_summary") or {}).get(
+                            "net_error_delta_lines"
+                        )
+                    )
+                    or 0
+                ),
+                "share_semantics": _compact_turn1_value(
+                    (analysis_payload.get("net_error_blame_summary") or {}).get(
+                        "share_semantics"
+                    )
+                ),
+                "bucket_rows": _compact_bucket_rows(
+                    (analysis_payload.get("net_error_blame_summary") or {}).get(
+                        "bucket_rows"
+                    )
+                ),
+            },
+            "config_version_metadata": _compact_config_version_metadata(
+                analysis_payload.get("config_version_metadata")
+            ),
+            "recipe_pipeline_context": analysis_payload.get("recipe_pipeline_context") or {},
+            "stage_observability_summary": analysis_payload.get("stage_observability_summary")
+            or {},
+            "structure_label_report": _compact_structure_label_report(
+                analysis_payload.get("structure_label_report")
+            ),
+            "top_confusion_deltas": _compact_top_confusions(
+                analysis_payload.get("top_confusion_deltas")
+            ),
+            "group_high_level": analysis_payload.get("group_high_level") or {},
+            "call_inventory_runtime": _compact_runtime_inventory(
+                analysis_payload.get("call_inventory_runtime")
+            ),
+            "line_role_escalation": _compact_line_role_escalation(
+                analysis_payload.get("line_role_escalation")
+            ),
+        }
+        if review_profile.profile_id == oracle_upload_contract.ORACLE_REVIEW_PROFILE_TOKEN:
+            compact_analysis["prompt_budget_highlights"] = _compact_prompt_budget_highlights()
+        return compact_analysis
 
     def _selected_review_payload_rows(
         review_profile: oracle_upload_contract.OracleBenchmarkReviewProfile,
@@ -7800,7 +8346,7 @@ def _write_upload_bundle_three_files(
             if not isinstance(payload_row, dict):
                 missing_paths.append(logical_path)
                 continue
-            row_copy = dict(payload_row)
+            row_copy = _compact_review_payload_row(payload_row)
             row_copy["payload_row"] = int(artifact_row_lookup.get(logical_path) or 0)
             selected_rows.append(row_copy)
         return selected_rows, missing_paths
@@ -7811,38 +8357,67 @@ def _write_upload_bundle_three_files(
         selected_rows: list[dict[str, Any]],
         missing_paths: list[str],
     ) -> dict[str, Any]:
-        lane_index_payload = json.loads(
-            json.dumps(index_payload, ensure_ascii=False)
+        selected_row_summaries = _selected_payload_row_summaries(selected_rows)
+        analysis_payload = _review_packet_analysis_payload(review_profile)
+        recommended_read_order = (
+            analysis_payload.get("turn1_summary", {}).get("recommended_read_order")
+            if isinstance(analysis_payload.get("turn1_summary"), dict)
+            else []
         )
-        lane_index_payload["review_profile"] = review_profile.profile_id
-        lane_index_payload["review_profile_display_name"] = review_profile.display_name
-        lane_index_payload["file_contract"] = {
-            "overview_file": UPLOAD_BUNDLE_OVERVIEW_FILE_NAME,
-            "artifact_index_file": UPLOAD_BUNDLE_INDEX_FILE_NAME,
-            "payload_file": UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
+        lane_index_payload = {
+            "schema_version": "upload_bundle.review_index.v1",
+            "bundle_version": str(index_payload.get("bundle_version") or "upload_bundle.v1"),
+            "generated_at": str(index_payload.get("generated_at") or ""),
+            "source_dir": str(source_root),
+            "output_dir": str(output_root),
+            "review_profile": review_profile.profile_id,
+            "review_profile_display_name": review_profile.display_name,
+            "bundle_scope": bundle_target.scope,
+            "file_contract": {
+                "overview_file": UPLOAD_BUNDLE_OVERVIEW_FILE_NAME,
+                "artifact_index_file": UPLOAD_BUNDLE_INDEX_FILE_NAME,
+                "payload_file": UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
+            },
+            "topline": _compact_turn1_value(index_payload.get("topline"), item_limit=24),
+            "self_check": _compact_turn1_value(index_payload.get("self_check"), item_limit=24),
+            "navigation": {
+                "start_here": [
+                    UPLOAD_BUNDLE_OVERVIEW_FILE_NAME,
+                    UPLOAD_BUNDLE_INDEX_FILE_NAME,
+                ],
+                "recommended_read_order": (
+                    list(recommended_read_order)
+                    if isinstance(recommended_read_order, list)
+                    else []
+                ),
+                "selected_payload_rows": selected_row_summaries,
+                "full_payload_companion": UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
+                "followup_policy": (
+                    "Turn 1 is intentionally summary-first. Ask for narrow local follow-up "
+                    "artifacts instead of requesting the full benchmark tree."
+                ),
+            },
+            "analysis": analysis_payload,
         }
-        navigation_payload = (
-            lane_index_payload.get("navigation")
-            if isinstance(lane_index_payload.get("navigation"), dict)
-            else {}
-        )
-        navigation_payload["start_here"] = [
-            UPLOAD_BUNDLE_OVERVIEW_FILE_NAME,
-            UPLOAD_BUNDLE_INDEX_FILE_NAME,
-        ]
-        navigation_payload["full_payload_companion"] = UPLOAD_BUNDLE_PAYLOAD_FILE_NAME
-        lane_index_payload["navigation"] = navigation_payload
         lane_index_payload["review_packet"] = {
             "schema_version": "upload_bundle.review_packet.v1",
+            "packet_policy": "compact_turn1_only",
+            "byte_budget_target": ORACLE_REVIEW_PACKET_TARGET_BYTES,
             "review_profile": review_profile.profile_id,
             "review_profile_display_name": review_profile.display_name,
             "review_dir": review_profile.profile_id,
             "overview_file": UPLOAD_BUNDLE_OVERVIEW_FILE_NAME,
-            "index_file": UPLOAD_BUNDLE_INDEX_FILE_NAME,
+            "artifact_index_file": UPLOAD_BUNDLE_INDEX_FILE_NAME,
             "payload_file": UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
+            "index_file": UPLOAD_BUNDLE_INDEX_FILE_NAME,
             "selected_paths": list(review_profile.payload_paths),
             "missing_paths": missing_paths,
             "row_count": len(selected_rows),
+            "summary_only_row_count": sum(
+                1 for row in selected_rows if bool(row.get("oracle_turn1_summary_only"))
+            ),
+            "full_root_artifact_count": len(payload_rows),
+            "selected_payload_rows": selected_row_summaries,
         }
         return lane_index_payload
 
@@ -7852,7 +8427,6 @@ def _write_upload_bundle_three_files(
         selected_rows: list[dict[str, Any]],
         missing_paths: list[str],
     ) -> dict[str, Any]:
-        packet_rows = selected_rows if high_level_only else payload_rows_with_locators
         return {
             "schema_version": "upload_bundle.review_payload.v1",
             "review_profile": review_profile.profile_id,
@@ -7863,8 +8437,8 @@ def _write_upload_bundle_three_files(
             "selected_paths": list(review_profile.payload_paths),
             "missing_paths": list(missing_paths),
             "selected_row_count": len(selected_rows),
-            "row_count": len(packet_rows),
-            "rows": packet_rows,
+            "row_count": len(selected_rows),
+            "rows": selected_rows,
         }
 
     def _write_review_packets() -> list[str]:
@@ -7877,6 +8451,19 @@ def _write_upload_bundle_three_files(
                 review_profile,
                 selected_rows=selected_rows,
                 missing_paths=missing_paths,
+            )
+            payload_json = _review_packet_payload_json(
+                review_profile,
+                selected_rows=selected_rows,
+                missing_paths=missing_paths,
+            )
+            _write_json(review_dir / UPLOAD_BUNDLE_PAYLOAD_FILE_NAME, payload_json)
+            payload_size_bytes = int(
+                (review_dir / UPLOAD_BUNDLE_PAYLOAD_FILE_NAME).stat().st_size
+            )
+            lane_index_payload["review_packet"]["payload_size_bytes"] = payload_size_bytes
+            lane_index_payload["review_packet"]["estimated_bundle_size_bytes"] = (
+                payload_size_bytes
             )
             _write_json(review_dir / UPLOAD_BUNDLE_INDEX_FILE_NAME, lane_index_payload)
             lane_focus_text = oracle_upload_contract._build_review_lane_brief(
@@ -7894,14 +8481,16 @@ def _write_upload_bundle_three_files(
                 combined_overview,
                 encoding="utf-8",
             )
-            _write_json(
-                review_dir / UPLOAD_BUNDLE_PAYLOAD_FILE_NAME,
-                _review_packet_payload_json(
-                    review_profile,
-                    selected_rows=selected_rows,
-                    missing_paths=missing_paths,
-                ),
+            overview_size_bytes = int(
+                (review_dir / UPLOAD_BUNDLE_OVERVIEW_FILE_NAME).stat().st_size
             )
+            index_size_bytes = int((review_dir / UPLOAD_BUNDLE_INDEX_FILE_NAME).stat().st_size)
+            lane_index_payload["review_packet"]["overview_size_bytes"] = overview_size_bytes
+            lane_index_payload["review_packet"]["index_size_bytes"] = index_size_bytes
+            lane_index_payload["review_packet"]["estimated_bundle_size_bytes"] = (
+                payload_size_bytes + overview_size_bytes + index_size_bytes
+            )
+            _write_json(review_dir / UPLOAD_BUNDLE_INDEX_FILE_NAME, lane_index_payload)
             written_files.extend(
                 [
                     f"{review_profile.profile_id}/{UPLOAD_BUNDLE_OVERVIEW_FILE_NAME}",

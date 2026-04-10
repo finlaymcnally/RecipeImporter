@@ -82,7 +82,15 @@ def test_line_role_structured_response_keeps_front_matter_like_labels_when_valid
     _payload, validation_errors, validation_metadata, proposal_status = (
         runtime_workers_module._evaluate_line_role_structured_response(  # noqa: SLF001
             shard=shard,
-            response_text=json.dumps(fixture["bad_repair_response"], sort_keys=True),
+            response_text=json.dumps(
+                {
+                    "labels": [
+                        row["label"]
+                        for row in fixture["bad_repair_response"]["rows"]
+                    ]
+                },
+                sort_keys=True,
+            ),
             deterministic_baseline_by_atomic_index=baseline,
             validator=canonical_line_roles_module._validate_line_role_shard_proposal,  # noqa: SLF001
         )
@@ -155,10 +163,10 @@ def test_line_role_semantic_guard_allows_real_knowledge_heading_cluster() -> Non
             shard=shard,
             response_text=json.dumps(
                 {
-                    "rows": [
-                        {"row_id": "r01", "label": "NONRECIPE_CANDIDATE"},
-                        {"row_id": "r02", "label": "NONRECIPE_CANDIDATE"},
-                        {"row_id": "r03", "label": "NONRECIPE_CANDIDATE"},
+                    "labels": [
+                        "NONRECIPE_CANDIDATE",
+                        "NONRECIPE_CANDIDATE",
+                        "NONRECIPE_CANDIDATE",
                     ]
                 },
                 sort_keys=True,
@@ -178,8 +186,11 @@ def test_label_atomic_lines_keeps_front_matter_pathology_fixture_labels(tmp_path
 
     fixture = _front_matter_fixture()
     candidates = _front_matter_candidates()
+    expected_labels = [
+        row["label"] for row in fixture["bad_repair_response"]["rows"]
+    ]
     runner = FakeCodexExecRunner(
-        output_builder=lambda _payload: fixture["bad_repair_response"]
+        output_builder=lambda _payload: {"labels": expected_labels}
     )
 
     predictions = label_atomic_lines(

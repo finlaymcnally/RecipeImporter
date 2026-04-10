@@ -939,7 +939,7 @@ def test_prompt_preview_rebuilds_knowledge_and_line_role_prompts(tmp_path: Path)
     line_role_row = rows_by_stage["line_role"][0]
     assert "You are labeling canonical line-role route labels" in line_role_row["rendered_prompt_text"]
     assert "line_role_input_0001.json" in line_role_row["rendered_prompt_text"]
-    assert '<BEGIN_AUTHORITATIVE_ROWS>\n{"text": "Ambiguous title-ish line"}' in line_role_row["rendered_prompt_text"]
+    assert '<BEGIN_AUTHORITATIVE_ROWS>\n"Ambiguous title-ish line"' in line_role_row["rendered_prompt_text"]
     assert "one label for every owned input row in `rows`" in line_role_row["rendered_prompt_text"]
     assert line_role_row["prompt_input_mode"] == "inline"
     assert line_role_row["request_input_payload"]["v"] == 2

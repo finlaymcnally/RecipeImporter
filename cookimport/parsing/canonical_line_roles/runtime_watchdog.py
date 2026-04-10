@@ -639,6 +639,9 @@ def _should_attempt_line_role_repair(
         if error in {
             "response_json_invalid",
             "response_not_json_object",
+            "labels_missing_or_not_a_list",
+            "wrong_label_count",
+            "extra_top_level_keys",
             "rows_missing_or_not_a_list",
             "row_not_a_json_object",
             "atomic_index_missing",

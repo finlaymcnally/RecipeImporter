@@ -650,6 +650,8 @@ def _build_quality_lane_brief(
     top_confusions = analysis_payload.get("top_confusion_deltas")
     top_confusions = top_confusions if isinstance(top_confusions, list) else []
     top_confusion_row = top_confusions[0] if top_confusions and isinstance(top_confusions[0], dict) else {}
+    review_packet = index_payload.get("review_packet") if isinstance(index_payload, dict) else {}
+    review_packet = review_packet if isinstance(review_packet, dict) else {}
 
     lines = [
         "# Oracle Quality Focus",
@@ -666,9 +668,14 @@ def _build_quality_lane_brief(
             f"- dominant confusion family: `{top_confusion_row.get('gold_label', 'unavailable')}` -> "
             f"`{top_confusion_row.get('pred_label', 'unavailable')}`"
         ),
+        (
+            "- turn-1 packet bytes: "
+            f"`{_format_int_metric(review_packet.get('estimated_bundle_size_bytes'))}`"
+        ),
         "",
-        "This packet is intentionally quality-first. It includes eval summaries, prompt samples, triage, per-recipe breakdown, net-error blame, and explicit-escalation changed-line evidence.",
-        "It intentionally omits the heaviest raw wrong-line context and full changed-line dumps on turn 1. Request narrow follow-up data if the next concrete quality fix cannot be chosen from this packet.",
+        "This packet is intentionally quality-first and summary-first.",
+        "Start from the compact `index.json` analysis and use `payload.json` only for the selected evidence rows attached for turn 1.",
+        "Heavy local benchmark evidence still exists outside this packet. Request narrow follow-up data if the next concrete quality fix cannot be chosen from this packet.",
     ]
     if missing_paths:
         lines.extend(
@@ -710,6 +717,8 @@ def _build_token_lane_brief(
     if not isinstance(recipe_stage, dict):
         recipe_stage = by_stage.get("recipe_correction")
     recipe_stage = recipe_stage if isinstance(recipe_stage, dict) else {}
+    review_packet = index_payload.get("review_packet") if isinstance(index_payload, dict) else {}
+    review_packet = review_packet if isinstance(review_packet, dict) else {}
 
     lines = [
         "# Oracle Token Focus",
@@ -722,10 +731,15 @@ def _build_token_lane_brief(
         f"- knowledge wrapper overhead tokens: `{_format_int_metric(knowledge_stage.get('wrapper_overhead_tokens'))}`",
         f"- line-role tokens: `{_format_int_metric(line_role_stage.get('tokens_total'))}`",
         f"- recipe correction tokens: `{_format_int_metric(recipe_stage.get('tokens_total'))}`",
-        f"- current benchmark Oracle turn-1 estimate: `~443667` tokens on the inspected 2026-03-22 run",
+        (
+            "- turn-1 packet bytes: "
+            f"`{_format_int_metric(review_packet.get('estimated_bundle_size_bytes'))}`"
+        ),
+        "- turn-1 target budget: `<= ~200000 tokens (~800000 packed bytes)`",
         "",
-        "This packet is intentionally spend-first. It includes prompt-budget, call-inventory, warning/trace summary, and the small amount of prompt-sample context needed to judge whether the spend is doing useful work.",
-        "It intentionally omits raw wrong-line case dumps. Request narrow follow-up data only if that extra evidence is required to rank low-risk spend cuts.",
+        "This packet is intentionally spend-first and summary-first.",
+        "Start from the compact `index.json` spend surfaces and use `payload.json` for the selected prompt/runtime evidence rows only.",
+        "It intentionally omits the full raw benchmark tree on turn 1. Request narrow follow-up data only if that extra evidence is required to rank low-risk spend cuts.",
     ]
     if missing_paths:
         lines.extend(

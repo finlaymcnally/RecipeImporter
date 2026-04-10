@@ -173,7 +173,9 @@ def validate_line_role_output_payload(
     payload_dict = dict(payload)
     rows_payload = payload_dict.get("rows")
     labels_payload = payload_dict.get("labels")
+    labels_mode = False
     if not isinstance(rows_payload, list) and isinstance(labels_payload, list):
+        labels_mode = True
         translated_rows: list[dict[str, Any]] = []
         for index, label_value in enumerate(labels_payload):
             row_payload: dict[str, Any] = {"label": label_value}
@@ -194,7 +196,7 @@ def validate_line_role_output_payload(
     if not isinstance(rows_payload, list):
         errors.append("rows_not_list")
         return tuple(sorted(set(errors))), metadata
-    if len(rows_payload) == len(expected_atomic_indices) + 1:
+    if (not labels_mode) and len(rows_payload) == len(expected_atomic_indices) + 1:
         obvious_trailing_spill = True
         for position, expected_atomic_index in enumerate(expected_atomic_indices):
             row_payload = rows_payload[position]
