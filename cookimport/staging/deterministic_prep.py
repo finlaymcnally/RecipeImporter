@@ -75,7 +75,6 @@ _DETERMINISTIC_PREP_INCLUDED_FIELDS = tuple(
     for field_name in ALL_METHOD_PREDICTION_IDENTITY_FIELDS
     if field_name not in _DETERMINISTIC_PREP_EXCLUDED_FIELDS
 )
-_GENERATE_PRED_RUN_ARTIFACTS_PARAMETER_NAMES: frozenset[str] | None = None
 _CURRENT_PREVIEW_MANIFEST_SCHEMA_VERSION = "codex_prompt_preview.v3"
 
 
@@ -340,15 +339,18 @@ def _build_generate_prediction_kwargs(
     artifact_root: Path,
     book_cache_root: Path,
 ) -> dict[str, Any]:
-    global _GENERATE_PRED_RUN_ARTIFACTS_PARAMETER_NAMES
-    if _GENERATE_PRED_RUN_ARTIFACTS_PARAMETER_NAMES is None:
-        from cookimport.labelstudio.ingest_flows.prediction_run import (
-            generate_pred_run_artifacts,
-        )
+    from cookimport.labelstudio.ingest_flows.prediction_run import (
+        generate_pred_run_artifacts,
+    )
 
-        _GENERATE_PRED_RUN_ARTIFACTS_PARAMETER_NAMES = frozenset(
-            inspect.signature(generate_pred_run_artifacts).parameters
-        )
+    generate_pred_run_signature = inspect.signature(generate_pred_run_artifacts)
+    generate_pred_run_parameter_names = frozenset(
+        generate_pred_run_signature.parameters
+    )
+    generate_pred_run_accepts_var_keyword = any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in generate_pred_run_signature.parameters.values()
+    )
     benchmark_kwargs = build_benchmark_call_kwargs_from_run_settings(
         run_settings,
         output_dir=artifact_root / "prediction-run",
@@ -373,7 +375,7 @@ def _build_generate_prediction_kwargs(
     prediction_kwargs = {
         key: value
         for key, value in benchmark_kwargs.items()
-        if key in (_GENERATE_PRED_RUN_ARTIFACTS_PARAMETER_NAMES or set())
+        if (generate_pred_run_accepts_var_keyword or key in generate_pred_run_parameter_names)
         and key not in explicit_kwargs
     }
     prediction_kwargs["processed_output_root"] = artifact_root / "processed-output"

@@ -100,7 +100,8 @@ def test_worker_prompt_describes_task_file_contract() -> None:
     assert "A heading alone is not enough for `knowledge`." in prompt
     assert "Short conceptual headings can still be `knowledge`" in prompt
     assert "unsupported by reusable explanatory body text in the owned packet" in prompt
-    assert "Proposed tags are allowed only for real retrieval-grade concepts" in prompt
+    assert "answer `proposal_candidate` with empty grounding" in prompt
+    assert "Do not invent or preview proposed tags in the classification step." in prompt
     assert "Do not compress the packet into one global keep/drop rule" in prompt
     assert "Do not invent `group_key`, `topic_label`, packet summaries, or cross-unit grouping notes in this step." in prompt
     assert "Do not return shard outputs in your final message." in prompt

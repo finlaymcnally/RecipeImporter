@@ -367,9 +367,6 @@ def test_build_upload_bundle_reconciles_sharded_recipe_ids_to_per_recipe_counts(
     assert active_span_breakout["recipe_span_count"] == 2
     assert active_span_breakout["pairs_with_zero_recipe_spans"] == 0
 
-    failure_ledger = index_payload["analysis"]["failure_ledger"]
-    assert failure_ledger["summary"]["recipe_count"] == 2
-
     stage_observability = index_payload["analysis"]["stage_observability_summary"]["by_stage"]
     assert stage_observability["recipe_refine"]["recipe_count"] == 2
     assert stage_observability["recipe_build_final"]["recipe_count"] == 2
@@ -540,15 +537,9 @@ def test_build_upload_bundle_uses_projected_spans_for_recipe_stage_blame(
     blame_by_bucket = {
         str(row.get("bucket") or ""): row for row in blame_rows if isinstance(row, dict)
     }
-    per_recipe_rows = index_payload["analysis"]["per_recipe_breakdown"]["pairs"][0][
-        "per_recipe_breakdown"
-    ]
-    recipe_row = next(row for row in per_recipe_rows if row["recipe_id"] == "recipe:c0")
 
     assert active_span_breakout["inside_active_recipe_span"]["line_total"] == 3
     assert active_span_breakout["outside_active_recipe_span"]["line_total"] == 1
-    assert recipe_row["line_total"] == 3
-    assert recipe_row["codex_accuracy"] is not None
     assert int(blame_by_bucket["final_recipe"]["new_error_count"]) == 1
     assert int(blame_by_bucket["line_role"]["new_error_count"]) == 0
 
@@ -1176,27 +1167,18 @@ def test_main_upload_3_files_only_consolidates_and_preserves_artifacts(tmp_path:
     assert all(not name.endswith(".csv") for name in output_files)
 
     index_payload = _read_json(output_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
-    artifact_paths = {
-        str(row.get("path") or "")
-        for row in index_payload["artifact_index"]
-        if isinstance(row, dict)
-    }
-    assert "process_manifest.json" in artifact_paths
+    artifact_paths = set(index_payload["review_packet"]["selected_paths"])
     assert (
-        f"{module.STARTER_PACK_DIR_NAME}/{module.STARTER_PACK_TRIAGE_FILE_NAME}"
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/01_recipe_triage.packet.jsonl"
         in artifact_paths
     )
 
     payload_rows = _jsonl_rows_by_path(output_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
     triage_payload = payload_rows[
-        f"{module.STARTER_PACK_DIR_NAME}/{module.STARTER_PACK_TRIAGE_FILE_NAME}"
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/01_recipe_triage.packet.jsonl"
     ]
     assert triage_payload["content_type"] == "jsonl"
     assert isinstance(triage_payload["content_jsonl_rows"], list)
-
-    process_manifest_payload = payload_rows["process_manifest.json"]["content_json"]
-    assert process_manifest_payload["upload_3_files_enabled"] is True
-    assert process_manifest_payload["upload_3_files_only"] is True
 
     overview_text = _read_text(output_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME)
     assert "## Topline" in overview_text

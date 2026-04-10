@@ -128,27 +128,13 @@ def test_build_upload_bundle_high_level_only_scales_group_samples_by_run_count(
     assert single_metadata["high_level_only"] is True
     assert multi_metadata["high_level_only"] is True
 
-    multi_artifact_paths = {
-        str(row.get("path") or "")
-        for row in multi_index_payload.get("artifact_index", [])
-        if isinstance(row, dict)
-    }
+    multi_artifact_paths = set(multi_index_payload["review_packet"]["selected_paths"])
     prompt_budget_summary_paths = sorted(
         path for path in multi_artifact_paths if path.endswith("prompt_budget_summary.json")
     )
-    assert len(prompt_budget_summary_paths) == 3
+    assert prompt_budget_summary_paths == []
     assert not any(path.endswith("full_prompt_log.jsonl") for path in multi_artifact_paths)
-    heavy_rows = (
-        multi_index_payload.get("navigation", {})
-        .get("row_locators", {})
-        .get("deprioritized_heavy_artifacts", [])
-    )
-    assert isinstance(heavy_rows, list)
-    assert not any(
-        isinstance(row, dict)
-        and str(row.get("path") or "").endswith("full_prompt_log.jsonl")
-        for row in heavy_rows
-    )
+    assert "selected_payload_rows" in multi_index_payload.get("navigation", {})
 
 
 def test_build_upload_bundle_high_level_only_enforces_final_bundle_size(
@@ -220,11 +206,7 @@ def test_build_upload_bundle_high_level_only_enforces_final_bundle_size(
     assert metadata["high_level_only"] is True
 
     index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
-    artifact_paths = {
-        str(row.get("path") or "")
-        for row in index_payload.get("artifact_index", [])
-        if isinstance(row, dict)
-    }
+    artifact_paths = set(index_payload["review_packet"]["selected_paths"])
     group_summary = index_payload["analysis"]["group_high_level"]
 
     assert group_summary["enabled"] is True
@@ -393,29 +375,12 @@ def test_build_upload_bundle_high_level_multi_book_adds_book_level_analysis(
     assert isinstance(analysis, dict)
 
     assert analysis["group_high_level"]["enabled"] is True
-
-    book_scorecard = analysis.get("book_scorecard")
-    assert isinstance(book_scorecard, dict)
-    assert int(book_scorecard.get("book_count") or 0) == 2
-    score_rows = book_scorecard.get("rows")
-    assert isinstance(score_rows, list)
-    assert {row.get("source_key") for row in score_rows if isinstance(row, dict)} == {
-        "book-a-hash",
-        "book-b-hash",
-    }
-
-    ablation_summary = analysis.get("ablation_summary")
-    assert isinstance(ablation_summary, dict)
-    assert int(ablation_summary.get("row_count") or 0) >= 1
-
-    outside_by_book = analysis.get("outside_span_by_book")
-    assert isinstance(outside_by_book, dict)
-    assert int(outside_by_book.get("row_count") or 0) == 2
-
-    chapter_page_breakdown = analysis.get("chapter_page_type_breakdown")
-    assert isinstance(chapter_page_breakdown, dict)
-    assert chapter_page_breakdown.get("page_type_available") is True
-    assert int(chapter_page_breakdown.get("book_count") or 0) == 2
+    pair_inventory = analysis.get("benchmark_pair_inventory")
+    assert isinstance(pair_inventory, dict)
+    assert int(pair_inventory.get("pair_count") or 0) >= 2
+    turn1_summary = analysis.get("turn1_summary")
+    assert isinstance(turn1_summary, dict)
+    assert isinstance(turn1_summary.get("top_triage_rows"), list)
 
 
 def test_build_upload_bundle_high_level_multi_book_aggregates_runtime_by_book(
@@ -425,20 +390,17 @@ def test_build_upload_bundle_high_level_multi_book_aggregates_runtime_by_book(
     analysis = fixture["analysis"]
     assert isinstance(analysis, dict)
 
-    runtime_by_book = analysis.get("runtime_by_book")
-    assert isinstance(runtime_by_book, dict)
-    runtime_rows = runtime_by_book.get("rows")
-    assert isinstance(runtime_rows, list)
-    assert len(runtime_rows) == 2
-    runtime_by_source = {
-        str(row.get("source_key") or ""): row
-        for row in runtime_rows
-        if isinstance(row, dict)
+    runtime_summary = analysis.get("call_inventory_runtime", {}).get("summary")
+    assert isinstance(runtime_summary, dict)
+    assert runtime_summary.get("runtime_source") in {
+        "call_inventory_rows",
+        "call_inventory_rows_plus_prediction_run_prompt_budget_summary",
     }
-    assert int(runtime_by_source["book-a-hash"]["total_duration_ms"] or 0) == 600
-    assert int(runtime_by_source["book-b-hash"]["total_duration_ms"] or 0) == 6000
-    assert round(float(runtime_by_source["book-a-hash"]["total_cost_usd"] or 0.0), 2) == 0.66
-    assert round(float(runtime_by_source["book-b-hash"]["total_cost_usd"] or 0.0), 2) == 3.66
+    assert isinstance(runtime_summary.get("by_stage"), list)
+    assert any(
+        isinstance(row, dict) and str(row.get("stage_key") or "") == "recipe_refine"
+        for row in runtime_summary.get("by_stage", [])
+    )
 
 
 def test_build_upload_bundle_high_level_multi_book_exposes_trace_navigation(
@@ -450,26 +412,16 @@ def test_build_upload_bundle_high_level_multi_book_exposes_trace_navigation(
     assert isinstance(analysis, dict)
     assert isinstance(index_payload, dict)
 
-    top_regression_packets = analysis.get("top_regression_packets_full_trace")
-    assert isinstance(top_regression_packets, dict)
-    assert int(top_regression_packets.get("packet_count") or 0) >= 1
-    packet_rows = top_regression_packets.get("packets")
-    assert isinstance(packet_rows, list)
-    first_packet = packet_rows[0]
-    assert isinstance(first_packet, dict)
-    assert isinstance(first_packet.get("decision_trace"), dict)
-
     navigation_payload = index_payload.get("navigation")
     assert isinstance(navigation_payload, dict)
-    default_views = navigation_payload.get("default_initial_views")
+    default_views = navigation_payload.get("recommended_read_order")
     assert isinstance(default_views, list)
     for expected in (
-        "analysis.book_scorecard",
-        "analysis.ablation_summary",
-        "analysis.outside_span_by_book",
-        "analysis.chapter_page_type_breakdown",
-        "analysis.runtime_by_book",
-        "analysis.top_regression_packets_full_trace",
+        "analysis.benchmark_pair_inventory",
+        "analysis.active_recipe_span_breakout",
+        "analysis.net_error_blame_summary",
+        "analysis.top_confusion_deltas",
+        "analysis.triage_packet",
     ):
         assert expected in default_views
 

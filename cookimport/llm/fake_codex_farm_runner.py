@@ -283,17 +283,18 @@ def _default_structured_knowledge_grouping_output(
 
 
 def _default_structured_line_role_output(payload: Mapping[str, Any]) -> dict[str, Any]:
+    raw_rows = list(
+        payload.get("structured_packet_rows")
+        or payload.get("rows")
+        or []
+    )
     rows = [
         dict(row)
-        for row in (
-            payload.get("structured_packet_rows")
-            or payload.get("rows")
-            or []
-        )
+        for row in raw_rows
         if isinstance(row, Mapping)
     ]
-    if rows:
-        return {"labels": ["RECIPE_NOTES" for _row in rows]}
+    if raw_rows:
+        return {"labels": ["RECIPE_NOTES" for _row in raw_rows]}
     output_rows: list[dict[str, Any]] = []
     for row in rows:
         row_id = str(row.get("row_id") or "").strip()

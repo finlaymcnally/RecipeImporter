@@ -771,10 +771,10 @@ def test_prompt_preview_rebuilds_recipe_prompt_and_input_payload(tmp_path: Path)
     assert recipe_row["runtime_owned_ids"] == ["urn:recipe:test:r0"]
     assert "draft_hint" not in recipe_input_payload
     assert recipe_input_payload["r"][0]["rid"] == "urn:recipe:test:r0"
-    assert recipe_input_payload["r"][0]["txt"] == "Ambiguous title-ish line\n1 cup flour"
+    assert recipe_input_payload["r"][0]["txt"] == "Ambiguous title-ish line 1 cup flour"
     assert recipe_input_payload["r"][0]["ev"] == [
-        [10, "Ambiguous title-ish line"],
-        [11, "1 cup flour"],
+        [0, "Ambiguous title-ish line"],
+        [1, "1 cup flour"],
     ]
     assert "h" not in recipe_input_payload["r"][0]
     assert "q" not in recipe_input_payload["r"][0]

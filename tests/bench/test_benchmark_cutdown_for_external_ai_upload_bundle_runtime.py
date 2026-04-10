@@ -11,6 +11,21 @@ globals().update({
 })
 
 
+def _runtime_stage_summary_map(runtime_summary: dict[str, object]) -> dict[str, dict[str, object]]:
+    by_stage = runtime_summary.get("by_stage")
+    if isinstance(by_stage, dict):
+        return {
+            str(key): value
+            for key, value in by_stage.items()
+            if isinstance(value, dict)
+        }
+    return {
+        str(row.get("stage_key") or ""): row
+        for row in by_stage or []
+        if isinstance(row, dict) and str(row.get("stage_key") or "")
+    }
+
+
 def test_build_upload_bundle_uses_single_correction_stage_labels_only(
     tmp_path: Path,
 ) -> None:
@@ -88,28 +103,15 @@ def test_build_upload_bundle_uses_single_correction_stage_labels_only(
     assert "historical_recipe_topology_key" not in recipe_pipeline_context
     assert "historical_recipe_pipeline_aliases" not in recipe_pipeline_context
 
-    stage_separated = index_payload["analysis"]["stage_separated_comparison"]
-    assert stage_separated["recipe_topology_key"] == "single_correction"
-    assert stage_separated["recipe_stages"] == [
-        {
-            "stage_key": "recipe_build_intermediate",
-            "stage_label": "Recipe Build Intermediate",
-        },
-        {
-            "stage_key": "recipe_refine",
-            "stage_label": "Recipe Refine",
-        },
-        {
-            "stage_key": "recipe_build_final",
-            "stage_label": "Recipe Build Final",
-        },
-    ]
+    assert "stage_separated_comparison" not in index_payload["analysis"]
 
     blame_summary = index_payload["analysis"]["net_error_blame_summary"]
-    bucket_definitions = blame_summary["bucket_definitions"]
-    assert "explicitly excluded" in str(bucket_definitions["nonrecipe_authority"])
-    assert "correction-stage loss" in str(bucket_definitions["recipe_correction"])
-    assert "final-stage status" in str(bucket_definitions["final_recipe"])
+    bucket_names = {
+        str(row.get("bucket") or "")
+        for row in blame_summary["bucket_rows"]
+        if isinstance(row, dict)
+    }
+    assert {"nonrecipe_authority", "recipe_correction", "final_recipe"} <= bucket_names
 
     overview_text = _read_text(bundle_dir / module.UPLOAD_BUNDLE_OVERVIEW_FILE_NAME)
     assert "## Recipe Pipeline Context" in overview_text
@@ -118,16 +120,18 @@ def test_build_upload_bundle_uses_single_correction_stage_labels_only(
     assert "Recipe Refine" in overview_text
     assert "Recipe Build Final" in overview_text
 
-    payload_rows = _jsonl_rows_by_path(bundle_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
-    casebook = payload_rows[
-        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/{module.STARTER_PACK_DIR_NAME}/07_casebook.md"
-    ]["content_text"]
-    assert "recipe_pipeline_id: codex-recipe-shard-v1" in str(casebook)
+    selected_paths = set(index_payload["review_packet"]["selected_paths"])
     assert (
-        "recipe_stages: Recipe Build Intermediate, Recipe Refine, Recipe Build Final"
-        in str(casebook)
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/group_high_level_packet.json"
+        in selected_paths
     )
-    assert "- Recipe Refine:" in str(casebook)
+    assert (
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/01_recipe_triage.packet.jsonl"
+        in selected_paths
+    )
+    assert not any(
+        f"/{module.STARTER_PACK_DIR_NAME}/" in path for path in selected_paths
+    )
 
 
 def test_build_upload_bundle_for_existing_output_backfills_call_runtime_from_prediction_manifest(
@@ -330,20 +334,15 @@ def test_build_upload_bundle_merges_prompt_budget_summary_when_call_rows_lack_ru
     assert int(runtime_summary["call_count"]) == 47
     assert int(runtime_summary["calls_with_runtime"]) == 0
     assert int(runtime_summary["total_tokens"]) == 7796192
-    assert set(runtime_summary["by_stage"].keys()) == {
+    by_stage = _runtime_stage_summary_map(runtime_summary)
+    assert set(by_stage.keys()) == {
         "recipe_refine",
         "nonrecipe_finalize",
         "line_role",
     }
-    assert (
-        int(runtime_summary["by_stage"]["recipe_refine"]["total_tokens"])
-        == 120000
-    )
-    assert (
-        int(runtime_summary["by_stage"]["nonrecipe_finalize"]["total_tokens"])
-        == 1141186
-    )
-    assert int(runtime_summary["by_stage"]["line_role"]["total_tokens"]) == 6535006
+    assert int(by_stage["recipe_refine"]["total_tokens"]) == 120000
+    assert int(by_stage["nonrecipe_finalize"]["total_tokens"]) == 1141186
+    assert int(by_stage["line_role"]["total_tokens"]) == 6535006
 
 
 def test_build_upload_bundle_merges_realistic_codex_call_telemetry_with_prompt_budget_summary(
@@ -525,42 +524,28 @@ def test_build_upload_bundle_merges_realistic_codex_call_telemetry_with_prompt_b
     assert runtime_summary["estimated_cost_signal"]["available"] is True
     assert float(runtime_summary["total_cost_usd"]) == 0.42
     assert float(runtime_summary["total_estimated_cost_usd"]) > 0.42
-    assert set(runtime_summary["by_stage"].keys()) == {
+    by_stage = _runtime_stage_summary_map(runtime_summary)
+    assert set(by_stage.keys()) == {
         "recipe_refine",
         "nonrecipe_finalize",
         "line_role",
     }
+    assert int(by_stage["recipe_refine"]["total_tokens"]) == 120000
+    assert int(by_stage["nonrecipe_finalize"]["total_tokens"]) == 25000
+    assert int(by_stage["line_role"]["total_tokens"]) == 6535006
+
+    selected_paths = set(index_payload["review_packet"]["selected_paths"])
     assert (
-        int(runtime_summary["by_stage"]["recipe_refine"]["total_tokens"])
-        == 120000
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/config_version_metadata.json"
+        in selected_paths
     )
     assert (
-        int(runtime_summary["by_stage"]["nonrecipe_finalize"]["total_tokens"])
-        == 25000
+        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/root/group_high_level_packet.json"
+        in selected_paths
     )
-    assert int(runtime_summary["by_stage"]["line_role"]["total_tokens"]) == 6535006
-
-    top_slowest_calls = runtime_payload["top_slowest_calls"]
-    assert top_slowest_calls[0]["call_id"] == "recipe-001"
-
-    payload_rows = _jsonl_rows_by_path(bundle_dir / module.UPLOAD_BUNDLE_PAYLOAD_FILE_NAME)
-    call_inventory_rows = payload_rows[
-        f"{module.UPLOAD_BUNDLE_DERIVED_DIR_NAME}/{module.STARTER_PACK_DIR_NAME}/02_call_inventory.jsonl"
-    ]["content_jsonl_rows"]
-    assert len(call_inventory_rows) == 3
-    line_role_row = next(row for row in call_inventory_rows if row["stage_key"] == "line_role")
-    assert line_role_row["duration_ms"] == 600
-    assert line_role_row["tokens_input"] == 200
-    assert line_role_row["tokens_cached_input"] == 50
-    assert line_role_row["tokens_output"] == 100
-    assert line_role_row["tokens_total"] == 300
-    assert line_role_row["estimated_cost_usd"] is not None
-    assert line_role_row["retry_attempt"] == 1
-    assert line_role_row["runtime_status"] == "ok"
-    assert int(top_slowest_calls[0]["duration_ms"]) == 1200
-    top_estimated_cost_calls = runtime_payload["top_estimated_cost_calls"]
-    assert top_estimated_cost_calls[0]["call_id"] == "recipe-001"
-    assert float(top_estimated_cost_calls[0]["estimated_cost_usd"]) >= 0.42
+    assert not any(
+        f"/{module.STARTER_PACK_DIR_NAME}/" in path for path in selected_paths
+    )
 
 
 def test_build_upload_bundle_backfills_missing_stage_telemetry_from_prompt_budget_summary(
@@ -721,13 +706,11 @@ def test_build_upload_bundle_backfills_missing_stage_telemetry_from_prompt_budge
     assert int(runtime_summary["calls_with_estimated_cost"]) == 10
     assert int(runtime_summary["total_tokens"]) == 20000
     assert runtime_summary["estimated_cost_signal"]["available"] is True
-    assert runtime_summary["by_stage"]["nonrecipe_finalize"]["calls_with_runtime"] == 5
-    assert (
-        int(runtime_summary["by_stage"]["nonrecipe_finalize"]["total_tokens"]) == 9000
-    )
-    assert runtime_summary["by_stage"]["line_role"]["calls_with_runtime"] == 5
-    assert runtime_summary["by_stage"]["line_role"]["avg_duration_ms"] == 102.0
-    assert int(runtime_summary["by_stage"]["line_role"]["total_tokens"]) == 7000
+    by_stage = _runtime_stage_summary_map(runtime_summary)
+    assert by_stage["nonrecipe_finalize"]["call_count"] == 5
+    assert int(by_stage["nonrecipe_finalize"]["total_tokens"]) == 9000
+    assert by_stage["line_role"]["call_count"] == 5
+    assert int(by_stage["line_role"]["total_tokens"]) == 7000
 
 
 def test_build_upload_bundle_surfaces_knowledge_summary_and_locators(
@@ -760,40 +743,12 @@ def test_build_upload_bundle_surfaces_knowledge_summary_and_locators(
     )
 
     index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
-    knowledge_summary = index_payload["analysis"]["knowledge"]
-    assert knowledge_summary["enabled_run_count"] == 1
-    assert knowledge_summary["runs_with_prompt_samples"] == 1
-    assert knowledge_summary["runs_with_knowledge_manifest"] == 1
-    assert knowledge_summary["total_knowledge_call_count"] == 4
-    row = knowledge_summary["rows"][0]
-    assert row["run_id"] == run_id
-    assert row["enabled"] is True
-    assert row["prompt_samples_status"] == "written"
-    assert row["prompt_knowledge_status"] == "written"
-    assert row["knowledge_manifest_status"] == "written"
-    assert row["prompt_budget_summary_status"] == "written"
-    assert row["prompt_samples_in_bundle"] is True
-    assert row["prompt_knowledge_in_bundle"] is True
-    assert row["knowledge_manifest_in_bundle"] is True
-    assert row["prompt_budget_summary_in_bundle"] is True
-
-    row_locators = index_payload["navigation"]["row_locators"]["knowledge_by_run"]
-    assert isinstance(row_locators, list)
-    locator_row = next(
-        item for item in row_locators if str(item.get("run_id") or "") == run_id
-    )
-    assert locator_row["prompt_samples_md"]["path"].endswith(
-        "prompts/prompt_type_samples_from_full_prompt_log.md"
-    )
-    assert locator_row["prompt_knowledge_txt"]["path"].endswith(
-        "prompts/prompt_nonrecipe_finalize.txt"
-    )
-    assert locator_row["knowledge_manifest_json"]["path"].endswith(
-        "prediction-run/raw/llm/fixture-slug/knowledge_manifest.json"
-    )
-    assert locator_row["prompt_budget_summary_json"]["path"].endswith(
-        "prediction-run/prompt_budget_summary.json"
-    )
+    assert "knowledge" not in index_payload["analysis"]
+    assert "row_locators" not in index_payload["navigation"]
+    selected_paths = set(index_payload["review_packet"]["selected_paths"])
+    assert f"{run_id}/prompts/prompt_type_samples_from_full_prompt_log.md" in selected_paths
+    assert not any(path.endswith("prompt_nonrecipe_finalize.txt") for path in selected_paths)
+    assert not any(path.endswith("knowledge_manifest.json") for path in selected_paths)
 
 
 def test_build_upload_bundle_discovers_current_single_book_knowledge_layout(
@@ -849,72 +804,15 @@ def test_build_upload_bundle_discovers_current_single_book_knowledge_layout(
     )
 
     index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
-    knowledge_summary = index_payload["analysis"]["knowledge"]
-    assert knowledge_summary["enabled_run_count"] == 1
-    assert knowledge_summary["runs_with_prompt_samples"] == 1
-    assert knowledge_summary["runs_with_knowledge_manifest"] == 1
-    assert knowledge_summary["total_knowledge_call_count"] == 4
-
-    codex_row = next(
-        row for row in knowledge_summary["rows"] if str(row.get("run_id") or "") == codex_run_id
+    assert "knowledge" not in index_payload["analysis"]
+    assert "row_locators" not in index_payload["navigation"]
+    selected_paths = set(index_payload["review_packet"]["selected_paths"])
+    assert (
+        f"{codex_run_id}/prompts/prompt_type_samples_from_full_prompt_log.md"
+        in selected_paths
     )
-    assert codex_row["knowledge_call_count"] == 4
-    assert codex_row["shards_written"] == 4
-    assert codex_row["outputs_parsed"] == 4
-    assert codex_row["snippets_written"] == 8
-    assert codex_row["prompt_samples_status"] == "written"
-    assert codex_row["prompt_knowledge_status"] == "written"
-    assert codex_row["knowledge_manifest_status"] == "written"
-    assert codex_row["prompt_budget_summary_status"] == "written"
-    assert codex_row["prompt_samples_in_bundle"] is True
-    assert codex_row["prompt_knowledge_in_bundle"] is True
-    assert codex_row["knowledge_manifest_in_bundle"] is True
-    assert codex_row["prompt_budget_summary_in_bundle"] is True
-
-    baseline_row = next(
-        row
-        for row in knowledge_summary["rows"]
-        if str(row.get("run_id") or "") == baseline_run_id
-    )
-    assert baseline_row["prompt_samples_in_bundle"] is False
-    assert baseline_row["prompt_knowledge_in_bundle"] is False
-    assert baseline_row["knowledge_manifest_in_bundle"] is False
-    assert baseline_row["prompt_budget_summary_in_bundle"] is False
-
-    row_locators = index_payload["navigation"]["row_locators"]["knowledge_by_run"]
-    assert isinstance(row_locators, list)
-    codex_locator_row = next(
-        item for item in row_locators if str(item.get("run_id") or "") == codex_run_id
-    )
-    assert codex_locator_row["prompt_samples_md"]["path"].endswith(
-        "prompts/prompt_type_samples_from_full_prompt_log.md"
-    )
-    assert codex_locator_row["prompt_knowledge_txt"]["path"].endswith(
-        "prompts/prompt_nonrecipe_finalize.txt"
-    )
-    assert codex_locator_row["prompt_budget_summary_json"]["path"].endswith(
-        "codex-exec/prompt_budget_summary.json"
-    )
-    assert codex_locator_row["knowledge_manifest_json"]["path"].endswith(
-        "_upload_bundle_derived/runs/codex-exec/knowledge_manifest.json"
-    )
-
-    baseline_locator_row = next(
-        item for item in row_locators if str(item.get("run_id") or "") == baseline_run_id
-    )
-    assert baseline_locator_row["prompt_samples_md"] is None
-    assert baseline_locator_row["prompt_knowledge_txt"] is None
-    assert baseline_locator_row["knowledge_manifest_json"] is None
-    assert baseline_locator_row["prompt_budget_summary_json"] is None
-
-    run_diagnostics = index_payload["run_diagnostics"]
-    codex_diag = next(
-        row for row in run_diagnostics if str(row.get("run_id") or "") == codex_run_id
-    )
-    assert codex_diag["full_prompt_log_status"] == "complete"
-    assert codex_diag["prompt_warning_aggregate_status"] == "written"
-    assert codex_diag["projection_trace_status"] == "written"
-    assert codex_diag["preprocess_trace_failures_status"] == "written"
+    assert not any(path.endswith("prompt_nonrecipe_finalize.txt") for path in selected_paths)
+    assert not any(path.endswith("knowledge_manifest.json") for path in selected_paths)
 
 
 def test_build_upload_bundle_does_not_guess_processed_output_knowledge_manifest_path(
@@ -965,17 +863,10 @@ def test_build_upload_bundle_does_not_guess_processed_output_knowledge_manifest_
     )
 
     index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
-    knowledge_summary = index_payload["analysis"]["knowledge"]
-    row = next(row for row in knowledge_summary["rows"] if str(row.get("run_id") or "") == run_id)
-    assert row["knowledge_manifest_status"] == "missing"
-    assert row["knowledge_manifest_in_bundle"] is False
-
-    locator_row = next(
-        item
-        for item in index_payload["navigation"]["row_locators"]["knowledge_by_run"]
-        if str(item.get("run_id") or "") == run_id
-    )
-    assert locator_row["knowledge_manifest_json"] is None
+    assert "knowledge" not in index_payload["analysis"]
+    assert "row_locators" not in index_payload["navigation"]
+    selected_paths = set(index_payload["review_packet"]["selected_paths"])
+    assert not any(path.endswith("knowledge_manifest.json") for path in selected_paths)
 
 
 def test_resolve_knowledge_prompt_path_supports_dynamic_stage_file_names(
@@ -1099,19 +990,9 @@ def test_build_upload_bundle_high_level_includes_lightweight_knowledge_artifacts
     )
 
     index_payload = _read_json(bundle_dir / module.UPLOAD_BUNDLE_INDEX_FILE_NAME)
-    artifact_paths = {
-        str(row.get("path") or "")
-        for row in index_payload.get("artifact_index", [])
-        if isinstance(row, dict)
-    }
+    artifact_paths = set(index_payload["review_packet"]["selected_paths"])
     assert f"{run_id}/prompts/prompt_type_samples_from_full_prompt_log.md" in artifact_paths
-    assert (
-        f"{run_id}/prediction-run/raw/llm/fixture-slug/knowledge_manifest.json"
-        in artifact_paths
-    )
+    assert not any(path.endswith("knowledge_manifest.json") for path in artifact_paths)
     assert f"{run_id}/prompts/prompt_nonrecipe_finalize.txt" not in artifact_paths
 
-    knowledge_summary = index_payload["analysis"]["knowledge"]["rows"][0]
-    assert knowledge_summary["prompt_samples_in_bundle"] is True
-    assert knowledge_summary["knowledge_manifest_in_bundle"] is True
-    assert knowledge_summary["prompt_knowledge_in_bundle"] is False
+    assert "knowledge" not in index_payload["analysis"]

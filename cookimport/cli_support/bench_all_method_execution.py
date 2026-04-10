@@ -402,6 +402,9 @@ def _run_all_method_prediction_once_impl(
                             "knowledge_codex_exec_style": benchmark_kwargs[
                                 "knowledge_codex_exec_style"
                             ],
+                            "recipe_codex_exec_style": benchmark_kwargs[
+                                "recipe_codex_exec_style"
+                            ],
                             "codex_farm_cmd": benchmark_kwargs["codex_farm_cmd"],
                             "codex_farm_model": benchmark_kwargs.get(
                                 "codex_farm_model"

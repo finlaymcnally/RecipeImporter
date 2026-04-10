@@ -563,8 +563,8 @@ def test_knowledge_taskfile_worker_can_run_through_fake_codex_farm_subprocess(
     assert live_status["state"] == "completed"
     assert live_status["reason_code"] == "workspace_expected_outputs_completed"
     assert live_status["warning_count"] == 0
-    assert worker_manifest["entry_files"] == ["worker_manifest.json", "task.json"]
-    assert worker_manifest["single_file_worker_runtime"] is False
+    assert worker_manifest["entry_files"] == ["task.json"]
+    assert worker_manifest["single_file_worker_runtime"] is True
     assert not (worker_root / "assigned_shards.json").exists()
     assert not (worker_root / "assigned_tasks.json").exists()
     assert not (worker_root / "current_task.json").exists()

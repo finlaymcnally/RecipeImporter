@@ -119,13 +119,10 @@ def _canonical_from_source_rows(recipe_row: Mapping[str, Any] | None) -> tuple[s
         if _is_ingredient_like(line) and not steps:
             ingredients.append(line)
             continue
-        if ingredients and not steps:
-            steps.append(line)
-            continue
         if steps:
             steps.append(line)
             continue
-        ingredients.append(line)
+        return (title, ingredients, [])
     return (title, ingredients, steps)
 
 

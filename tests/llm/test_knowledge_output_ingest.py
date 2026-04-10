@@ -103,6 +103,20 @@ def test_normalize_knowledge_worker_payload_serializes_semantic_packet_result() 
     assert metadata["worker_output_contract"] == "semantic_packet_result_v2"
 
 
+def test_normalize_knowledge_worker_payload_recovers_missing_packet_id_from_fallback() -> None:
+    payload, metadata = normalize_knowledge_worker_payload(
+        {
+            "block_decisions": _semantic_payload()["block_decisions"],
+            "idea_groups": _semantic_payload()["idea_groups"],
+        },
+        fallback_packet_id="book.ks0000.nr",
+    )
+
+    assert payload["bid"] == "book.ks0000.nr"
+    assert metadata["worker_output_contract"] == "semantic_packet_result_v2"
+    assert metadata["worker_output_packet_id_source"] == "fallback_packet_id"
+
+
 def test_validate_knowledge_shard_output_accepts_grouped_shard_result() -> None:
     valid, errors, metadata = validate_knowledge_shard_output(
         _shard(),
@@ -269,6 +283,19 @@ def test_sanitize_knowledge_worker_payload_preserves_model_categories_and_groups
     assert metadata["worker_output_contract"] == "semantic_packet_result_v2"
 
 
+def test_sanitize_knowledge_worker_payload_recovers_missing_packet_id_from_shard() -> None:
+    payload, metadata = sanitize_knowledge_worker_payload_for_shard(
+        _shard(),
+        {
+            "block_decisions": _semantic_payload()["block_decisions"],
+            "idea_groups": _semantic_payload()["idea_groups"],
+        },
+    )
+
+    assert payload["bid"] == "book.ks0000.nr"
+    assert metadata["worker_output_packet_id_source"] == "fallback_packet_id"
+
+
 def test_validate_knowledge_shard_output_keeps_model_knowledge_rows_for_group_checks() -> None:
     framing_shard = ShardManifestEntryV1(
         shard_id="book.ks0000.nr",
@@ -417,6 +444,30 @@ def test_read_validated_knowledge_outputs_from_proposals_accepts_approved_propos
     assert outputs["book.ks0000.nr"].block_decisions[0].grounding.proposed_tags[0].key == (
         "rendering"
     )
+
+
+def test_read_validated_knowledge_outputs_from_proposals_recovers_missing_packet_id(
+    tmp_path: Path,
+) -> None:
+    payload = {
+        "block_decisions": _semantic_payload()["block_decisions"],
+        "idea_groups": _semantic_payload()["idea_groups"],
+    }
+    _write_json(
+        tmp_path / "book.ks0000.nr.json",
+        {
+            "shard_id": "book.ks0000.nr",
+            "payload": payload,
+            "validation_errors": [],
+            "validation_metadata": {"bundle_id": "book.ks0000.nr"},
+        },
+    )
+
+    outputs, payloads_by_shard_id = read_validated_knowledge_outputs_from_proposals(tmp_path)
+
+    assert sorted(outputs) == ["book.ks0000.nr"]
+    assert sorted(payloads_by_shard_id) == ["book.ks0000.nr"]
+    assert outputs["book.ks0000.nr"].idea_groups[0].topic_label == "Heat control"
 
 
 def test_read_validated_knowledge_outputs_from_proposals_rejects_duplicate_ids(

@@ -1353,13 +1353,12 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     proposal_errors = tuple(grouping_validation_errors)
                     break
             if not grouping_failed:
-                proposal_payload = combine_knowledge_task_file_outputs(
+                raw_proposal_payload = combine_knowledge_task_file_outputs(
                     classification_task_file=classification_task_file,
                     classification_answers_by_unit_id=classification_answers_by_unit_id,
                     grouping_answers_by_unit_id=grouping_answers_by_unit_id,
                     unit_to_shard_id=unit_to_shard_id,
                 ).get(shard.shard_id)
-                proposal_status = "validated" if proposal_payload is not None else "invalid"
                 proposal_metadata = {
                     **dict(classification_validation_metadata),
                     **dict(
@@ -1372,7 +1371,51 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                         or {}
                     ),
                 }
-                proposal_errors = ()
+                if raw_proposal_payload is None:
+                    proposal_payload = None
+                    proposal_status = "invalid"
+                    proposal_errors = ("missing_output_file",)
+                else:
+                    try:
+                        proposal_payload, normalization_metadata = (
+                            sanitize_knowledge_worker_payload_for_shard(
+                                shard,
+                                raw_proposal_payload,
+                            )
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        proposal_payload = None
+                        proposal_status = "invalid"
+                        proposal_errors = ("schema_invalid",)
+                        proposal_metadata = {
+                            **proposal_metadata,
+                            "parse_error": str(exc),
+                        }
+                    else:
+                        valid, validation_errors, validation_metadata = (
+                            validate_knowledge_shard_output(
+                                shard,
+                                proposal_payload,
+                            )
+                        )
+                        proposal_metadata = {
+                            **proposal_metadata,
+                            **dict(validation_metadata or {}),
+                            **dict(normalization_metadata or {}),
+                        }
+                        if valid:
+                            proposal_status = "validated"
+                            proposal_errors = ()
+                        else:
+                            proposal_payload = None
+                            proposal_status = "invalid"
+                            proposal_errors = tuple(validation_errors)
+                            proposal_metadata["failure_classification"] = (
+                                classify_knowledge_validation_failure(
+                                    validation_errors=proposal_errors,
+                                    validation_metadata=proposal_metadata,
+                                )
+                            )
 
         proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
         _write_json(

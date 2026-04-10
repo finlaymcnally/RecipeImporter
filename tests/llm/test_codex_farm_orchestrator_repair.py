@@ -20,6 +20,7 @@ def test_orchestrator_repairs_near_miss_invalid_recipe_shard_once(
     settings = _build_run_settings(
         tmp_path / "pack",
         llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
+        recipe_codex_exec_style="taskfile-v1",
     )
 
     class _NearMissRepairRunner(FakeCodexExecRunner):
@@ -165,6 +166,7 @@ def test_orchestrator_recovers_recipe_validation_failure_via_task_file_repair(
     settings = _build_run_settings(
         tmp_path / "pack",
         llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
+        recipe_codex_exec_style="taskfile-v1",
     )
 
     class _TaskFileRepairRecoveryRunner(FakeCodexExecRunner):
@@ -358,6 +360,7 @@ def test_orchestrator_marks_task_failed_after_repair_budget_exhausted(
     settings = _build_run_settings(
         tmp_path / "pack",
         llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
+        recipe_codex_exec_style="taskfile-v1",
     )
 
     def _output_builder(payload: dict[str, object] | None) -> dict[str, object]:
@@ -557,6 +560,7 @@ def test_orchestrator_repairs_after_task_file_continuation_is_lost(
     settings = _build_run_settings(
         tmp_path / "pack",
         llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
+        recipe_codex_exec_style="taskfile-v1",
     )
 
     def _output_builder(payload: dict[str, object] | None) -> dict[str, object]:

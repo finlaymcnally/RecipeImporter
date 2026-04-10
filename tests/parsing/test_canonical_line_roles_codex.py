@@ -442,7 +442,7 @@ def test_codex_recipe_local_nonrecipe_exclude_is_normalized_without_baseline_fal
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "RECIPE_NOTES"
+    assert predictions[0].label == "NONRECIPE_EXCLUDE"
     assert predictions[0].decided_by == "codex"
     assert "codex_policy_rejected" not in predictions[0].reason_tags
 

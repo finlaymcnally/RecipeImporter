@@ -68,12 +68,60 @@ _KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS = frozenset(
 
 def normalize_knowledge_worker_payload(
     payload: Mapping[str, Any],
+    *,
+    fallback_packet_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     payload_dict = dict(payload)
+    fallback_id = str(fallback_packet_id or "").strip()
     try:
         semantic_result = KnowledgePacketSemanticResultV1.model_validate(payload_dict)
     except Exception:
-        parsed = KnowledgeBundleOutputV2.model_validate(payload_dict)
+        try:
+            parsed = KnowledgeBundleOutputV2.model_validate(payload_dict)
+        except Exception:
+            if not fallback_id:
+                raise
+            if (
+                "packet_id" not in payload_dict
+                and "bid" not in payload_dict
+                and (
+                    isinstance(payload_dict.get("block_decisions"), list)
+                    or isinstance(payload_dict.get("idea_groups"), list)
+                    or isinstance(payload_dict.get("d"), list)
+                    or isinstance(payload_dict.get("g"), list)
+                )
+            ):
+                if isinstance(payload_dict.get("block_decisions"), list) or isinstance(
+                    payload_dict.get("idea_groups"), list
+                ):
+                    semantic_result = KnowledgePacketSemanticResultV1.model_validate(
+                        {
+                            **payload_dict,
+                            "packet_id": fallback_id,
+                        }
+                    )
+                    return serialize_canonical_knowledge_packet(semantic_result), {
+                        "worker_output_contract": "semantic_packet_result_v2",
+                        "worker_output_packet_id_source": "fallback_packet_id",
+                    }
+                parsed = KnowledgeBundleOutputV2.model_validate(
+                    {
+                        **payload_dict,
+                        "bid": fallback_id,
+                    }
+                )
+                normalized_payload = parsed.model_dump(
+                    mode="json",
+                    by_alias=True,
+                    exclude_none=True,
+                    exclude_defaults=True,
+                )
+                normalized_payload.pop("v", None)
+                return normalized_payload, {
+                    "worker_output_contract": "canonical_packet_result_v3",
+                    "worker_output_packet_id_source": "fallback_packet_id",
+                }
+            raise
         normalized_payload = parsed.model_dump(
             mode="json",
             by_alias=True,
@@ -92,8 +140,10 @@ def sanitize_knowledge_worker_payload_for_shard(
     shard: ShardManifestEntryV1,
     payload: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    del shard
-    normalized_payload, normalization_metadata = normalize_knowledge_worker_payload(payload)
+    normalized_payload, normalization_metadata = normalize_knowledge_worker_payload(
+        payload,
+        fallback_packet_id=str(shard.shard_id),
+    )
     parsed = KnowledgeBundleOutputV2.model_validate(normalized_payload)
     serialized_decisions: list[dict[str, Any]] = []
     for decision in parsed.block_decisions:
@@ -348,6 +398,7 @@ def extract_promotable_knowledge_bundles(
     payload: Mapping[str, Any] | None,
     validation_errors: Sequence[str] = (),
     validation_metadata: Mapping[str, Any] | None = None,
+    fallback_packet_id: str | None = None,
 ) -> tuple[dict[str, KnowledgeBundleOutputV2], dict[str, Any]] | None:
     metadata = _coerce_dict(validation_metadata)
     normalized_errors = _normalize_validation_errors(validation_errors)
@@ -403,7 +454,10 @@ def extract_promotable_knowledge_bundles(
         }
     if normalized_errors:
         return None
-    normalized_payload, _ = normalize_knowledge_worker_payload(payload_dict)
+    normalized_payload, _ = normalize_knowledge_worker_payload(
+        payload_dict,
+        fallback_packet_id=fallback_packet_id,
+    )
     parsed = KnowledgeBundleOutputV2.model_validate(normalized_payload)
     return {parsed.bundle_id: parsed}, {
         "promotion_mode": "validated_wrapper",
@@ -450,6 +504,9 @@ def read_validated_knowledge_outputs_from_proposals(
                 wrapper.get("validation_metadata")
                 if isinstance(wrapper.get("validation_metadata"), Mapping)
                 else wrapper.get("metadata")
+            ),
+            fallback_packet_id=(
+                str(wrapper.get("shard_id") or proposal_path.stem).strip() or None
             ),
         )
         if promoted_bundles is None:

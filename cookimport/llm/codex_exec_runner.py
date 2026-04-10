@@ -941,7 +941,8 @@ class FakeCodexExecRunner:
                     edited["units"] = edited_units
                     return edited
                 if isinstance(line_role_result.get("rows"), list):
-                    answer_by_ordinal: dict[int, dict[str, Any]] = {}
+                    parsed_ordinals: list[int] = []
+                    parsed_rows: list[dict[str, Any]] = []
                     for row_index, row in enumerate(line_role_result.get("rows") or []):
                         if not isinstance(row, Mapping):
                             continue
@@ -950,12 +951,26 @@ class FakeCodexExecRunner:
                             continue
                         atomic_index_value = row.get("atomic_index")
                         try:
-                            ordinal = int(atomic_index_value) if atomic_index_value is not None else row_index
+                            ordinal = (
+                                int(atomic_index_value)
+                                if atomic_index_value is not None
+                                else row_index
+                            )
                         except (TypeError, ValueError):
                             ordinal = row_index
-                        if 1 <= ordinal <= len(line_role_rows):
+                        parsed_ordinals.append(ordinal)
+                        parsed_rows.append({"ordinal": ordinal, "label": label})
+                    ordinal_base: int | None = None
+                    if parsed_ordinals == list(range(len(parsed_ordinals))):
+                        ordinal_base = 0
+                    elif parsed_ordinals == list(range(1, len(parsed_ordinals) + 1)):
+                        ordinal_base = 1
+                    answer_by_ordinal: dict[int, dict[str, Any]] = {}
+                    for row in parsed_rows:
+                        ordinal = int(row["ordinal"])
+                        if ordinal_base == 1:
                             ordinal -= 1
-                        answer_by_ordinal[ordinal] = {"label": label}
+                        answer_by_ordinal[ordinal] = {"label": str(row["label"])}
                     if answer_by_ordinal and len(answer_by_ordinal) >= len(line_role_rows):
                         edited_units = []
                         for index, unit in enumerate(units_payload):
