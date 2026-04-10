@@ -181,6 +181,9 @@ def test_line_role_inline_packet_uses_ordered_rows_and_neighbor_context() -> Non
     assert "This packet has 2 owned row(s)" in prompt
     assert "Return exactly 2 label(s): one for each owned row shown in `rows`." in prompt
     assert "`rows` is an ordered array of raw text strings." in prompt
+    assert "Treat `rows` as one contiguous ordered shard slice, not as isolated examples." in prompt
+    assert "Label in one pass, but use the surrounding owned rows" in prompt
+    assert "Keep the whole shard sequence in mind while labeling" in prompt
     assert "Keep label order exactly aligned with the packet `rows` order." in prompt
     assert "The first label applies to `rows[0]`" in prompt
     assert "Finish the full owned-row list; do not stop early." in prompt
