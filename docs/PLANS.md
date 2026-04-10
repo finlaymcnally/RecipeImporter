@@ -26,9 +26,9 @@ Use an ExecPlan for the design and implementation narrative of a substantial fea
 
 Use beads for execution tracking. Create a beads issue for the overall effort before writing code, and create child issues when the plan naturally breaks into independently actionable chunks. Beads should hold the moving parts: what is ready, what is blocked, who is working on what, and what remains. The ExecPlan should hold the stable understanding: the design, rationale, evidence, and implementation story.
 
-Do not copy a whole ExecPlan into beads. Instead, turn the plan into a small set of concrete beads with clear dependencies. A good default is one parent beads issue for the overall plan plus child issues for the milestones or workstreams that can be completed and validated separately. As implementation proceeds, keep both artifacts current: update beads when task status changes, and update the ExecPlan when design knowledge or implementation reality changes.
+Do not copy a whole ExecPlan into beads. Instead, turn the plan into a small set of concrete beads with clear dependencies. A good default is one parent beads issue for the overall plan plus child issues for the milestones or workstreams that can be completed and validated separately. Include one final child bead for removing the completed ExecPlan after durable knowledge transfer. That final deletion bead must stay open until the user explicitly approves deleting the plan. As implementation proceeds, keep both artifacts current: update beads when task status changes, and update the ExecPlan when design knowledge or implementation reality changes.
 
-ExecPlans are disposable by default. Once the work is complete and any durable knowledge has been moved into the appropriate long-lived docs, code comments, tests, or beads notes, remove the ExecPlan. Do not keep completed ExecPlans around as default project memory. Keep one only when the user explicitly wants it retained or archived for unusual reference value.
+ExecPlans are disposable by default, but disposal is never automatic. Once the work is complete and any durable knowledge has been moved into the appropriate long-lived docs, code comments, tests, or beads notes, the remaining step is to close the explicit deletion bead. Agents must not delete a completed ExecPlan unless the user has explicitly said to do so. Do not keep completed ExecPlans around as default project memory, but do not remove them speculatively either. Keep one only when the user explicitly wants it retained or archived for unusual reference value.
  
 ## Requirements
  
@@ -83,7 +83,9 @@ Each milestone must be independently verifiable and incrementally implement the 
 * When you discover optimizer behavior, performance tradeoffs, unexpected bugs, or inverse/unapply semantics that shaped your approach, capture those observations in the `Surprises & Discoveries` section with short evidence snippets (test output is ideal).
 * If you change course mid-implementation, document why in the `Decision Log` and reflect the implications in `Progress`. Plans are guides for the next contributor as much as checklists for you.
 * At completion of a major task or the full plan, write an `Outcomes & Retrospective` entry summarizing what was achieved, what remains, and lessons learned.
-* Before deleting a completed ExecPlan, copy any lasting operational knowledge into the owning long-lived docs. The plan should disappear only after durable knowledge has been transferred.
+* Before deleting a completed ExecPlan, copy any lasting operational knowledge into the owning long-lived docs.
+* Deleting a completed ExecPlan must be tracked as its own final beads issue or child bead.
+* Agents must never close that deletion bead by deleting the plan unless the user has explicitly approved the deletion.
  
 # Prototyping milestones and parallel implementations
  
