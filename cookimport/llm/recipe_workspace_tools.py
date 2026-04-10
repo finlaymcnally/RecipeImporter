@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import re
 from typing import Any, Mapping
 
 _TOP_LEVEL_KEYS = frozenset({"v", "sid", "r"})
@@ -10,6 +11,13 @@ _MAPPING_KEYS = frozenset({"i", "s"})
 _TAG_KEYS = frozenset({"c", "l", "f"})
 _VALID_STATUSES = frozenset({"repaired", "fragmentary", "not_a_recipe"})
 _PLACEHOLDER_MARKER = "__EDIT_ME__"
+_INGREDIENT_LINE_RE = re.compile(
+    r"^\s*(?:\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?)\s+.+$"
+)
+_STEP_LEAD_RE = re.compile(
+    r"^\s*(?:add|arrange|bake|beat|blend|boil|braise|bring|combine|cook|cool|cover|drain|fold|grill|heat|knead|mix|place|pour|reduce|remove|roast|saute|season|serve|simmer|stir|toast|transfer|whisk)\b",
+    re.IGNORECASE,
+)
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
@@ -64,6 +72,63 @@ def _recipe_input_rows(task_row: Mapping[str, Any]) -> list[dict[str, Any]]:
     return [_coerce_mapping(row) for row in rows if isinstance(row, Mapping)]
 
 
+def _source_lines(recipe_row: Mapping[str, Any] | None) -> list[str]:
+    row = _coerce_mapping(recipe_row)
+    evidence_rows = row.get("ev")
+    if isinstance(evidence_rows, list):
+        lines = [
+            _sanitize_text(item[1])
+            for item in evidence_rows
+            if isinstance(item, (list, tuple)) and len(item) >= 2 and _sanitize_text(item[1])
+        ]
+        if lines:
+            return lines
+    canonical_text = _sanitize_text(row.get("txt"))
+    if not canonical_text:
+        return []
+    return [line for line in (_sanitize_text(part) for part in canonical_text.splitlines()) if line]
+
+
+def _is_ingredient_like(line: str) -> bool:
+    if not line:
+        return False
+    lowered = line.lower()
+    return bool(_INGREDIENT_LINE_RE.match(line)) or any(
+        token in lowered
+        for token in (" cup ", " cups ", " tbsp", " tablespoon", " tsp", " teaspoon", " ounce", " oz", " pound", " lb", " gram", " g ", " ml", " liter", " litre")
+    )
+
+
+def _is_step_like(line: str) -> bool:
+    if not line:
+        return False
+    return bool(_STEP_LEAD_RE.match(line)) or "." in line
+
+
+def _canonical_from_source_rows(recipe_row: Mapping[str, Any] | None) -> tuple[str, list[str], list[str]]:
+    lines = _source_lines(recipe_row)
+    if not lines:
+        return ("", [], [])
+    title = lines[0]
+    ingredients: list[str] = []
+    steps: list[str] = []
+    for line in lines[1:]:
+        if _is_step_like(line):
+            steps.append(line)
+            continue
+        if _is_ingredient_like(line) and not steps:
+            ingredients.append(line)
+            continue
+        if ingredients and not steps:
+            steps.append(line)
+            continue
+        if steps:
+            steps.append(line)
+            continue
+        ingredients.append(line)
+    return (title, ingredients, steps)
+
+
 def _default_empty_mapping_reason(*, ingredients: Sequence[str], steps: Sequence[str]) -> str:
     if len(ingredients) <= 1 and len(steps) <= 1:
         return "not_needed_single_step"
@@ -88,6 +153,8 @@ def _build_recipe_worker_scaffold_row(
     title = _sanitize_text(hint.get("n"))
     ingredients = _sanitize_text_list(hint.get("i"))
     steps = _sanitize_text_list(hint.get("s"))
+    if not (title and ingredients and steps):
+        title, ingredients, steps = _canonical_from_source_rows(recipe_row)
     if title and ingredients and steps:
         return {
             "v": "1",

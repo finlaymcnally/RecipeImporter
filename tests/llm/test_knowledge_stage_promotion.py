@@ -77,10 +77,10 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
                 },
             },
             "knowledge::25": {
-                "category": "knowledge",
+                "category": "proposal_candidate",
                 "grounding": {
-                    "tag_keys": ["rest"],
-                    "category_keys": ["techniques"],
+                    "tag_keys": [],
+                    "category_keys": [],
                     "proposed_tags": [],
                 },
             },
@@ -93,6 +93,14 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
             "knowledge::25": {
                 "group_key": "dough-resting",
                 "topic_label": "Dough resting",
+                "proposal_decision": "approved",
+                "proposed_tag": {
+                    "key": "gluten-relaxation",
+                    "display_name": "Gluten Relaxation",
+                    "category_key": "techniques",
+                },
+                "why_no_existing_tag": "The row is specifically about letting gluten relax.",
+                "retrieval_query": "rest dough gluten relax",
             },
         },
         unit_to_shard_id=unit_to_shard_id,
@@ -127,9 +135,15 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
                 "block_index": 25,
                 "category": "knowledge",
                 "grounding": {
-                    "tag_keys": ["rest"],
+                    "tag_keys": [],
                     "category_keys": ["techniques"],
-                    "proposed_tags": [],
+                    "proposed_tags": [
+                        {
+                            "key": "gluten-relaxation",
+                            "display_name": "Gluten Relaxation",
+                            "category_key": "techniques",
+                        }
+                    ],
                 },
             }
         ],
@@ -147,7 +161,7 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
         assert metadata["knowledge_decision_count"] >= 0
 
 
-def test_grounding_detail_rollup_includes_weak_grounding_counts() -> None:
+def test_grounding_detail_rollup_includes_proposal_resolution_counts() -> None:
     outputs = {
         "book.ks0000.nr": SimpleNamespace(
             block_decisions=(
@@ -178,22 +192,18 @@ def test_grounding_detail_rollup_includes_weak_grounding_counts() -> None:
         allowed_block_indices={10: "candidate", 11: "candidate"},
         proposal_metadata_by_packet_id={
             "book.ks0000.nr": {
-                "weak_grounding_block_count": 1,
-                "weak_grounding_after_invalid_grounding_drop_count": 1,
-                "weak_grounding_reason_counts": {
-                    "invalid_grounding_dropped_to_empty": 1
-                },
+                "proposal_candidate_block_count": 1,
+                "approved_proposal_candidate_block_count": 1,
+                "rejected_proposal_candidate_block_count": 0,
             }
         },
     )
 
     assert counts["kept_knowledge_block_count"] == 1
     assert counts["retrieval_gate_rejected_block_count"] == 1
-    assert counts["weak_grounding_block_count"] == 1
-    assert counts["weak_grounding_after_invalid_grounding_drop_count"] == 1
-    assert counts["weak_grounding_category_only_count"] == 0
-    assert counts["weak_grounding_reason_counts"] == {
-        "invalid_grounding_dropped_to_empty": 1
-    }
+    assert counts["existing_tag_kept_knowledge_block_count"] == 1
+    assert counts["proposal_candidate_block_count"] == 1
+    assert counts["approved_proposal_candidate_block_count"] == 1
+    assert counts["rejected_proposal_candidate_block_count"] == 0
     assert counts["knowledge_blocks_grounded_to_existing_tags"] == 1
     assert proposal_rows == []

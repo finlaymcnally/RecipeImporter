@@ -125,15 +125,8 @@ _TAG_CATALOG: tuple[dict[str, Any], ...] = (
     },
 )
 
-def build_recipe_tagging_guide(
-    *,
-    recipe_text: str = "",
-    recipe_candidate_hint: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
+def build_recipe_tagging_guide() -> dict[str, Any]:
     """Return a compact tagging guide for recipe correction prompts."""
-
-    del recipe_text
-    del recipe_candidate_hint
     return {
         "v": "recipe_tagging_guide.v4",
         "r": [

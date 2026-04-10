@@ -36,6 +36,7 @@ from cookimport.llm.recipe_same_session_handoff import (
     advance_recipe_same_session_handoff,
 )
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
+from cookimport.llm.recipe_workspace_tools import build_recipe_worker_scaffold
 from cookimport.staging.draft_v1 import authoritative_recipe_semantics_to_draft_v1
 from cookimport.staging.job_planning import JobSpec
 
@@ -235,6 +236,14 @@ def _build_valid_recipe_task_output(task_payload: dict[str, object]) -> dict[str
         }
 
     recipe_row = task_payload["r"][0]
+    scaffold = build_recipe_worker_scaffold(
+        task_row={
+            "task_id": str(task_payload.get("sid") or ""),
+            "owned_ids": [str(recipe_row.get("rid") or "")],
+            "input_payload": task_payload,
+        }
+    )
+    scaffold_row = dict((scaffold.get("r") or [{}])[0])
     return {
         "v": "1",
         "sid": task_payload["sid"],
@@ -244,15 +253,9 @@ def _build_valid_recipe_task_output(task_payload: dict[str, object]) -> dict[str
                 "rid": recipe_row["rid"],
                 "st": "repaired",
                 "sr": None,
-                "cr": {
-                    "t": recipe_row["h"]["n"],
-                    "i": recipe_row["h"]["i"],
-                    "s": recipe_row["h"]["s"],
-                    "d": None,
-                    "y": None,
-                },
+                "cr": scaffold_row.get("cr"),
                 "m": [],
-                "mr": "unclear_alignment",
+                "mr": scaffold_row.get("mr") or "unclear_alignment",
                 "db": [],
                 "g": [],
                 "w": [],

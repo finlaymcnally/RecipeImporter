@@ -23,7 +23,6 @@ def test_merged_recipe_repair_input_accepts_missing_draft_hint() -> None:
             "source_hash": "hash",
             "canonical_text": "Toast\n1 slice bread",
             "evidence_rows": [[1, "Toast"], [2, "1 slice bread"]],
-            "recipe_candidate_hint": {"name": "Toast"},
             "authority_notes": ["authoritative_source=recipe_span_blocks"],
         }
     )
@@ -40,7 +39,6 @@ def test_serialize_merged_recipe_repair_input_omits_empty_draft_hint() -> None:
             "source_hash": "hash",
             "canonical_text": "Toast\n1 slice bread",
             "evidence_rows": [[1, "Toast"], [2, "1 slice bread"]],
-            "recipe_candidate_hint": {"name": "Toast"},
             "authority_notes": ["authoritative_source=recipe_span_blocks"],
         }
     )
@@ -59,7 +57,6 @@ def test_merged_recipe_repair_input_accepts_tagging_guide_object() -> None:
             "source_hash": "hash",
             "canonical_text": "Toast\n1 slice bread",
             "evidence_rows": [[1, "Toast"], [2, "1 slice bread"]],
-            "recipe_candidate_hint": {"name": "Toast"},
             "tagging_guide": {
                 "v": "recipe_tagging_guide.v2",
                 "c": [{"k": "meal", "x": ["breakfast"]}],
@@ -224,14 +221,12 @@ def test_recipe_correction_shard_input_accepts_multi_recipe_payload() -> None:
                     "recipe_id": "urn:recipe:test:1",
                     "canonical_text": "Toast",
                     "evidence_rows": [[1, "Toast"]],
-                    "recipe_candidate_hint": {"n": "Toast"},
                     "warnings": [],
                 },
                 {
                     "recipe_id": "urn:recipe:test:2",
                     "canonical_text": "Tea",
                     "evidence_rows": [[2, "Tea"]],
-                    "recipe_candidate_hint": {"n": "Tea"},
                     "warnings": ["sparse_evidence"],
                 },
             ],

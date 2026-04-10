@@ -175,7 +175,7 @@ def test_classification_validator_rejects_invalid_other_grounding_and_preserves_
     assert [unit["unit_id"] for unit in repair_task_file["units"]] == ["knowledge::21"]
 
 
-def test_classification_validator_keeps_ungrounded_knowledge_and_records_weak_grounding() -> None:
+def test_classification_validator_requires_existing_tag_grounding_for_knowledge() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
@@ -201,21 +201,10 @@ def test_classification_validator_keeps_ungrounded_knowledge_and_records_weak_gr
         edited_task_file=edited,
     )
 
-    assert errors == ()
-    assert metadata["failed_unit_ids"] == []
-    assert metadata["weak_grounding_unit_ids"] == ["knowledge::31"]
-    assert metadata["weak_grounding_block_indices"] == [31]
-    assert metadata["weak_grounding_reason_counts"] == {"missing_grounding": 1}
-    assert answers_by_unit_id == {
-        "knowledge::31": {
-            "category": "knowledge",
-            "grounding": {
-                "tag_keys": [],
-                "category_keys": [],
-                "proposed_tags": [],
-            },
-        }
-    }
+    assert answers_by_unit_id is None
+    assert "knowledge_grounding_existing_tag_required" in errors
+    assert metadata["failed_unit_ids"] == ["knowledge::31"]
+    assert metadata["unresolved_block_indices"] == [31]
 
 
 def test_task_file_answer_feedback_is_filtered_to_each_failed_unit() -> None:
@@ -235,7 +224,7 @@ def test_task_file_answer_feedback_is_filtered_to_each_failed_unit() -> None:
                 {
                     "path": "/units/knowledge::22/answer/category",
                     "code": "invalid_category",
-                    "message": "category must be 'knowledge' or 'other'",
+                    "message": "category must be 'knowledge', 'proposal_candidate', or 'other'",
                 },
             ],
         },
@@ -258,7 +247,7 @@ def test_task_file_answer_feedback_is_filtered_to_each_failed_unit() -> None:
                 {
                     "path": "/units/knowledge::22/answer/category",
                     "code": "invalid_category",
-                    "message": "category must be 'knowledge' or 'other'",
+                    "message": "category must be 'knowledge', 'proposal_candidate', or 'other'",
                 }
             ],
         },
@@ -292,11 +281,11 @@ def test_filtered_repair_feedback_stays_materially_smaller_than_repeated_shared_
             )
         ],
     )
-    validation_errors = ("knowledge_missing_grounding",)
+    validation_errors = ("knowledge_grounding_existing_tag_required",)
     error_details = [
         {
             "path": f"/units/knowledge::{block_index}/answer/grounding",
-            "code": "knowledge_missing_grounding",
+            "code": "knowledge_grounding_existing_tag_required",
             "message": "x" * 2000,
         }
         for block_index in range(unit_count)

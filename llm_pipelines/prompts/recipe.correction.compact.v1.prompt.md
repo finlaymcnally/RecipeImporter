@@ -8,18 +8,11 @@ Execution rules:
 1) Use only the inline JSON task payload below as input.
 2) Treat `r[*].ev` as the authoritative source text for that recipe.
 3) Treat `r[*].txt` as a quick-read copy of the same source span.
-4) Treat `r[*].h` as a deterministic attempted recipe parse record only. It may contain:
-   - `n` title hint
-   - `i` ingredient hint strings
-   - `s` step hint strings
-   - optional `d` description hint
-   - optional `y` yield hint
-   - optional `g` pre-existing tag labels
-5) Use `tg` as the recipe-local tag contract:
+4) Use `tg` as the recipe-local tag contract:
    - `tg.c[*].k` is the category key
    - `tg.c[*].x` is the short example-label list
-6) Only return outputs for `ids`.
-7) Do not use external knowledge.
+5) Only return outputs for `ids`.
+6) Do not use external knowledge.
 
 Correction rules:
 A) Top-level output:
@@ -39,7 +32,6 @@ B) Each `r[*]` item:
   - `not_a_recipe`
 - `sr` is a short machine-readable reason or `null`.
 - `db` is the ordered array of source block indices that this recipe is explicitly returning to nonrecipe.
-- Prefer source rows over deterministic hints when they disagree.
 - Do not invent ingredients, steps, yields, or notes.
 - Keep the decision grounded in that recipe's `ev`.
 - If the candidate is clearly not a recipe, do not force a repaired recipe output.

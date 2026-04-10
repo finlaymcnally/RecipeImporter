@@ -7,6 +7,7 @@ from typing import Any, Mapping, Sequence
 from .task_file_contracts import (
     KNOWLEDGE_CLASSIFY_STAGE_KEY,
     KNOWLEDGE_GROUP_STAGE_KEY,
+    collect_knowledge_resolution_metadata_by_shard,
 )
 
 
@@ -161,88 +162,19 @@ def apply_knowledge_same_session_row_metadata(
     row["final_output_shard_count"] = int(state_payload.get("final_output_shard_count") or 0)
 
 
-def knowledge_same_session_weak_grounding_metadata_by_shard(
+def knowledge_same_session_resolution_metadata_by_shard(
     *,
     initial_task_file: Mapping[str, Any],
     state_payload: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    unit_to_shard_id = {
-        str(unit_id): str(shard_id)
-        for unit_id, shard_id in dict(state_payload.get("unit_to_shard_id") or {}).items()
-        if str(unit_id).strip() and str(shard_id).strip()
-    }
-    unit_to_block_index = {
-        str(unit.get("unit_id") or "").strip(): int(
-            _coerce_dict(unit.get("evidence")).get("block_index") or 0
-        )
-        for unit in (initial_task_file.get("units") or [])
-        if isinstance(unit, Mapping) and str(unit.get("unit_id") or "").strip()
-    }
-    shard_metadata: dict[str, dict[str, Any]] = {}
-    for transition_row in state_payload.get("transition_history") or []:
-        transition = _coerce_dict(transition_row)
-        if (
-            str(transition.get("current_stage_key") or "").strip()
-            != KNOWLEDGE_CLASSIFY_STAGE_KEY
-        ):
-            continue
-        validation_metadata = _coerce_dict(transition.get("validation_metadata"))
-        for raw_detail in validation_metadata.get("weak_grounding_details") or []:
-            detail = _coerce_dict(raw_detail)
-            unit_id = str(detail.get("unit_id") or "").strip()
-            shard_id = str(unit_to_shard_id.get(unit_id) or "").strip()
-            if not unit_id or not shard_id:
-                continue
-            reason = str(detail.get("reason") or "").strip() or "missing_grounding"
-            block_index = int(
-                detail.get("block_index")
-                if detail.get("block_index") is not None
-                else unit_to_block_index.get(unit_id) or 0
-            )
-            shard_row = shard_metadata.setdefault(
-                shard_id,
-                {
-                    "weak_grounding_details": [],
-                    "weak_grounding_unit_ids": set(),
-                    "weak_grounding_block_indices": set(),
-                    "weak_grounding_reason_counts": {},
-                },
-            )
-            shard_row["weak_grounding_details"].append(
-                {
-                    "unit_id": unit_id,
-                    "block_index": block_index,
-                    "reason": reason,
-                }
-            )
-            shard_row["weak_grounding_unit_ids"].add(unit_id)
-            shard_row["weak_grounding_block_indices"].add(block_index)
-            shard_row["weak_grounding_reason_counts"][reason] = (
-                int(shard_row["weak_grounding_reason_counts"].get(reason) or 0)
-                + 1
-            )
-    finalized: dict[str, dict[str, Any]] = {}
-    for shard_id, metadata in shard_metadata.items():
-        reason_counts = dict(metadata.get("weak_grounding_reason_counts") or {})
-        finalized[shard_id] = {
-            "weak_grounding_details": list(metadata.get("weak_grounding_details") or []),
-            "weak_grounding_unit_ids": sorted(
-                str(unit_id) for unit_id in (metadata.get("weak_grounding_unit_ids") or set())
-            ),
-            "weak_grounding_block_indices": sorted(
-                int(block_index)
-                for block_index in (metadata.get("weak_grounding_block_indices") or set())
-            ),
-            "weak_grounding_reason_counts": dict(sorted(reason_counts.items())),
-            "weak_grounding_block_count": sum(reason_counts.values()),
-            "weak_grounding_after_invalid_grounding_drop_count": int(
-                reason_counts.get("invalid_grounding_dropped_to_empty") or 0
-            ),
-            "weak_grounding_category_only_count": int(
-                reason_counts.get("category_only_grounding") or 0
-            ),
-        }
-    return finalized
+    return collect_knowledge_resolution_metadata_by_shard(
+        classification_task_file=initial_task_file,
+        classification_answers_by_unit_id=dict(
+            state_payload.get("classification_answers_by_unit_id") or {}
+        ),
+        grouping_answers_by_unit_id=dict(state_payload.get("grouping_answers_by_unit_id") or {}),
+        unit_to_shard_id=dict(state_payload.get("unit_to_shard_id") or {}),
+    )
 
 
 def _knowledge_local_row_id(index: int) -> str:
@@ -299,6 +231,21 @@ def knowledge_task_file_to_structured_packet(
         context_after = str(evidence.get("context_after") or "").strip()
         if context_after:
             row_payload["context_after"] = context_after
+        if stage_key == KNOWLEDGE_GROUP_STAGE_KEY:
+            classification = _coerce_dict(unit.get("classification"))
+            classification_category = str(
+                classification.get("category") or ""
+            ).strip()
+            if classification_category:
+                row_payload["classification_category"] = classification_category
+            grounding = _coerce_dict(classification.get("grounding"))
+            existing_tag_keys = [
+                str(value).strip()
+                for value in (grounding.get("tag_keys") or [])
+                if str(value).strip()
+            ]
+            if existing_tag_keys:
+                row_payload["existing_tag_keys"] = existing_tag_keys
         rows.append(row_payload)
     packet = {
         "schema_version": "knowledge_structured_packet.v1",
@@ -358,30 +305,35 @@ def build_knowledge_structured_prompt(
     )
     if stage_key == KNOWLEDGE_GROUP_STAGE_KEY:
         response_shape = (
-            '{"rows":[{"row_id":"r01","group_key":"heat-control","topic_label":"Heat control"}]}'
+            '{"rows":[{"row_id":"r01","group_key":"heat-control","topic_label":"Heat control","proposal_decision":"approved","proposed_tag":{"key":"rendering","display_name":"Rendering","category_key":"techniques"},"why_no_existing_tag":"This row is about rendering fat specifically, not generic heat control.","retrieval_query":"how to render chicken fat"}]}'
         )
         task_note = (
             "Review the ordered knowledge rows and answer every `row_id` exactly once.\n"
             "Rows about the same idea should share the same `group_key` and `topic_label`.\n"
+            "Rows marked `classification_category=knowledge` are already retained via existing tags. Keep them grouped, set `proposal_decision` to `not_applicable`, and leave proposal fields empty.\n"
+            "Rows marked `classification_category=proposal_candidate` must be resolved here with `proposal_decision` set to `approved` or `rejected`.\n"
+            "Approve only when the proposed tag is a strong standalone search handle a cook might actually use later.\n"
+            "Prefer concrete kitchen vocabulary such as techniques, ingredient behavior, storage, diagnostics, or equipment use.\n"
+            "Reject broad chapter-theme, editorial, or pedagogy-summary labels. If the only proposal that comes to mind is vague or bookish, reject it.\n"
+            "Approved proposal candidates must include exactly one `proposed_tag` plus short `why_no_existing_tag` and `retrieval_query` strings.\n"
+            "Rejected proposal candidates must leave `proposed_tag`, `why_no_existing_tag`, and `retrieval_query` empty.\n"
         )
     else:
         response_shape = (
-            '{"rows":[{"row_id":"r01","category":"knowledge","grounding":{"tag_keys":["emulsify"],"category_keys":["techniques"],"proposed_tags":[]}}]}'
+            '{"rows":[{"row_id":"r01","category":"knowledge","grounding":{"tag_keys":["emulsify"],"category_keys":["techniques"]}}]}'
         )
         task_note = (
             "Review the ordered knowledge rows and answer every `row_id` exactly once.\n"
             "Reason about the packet holistically first: read short local runs of adjacent rows together before deciding any single row.\n"
             "Decide by local span, emit by row. Neighboring rows often explain what role a row plays, but you must still return one final answer per `row_id`.\n"
-            "Classify each row as `knowledge` or `other` and include `grounding`.\n"
+            "Classify each row as `knowledge`, `proposal_candidate`, or `other` and include `grounding`.\n"
             "A heading, bridge line, or short setup row may help nearby rows count as knowledge without itself being `knowledge`.\n"
             "Use the provided existing `tags` catalog first whenever a real tag fit exists.\n"
-            "If `category` is `knowledge`, grounding must include at least one existing `tag_key` or one proposed tag.\n"
-            "Only propose a new tag when no existing tag fits cleanly and the row is still clearly worth retrieving later as standalone cooking knowledge.\n"
-            "Do not propose a tag whose key or display name exactly restates an existing catalog tag; use the existing tag instead.\n"
-            "A proposed tag should name one concrete retrieval concept anchored in this exact row, such as a specific technique, ingredient behavior, diagnostic, storage rule, or equipment use.\n"
-            "Do not coin broad chapter-theme, editorial, or pedagogy-summary tags such as umbrella 'heat science', 'fat management', or 'ingredient quality' labels when the row is only one local explanation inside a broader lesson.\n"
-            "`category_keys` may support that grounding, but category-only grounding is invalid and will be returned for repair.\n"
-            "If you cannot name a real existing tag fit or a concrete proposed tag, return `other` with empty grounding.\n"
+            "If `category` is `knowledge`, grounding must include at least one existing `tag_key`.\n"
+            "If the row still feels worth retrieving later but no existing tag fits cleanly, return `proposal_candidate` with empty grounding.\n"
+            "Do not invent or preview proposed tags during classification. Proposal approval happens in the second pass.\n"
+            "`category_keys` may support existing-tag grounding, but category-only grounding is invalid and will be returned for repair.\n"
+            "If you cannot name a real existing tag fit and the row is not a strong standalone retrieval target, return `other` with empty grounding.\n"
             "Memoir, book framing, navigation, decorative headings, and true-but-low-utility prose belong in `other` even if they mention cooking.\n"
             "Treat category labels and heading shape as weak hints only, but do use row order and nearby rows to understand the local run.\n"
         )
@@ -407,7 +359,6 @@ def _blank_grounding_payload() -> dict[str, Any]:
     return {
         "tag_keys": [],
         "category_keys": [],
-        "proposed_tags": [],
     }
 
 
@@ -641,6 +592,16 @@ def build_knowledge_edited_task_file_from_grouping_response(
                     row.get("group_key") or row.get("group_index") or ""
                 ).strip(),
                 "topic_label": str(row.get("topic_label") or "").strip(),
+                "proposal_decision": str(row.get("proposal_decision") or "").strip(),
+                "proposed_tag": (
+                    dict(row.get("proposed_tag"))
+                    if isinstance(row.get("proposed_tag"), Mapping)
+                    else row.get("proposed_tag")
+                ),
+                "why_no_existing_tag": str(
+                    row.get("why_no_existing_tag") or ""
+                ).strip(),
+                "retrieval_query": str(row.get("retrieval_query") or "").strip(),
             }
     else:
         return None, ("rows_missing_or_not_a_list",), {}

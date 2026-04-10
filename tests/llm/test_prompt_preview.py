@@ -770,10 +770,13 @@ def test_prompt_preview_rebuilds_recipe_prompt_and_input_payload(tmp_path: Path)
     assert recipe_row["runtime_worker_id"] == "worker-001"
     assert recipe_row["runtime_owned_ids"] == ["urn:recipe:test:r0"]
     assert "draft_hint" not in recipe_input_payload
-    assert recipe_input_payload["r"][0]["h"] == {
-        "n": "Ambiguous title-ish line",
-        "i": ["1 cup flour"],
-    }
+    assert recipe_input_payload["r"][0]["rid"] == "urn:recipe:test:r0"
+    assert recipe_input_payload["r"][0]["txt"] == "Ambiguous title-ish line\n1 cup flour"
+    assert recipe_input_payload["r"][0]["ev"] == [
+        [10, "Ambiguous title-ish line"],
+        [11, "1 cup flour"],
+    ]
+    assert "h" not in recipe_input_payload["r"][0]
     assert "q" not in recipe_input_payload["r"][0]
     assert recipe_input_payload["tg"]["v"] == "recipe_tagging_guide.v4"
     assert "s" not in recipe_input_payload["tg"]
@@ -1344,14 +1347,6 @@ def test_cf_debug_preview_prompts_ignores_live_input_leftovers_in_budget_warning
                 "source_hash": "fixture-source-hash",
                 "canonical_text": huge_text,
                 "evidence_rows": [[index, huge_text]],
-                "recipe_candidate_hint": {
-                    "identifier": f"urn:recipe:test:{index}",
-                    "name": f"Recipe {index}",
-                    "recipeIngredient": ["1 cup flour"],
-                    "recipeInstructions": ["Mix."],
-                    "description": None,
-                    "recipeYield": None,
-                },
                 "tagging_guide": {"version": "custom-live-guide"},
                 "authority_notes": ["warning_fixture"],
             },

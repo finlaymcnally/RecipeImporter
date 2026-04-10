@@ -213,32 +213,73 @@ def _default_structured_knowledge_classification_output(
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
     rows = [dict(row) for row in (payload.get("rows") or []) if isinstance(row, Mapping)]
-    return {
-        "rows": [
-            {
-                "row_id": _structured_knowledge_row_id(row),
-                "category": "knowledge",
-                "grounding": _default_fake_knowledge_grounding(str(row.get("text") or "")),
-            }
-            for row in rows
-        ]
-    }
+    output_rows: list[dict[str, Any]] = []
+    for row in rows:
+        grounding = _default_fake_knowledge_grounding(str(row.get("text") or ""))
+        if grounding["tag_keys"]:
+            output_rows.append(
+                {
+                    "row_id": _structured_knowledge_row_id(row),
+                    "category": "knowledge",
+                    "grounding": {
+                        "tag_keys": list(grounding["tag_keys"]),
+                        "category_keys": list(grounding["category_keys"]),
+                    },
+                }
+            )
+        else:
+            output_rows.append(
+                {
+                    "row_id": _structured_knowledge_row_id(row),
+                    "category": "proposal_candidate",
+                    "grounding": {
+                        "tag_keys": [],
+                        "category_keys": [],
+                    },
+                }
+            )
+    return {"rows": output_rows}
 
 
 def _default_structured_knowledge_grouping_output(
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
     rows = [dict(row) for row in (payload.get("rows") or []) if isinstance(row, Mapping)]
-    return {
-        "rows": [
-            {
-                "row_id": _structured_knowledge_row_id(row),
-                "group_key": "heat-control",
-                "topic_label": "Fake knowledge group",
-            }
-            for row in rows
-        ]
-    }
+    output_rows: list[dict[str, Any]] = []
+    for row in rows:
+        classification_category = str(row.get("classification_category") or "").strip()
+        text = str(row.get("text") or "").strip().lower()
+        group_key = "heat-control" if "heat" in text else "fake-knowledge-group"
+        topic_label = "Heat control" if "heat" in text else "Fake knowledge group"
+        answer: dict[str, Any] = {
+            "row_id": _structured_knowledge_row_id(row),
+            "group_key": group_key,
+            "topic_label": topic_label,
+        }
+        if classification_category == "proposal_candidate":
+            answer.update(
+                {
+                    "proposal_decision": "approved",
+                    "proposed_tag": {
+                        "key": "fake-knowledge-concept",
+                        "display_name": "Fake Knowledge Concept",
+                        "category_key": "techniques",
+                    },
+                    "why_no_existing_tag": "No existing tag names this exact retrieval concept.",
+                    "retrieval_query": "fake knowledge concept cooking",
+                }
+            )
+        else:
+            answer.update(
+                {
+                    "proposal_decision": "not_applicable",
+                    "proposed_tag": None,
+                    "why_no_existing_tag": None,
+                    "retrieval_query": None,
+                }
+            )
+        output_rows.append(answer)
+    return {"rows": output_rows}
 
 
 def _default_structured_line_role_output(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -308,7 +349,6 @@ def _extract_atomic_indices(payload: dict[str, Any] | str) -> list[int]:
 def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]:
     canonical_text = str(payload.get("canonical_text", payload.get("txt")) or "").strip()
     evidence_rows = payload.get("evidence_rows", payload.get("ev"))
-    recipe_hint = payload.get("recipe_candidate_hint", payload.get("h")) or {}
     first_line = canonical_text.splitlines()[0].strip() if canonical_text else ""
     if not first_line and isinstance(evidence_rows, list):
         for row in evidence_rows:
@@ -318,8 +358,7 @@ def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]
             if first_line:
                 break
     recipe_name = (
-        str((recipe_hint or {}).get("n") or (recipe_hint or {}).get("name") or "").strip()
-        or first_line
+        first_line
         or str(payload.get("recipe_id", payload.get("rid")) or "Untitled Recipe")
     )
     recipe_lines = [line.strip() for line in canonical_text.splitlines() if line.strip()]
@@ -330,8 +369,8 @@ def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]
             if isinstance(row, list | tuple) and len(row) >= 2 and str(row[1] or "").strip()
         ]
     body_lines = recipe_lines[1:] if len(recipe_lines) > 1 else recipe_lines[:]
-    ingredients = list((recipe_hint or {}).get("i") or (recipe_hint or {}).get("recipeIngredient") or body_lines[:1])
-    steps = list((recipe_hint or {}).get("s") or (recipe_hint or {}).get("recipeInstructions") or (body_lines[1:] if len(body_lines) > 1 else body_lines[:1]))
+    ingredients = list(body_lines[:1])
+    steps = list(body_lines[1:] if len(body_lines) > 1 else body_lines[:1])
     selected_tags = _select_recipe_tags(payload)
     return {
         "v": "1",
@@ -452,23 +491,56 @@ def _looks_like_recipe_task_step(text: str) -> bool:
 
 
 def _default_knowledge_classification_task_output(payload: dict[str, Any]) -> dict[str, Any]:
+    grounding = _default_fake_knowledge_grounding(str(payload.get("text") or ""))
+    if grounding["tag_keys"]:
+        return {
+            "category": "knowledge",
+            "grounding": {
+                "tag_keys": list(grounding["tag_keys"]),
+                "category_keys": list(grounding["category_keys"]),
+            },
+        }
     return {
-        "category": "knowledge",
-        "grounding": _default_fake_knowledge_grounding(str(payload.get("text") or "")),
+        "category": "proposal_candidate",
+        "grounding": {"tag_keys": [], "category_keys": []},
     }
 
 
 def _default_knowledge_grouping_task_output(payload: dict[str, Any]) -> dict[str, Any]:
     text = str(payload.get("text") or "").strip().lower()
     if "heat" in text:
-        return {
+        answer = {
             "group_key": "heat-control",
             "topic_label": "Heat control",
         }
-    return {
+    else:
+        answer = {
         "group_key": "fake-knowledge-group",
         "topic_label": "Fake knowledge group",
-    }
+        }
+    if str(payload.get("classification_category") or "").strip() == "proposal_candidate":
+        answer.update(
+            {
+                "proposal_decision": "approved",
+                "proposed_tag": {
+                    "key": "fake-knowledge-concept",
+                    "display_name": "Fake Knowledge Concept",
+                    "category_key": "techniques",
+                },
+                "why_no_existing_tag": "No existing tag captures this exact concept.",
+                "retrieval_query": "fake knowledge concept cooking",
+            }
+        )
+    else:
+        answer.update(
+            {
+                "proposal_decision": "not_applicable",
+                "proposed_tag": None,
+                "why_no_existing_tag": None,
+                "retrieval_query": None,
+            }
+        )
+    return answer
 
 
 def _select_recipe_tags(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -479,13 +551,7 @@ def _select_recipe_tags(payload: dict[str, Any]) -> list[dict[str, Any]]:
     if not categories:
         return []
 
-    recipe_hint = payload.get("recipe_candidate_hint", payload.get("h")) or {}
-    combined_text = " ".join(
-        [
-            str(payload.get("canonical_text", payload.get("txt")) or ""),
-            json.dumps(recipe_hint, sort_keys=True),
-        ]
-    ).lower()
+    combined_text = str(payload.get("canonical_text", payload.get("txt")) or "").lower()
     selected: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for category in categories:

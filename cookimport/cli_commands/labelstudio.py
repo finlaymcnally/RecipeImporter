@@ -1509,14 +1509,6 @@ def register(app: typer.Typer) -> dict[str, object]:
             hidden=True,
             help="Internal: maximum response-side character budget per knowledge packet.",
         )] = 12000,
-        knowledge_grouping_enabled: Annotated[bool, typer.Option(
-            "--knowledge-grouping-enabled/--no-knowledge-grouping-enabled",
-            hidden=True,
-            help=(
-                "Internal: keep knowledge classification while optionally skipping "
-                "idea grouping."
-            ),
-        )] = bool(serialized_run_setting_default("knowledge_grouping_enabled")),
         knowledge_group_task_max_units: Annotated[int, typer.Option(
             "--knowledge-group-task-max-units",
             min=1,
@@ -2054,7 +2046,6 @@ def register(app: typer.Typer) -> dict[str, object]:
                     atomic_block_splitter=selected_atomic_block_splitter,
                     line_role_pipeline=selected_line_role_pipeline,
                     recipe_codex_exec_style=selected_recipe_codex_exec_style,
-                    knowledge_grouping_enabled=knowledge_grouping_enabled,
                     knowledge_group_task_max_units=knowledge_group_task_max_units,
                     knowledge_group_task_max_evidence_chars=(
                         knowledge_group_task_max_evidence_chars
@@ -2206,9 +2197,6 @@ def register(app: typer.Typer) -> dict[str, object]:
                                     ),
                                     knowledge_packet_output_char_budget=(
                                         knowledge_packet_output_char_budget
-                                    ),
-                                    knowledge_grouping_enabled=(
-                                        knowledge_grouping_enabled
                                     ),
                                     knowledge_group_task_max_units=(
                                         knowledge_group_task_max_units
@@ -2364,7 +2352,6 @@ def register(app: typer.Typer) -> dict[str, object]:
                                 knowledge_packet_output_char_budget=(
                                     knowledge_packet_output_char_budget
                                 ),
-                                knowledge_grouping_enabled=knowledge_grouping_enabled,
                                 knowledge_group_task_max_units=(
                                     knowledge_group_task_max_units
                                 ),
@@ -3180,7 +3167,6 @@ def register(app: typer.Typer) -> dict[str, object]:
             "knowledge_prompt_target_count": knowledge_prompt_target_count,
             "knowledge_packet_input_char_budget": knowledge_packet_input_char_budget,
             "knowledge_packet_output_char_budget": knowledge_packet_output_char_budget,
-            "knowledge_grouping_enabled": knowledge_grouping_enabled,
             "knowledge_group_task_max_units": knowledge_group_task_max_units,
             "knowledge_group_task_max_evidence_chars": (
                 knowledge_group_task_max_evidence_chars

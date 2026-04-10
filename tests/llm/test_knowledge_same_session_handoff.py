@@ -57,24 +57,53 @@ def _valid_classification_answer() -> dict[str, object]:
     return {
         "category": "knowledge",
         "grounding": {
-            "tag_keys": [],
-            "category_keys": [],
-            "proposed_tags": [
-                {
-                    "key": "heat-control",
-                    "display_name": "Heat control",
-                    "category_key": "techniques",
-                }
-            ],
+            "tag_keys": ["saute"],
+            "category_keys": ["cooking-method"],
         },
     }
 
 
-def _initialize_workspace(
-    tmp_path: Path,
+def _proposal_candidate_answer() -> dict[str, object]:
+    return {
+        "category": "proposal_candidate",
+        "grounding": {
+            "tag_keys": [],
+            "category_keys": [],
+        },
+    }
+
+
+def _grouping_answer(
     *,
-    knowledge_grouping_enabled: bool = True,
-) -> tuple[Path, Path]:
+    proposal_decision: str = "not_applicable",
+) -> dict[str, object]:
+    answer: dict[str, object] = {
+        "group_key": "heat-control",
+        "topic_label": "Heat control",
+        "proposal_decision": proposal_decision,
+        "proposed_tag": None,
+        "why_no_existing_tag": None,
+        "retrieval_query": None,
+    }
+    if proposal_decision == "approved":
+        answer.update(
+            {
+                "proposed_tag": {
+                    "key": "rendering",
+                    "display_name": "Rendering",
+                    "category_key": "techniques",
+                },
+                "why_no_existing_tag": "The catalog has adjacent heat tags but no direct rendering tag.",
+                "retrieval_query": "how to render chicken fat",
+            }
+        )
+    elif proposal_decision == "rejected":
+        answer["group_key"] = "broad-editorial"
+        answer["topic_label"] = "Broad editorial"
+    return answer
+
+
+def _initialize_workspace(tmp_path: Path) -> tuple[Path, Path]:
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(tmp_path),
         shards=[_shard()],
@@ -92,7 +121,6 @@ def _initialize_workspace(
         classification_task_file=classification_task_file,
         unit_to_shard_id=unit_to_shard_id,
         output_dir=output_dir,
-        knowledge_grouping_enabled=knowledge_grouping_enabled,
     )
     return workspace_root, state_path
 
@@ -101,7 +129,6 @@ def _initialize_workspace_with_shards(
     tmp_path: Path,
     *,
     shards: list[ShardManifestEntryV1],
-    knowledge_grouping_enabled: bool = True,
 ) -> tuple[Path, Path]:
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(tmp_path),
@@ -120,7 +147,6 @@ def _initialize_workspace_with_shards(
         classification_task_file=classification_task_file,
         unit_to_shard_id=unit_to_shard_id,
         output_dir=output_dir,
-        knowledge_grouping_enabled=knowledge_grouping_enabled,
     )
     return workspace_root, state_path
 
@@ -146,10 +172,7 @@ def test_same_session_handoff_advances_from_classification_to_grouping_and_compl
     assert classification_result["classification_validation_count"] == 1
     assert classification_result["grouping_transition_count"] == 1
 
-    grouping_task["units"][0]["answer"] = {
-        "group_key": "heat-control",
-        "topic_label": "Heat control",
-    }
+    grouping_task["units"][0]["answer"] = _grouping_answer()
     write_task_file(path=workspace_root / "task.json", payload=grouping_task)
 
     grouping_result = advance_knowledge_same_session_handoff(
@@ -164,27 +187,30 @@ def test_same_session_handoff_advances_from_classification_to_grouping_and_compl
     assert grouping_result["same_session_transition_count"] == 2
     assert grouping_result["grouping_validation_count"] == 1
     assert output_payload["packet_id"] == "book.ks0000.nr"
-    assert output_payload["block_decisions"][0]["category"] == "knowledge"
+    assert output_payload["block_decisions"] == [
+        {
+            "block_index": 8,
+            "category": "knowledge",
+            "grounding": {
+                "tag_keys": ["saute"],
+                "category_keys": ["cooking-method"],
+                "proposed_tags": [],
+            },
+        }
+    ]
     assert output_payload["idea_groups"] == [
         {"group_id": "g01", "topic_label": "Heat control", "block_indices": [8]}
     ]
 
 
-def test_same_session_handoff_keeps_weakly_grounded_knowledge_and_advances_to_grouping(
+def test_same_session_handoff_resolves_proposal_candidates_during_grouping(
     tmp_path: Path,
 ) -> None:
     workspace_root, state_path = _initialize_workspace(tmp_path)
 
     task_file = load_task_file(workspace_root / "task.json")
     edited = deepcopy(task_file)
-    edited["units"][0]["answer"] = {
-        "category": "knowledge",
-        "grounding": {
-            "tag_keys": ["not-a-real-tag"],
-            "category_keys": [],
-            "proposed_tags": [],
-        },
-    }
+    edited["units"][0]["answer"] = _proposal_candidate_answer()
     write_task_file(path=workspace_root / "task.json", payload=edited)
 
     classification_result = advance_knowledge_same_session_handoff(
@@ -196,18 +222,10 @@ def test_same_session_handoff_keeps_weakly_grounded_knowledge_and_advances_to_gr
     assert classification_result["status"] == "advance_to_grouping"
     assert classification_result["same_session_repair_rewrite_count"] == 0
     assert classification_result["validation_errors"] == []
-    assert classification_result["validation_metadata"]["weak_grounding_unit_ids"] == [
-        "knowledge::8"
-    ]
-    assert classification_result["validation_metadata"]["weak_grounding_reason_counts"] == {
-        "invalid_grounding_dropped_to_empty": 1
-    }
     assert grouping_task["stage_key"] == "knowledge_group"
+    assert grouping_task["units"][0]["classification"]["category"] == "proposal_candidate"
 
-    grouping_task["units"][0]["answer"] = {
-        "group_key": "heat-control",
-        "topic_label": "Heat control",
-    }
+    grouping_task["units"][0]["answer"] = _grouping_answer(proposal_decision="approved")
     write_task_file(path=workspace_root / "task.json", payload=grouping_task)
 
     grouping_result = advance_knowledge_same_session_handoff(
@@ -225,8 +243,14 @@ def test_same_session_handoff_keeps_weakly_grounded_knowledge_and_advances_to_gr
             "category": "knowledge",
             "grounding": {
                 "tag_keys": [],
-                "category_keys": [],
-                "proposed_tags": [],
+                "category_keys": ["techniques"],
+                "proposed_tags": [
+                    {
+                        "key": "rendering",
+                        "display_name": "Rendering",
+                        "category_key": "techniques",
+                    }
+                ],
             },
         }
     ]
@@ -235,7 +259,7 @@ def test_same_session_handoff_keeps_weakly_grounded_knowledge_and_advances_to_gr
     ]
 
 
-def test_same_session_handoff_accepts_category_only_grounding_and_advances_to_grouping(
+def test_same_session_handoff_rejects_category_only_grounding_and_enters_repair(
     tmp_path: Path,
 ) -> None:
     workspace_root, state_path = _initialize_workspace(tmp_path)
@@ -247,7 +271,6 @@ def test_same_session_handoff_accepts_category_only_grounding_and_advances_to_gr
         "grounding": {
             "tag_keys": [],
             "category_keys": ["techniques"],
-            "proposed_tags": [],
         },
     }
     write_task_file(path=workspace_root / "task.json", payload=edited)
@@ -256,29 +279,31 @@ def test_same_session_handoff_accepts_category_only_grounding_and_advances_to_gr
         workspace_root=workspace_root,
         state_path=state_path,
     )
-    grouping_task = load_task_file(workspace_root / "task.json")
 
-    assert classification_result["status"] == "advance_to_grouping"
-    assert classification_result["validation_errors"] == []
-    assert classification_result["same_session_repair_rewrite_count"] == 0
-    assert classification_result["validation_metadata"]["weak_grounding_reason_counts"] == {
-        "category_only_grounding": 1
-    }
-    assert grouping_task["mode"] == "initial"
-    assert grouping_task["stage_key"] == "knowledge_group"
+    repair_task = load_task_file(workspace_root / "task.json")
+
+    assert classification_result["status"] == "repair_required"
+    assert "knowledge_grounding_existing_tag_required" in classification_result["validation_errors"]
+    assert classification_result["same_session_repair_rewrite_count"] == 1
+    assert repair_task["mode"] == "repair"
+    assert repair_task["stage_key"] == "nonrecipe_classify"
 
 
-def test_same_session_handoff_can_complete_without_grouping_when_disabled(
+def test_same_session_handoff_can_complete_without_grouping_when_all_rows_are_other(
     tmp_path: Path,
 ) -> None:
-    workspace_root, state_path = _initialize_workspace(
-        tmp_path,
-        knowledge_grouping_enabled=False,
-    )
+    workspace_root, state_path = _initialize_workspace(tmp_path)
 
     task_file = load_task_file(workspace_root / "task.json")
     edited = deepcopy(task_file)
-    edited["units"][0]["answer"] = _valid_classification_answer()
+    edited["units"][0]["answer"] = {
+        "category": "other",
+        "grounding": {
+            "tag_keys": [],
+            "category_keys": [],
+            "proposed_tags": [],
+        },
+    }
     write_task_file(path=workspace_root / "task.json", payload=edited)
 
     result = advance_knowledge_same_session_handoff(
@@ -291,7 +316,7 @@ def test_same_session_handoff_can_complete_without_grouping_when_disabled(
 
     assert result["status"] == "completed_without_grouping"
     assert result["grouping_transition_count"] == 0
-    assert output_payload["block_decisions"][0]["category"] == "knowledge"
+    assert output_payload["block_decisions"][0]["category"] == "other"
     assert output_payload["idea_groups"] == []
 
 
@@ -334,10 +359,7 @@ def test_same_session_handoff_rewrites_invalid_classification_into_repair_mode(
         state_path=state_path,
     )
     grouping_task = load_task_file(workspace_root / "task.json")
-    grouping_task["units"][0]["answer"] = {
-        "group_key": "heat-control",
-        "topic_label": "Heat control",
-    }
+    grouping_task["units"][0]["answer"] = _grouping_answer()
     write_task_file(path=workspace_root / "task.json", payload=grouping_task)
     grouping_result = advance_knowledge_same_session_handoff(
         workspace_root=workspace_root,
@@ -466,10 +488,7 @@ def test_same_session_handoff_completes_after_one_grouping_pass(
     assert len(first_grouping_task["units"]) == block_count
 
     for unit in first_grouping_task["units"]:
-        unit["answer"] = {
-            "group_key": "heat-control",
-            "topic_label": "Heat control",
-        }
+        unit["answer"] = _grouping_answer()
     write_task_file(path=workspace_root / "task.json", payload=first_grouping_task)
 
     final_result = advance_knowledge_same_session_handoff(
@@ -535,10 +554,7 @@ def test_same_session_grouping_handoff_treats_task_file_contract_tampering_as_re
 
     grouping_task = load_task_file(workspace_root / "task.json")
     grouping_task["stage_key"] = "tampered"
-    grouping_task["units"][0]["answer"] = {
-        "group_key": "heat-control",
-        "topic_label": "Heat control",
-    }
+    grouping_task["units"][0]["answer"] = _grouping_answer()
     write_task_file(path=workspace_root / "task.json", payload=grouping_task)
 
     grouping_result = advance_knowledge_same_session_handoff(

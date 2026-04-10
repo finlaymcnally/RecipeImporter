@@ -886,15 +886,17 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
         "retrieval_gate_rejected_block_count": int(
             manifest_counts.get("retrieval_gate_rejected_block_count") or 0
         ),
-        "weak_grounding_block_count": int(
-            manifest_counts.get("weak_grounding_block_count") or 0
+        "existing_tag_kept_knowledge_block_count": int(
+            manifest_counts.get("existing_tag_kept_knowledge_block_count") or 0
         ),
-        "weak_grounding_after_invalid_grounding_drop_count": int(
-            manifest_counts.get("weak_grounding_after_invalid_grounding_drop_count")
-            or 0
+        "proposal_candidate_block_count": int(
+            manifest_counts.get("proposal_candidate_block_count") or 0
         ),
-        "weak_grounding_category_only_count": int(
-            manifest_counts.get("weak_grounding_category_only_count") or 0
+        "approved_proposal_candidate_block_count": int(
+            manifest_counts.get("approved_proposal_candidate_block_count") or 0
+        ),
+        "rejected_proposal_candidate_block_count": int(
+            manifest_counts.get("rejected_proposal_candidate_block_count") or 0
         ),
         "knowledge_blocks_grounded_to_existing_tags": int(
             manifest_counts.get("knowledge_blocks_grounded_to_existing_tags") or 0
@@ -903,18 +905,10 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
             manifest_counts.get("knowledge_blocks_using_proposed_tags") or 0
         ),
         "tag_proposal_count": int(manifest_counts.get("tag_proposal_count") or 0),
-        "weak_grounding_reason_counts": dict(
-            sorted(
-                (
-                    str(reason).strip(),
-                    int(value or 0),
-                )
-                for reason, value in _coerce_dict(
-                    manifest_grounding_counts.get("weak_grounding_reason_counts")
-                    or manifest_counts.get("weak_grounding_reason_counts")
-                ).items()
-                if str(reason).strip()
-            )
+        "proposal_resolution_details": list(
+            manifest_grounding_counts.get("proposal_resolution_details")
+            or manifest_counts.get("proposal_resolution_details")
+            or []
         ),
     }
     summary = {

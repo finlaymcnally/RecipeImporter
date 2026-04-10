@@ -169,11 +169,12 @@ def _build_knowledge_taskfile_prompt(
             "- This is the classification step. Decide each block on its own merits before any grouping happens.",
             "- Read the full classification file once, then fill every answer object in place before you run `task-handoff`.",
             "- Answer each unit with `category` and `grounding`.",
-            f"- Final categories must be exactly one of `{'`, `'.join(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)}`.",
+            "- Final categories must be exactly one of `knowledge`, `proposal_candidate`, or `other`.",
             "- Use the provided existing tag catalog first whenever a real tag fit exists.",
-            "- If `category` is `knowledge`, `grounding` must include at least one existing `tag_key` or one proposed tag.",
-            "- Propose a new tag only when no existing tag fits cleanly and the block is still retrieval-grade standalone cooking knowledge.",
-            "- If you cannot point to a specific existing tag fit, and you also cannot name a real catalog gap, answer `other` instead of inventing a weak tag.",
+            "- If `category` is `knowledge`, `grounding` must include at least one existing `tag_key`.",
+            "- If no existing tag fits but the block still looks retrieval-grade, answer `proposal_candidate` with empty grounding.",
+            "- Do not invent or preview proposed tags in the classification step. Proposal approval belongs to the grouping step.",
+            "- If you cannot point to a specific existing tag fit and the block is not a strong standalone retrieval target, answer `other` instead.",
             "- If `category` is `other`, keep grounding empty.",
             "- Memoir, scene-setting, or personal story with an embedded cooking lesson is still usually `other`; keep only the specific block that independently stands as reusable guidance.",
             "- Praise, endorsement, foreword, thesis, manifesto, `this book will teach you`, and broad inspiration-about-cooking prose are `other` even when they contain true cooking claims.",
@@ -182,19 +183,23 @@ def _build_knowledge_taskfile_prompt(
             "- Short conceptual headings can still be `knowledge` when they introduce real explanatory content; shortness alone is not enough to drop a block.",
             "- If a heading is decorative, thesis-like, or unsupported by reusable explanatory body text in the owned packet, answer `other`.",
             "- `grounding.category_keys` are optional support only; category-only grounding is not enough to keep a block.",
-            "- Proposed tags are allowed only for real retrieval-grade concepts that do not fit an existing tag; they are rare and should use an existing `category_key` plus a normalized slug `key`.",
             "- Do not compress the packet into one global keep/drop rule, one heading rule, or one candidate-tag rule.",
             "- Do not invent `group_key`, `topic_label`, packet summaries, or cross-unit grouping notes in this step.",
             "- The owned block rows are authoritative. Nearby context is informational only.",
         )
         if stage_key == "nonrecipe_classify"
         else (
-            "- This is the grouping-only step. Every unit already passed classification as `knowledge`.",
+            "- This is the grouping and proposal-resolution step.",
             "- Read the full grouping file, then fill every answer object in place before `task-handoff`.",
-            "- Answer each unit with `group_key` and `topic_label` only.",
+            "- Answer each unit with `group_key`, `topic_label`, `proposal_decision`, `proposed_tag`, `why_no_existing_tag`, and `retrieval_query`.",
             "- `group_key` and `topic_label` must both be non-empty strings.",
+            "- Units marked `classification.category=knowledge` are already retained through existing tags. Keep them grouped, set `proposal_decision` to `not_applicable`, and leave proposal fields empty.",
+            "- Units marked `classification.category=proposal_candidate` must be resolved here with `proposal_decision` set to `approved` or `rejected`.",
+            "- Approve only when the proposed tag names a strong standalone retrieval concept a cook would plausibly search for later.",
+            "- Approved proposal candidates must include exactly one normalized `proposed_tag` plus short `why_no_existing_tag` and `retrieval_query` strings.",
+            "- Rejected proposal candidates must leave `proposed_tag`, `why_no_existing_tag`, and `retrieval_query` empty.",
             "- Use concise group labels; the repo canonicalizes final group ids during deterministic expansion.",
-            "- Do not revisit keep/drop classification in this step.",
+            "- Do not revisit keep/drop classification in this step except by rejecting a proposal candidate back to `other`.",
         )
     )
     return render_taskfile_prompt(
@@ -258,130 +263,6 @@ _KNOWLEDGE_HINT_EXAMPLE_FILES = (
 )
 
 
-def _looks_knowledge_hint_heading_like(
-    *,
-    text: str,
-    heading_level: Any,
-) -> bool:
-    cleaned = " ".join(str(text or "").split())
-    if not cleaned:
-        return False
-    if heading_level is not None:
-        return True
-    if len(cleaned) > 80:
-        return False
-    if cleaned.endswith("?"):
-        return True
-    alpha_chars = [char for char in cleaned if char.isalpha()]
-    if alpha_chars and cleaned == cleaned.upper():
-        return True
-    return "." not in cleaned and len(cleaned.split()) <= 8
-
-
-def _build_knowledge_hint_attention_lines(
-    packet_blocks: Sequence[Mapping[str, Any]],
-) -> list[str]:
-    attention_lines: list[str] = []
-    previous_index: int | None = None
-    for block in packet_blocks:
-        try:
-            block_index = int(block.get("i"))
-        except (TypeError, ValueError):
-            continue
-        text = str(block.get("t") or "").strip()
-        if not text:
-            continue
-        heading_level = block.get("hl")
-        cues: list[str] = []
-        if _looks_knowledge_hint_heading_like(text=text, heading_level=heading_level):
-            cues.append("heading_like")
-        if isinstance(block.get("th"), Mapping):
-            cues.append("table_hint")
-        if len(text) >= 240:
-            cues.append("long_prose")
-        if previous_index is not None:
-            gap = int(block_index) - int(previous_index)
-            if gap > 8:
-                cues.append(f"gap_from_prev={gap}")
-        previous_index = block_index
-        if not cues or len(attention_lines) >= 10:
-            continue
-        attention_lines.append(
-            f"`{block_index}` `{preview_text(text, max_chars=90)}` -> cues `{', '.join(cues)}`"
-        )
-    if attention_lines:
-        return attention_lines
-    return [
-        "No special attention rows were flagged. Read the owned block text in order and classify each block on its own merits."
-    ]
-
-
-def _build_knowledge_hint_profile_and_policy(
-    packet_blocks: Sequence[Mapping[str, Any]],
-) -> tuple[list[str], list[str], list[str]]:
-    block_indices: list[int] = []
-    heading_count = 0
-    table_hint_count = 0
-    long_prose_count = 0
-    heading_like_count = 0
-    large_gap_count = 0
-    previous_index: int | None = None
-    for block in packet_blocks:
-        try:
-            block_index = int(block.get("i"))
-        except (TypeError, ValueError):
-            continue
-        block_indices.append(block_index)
-        text = str(block.get("t") or "").strip()
-        if block.get("hl") is not None:
-            heading_count += 1
-        if isinstance(block.get("th"), Mapping):
-            table_hint_count += 1
-        if len(text) >= 240:
-            long_prose_count += 1
-        if _looks_knowledge_hint_heading_like(text=text, heading_level=block.get("hl")):
-            heading_like_count += 1
-        if previous_index is not None and (block_index - previous_index) > 8:
-            large_gap_count += 1
-        previous_index = block_index
-
-    owned_block_range = (
-        f"{block_indices[0]}..{block_indices[-1]}" if block_indices else "unknown"
-    )
-    profile_lines = [
-        f"Owned blocks: {len(block_indices)} (`{owned_block_range}`).",
-        (
-            "Packet shape cues: "
-            f"`heading_like={heading_like_count}`, "
-            f"`explicit_heading={heading_count}`, "
-            f"`table_hint={table_hint_count}`, "
-            f"`long_prose={long_prose_count}`."
-        ),
-        f"Large source gaps (>8 rows): `{large_gap_count}`.",
-    ]
-    if table_hint_count > 0:
-        shard_summary = "Reference-style packet with table cues."
-    elif heading_like_count > 0 and long_prose_count > 0:
-        shard_summary = "Heading-plus-body packet."
-    elif long_prose_count >= max(2, len(block_indices) // 2):
-        shard_summary = "Long-form prose packet."
-    else:
-        shard_summary = "Mixed non-recipe packet."
-    interpretation_lines = [
-        shard_summary,
-        "Use packet order and neighboring rows as weak context only, not as proof that blocks belong together.",
-    ]
-    decision_policy = [
-        "Decide `knowledge` versus `other` block-by-block before thinking about grouping.",
-        "Use your own semantic judgment; the repo will validate only structure and coverage.",
-        "Do not turn heading shape or packet profile into a bulk heuristic; read the actual owned block text.",
-        "If a short heading feels ambiguous, ask whether it introduces portable cooking knowledge and is supported by reusable body text, not whether it is merely short.",
-        "Memoir, praise, endorsement, foreword, and thesis-like framing are usually `other` even when they contain a true cooking lesson.",
-        "Open `examples/` only when you need a contrast case or tie-breaker.",
-    ]
-    return profile_lines, interpretation_lines, decision_policy
-
-
 def _write_knowledge_worker_hint(
     *,
     path: Path,
@@ -405,10 +286,6 @@ def _write_knowledge_worker_hint(
         for block in packet_blocks
         if block.get("i") is not None
     ]
-    packet_summary, shard_interpretation, decision_policy = (
-        _build_knowledge_hint_profile_and_policy(packet_blocks)
-    )
-    attention_lines = _build_knowledge_hint_attention_lines(packet_blocks)
     shard_examples = [f"`examples/{name}`" for name in _KNOWLEDGE_HINT_EXAMPLE_FILES]
     write_worker_hint_markdown(
         path,
@@ -416,6 +293,15 @@ def _write_knowledge_worker_hint(
         summary_lines=[
             "This sidecar is worker guidance only; `in/<shard_id>.json` remains authoritative.",
             f"Packet id: `{packet_id}`. Owned blocks: `{len(packet_blocks)}`.",
+            (
+                "Owned block range: `"
+                + (
+                    f"{block_indices[0]}..{block_indices[-1]}"
+                    if block_indices
+                    else "unknown"
+                )
+                + "`."
+            ),
             (
                 "Nearby recipe guardrail block indices: `"
                 + (
@@ -427,11 +313,12 @@ def _write_knowledge_worker_hint(
             ),
         ],
         sections=[
-            ("Packet summary", packet_summary),
-            ("Shard interpretation", shard_interpretation),
-            ("Decision policy", decision_policy),
+            ("Worker flow", [
+                "Read the owned blocks in order from the authoritative shard input.",
+                "Use nearby rows only as local context while making your own semantic judgment.",
+                "Answer in the required task surface only, then finish with the normal handoff command for this workspace.",
+            ]),
             ("Shard examples", shard_examples),
-            ("Attention rows", attention_lines),
         ],
     )
 

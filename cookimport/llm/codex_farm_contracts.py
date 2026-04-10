@@ -306,7 +306,6 @@ class MergedRecipeRepairInput(BaseModel):
     source_hash: str = Field(alias="sh")
     canonical_text: str = Field(alias="txt")
     evidence_rows: list[tuple[int, str]] = Field(default_factory=list, alias="ev")
-    recipe_candidate_hint: dict[str, Any] = Field(default_factory=dict, alias="h")
     draft_hint: dict[str, Any] = Field(default_factory=dict, alias="dh")
     tagging_guide: dict[str, Any] = Field(default_factory=dict, alias="tg")
     authority_notes: list[str] = Field(default_factory=list, alias="an")
@@ -316,7 +315,7 @@ class MergedRecipeRepairInput(BaseModel):
     def _normalize_canonical_text(cls, value: Any) -> str:
         return _sanitize_text_fragment(value)
 
-    @field_validator("recipe_candidate_hint", "draft_hint", "tagging_guide", mode="before")
+    @field_validator("draft_hint", "tagging_guide", mode="before")
     @classmethod
     def _coerce_hint_objects(cls, value: Any, info: Any) -> dict[str, Any]:
         return _coerce_json_object_field(value or {}, info.field_name)
@@ -342,18 +341,12 @@ class RecipeCorrectionShardRecipeInput(BaseModel):
     recipe_id: str = Field(alias="rid")
     canonical_text: str = Field(alias="txt")
     evidence_rows: list[tuple[int, str]] = Field(default_factory=list, alias="ev")
-    recipe_candidate_hint: dict[str, Any] = Field(default_factory=dict, alias="h")
     warnings: list[str] = Field(default_factory=list, alias="w")
 
     @field_validator("canonical_text", mode="before")
     @classmethod
     def _normalize_canonical_text(cls, value: Any) -> str:
         return _sanitize_text_fragment(value)
-
-    @field_validator("recipe_candidate_hint", mode="before")
-    @classmethod
-    def _coerce_hint_objects(cls, value: Any) -> dict[str, Any]:
-        return _coerce_json_object_field(value or {}, "recipe_candidate_hint")
 
     @field_validator("warnings", mode="before")
     @classmethod

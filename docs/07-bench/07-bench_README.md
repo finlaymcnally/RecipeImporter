@@ -150,6 +150,7 @@ Current interactive contracts:
 - paired benchmark variants now share the same selected `atomic_block_splitter`; benchmark helpers no longer hardcode `off` for `vanilla` and `atomic-v1` for `codex-exec`
 - warm reruns of the same interactive single-book target can now reuse finished prediction artifacts across sessions before comparison/report publication runs
 - benchmark prediction/import runs now resolve the same hidden runtime defaults as stage for EPUB segmentation, knowledge grouping caps, and workspace completion grace; support-only benchmark constants such as split-cache wait/poll, single-profile scheduler policy, and Oracle upload shard/poll budgets now live behind shared resolver helpers instead of scattered literals
+- benchmark knowledge runs now use the same single live product behavior as stage: first-pass classification may emit `proposal_candidate`, and the second pass always handles both grouping and proposal approval/rejection
 - benchmark runtime contracts now preserve all three Codex Exec transport selections from `RunSettings` into `labelstudio-benchmark`: recipe, line-role, and knowledge. Interactive single-book and matched-book runs should keep those per-surface transport choices through prediction generation and manifests.
 - paired success can emit:
   - `codex_vs_vanilla_comparison.json`

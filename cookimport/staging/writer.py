@@ -1207,15 +1207,17 @@ def write_nonrecipe_authority_artifact(
             "authoritative_other_spans": len(authority.authoritative_other_spans),
             "final_authority_blocks": len(authority.authoritative_block_indices),
             **_knowledge_counts_for_block_map(authority.authoritative_block_category_by_index),
-            "weak_grounding_block_count": int(
-                grounding_counts.get("weak_grounding_block_count") or 0
+            "existing_tag_kept_knowledge_block_count": int(
+                grounding_counts.get("existing_tag_kept_knowledge_block_count") or 0
             ),
-            "weak_grounding_after_invalid_grounding_drop_count": int(
-                grounding_counts.get("weak_grounding_after_invalid_grounding_drop_count")
-                or 0
+            "proposal_candidate_block_count": int(
+                grounding_counts.get("proposal_candidate_block_count") or 0
             ),
-            "weak_grounding_category_only_count": int(
-                grounding_counts.get("weak_grounding_category_only_count") or 0
+            "approved_proposal_candidate_block_count": int(
+                grounding_counts.get("approved_proposal_candidate_block_count") or 0
+            ),
+            "rejected_proposal_candidate_block_count": int(
+                grounding_counts.get("rejected_proposal_candidate_block_count") or 0
             ),
             "knowledge_blocks_grounded_to_existing_tags": int(
                 grounding_counts.get("knowledge_blocks_grounded_to_existing_tags") or 0

@@ -42,7 +42,6 @@ _STAGE_INTERNAL_FIELDS = (
     "knowledge_codex_exec_style",
     "knowledge_packet_input_char_budget",
     "knowledge_packet_output_char_budget",
-    "knowledge_grouping_enabled",
     "knowledge_group_task_max_units",
     "knowledge_group_task_max_evidence_chars",
     "workspace_completion_quiescence_seconds",

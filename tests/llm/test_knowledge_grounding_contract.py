@@ -43,7 +43,7 @@ def test_classification_task_file_exposes_ontology_once_without_repo_tag_hints()
     assert task_file["ontology"]["catalog_version"] == "cookbook-tag-catalog-2026-03-30"
     assert "candidate_tag_keys" not in task_file["units"][0]["evidence"]
     assert any(
-        "Do not coin broad chapter-theme, editorial, or pedagogy-summary tags"
+        "Do not invent a new tag in the first pass"
         in pattern
         for pattern in task_file["review_contract"]["anti_patterns"]
     )
@@ -57,7 +57,7 @@ def test_classification_task_file_exposes_ontology_once_without_repo_tag_hints()
     }
 
 
-def test_grounding_validator_accepts_existing_and_proposed_tag_answers() -> None:
+def test_grounding_validator_accepts_existing_knowledge_and_empty_proposal_candidates() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[_shard(text="Whisk oil into vinegar slowly to emulsify the dressing.")],
@@ -82,39 +82,34 @@ def test_grounding_validator_accepts_existing_and_proposed_tag_answers() -> None
     assert answers_by_unit_id is not None
     assert answers_by_unit_id["knowledge::10"]["grounding"]["tag_keys"] == ["emulsify"]
 
-    proposed = deepcopy(task_file)
-    proposed["units"][0]["answer"] = {
-        "category": "knowledge",
+    proposal_candidate = deepcopy(task_file)
+    proposal_candidate["units"][0]["answer"] = {
+        "category": "proposal_candidate",
         "grounding": {
             "tag_keys": [],
-            "category_keys": ["techniques"],
-            "proposed_tags": [
-                {
-                    "key": "mount-pan-sauce",
-                    "display_name": "Mount Pan Sauce",
-                    "category_key": "techniques",
-                }
-            ],
+            "category_keys": [],
+            "proposed_tags": [],
         },
     }
     answers_by_unit_id, errors, metadata = validate_knowledge_classification_task_file(
         original_task_file=task_file,
-        edited_task_file=proposed,
+        edited_task_file=proposal_candidate,
     )
 
     assert errors == ()
     assert metadata["failed_unit_ids"] == []
     assert answers_by_unit_id is not None
-    assert answers_by_unit_id["knowledge::10"]["grounding"]["proposed_tags"] == [
-        {
-            "key": "mount-pan-sauce",
-            "display_name": "Mount Pan Sauce",
-            "category_key": "techniques",
-        }
-    ]
+    assert answers_by_unit_id["knowledge::10"] == {
+        "category": "proposal_candidate",
+        "grounding": {
+            "tag_keys": [],
+            "category_keys": [],
+            "proposed_tags": [],
+        },
+    }
 
 
-def test_grounding_validator_keeps_knowledge_with_weak_grounding_after_invalid_drop() -> None:
+def test_grounding_validator_rejects_unknown_tag_when_no_existing_grounding_survives() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[_shard(text="Good advice, but not grounded.")],
@@ -134,25 +129,15 @@ def test_grounding_validator_keeps_knowledge_with_weak_grounding_after_invalid_d
         edited_task_file=demoted,
     )
 
-    assert errors == ()
-    assert metadata["failed_unit_ids"] == []
-    assert metadata["weak_grounding_unit_ids"] == ["knowledge::10"]
-    assert metadata["weak_grounding_reason_counts"] == {
-        "invalid_grounding_dropped_to_empty": 1
-    }
-    assert answers_by_unit_id == {
-        "knowledge::10": {
-            "category": "knowledge",
-            "grounding": {
-                "tag_keys": [],
-                "category_keys": [],
-                "proposed_tags": [],
-            },
-        }
-    }
+    assert answers_by_unit_id is None
+    assert errors == (
+        "unknown_grounding_tag_key",
+        "knowledge_grounding_existing_tag_required",
+    )
+    assert metadata["failed_unit_ids"] == ["knowledge::10"]
 
 
-def test_grounding_validator_accepts_category_only_grounding_as_weak_knowledge() -> None:
+def test_grounding_validator_rejects_category_only_knowledge_grounding() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[_shard(text="Salt early so it has time to penetrate.")],
@@ -172,23 +157,12 @@ def test_grounding_validator_accepts_category_only_grounding_as_weak_knowledge()
         edited_task_file=edited,
     )
 
-    assert errors == ()
-    assert metadata["failed_unit_ids"] == []
-    assert metadata["weak_grounding_unit_ids"] == ["knowledge::10"]
-    assert metadata["weak_grounding_reason_counts"] == {"category_only_grounding": 1}
-    assert answers_by_unit_id == {
-        "knowledge::10": {
-            "category": "knowledge",
-            "grounding": {
-                "tag_keys": [],
-                "category_keys": ["techniques"],
-                "proposed_tags": [],
-            },
-        }
-    }
+    assert answers_by_unit_id is None
+    assert errors == ("knowledge_grounding_existing_tag_required",)
+    assert metadata["failed_unit_ids"] == ["knowledge::10"]
 
 
-def test_grounding_validator_drops_invalid_entries_when_valid_grounding_survives() -> None:
+def test_grounding_validator_rejects_first_pass_proposed_tags_even_with_valid_existing_tag() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[_shard(text="Whisk oil into vinegar slowly to emulsify the dressing.")],
@@ -219,24 +193,16 @@ def test_grounding_validator_drops_invalid_entries_when_valid_grounding_survives
         edited_task_file=edited,
     )
 
-    assert errors == ()
-    assert metadata["failed_unit_ids"] == []
-    assert metadata["weak_grounding_unit_ids"] == []
-    assert answers_by_unit_id is not None
-    assert answers_by_unit_id["knowledge::10"]["grounding"] == {
-        "tag_keys": ["emulsify"],
-        "category_keys": ["techniques"],
-        "proposed_tags": [
-            {
-                "key": "stable-emulsion",
-                "display_name": "Stable Emulsion",
-                "category_key": "techniques",
-            }
-        ],
-    }
+    assert answers_by_unit_id is None
+    assert errors == (
+        "unknown_grounding_tag_key",
+        "unknown_grounding_category_key",
+        "classification_proposed_tags_forbidden",
+    )
+    assert metadata["failed_unit_ids"] == ["knowledge::10"]
 
 
-def test_grounding_validator_requires_existing_tag_for_exact_display_name_duplicate() -> None:
+def test_grounding_validator_forbids_first_pass_proposed_tags_even_when_they_duplicate_existing_names() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[_shard(text="Whisk oil into vinegar slowly to emulsify the dressing.")],
@@ -263,18 +229,24 @@ def test_grounding_validator_requires_existing_tag_for_exact_display_name_duplic
     )
 
     assert answers_by_unit_id is None
-    assert errors == ("knowledge_grounding_existing_tag_required",)
+    assert errors == (
+        "classification_proposed_tags_forbidden",
+        "knowledge_grounding_existing_tag_required",
+    )
     assert metadata["failed_unit_ids"] == ["knowledge::10"]
-    assert metadata["grounding_drop_details"] == [
+    assert metadata["error_details"] == [
         {
-            "unit_id": "knowledge::10",
-            "block_index": 10,
-            "path": "/units/knowledge::10/answer/grounding/proposed_tags/0/display_name",
-            "code": "proposed_tag_display_name_conflicts_existing",
+            "path": "/units/knowledge::10/answer/grounding",
+            "code": "classification_proposed_tags_forbidden",
             "message": (
-                "proposed tag display_name matches an existing tag; use the existing "
-                "tag instead"
+                "first-pass classification must not invent proposed tags; use "
+                "`proposal_candidate` instead"
             ),
+        },
+        {
+            "path": "/units/knowledge::10/answer/grounding/tag_keys",
+            "code": "knowledge_grounding_existing_tag_required",
+            "message": "knowledge rows must ground to at least one existing tag key",
         }
     ]
 
@@ -300,7 +272,10 @@ def test_grounding_validator_still_rejects_malformed_grounding_shapes() -> None:
     )
 
     assert answers_by_unit_id is None
-    assert errors == ("invalid_grounding_tag_keys",)
+    assert errors == (
+        "invalid_grounding_tag_keys",
+        "knowledge_grounding_existing_tag_required",
+    )
     assert metadata["failed_unit_ids"] == ["knowledge::10"]
 
 
@@ -323,16 +298,12 @@ def test_structured_prompt_explicitly_forbids_category_only_grounding() -> None:
     assert "return `other` with empty grounding" in prompt
     assert "Use the provided existing `tags` catalog first" in prompt
     assert (
-        "Do not propose a tag whose key or display name exactly restates an existing "
-        "catalog tag"
-    ) in prompt
-    assert (
-        "A proposed tag should name one concrete retrieval concept anchored in this "
-        "exact row"
+        "Do not invent or preview proposed tags during classification. Proposal "
+        "approval happens in the second pass."
     ) in prompt
     assert (
         "Do not coin broad chapter-theme, editorial, or pedagogy-summary tags"
-    ) in prompt
+    ) not in prompt
     assert "Reason about the packet holistically first" in prompt
     assert "Decide by local span, emit by row." in prompt
     assert (

@@ -542,15 +542,6 @@ def register(app: typer.Typer) -> dict[str, object]:
             hidden=True,
             help="Internal: maximum response-side character budget per knowledge packet.",
         ),
-        knowledge_grouping_enabled: bool = typer.Option(
-            bool(serialized_run_setting_default("knowledge_grouping_enabled")),
-            "--knowledge-grouping-enabled/--no-knowledge-grouping-enabled",
-            hidden=True,
-            help=(
-                "Internal: keep knowledge classification while optionally skipping "
-                "idea grouping."
-            ),
-        ),
         allow_codex: bool = typer.Option(
             False,
             "--allow-codex/--no-allow-codex",
@@ -775,9 +766,6 @@ def register(app: typer.Typer) -> dict[str, object]:
         )
         knowledge_packet_output_char_budget = _unwrap_typer_option_default(
             knowledge_packet_output_char_budget
-        )
-        knowledge_grouping_enabled = _unwrap_typer_option_default(
-            knowledge_grouping_enabled
         )
         allow_codex = _unwrap_typer_option_default(allow_codex)
         codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
@@ -1027,7 +1015,6 @@ def register(app: typer.Typer) -> dict[str, object]:
             knowledge_prompt_target_count=knowledge_prompt_target_count,
             knowledge_packet_input_char_budget=knowledge_packet_input_char_budget,
             knowledge_packet_output_char_budget=knowledge_packet_output_char_budget,
-            knowledge_grouping_enabled=knowledge_grouping_enabled,
             knowledge_group_task_max_units=knowledge_group_task_max_units,
             knowledge_group_task_max_evidence_chars=knowledge_group_task_max_evidence_chars,
             line_role_codex_exec_style=line_role_codex_exec_style,

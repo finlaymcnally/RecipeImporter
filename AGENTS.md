@@ -14,9 +14,7 @@ All timestamps for files and such should be: YYYY-MM-DD_HH.MM.SS
   - i do not want deterministic systems overwriting or correcting LLM outputs.
 
 ## DOCUMENTATION
-Update Agents.md files (at any level) only when ABSOLUTELY NEEDED ONLY. Agents.md lines are precious, instructions only, not info that can live in readmes, etc.
-
-When you build stuff, leave a small relevant note in the folder explaining how it works. very short. if there is already documentation present, update as needed, very short. Your audience for all documentation, unless otherwise noted, is other AI coding agents like you.
+When you build stuff, leave a small relevant note in the folder explaining how it works. very short. if there is already documentation present, update as needed. Your audience for all documentation, unless otherwise noted, is other AI coding agents like you.
 
 Start: run docs list (`npm run docs:list`); open relevant docs before coding.
 Follow links until domain makes sense; honor Read when hints.
@@ -76,6 +74,8 @@ When a test fails, do not blindly change code or tests. First state whether this
 ## Beads Issue Tracker
 
 This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
+Do NOT use markdown TODOs, task lists, or other tracking methods.
+
 
 ### Quick Reference
 
@@ -118,3 +118,5 @@ bd close <id>         # Complete work
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
 <!-- END BEADS INTEGRATION -->
+Use 'bd' for task tracking
+

@@ -972,9 +972,15 @@ class FakeCodexExecRunner:
                 continue
             unit_dict = dict(unit)
             evidence = dict(unit_dict.get("evidence") or {})
+            classification = (
+                dict(unit_dict.get("classification"))
+                if isinstance(unit_dict.get("classification"), Mapping)
+                else {}
+            )
             unit_dict["answer"] = self._build_workspace_task_unit_answer(
                 stage_key=stage_key,
                 evidence=evidence,
+                classification=classification,
             )
             edited_units.append(unit_dict)
         edited["units"] = edited_units
@@ -1091,6 +1097,7 @@ class FakeCodexExecRunner:
         *,
         stage_key: str,
         evidence: Mapping[str, Any],
+        classification: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         if stage_key == "recipe_refine":
             direct_output: Mapping[str, Any] | None = None
@@ -1124,6 +1131,9 @@ class FakeCodexExecRunner:
                     "block_id": str(evidence.get("block_id") or f"block-{block_index}"),
                     "block_index": block_index,
                     "text": str(evidence.get("text") or ""),
+                    "classification_category": str(
+                        (classification or {}).get("category") or ""
+                    ).strip(),
                 }
             )
             return dict(direct_output) if isinstance(direct_output, Mapping) else {}

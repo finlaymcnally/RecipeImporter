@@ -163,14 +163,11 @@ def _build_recipe_boundary_context_rows(*, state: _RecipeState, full_blocks_by_i
     return tuple(rows)
 
 def _build_recipe_correction_input(*, state: _RecipeState, workbook_slug: str, source_hash: str, included_blocks: list[dict[str, Any]]) -> MergedRecipeRepairInput:
-    recipe_candidate_hint = state.recipe.model_dump(mode='json', by_alias=True, exclude_none=True)
-    recipe_candidate_hint.pop('provenance', None)
-    compact_recipe_candidate_hint = _compact_recipe_candidate_hint(recipe_candidate_hint)
     canonical_text = '\n'.join((str(block.get('text') or '').strip() for block in included_blocks)).strip()
-    return MergedRecipeRepairInput(recipe_id=state.recipe_id, workbook_slug=workbook_slug, source_hash=source_hash, canonical_text=canonical_text, evidence_rows=[(int(block.get('index', 0)), str(block.get('text') or '').strip()) for block in included_blocks], recipe_candidate_hint=compact_recipe_candidate_hint, tagging_guide=build_recipe_tagging_guide(recipe_text=canonical_text, recipe_candidate_hint=compact_recipe_candidate_hint), authority_notes=['authoritative_source=recipe_span_blocks', 'correct_intermediate_recipe_candidate', 'emit_linkage_payload_for_deterministic_final_assembly'])
+    return MergedRecipeRepairInput(recipe_id=state.recipe_id, workbook_slug=workbook_slug, source_hash=source_hash, canonical_text=canonical_text, evidence_rows=[(int(block.get('index', 0)), str(block.get('text') or '').strip()) for block in included_blocks], tagging_guide=build_recipe_tagging_guide(), authority_notes=['authoritative_source=recipe_span_blocks', 'correct_intermediate_recipe_candidate', 'emit_linkage_payload_for_deterministic_final_assembly'])
 
 def _build_recipe_shard_recipe_input(*, correction_input: MergedRecipeRepairInput, warnings: Sequence[str]) -> RecipeCorrectionShardRecipeInput:
-    return RecipeCorrectionShardRecipeInput(recipe_id=correction_input.recipe_id, canonical_text=correction_input.canonical_text, evidence_rows=list(correction_input.evidence_rows), recipe_candidate_hint=dict(correction_input.recipe_candidate_hint), warnings=list(warnings))
+    return RecipeCorrectionShardRecipeInput(recipe_id=correction_input.recipe_id, canonical_text=correction_input.canonical_text, evidence_rows=list(correction_input.evidence_rows), warnings=list(warnings))
 
 def _build_prepared_recipe_input(*, state: _RecipeState, workbook_slug: str, source_hash: str, included_blocks: list[dict[str, Any]], full_blocks_by_index: Mapping[int, Mapping[str, Any]]) -> _PreparedRecipeInput:
     correction_input = _build_recipe_correction_input(state=state, workbook_slug=workbook_slug, source_hash=source_hash, included_blocks=included_blocks)
@@ -221,50 +218,6 @@ def _build_recipe_shard_plans(*, prepared_inputs: Sequence[_PreparedRecipeInput]
 
 def _resolve_recipe_shard_count(*, total_items: int, run_settings: RunSettings) -> int:
     return resolve_shard_count(total_items=total_items, prompt_target_count=run_settings.recipe_prompt_target_count, items_per_shard=None, default_items_per_shard=1)
-
-def _compact_recipe_candidate_hint(recipe_candidate_hint: Mapping[str, Any]) -> dict[str, Any]:
-    payload = dict(recipe_candidate_hint or {})
-    compact: dict[str, Any] = {}
-    name = str(payload.get('name') or '').strip()
-    if name:
-        compact['n'] = name
-    ingredients = [str(item).strip() for item in payload.get('recipeIngredient') or [] if str(item).strip()]
-    if ingredients:
-        compact['i'] = ingredients
-    steps = _compact_recipe_step_hints(payload.get('recipeInstructions') or [])
-    if steps:
-        compact['s'] = steps
-    description = str(payload.get('description') or '').strip()
-    if description:
-        compact['d'] = description
-    recipe_yield = str(payload.get('recipeYield') or '').strip()
-    if recipe_yield:
-        compact['y'] = recipe_yield
-    tags = [str(item).strip() for item in payload.get('tags') or [] if str(item).strip()]
-    if tags:
-        compact['g'] = tags
-    return compact
-
-def _compact_recipe_step_hints(raw_steps: Sequence[Any]) -> list[str]:
-    steps: list[str] = []
-    for item in raw_steps:
-        rendered = _coerce_compact_step_hint_text(item)
-        if rendered:
-            steps.append(rendered)
-    return steps
-
-def _coerce_compact_step_hint_text(value: Any) -> str:
-    if value is None:
-        return ''
-    if isinstance(value, str):
-        return str(value).strip()
-    if isinstance(value, Mapping):
-        for key in ('text', 'name'):
-            rendered = str(value.get(key) or '').strip()
-            if rendered:
-                return rendered
-        return ''
-    return ''
 
 def _corrected_candidate_from_output(*, state: _RecipeState, output: MergedRecipeRepairOutput) -> RecipeCandidate:
     selected_tags: list[str] = []

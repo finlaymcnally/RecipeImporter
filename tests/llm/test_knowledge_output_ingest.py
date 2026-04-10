@@ -365,7 +365,7 @@ def test_read_validated_knowledge_outputs_from_proposals_promotes_only_valid_sha
     assert outputs["book.ks0000.nr"].idea_groups[0].topic_label == "Heat control"
 
 
-def test_read_validated_knowledge_outputs_from_proposals_accepts_weak_grounding(
+def test_read_validated_knowledge_outputs_from_proposals_accepts_approved_proposals(
     tmp_path: Path,
 ) -> None:
     payload = _semantic_payload(
@@ -376,7 +376,13 @@ def test_read_validated_knowledge_outputs_from_proposals_accepts_weak_grounding(
                 "grounding": {
                     "tag_keys": [],
                     "category_keys": ["techniques"],
-                    "proposed_tags": [],
+                    "proposed_tags": [
+                        {
+                            "key": "rendering",
+                            "display_name": "Rendering",
+                            "category_key": "techniques",
+                        }
+                    ],
                 },
             },
             {
@@ -393,8 +399,9 @@ def test_read_validated_knowledge_outputs_from_proposals_accepts_weak_grounding(
             "validation_errors": [],
             "validation_metadata": {
                 "bundle_id": "book.ks0000.nr",
-                "weak_grounding_block_count": 1,
-                "weak_grounding_reason_counts": {"category_only_grounding": 1},
+                "proposal_candidate_block_count": 1,
+                "approved_proposal_candidate_block_count": 1,
+                "rejected_proposal_candidate_block_count": 0,
             },
         },
     )
@@ -407,6 +414,9 @@ def test_read_validated_knowledge_outputs_from_proposals_accepts_weak_grounding(
     assert outputs["book.ks0000.nr"].block_decisions[0].grounding.category_keys == [
         "techniques"
     ]
+    assert outputs["book.ks0000.nr"].block_decisions[0].grounding.proposed_tags[0].key == (
+        "rendering"
+    )
 
 
 def test_read_validated_knowledge_outputs_from_proposals_rejects_duplicate_ids(

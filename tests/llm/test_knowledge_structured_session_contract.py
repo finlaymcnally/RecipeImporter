@@ -64,7 +64,6 @@ def test_classification_structured_response_reports_missing_duplicate_and_unknow
                         "grounding": {
                             "tag_keys": ["bright"],
                             "category_keys": ["flavor-profile"],
-                            "proposed_tags": [],
                         },
                     },
                     {
@@ -73,7 +72,6 @@ def test_classification_structured_response_reports_missing_duplicate_and_unknow
                         "grounding": {
                             "tag_keys": [],
                             "category_keys": [],
-                            "proposed_tags": [],
                         },
                     },
                     {
@@ -82,7 +80,6 @@ def test_classification_structured_response_reports_missing_duplicate_and_unknow
                         "grounding": {
                             "tag_keys": [],
                             "category_keys": [],
-                            "proposed_tags": [],
                         },
                     },
                 ]
@@ -141,17 +138,15 @@ def test_grouping_structured_response_reports_missing_duplicate_and_unknown_row_
             "knowledge::31": {
                 "category": "knowledge",
                 "grounding": {
-                    "tag_keys": ["heat-control"],
-                    "category_keys": ["techniques"],
-                    "proposed_tags": [],
+                    "tag_keys": ["saute"],
+                    "category_keys": ["cooking-method"],
                 },
             },
             "knowledge::32": {
-                "category": "knowledge",
+                "category": "proposal_candidate",
                 "grounding": {
-                    "tag_keys": ["resting"],
-                    "category_keys": ["techniques"],
-                    "proposed_tags": [],
+                    "tag_keys": [],
+                    "category_keys": [],
                 },
             },
         },
@@ -167,16 +162,28 @@ def test_grouping_structured_response_reports_missing_duplicate_and_unknown_row_
                         "row_id": "r01",
                         "group_key": "heat-control",
                         "topic_label": "Heat control",
+                        "proposal_decision": "not_applicable",
+                        "proposed_tag": None,
+                        "why_no_existing_tag": None,
+                        "retrieval_query": None,
                     },
                     {
                         "row_id": "r01",
                         "group_key": "heat-control-duplicate",
                         "topic_label": "Duplicate",
+                        "proposal_decision": "not_applicable",
+                        "proposed_tag": None,
+                        "why_no_existing_tag": None,
+                        "retrieval_query": None,
                     },
                     {
                         "row_id": "r99",
                         "group_key": "unexpected",
                         "topic_label": "Unexpected",
+                        "proposal_decision": "not_applicable",
+                        "proposed_tag": None,
+                        "why_no_existing_tag": None,
+                        "retrieval_query": None,
                     },
                 ]
             }
@@ -197,14 +204,26 @@ def test_grouping_structured_response_reports_missing_duplicate_and_unknown_row_
     assert edited["units"][0]["answer"] == {
         "group_key": "heat-control",
         "topic_label": "Heat control",
+        "proposal_decision": "not_applicable",
+        "proposed_tag": None,
+        "why_no_existing_tag": "",
+        "retrieval_query": "",
     }
-    assert edited["units"][1]["answer"] == {}
+    assert edited["units"][1]["answer"] == {
+        "group_key": None,
+        "topic_label": None,
+        "proposal_decision": None,
+        "proposed_tag": None,
+        "why_no_existing_tag": None,
+        "retrieval_query": None,
+    }
 
     _answers, validation_errors, validation_metadata = validate_knowledge_grouping_task_file(
         original_task_file=grouping_task_file,
         edited_task_file=edited,
     )
 
-    assert validation_errors == ("knowledge_block_missing_group",)
+    assert "knowledge_block_missing_group" in validation_errors
+    assert "proposal_candidate_resolution_required" in validation_errors
     assert validation_metadata["failed_unit_ids"] == ["knowledge::32"]
     assert validation_metadata["knowledge_blocks_missing_group"] == [32]

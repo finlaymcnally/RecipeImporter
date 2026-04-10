@@ -21,7 +21,8 @@ Current code path:
 
 Current contract:
 
-- the recipe correction payload carries `tagging_guide.v3`, and recipe output returns raw `selected_tags`
+- the recipe correction payload carries `tagging_guide.v4`, and recipe output returns raw `selected_tags`
+- the guide is now just the full category catalog plus broad grounding rules; it does not carry per-recipe semantic hints
 - deterministic normalization owns casing, punctuation, separator cleanup, and de-duplication
 - final cookbook3 drafts store the normalized ordered list at `recipe.tags`
 - schema.org JSON-LD mirrors the same ordered list into `keywords`

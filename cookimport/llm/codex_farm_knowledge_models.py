@@ -5,7 +5,17 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _BUNDLE_VERSION_V3: Literal["3"] = "3"
+ALLOWED_KNOWLEDGE_CLASSIFICATION_CATEGORIES: tuple[str, ...] = (
+    "knowledge",
+    "other",
+    "proposal_candidate",
+)
 ALLOWED_KNOWLEDGE_FINAL_CATEGORIES: tuple[str, ...] = ("knowledge", "other")
+ALLOWED_KNOWLEDGE_PROPOSAL_DECISIONS: tuple[str, ...] = (
+    "not_applicable",
+    "approved",
+    "rejected",
+)
 
 
 class EvidencePointerV1(BaseModel):
@@ -252,6 +262,23 @@ class KnowledgeSemanticProposedTagV1(BaseModel):
         if value is None:
             return value
         return str(value).strip()
+
+
+class KnowledgeProposalReviewV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["not_applicable", "approved", "rejected"]
+    proposed_tag: KnowledgeSemanticProposedTagV1 | None = None
+    why_no_existing_tag: str | None = None
+    retrieval_query: str | None = None
+
+    @field_validator("why_no_existing_tag", "retrieval_query", mode="before")
+    @classmethod
+    def _normalize_optional_text(cls, value: object) -> object:
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
 
 
 class KnowledgeSemanticGroundingV1(BaseModel):

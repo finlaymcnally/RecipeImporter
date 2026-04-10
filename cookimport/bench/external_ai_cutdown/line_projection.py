@@ -116,11 +116,7 @@ def _build_recipe_spans_from_full_prompt_rows(
                 "end_block_index": end,
                 "title": canonical_recipe.get("title")
                 or parsed_response.get("title")
-                or (
-                    (request_input_payload.get("recipe_candidate_hint") or {}).get("name")
-                    if isinstance(request_input_payload.get("recipe_candidate_hint"), dict)
-                    else None
-                ),
+                or None,
                 "call_id": row.get("call_id"),
             }
         )

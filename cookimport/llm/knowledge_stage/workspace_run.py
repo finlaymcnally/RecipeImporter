@@ -47,6 +47,7 @@ from .task_file_contracts import (
     build_knowledge_classification_task_file,
     build_knowledge_grouping_task_files,
     combine_knowledge_task_file_outputs,
+    collect_knowledge_resolution_metadata_by_shard,
     validate_knowledge_classification_task_file,
     validate_knowledge_grouping_task_file,
 )
@@ -58,7 +59,7 @@ from .structured_session_contract import (
     build_knowledge_structured_prompt as _build_knowledge_structured_prompt,
     knowledge_failed_unit_ids as _knowledge_failed_unit_ids,
     knowledge_merge_answers as _knowledge_merge_answers,
-    knowledge_same_session_weak_grounding_metadata_by_shard as _knowledge_same_session_weak_grounding_metadata_by_shard,
+    knowledge_same_session_resolution_metadata_by_shard as _knowledge_same_session_resolution_metadata_by_shard,
     knowledge_task_file_to_structured_packet as _knowledge_task_file_to_structured_packet,
     render_validation_reason_detail as _render_validation_reason_detail,
     write_knowledge_task_file_snapshot as _write_task_file_snapshot,
@@ -1024,28 +1025,23 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
             proposal_errors = tuple(classification_validation_errors)
         else:
             grouping_answers_by_unit_id: dict[str, dict[str, Any]] = {}
-            knowledge_grouping_enabled = bool(
-                settings.get("knowledge_grouping_enabled", False)
+            (
+                grouping_task_files,
+                _grouping_unit_to_shard_id,
+                _grouping_batches,
+            ) = build_knowledge_grouping_task_files(
+                assignment_id=str(classification_task_file.get("assignment_id") or ""),
+                worker_id=str(classification_task_file.get("worker_id") or ""),
+                classification_task_file=classification_task_file,
+                classification_answers_by_unit_id=classification_answers_by_unit_id,
+                unit_to_shard_id=unit_to_shard_id,
+                max_units_per_batch=int(
+                    settings.get("knowledge_group_task_max_units") or 40
+                ),
+                max_evidence_chars_per_batch=int(
+                    settings.get("knowledge_group_task_max_evidence_chars") or 12000
+                ),
             )
-            grouping_task_files: list[dict[str, Any]] = []
-            if knowledge_grouping_enabled:
-                (
-                    grouping_task_files,
-                    _grouping_unit_to_shard_id,
-                    _grouping_batches,
-                ) = build_knowledge_grouping_task_files(
-                    assignment_id=str(classification_task_file.get("assignment_id") or ""),
-                    worker_id=str(classification_task_file.get("worker_id") or ""),
-                    classification_task_file=classification_task_file,
-                    classification_answers_by_unit_id=classification_answers_by_unit_id,
-                    unit_to_shard_id=unit_to_shard_id,
-                    max_units_per_batch=int(
-                        settings.get("knowledge_group_task_max_units") or 40
-                    ),
-                    max_evidence_chars_per_batch=int(
-                        settings.get("knowledge_group_task_max_evidence_chars") or 12000
-                    ),
-                )
             grouping_failed = False
             for batch_index, grouping_task_file in enumerate(grouping_task_files, start=1):
                 grouping_packet = _knowledge_task_file_to_structured_packet(
@@ -1360,20 +1356,22 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                 proposal_payload = combine_knowledge_task_file_outputs(
                     classification_task_file=classification_task_file,
                     classification_answers_by_unit_id=classification_answers_by_unit_id,
-                    grouping_answers_by_unit_id=(
-                        grouping_answers_by_unit_id
-                        if knowledge_grouping_enabled
-                        else None
-                    ),
+                    grouping_answers_by_unit_id=grouping_answers_by_unit_id,
                     unit_to_shard_id=unit_to_shard_id,
                 ).get(shard.shard_id)
                 proposal_status = "validated" if proposal_payload is not None else "invalid"
-                proposal_metadata = dict(classification_validation_metadata)
-                if not knowledge_grouping_enabled:
-                    proposal_metadata["knowledge_grouping_enabled"] = False
-                    proposal_metadata["grouping_skipped_reason"] = (
-                        "knowledge_grouping_disabled"
-                    )
+                proposal_metadata = {
+                    **dict(classification_validation_metadata),
+                    **dict(
+                        collect_knowledge_resolution_metadata_by_shard(
+                            classification_task_file=classification_task_file,
+                            classification_answers_by_unit_id=classification_answers_by_unit_id,
+                            grouping_answers_by_unit_id=grouping_answers_by_unit_id,
+                            unit_to_shard_id=unit_to_shard_id,
+                        ).get(shard.shard_id)
+                        or {}
+                    ),
+                }
                 proposal_errors = ()
 
         proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
@@ -1736,9 +1734,6 @@ def _run_phase_knowledge_worker_assignment_v1(
             classification_task_file=task_file_payload,
             unit_to_shard_id=unit_to_shard_id,
             output_dir=out_dir,
-            knowledge_grouping_enabled=bool(
-                settings.get("knowledge_grouping_enabled", False)
-            ),
         )
         write_task_file(path=worker_root / TASK_FILE_NAME, payload=task_file_payload)
         _write_task_file_snapshot(
@@ -2074,10 +2069,10 @@ def _run_phase_knowledge_worker_assignment_v1(
         )
     )
     task_file_errors_by_shard: dict[str, tuple[tuple[str, ...], dict[str, Any]]] = {}
-    same_session_weak_grounding_metadata_by_shard: dict[str, dict[str, Any]] = {}
+    same_session_resolution_metadata_by_shard: dict[str, dict[str, Any]] = {}
     if task_file_payload is not None:
-        same_session_weak_grounding_metadata_by_shard = (
-            _knowledge_same_session_weak_grounding_metadata_by_shard(
+        same_session_resolution_metadata_by_shard = (
+            _knowledge_same_session_resolution_metadata_by_shard(
                 initial_task_file=task_file_payload,
                 state_payload=same_session_state_payload,
             )
@@ -2257,9 +2252,9 @@ def _run_phase_knowledge_worker_assignment_v1(
             **dict(shard_summary),
             **dict(explicit_terminal_reason_metadata or {}),
         }
-        if shard.shard_id in same_session_weak_grounding_metadata_by_shard:
+        if shard.shard_id in same_session_resolution_metadata_by_shard:
             validation_metadata.update(
-                dict(same_session_weak_grounding_metadata_by_shard[shard.shard_id])
+                dict(same_session_resolution_metadata_by_shard[shard.shard_id])
             )
         if fresh_worker_replacement_metadata:
             validation_metadata["fresh_worker_replacement"] = dict(

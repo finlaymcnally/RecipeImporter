@@ -16,6 +16,7 @@ from cookimport.llm.codex_exec_runner import CodexExecRunResult
 from cookimport.llm.codex_farm_orchestrator import run_codex_farm_recipe_pipeline
 from cookimport.llm.codex_exec_runner import FakeCodexExecRunner
 from cookimport.llm.editable_task_file import load_task_file, write_task_file
+from cookimport.llm.recipe_workspace_tools import build_recipe_worker_scaffold
 
 
 def _build_multi_recipe_conversion_result(source_path: Path) -> ConversionResult:
@@ -186,24 +187,24 @@ def _build_recipe_workspace_output(
     for recipe_payload in shard_payload.get("r") or []:
         recipe_payload = dict(recipe_payload)
         recipe_id = str(recipe_payload["rid"])
-        recipe_hint = dict(recipe_payload.get("h") or {})
         repair_status = str(statuses.get(recipe_id) or "repaired")
-        canonical_recipe = (
-            {
-                "t": recipe_hint.get("n"),
-                "i": recipe_hint.get("i", []),
-                "s": recipe_hint.get("s", []),
-                "d": None,
-                "y": None,
+        scaffold = build_recipe_worker_scaffold(
+            task_row={
+                "task_id": str(shard_payload.get("sid") or ""),
+                "owned_ids": [recipe_id],
+                "input_payload": {
+                    "v": "1",
+                    "sid": str(shard_payload.get("sid") or ""),
+                    "ids": [recipe_id],
+                    "r": [recipe_payload],
+                },
             }
-            if repair_status == "repaired"
-            else None
         )
+        scaffold_row = dict((scaffold.get("r") or [{}])[0])
+        canonical_recipe = scaffold_row.get("cr") if repair_status == "repaired" else None
         status_reason = None
-        ingredient_count = len(
-            [item for item in recipe_hint.get("i", []) if str(item or "").strip()]
-        )
-        step_count = len([item for item in recipe_hint.get("s", []) if str(item or "").strip()])
+        ingredient_count = len(list((canonical_recipe or {}).get("i") or []))
+        step_count = len(list((canonical_recipe or {}).get("s") or []))
         if step_count <= 1:
             mapping_reason = "not_needed_single_step"
         elif ingredient_count <= 1:

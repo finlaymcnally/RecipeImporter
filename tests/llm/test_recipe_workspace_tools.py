@@ -22,11 +22,13 @@ def _build_task_row() -> dict[str, object]:
             "r": [
                 {
                     "rid": "urn:recipe:test:toast",
-                    "h": {
-                        "n": "Toast",
-                        "i": ["1 slice bread"],
-                        "s": ["Toast the bread."],
-                    },
+                    "txt": "Toast\n1 slice bread\nToast the bread.",
+                    "ev": [
+                        [1, "Toast"],
+                        [2, "1 slice bread"],
+                        [3, "Toast the bread."],
+                    ],
+                    "w": [],
                 }
             ],
         },
@@ -43,9 +45,16 @@ def _build_complex_task_row() -> dict[str, object]:
     task_row["owned_ids"] = ["urn:recipe:test:tea"]
     task_row["input_payload"]["ids"] = ["urn:recipe:test:tea"]
     task_row["input_payload"]["r"][0]["rid"] = "urn:recipe:test:tea"
-    task_row["input_payload"]["r"][0]["h"]["n"] = "Tea"
-    task_row["input_payload"]["r"][0]["h"]["i"] = ["1 cup water", "1 tea bag"]
-    task_row["input_payload"]["r"][0]["h"]["s"] = ["Boil water.", "Steep the tea bag."]
+    task_row["input_payload"]["r"][0]["txt"] = (
+        "Tea\n1 cup water\n1 tea bag\nBoil water.\nSteep the tea bag."
+    )
+    task_row["input_payload"]["r"][0]["ev"] = [
+        [5, "Tea"],
+        [6, "1 cup water"],
+        [7, "1 tea bag"],
+        [8, "Boil water."],
+        [9, "Steep the tea bag."],
+    ]
     return task_row
 
 
@@ -54,14 +63,19 @@ def _build_multi_ingredient_single_step_task_row() -> dict[str, object]:
     task_row["owned_ids"] = ["urn:recipe:test:dressing"]
     task_row["input_payload"]["ids"] = ["urn:recipe:test:dressing"]
     task_row["input_payload"]["r"][0]["rid"] = "urn:recipe:test:dressing"
-    task_row["input_payload"]["r"][0]["h"]["n"] = "Blue Cheese Dressing"
-    task_row["input_payload"]["r"][0]["h"]["i"] = [
-        "5 ounces blue cheese",
-        "1/2 cup creme fraiche",
-        "1 tablespoon vinegar",
-    ]
-    task_row["input_payload"]["r"][0]["h"]["s"] = [
+    task_row["input_payload"]["r"][0]["txt"] = (
+        "Blue Cheese Dressing\n"
+        "5 ounces blue cheese\n"
+        "1/2 cup creme fraiche\n"
+        "1 tablespoon vinegar\n"
         "Whisk everything together. Taste and adjust. Chill before serving."
+    )
+    task_row["input_payload"]["r"][0]["ev"] = [
+        [1, "Blue Cheese Dressing"],
+        [2, "5 ounces blue cheese"],
+        [3, "1/2 cup creme fraiche"],
+        [4, "1 tablespoon vinegar"],
+        [5, "Whisk everything together. Taste and adjust. Chill before serving."],
     ]
     return task_row
 
@@ -104,7 +118,8 @@ def test_build_recipe_worker_scaffold_uses_exact_task_and_recipe_ids() -> None:
 
 def test_build_recipe_worker_scaffold_fail_closed_when_hint_is_incomplete() -> None:
     task_row = _build_task_row()
-    task_row["input_payload"]["r"][0]["h"] = {"n": "Toast", "i": [], "s": []}
+    task_row["input_payload"]["r"][0]["txt"] = "Toast"
+    task_row["input_payload"]["r"][0]["ev"] = [[1, "Toast"]]
 
     scaffold = build_recipe_worker_scaffold(task_row=task_row)
 
@@ -122,6 +137,23 @@ def test_build_recipe_worker_scaffold_fail_closed_when_hint_is_incomplete() -> N
             "w": [],
         }
     ]
+
+
+def test_build_recipe_worker_scaffold_still_supports_legacy_hint_rows() -> None:
+    task_row = _build_task_row()
+    task_row["input_payload"]["r"][0] = {
+        "rid": "urn:recipe:test:toast",
+        "h": {
+            "n": "Toast",
+            "i": ["1 slice bread"],
+            "s": ["Toast the bread."],
+        },
+    }
+
+    scaffold = build_recipe_worker_scaffold(task_row=task_row)
+
+    assert scaffold["r"][0]["st"] == "repaired"
+    assert scaffold["r"][0]["cr"]["t"] == "Toast"
 
 
 def test_validate_recipe_worker_draft_rejects_unexpected_keys_and_wrong_owned_ids() -> None:

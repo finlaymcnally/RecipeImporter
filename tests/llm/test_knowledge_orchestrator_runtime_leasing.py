@@ -226,7 +226,7 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert stage_summary["pre_kill_failures_observed"] is False
 
 
-def test_knowledge_orchestrator_can_skip_grouping_when_disabled(
+def test_knowledge_orchestrator_runs_grouping_for_kept_knowledge_rows(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -236,7 +236,6 @@ def test_knowledge_orchestrator_can_skip_grouping_when_disabled(
         pack_root=pack_root,
         worker_count=1,
         knowledge_prompt_target_count=1,
-        knowledge_grouping_enabled=False,
     )
     runner = FakeCodexExecRunner(
         output_builder=lambda payload: build_structural_pipeline_output(
@@ -260,9 +259,15 @@ def test_knowledge_orchestrator_can_skip_grouping_when_disabled(
     )
     telemetry = json.loads((phase_dir / "telemetry.json").read_text(encoding="utf-8"))
 
-    assert output_payload["idea_groups"] == []
-    assert telemetry["summary"]["packet_economics"]["grouping_step_count_total"] == 0
-    assert telemetry["summary"]["packet_economics"]["grouping_validation_count_total"] == 0
+    assert output_payload["idea_groups"] == [
+        {
+            "block_indices": [0],
+            "group_id": "g01",
+            "topic_label": "Fake knowledge group",
+        }
+    ]
+    assert telemetry["summary"]["packet_economics"]["grouping_step_count_total"] == 1
+    assert telemetry["summary"]["packet_economics"]["grouping_validation_count_total"] == 1
 
 
 def test_knowledge_orchestrator_retries_one_fresh_session_after_preserved_progress(
@@ -696,17 +701,11 @@ def _structured_classification_rows(payload: dict[str, object]) -> list[dict[str
     return [
         {
             "row_id": str(block.get("row_id") or ""),
-            "category": "knowledge",
+            "category": "proposal_candidate",
             "grounding": {
                 "tag_keys": [],
-                "category_keys": ["techniques"],
-                "proposed_tags": [
-                    {
-                        "key": "heat-control",
-                        "display_name": "Heat control",
-                        "category_key": "techniques",
-                    }
-                ],
+                "category_keys": [],
+                "proposed_tags": [],
             },
         }
         for block in (payload.get("rows") or [])
@@ -720,11 +719,32 @@ def _structured_grouping_rows(
     topic_label: str,
 ) -> list[dict[str, object]]:
     return [
-        {
-            "row_id": str(block.get("row_id") or ""),
-            "group_key": "heat-control",
-            "topic_label": topic_label,
-        }
+        (
+            {
+                "row_id": str(block.get("row_id") or ""),
+                "group_key": "heat-control",
+                "topic_label": topic_label,
+                "proposal_decision": "approved",
+                "proposed_tag": {
+                    "key": "heat-control",
+                    "display_name": "Heat Control",
+                    "category_key": "techniques",
+                },
+                "why_no_existing_tag": "The row is about heat control broadly rather than an existing catalog tag.",
+                "retrieval_query": "heat control cooking",
+            }
+            if str(block.get("classification_category") or "").strip()
+            == "proposal_candidate"
+            else {
+                "row_id": str(block.get("row_id") or ""),
+                "group_key": "heat-control",
+                "topic_label": topic_label,
+                "proposal_decision": "not_applicable",
+                "proposed_tag": None,
+                "why_no_existing_tag": None,
+                "retrieval_query": None,
+            }
+        )
         for block in (payload.get("rows") or [])
         if isinstance(block, dict)
     ]

@@ -703,9 +703,6 @@ def _build_recipe_shard_preview_rows(
                         for item in payload.get("evidence_rows", payload.get("ev")) or []
                         if isinstance(item, (list, tuple)) and len(item) == 2
                     ],
-                    recipe_candidate_hint=_coerce_dict(
-                        payload.get("recipe_candidate_hint", payload.get("h"))
-                    ),
                     warnings=[],
                 )
             )

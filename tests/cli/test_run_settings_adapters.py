@@ -93,7 +93,6 @@ def test_build_stage_call_kwargs_propagates_codex_prompt_targets() -> None:
         llm_knowledge_pipeline="codex-knowledge-candidate-v2",
         recipe_prompt_target_count=9,
         knowledge_prompt_target_count=4,
-        knowledge_grouping_enabled=False,
     )
 
     kwargs = build_stage_call_kwargs_from_run_settings(
@@ -107,7 +106,6 @@ def test_build_stage_call_kwargs_propagates_codex_prompt_targets() -> None:
 
     assert kwargs["recipe_prompt_target_count"] == 9
     assert kwargs["knowledge_prompt_target_count"] == 4
-    assert kwargs["knowledge_grouping_enabled"] is False
     assert kwargs["llm_knowledge_pipeline"] == "codex-knowledge-candidate-v2"
 
 
@@ -117,7 +115,6 @@ def test_run_settings_adapters_bind_to_registered_stage_and_benchmark_commands()
         llm_knowledge_pipeline="codex-knowledge-candidate-v2",
         recipe_prompt_target_count=7,
         knowledge_prompt_target_count=3,
-        knowledge_grouping_enabled=False,
     )
 
     stage_kwargs = build_stage_call_kwargs_from_run_settings(

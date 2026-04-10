@@ -466,35 +466,24 @@ def _collect_block_grounding_details(
     counts = {
         "kept_knowledge_block_count": 0,
         "retrieval_gate_rejected_block_count": 0,
+        "existing_tag_kept_knowledge_block_count": 0,
+        "proposal_candidate_block_count": 0,
+        "approved_proposal_candidate_block_count": 0,
+        "rejected_proposal_candidate_block_count": 0,
         "knowledge_blocks_grounded_to_existing_tags": 0,
         "knowledge_blocks_using_proposed_tags": 0,
-        "weak_grounding_block_count": 0,
-        "weak_grounding_after_invalid_grounding_drop_count": 0,
-        "weak_grounding_category_only_count": 0,
     }
-    weak_grounding_reason_counts: dict[str, int] = {}
     for packet_id, output in outputs.items():
         packet_metadata = _coerce_dict((proposal_metadata_by_packet_id or {}).get(packet_id))
-        packet_weak_grounding_block_count = int(
-            packet_metadata.get("weak_grounding_block_count") or 0
+        counts["proposal_candidate_block_count"] += int(
+            packet_metadata.get("proposal_candidate_block_count") or 0
         )
-        counts["weak_grounding_block_count"] += packet_weak_grounding_block_count
-        counts["weak_grounding_after_invalid_grounding_drop_count"] += int(
-            packet_metadata.get("weak_grounding_after_invalid_grounding_drop_count") or 0
+        counts["approved_proposal_candidate_block_count"] += int(
+            packet_metadata.get("approved_proposal_candidate_block_count") or 0
         )
-        counts["weak_grounding_category_only_count"] += int(
-            packet_metadata.get("weak_grounding_category_only_count") or 0
+        counts["rejected_proposal_candidate_block_count"] += int(
+            packet_metadata.get("rejected_proposal_candidate_block_count") or 0
         )
-        for reason, value in _coerce_dict(
-            packet_metadata.get("weak_grounding_reason_counts")
-        ).items():
-            cleaned_reason = str(reason).strip()
-            if not cleaned_reason:
-                continue
-            weak_grounding_reason_counts[cleaned_reason] = (
-                int(weak_grounding_reason_counts.get(cleaned_reason) or 0)
-                + int(value or 0)
-            )
         for decision in getattr(output, "block_decisions", ()) or ():
             block_index = int(getattr(decision, "block_index", 0) or 0)
             if block_index not in normalized_allowed:
@@ -506,6 +495,7 @@ def _collect_block_grounding_details(
             counts["kept_knowledge_block_count"] += 1
             grounding = _serialize_decision_grounding(decision)
             if grounding["tag_keys"]:
+                counts["existing_tag_kept_knowledge_block_count"] += 1
                 counts["knowledge_blocks_grounded_to_existing_tags"] += 1
             if grounding["proposed_tags"]:
                 counts["knowledge_blocks_using_proposed_tags"] += 1
@@ -548,7 +538,4 @@ def _collect_block_grounding_details(
         )
     ]
     counts["tag_proposal_count"] = len(proposal_rows)
-    counts["weak_grounding_reason_counts"] = dict(
-        sorted(weak_grounding_reason_counts.items())
-    )
     return grounding_by_block, counts, proposal_rows

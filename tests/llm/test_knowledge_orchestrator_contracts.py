@@ -145,21 +145,19 @@ def test_knowledge_worker_hint_stays_compact_and_keeps_high_signal_sections(
     _write_knowledge_worker_hint(path=hint_path, shard=shard)
     rendered = hint_path.read_text(encoding="utf-8")
 
-    assert "## Packet summary" in rendered
-    assert "## Shard interpretation" in rendered
-    assert "## Decision policy" in rendered
+    assert "## Worker flow" in rendered
     assert "## Shard examples" in rendered
-    assert "## Attention rows" in rendered
     assert "## How to use this task" not in rendered
-    assert "## Shard profile" not in rendered
+    assert "## Packet summary" not in rendered
+    assert "## Shard interpretation" not in rendered
+    assert "## Decision policy" not in rendered
+    assert "## Attention rows" not in rendered
     assert "`examples/valid_heading_with_useful_body_packet.json`" in rendered
     assert "Nearby recipe guardrail block indices: `2, 3`." in rendered
-    assert "gap_from_prev=14" in rendered
-    assert "table_hint" in rendered
-    assert "Do not turn heading shape or packet profile into a bulk heuristic" in rendered
-    assert "If a short heading feels ambiguous, ask whether it introduces portable cooking knowledge and is supported by reusable body text" in rendered
-    assert "Memoir, praise, endorsement, foreword, and thesis-like framing are usually `other`" in rendered
-    assert rendered.count("## ") == 5
+    assert "Owned block range: `4..40`." in rendered
+    assert "Read the owned blocks in order from the authoritative shard input." in rendered
+    assert "Use nearby rows only as local context while making your own semantic judgment." in rendered
+    assert rendered.count("## ") == 2
 
 
 def test_knowledge_stage_shared_no_longer_imports_legacy_workspace_helper_surface() -> None:

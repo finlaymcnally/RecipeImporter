@@ -45,7 +45,6 @@ The most important settings at the start of a run are:
 - `recipe_prompt_target_count`: the requested shard count for recipe-refine workers
 - `line_role_prompt_target_count`: the requested shard count for line-role workers
 - `knowledge_prompt_target_count`: the requested shard count for non-recipe finalize workers
-- `knowledge_grouping_enabled`: whether kept `knowledge` rows get a second pass that groups them into related idea clusters
 - `ingredient_text_fix_backend`, `ingredient_pre_normalize_mode`, `ingredient_packaging_mode`, `ingredient_parser_backend`, `ingredient_unit_canonicalizer`, and `ingredient_missing_unit_policy`: the main ingredient-parsing behavior knobs
 - `write_markdown`: whether the run writes human-readable markdown sidecars such as `sections.md`, `tables.md`, and `chunks.md`
 
@@ -354,14 +353,15 @@ Before the model sees anything, repo code partitions the surviving candidate que
 
 The worker-facing transport can vary by run settings. In some runs the worker edits repo-written `task.json` files. In others the worker answers inline JSON prompts. That implementation detail can change, but the authority boundary does not: repo code still decides which blocks are eligible, validates the returned structure, and only promotes accepted answers.
 
-The semantic review is split into two jobs, but only one of them is always on when this stage is enabled:
+The semantic review is split into two jobs, and both run whenever this stage is enabled:
 
-- classification decides, block by block, whether each candidate row is final `knowledge` or final `other`
-- grouping is a second pass that runs only on rows already kept as `knowledge`, and only when `knowledge_grouping_enabled` is on
+- classification decides, block by block, whether each candidate row is `knowledge`, `proposal_candidate`, or `other`
+- grouping is the second pass that groups retained knowledge rows and also approves or rejects `proposal_candidate` rows
 
 So the model always decides:
 
-- which reviewed rows are real `knowledge`
+- which reviewed rows are direct existing-tag `knowledge`
+- which reviewed rows are potential ontology-gap candidates that need second-pass review
 - which reviewed rows are just `other`
 
 And when grouping is enabled, it also decides:

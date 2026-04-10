@@ -5,7 +5,9 @@ import json
 from typing import Any, Mapping, Sequence
 
 from ..codex_farm_knowledge_models import (
+    ALLOWED_KNOWLEDGE_CLASSIFICATION_CATEGORIES,
     ALLOWED_KNOWLEDGE_FINAL_CATEGORIES,
+    ALLOWED_KNOWLEDGE_PROPOSAL_DECISIONS,
 )
 from ..editable_task_file import (
     build_repair_task_file,
@@ -92,6 +94,17 @@ def _canonical_other_classification_answer() -> dict[str, Any]:
     }
 
 
+def _blank_grouping_answer() -> dict[str, Any]:
+    return {
+        "group_key": None,
+        "topic_label": None,
+        "proposal_decision": None,
+        "proposed_tag": None,
+        "why_no_existing_tag": None,
+        "retrieval_query": None,
+    }
+
+
 def _trimmed_text_or_none(value: Any) -> str | None:
     cleaned = str(value or "").strip()
     return cleaned or None
@@ -172,14 +185,20 @@ def _knowledge_classification_answer_schema() -> dict[str, Any]:
     return {
         "editable_pointer_pattern": "/units/*/answer",
         "required_keys": ["category", "grounding"],
-        "allowed_values": {"category": list(ALLOWED_KNOWLEDGE_FINAL_CATEGORIES)},
+        "allowed_values": {"category": list(ALLOWED_KNOWLEDGE_CLASSIFICATION_CATEGORIES)},
         "example_answers": [
             {
                 "category": "knowledge",
                 "grounding": {
                     "tag_keys": ["emulsify"],
                     "category_keys": ["techniques"],
-                    "proposed_tags": [],
+                },
+            },
+            {
+                "category": "proposal_candidate",
+                "grounding": {
+                    "tag_keys": [],
+                    "category_keys": [],
                 },
             },
             {
@@ -187,7 +206,6 @@ def _knowledge_classification_answer_schema() -> dict[str, Any]:
                 "grounding": {
                     "tag_keys": [],
                     "category_keys": [],
-                    "proposed_tags": [],
                 },
             },
         ],
@@ -213,17 +231,16 @@ def _knowledge_classification_review_contract() -> dict[str, Any]:
             "A heading or bridge row can support nearby knowledge without itself being knowledge.",
             "A heading alone is not enough for knowledge; keep a heading only when it directly introduces reusable explanatory content in the owned packet.",
             "Ground knowledge to existing tags from the provided catalog whenever a real fit exists.",
-            "Propose a new tag only when no existing tag fits cleanly and the exact block is still worth retrieving later as standalone cooking knowledge.",
-            "Do not propose a tag whose key or display name is just an exact restatement of an existing catalog tag; use the existing tag instead.",
-            "A proposed tag should name one concrete retrieval concept anchored in this exact row, such as a specific technique, ingredient behavior, diagnostic, storage rule, or equipment use.",
+            "Return `knowledge` only when at least one real existing tag fits this exact row.",
+            "Return `proposal_candidate` only when the row still feels worth retrieving later as standalone cooking knowledge but no existing tag fits cleanly.",
+            "Return `proposal_candidate` with empty grounding. Do not invent or preview proposed tags in this first pass.",
             "Short conceptual headings can still be knowledge when they introduce real explanatory content; shortness alone is not enough to drop a block.",
         ],
         "anti_patterns": [
             "Do not invent a rule that classifies many rows at once from heading level, casing, length, or title shape.",
             "Do not treat the whole packet as one semantic unit just because the rows are adjacent.",
             "Do not keep memoir, praise, endorsement, foreword, thesis, manifesto, or broad inspiration-about-cooking prose as knowledge just because it contains true cooking claims.",
-            "Do not invent a new tag just because the text vaguely gestures at cooking; real catalog matches come first.",
-            "Do not coin broad chapter-theme, editorial, or pedagogy-summary tags such as umbrella 'heat science', 'fat management', or 'ingredient quality' labels when the row is only one local explanation inside a broader lesson.",
+            "Do not invent a new tag in the first pass. That decision belongs to the second-pass proposal review step.",
             "Navigation, decorative headings, book framing, memoir scene-setting, and true-but-low-utility filler belong in `other` even when you can imagine a plausible tag.",
             "If you feel tempted to batch or script the decision, stop and reread the actual owned block text instead.",
         ],
@@ -233,11 +250,37 @@ def _knowledge_classification_review_contract() -> dict[str, Any]:
 def _knowledge_grouping_answer_schema() -> dict[str, Any]:
     return {
         "editable_pointer_pattern": "/units/*/answer",
-        "required_keys": ["group_key", "topic_label"],
+        "required_keys": [
+            "group_key",
+            "topic_label",
+            "proposal_decision",
+            "proposed_tag",
+            "why_no_existing_tag",
+            "retrieval_query",
+        ],
+        "allowed_values": {
+            "proposal_decision": list(ALLOWED_KNOWLEDGE_PROPOSAL_DECISIONS),
+        },
         "example_answers": [
             {
                 "group_key": "heat-control",
                 "topic_label": "Heat control",
+                "proposal_decision": "not_applicable",
+                "proposed_tag": None,
+                "why_no_existing_tag": None,
+                "retrieval_query": None,
+            },
+            {
+                "group_key": "rendering-fat",
+                "topic_label": "Rendering fat",
+                "proposal_decision": "approved",
+                "proposed_tag": {
+                    "key": "rendering",
+                    "display_name": "Rendering",
+                    "category_key": "techniques",
+                },
+                "why_no_existing_tag": "The catalog has nearby heat tags but no direct tag for slowly melting solid fat into usable rendered fat.",
+                "retrieval_query": "how to render chicken fat",
             }
         ],
     }
@@ -310,7 +353,8 @@ def _collect_knowledge_grouping_units(
         if allowed_unit_id_set is not None and unit_id not in allowed_unit_id_set:
             continue
         answer = _coerce_dict(classification_answers_by_unit_id.get(unit_id))
-        if str(answer.get("category") or "").strip() != "knowledge":
+        category = str(answer.get("category") or "").strip()
+        if category not in {"knowledge", "proposal_candidate"}:
             continue
         evidence = _coerce_dict(unit_dict.get("evidence"))
         block_index = int(evidence.get("block_index") or 0)
@@ -332,7 +376,11 @@ def _collect_knowledge_grouping_units(
                     "context_after": evidence.get("context_after"),
                     "structure": dict(_coerce_dict(evidence.get("structure"))),
                 },
-                "answer": {},
+                "classification": {
+                    "category": category,
+                    "grounding": _normalize_output_grounding(answer.get("grounding")),
+                },
+                "answer": _blank_grouping_answer(),
             }
         )
     return units, grouping_unit_to_shard_id
@@ -524,9 +572,6 @@ def validate_knowledge_classification_task_file(
     catalog = load_knowledge_tag_catalog()
     category_keys = set(catalog.category_by_key)
     tag_keys = set(catalog.tag_by_key)
-    tag_keys_by_normalized_display_name = (
-        catalog.tag_keys_by_normalized_display_name
-    )
     answers_by_unit_id, errors, metadata = validate_edited_task_file(
         original_task_file=original_task_file,
         edited_task_file=edited_task_file,
@@ -540,8 +585,6 @@ def validate_knowledge_classification_task_file(
     unresolved_block_indices: list[int] = []
     missing_block_indices: list[int] = []
     validated_answers: dict[str, dict[str, Any]] = {}
-    weak_grounding_details: list[dict[str, Any]] = []
-    grounding_drop_details: list[dict[str, Any]] = []
     units_by_id = {
         str(unit.get("unit_id") or "").strip(): dict(unit)
         for unit in (original_task_file.get("units") or [])
@@ -557,9 +600,6 @@ def validate_knowledge_classification_task_file(
         proposed_tags_raw = grounding.get("proposed_tags")
         normalized_grounding = empty_grounding_payload()
         unit_failed = False
-        unit_grounding_drop_codes: list[str] = []
-        unit_grounding_drop_details: list[dict[str, Any]] = []
-        unit_existing_tag_conflict = False
         if not category:
             next_errors.append("knowledge_block_missing_decision")
             missing_block_indices.append(block_index)
@@ -571,13 +611,13 @@ def validate_knowledge_classification_task_file(
                 }
             )
             unit_failed = True
-        elif category not in ALLOWED_KNOWLEDGE_FINAL_CATEGORIES:
+        elif category not in ALLOWED_KNOWLEDGE_CLASSIFICATION_CATEGORIES:
             next_errors.append("invalid_category")
             error_details.append(
                 {
                     "path": f"/units/{unit_id}/answer/category",
                     "code": "invalid_category",
-                    "message": "category must be 'knowledge' or 'other'",
+                    "message": "category must be 'knowledge', 'proposal_candidate', or 'other'",
                 }
             )
             unit_failed = True
@@ -594,14 +634,15 @@ def validate_knowledge_classification_task_file(
         for tag_key in _normalized_string_list(raw_tag_keys):
             normalized_tag_key = normalize_knowledge_tag_key(tag_key)
             if normalized_tag_key not in tag_keys:
-                unit_grounding_drop_codes.append("unknown_grounding_tag_key")
-                unit_grounding_drop_details.append(
+                next_errors.append("unknown_grounding_tag_key")
+                error_details.append(
                     {
                         "path": f"/units/{unit_id}/answer/grounding/tag_keys",
                         "code": "unknown_grounding_tag_key",
                         "message": f"unknown grounding tag key {tag_key!r}",
                     }
                 )
+                unit_failed = True
                 continue
             normalized_grounding["tag_keys"].append(normalized_tag_key)
         if raw_category_keys not in (None, "") and not isinstance(raw_category_keys, list):
@@ -617,172 +658,69 @@ def validate_knowledge_classification_task_file(
         for category_key in _normalized_string_list(raw_category_keys):
             normalized_category_key = normalize_knowledge_tag_key(category_key)
             if normalized_category_key not in category_keys:
-                unit_grounding_drop_codes.append("unknown_grounding_category_key")
-                unit_grounding_drop_details.append(
+                next_errors.append("unknown_grounding_category_key")
+                error_details.append(
                     {
                         "path": f"/units/{unit_id}/answer/grounding/category_keys",
                         "code": "unknown_grounding_category_key",
                         "message": f"unknown grounding category key {category_key!r}",
                     }
                 )
+                unit_failed = True
                 continue
             normalized_grounding["category_keys"].append(normalized_category_key)
         if proposed_tags_raw not in (None, "") and not isinstance(proposed_tags_raw, list):
-            next_errors.append("invalid_grounding_proposed_tags")
+            next_errors.append("classification_proposed_tags_forbidden")
             error_details.append(
                 {
                     "path": f"/units/{unit_id}/answer/grounding/proposed_tags",
-                    "code": "invalid_grounding_proposed_tags",
-                    "message": "grounding.proposed_tags must be a list of proposed tag objects",
+                    "code": "classification_proposed_tags_forbidden",
+                    "message": "first-pass classification must not include proposed_tags",
                 }
             )
             unit_failed = True
-        proposed_keys_seen: set[str] = set()
-        for index, row in enumerate(proposed_tags_raw or []):
-            if not isinstance(row, Mapping):
-                next_errors.append("invalid_grounding_proposed_tags")
-                error_details.append(
-                    {
-                        "path": f"/units/{unit_id}/answer/grounding/proposed_tags/{index}",
-                        "code": "invalid_grounding_proposed_tags",
-                        "message": "each proposed tag must be a JSON object",
-                    }
-                )
-                unit_failed = True
-                continue
-            proposed_key = str(row.get("key") or "").strip()
-            normalized_proposed_key = normalize_knowledge_tag_key(proposed_key)
-            proposed_drop_details: list[dict[str, Any]] = []
-            if not proposed_key or proposed_key != normalized_proposed_key:
-                proposed_drop_details.append(
-                    {
-                        "path": f"/units/{unit_id}/answer/grounding/proposed_tags/{index}/key",
-                        "code": "invalid_proposed_tag_key",
-                        "message": "proposed tag keys must already be normalized slug strings",
-                    }
-                )
-            if normalized_proposed_key in tag_keys:
-                proposed_drop_details.append(
-                    {
-                        "path": f"/units/{unit_id}/answer/grounding/proposed_tags/{index}/key",
-                        "code": "proposed_tag_key_conflicts_existing",
-                        "message": "proposed tag keys must not duplicate an existing tag key",
-                    }
-                )
-            if normalized_proposed_key in proposed_keys_seen:
-                proposed_drop_details.append(
-                    {
-                        "path": f"/units/{unit_id}/answer/grounding/proposed_tags/{index}/key",
-                        "code": "duplicate_proposed_tag_key",
-                        "message": "proposed tag keys must be unique within one answer",
-                    }
-                )
-            display_name = str(row.get("display_name") or "").strip()
-            if not display_name or len(display_name) > 64:
-                proposed_drop_details.append(
-                    {
-                        "path": f"/units/{unit_id}/answer/grounding/proposed_tags/{index}/display_name",
-                        "code": "invalid_proposed_tag_display_name",
-                        "message": "proposed display_name must be a short non-empty string",
-                    }
-                )
-            normalized_display_name = normalize_knowledge_tag_key(display_name)
-            conflicting_existing_tag_keys = sorted(
-                tag_keys_by_normalized_display_name.get(normalized_display_name) or ()
-            )
-            if conflicting_existing_tag_keys:
-                proposed_drop_details.append(
-                    {
-                        "path": f"/units/{unit_id}/answer/grounding/proposed_tags/{index}/display_name",
-                        "code": "proposed_tag_display_name_conflicts_existing",
-                        "message": (
-                            "proposed tag display_name matches an existing tag; "
-                            "use the existing tag instead"
-                        ),
-                    }
-                )
-            proposed_category_key = normalize_knowledge_tag_key(row.get("category_key"))
-            if not proposed_category_key or proposed_category_key not in category_keys:
-                proposed_drop_details.append(
-                    {
-                        "path": f"/units/{unit_id}/answer/grounding/proposed_tags/{index}/category_key",
-                        "code": "unknown_grounding_category_key",
-                        "message": "proposed tag category_key must be an existing category key",
-                    }
-                )
-            if proposed_drop_details:
-                if any(
-                    str(detail.get("code") or "").strip()
-                    in {
-                        "proposed_tag_key_conflicts_existing",
-                        "proposed_tag_display_name_conflicts_existing",
-                    }
-                    for detail in proposed_drop_details
-                ):
-                    unit_existing_tag_conflict = True
-                unit_grounding_drop_codes.extend(
-                    str(detail.get("code") or "").strip()
-                    for detail in proposed_drop_details
-                    if str(detail.get("code") or "").strip()
-                )
-                unit_grounding_drop_details.extend(proposed_drop_details)
-                continue
-            proposed_keys_seen.add(normalized_proposed_key)
-            normalized_grounding["proposed_tags"].append(
-                {
-                    "key": normalized_proposed_key,
-                    "display_name": display_name,
-                    "category_key": proposed_category_key,
-                }
-            )
-        if unit_grounding_drop_details:
-            grounding_drop_details.extend(
-                {
-                    "unit_id": unit_id,
-                    "block_index": block_index,
-                    **dict(detail),
-                }
-                for detail in unit_grounding_drop_details
-            )
-        if category == "knowledge" and unit_existing_tag_conflict:
-            next_errors.append("knowledge_grounding_existing_tag_required")
+        if any(isinstance(row, Mapping) for row in (proposed_tags_raw or [])):
+            next_errors.append("classification_proposed_tags_forbidden")
             error_details.append(
                 {
                     "path": f"/units/{unit_id}/answer/grounding",
-                    "code": "knowledge_grounding_existing_tag_required",
+                    "code": "classification_proposed_tags_forbidden",
                     "message": (
-                        "use the existing catalog tag instead of proposing an exact "
-                        "existing-tag duplicate"
+                        "first-pass classification must not invent proposed tags; "
+                        "use `proposal_candidate` instead"
                     ),
                 }
             )
             unit_failed = True
         if category == "knowledge":
-            if (
-                not unit_failed
-                and not normalized_grounding["tag_keys"]
-                and not normalized_grounding["proposed_tags"]
-            ):
-                weak_grounding_reason = "category_only_grounding"
-                if not normalized_grounding["category_keys"]:
-                    weak_grounding_reason = "missing_grounding"
-                    if unit_grounding_drop_details:
-                        weak_grounding_reason = "invalid_grounding_dropped_to_empty"
-                weak_grounding_details.append(
+            if not normalized_grounding["tag_keys"]:
+                next_errors.append("knowledge_grounding_existing_tag_required")
+                error_details.append(
                     {
-                        "unit_id": unit_id,
-                        "block_index": block_index,
-                        "reason": weak_grounding_reason,
-                        "retained_category_keys": list(normalized_grounding["category_keys"]),
-                        "dropped_grounding_error_codes": sorted(
-                            {
-                                str(code).strip()
-                                for code in unit_grounding_drop_codes
-                                if str(code).strip()
-                            }
-                        ),
+                        "path": f"/units/{unit_id}/answer/grounding/tag_keys",
+                        "code": "knowledge_grounding_existing_tag_required",
+                        "message": "knowledge rows must ground to at least one existing tag key",
                     }
                 )
+                unit_failed = True
+        elif category == "proposal_candidate":
+            if (
+                _normalized_string_list(raw_tag_keys)
+                or _normalized_string_list(raw_category_keys)
+                or list(proposed_tags_raw or [])
+                or normalized_grounding["tag_keys"]
+                or normalized_grounding["category_keys"]
+                or normalized_grounding["proposed_tags"]
+            ):
+                next_errors.append("proposal_candidate_grounding_forbidden")
+                error_details.append(
+                    {
+                        "path": f"/units/{unit_id}/answer/grounding",
+                        "code": "proposal_candidate_grounding_forbidden",
+                        "message": "proposal_candidate rows must use empty grounding in the first pass",
+                    }
+                )
+                unit_failed = True
         elif category == "other":
             if (
                 normalized_grounding["tag_keys"]
@@ -791,7 +729,6 @@ def validate_knowledge_classification_task_file(
                 or _normalized_string_list(raw_tag_keys)
                 or _normalized_string_list(raw_category_keys)
                 or list(proposed_tags_raw or [])
-                or unit_grounding_drop_details
             ):
                 next_errors.append("other_grounding_forbidden")
                 error_details.append(
@@ -817,35 +754,6 @@ def validate_knowledge_classification_task_file(
         "unresolved_block_indices": sorted(set(unresolved_block_indices)),
         "missing_block_indices": sorted(set(missing_block_indices)),
         "validated_answers_by_unit_id": validated_answers,
-        "weak_grounding_details": weak_grounding_details,
-        "weak_grounding_unit_ids": [
-            str(detail.get("unit_id") or "").strip()
-            for detail in weak_grounding_details
-            if str(detail.get("unit_id") or "").strip()
-        ],
-        "weak_grounding_block_indices": sorted(
-            {
-                int(detail.get("block_index"))
-                for detail in weak_grounding_details
-                if detail.get("block_index") is not None
-            }
-        ),
-        "weak_grounding_reason_counts": {
-            reason: sum(
-                1
-                for detail in weak_grounding_details
-                if str(detail.get("reason") or "").strip() == reason
-            )
-            for reason in sorted(
-                {
-                    str(detail.get("reason") or "").strip()
-                    for detail in weak_grounding_details
-                    if str(detail.get("reason") or "").strip()
-                }
-            )
-        },
-        "weak_grounding_block_count": len(weak_grounding_details),
-        "grounding_drop_details": grounding_drop_details,
     }
     if next_errors:
         return None, tuple(dict.fromkeys(next_errors)), next_metadata
@@ -893,6 +801,10 @@ def validate_knowledge_grouping_task_file(
     original_task_file: Mapping[str, Any],
     edited_task_file: Mapping[str, Any],
 ) -> tuple[dict[str, dict[str, Any]] | None, tuple[str, ...], dict[str, Any]]:
+    catalog = load_knowledge_tag_catalog()
+    category_keys = set(catalog.category_by_key)
+    tag_keys = set(catalog.tag_by_key)
+    tag_keys_by_normalized_display_name = catalog.tag_keys_by_normalized_display_name
     answers_by_unit_id, errors, metadata = validate_edited_task_file(
         original_task_file=original_task_file,
         edited_task_file=edited_task_file,
@@ -913,8 +825,15 @@ def validate_knowledge_grouping_task_file(
     for unit_id, answer in answers_by_unit_id.items():
         unit = units_by_id.get(unit_id) or {}
         block_index = int(_coerce_dict(unit.get("evidence")).get("block_index") or 0)
+        classification = _coerce_dict(unit.get("classification"))
+        classification_category = str(classification.get("category") or "").strip()
         group_key = str(answer.get("group_key") or "").strip()
         topic_label = str(answer.get("topic_label") or "").strip()
+        proposal_decision = str(answer.get("proposal_decision") or "").strip()
+        proposed_tag_raw = answer.get("proposed_tag")
+        proposed_tag = _coerce_dict(proposed_tag_raw)
+        why_no_existing_tag = _trimmed_text_or_none(answer.get("why_no_existing_tag"))
+        retrieval_query = _trimmed_text_or_none(answer.get("retrieval_query"))
         unit_failed = False
         if not group_key:
             next_errors.append("knowledge_block_missing_group")
@@ -936,6 +855,155 @@ def validate_knowledge_grouping_task_file(
                 }
             )
             unit_failed = True
+        if proposal_decision not in ALLOWED_KNOWLEDGE_PROPOSAL_DECISIONS:
+            next_errors.append("invalid_proposal_decision")
+            error_details.append(
+                {
+                    "path": f"/units/{unit_id}/answer/proposal_decision",
+                    "code": "invalid_proposal_decision",
+                    "message": "proposal_decision must be not_applicable, approved, or rejected",
+                }
+            )
+            unit_failed = True
+        normalized_proposed_tag: dict[str, Any] | None = None
+        if classification_category == "knowledge":
+            if proposal_decision != "not_applicable":
+                next_errors.append("knowledge_grouping_proposal_forbidden")
+                error_details.append(
+                    {
+                        "path": f"/units/{unit_id}/answer/proposal_decision",
+                        "code": "knowledge_grouping_proposal_forbidden",
+                        "message": "existing-tag knowledge rows must use proposal_decision=not_applicable",
+                    }
+                )
+                unit_failed = True
+            if proposed_tag_raw not in (None, "") or why_no_existing_tag or retrieval_query:
+                next_errors.append("knowledge_grouping_proposal_forbidden")
+                error_details.append(
+                    {
+                        "path": f"/units/{unit_id}/answer",
+                        "code": "knowledge_grouping_proposal_forbidden",
+                        "message": "existing-tag knowledge rows must not invent or justify proposals in grouping",
+                    }
+                )
+                unit_failed = True
+        elif classification_category == "proposal_candidate":
+            if proposal_decision not in {"approved", "rejected"}:
+                next_errors.append("proposal_candidate_resolution_required")
+                error_details.append(
+                    {
+                        "path": f"/units/{unit_id}/answer/proposal_decision",
+                        "code": "proposal_candidate_resolution_required",
+                        "message": "proposal_candidate rows must be approved or rejected in grouping",
+                    }
+                )
+                unit_failed = True
+            if proposal_decision == "rejected":
+                if proposed_tag_raw not in (None, "") or why_no_existing_tag or retrieval_query:
+                    next_errors.append("rejected_proposal_candidate_fields_forbidden")
+                    error_details.append(
+                        {
+                            "path": f"/units/{unit_id}/answer",
+                            "code": "rejected_proposal_candidate_fields_forbidden",
+                            "message": "rejected proposal candidates must leave proposal fields empty",
+                        }
+                    )
+                    unit_failed = True
+            elif proposal_decision == "approved":
+                if not isinstance(proposed_tag_raw, Mapping):
+                    next_errors.append("approved_proposal_tag_required")
+                    error_details.append(
+                        {
+                            "path": f"/units/{unit_id}/answer/proposed_tag",
+                            "code": "approved_proposal_tag_required",
+                            "message": "approved proposal candidates must include one proposed_tag object",
+                        }
+                    )
+                    unit_failed = True
+                else:
+                    proposed_key = str(proposed_tag.get("key") or "").strip()
+                    normalized_proposed_key = normalize_knowledge_tag_key(proposed_key)
+                    display_name = str(proposed_tag.get("display_name") or "").strip()
+                    normalized_display_name = normalize_knowledge_tag_key(display_name)
+                    proposed_category_key = normalize_knowledge_tag_key(
+                        proposed_tag.get("category_key")
+                    )
+                    if not proposed_key or proposed_key != normalized_proposed_key:
+                        next_errors.append("invalid_proposed_tag_key")
+                        error_details.append(
+                            {
+                                "path": f"/units/{unit_id}/answer/proposed_tag/key",
+                                "code": "invalid_proposed_tag_key",
+                                "message": "proposed tag keys must already be normalized slug strings",
+                            }
+                        )
+                        unit_failed = True
+                    elif normalized_proposed_key in tag_keys:
+                        next_errors.append("proposed_tag_key_conflicts_existing")
+                        error_details.append(
+                            {
+                                "path": f"/units/{unit_id}/answer/proposed_tag/key",
+                                "code": "proposed_tag_key_conflicts_existing",
+                                "message": "proposed tag keys must not duplicate an existing tag key",
+                            }
+                        )
+                        unit_failed = True
+                    if not display_name or len(display_name) > 64:
+                        next_errors.append("invalid_proposed_tag_display_name")
+                        error_details.append(
+                            {
+                                "path": f"/units/{unit_id}/answer/proposed_tag/display_name",
+                                "code": "invalid_proposed_tag_display_name",
+                                "message": "proposed display_name must be a short non-empty string",
+                            }
+                        )
+                        unit_failed = True
+                    elif tag_keys_by_normalized_display_name.get(normalized_display_name):
+                        next_errors.append("proposed_tag_display_name_conflicts_existing")
+                        error_details.append(
+                            {
+                                "path": f"/units/{unit_id}/answer/proposed_tag/display_name",
+                                "code": "proposed_tag_display_name_conflicts_existing",
+                                "message": "proposed tag display_name matches an existing tag; use the existing tag instead",
+                            }
+                        )
+                        unit_failed = True
+                    if not proposed_category_key or proposed_category_key not in category_keys:
+                        next_errors.append("unknown_grounding_category_key")
+                        error_details.append(
+                            {
+                                "path": f"/units/{unit_id}/answer/proposed_tag/category_key",
+                                "code": "unknown_grounding_category_key",
+                                "message": "proposed tag category_key must be an existing category key",
+                            }
+                        )
+                        unit_failed = True
+                    if not why_no_existing_tag:
+                        next_errors.append("proposal_justification_required")
+                        error_details.append(
+                            {
+                                "path": f"/units/{unit_id}/answer/why_no_existing_tag",
+                                "code": "proposal_justification_required",
+                                "message": "approved proposal candidates must explain why no existing tag fits",
+                            }
+                        )
+                        unit_failed = True
+                    if not retrieval_query:
+                        next_errors.append("proposal_retrieval_query_required")
+                        error_details.append(
+                            {
+                                "path": f"/units/{unit_id}/answer/retrieval_query",
+                                "code": "proposal_retrieval_query_required",
+                                "message": "approved proposal candidates must include a plausible retrieval_query",
+                            }
+                        )
+                        unit_failed = True
+                    if not unit_failed:
+                        normalized_proposed_tag = {
+                            "key": normalized_proposed_key,
+                            "display_name": display_name,
+                            "category_key": proposed_category_key,
+                        }
         if unit_failed:
             failed_unit_ids.append(unit_id)
             unresolved_block_indices.append(block_index)
@@ -943,6 +1011,10 @@ def validate_knowledge_grouping_task_file(
         validated_answers[unit_id] = {
             "group_key": group_key,
             "topic_label": topic_label,
+            "proposal_decision": proposal_decision,
+            "proposed_tag": normalized_proposed_tag,
+            "why_no_existing_tag": why_no_existing_tag,
+            "retrieval_query": retrieval_query,
         }
     next_metadata = {
         **dict(metadata),
@@ -985,16 +1057,47 @@ def combine_knowledge_task_file_outputs(
         group_members: dict[tuple[str, str], list[int]] = {}
         block_decisions: list[dict[str, Any]] = []
         for block_index, answer, unit_id in ordered_rows:
-            category = str(answer.get("category") or "other").strip() or "other"
-            grounding = _normalize_output_grounding(answer.get("grounding"))
+            classification_category = str(answer.get("category") or "other").strip() or "other"
+            final_category = "other"
+            grounding = empty_grounding_payload()
+            if classification_category == "knowledge":
+                final_category = "knowledge"
+                grounding = _normalize_output_grounding(answer.get("grounding"))
+            elif classification_category == "proposal_candidate":
+                grouping_answer = _coerce_dict(grouping_answers.get(unit_id))
+                proposal_decision = str(
+                    grouping_answer.get("proposal_decision") or ""
+                ).strip()
+                proposed_tag = _coerce_dict(grouping_answer.get("proposed_tag"))
+                if proposal_decision == "approved" and proposed_tag:
+                    final_category = "knowledge"
+                    grounding = {
+                        "tag_keys": [],
+                        "category_keys": [
+                            str(proposed_tag.get("category_key") or "").strip()
+                        ]
+                        if str(proposed_tag.get("category_key") or "").strip()
+                        else [],
+                        "proposed_tags": [
+                            {
+                                "key": str(proposed_tag.get("key") or "").strip(),
+                                "display_name": str(
+                                    proposed_tag.get("display_name") or ""
+                                ).strip(),
+                                "category_key": str(
+                                    proposed_tag.get("category_key") or ""
+                                ).strip(),
+                            }
+                        ],
+                    }
             block_decisions.append(
                 {
                     "block_index": block_index,
-                    "category": category,
+                    "category": final_category,
                     "grounding": grounding,
                 }
             )
-            if category != "knowledge":
+            if final_category != "knowledge":
                 continue
             grouping_answer = _coerce_dict(grouping_answers.get(unit_id))
             group_key = str(grouping_answer.get("group_key") or "").strip()
@@ -1019,12 +1122,93 @@ def combine_knowledge_task_file_outputs(
     return outputs
 
 
+def collect_knowledge_resolution_metadata_by_shard(
+    *,
+    classification_task_file: Mapping[str, Any],
+    classification_answers_by_unit_id: Mapping[str, Mapping[str, Any]],
+    grouping_answers_by_unit_id: Mapping[str, Mapping[str, Any]] | None,
+    unit_to_shard_id: Mapping[str, str],
+) -> dict[str, dict[str, Any]]:
+    grouping_answers = grouping_answers_by_unit_id or {}
+    metadata_by_shard: dict[str, dict[str, Any]] = {}
+    for unit in classification_task_file.get("units") or []:
+        if not isinstance(unit, Mapping):
+            continue
+        unit_id = str(unit.get("unit_id") or "").strip()
+        shard_id = str(unit_to_shard_id.get(unit_id) or "").strip()
+        if not unit_id or not shard_id:
+            continue
+        evidence = _coerce_dict(unit.get("evidence"))
+        block_index = int(evidence.get("block_index") or 0)
+        classification_answer = _coerce_dict(classification_answers_by_unit_id.get(unit_id))
+        classification_category = str(
+            classification_answer.get("category") or "other"
+        ).strip() or "other"
+        grouping_answer = _coerce_dict(grouping_answers.get(unit_id))
+        proposal_decision = str(grouping_answer.get("proposal_decision") or "").strip()
+        shard_row = metadata_by_shard.setdefault(
+            shard_id,
+            {
+                "existing_tag_kept_knowledge_block_count": 0,
+                "proposal_candidate_block_count": 0,
+                "approved_proposal_candidate_block_count": 0,
+                "rejected_proposal_candidate_block_count": 0,
+                "proposal_resolution_details": [],
+            },
+        )
+        if classification_category == "knowledge":
+            shard_row["existing_tag_kept_knowledge_block_count"] += 1
+            shard_row["proposal_resolution_details"].append(
+                {
+                    "block_index": block_index,
+                    "classification_category": "knowledge",
+                    "final_category": "knowledge",
+                    "proposal_decision": "not_applicable",
+                }
+            )
+        elif classification_category == "proposal_candidate":
+            proposed_tag = _coerce_dict(grouping_answer.get("proposed_tag"))
+            shard_row["proposal_candidate_block_count"] += 1
+            approved = proposal_decision == "approved" and bool(proposed_tag)
+            if approved:
+                shard_row["approved_proposal_candidate_block_count"] += 1
+            else:
+                shard_row["rejected_proposal_candidate_block_count"] += 1
+            shard_row["proposal_resolution_details"].append(
+                {
+                    "block_index": block_index,
+                    "classification_category": "proposal_candidate",
+                    "final_category": "knowledge" if approved else "other",
+                    "proposal_decision": proposal_decision or "rejected",
+                    "proposed_tag": (
+                        {
+                            "key": str(proposed_tag.get("key") or "").strip(),
+                            "display_name": str(
+                                proposed_tag.get("display_name") or ""
+                            ).strip(),
+                            "category_key": str(
+                                proposed_tag.get("category_key") or ""
+                            ).strip(),
+                        }
+                        if approved
+                        else None
+                    ),
+                    "why_no_existing_tag": _trimmed_text_or_none(
+                        grouping_answer.get("why_no_existing_tag")
+                    ),
+                    "retrieval_query": _trimmed_text_or_none(
+                        grouping_answer.get("retrieval_query")
+                    ),
+                }
+            )
+    return metadata_by_shard
+
+
 def transition_knowledge_classification_task_file(
     *,
     original_task_file: Mapping[str, Any],
     edited_task_file: Mapping[str, Any],
     unit_to_shard_id: Mapping[str, str],
-    knowledge_grouping_enabled: bool = False,
     classification_task_file: Mapping[str, Any] | None = None,
     existing_classification_answers_by_unit_id: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> KnowledgeTaskFileTransition:
@@ -1128,27 +1312,6 @@ def transition_knowledge_classification_task_file(
             or KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS
         ),
     )
-    if not knowledge_grouping_enabled:
-        return KnowledgeTaskFileTransition(
-            status="completed_without_grouping",
-            current_stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY,
-            final_outputs=combine_knowledge_task_file_outputs(
-                classification_task_file=classification_source_task_file,
-                classification_answers_by_unit_id=combined_answers_by_unit_id,
-                grouping_answers_by_unit_id=None,
-                unit_to_shard_id=unit_to_shard_id,
-            ),
-            validated_answers_by_unit_id=combined_answers_by_unit_id,
-            validation_metadata={
-                **dict(validation_metadata),
-                "knowledge_grouping_enabled": False,
-            },
-            transition_metadata={
-                "knowledge_grouping_enabled": False,
-                "grouping_skipped_reason": "knowledge_grouping_disabled",
-                "grouping_unit_count": len(grouping_task_file.get("units") or []),
-            },
-        )
     if grouping_task_file.get("units"):
         total_grouping_unit_count = len(grouping_task_file.get("units") or [])
         return KnowledgeTaskFileTransition(
