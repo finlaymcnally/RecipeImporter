@@ -42,7 +42,6 @@ from ..codex_farm_knowledge_ingest import (
 )
 from ..codex_farm_knowledge_models import (
     ALLOWED_KNOWLEDGE_FINAL_CATEGORIES,
-    ALLOWED_KNOWLEDGE_REASON_CODES,
 )
 from ..codex_farm_knowledge_jobs import (
     build_knowledge_jobs,

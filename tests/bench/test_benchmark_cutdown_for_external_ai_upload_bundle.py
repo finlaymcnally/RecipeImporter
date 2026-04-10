@@ -152,7 +152,7 @@ def test_build_upload_bundle_explicit_escalation_packet_matches_atomic_index_onl
         row
         for row in payload_rows
         if str(row.get("path") or "").endswith(
-            module.STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME
+            "explicit_escalation_changed_lines.packet.jsonl"
         )
     )
     sample_row = escalation_row["content_jsonl_rows"][0]

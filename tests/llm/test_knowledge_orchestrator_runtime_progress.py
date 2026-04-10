@@ -379,3 +379,46 @@ def test_knowledge_orchestrator_runs_shard_workers_concurrently(
     assert process_summary["taskfile_session_count"] == 2
     assert process_summary["prompt_input_mode_counts"]["taskfile"] == 2
     assert state["max"] >= 2
+
+
+def test_knowledge_orchestrator_marks_invalid_post_validation_category_runtime_failed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
+    pack_root, run_root = make_runtime_pack_and_run_dirs(tmp_path)
+    settings = make_runtime_settings(pack_root=pack_root, worker_count=1)
+
+    def invalid_category_updates(**_kwargs):  # noqa: ANN003
+        return ({0: "maybe"}, {}, [], [])
+
+    monkeypatch.setattr(knowledge_module, "_collect_block_category_updates", invalid_category_updates)
+    monkeypatch.setitem(
+        run_codex_farm_nonrecipe_finalize.__globals__,
+        "_collect_block_category_updates",
+        invalid_category_updates,
+    )
+
+    apply_result = run_codex_farm_nonrecipe_finalize(
+        conversion_result=make_runtime_conversion_result(["Knowledge zero."]),
+        nonrecipe_stage_result=make_runtime_nonrecipe_stage_result(
+            spans=[knowledge_span(0)]
+        ),
+        recipe_ownership_result=make_runtime_recipe_ownership_result(block_count=1),
+        run_settings=settings,
+        run_root=run_root,
+        workbook_slug="book",
+        runner=FakeCodexExecRunner(
+            output_builder=lambda payload: build_structural_pipeline_output(
+                "recipe.knowledge.packet.v1",
+                dict(payload or {}),
+            )
+        ),
+    )
+
+    assert apply_result.llm_report["stage_status"] == "runtime_failed"
+    assert "post_validation_finalize_failed" in str(apply_result.llm_report["error"])
+    phase_dir = apply_result.llm_raw_dir / "nonrecipe_finalize"
+    stage_status = json.loads((phase_dir / "stage_status.json").read_text(encoding="utf-8"))
+    assert stage_status["stage_state"] == "runtime_failed"
+    assert stage_status["termination_cause"] == "post_validation_finalize_error"

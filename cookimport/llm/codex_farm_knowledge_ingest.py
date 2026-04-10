@@ -7,7 +7,6 @@ from typing import Any, Mapping, Sequence
 from .codex_farm_knowledge_contracts import knowledge_input_packets
 from .phase_worker_runtime import ShardManifestEntryV1
 from .codex_farm_knowledge_models import (
-    ALLOWED_KNOWLEDGE_REASON_CODES,
     KnowledgeBundleOutputV2,
     KnowledgePacketSemanticResultV1,
     serialize_canonical_knowledge_packet,
@@ -84,11 +83,9 @@ def normalize_knowledge_worker_payload(
         normalized_payload.pop("v", None)
         return normalized_payload, {
             "worker_output_contract": "canonical_packet_result_v3",
-            "allowed_reason_codes": list(ALLOWED_KNOWLEDGE_REASON_CODES),
         }
     return serialize_canonical_knowledge_packet(semantic_result), {
         "worker_output_contract": "semantic_packet_result_v2",
-        "allowed_reason_codes": list(ALLOWED_KNOWLEDGE_REASON_CODES),
     }
 
 def sanitize_knowledge_worker_payload_for_shard(

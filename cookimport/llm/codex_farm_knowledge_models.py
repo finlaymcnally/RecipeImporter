@@ -6,33 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 _BUNDLE_VERSION_V3: Literal["3"] = "3"
 ALLOWED_KNOWLEDGE_FINAL_CATEGORIES: tuple[str, ...] = ("knowledge", "other")
-ALLOWED_KNOWLEDGE_REASON_CODES: tuple[str, ...] = (
-    "technique_or_mechanism",
-    "diagnostic_or_troubleshooting",
-    "reference_or_definition",
-    "substitution_storage_or_safety",
-    "book_framing_or_marketing",
-    "memoir_or_scene_setting",
-    "navigation_or_chapter_taxonomy",
-    "decorative_heading_only",
-    "true_but_low_utility",
-    "not_cooking_knowledge",
-    "review_not_completed",
-    "strong_cue_review_required",
-)
-_REASON_CODE_ALIASES: dict[str, str] = {
-    "grounded_useful": "technique_or_mechanism",
-    "all_other": "not_cooking_knowledge",
-}
-
-
-def normalize_knowledge_reason_code(value: object) -> str | None:
-    if value is None:
-        return None
-    cleaned = str(value).strip()
-    if not cleaned:
-        return None
-    return _REASON_CODE_ALIASES.get(cleaned, cleaned)
 
 
 class EvidencePointerV1(BaseModel):
