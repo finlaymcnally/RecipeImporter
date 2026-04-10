@@ -982,7 +982,7 @@ def test_label_atomic_lines_inline_json_repairs_in_place(tmp_path) -> None:
     assert predictions[0].label == "RECIPE_NOTES"
     assert [call["mode"] for call in runner.calls] == [
         "structured_prompt",
-        "structured_prompt",
+        "structured_prompt_resume",
     ]
 
 
@@ -1043,7 +1043,7 @@ def test_label_atomic_lines_inline_json_rejects_row_shaped_output_and_repairs_wi
     assert [row.label for row in predictions] == ["RECIPE_NOTES", "RECIPE_NOTES"]
     assert [call["mode"] for call in runner.calls] == [
         "structured_prompt",
-        "structured_prompt",
+        "structured_prompt_resume",
     ]
     proposal_payload = json.loads(
         (
@@ -1873,10 +1873,10 @@ def test_label_atomic_lines_repairs_partial_labels_reply_only_for_missing_rows(
     ]
     assert [call["mode"] for call in runner.calls] == [
         "structured_prompt",
-        "structured_prompt",
+        "structured_prompt_resume",
     ]
     assert runner.calls[0]["resume_last"] is False
-    assert runner.calls[1]["resume_last"] is False
+    assert runner.calls[1]["resume_last"] is True
     assert Path(str(runner.calls[0]["output_schema_path"])).name == "output_schema_initial.json"
     assert Path(str(runner.calls[1]["output_schema_path"])).name == "output_schema_repair_01.json"
     initial_schema_payload = json.loads(
@@ -1965,15 +1965,15 @@ def test_label_atomic_lines_inline_json_allows_three_incremental_repair_attempts
     ]
     assert [call["mode"] for call in runner.calls] == [
         "structured_prompt",
-        "structured_prompt",
-        "structured_prompt",
-        "structured_prompt",
+        "structured_prompt_resume",
+        "structured_prompt_resume",
+        "structured_prompt_resume",
     ]
     assert [call["resume_last"] for call in runner.calls] == [
         False,
-        False,
-        False,
-        False,
+        True,
+        True,
+        True,
     ]
     assert repair_rows_seen == [
         ["Serves 4 generously", "1 cup thinly sliced cabbage"],
