@@ -9,6 +9,14 @@ from typing import Any, Mapping
 
 _CATALOG_PATH = Path(__file__).with_name("knowledge_tag_catalog.json")
 _KEY_NORMALIZE_PATTERN = re.compile(r"[^a-z0-9]+")
+_LOCAL_CATEGORY_EXTENSIONS: tuple[dict[str, Any], ...] = (
+    {
+        "key": "ingredients",
+        "display_name": "Ingredients",
+        "sort_order": 92,
+        "is_multi_select": True,
+    },
+)
 
 
 def normalize_knowledge_tag_key(value: object) -> str:
@@ -95,15 +103,34 @@ class KnowledgeTagCatalog:
 
 
 def _catalog_from_payload(payload: Mapping[str, Any]) -> KnowledgeTagCatalog:
-    categories = tuple(
-        KnowledgeTagCategory(
-            key=str(row.get("key") or "").strip(),
-            display_name=str(row.get("display_name") or "").strip(),
-            sort_order=int(row.get("sort_order") or 0),
-            is_multi_select=bool(row.get("is_multi_select")),
+    categories_by_key: dict[str, KnowledgeTagCategory] = {}
+    for raw_row in (payload.get("categories") or []):
+        if not isinstance(raw_row, Mapping):
+            continue
+        key = str(raw_row.get("key") or "").strip()
+        if not key:
+            continue
+        categories_by_key[key] = KnowledgeTagCategory(
+            key=key,
+            display_name=str(raw_row.get("display_name") or "").strip(),
+            sort_order=int(raw_row.get("sort_order") or 0),
+            is_multi_select=bool(raw_row.get("is_multi_select")),
         )
-        for row in (payload.get("categories") or [])
-        if isinstance(row, Mapping) and str(row.get("key") or "").strip()
+    for raw_row in _LOCAL_CATEGORY_EXTENSIONS:
+        key = str(raw_row.get("key") or "").strip()
+        if not key or key in categories_by_key:
+            continue
+        categories_by_key[key] = KnowledgeTagCategory(
+            key=key,
+            display_name=str(raw_row.get("display_name") or "").strip(),
+            sort_order=int(raw_row.get("sort_order") or 0),
+            is_multi_select=bool(raw_row.get("is_multi_select")),
+        )
+    categories = tuple(
+        sorted(
+            categories_by_key.values(),
+            key=lambda category: (category.sort_order, category.key),
+        )
     )
     tags = tuple(
         KnowledgeTag(

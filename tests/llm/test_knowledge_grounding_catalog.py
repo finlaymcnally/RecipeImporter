@@ -8,8 +8,9 @@ from cookimport.llm.knowledge_tag_catalog import load_knowledge_tag_catalog
 def test_checked_in_knowledge_tag_catalog_loads() -> None:
     catalog = load_knowledge_tag_catalog()
 
-    assert len(catalog.categories) == 20
+    assert len(catalog.categories) == 21
     assert len(catalog.tags) == 203
+    assert catalog.has_category_key("ingredients") is True
     assert catalog.has_category_key("techniques") is True
     assert catalog.has_tag_key("emulsify") is True
 

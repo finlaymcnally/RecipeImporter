@@ -82,6 +82,10 @@ def test_grouping_validator_requires_non_empty_group_fields() -> None:
     edited["units"][0]["answer"] = {
         "group_key": "heat-control",
         "topic_label": "Heat control",
+        "proposal_decision": "not_applicable",
+        "proposed_tag": None,
+        "why_no_existing_tag": None,
+        "retrieval_query": None,
     }
 
     answers_by_unit_id, errors, metadata = validate_knowledge_grouping_task_file(
@@ -95,6 +99,10 @@ def test_grouping_validator_requires_non_empty_group_fields() -> None:
         "knowledge::8": {
             "group_key": "heat-control",
             "topic_label": "Heat control",
+            "proposal_decision": "not_applicable",
+            "proposed_tag": None,
+            "why_no_existing_tag": None,
+            "retrieval_query": None,
         }
     }
 
@@ -106,9 +114,64 @@ def test_grouping_validator_requires_non_empty_group_fields() -> None:
     )
 
     assert answers_by_unit_id is None
-    assert errors == ("knowledge_block_missing_group",)
+    assert errors == (
+        "knowledge_block_missing_group",
+        "invalid_proposal_decision",
+        "knowledge_grouping_proposal_forbidden",
+    )
     assert metadata["failed_unit_ids"] == ["knowledge::8"]
     assert metadata["knowledge_blocks_missing_group"] == [8]
+
+
+def test_grouping_validator_accepts_approved_ingredient_proposal_category() -> None:
+    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[_shard(block_index=9, text="Choose fresh extra-virgin olive oil.")],
+    )
+    grouping_task_file, _ = build_knowledge_grouping_task_file(
+        assignment_id="worker-001",
+        worker_id="worker-001",
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id={
+            "knowledge::9": {"category": "proposal_candidate"}
+        },
+        unit_to_shard_id=unit_to_shard_id,
+    )
+    edited = deepcopy(grouping_task_file)
+    edited["units"][0]["answer"] = {
+        "group_key": "olive-oil-selection",
+        "topic_label": "Choosing olive oil",
+        "proposal_decision": "approved",
+        "proposed_tag": {
+            "key": "extra-virgin-olive-oil-selection",
+            "display_name": "Choosing extra-virgin olive oil",
+            "category_key": "ingredients",
+        },
+        "why_no_existing_tag": "This captures ingredient selection guidance not covered by an existing tag.",
+        "retrieval_query": "how to choose extra virgin olive oil",
+    }
+
+    answers_by_unit_id, errors, metadata = validate_knowledge_grouping_task_file(
+        original_task_file=grouping_task_file,
+        edited_task_file=edited,
+    )
+
+    assert errors == ()
+    assert metadata["failed_unit_ids"] == []
+    assert answers_by_unit_id == {
+        "knowledge::9": {
+            "group_key": "olive-oil-selection",
+            "topic_label": "Choosing olive oil",
+            "proposal_decision": "approved",
+            "proposed_tag": {
+                "key": "extra-virgin-olive-oil-selection",
+                "display_name": "Choosing extra-virgin olive oil",
+                "category_key": "ingredients",
+            },
+            "why_no_existing_tag": "This captures ingredient selection guidance not covered by an existing tag.",
+            "retrieval_query": "how to choose extra virgin olive oil",
+        }
+    }
 
 
 def test_grouping_task_files_keep_large_grouping_scope_in_one_task_file() -> None:
@@ -242,7 +305,7 @@ def test_structured_grouping_response_accepts_group_index_alias() -> None:
     edited, errors, metadata = build_knowledge_edited_task_file_from_grouping_response(
         original_task_file=grouping_task_file,
         response_text=(
-            '{"rows":[{"row_id":"r01","group_index":"heat-control","topic_label":"Heat control"}]}'
+            '{"rows":[{"row_id":"r01","group_index":"heat-control","topic_label":"Heat control","proposal_decision":"not_applicable","proposed_tag":null,"why_no_existing_tag":null,"retrieval_query":null}]}'
         ),
     )
 
@@ -252,4 +315,8 @@ def test_structured_grouping_response_accepts_group_index_alias() -> None:
     assert edited["units"][0]["answer"] == {
         "group_key": "heat-control",
         "topic_label": "Heat control",
+        "proposal_decision": "not_applicable",
+        "proposed_tag": None,
+        "why_no_existing_tag": "",
+        "retrieval_query": "",
     }
