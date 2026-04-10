@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import questionary
@@ -13,6 +14,12 @@ def _runtime():
     from cookimport import cli_support as runtime
 
     return runtime
+
+
+def _ensure_prompt_toolkit_terminal_defaults() -> None:
+    # Some WSL/Windows terminal paths never answer prompt_toolkit's CPR probe,
+    # which adds a visible two-second stall before interactive prompts settle.
+    os.environ.setdefault("PROMPT_TOOLKIT_NO_CPR", "1")
 
 
 def _menu_option_count(choices: list[Any]) -> int:
@@ -63,6 +70,7 @@ def _menu_select(
     menu_help: str | None = None,
     **kwargs: Any,
 ) -> Any:
+    _ensure_prompt_toolkit_terminal_defaults()
     runtime = _runtime()
     option_count = _menu_option_count(choices)
     use_shortcuts = option_count <= len(runtime._MENU_SHORTCUT_KEYS)
@@ -126,6 +134,7 @@ def _prompt_text(
     instruction: str | None = None,
     **kwargs: Any,
 ) -> str | None:
+    _ensure_prompt_toolkit_terminal_defaults()
     question = questionary.text(
         message,
         default=default,
@@ -141,6 +150,7 @@ def _prompt_password(
     default: str = "",
     **kwargs: Any,
 ) -> str | None:
+    _ensure_prompt_toolkit_terminal_defaults()
     question = questionary.password(
         message,
         default=default,
@@ -156,6 +166,7 @@ def _prompt_confirm(
     instruction: str | None = None,
     **kwargs: Any,
 ) -> bool | None:
+    _ensure_prompt_toolkit_terminal_defaults()
     question = questionary.confirm(
         message,
         default=default,

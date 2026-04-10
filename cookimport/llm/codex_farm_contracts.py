@@ -391,18 +391,6 @@ def serialize_recipe_correction_shard_input(
         exclude_defaults=True,
     )
     serialized.setdefault("v", "1")
-    for recipe_row in serialized.get("r") or []:
-        if not isinstance(recipe_row, dict):
-            continue
-        quality_hint = recipe_row.get("q")
-        if not isinstance(quality_hint, dict):
-            continue
-        quality_hint.setdefault("e", 0)
-        quality_hint.setdefault("ei", 0)
-        quality_hint.setdefault("es", 0)
-        quality_hint.setdefault("hi", 0)
-        quality_hint.setdefault("hs", 0)
-        quality_hint.setdefault("f", [])
     return serialized
 
 

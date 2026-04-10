@@ -159,6 +159,23 @@ But for debugging, the real execution order matters more:
 6. `nonrecipe-finalize`
 7. late output writing and benchmark evidence writing
 
+The run also writes stage numbers into `stage_observability.json`.
+
+Those numbers are now meant to be read like honest step slots, not like leftover implementation debris:
+
+- `line_role` = 10
+- `label_deterministic` = 20
+- `label_refine` = 30
+- `recipe_boundary` = 40
+- `recipe_build_intermediate` = 50
+- `recipe_refine` = 60
+- `recipe_build_final` = 70
+- `nonrecipe_route` = 80
+- `nonrecipe_finalize` = 90
+- `write_outputs` = 100
+
+Not every run uses every stage, but when a stage appears, its number should now match the real dependency story in a human-readable way.
+
 That early-label step now branches like this:
 
 - deterministic or vanilla runs always build a deterministic label baseline
@@ -312,6 +329,8 @@ This section is easy to misread, so the short version is:
 
 On the current Codex-backed path, `line_role` is the first visible semantic authority stage.
 
+In current run numbering, that means `line_role` should appear as stage 10, before `recipe_boundary` at 40.
+
 In plain English:
 
 - the book is atomized into raw lines
@@ -368,7 +387,7 @@ If reviewer-facing knowledge output is written, `knowledge.md` is the readable r
 
 This is also where the system can accidentally look "too smart" in the wrong way.
 
-If the outside-recipe candidate queue is too broad, then memoir, teaching, and motivational prose can show up in the same review packets as real cooking knowledge. If the review prompt allows broad tag-like grounding or easy proposed tags, the model may decide that a passage counts as `knowledge` simply because it contains a cooking lesson, even when the gold set would rather treat that passage as ordinary narrative or front matter.
+If the outside-recipe candidate queue is too broad, then memoir, teaching, and motivational prose can show up in the same review packets as real cooking knowledge. The current prompt no longer carries repo-generated candidate-tag shortlists, but it still shows the real ontology and still allows proposed tags for genuine gaps. That means the model can still decide that a passage counts as `knowledge` simply because it contains a cooking lesson, even when the gold set would rather treat that passage as ordinary narrative or front matter.
 
 So when a benchmark shows a big `OTHER -> KNOWLEDGE` promotion pattern, that usually does not mean the text extractor failed. It more often means:
 
@@ -381,6 +400,8 @@ If this stage is disabled or falls back, the run still keeps the routing and sta
 ## Late outputs
 
 Once recipe and outside-recipe authority are settled, the program can safely build the downstream artifacts that depend on them.
+
+When staging maps recipe title, variant, yield, and time fields back to source blocks, it now uses exact-or-unresolved evidence. If repo code cannot ground one of those fields exactly, it records unresolved exact-evidence notes instead of guessing.
 
 That includes:
 

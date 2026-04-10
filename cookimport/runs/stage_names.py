@@ -18,65 +18,65 @@ WRITE_OUTPUTS_STAGE_KEY = "write_outputs"
 
 
 _STAGE_DEFINITIONS: dict[str, dict[str, Any]] = {
+    LINE_ROLE_STAGE_KEY: {
+        "label": "Line Role",
+        "artifact_stem": LINE_ROLE_STAGE_KEY,
+        "family": "line_role_llm",
+        "order": 10,
+    },
     LABEL_DETERMINISTIC_STAGE_KEY: {
         "label": "Label Deterministic",
         "artifact_stem": LABEL_DETERMINISTIC_STAGE_KEY,
         "family": "label_stage",
-        "order": 5,
+        "order": 20,
     },
     LABEL_REFINE_STAGE_KEY: {
         "label": "Label Refine",
         "artifact_stem": LABEL_REFINE_STAGE_KEY,
         "family": "label_stage",
-        "order": 6,
+        "order": 30,
     },
     RECIPE_BOUNDARY_STAGE_KEY: {
         "label": "Recipe Boundary",
         "artifact_stem": RECIPE_BOUNDARY_STAGE_KEY,
         "family": "label_stage",
-        "order": 7,
-    },
-    NONRECIPE_ROUTE_STAGE_KEY: {
-        "label": "Non-Recipe Route",
-        "artifact_stem": NONRECIPE_ROUTE_STAGE_KEY,
-        "family": "deterministic",
-        "order": 35,
+        "order": 40,
     },
     RECIPE_BUILD_INTERMEDIATE_STAGE_KEY: {
         "label": "Recipe Build Intermediate",
         "artifact_stem": RECIPE_BUILD_INTERMEDIATE_STAGE_KEY,
         "family": "recipe_deterministic",
-        "order": 10,
+        "order": 50,
     },
     RECIPE_REFINE_STAGE_KEY: {
         "label": "Recipe Refine",
         "artifact_stem": RECIPE_REFINE_STAGE_KEY,
         "family": "recipe_llm",
-        "order": 20,
+        "order": 60,
     },
     RECIPE_BUILD_FINAL_STAGE_KEY: {
         "label": "Recipe Build Final",
         "artifact_stem": RECIPE_BUILD_FINAL_STAGE_KEY,
         "family": "recipe_deterministic",
-        "order": 30,
+        "order": 70,
+    },
+    NONRECIPE_ROUTE_STAGE_KEY: {
+        "label": "Non-Recipe Route",
+        "artifact_stem": NONRECIPE_ROUTE_STAGE_KEY,
+        "family": "deterministic",
+        "order": 80,
     },
     NONRECIPE_FINALIZE_STAGE_KEY: {
         "label": "Non-Recipe Finalize",
         "artifact_stem": NONRECIPE_FINALIZE_STAGE_KEY,
         "family": "knowledge_llm",
-        "order": 40,
-    },
-    LINE_ROLE_STAGE_KEY: {
-        "label": "Line Role",
-        "artifact_stem": LINE_ROLE_STAGE_KEY,
-        "family": "line_role_llm",
-        "order": 4,
+        "order": 90,
     },
     WRITE_OUTPUTS_STAGE_KEY: {
         "label": "Write Outputs",
         "artifact_stem": WRITE_OUTPUTS_STAGE_KEY,
         "family": "deterministic",
-        "order": 90,
+        "order": 100,
     },
 }
 

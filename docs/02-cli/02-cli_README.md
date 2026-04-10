@@ -92,6 +92,7 @@ Startup behavior:
 3. Scans only top-level files in `data/input` for importer support (not recursive).
 4. Builds the main menu choices.
 5. Uses `Esc` as one-level "go back" in `_menu_select`; typed prompts use `_prompt_*` wrappers, and caller flows decide whether that means step-back (for example freeform segment sizing) or cancel.
+6. Interactive Questionary prompts now default `PROMPT_TOOLKIT_NO_CPR=1` unless the operator already set it, avoiding prompt_toolkit's two-second CPR fallback pause on terminals that never answer cursor-position requests.
 
 Important divergence to remember:
 - interactive file selection is top-level only, but `cookimport stage <folder>` is recursive when a folder path is passed directly.

@@ -825,77 +825,6 @@ def test_label_atomic_lines_rejects_uniform_shard_output_and_fails_closed(
     assert proposal_payload["validation_metadata"]["row_resolution"]["unresolved_row_count"] == 0
 
 
-def test_validate_line_role_payload_semantics_reports_uniform_diagnostic_against_diverse_baseline() -> None:
-    baseline = {
-        0: canonical_line_roles_module.CanonicalLineRolePrediction(
-            recipe_id="recipe:0",
-            block_id="b0",
-            block_index=0,
-            atomic_index=0,
-            text="A",
-            within_recipe_span=True,
-            label="INGREDIENT_LINE",
-            decided_by="rule",
-            reason_tags=[],
-        ),
-        1: canonical_line_roles_module.CanonicalLineRolePrediction(
-            recipe_id="recipe:0",
-            block_id="b1",
-            block_index=1,
-            atomic_index=1,
-            text="B",
-            within_recipe_span=True,
-            label="INSTRUCTION_LINE",
-            decided_by="rule",
-            reason_tags=[],
-        ),
-        2: canonical_line_roles_module.CanonicalLineRolePrediction(
-            recipe_id="recipe:0",
-            block_id="b2",
-            block_index=2,
-            atomic_index=2,
-            text="C",
-            within_recipe_span=True,
-            label="RECIPE_NOTES",
-            decided_by="rule",
-            reason_tags=[],
-        ),
-        3: canonical_line_roles_module.CanonicalLineRolePrediction(
-            recipe_id="recipe:0",
-            block_id="b3",
-            block_index=3,
-            atomic_index=3,
-            text="D",
-            within_recipe_span=True,
-            label="YIELD_LINE",
-            decided_by="rule",
-            reason_tags=[],
-        ),
-    }
-
-    semantic_errors, semantic_metadata = canonical_line_roles_module._validate_line_role_payload_semantics(  # noqa: SLF001
-        payload={
-            "rows": [
-                {"atomic_index": 0, "label": "INGREDIENT_LINE"},
-                {"atomic_index": 1, "label": "INGREDIENT_LINE"},
-                {"atomic_index": 2, "label": "INGREDIENT_LINE"},
-                {"atomic_index": 3, "label": "INGREDIENT_LINE"},
-            ]
-        },
-        shard=ShardManifestEntryV1(
-            shard_id="semantic-guard-fixture",
-            owned_ids=("0", "1", "2", "3"),
-            input_payload={"rows": [[0, "A"], [1, "B"], [2, "C"], [3, "D"]]},
-        ),
-        deterministic_baseline_by_atomic_index=baseline,
-    )
-
-    assert semantic_metadata["guard_applied"] is True
-    assert "outside_recipe_only" not in semantic_metadata["semantic_profile"]
-    assert semantic_metadata["semantic_response_label_counts"] == {"INGREDIENT_LINE": 4}
-    assert semantic_errors == ()
-
-
 def test_label_atomic_lines_invalid_task_file_ledgers_fail_closed_without_structured_repair(
     tmp_path,
 ) -> None:
@@ -1441,11 +1370,10 @@ def test_label_atomic_lines_workspace_mirrors_hint_and_input_artifacts(
         / "hints"
         / "line-role-canonical-0001-a000000-a000000.md"
     ).read_text(encoding="utf-8")
-    assert "Static reminders" in worker_hint_text
-    assert "Focus" in worker_hint_text
-    assert "There is no deterministic answer key in this workspace." in worker_hint_text
-    assert "Obvious praise blurbs, foreword/preface setup, manifesto or `this book will teach you` framing" in worker_hint_text
-    assert "`endorsement`, `publisher_promo`, or `front_matter`" in worker_hint_text
+    assert "This sidecar is worker guidance only." in worker_hint_text
+    assert "Open the authoritative `in/<shard_id>.json` file" in worker_hint_text
+    assert "Use nearby rows only as boundary context" in worker_hint_text
+    assert "Label every owned row once." in worker_hint_text
     worker_input_text = (
         prompt_root
         / "runtime"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from types import SimpleNamespace
 
@@ -59,6 +60,17 @@ def _echo_codex_step_plan(**kwargs):
         }
         for row in kwargs["rows"]
     }
+
+
+def _fake_menu_select_question() -> object:
+    return SimpleNamespace(
+        application=SimpleNamespace(
+            key_bindings=SimpleNamespace(
+                add=lambda *_args, **_kwargs: (lambda func: func)
+            )
+        ),
+        ask=lambda: "selected",
+    )
 
 
 def test_menu_shortcuts_assign_numeric_keys():
@@ -225,6 +237,48 @@ def test_menu_select_instruction_uses_escape(monkeypatch: pytest.MonkeyPatch) ->
     assert "Esc to go back" in captured_instruction[0]
     assert "Backspace" not in captured_instruction[0]
     assert (Keys.Escape, True) in fake_question.application.key_bindings.handlers
+
+
+def test_menu_select_defaults_prompt_toolkit_no_cpr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_env: list[str | None] = []
+
+    def fake_select(*_args, **_kwargs):
+        captured_env.append(os.environ.get("PROMPT_TOOLKIT_NO_CPR"))
+        return _fake_menu_select_question()
+
+    monkeypatch.delenv("PROMPT_TOOLKIT_NO_CPR", raising=False)
+    monkeypatch.setattr(cli.questionary, "select", fake_select)
+
+    result = cli._menu_select(
+        "Pick one:",
+        choices=[questionary.Choice("Choice A", value="a")],
+    )
+
+    assert result == "selected"
+    assert captured_env == ["1"]
+
+
+def test_menu_select_preserves_explicit_prompt_toolkit_no_cpr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_env: list[str | None] = []
+
+    def fake_select(*_args, **_kwargs):
+        captured_env.append(os.environ.get("PROMPT_TOOLKIT_NO_CPR"))
+        return _fake_menu_select_question()
+
+    monkeypatch.setenv("PROMPT_TOOLKIT_NO_CPR", "0")
+    monkeypatch.setattr(cli.questionary, "select", fake_select)
+
+    result = cli._menu_select(
+        "Pick one:",
+        choices=[questionary.Choice("Choice A", value="a")],
+    )
+
+    assert result == "selected"
+    assert captured_env == ["0"]
 
 
 def test_prompt_text_escape_returns_none() -> None:

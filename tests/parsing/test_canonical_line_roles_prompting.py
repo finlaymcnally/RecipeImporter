@@ -937,9 +937,6 @@ def test_label_atomic_lines_fails_closed_when_only_part_of_shard_validates(
         "accepted_atomic_indices": [],
         "accepted_row_count": 0,
         "all_rows_resolved": False,
-        "semantic_containment_applied": False,
-        "semantic_containment_row_count": 0,
-        "semantic_rejected": False,
         "unresolved_atomic_indices": [0, 1],
         "unresolved_row_count": 2,
     }
@@ -949,9 +946,6 @@ def test_label_atomic_lines_fails_closed_when_only_part_of_shard_validates(
         "accepted_atomic_indices": [0],
         "accepted_row_count": 1,
         "all_rows_resolved": False,
-        "semantic_containment_applied": False,
-        "semantic_containment_row_count": 0,
-        "semantic_rejected": False,
         "unresolved_atomic_indices": [1],
         "unresolved_row_count": 1,
     }

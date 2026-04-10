@@ -89,7 +89,6 @@ def test_line_role_structured_response_keeps_front_matter_like_labels_when_valid
     )
 
     assert proposal_status == "validated"
-    assert "semantic_pathology_rejected" not in validation_errors
     row_resolution_payload, row_resolution_metadata = (
         canonical_line_roles_module._build_line_role_row_resolution(  # noqa: SLF001
             shard=shard,
@@ -97,11 +96,9 @@ def test_line_role_structured_response_keeps_front_matter_like_labels_when_valid
         )
     )
     assert row_resolution_payload is not None
-    assert row_resolution_metadata["semantic_containment_applied"] is False
     assert row_resolution_metadata["accepted_row_count"] == len(
         fixture["rows"]
     )
-    assert row_resolution_metadata["semantic_containment_row_count"] == 0
     labels = {row["label"] for row in row_resolution_payload["rows"]}
     assert "RECIPE_TITLE" in labels
     assert "HOWTO_SECTION" in labels
@@ -172,8 +169,8 @@ def test_line_role_semantic_guard_allows_real_knowledge_heading_cluster() -> Non
     )
 
     assert proposal_status == "validated"
-    assert "semantic_pathology_rejected" not in validation_errors
-    assert validation_metadata.get("semantic_rejected") is not True
+    assert validation_errors == ()
+    assert validation_metadata["accepted_atomic_indices"] == [0, 1, 2]
 
 
 def test_label_atomic_lines_keeps_front_matter_pathology_fixture_labels(tmp_path) -> None:

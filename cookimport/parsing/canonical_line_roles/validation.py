@@ -10,32 +10,12 @@ from cookimport.llm.codex_exec_runner import (
     summarize_direct_telemetry_rows,
 )
 from cookimport.parsing.line_role_workspace_tools import validate_line_role_output_payload
-from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
 
 from .contracts import (
     CANONICAL_LINE_ROLE_ALLOWED_LABELS,
     CanonicalLineRolePrediction,
-    RECIPE_LOCAL_LINE_ROLE_LABELS,
-)
-from .policy import (
-    _looks_book_framing_or_exhortation_prose,
-    _looks_chapter_taxonomy_heading_candidate,
-    _looks_domain_knowledge_prose,
-    _looks_endorsement_credit,
-    _looks_endorsement_blurb_candidate,
-    _looks_explicit_knowledge_cue,
-    _looks_front_matter_exclusion_heading,
-    _looks_front_matter_navigation_heading,
-    _looks_knowledge_heading_with_context,
-    _looks_knowledge_prose_with_context,
-    _looks_navigation_title_list_entry,
-    _looks_publisher_promo,
-    _looks_publisher_promo_candidate,
-    _looks_table_of_contents_entry,
 )
 from .planning import ShardManifestEntryV1
-
-_RECIPE_LOCAL_LABELS = set(RECIPE_LOCAL_LINE_ROLE_LABELS)
 
 
 def _coerce_shard_input_rows(
@@ -262,181 +242,6 @@ def _translate_line_role_output_to_atomic_indices(
     )
 
 
-def _build_line_role_profile_candidate(
-    *,
-    atomic_index: int,
-    text: str,
-    deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
-) -> AtomicLineCandidate:
-    baseline_prediction = deterministic_baseline_by_atomic_index.get(int(atomic_index))
-    return AtomicLineCandidate(
-        recipe_id=(baseline_prediction.recipe_id if baseline_prediction else None),
-        block_id=(baseline_prediction.block_id if baseline_prediction else f"block:{atomic_index}"),
-        block_index=int(baseline_prediction.block_index if baseline_prediction else atomic_index),
-        atomic_index=int(atomic_index),
-        text=str(text or ""),
-        within_recipe_span=None,
-        rule_tags=[],
-    )
-
-
-def _semantic_profile_evidence_lines(
-    *,
-    front_matter_examples: Sequence[str],
-    navigation_examples: Sequence[str],
-    knowledge_examples: Sequence[str],
-    recipe_structure_examples: Sequence[str],
-) -> list[str]:
-    evidence: list[str] = []
-    if front_matter_examples:
-        evidence.append(
-            "Front-matter signals appear in this shard: "
-            + ", ".join(f"`{example}`" for example in front_matter_examples[:4])
-            + "."
-        )
-    if navigation_examples:
-        evidence.append(
-            "Contents or taxonomy headings appear in this shard: "
-            + ", ".join(f"`{example}`" for example in navigation_examples[:4])
-            + "."
-        )
-    if knowledge_examples:
-        evidence.append(
-            "Some rows look like reusable lesson prose or lesson headings: "
-            + ", ".join(f"`{example}`" for example in knowledge_examples[:3])
-            + "."
-        )
-    if recipe_structure_examples:
-        evidence.append(
-            "Possible recipe-structure text is present nearby: "
-            + ", ".join(f"`{example}`" for example in recipe_structure_examples[:3])
-            + "."
-        )
-    if not recipe_structure_examples:
-        evidence.append("No strong ingredient, yield, or instruction-shaped evidence appears in the owned rows.")
-    return evidence
-
-
-def _build_line_role_semantic_profile(
-    *,
-    shard: ShardManifestEntryV1,
-    deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
-) -> dict[str, Any]:
-    rows = _coerce_shard_input_rows(shard)
-    by_atomic_index = {
-        atomic_index: _build_line_role_profile_candidate(
-            atomic_index=atomic_index,
-            text=text,
-            deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
-        )
-        for atomic_index, text in rows
-    }
-    front_matter_examples: list[str] = []
-    navigation_examples: list[str] = []
-    knowledge_examples: list[str] = []
-    recipe_structure_examples: list[str] = []
-    front_matter_signal_count = 0
-    navigation_signal_count = 0
-    knowledge_signal_count = 0
-    recipe_structure_signal_count = 0
-    baseline_recipe_local_count = 0
-    baseline_nonrecipe_exclude_count = 0
-    for atomic_index, text in rows:
-        candidate = by_atomic_index[atomic_index]
-        baseline_prediction = deterministic_baseline_by_atomic_index.get(atomic_index)
-        if baseline_prediction is not None:
-            if str(baseline_prediction.label or "").strip().upper() in _RECIPE_LOCAL_LABELS:
-                baseline_recipe_local_count += 1
-            if str(baseline_prediction.label or "").strip().upper() == "NONRECIPE_EXCLUDE":
-                baseline_nonrecipe_exclude_count += 1
-        stripped = str(text or "").strip()
-        if not stripped:
-            continue
-        if (
-            _looks_front_matter_navigation_heading(stripped)
-            or _looks_front_matter_exclusion_heading(stripped)
-            or _looks_publisher_promo(stripped)
-            or _looks_book_framing_or_exhortation_prose(stripped)
-            or _looks_endorsement_credit(stripped)
-            or _looks_endorsement_blurb_candidate(candidate, by_atomic_index=by_atomic_index)
-            or _looks_publisher_promo_candidate(candidate, by_atomic_index=by_atomic_index)
-        ):
-            front_matter_signal_count += 1
-            if stripped not in front_matter_examples:
-                front_matter_examples.append(stripped)
-        if (
-            _looks_table_of_contents_entry(stripped)
-            or _looks_navigation_title_list_entry(stripped)
-            or _looks_chapter_taxonomy_heading_candidate(stripped)
-        ):
-            navigation_signal_count += 1
-            if stripped not in navigation_examples:
-                navigation_examples.append(stripped)
-        if (
-            _looks_knowledge_heading_with_context(candidate, by_atomic_index=by_atomic_index)
-            or _looks_knowledge_prose_with_context(candidate, by_atomic_index=by_atomic_index)
-            or _looks_domain_knowledge_prose(stripped)
-            or _looks_explicit_knowledge_cue(stripped)
-        ):
-            knowledge_signal_count += 1
-            if stripped not in knowledge_examples:
-                knowledge_examples.append(stripped)
-        if baseline_prediction is None:
-            continue
-        if str(baseline_prediction.label or "").strip().upper() in {
-            "INGREDIENT_LINE",
-            "INSTRUCTION_LINE",
-            "YIELD_LINE",
-            "TIME_LINE",
-        }:
-            recipe_structure_signal_count += 1
-            if stripped not in recipe_structure_examples:
-                recipe_structure_examples.append(stripped)
-    owned_row_count = len(rows)
-    baseline_nonrecipe_dominant = bool(owned_row_count) and (
-        baseline_nonrecipe_exclude_count >= max(4, (owned_row_count * 3) // 5)
-        and baseline_recipe_local_count <= max(2, owned_row_count // 4)
-    )
-    risk_flags: list[str] = []
-    if front_matter_signal_count >= 3:
-        risk_flags.append("front_matter_cluster")
-    if navigation_signal_count >= 4:
-        risk_flags.append("contents_heading_cluster")
-    if knowledge_signal_count > 0:
-        risk_flags.append("knowledge_support_present")
-    if recipe_structure_signal_count == 0:
-        risk_flags.append("no_recipe_structure_support")
-    summary = "This shard reads like one live recipe."
-    if (
-        recipe_structure_signal_count == 0
-        and front_matter_signal_count >= 3
-        and navigation_signal_count >= 4
-    ):
-        summary = "This shard reads like front matter and contents navigation, not one live recipe."
-    elif recipe_structure_signal_count == 0 and navigation_signal_count >= 4:
-        summary = "This shard reads like outside-recipe contents or taxonomy headings."
-    elif recipe_structure_signal_count == 0 and front_matter_signal_count >= 3:
-        summary = "This shard reads like outside-recipe front matter."
-    return {
-        "owned_row_count": owned_row_count,
-        "front_matter_signal_count": front_matter_signal_count,
-        "navigation_signal_count": navigation_signal_count,
-        "knowledge_signal_count": knowledge_signal_count,
-        "recipe_structure_signal_count": recipe_structure_signal_count,
-        "baseline_nonrecipe_dominant": baseline_nonrecipe_dominant,
-        "baseline_recipe_local_count": baseline_recipe_local_count,
-        "baseline_nonrecipe_exclude_count": baseline_nonrecipe_exclude_count,
-        "risk_flags": risk_flags,
-        "summary": summary,
-        "evidence": _semantic_profile_evidence_lines(
-            front_matter_examples=front_matter_examples,
-            navigation_examples=navigation_examples,
-            knowledge_examples=knowledge_examples,
-            recipe_structure_examples=recipe_structure_examples,
-        ),
-    }
-
-
 def _validate_line_role_shard_proposal(
     shard: ShardManifestEntryV1,
     payload: dict[str, Any],
@@ -519,51 +324,6 @@ def _validate_line_role_shard_proposal(
         runtime_metadata.get("accepted_atomic_indices") or []
     )
     return len(deduped_errors) == 0, deduped_errors, runtime_metadata
-
-def _summarize_line_role_payload_semantics(
-    *,
-    payload: Mapping[str, Any],
-    shard: ShardManifestEntryV1,
-    deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
-) -> dict[str, Any]:
-    profile = _build_line_role_semantic_profile(
-        shard=shard,
-        deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
-    )
-    rows_payload = payload.get("rows")
-    if not isinstance(rows_payload, list):
-        return {
-            "guard_applied": False,
-            "reason": "rows_missing_or_not_a_list",
-            "semantic_profile": profile,
-        }
-    label_counts: dict[str, int] = {}
-    for row in rows_payload:
-        if not isinstance(row, Mapping):
-            continue
-        label = str(row.get("label") or "").strip().upper()
-        if not label:
-            continue
-        label_counts[label] = label_counts.get(label, 0) + 1
-    return {
-        "guard_applied": True,
-        "semantic_profile": profile,
-        "semantic_response_label_counts": label_counts,
-    }
-
-
-def _validate_line_role_payload_semantics(
-    *,
-    payload: Mapping[str, Any],
-    shard: ShardManifestEntryV1,
-    deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
-) -> tuple[tuple[str, ...], dict[str, Any]]:
-    return (), _summarize_line_role_payload_semantics(
-        payload=payload,
-        shard=shard,
-        deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
-    )
-
 
 def _apply_line_role_semantic_guard(
     *,
@@ -652,10 +412,7 @@ def _build_line_role_row_resolution(
         "accepted_atomic_indices": accepted_atomic_indices,
         "unresolved_atomic_indices": unresolved_atomic_indices,
         "accepted_row_count": len(accepted_atomic_indices),
-        "semantic_containment_row_count": 0,
         "unresolved_row_count": len(unresolved_atomic_indices),
-        "semantic_rejected": False,
-        "semantic_containment_applied": False,
         "all_rows_resolved": all_rows_resolved,
     }
     return (
