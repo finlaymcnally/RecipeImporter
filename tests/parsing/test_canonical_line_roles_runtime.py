@@ -982,7 +982,7 @@ def test_label_atomic_lines_inline_json_repairs_in_place(tmp_path) -> None:
     assert predictions[0].label == "RECIPE_NOTES"
     assert [call["mode"] for call in runner.calls] == [
         "structured_prompt",
-        "structured_prompt_resume",
+        "structured_prompt",
     ]
 
 
@@ -1043,7 +1043,7 @@ def test_label_atomic_lines_inline_json_rejects_row_shaped_output_and_repairs_wi
     assert [row.label for row in predictions] == ["RECIPE_NOTES", "RECIPE_NOTES"]
     assert [call["mode"] for call in runner.calls] == [
         "structured_prompt",
-        "structured_prompt_resume",
+        "structured_prompt",
     ]
     proposal_payload = json.loads(
         (
@@ -1873,8 +1873,22 @@ def test_label_atomic_lines_repairs_partial_labels_reply_only_for_missing_rows(
     ]
     assert [call["mode"] for call in runner.calls] == [
         "structured_prompt",
-        "structured_prompt_resume",
+        "structured_prompt",
     ]
+    assert runner.calls[0]["resume_last"] is False
+    assert runner.calls[1]["resume_last"] is False
+    assert Path(str(runner.calls[0]["output_schema_path"])).name == "output_schema_initial.json"
+    assert Path(str(runner.calls[1]["output_schema_path"])).name == "output_schema_repair_01.json"
+    initial_schema_payload = json.loads(
+        Path(str(runner.calls[0]["output_schema_path"])).read_text(encoding="utf-8")
+    )
+    repair_schema_payload = json.loads(
+        Path(str(runner.calls[1]["output_schema_path"])).read_text(encoding="utf-8")
+    )
+    assert initial_schema_payload["properties"]["labels"]["minItems"] == 3
+    assert initial_schema_payload["properties"]["labels"]["maxItems"] == 3
+    assert repair_schema_payload["properties"]["labels"]["minItems"] == 1
+    assert repair_schema_payload["properties"]["labels"]["maxItems"] == 1
 
     repair_packet = json.loads(
         (
@@ -1951,9 +1965,15 @@ def test_label_atomic_lines_inline_json_allows_three_incremental_repair_attempts
     ]
     assert [call["mode"] for call in runner.calls] == [
         "structured_prompt",
-        "structured_prompt_resume",
-        "structured_prompt_resume",
-        "structured_prompt_resume",
+        "structured_prompt",
+        "structured_prompt",
+        "structured_prompt",
+    ]
+    assert [call["resume_last"] for call in runner.calls] == [
+        False,
+        False,
+        False,
+        False,
     ]
     assert repair_rows_seen == [
         ["Serves 4 generously", "1 cup thinly sliced cabbage"],

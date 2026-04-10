@@ -597,6 +597,42 @@ def _build_line_role_structured_prompt(*, packet: root.Mapping[str, root.Any]) -
     )
 
 
+def _build_line_role_structured_output_schema(
+    *,
+    session_root: root.Path,
+    base_schema_path: root.Path | None,
+    schema_stem: str,
+    expected_label_count: int,
+) -> root.Path | None:
+    if base_schema_path is None:
+        return None
+    try:
+        schema_payload = root.json.loads(
+            base_schema_path.read_text(encoding='utf-8')
+        )
+    except (OSError, root.json.JSONDecodeError):
+        return base_schema_path
+    if not isinstance(schema_payload, dict):
+        return base_schema_path
+    schema_copy = root.json.loads(root.json.dumps(schema_payload))
+    if not isinstance(schema_copy, dict):
+        return base_schema_path
+    properties_payload = root._coerce_mapping_dict(schema_copy.get('properties'))
+    labels_payload = dict(root._coerce_mapping_dict(properties_payload.get('labels')))
+    if not labels_payload:
+        return base_schema_path
+    labels_payload['minItems'] = max(0, int(expected_label_count))
+    labels_payload['maxItems'] = max(0, int(expected_label_count))
+    properties_payload['labels'] = labels_payload
+    schema_copy['properties'] = properties_payload
+    schema_path = session_root / f'output_schema_{schema_stem}.json'
+    schema_path.write_text(
+        root.json.dumps(schema_copy, indent=2, sort_keys=True) + '\n',
+        encoding='utf-8',
+    )
+    return schema_path
+
+
 def _translate_line_role_structured_labels_payload(
     *,
     labels_payload: root.Sequence[root.Any],
@@ -796,12 +832,18 @@ def _run_line_role_structured_assignment_v1(*, run_root: root.Path, assignment: 
             packet_kind='initial',
             deterministic_baseline_by_atomic_index=baseline_by_atomic_index,
         )
+        initial_output_schema_path = _build_line_role_structured_output_schema(
+            session_root=session_root,
+            base_schema_path=output_schema_path,
+            schema_stem='initial',
+            expected_label_count=len(list(initial_packet.get('rows') or [])),
+        )
         packet_path.write_text(root.json.dumps(initial_packet, indent=2, sort_keys=True) + '\n', encoding='utf-8')
         prompt_text = root._build_line_role_structured_prompt(packet=initial_packet)
         prompt_path.write_text(prompt_text, encoding='utf-8')
         if prompt_state is not None:
             prompt_state.write_prompt(phase_key=str((shard.metadata or {}).get('phase_key') or 'line_role').strip(), prompt_stem=str((shard.metadata or {}).get('prompt_stem') or 'prompt').strip(), prompt_index=int((shard.metadata or {}).get('prompt_index') or 0), prompt_text=prompt_text)
-        initial_run_result = runner.run_packet_worker(prompt_text=prompt_text, input_payload={**root._coerce_mapping_dict(shard.input_payload), 'shard_id': shard.shard_id, 'owned_ids': list(shard.owned_ids), 'packet_kind': 'initial', 'stage_key': 'line_role', 'structured_packet_rows': list(initial_packet.get('rows') or [])}, working_dir=session_root, env=env, output_schema_path=output_schema_path, model=model, reasoning_effort=reasoning_effort, timeout_seconds=timeout_seconds, workspace_task_label='canonical line-role structured session', persist_session=True)
+        initial_run_result = runner.run_packet_worker(prompt_text=prompt_text, input_payload={**root._coerce_mapping_dict(shard.input_payload), 'shard_id': shard.shard_id, 'owned_ids': list(shard.owned_ids), 'packet_kind': 'initial', 'stage_key': 'line_role', 'structured_packet_rows': list(initial_packet.get('rows') or [])}, working_dir=session_root, env=env, output_schema_path=initial_output_schema_path, model=model, reasoning_effort=reasoning_effort, timeout_seconds=timeout_seconds, workspace_task_label='canonical line-role structured session', persist_session=True)
         execution_workspace = root.Path(initial_run_result.execution_working_dir or session_root)
         root.initialize_structured_session_lineage(worker_root=session_root, assignment_id=f'{assignment.worker_id}:{shard.shard_id}', execution_working_dir=execution_workspace)
         response_path.write_text(str(initial_run_result.response_text or ''), encoding='utf-8')
@@ -866,11 +908,17 @@ def _run_line_role_structured_assignment_v1(*, run_root: root.Path, assignment: 
                 repair_stdout_path = session_root / f'repair_stdout_{repair_attempt_index:02d}.txt'
                 repair_stderr_path = session_root / f'repair_stderr_{repair_attempt_index:02d}.txt'
                 latest_repair_packet_path = repair_packet_path
+                repair_output_schema_path = _build_line_role_structured_output_schema(
+                    session_root=session_root,
+                    base_schema_path=output_schema_path,
+                    schema_stem=f'repair_{repair_attempt_index:02d}',
+                    expected_label_count=len(list(repair_packet.get('rows') or [])),
+                )
                 repair_packet_path.write_text(root.json.dumps(repair_packet, indent=2, sort_keys=True) + '\n', encoding='utf-8')
                 repair_prompt_text = root._build_line_role_structured_prompt(packet=repair_packet)
                 repair_prompt_path.write_text(repair_prompt_text, encoding='utf-8')
                 root.assert_structured_session_can_resume(worker_root=session_root, execution_working_dir=execution_workspace)
-                repair_run_result = runner.run_packet_worker(prompt_text=repair_prompt_text, input_payload={**root._coerce_mapping_dict(repair_shard.input_payload), 'shard_id': shard.shard_id, 'owned_ids': list(repair_shard.owned_ids), 'packet_kind': 'repair', 'stage_key': 'line_role', 'validation_errors': list(current_validation_errors), 'structured_packet_rows': list(repair_packet.get('rows') or [])}, working_dir=session_root, env=env, output_schema_path=output_schema_path, model=model, reasoning_effort=reasoning_effort, timeout_seconds=timeout_seconds, workspace_task_label='canonical line-role structured repair session', resume_last=True, prepared_execution_working_dir=execution_workspace)
+                repair_run_result = runner.run_packet_worker(prompt_text=repair_prompt_text, input_payload={**root._coerce_mapping_dict(repair_shard.input_payload), 'shard_id': shard.shard_id, 'owned_ids': list(repair_shard.owned_ids), 'packet_kind': 'repair', 'stage_key': 'line_role', 'validation_errors': list(current_validation_errors), 'structured_packet_rows': list(repair_packet.get('rows') or [])}, working_dir=session_root, env=env, output_schema_path=repair_output_schema_path, model=model, reasoning_effort=reasoning_effort, timeout_seconds=timeout_seconds, workspace_task_label='canonical line-role structured repair session', prepared_execution_working_dir=execution_workspace)
                 repair_response_path.write_text(str(repair_run_result.response_text or ''), encoding='utf-8')
                 repair_events_path.write_text(root._render_codex_events_jsonl(repair_run_result.events), encoding='utf-8')
                 root._write_runtime_json(repair_last_message_path, {'text': repair_run_result.response_text})
