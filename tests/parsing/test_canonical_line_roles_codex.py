@@ -409,7 +409,9 @@ def test_codex_outside_recipe_nonrecipe_exclude_without_support_stays_authoritat
     )
 
 
-def test_codex_recipe_local_nonrecipe_exclude_falls_back_to_baseline(tmp_path) -> None:
+def test_codex_recipe_local_nonrecipe_exclude_is_normalized_without_baseline_fallback(
+    tmp_path,
+) -> None:
     candidates = [
         AtomicLineCandidate(
             recipe_id="recipe:1",
@@ -440,11 +442,9 @@ def test_codex_recipe_local_nonrecipe_exclude_falls_back_to_baseline(tmp_path) -
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "INSTRUCTION_LINE"
-    assert predictions[0].decided_by == "fallback"
-    assert "codex_policy_rejected:nonrecipe_exclude_inside_recipe_not_allowed" in (
-        predictions[0].reason_tags
-    )
+    assert predictions[0].label == "RECIPE_NOTES"
+    assert predictions[0].decided_by == "codex"
+    assert "codex_policy_rejected" not in predictions[0].reason_tags
 
 
 def test_codex_outside_recipe_nonrecipe_exclude_reason_mismatch_falls_back_to_baseline(
@@ -970,8 +970,8 @@ def test_codex_exact_instruction_other_rows_stay_codex_other(tmp_path) -> None:
     ]
     assert predictions[1].decided_by == "codex"
     assert predictions[2].decided_by == "codex"
-    assert "rescued_other_to_instruction" not in predictions[1].reason_tags
-    assert "rescued_other_to_instruction" not in predictions[2].reason_tags
+    assert predictions[1].reason_tags == ["codex_line_role"]
+    assert predictions[2].reason_tags == ["codex_line_role"]
 
 
 def test_codex_exact_variations_other_rows_stay_codex_other(tmp_path) -> None:
@@ -1028,7 +1028,4 @@ def test_codex_exact_variations_other_rows_stay_codex_other(tmp_path) -> None:
         "NONRECIPE_CANDIDATE",
     ]
     assert all(prediction.decided_by == "codex" for prediction in predictions)
-    assert all(
-        "rescued_other_to_variant" not in prediction.reason_tags
-        for prediction in predictions
-    )
+    assert all(prediction.reason_tags == ["codex_line_role"] for prediction in predictions)

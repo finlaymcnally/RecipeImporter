@@ -565,10 +565,7 @@ def test_label_atomic_lines_outside_recipe_instruction_like_endorsement_cluster_
         "NONRECIPE_EXCLUDE",
         "NONRECIPE_EXCLUDE",
     ]
-    assert all(
-        "rescued_other_to_instruction" not in prediction.reason_tags
-        for prediction in predictions
-    )
+    assert all(prediction.decided_by == "fallback" for prediction in predictions)
 
 
 def test_label_atomic_lines_outside_recipe_publisher_signup_cluster_is_excluded() -> None:

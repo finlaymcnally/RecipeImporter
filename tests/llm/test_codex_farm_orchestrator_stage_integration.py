@@ -53,15 +53,13 @@ def _build_recipe_output(payload: dict[str, object] | None) -> dict[str, object]
         shard_payload.get("stage_key") == "recipe_refine"
         and shard_payload.get("recipe_id") is not None
     ):
-        recipe_id = str(shard_payload["recipe_id"])
-        recipe_hint = dict(shard_payload.get("hint") or {})
         return {
             "status": "repaired",
             "status_reason": None,
             "canonical_recipe": {
-                "title": recipe_hint.get("title"),
-                "ingredients": list(recipe_hint.get("ingredients") or []),
-                "steps": list(recipe_hint.get("steps") or []),
+                "title": shard_payload.get("title"),
+                "ingredients": list(shard_payload.get("ingredients") or []),
+                "steps": list(shard_payload.get("steps") or []),
                 "description": None,
                 "recipe_yield": None,
             },

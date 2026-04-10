@@ -739,6 +739,17 @@ class FakeCodexExecRunner:
     output_builder: Callable[[Mapping[str, Any] | None], dict[str, Any]]
     workspace_final_message_text: str | None = None
     calls: list[dict[str, Any]] = field(default_factory=list)
+    _RECIPE_TASK_INGREDIENT_LEAD_RE = re.compile(
+        r"^\s*(?:\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?)\s+\S"
+    )
+    _RECIPE_TASK_INGREDIENT_UNIT_RE = re.compile(
+        r"\b(cups?|tbsp|tablespoons?|tsp|teaspoons?|oz|ounces?|lb|lbs|pounds?|g|kg|ml|l|pinch|dash|cloves?|cans?|sticks?)\b",
+        re.IGNORECASE,
+    )
+    _RECIPE_TASK_STEP_LEAD_RE = re.compile(
+        r"^\s*(?:add|arrange|bake|beat|blend|boil|combine|cook|drain|fold|heat|mix|pour|serve|simmer|spread|steep|stir|toast|whisk)\b",
+        re.IGNORECASE,
+    )
 
     @staticmethod
     def _write_workspace_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -969,24 +980,92 @@ class FakeCodexExecRunner:
         edited["units"] = edited_units
         return edited
 
-    @staticmethod
+    @classmethod
     def _build_recipe_task_answer_request(
+        cls,
         *,
         stage_key: str,
         evidence: Mapping[str, Any],
     ) -> dict[str, Any]:
-        hint_payload = dict(evidence.get("hint") or {})
+        recipe_id = str(evidence.get("recipe_id") or "recipe")
+        title, ingredients, steps = cls._derive_recipe_task_outline(
+            recipe_id=recipe_id,
+            evidence=evidence,
+        )
         return {
             "stage_key": stage_key,
-            "recipe_id": str(evidence.get("recipe_id") or "recipe"),
-            "hint": {
-                "title": hint_payload.get("title"),
-                "ingredients": list(hint_payload.get("ingredients") or []),
-                "steps": list(hint_payload.get("steps") or []),
-            },
+            "recipe_id": recipe_id,
+            "title": title,
+            "ingredients": ingredients,
+            "steps": steps,
             "source_text": str(evidence.get("source_text") or ""),
             "source_rows": list(evidence.get("source_rows") or []),
         }
+
+    @classmethod
+    def _derive_recipe_task_outline(
+        cls,
+        *,
+        recipe_id: str,
+        evidence: Mapping[str, Any],
+    ) -> tuple[str, list[str], list[str]]:
+        source_rows = evidence.get("source_rows")
+        row_texts: list[str] = []
+        if isinstance(source_rows, list):
+            for row in source_rows:
+                if isinstance(row, (list, tuple)) and len(row) >= 2:
+                    text = str(row[1] or "").strip()
+                    if text:
+                        row_texts.append(text)
+        source_text = str(evidence.get("source_text") or "").strip()
+        if not row_texts and source_text:
+            row_texts = [line.strip() for line in source_text.splitlines() if line.strip()]
+        title = row_texts[0] if row_texts else recipe_id or "Untitled Recipe"
+        body_lines = row_texts[1:] if len(row_texts) > 1 else row_texts[:]
+        ingredients: list[str] = []
+        steps: list[str] = []
+        saw_step = False
+        for line in body_lines:
+            if saw_step:
+                steps.append(line)
+                continue
+            if cls._looks_like_recipe_task_step(line):
+                saw_step = True
+                steps.append(line)
+                continue
+            if cls._looks_like_recipe_task_ingredient(line):
+                ingredients.append(line)
+                continue
+            if ingredients:
+                saw_step = True
+                steps.append(line)
+                continue
+            ingredients.append(line)
+        if not ingredients and body_lines:
+            ingredients = body_lines[:1]
+        if not steps and body_lines:
+            steps = body_lines[1:] if len(body_lines) > 1 else body_lines[:1]
+        return title, ingredients, steps
+
+    @classmethod
+    def _looks_like_recipe_task_ingredient(cls, text: str) -> bool:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return False
+        return bool(
+            cls._RECIPE_TASK_INGREDIENT_LEAD_RE.match(normalized)
+            or cls._RECIPE_TASK_INGREDIENT_UNIT_RE.search(normalized)
+        )
+
+    @classmethod
+    def _looks_like_recipe_task_step(cls, text: str) -> bool:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return False
+        return bool(
+            cls._RECIPE_TASK_STEP_LEAD_RE.match(normalized)
+            or normalized.endswith(".")
+        )
 
     @staticmethod
     def _normalize_recipe_task_answer_payload(
@@ -1894,6 +1973,11 @@ def _write_direct_exec_worker_manifest(
         if single_file_worker_runtime
         else None
     )
+    single_file_stage_key = (
+        str(single_file_task_file_payload.get("stage_key") or "").strip()
+        if isinstance(single_file_task_file_payload, Mapping)
+        else ""
+    )
     has_assigned_tasks = (
         workspace_root / _DIRECT_EXEC_ASSIGNED_TASKS_FILE_NAME
     ).exists()
@@ -2024,7 +2108,7 @@ def _write_direct_exec_worker_manifest(
                 (
                     (
                         "Treat `task.json` as the editable worker contract when present: open it directly, edit answer fields in place, and then run `task-handoff`; `task-status` and `task-doctor` are troubleshooting helpers."
-                        if str(single_file_task_file_payload.get("stage_key") or "").strip()
+                        if single_file_stage_key
                         in {"line_role", "nonrecipe_classify", "knowledge_group"}
                         else (
                             "Treat `task.json` as the editable worker contract when present: start with the repo-owned summary helper, inspect only the units you need, then edit answer fields in place and run the repo-owned same-session helper named in `task.json`."

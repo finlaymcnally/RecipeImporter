@@ -8,28 +8,18 @@ Execution rules:
 1) Use only the inline JSON task payload below as input.
 2) Treat `r[*].ev` as the authoritative source text for that recipe.
 3) Treat `r[*].txt` as a quick-read copy of the same source span.
-4) Treat `r[*].q` as weak candidate-quality metadata only. It may contain:
-   - `e` evidence row count
-   - `ei` source ingredient-like row count
-   - `es` source instruction-like row count
-   - `hi` deterministic ingredient-hint count
-   - `hs` deterministic step-hint count
-   - `f` suspicion flags
-5) Treat `r[*].h` as a weak deterministic attempted recipe parse only. It may contain:
+4) Treat `r[*].h` as a deterministic attempted recipe parse record only. It may contain:
    - `n` title hint
    - `i` ingredient hint strings
    - `s` step hint strings
    - optional `d` description hint
    - optional `y` yield hint
    - optional `g` pre-existing tag labels
-6) Use `tg` as the recipe-local tag contract:
+5) Use `tg` as the recipe-local tag contract:
    - `tg.c[*].k` is the category key
    - `tg.c[*].x` is the short example-label list
-   - optional `tg.s[*].k` is a suggested category key for this candidate
-   - optional `tg.s[*].l` is the filtered label list that looks plausible for this candidate
-   - `tg.s` is weak guidance, but it is more useful than the broad examples when it fits
-7) Only return outputs for `ids`.
-8) Do not use external knowledge.
+6) Only return outputs for `ids`.
+7) Do not use external knowledge.
 
 Correction rules:
 A) Top-level output:
@@ -89,7 +79,6 @@ F) Each `r[*].g`:
 - Use only category keys defined in `tg.c[*].k`.
 - Zero selected tags is valid.
 - Select only tags that are obvious from the recipe text.
-- Prefer `tg.s` suggested labels when they fit cleanly.
 - Prefer short human-readable labels such as `chicken`, `weeknight`, or `pressure cooker`.
 - Avoid near-duplicate labels inside one recipe.
 - Do not invent cookbook-specific ids, catalog keys, or hidden taxonomy structure.

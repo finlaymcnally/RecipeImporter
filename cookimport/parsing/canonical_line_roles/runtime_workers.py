@@ -518,17 +518,13 @@ def _line_role_structured_context_rows(
 
 
 def _build_line_role_structured_packet(*, shard: root.ShardManifestEntryV1, packet_kind: str, validation_errors: root.Sequence[str] | None=None, validation_metadata: root.Mapping[str, root.Any] | None=None, deterministic_baseline_by_atomic_index: root.Mapping[int, root.CanonicalLineRolePrediction] | None=None) -> dict[str, root.Any]:
-    semantic_profile = root._build_line_role_semantic_profile(
-        shard=shard,
-        deterministic_baseline_by_atomic_index=dict(deterministic_baseline_by_atomic_index or {}),
-    )
+    del deterministic_baseline_by_atomic_index
     payload: dict[str, root.Any] = {
         "schema_version": "line_role_structured_packet.v2",
         "stage_key": "line_role",
         "packet_kind": str(packet_kind or "initial"),
         "shard_id": shard.shard_id,
         "rows": root._line_role_structured_packet_rows(shard),
-        "shard_profile": semantic_profile,
     }
     context_before_rows = _line_role_structured_context_rows(
         shard=shard,
@@ -544,13 +540,6 @@ def _build_line_role_structured_packet(*, shard: root.ShardManifestEntryV1, pack
         payload["context_after_rows"] = context_after_rows
     if validation_errors:
         payload["validation_errors"] = [str(error).strip() for error in validation_errors if str(error).strip()]
-    semantic_diagnostics = [
-        str(value).strip()
-        for value in (validation_metadata or {}).get("semantic_diagnostics", [])
-        if str(value).strip()
-    ]
-    if semantic_diagnostics:
-        payload["semantic_diagnostics"] = semantic_diagnostics
     return payload
 
 
@@ -563,36 +552,11 @@ def _build_line_role_structured_prompt(*, packet: root.Mapping[str, root.Any]) -
         if packet_kind != "initial"
         else ""
     )
-    semantic_diagnostics = [
-        str(value).strip()
-        for value in (packet.get("semantic_diagnostics") or [])
-        if str(value).strip()
-    ]
-    repair_focus_note = ""
-    if semantic_diagnostics:
-        repair_focus_note = (
-            "The previous answer was structurally valid but semantically wrong for this shard.\n"
-            + "\n".join(f"- {value}" for value in semantic_diagnostics)
-            + "\nFix the cited semantic problem, not just JSON shape or row coverage.\n\n"
-        )
     context_note = (
         "If nearby context rows are shown, use them only to interpret the owned rows; do not label the context rows themselves.\n- "
         if (packet.get("context_before_rows") or packet.get("context_after_rows"))
         else ""
     )
-    shard_profile = dict(packet.get("shard_profile") or {})
-    shard_profile_lines = [
-        str(line).strip()
-        for line in (shard_profile.get("evidence") or [])
-        if str(line).strip()
-    ]
-    shard_profile_block = ""
-    if shard_profile_lines:
-        shard_profile_block = (
-            "Shard profile evidence:\n"
-            + "\n".join(f"- {line}" for line in shard_profile_lines)
-            + "\nTreat this as evidence, not a deterministic answer key.\n\n"
-        )
     owned_rows = packet.get("rows") or []
     owned_row_count = len(owned_rows) if isinstance(owned_rows, list) else 0
     owned_row_count_note = f"This packet has {owned_row_count} owned row(s) in reading order."
@@ -603,7 +567,6 @@ def _build_line_role_structured_prompt(*, packet: root.Mapping[str, root.Any]) -
         "Shared labeling contract:\n"
         + shared_contract
         + "\n\n"
-        + shard_profile_block
         + "Rules:\n"
         f"- Allowed labels: {allowed_labels}\n"
         f"- {owned_row_count_note}\n"
@@ -615,7 +578,6 @@ def _build_line_role_structured_prompt(*, packet: root.Mapping[str, root.Any]) -
         "- Return only the top-level `labels` array.\n"
         "- Do not include commentary, markdown, or extra keys.\n\n"
         + repair_note
-        + repair_focus_note
         + "Packet JSON:\n"
         + root.json.dumps(dict(packet), indent=2, sort_keys=True)
         + "\n"

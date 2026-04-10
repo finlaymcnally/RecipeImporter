@@ -62,6 +62,10 @@ def build_stage_block_predictions(
     }
     notes = list(recipe_evidence.notes)
     notes.extend(knowledge_evidence.notes)
+    if recipe_evidence.unresolved_exact_evidence:
+        notes.append(
+            "Recipe-local title/variant/yield/time evidence now stays unresolved when exact grounding is unavailable."
+        )
 
     if knowledge_evidence.knowledge_indices and recipe_evidence.block_count == 0:
         notes.append("Knowledge blocks were present but no extracted archive blocks were available.")
@@ -130,6 +134,7 @@ def build_stage_block_predictions(
             str(index): recipe_id
             for index, recipe_id in sorted(recipe_evidence.unresolved_recipe_owned_recipe_id_by_index.items())
         },
+        "unresolved_recipe_exact_evidence": list(recipe_evidence.unresolved_exact_evidence),
         "conflicts": conflicts,
         "notes": sorted(set(note for note in notes if note)),
     }

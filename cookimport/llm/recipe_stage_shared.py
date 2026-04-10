@@ -51,11 +51,6 @@ logger = logging.getLogger(__name__)
 SINGLE_CORRECTION_RECIPE_PIPELINE_ID = RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 SINGLE_CORRECTION_STAGE_PIPELINE_ID = 'recipe.correction.compact.v1'
 _CODEX_FARM_RECIPE_MODE_ENV = 'COOKIMPORT_CODEX_FARM_RECIPE_MODE'
-_ELIGIBILITY_INGREDIENT_LEAD_RE = re.compile('^\\s*(?:\\d+\\s+\\d+/\\d+|\\d+/\\d+|\\d+(?:\\.\\d+)?)\\s+[A-Za-z]')
-_ELIGIBILITY_INGREDIENT_UNIT_RE = re.compile('\\b(cups?|tbsp|tablespoons?|tsp|teaspoons?|oz|ounces?|lb|lbs|pounds?|g|kg|ml|l|cloves?|sticks?|cans?|pinch)\\b', re.IGNORECASE)
-_ELIGIBILITY_INSTRUCTION_VERB_RE = re.compile('^\\s*(?:add|bake|beat|blend|boil|braise|bring|combine|cook|cool|cover|drain|fold|grill|heat|mix|place|pour|reduce|remove|roast|season|serve|simmer|stir|toast|transfer|whisk)\\b', re.IGNORECASE)
-_ELIGIBILITY_YIELD_PREFIX_RE = re.compile('^\\s*(?:makes|serves?|servings|yields?)\\b', re.IGNORECASE)
-_ELIGIBILITY_TITLE_LIKE_RE = re.compile("^[A-Z][A-Z0-9'/:,\\- ]{2,}$")
 _AUDIT_PLACEHOLDER_TITLES = {'recipe', 'recipe title', 'recipe name', 'title unavailable', 'unknown recipe', 'untitled recipe'}
 _AUDIT_PLACEHOLDER_STEP_TEXTS = {'', 'n a', 'na', 'not provided', 'not available', 'no instruction provided', 'see original recipe for details', 'see original recipe', 'refer to original recipe', 'follow original recipe'}
 _ELIGIBILITY_CHAPTER_PAGE_HINT_KEYS = ('chapter_page_hint', 'chapter_page_hints', 'chapter_type', 'chapter_kind', 'section_type', 'section_kind', 'page_type', 'page_kind', 'page_region', 'layout_region', 'layout_type')
@@ -104,7 +99,6 @@ class _RecipeState:
 class _PreparedRecipeInput:
     state: _RecipeState
     correction_input: MergedRecipeRepairInput
-    candidate_quality_hint: dict[str, Any]
     evidence_refs: tuple[str, ...]
     block_indices: tuple[int, ...]
     pre_context_rows: tuple[tuple[int, str], ...]
@@ -175,17 +169,16 @@ def _build_recipe_correction_input(*, state: _RecipeState, workbook_slug: str, s
     canonical_text = '\n'.join((str(block.get('text') or '').strip() for block in included_blocks)).strip()
     return MergedRecipeRepairInput(recipe_id=state.recipe_id, workbook_slug=workbook_slug, source_hash=source_hash, canonical_text=canonical_text, evidence_rows=[(int(block.get('index', 0)), str(block.get('text') or '').strip()) for block in included_blocks], recipe_candidate_hint=compact_recipe_candidate_hint, tagging_guide=build_recipe_tagging_guide(recipe_text=canonical_text, recipe_candidate_hint=compact_recipe_candidate_hint), authority_notes=['authoritative_source=recipe_span_blocks', 'correct_intermediate_recipe_candidate', 'emit_linkage_payload_for_deterministic_final_assembly'])
 
-def _build_recipe_shard_recipe_input(*, correction_input: MergedRecipeRepairInput, candidate_quality_hint: Mapping[str, Any], warnings: Sequence[str]) -> RecipeCorrectionShardRecipeInput:
-    return RecipeCorrectionShardRecipeInput(recipe_id=correction_input.recipe_id, canonical_text=correction_input.canonical_text, evidence_rows=list(correction_input.evidence_rows), recipe_candidate_hint=dict(correction_input.recipe_candidate_hint), candidate_quality_hint=dict(candidate_quality_hint or {}), warnings=list(warnings))
+def _build_recipe_shard_recipe_input(*, correction_input: MergedRecipeRepairInput, warnings: Sequence[str]) -> RecipeCorrectionShardRecipeInput:
+    return RecipeCorrectionShardRecipeInput(recipe_id=correction_input.recipe_id, canonical_text=correction_input.canonical_text, evidence_rows=list(correction_input.evidence_rows), recipe_candidate_hint=dict(correction_input.recipe_candidate_hint), warnings=list(warnings))
 
 def _build_prepared_recipe_input(*, state: _RecipeState, workbook_slug: str, source_hash: str, included_blocks: list[dict[str, Any]], full_blocks_by_index: Mapping[int, Mapping[str, Any]]) -> _PreparedRecipeInput:
     correction_input = _build_recipe_correction_input(state=state, workbook_slug=workbook_slug, source_hash=source_hash, included_blocks=included_blocks)
     evidence_refs = tuple((str(block.get('block_id') or f'b{int(block.get('index', 0))}') for block in included_blocks))
     block_indices = tuple((int(block.get('index', 0)) for block in included_blocks))
-    candidate_quality_hint = _build_recipe_candidate_quality_hint(included_blocks=included_blocks, recipe_candidate_hint=correction_input.recipe_candidate_hint)
     pre_context_rows = _build_recipe_boundary_context_rows(state=state, full_blocks_by_index=full_blocks_by_index, side='before')
     post_context_rows = _build_recipe_boundary_context_rows(state=state, full_blocks_by_index=full_blocks_by_index, side='after')
-    return _PreparedRecipeInput(state=state, correction_input=correction_input, candidate_quality_hint=candidate_quality_hint, evidence_refs=evidence_refs, block_indices=block_indices, pre_context_rows=pre_context_rows, post_context_rows=post_context_rows)
+    return _PreparedRecipeInput(state=state, correction_input=correction_input, evidence_refs=evidence_refs, block_indices=block_indices, pre_context_rows=pre_context_rows, post_context_rows=post_context_rows)
 
 def _requested_recipe_worker_count(run_settings: RunSettings) -> int | None:
     candidate = run_settings.recipe_worker_count
@@ -213,7 +206,7 @@ def _build_recipe_shard_plan(*, shard_index: int, shard_prepared_inputs: Sequenc
     shard_id = f'recipe-shard-{shard_index:04d}-r{first_recipe_index:04d}-r{last_recipe_index:04d}'
     shard_recipe_ids = tuple((prepared.state.recipe_id for prepared in shard_prepared_inputs_tuple))
     tagging_guide = dict(shard_prepared_inputs_tuple[0].correction_input.tagging_guide or {}) if len(shard_prepared_inputs_tuple) == 1 else build_recipe_tagging_guide()
-    shard_input = RecipeCorrectionShardInput(shard_id=shard_id, owned_recipe_ids=list(shard_recipe_ids), recipes=[_build_recipe_shard_recipe_input(correction_input=prepared.correction_input, candidate_quality_hint=prepared.candidate_quality_hint, warnings=prepared.state.warnings) for prepared in shard_prepared_inputs_tuple], tagging_guide=tagging_guide)
+    shard_input = RecipeCorrectionShardInput(shard_id=shard_id, owned_recipe_ids=list(shard_recipe_ids), recipes=[_build_recipe_shard_recipe_input(correction_input=prepared.correction_input, warnings=prepared.state.warnings) for prepared in shard_prepared_inputs_tuple], tagging_guide=tagging_guide)
     evidence_refs = tuple((ref for prepared in shard_prepared_inputs_tuple for ref in prepared.evidence_refs))
     return _RecipeShardPlan(shard_id=shard_id, states=tuple((prepared.state for prepared in shard_prepared_inputs_tuple)), prepared_inputs=shard_prepared_inputs_tuple, evidence_refs=evidence_refs, shard_input=shard_input)
 
@@ -272,45 +265,6 @@ def _coerce_compact_step_hint_text(value: Any) -> str:
                 return rendered
         return ''
     return ''
-
-def _build_recipe_candidate_quality_hint(*, included_blocks: Sequence[Mapping[str, Any]], recipe_candidate_hint: Mapping[str, Any]) -> dict[str, Any]:
-    evidence_lines = [str(block.get('text') or '').strip() for block in included_blocks if str(block.get('text') or '').strip()]
-    evidence_row_count = len(evidence_lines)
-    evidence_ingredient_count = sum((1 for line in evidence_lines if _looks_like_ingredient_line(line)))
-    evidence_step_count = sum((1 for line in evidence_lines if _looks_like_step_line(line)))
-    hint_ingredient_count = sum((1 for item in recipe_candidate_hint.get('i') or [] if str(item or '').strip()))
-    hint_step_count = sum((1 for item in recipe_candidate_hint.get('s') or [] if str(item or '').strip()))
-    title_hint = str(recipe_candidate_hint.get('n') or '').strip()
-    suspicion_flags: list[str] = []
-    if evidence_row_count <= 2:
-        suspicion_flags.append('short_span')
-    if evidence_ingredient_count == 0:
-        suspicion_flags.append('source_no_ingredient_lines')
-    if evidence_step_count == 0:
-        suspicion_flags.append('source_no_instruction_lines')
-    if hint_ingredient_count == 0:
-        suspicion_flags.append('hint_no_ingredients')
-    if hint_step_count == 0:
-        suspicion_flags.append('hint_no_steps')
-    if not title_hint:
-        suspicion_flags.append('hint_no_title')
-    elif _ELIGIBILITY_TITLE_LIKE_RE.fullmatch(title_hint) and evidence_ingredient_count == 0 and (evidence_step_count == 0):
-        suspicion_flags.append('title_looks_sectional')
-    return {'e': evidence_row_count, 'ei': evidence_ingredient_count, 'es': evidence_step_count, 'hi': hint_ingredient_count, 'hs': hint_step_count, 'f': suspicion_flags}
-
-def _looks_like_ingredient_line(text: str) -> bool:
-    rendered = str(text or '').strip()
-    if not rendered:
-        return False
-    if _ELIGIBILITY_YIELD_PREFIX_RE.search(rendered):
-        return False
-    return bool(_ELIGIBILITY_INGREDIENT_LEAD_RE.search(rendered) or _ELIGIBILITY_INGREDIENT_UNIT_RE.search(rendered))
-
-def _looks_like_step_line(text: str) -> bool:
-    rendered = str(text or '').strip()
-    if not rendered:
-        return False
-    return bool(_ELIGIBILITY_INSTRUCTION_VERB_RE.search(rendered))
 
 def _corrected_candidate_from_output(*, state: _RecipeState, output: MergedRecipeRepairOutput) -> RecipeCandidate:
     selected_tags: list[str] = []
@@ -731,8 +685,6 @@ def _assign_recipe_workers_v1(*, run_root: Path, shards: Sequence[ShardManifestE
 def _build_recipe_task_plans(shard: ShardManifestEntryV1) -> tuple[_RecipeTaskPlan, ...]:
     payload = _coerce_dict(shard.input_payload)
     recipes = [dict(row) for row in payload.get('r') or [] if isinstance(row, Mapping)]
-    hint_rows = [dict(row) for row in _coerce_dict(shard.metadata).get('worker_hint_recipes') or [] if isinstance(row, Mapping)]
-    hint_by_recipe_id = {str(row.get('recipe_id') or '').strip(): row for row in hint_rows if str(row.get('recipe_id') or '').strip()}
     if not recipes:
         return ()
     task_count = len(recipes)
@@ -743,7 +695,7 @@ def _build_recipe_task_plans(shard: ShardManifestEntryV1) -> tuple[_RecipeTaskPl
             continue
         task_id = shard.shard_id if task_count == 1 else f'{shard.shard_id}.task-{task_index:03d}'
         task_payload = {**payload, 'sid': task_id, 'ids': [recipe_id], 'r': [dict(recipe_row)]}
-        task_manifest = ShardManifestEntryV1(shard_id=task_id, owned_ids=(recipe_id,), evidence_refs=tuple(shard.evidence_refs), input_payload=task_payload, metadata={**dict(shard.metadata or {}), 'parent_shard_id': shard.shard_id, 'task_id': task_id, 'task_index': task_index, 'task_count': task_count, 'recipe_ids': [recipe_id], 'recipe_count': 1, 'worker_hint_recipes': [dict(hint_by_recipe_id[recipe_id])] if recipe_id in hint_by_recipe_id else []})
+        task_manifest = ShardManifestEntryV1(shard_id=task_id, owned_ids=(recipe_id,), evidence_refs=tuple(shard.evidence_refs), input_payload=task_payload, metadata={**dict(shard.metadata or {}), 'parent_shard_id': shard.shard_id, 'task_id': task_id, 'task_index': task_index, 'task_count': task_count, 'recipe_ids': [recipe_id], 'recipe_count': 1})
         task_plans.append(_RecipeTaskPlan(task_id=task_id, parent_shard_id=shard.shard_id, manifest_entry=task_manifest))
     return tuple(task_plans)
 
@@ -1540,7 +1492,7 @@ def _run_single_correction_recipe_pipeline(*, conversion_result: ConversionResul
         _write_json(survivability_report, phase_runtime_dir / 'shard_survivability_report.json')
         if str(survivability_report.get('survivability_verdict') or '') != 'safe':
             raise ShardSurvivabilityPreflightError(survivability_report)
-        phase_manifest, worker_reports = _run_direct_recipe_workers_v1(phase_key='recipe_refine', pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID, run_root=phase_runtime_dir, shards=[ShardManifestEntryV1(shard_id=plan.shard_id, owned_ids=tuple((state.recipe_id for state in plan.states)), evidence_refs=plan.evidence_refs, input_payload=serialize_recipe_correction_shard_input(plan.shard_input), metadata={'recipe_ids': [state.recipe_id for state in plan.states], 'bundle_names': [state.bundle_name for state in plan.states], 'recipe_count': len(plan.states), 'worker_hint_recipes': [{'recipe_id': prepared.state.recipe_id, 'bundle_name': prepared.state.bundle_name, 'title_hint': str(prepared.correction_input.recipe_candidate_hint.get('n') or '').strip(), 'quality_flags': list(prepared.candidate_quality_hint.get('f') or []), 'source_evidence_row_count': int(prepared.candidate_quality_hint.get('e') or 0), 'source_ingredient_like_count': int(prepared.candidate_quality_hint.get('ei') or 0), 'source_instruction_like_count': int(prepared.candidate_quality_hint.get('es') or 0), 'hint_ingredient_count': int(prepared.candidate_quality_hint.get('hi') or 0), 'hint_step_count': int(prepared.candidate_quality_hint.get('hs') or 0), 'pre_context_rows': [{'index': int(index), 'text': text} for index, text in prepared.pre_context_rows], 'post_context_rows': [{'index': int(index), 'text': text} for index, text in prepared.post_context_rows]} for prepared in plan.prepared_inputs]}) for plan in recipe_shards], runner=codex_runner, worker_count=_recipe_worker_count(run_settings, shard_count=len(recipe_shards)), env=env, model=codex_model, reasoning_effort=codex_reasoning_effort, output_schema_path=resolved_output_schema_path, settings={'llm_recipe_pipeline': run_settings.llm_recipe_pipeline.value, 'runtime_mode': DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, 'recipe_worker_count': run_settings.recipe_worker_count, 'recipe_prompt_target_count': run_settings.recipe_prompt_target_count, 'recipe_codex_exec_style': run_settings.resolved_recipe_codex_exec_style(), 'completed_termination_grace_seconds': run_settings.completed_termination_grace_seconds}, runtime_metadata={'workbook_slug': workbook_slug, 'recipe_phase_input_dir': str(phase_input_dir), 'requested_shard_count': run_settings.recipe_prompt_target_count or len(recipe_shards), 'budget_native_shard_count': len(recipe_shards), 'planning_warnings': []}, pipeline_assets=pipeline_assets, progress_callback=progress_callback, survivability_report=survivability_report)
+        phase_manifest, worker_reports = _run_direct_recipe_workers_v1(phase_key='recipe_refine', pipeline_id=SINGLE_CORRECTION_STAGE_PIPELINE_ID, run_root=phase_runtime_dir, shards=[ShardManifestEntryV1(shard_id=plan.shard_id, owned_ids=tuple((state.recipe_id for state in plan.states)), evidence_refs=plan.evidence_refs, input_payload=serialize_recipe_correction_shard_input(plan.shard_input), metadata={'recipe_ids': [state.recipe_id for state in plan.states], 'bundle_names': [state.bundle_name for state in plan.states], 'recipe_count': len(plan.states)}) for plan in recipe_shards], runner=codex_runner, worker_count=_recipe_worker_count(run_settings, shard_count=len(recipe_shards)), env=env, model=codex_model, reasoning_effort=codex_reasoning_effort, output_schema_path=resolved_output_schema_path, settings={'llm_recipe_pipeline': run_settings.llm_recipe_pipeline.value, 'runtime_mode': DIRECT_CODEX_EXEC_RUNTIME_MODE_V1, 'recipe_worker_count': run_settings.recipe_worker_count, 'recipe_prompt_target_count': run_settings.recipe_prompt_target_count, 'recipe_codex_exec_style': run_settings.resolved_recipe_codex_exec_style(), 'completed_termination_grace_seconds': run_settings.completed_termination_grace_seconds}, runtime_metadata={'workbook_slug': workbook_slug, 'recipe_phase_input_dir': str(phase_input_dir), 'requested_shard_count': run_settings.recipe_prompt_target_count or len(recipe_shards), 'budget_native_shard_count': len(recipe_shards), 'planning_warnings': []}, pipeline_assets=pipeline_assets, progress_callback=progress_callback, survivability_report=survivability_report)
         phase_manifest_payload = json.loads((phase_runtime_dir / 'phase_manifest.json').read_text(encoding='utf-8'))
         promotion_report = json.loads((phase_runtime_dir / 'promotion_report.json').read_text(encoding='utf-8'))
         telemetry = json.loads((phase_runtime_dir / 'telemetry.json').read_text(encoding='utf-8'))

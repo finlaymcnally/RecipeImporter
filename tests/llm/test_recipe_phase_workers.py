@@ -133,7 +133,6 @@ def _build_recipe_workspace_output(
         and shard_payload.get("recipe_id") is not None
     ):
         recipe_id = str(shard_payload["recipe_id"])
-        recipe_hint = dict(shard_payload.get("hint") or {})
         repair_status = str(statuses.get(recipe_id) or "repaired")
         status_reason = None
         warnings: list[str] = []
@@ -143,10 +142,10 @@ def _build_recipe_workspace_output(
         elif repair_status == "not_a_recipe":
             status_reason = "owned text is not a recipe"
         ingredient_count = len(
-            [item for item in recipe_hint.get("ingredients", []) if str(item or "").strip()]
+            [item for item in shard_payload.get("ingredients", []) if str(item or "").strip()]
         )
         step_count = len(
-            [item for item in recipe_hint.get("steps", []) if str(item or "").strip()]
+            [item for item in shard_payload.get("steps", []) if str(item or "").strip()]
         )
         if repair_status == "fragmentary":
             mapping_reason = "not_applicable_fragmentary"
@@ -168,9 +167,9 @@ def _build_recipe_workspace_output(
             "status_reason": status_reason,
             "canonical_recipe": (
                 {
-                    "title": recipe_hint.get("title"),
-                    "ingredients": list(recipe_hint.get("ingredients") or []),
-                    "steps": list(recipe_hint.get("steps") or []),
+                    "title": shard_payload.get("title"),
+                    "ingredients": list(shard_payload.get("ingredients") or []),
+                    "steps": list(shard_payload.get("steps") or []),
                     "description": None,
                     "recipe_yield": None,
                 }
@@ -313,14 +312,21 @@ class _FreshSessionRecoveryRunner(FakeCodexExecRunner):
             edited = deepcopy(task_file)
             for unit in edited["units"]:
                 evidence = dict(unit.get("evidence") or {})
-                hint = dict(evidence.get("hint") or {})
+                source_rows = evidence.get("source_rows") or []
+                row_texts = [
+                    str(row[1] or "").strip()
+                    for row in source_rows
+                    if isinstance(row, (list, tuple))
+                    and len(row) >= 2
+                    and str(row[1] or "").strip()
+                ]
                 unit["answer"] = {
                     "status": "repaired",
                     "status_reason": None,
                     "canonical_recipe": {
-                        "title": hint.get("title"),
-                        "ingredients": list(hint.get("ingredients") or []),
-                        "steps": list(hint.get("steps") or []),
+                        "title": row_texts[0] if row_texts else "Untitled Recipe",
+                        "ingredients": row_texts[1:2],
+                        "steps": row_texts[2:] or row_texts[1:2],
                         "description": None,
                         "recipe_yield": None,
                     },
@@ -658,13 +664,21 @@ def test_recipe_phase_runtime_repairs_invalid_task_file_answers_in_same_session(
                 if not isinstance(unit, dict):
                     continue
                 if payload.get("mode") == "repair":
+                    source_rows = unit.get("evidence", {}).get("source_rows") or []
+                    row_texts = [
+                        str(row[1] or "").strip()
+                        for row in source_rows
+                        if isinstance(row, (list, tuple))
+                        and len(row) >= 2
+                        and str(row[1] or "").strip()
+                    ]
                     unit["answer"] = {
                         "status": "repaired",
                         "status_reason": None,
                         "canonical_recipe": {
-                            "title": unit["evidence"]["hint"]["title"],
-                            "ingredients": list(unit["evidence"]["hint"]["ingredients"]),
-                            "steps": list(unit["evidence"]["hint"]["steps"]),
+                            "title": row_texts[0] if row_texts else "Untitled Recipe",
+                            "ingredients": row_texts[1:2],
+                            "steps": row_texts[2:] or row_texts[1:2],
                             "description": None,
                             "recipe_yield": None,
                         },

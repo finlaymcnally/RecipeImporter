@@ -405,7 +405,7 @@ def _write_knowledge_worker_hint(
         for block in packet_blocks
         if block.get("i") is not None
     ]
-    shard_profile, shard_interpretation, decision_policy = (
+    packet_summary, shard_interpretation, decision_policy = (
         _build_knowledge_hint_profile_and_policy(packet_blocks)
     )
     attention_lines = _build_knowledge_hint_attention_lines(packet_blocks)
@@ -427,7 +427,7 @@ def _write_knowledge_worker_hint(
             ),
         ],
         sections=[
-            ("Shard profile", shard_profile),
+            ("Packet summary", packet_summary),
             ("Shard interpretation", shard_interpretation),
             ("Decision policy", decision_policy),
             ("Shard examples", shard_examples),

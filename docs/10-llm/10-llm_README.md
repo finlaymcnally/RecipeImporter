@@ -201,15 +201,9 @@ Codex-specific override seams after a valid Codex answer exists:
 - `_reject_codex_prediction_to_baseline_if_policy_violated(...)` is the direct “Codex said X, repo replaced it with baseline Y” seam.
   - current rejection reasons are:
     - `nonrecipe_exclude_inside_recipe_not_allowed`
-    - `knowledge_inside_recipe_not_allowed`
-    - `time_line_not_primary`
-    - `title_without_local_support`
-    - `variant_without_local_support`
-    - `howto_without_local_support`
-    - `instruction_without_local_support`
     - `knowledge_not_in_live_contract`
     - `other_not_in_live_contract`
-- runtime applies that rejection only to `decided_by="codex"` rows, and rejected rows are retagged with `codex_policy_rejected:*`.
+  The live Codex path no longer replaces accepted model rows with deterministic baseline labels just because local support heuristics disagree. Remaining normalization is limited to ownership and public-contract shape.
 
 Validation/promotion seams that can discard or partially replace Codex output:
 
@@ -409,10 +403,10 @@ Recipe runtime note:
 - worker assignments now launch concurrently and then merge results back in planned assignment order so runtime artifacts stay stable while multi-worker runs become real
 - deterministic code still validates and normalizes recipe outputs locally, but the live promotion seam is now one canonical `AuthoritativeRecipeSemantics` payload per recipe. Codex still emits compact `ingredient_step_mapping` plus raw `selected_tags`, and promotion now records the merged semantic result under `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json` before intermediate/final drafts are written.
 - `CodexFarmApplyResult` now exposes only the canonical `authoritative_recipe_payloads_by_recipe_id` map plus the updated conversion result and recipe-stage telemetry; the older intermediate/final override maps are no longer part of the live orchestrator result contract.
-- the model-facing recipe shard now includes a compact candidate-quality hint `q` alongside weak deterministic parse hint `h`, and each recipe result now carries compact status/divestment fields (`st`, `sr`, `db`) so `fragmentary` / `not_a_recipe` candidates stay visible in proposals/audits, recipe-refine can explicitly return owned blocks to nonrecipe, and only `repaired` results promote into final recipe outputs
+- the model-facing recipe shard now includes only raw owned source rows, a quick-read `txt` copy, the bare attempted parse record `h`, and the broad recipe tag catalog `tg.c`; the old candidate-quality hint `q` and per-candidate tag suggestions are gone. Each recipe result still carries compact status/divestment fields (`st`, `sr`, `db`) so `fragmentary` / `not_a_recipe` candidates stay visible in proposals/audits, recipe-refine can explicitly return owned blocks to nonrecipe, and only `repaired` results promote into final recipe outputs
 - `recipe_phase_runtime/promotion_report.json` now distinguishes validated recipe task outcomes from final-authority eligibility: `repair_status` still tells you the valid task result, while `final_recipe_authority_eligibility` tells you whether that result is promotable.
 - `recipe_manifest.json` and `recipe_correction_audit/*.json` now carry the final-authority decision explicitly. `repaired` plus successful deterministic assembly becomes `final_recipe_authority_status="promoted"`, while valid `fragmentary` / `not_a_recipe` outcomes remain visible as `final_recipe_authority_status="not_promoted"`.
-- recipe tag guidance is now recipe-local rather than purely global: single-candidate recipe shards carry a richer `recipe_tagging_guide.v3` with both the broader category catalog and a filtered `tg.s[*]` candidate label surface derived from the current recipe text/hints
+- recipe tag guidance now stays intentionally thin: `recipe_tagging_guide.v4` exposes only the category catalog plus a few grounding rules, with no deterministic per-candidate shortlist or preference order.
 - the authoritative recipe contract is now: `recipe_phase_runtime/inputs/*.json` immutable shard payloads, worker-local `workers/*/out/*.json` compact task outputs, `recipe_phase_runtime/proposals/*.json` validated shard proposals, then deterministic promotion into `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json` plus staged outputs; recipe task rows now include `metadata.input_path`, `metadata.hint_path`, and `metadata.result_path` so the workspace helper installs only to the declared local output path; `recipe_correction_audit/` remains only the per-recipe human/debug summary surface
 - file-backed validity is authoritative for recipe taskfile workers: if `workers/*/out/*.json` validates, a prose or markdown closing message is telemetry only and does not downgrade the task into a malformed result
 - recipe worker shard folders now also write `prompt.txt`, `events.jsonl`, `usage.json`, `last_message.json`, and `cost_breakdown.json`, so prompt-preview and actual-cost reporting can talk about the same visible request/response surface

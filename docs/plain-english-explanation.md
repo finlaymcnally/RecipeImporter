@@ -11,6 +11,10 @@ This is the current plain-English story of how a cookbook moves through the prog
 
 This document is written from the intended product perspective: the normal "fully on" workflow is the Codex-backed one. The deterministic-only or "vanilla" path still matters, but mostly as a zero-token baseline, a fallback path, a debugging reference, and a benchmark comparison surface.
 
+It is very important that all LLM steps are explained clearly. What prompt is the LLM given, what info does it get with the prompt, what is it asked to "do" and how are errors handled?
+
+It is very important that all determinstic steps are explained clearly too. Every time data is modified/transformed/gated/released/etc I want to know how it is changed and WHY. Especially in cases where an LLM decision like a tag or a re-formatting is over-ridden (or could be) by deterministic logic. ESPECIALLY in cases where the program is doing "fuzzy" lookups with code and not from LLM thinking.
+
 So when this doc talks about what the program "does," read that as "what the program is trying to do in its real end-state workflow," not "the cheapest possible run with every AI-assisted stage turned off."
 
 A note to AI editors: keep this as a plain-language product walkthrough. Artifact names are fine when they help explain the product, but constant file-by-file references make this harder to read.
@@ -33,6 +37,7 @@ The most important settings at the start of a run are:
 - `line_role_pipeline`: whether Codex reviews and corrects line/block labels before recipe grouping
 - `llm_recipe_pipeline`: whether Codex runs the recipe-refine stage after recipe boundaries are accepted
 - `llm_knowledge_pipeline`: whether Codex runs non-recipe finalize on the surviving outside-recipe candidate queue
+- `recipe_codex_exec_style`: whether recipe-refine uses the default inline JSON path or the older editable `task.json` worker path
 - `line_role_codex_exec_style`: whether line-role uses editable `task.json` workers or inline JSON prompts
 - `knowledge_codex_exec_style`: whether non-recipe finalize uses editable `task.json` workers or inline JSON prompts
 - `codex_farm_model`: an explicit model override for enabled Codex-backed stages
@@ -40,6 +45,7 @@ The most important settings at the start of a run are:
 - `recipe_prompt_target_count`: the requested shard count for recipe-refine workers
 - `line_role_prompt_target_count`: the requested shard count for line-role workers
 - `knowledge_prompt_target_count`: the requested shard count for non-recipe finalize workers
+- `knowledge_grouping_enabled`: whether kept `knowledge` rows get a second pass that groups them into related idea clusters
 - `ingredient_text_fix_backend`, `ingredient_pre_normalize_mode`, `ingredient_packaging_mode`, `ingredient_parser_backend`, `ingredient_unit_canonicalizer`, and `ingredient_missing_unit_policy`: the main ingredient-parsing behavior knobs
 - `write_markdown`: whether the run writes human-readable markdown sidecars such as `sections.md`, `tables.md`, and `chunks.md`
 
@@ -131,7 +137,7 @@ After conversion and any split-job merge, the book enters one shared semantic ru
 There are two useful ways to describe that runtime:
 
 - the big product stages
-- the actual step-by-step runtime order
+- the real execution order
 
 The big product stages are still:
 
@@ -141,28 +147,25 @@ The big product stages are still:
 - `nonrecipe-route`
 - `nonrecipe-finalize`
 
-That five-stage view is still useful because those are the big ownership questions the product is trying to answer.
+That five-stage view is still the right high-level mental model.
 
-But if you are trying to understand why a run behaved strangely, especially in a benchmark, the actual runtime order matters more than the big conceptual buckets.
-
-The current runtime is closer to this:
+But for debugging, the real execution order matters more:
 
 1. `extract`
 2. early label authority
-3. `recipe_boundary`
-4. `nonrecipe_route`
-5. `recipe_build_intermediate`
-6. `recipe_refine`
-7. `recipe_build_final`
-8. `nonrecipe_finalize`
-9. late outputs and benchmark evidence writing
+3. `recipe-boundary`
+4. `recipe-refine`
+5. `nonrecipe-route`
+6. `nonrecipe-finalize`
+7. late output writing and benchmark evidence writing
 
-That early-label step now branches:
+That early-label step now branches like this:
 
-- deterministic or vanilla runs still use `label_deterministic` and optional `label_refine`
-- Codex-backed line-role runs now use `line_role` as the visible first semantic authority before `recipe_boundary`
+- deterministic or vanilla runs always build a deterministic label baseline
+- if Codex-backed `line_role` is enabled, it becomes the authoritative label owner before recipe grouping
+- if `line_role` is off, the run stays on the deterministic label-first path
 
-That detail matters a lot when debugging. On the Codex-backed path, recipe-local labels now get decided before recipe ownership is frozen. On the deterministic path, the older label-first stages still exist as the baseline path.
+One subtle but important detail: `recipe_build_intermediate` and `recipe_build_final` are still real named stages in run observability, but they are part of the late recipe-output build story after recipe authority already exists. They are not an earlier semantic pass that happens before `recipe-refine` or `nonrecipe-route`.
 
 ## `extract`
 
@@ -185,10 +188,11 @@ This part of the pipeline is label-first, but that does not mean one single magi
 
 In plain English, the program first does some early structural labeling and only then groups accepted recipe-looking material into recipe spans.
 
-The early structural steps are:
+The early structural story is:
 
-- `label_deterministic`
-- optional `label_refine`
+- `label_deterministic` always creates the baseline line and block labels
+- some deterministic-backed runs may still write a `label_refine` artifact family
+- on the current Codex-backed path, the real pre-boundary semantic owner is `line_role`
 
 `label_deterministic` creates the initial deterministic line and block labels. That pass answers practical questions like:
 
@@ -201,7 +205,7 @@ The early structural steps are:
 
 That deterministic pass still matters even in the intended Codex-backed workflow. It gives the run a reproducible baseline, a bounded review surface, and a clear artifact trail for later validation.
 
-In the intended AI-first path, `label_refine` then reviews those labels in bounded worker sessions. The exact worker transport can vary, but repo code still owns shard planning, validation, repair, and final acceptance.
+On the current Codex-backed path, `line_role` then reviews those lines in bounded worker sessions before recipe grouping. The worker transport can vary, but repo code still owns shard planning, validation, repair, and final acceptance.
 
 After those early label steps, `recipe-boundary` groups the accepted recipe lines into candidate spans and decides which of those spans count as real recipes.
 
@@ -258,15 +262,15 @@ Recipe Codex outcomes are explicit now. A valid task result can be:
 - `fragmentary`
 - `not_a_recipe`
 
-Only `repaired` promotes into final recipe authority. `fragmentary` and `not_a_recipe` remain visible in runtime artifacts as non-promoted outcomes.
+Only `repaired` promotes into published final recipe authority. `fragmentary` and `not_a_recipe` remain visible in runtime artifacts and decision ledgers as non-promoted outcomes.
 
 One important current rule is that `recipe-refine` cannot silently change block ownership just by changing recipe text or provenance. If it wants to give a block back, it must do that explicitly through divestment. Only blocks that were never recipe-owned, or were later explicitly divested, may enter the non-recipe lane.
 
 That rule is good in principle because it keeps authority boundaries honest. But it also means recipe mistakes can become very visible.
 
-If the recipe stage decides a real recipe is only `fragmentary`, it may refuse to promote that recipe and divest the blocks. Once that happens, those blocks are no longer treated as safely recipe-local later on.
+One subtle current nuance is that `fragmentary` does not automatically throw all of its blocks back into non-recipe. A fragmentary recipe can stay recipe-owned but unpublished. Blocks only move back out if the worker explicitly divests them.
 
-That is exactly the kind of thing that can make titles, variants, notes, and yield lines "mysteriously" collapse in a benchmark even though a deterministic recipe-local algorithm would normally classify them just fine.
+When explicit divestment does happen, those blocks are no longer treated as safely recipe-local later on. That is exactly the kind of thing that can make titles, variants, notes, and yield lines look like they "mysteriously" collapsed in a benchmark even though a deterministic recipe-local algorithm would normally classify them just fine.
 
 After the Codex pass, repo code still validates the result, normalizes it, builds authoritative recipe payloads, builds intermediate `schema.org Recipe JSON`, and then builds the final `cookbook3` output. Even in the AI-first workflow, deterministic repo code still owns the final write path.
 
@@ -296,13 +300,17 @@ This is why the run writes separate routing and final-authority artifacts.
 
 Another important debugging detail lives here:
 
-`nonrecipe-route` happens before the late `line_role` pass and before `nonrecipe-finalize`.
+`nonrecipe-route` happens after recipe ownership has already been settled by `recipe-boundary` plus any explicit `recipe-refine` divestment, and before `nonrecipe-finalize`.
 
-So if recipe-local material has already been kicked out of recipe ownership, it can land in the outside-recipe candidate queue very early. At that point the later pipeline is no longer deciding between "recipe note" and "recipe variant." It is deciding between "outside-recipe candidate" and "outside-recipe junk" or later "knowledge" versus "other." That is a very different question.
+So if recipe-local material has already been kicked out of recipe ownership, it can land in the outside-recipe candidate queue here. At that point the later pipeline is no longer deciding between "recipe note" and "recipe variant." It is deciding between "outside-recipe candidate" and "outside-recipe junk" or later "knowledge" versus "other." That is a very different question.
 
 ## `line_role`
 
-On the current Codex-backed path, `line_role` now really is the first visible semantic authority stage.
+This section is easy to misread, so the short version is:
+
+`line_role` is early, not late.
+
+On the current Codex-backed path, `line_role` is the first visible semantic authority stage.
 
 In plain English:
 
@@ -313,7 +321,7 @@ In plain English:
 
 That means recipe-local labels like title, variant, notes, and yield now have a chance to influence recipe ownership before recipe ownership hardens.
 
-The deterministic path still keeps the older `label_deterministic` / `label_refine` story as the vanilla baseline.
+The deterministic path still keeps the older label-first story as the vanilla baseline.
 
 ## `nonrecipe-finalize`
 
@@ -327,15 +335,18 @@ Before the model sees anything, repo code partitions the surviving candidate que
 
 The worker-facing transport can vary by run settings. In some runs the worker edits repo-written `task.json` files. In others the worker answers inline JSON prompts. That implementation detail can change, but the authority boundary does not: repo code still decides which blocks are eligible, validates the returned structure, and only promotes accepted answers.
 
-The semantic review is still split into two jobs:
+The semantic review is split into two jobs, but only one of them is always on when this stage is enabled:
 
 - classification decides, block by block, whether each candidate row is final `knowledge` or final `other`
-- grouping runs only on rows already kept as `knowledge` and groups related rows under topic labels
+- grouping is a second pass that runs only on rows already kept as `knowledge`, and only when `knowledge_grouping_enabled` is on
 
-So the model decides:
+So the model always decides:
 
 - which reviewed rows are real `knowledge`
 - which reviewed rows are just `other`
+
+And when grouping is enabled, it also decides:
+
 - which kept `knowledge` rows belong together as one related idea group
 
 The reviewed results are then validated and promoted back into the stage-owned authority model.
@@ -350,7 +361,7 @@ In artifact terms:
 
 - `08_nonrecipe_route.json` is the deterministic routing view
 - `09_nonrecipe_authority.json` is the final machine-readable truth
-- `09_nonrecipe_knowledge_groups.json` records the promoted model-authored related-idea groups
+- `09_nonrecipe_knowledge_groups.json` records the promoted model-authored related-idea groups when grouping runs, and may be empty when classification ran but grouping stayed off
 - `09_nonrecipe_finalize_status.json` explains what was reviewed, skipped, changed, or left unresolved
 
 If reviewer-facing knowledge output is written, `knowledge.md` is the readable rendering of those promoted authority decisions and groups.
@@ -374,6 +385,7 @@ Once recipe and outside-recipe authority are settled, the program can safely bui
 That includes:
 
 - authoritative recipe payloads
+- recipe authority decisions explaining which recipes were promoted, withheld, fragmentary, or divested
 - intermediate `schema.org Recipe JSON`
 - final `cookbook3` drafts
 - sections
@@ -417,7 +429,7 @@ the tempting story is "line-role failed."
 
 Sometimes that is true. But in the current pipeline the more common deeper question is:
 
-"Were those rows still recipe-owned by the time line-role ran?"
+"Were those rows still recipe-owned by the time non-recipe routing and final block scoring happened?"
 
 If the answer is no, then the real source of the problem is usually earlier:
 
@@ -426,6 +438,6 @@ If the answer is no, then the real source of the problem is usually earlier:
 - recipe authority explicitly divested the blocks
 - nonrecipe-route accepted those blocks as outside-recipe survivors
 
-Once that chain has happened, the later line-role and knowledge stages are no longer deciding on a clean recipe-local surface. They are working from already-damaged ownership context.
+Once that chain has happened, the later non-recipe and scoring stages are no longer deciding on a clean recipe-local surface. They are working from already-damaged ownership context.
 
 That is the main reason the current runtime can sometimes look more complicated than a simple "label the book top to bottom" mental model. The pipeline is making ownership decisions early, semantic decisions later, and benchmark symptoms often appear at the end of that chain rather than at the beginning.

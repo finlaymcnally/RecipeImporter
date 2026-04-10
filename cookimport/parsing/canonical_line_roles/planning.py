@@ -561,43 +561,27 @@ def _write_line_role_worker_hint(
     input_rows = list(_coerce_mapping_dict(shard.input_payload).get("rows") or [])
     debug_rows = list(_coerce_mapping_dict(debug_payload).get("rows") or [])
     owned_row_count = 0
-    context_before_count = len(_coerce_mapping_dict(shard.input_payload).get("context_before_rows") or [])
-    context_after_count = len(_coerce_mapping_dict(shard.input_payload).get("context_after_rows") or [])
     for row in debug_rows:
         if not isinstance(row, Mapping):
             continue
         owned_row_count += 1
 
-    shard_profile = [
-        f"Owned rows: {owned_row_count or len(input_rows)}.",
-        f"Reference-only context rows: before={context_before_count}, after={context_after_count}.",
-        "Use `in/<shard_id>.json` as the authoritative shard input and this file only as a short reminder.",
-    ]
-    static_reminders = [
-        "Start from raw line text plus nearby context. There is no deterministic answer key in this workspace.",
-        "`HOWTO_SECTION` is only for short recipe-internal subsection headings such as `FOR THE SAUCE` or `TO FINISH`.",
-        "Do not use `HOWTO_SECTION` for chapter, topic, lesson, or contents headings.",
-        "Contents-style title lists, intro framing, endorsements, and isolated topic headings should default to `NONRECIPE_EXCLUDE` unless nearby rows show reusable lesson prose.",
-        "Obvious praise blurbs, foreword/preface setup, manifesto or `this book will teach you` framing should usually be `NONRECIPE_EXCLUDE` with `endorsement`, `publisher_promo`, or `front_matter`.",
-        "Neighbor rows in `context_before_rows` / `context_after_rows` are reference-only and must never appear in output JSON.",
-    ]
     write_worker_hint_markdown(
         path,
         title=f"Canonical line-role hints for {shard.shard_id}",
         summary_lines=[
             "This sidecar is worker guidance only.",
             "Open the authoritative `in/<shard_id>.json` file and label the owned rows directly from the text.",
-            "Use nearby rows to disambiguate front matter, lesson prose, headings, and recipe-local structure.",
+            "Use nearby rows only as boundary context; they are reference-only and never belong in output JSON.",
         ],
         sections=[
-            ("Shard profile", shard_profile),
-            ("Static reminders", static_reminders),
             (
-                "Focus",
+                "Worker flow",
                 [
                     "Read the shard in order.",
                     "Label every owned row once.",
-                    "Use `NONRECIPE_EXCLUDE` only for obvious junk that should never reach knowledge.",
+                    "Edit only the required answer surface for this workspace.",
+                    "Finish with the normal handoff command for this workspace.",
                 ],
             ),
         ],

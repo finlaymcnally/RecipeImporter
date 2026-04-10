@@ -574,25 +574,10 @@ def _apply_line_role_semantic_guard(
     payload: Mapping[str, Any] | None,
     deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
 ) -> tuple[tuple[str, ...], dict[str, Any], str]:
-    merged_metadata = dict(validation_metadata or {})
-    if deterministic_baseline_by_atomic_index:
-        merged_metadata.setdefault(
-            "semantic_profile",
-            _build_line_role_semantic_profile(
-                shard=shard,
-                deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
-            ),
-        )
-    if proposal_status != "validated" or not isinstance(payload, Mapping):
-        return tuple(validation_errors), merged_metadata, proposal_status
-    merged_metadata.update(
-        _summarize_line_role_payload_semantics(
-            payload=payload,
-            shard=shard,
-            deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
-        )
-    )
-    return tuple(validation_errors), merged_metadata, proposal_status
+    del shard
+    del payload
+    del deterministic_baseline_by_atomic_index
+    return tuple(validation_errors), dict(validation_metadata or {}), proposal_status
 
 
 def _evaluate_line_role_response_with_pathology_guard(
@@ -605,22 +590,12 @@ def _evaluate_line_role_response_with_pathology_guard(
     ],
     deterministic_baseline_by_atomic_index: Mapping[int, CanonicalLineRolePrediction],
 ) -> tuple[dict[str, Any] | None, tuple[str, ...], dict[str, Any], str]:
-    payload, validation_errors, validation_metadata, proposal_status = _evaluate_line_role_response(
+    del deterministic_baseline_by_atomic_index
+    return _evaluate_line_role_response(
         shard=shard,
         response_text=response_text,
         validator=validator,
     )
-    final_validation_errors, final_validation_metadata, final_proposal_status = (
-        _apply_line_role_semantic_guard(
-            shard=shard,
-            validation_errors=validation_errors,
-            validation_metadata=validation_metadata,
-            proposal_status=proposal_status,
-            payload=payload,
-            deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
-        )
-    )
-    return payload, final_validation_errors, final_validation_metadata, final_proposal_status
 
 
 def _evaluate_line_role_workspace_response_with_pathology_guard(
@@ -632,7 +607,8 @@ def _evaluate_line_role_workspace_response_with_pathology_guard(
     | Sequence[Mapping[str, Any]]
     | None = None,
 ) -> tuple[dict[str, Any] | None, tuple[str, ...], dict[str, Any], str]:
-    payload, validation_errors, validation_metadata, proposal_status = _evaluate_line_role_response(
+    del deterministic_baseline_by_atomic_index
+    return _evaluate_line_role_response(
         shard=shard,
         response_text=response_text,
         validator=lambda proposal_shard, proposal_payload: _validate_line_role_shard_proposal(
@@ -641,17 +617,6 @@ def _evaluate_line_role_workspace_response_with_pathology_guard(
             frozen_rows_by_atomic_index=frozen_rows_by_atomic_index,
         ),
     )
-    final_validation_errors, final_validation_metadata, final_proposal_status = (
-        _apply_line_role_semantic_guard(
-            shard=shard,
-            validation_errors=validation_errors,
-            validation_metadata=validation_metadata,
-            proposal_status=proposal_status,
-            payload=payload,
-            deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
-        )
-    )
-    return payload, final_validation_errors, final_validation_metadata, final_proposal_status
 
 def _build_line_role_row_resolution(
     *,
@@ -715,11 +680,6 @@ def _build_line_role_shard_status_row(
     fresh_session_recovery_metadata: Mapping[str, Any] | None = None,
     transport: str | None = None,
 ) -> dict[str, Any]:
-    semantic_diagnostics = [
-        str(value).strip()
-        for value in (validation_metadata or {}).get("semantic_diagnostics", [])
-        if str(value).strip()
-    ]
     owned_row_count = len(tuple(shard.owned_ids))
     llm_authoritative_row_count = int(
         (row_resolution_metadata or {}).get("accepted_row_count") or 0
@@ -735,11 +695,9 @@ def _build_line_role_shard_status_row(
         "owned_row_count": owned_row_count,
         "llm_authoritative_row_count": llm_authoritative_row_count,
         "unresolved_row_count": unresolved_row_count,
-        "suspicious_row_count": (
-            owned_row_count if semantic_diagnostics else unresolved_row_count
-        ),
-        "suspicious_shard": bool(semantic_diagnostics),
-        "semantic_diagnostics": semantic_diagnostics,
+        "suspicious_row_count": unresolved_row_count,
+        "suspicious_shard": False,
+        "semantic_diagnostics": [],
         "resumed_from_existing_output": bool(resumed_from_existing_output),
         "transport": str(transport or "").strip() or None,
         "validation_errors": [

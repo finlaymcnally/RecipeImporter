@@ -770,52 +770,6 @@ def _apply_repo_baseline_semantic_policy(
                 else "sanitized_yield_non_header"
             )
     if (
-        label == "RECIPE_TITLE"
-        and _is_outside_recipe_span(candidate)
-        and not _looks_recipe_title_with_context(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-    ):
-        label = _outside_span_nonstructured_fallback_label(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-        decided_by = "fallback"
-        reason_tags.append("sanitized_title_without_local_support")
-    if label == "RECIPE_VARIANT" and not _variant_label_allowed(
-        candidate,
-        by_atomic_index=by_atomic_index,
-    ):
-        label = _variant_fallback_label(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        )
-        decided_by = "fallback"
-        reason_tags.append("sanitized_variant_without_local_support")
-    if label in {"OTHER", "NONRECIPE_CANDIDATE"}:
-        if _variant_label_allowed(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        ):
-            label = "RECIPE_VARIANT"
-            decided_by = "fallback"
-            reason_tags.append("rescued_other_to_variant")
-        elif _should_rescue_other_to_knowledge_label(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        ) and _is_within_recipe_span(candidate):
-            label = "RECIPE_NOTES"
-            decided_by = "fallback"
-            reason_tags.append("rescued_other_to_recipe_notes")
-        elif _should_rescue_other_to_instruction_label(
-            candidate,
-            by_atomic_index=by_atomic_index,
-        ):
-            label = "INSTRUCTION_LINE"
-            decided_by = "fallback"
-            reason_tags.append("rescued_other_to_instruction")
-    if (
         _is_outside_recipe_span(candidate)
         and label in _RECIPEISH_OUTSIDE_SPAN_LABELS
         and not _outside_span_structured_label_allowed(
@@ -833,26 +787,28 @@ def _apply_repo_baseline_semantic_policy(
                 label = fallback_label
                 decided_by = "fallback"
                 reason_tags.append("sanitized_outside_span_structured_label")
-    if label == "HOWTO_SECTION" and not _howto_section_label_allowed(
-        candidate,
-        by_atomic_index=by_atomic_index,
-    ):
-        label = _howto_section_fallback_label(
+    if label in {"OTHER", "NONRECIPE_CANDIDATE"}:
+        if _variant_label_allowed(
             candidate,
             by_atomic_index=by_atomic_index,
-        )
-        decided_by = "fallback"
-        reason_tags.append("sanitized_howto_without_local_support")
-    if label == "INSTRUCTION_LINE" and not _instruction_line_label_allowed(
-        candidate,
-        by_atomic_index=by_atomic_index,
-    ):
-        label = _instruction_line_fallback_label(
+        ):
+            label = "RECIPE_VARIANT"
+            decided_by = "fallback"
+            reason_tags.append("variant_component_cluster")
+        elif _should_rescue_other_to_knowledge_label(
             candidate,
             by_atomic_index=by_atomic_index,
-        )
-        decided_by = "fallback"
-        reason_tags.append("sanitized_instruction_without_local_support")
+        ) and _is_within_recipe_span(candidate):
+            label = "RECIPE_NOTES"
+            decided_by = "fallback"
+            reason_tags.append("recipe_note_component_cluster")
+        elif _should_rescue_other_to_instruction_label(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        ):
+            label = "INSTRUCTION_LINE"
+            decided_by = "fallback"
+            reason_tags.append("instruction_component_cluster")
     if label == "KNOWLEDGE" and not _is_within_recipe_span(candidate):
         label = "NONRECIPE_CANDIDATE"
         decided_by = "fallback"
@@ -883,7 +839,7 @@ def _normalize_prediction_metadata(
 ) -> CanonicalLineRolePrediction:
     label = str(prediction.label or "NONRECIPE_CANDIDATE")
     if _is_within_recipe_span(candidate):
-        if label in {"OTHER", "KNOWLEDGE"}:
+        if label in {"OTHER", "KNOWLEDGE", "NONRECIPE_CANDIDATE", "NONRECIPE_EXCLUDE"}:
             label = "RECIPE_NOTES"
     elif label not in _RECIPE_LOCAL_LABELS:
         if prediction.decided_by == "codex":
@@ -934,23 +890,10 @@ def _reject_codex_prediction_to_baseline_if_policy_violated(
     by_atomic_index: dict[int, AtomicLineCandidate],
     baseline_prediction: CanonicalLineRolePrediction,
 ) -> CanonicalLineRolePrediction:
-    rejection_reason = _codex_prediction_policy_rejection_reason(
-        prediction=prediction,
-        candidate=candidate,
-        by_atomic_index=by_atomic_index,
-    )
-    if rejection_reason is None:
-        return prediction
-    payload = baseline_prediction.model_dump(mode="python")
-    payload["decided_by"] = "fallback"
-    payload["reason_tags"] = _unique_string_list(
-        [
-            *list(baseline_prediction.reason_tags),
-            "codex_policy_rejected",
-            f"codex_policy_rejected:{rejection_reason}",
-        ]
-    )
-    return CanonicalLineRolePrediction.model_validate(payload)
+    del candidate
+    del by_atomic_index
+    del baseline_prediction
+    return prediction
 
 
 def _should_escalate_candidate(

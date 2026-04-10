@@ -225,14 +225,6 @@ def test_recipe_correction_shard_input_accepts_multi_recipe_payload() -> None:
                     "canonical_text": "Toast",
                     "evidence_rows": [[1, "Toast"]],
                     "recipe_candidate_hint": {"n": "Toast"},
-                    "candidate_quality_hint": {
-                        "evidence_row_count": 1,
-                        "evidence_ingredient_count": 0,
-                        "evidence_step_count": 0,
-                        "hint_ingredient_count": 0,
-                        "hint_step_count": 0,
-                        "suspicion_flags": ["short_span"],
-                    },
                     "warnings": [],
                 },
                 {
@@ -240,27 +232,18 @@ def test_recipe_correction_shard_input_accepts_multi_recipe_payload() -> None:
                     "canonical_text": "Tea",
                     "evidence_rows": [[2, "Tea"]],
                     "recipe_candidate_hint": {"n": "Tea"},
-                    "candidate_quality_hint": {
-                        "evidence_row_count": 1,
-                        "evidence_ingredient_count": 0,
-                        "evidence_step_count": 0,
-                        "hint_ingredient_count": 0,
-                        "hint_step_count": 0,
-                        "suspicion_flags": ["short_span"],
-                    },
                     "warnings": ["sparse_evidence"],
                 },
             ],
-            "tagging_guide": {"v": "recipe_tagging_guide.v2"},
+            "tagging_guide": {"v": "recipe_tagging_guide.v4"},
         }
     )
 
     serialized = serialize_recipe_correction_shard_input(payload)
 
     assert payload.recipes[1].warnings == ["sparse_evidence"]
-    assert payload.recipes[0].candidate_quality_hint.suspicion_flags == ["short_span"]
     assert serialized["ids"] == ["urn:recipe:test:1", "urn:recipe:test:2"]
-    assert serialized["r"][0]["q"]["f"] == ["short_span"]
+    assert "q" not in serialized["r"][0]
 
 
 def test_recipe_correction_shard_output_accepts_nested_recipe_outputs() -> None:

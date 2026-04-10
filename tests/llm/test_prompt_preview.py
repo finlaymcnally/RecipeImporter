@@ -774,10 +774,9 @@ def test_prompt_preview_rebuilds_recipe_prompt_and_input_payload(tmp_path: Path)
         "n": "Ambiguous title-ish line",
         "i": ["1 cup flour"],
     }
-    assert recipe_input_payload["r"][0]["q"]["e"] == 2
-    assert recipe_input_payload["r"][0]["q"]["es"] == 0
-    assert "source_no_instruction_lines" in recipe_input_payload["r"][0]["q"]["f"]
-    assert recipe_input_payload["tg"]["v"] == "recipe_tagging_guide.v3"
+    assert "q" not in recipe_input_payload["r"][0]
+    assert recipe_input_payload["tg"]["v"] == "recipe_tagging_guide.v4"
+    assert "s" not in recipe_input_payload["tg"]
     assert recipe_input_payload["ids"] == ["urn:recipe:test:r0"]
 
 

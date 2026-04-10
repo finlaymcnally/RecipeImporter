@@ -311,6 +311,7 @@ def test_build_stage_block_predictions_uses_boundary_labels_for_withheld_fragmen
     assert payload["block_labels"]["7"] == "RECIPE_NOTES"
     assert payload[UNRESOLVED_RECIPE_OWNED_BLOCK_INDICES_KEY] == []
     assert payload[UNRESOLVED_RECIPE_OWNED_BY_INDEX_KEY] == {}
+    assert payload["unresolved_recipe_exact_evidence"] == []
 
 
 def test_build_stage_block_predictions_marks_recipe_owned_blocks_unresolved_when_withheld_recipe_has_no_evidence() -> None:
@@ -359,6 +360,69 @@ def test_build_stage_block_predictions_marks_recipe_owned_blocks_unresolved_when
         "2": recipe_id,
     }
     assert payload["counts"]["unresolved_recipe_owned_blocks"] == 3
+
+
+def test_build_stage_block_predictions_records_unresolved_exact_title_evidence_instead_of_guessing() -> None:
+    recipe = RecipeCandidate(
+        identifier="urn:recipe:test:narrative-title",
+        name="PAN-SEARED SALMON",
+        recipeIngredient=["2 salmon fillets"],
+        recipeInstructions=["Sear the salmon."],
+        provenance={"location": {"start_block": 0, "end_block": 1}},
+    )
+    raw = RawArtifact(
+        importer="text",
+        sourceHash="abc123",
+        locationId="full_text",
+        extension="json",
+        content={
+            "blocks": [
+                {"index": 0, "text": "PAN-SEARED SALMON", "features": {"is_heading": True}},
+                {
+                    "index": 1,
+                    "text": (
+                        "I first cooked this on a rainy night, and this paragraph is memoir-like "
+                        "scene-setting prose instead of recipe structure."
+                    ),
+                },
+            ],
+            "block_count": 2,
+        },
+        metadata={"artifact_type": "extracted_blocks"},
+    )
+    result = ConversionResult(
+        recipes=[recipe],
+        sourceBlocks=[
+            SourceBlock(blockId="b0", orderIndex=0, text="PAN-SEARED SALMON"),
+            SourceBlock(
+                blockId="b1",
+                orderIndex=1,
+                text=(
+                    "I first cooked this on a rainy night, and this paragraph is memoir-like "
+                    "scene-setting prose instead of recipe structure."
+                ),
+            ),
+        ],
+        report=ConversionReport(),
+        rawArtifacts=[raw],
+        workbook="narrative-title",
+        workbookPath="/tmp/narrative-title.txt",
+    )
+
+    payload = build_stage_block_predictions(
+        result,
+        "narrative-title",
+        recipe_ownership_result=_single_recipe_ownership(result, range(2)),
+    )
+
+    assert payload["block_labels"]["0"] == "OTHER"
+    assert payload["unresolved_recipe_exact_evidence"] == [
+        {
+            "recipe_id": "urn:recipe:test:narrative-title",
+            "label": "RECIPE_TITLE",
+            "value": "PAN-SEARED SALMON",
+        }
+    ]
 
 
 def test_build_stage_block_predictions_marks_notes_from_description_only() -> None:

@@ -145,13 +145,13 @@ def test_knowledge_worker_hint_stays_compact_and_keeps_high_signal_sections(
     _write_knowledge_worker_hint(path=hint_path, shard=shard)
     rendered = hint_path.read_text(encoding="utf-8")
 
-    assert "## Shard profile" in rendered
+    assert "## Packet summary" in rendered
     assert "## Shard interpretation" in rendered
     assert "## Decision policy" in rendered
     assert "## Shard examples" in rendered
     assert "## Attention rows" in rendered
     assert "## How to use this task" not in rendered
-    assert "## Packet summary" not in rendered
+    assert "## Shard profile" not in rendered
     assert "`examples/valid_heading_with_useful_body_packet.json`" in rendered
     assert "Nearby recipe guardrail block indices: `2, 3`." in rendered
     assert "gap_from_prev=14" in rendered

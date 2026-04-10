@@ -128,15 +128,11 @@ def test_orchestrator_marks_watchdog_killed_recipe_shards_in_summary(
         / "recipe-shard-0000-r0000-r0000"
     )
     status_payload = json.loads((shard_root / "status.json").read_text(encoding="utf-8"))
-    assert status_payload["status"] == "invalid"
+    assert status_payload["status"] == "missing_output"
     assert status_payload["state"] == "watchdog_killed"
     assert status_payload["reason_code"] == "watchdog_command_execution_forbidden"
 
-    live_status_payload = json.loads(
-        (shard_root / "live_status.json").read_text(encoding="utf-8")
-    )
-    assert live_status_payload["state"] == "watchdog_killed"
-    assert live_status_payload["reason_code"] == "watchdog_command_execution_forbidden"
+    assert not (shard_root / "live_status.json").exists()
 
 
 def _run_retryable_watchdog_fixture(tmp_path: Path) -> dict[str, object]:
@@ -146,7 +142,7 @@ def _run_retryable_watchdog_fixture(tmp_path: Path) -> dict[str, object]:
     settings = _build_run_settings(
         tmp_path / "pack",
         llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
-    )
+    ).model_copy(update={"recipe_codex_exec_style": "taskfile-v1"})
 
     class _RetryingWatchdogRunner(FakeCodexExecRunner):
         def run_taskfile_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
@@ -218,13 +214,9 @@ def _run_retryable_watchdog_fixture(tmp_path: Path) -> dict[str, object]:
                 "status": "repaired",
                 "status_reason": None,
                 "canonical_recipe": {
-                    "title": dict((payload or {}).get("hint") or {}).get("title"),
-                    "ingredients": list(
-                        dict((payload or {}).get("hint") or {}).get("ingredients") or []
-                    ),
-                    "steps": list(
-                        dict((payload or {}).get("hint") or {}).get("steps") or []
-                    ),
+                    "title": (payload or {}).get("title"),
+                    "ingredients": list((payload or {}).get("ingredients") or []),
+                    "steps": list((payload or {}).get("steps") or []),
                     "description": None,
                     "recipe_yield": None,
                 },
@@ -353,7 +345,9 @@ def _run_packed_watchdog_retry_fixture(tmp_path: Path) -> dict[str, object]:
     settings = _build_run_settings(
         tmp_path / "pack",
         llm_recipe_pipeline=SINGLE_CORRECTION_RECIPE_PIPELINE_ID,
-    ).model_copy(update={"recipe_worker_count": 1})
+    ).model_copy(
+        update={"recipe_worker_count": 1, "recipe_codex_exec_style": "taskfile-v1"}
+    )
 
     class _PackedRetryRunner(FakeCodexExecRunner):
         def run_taskfile_worker(self, **kwargs) -> CodexExecRunResult:  # noqa: ANN003
@@ -407,13 +401,9 @@ def _run_packed_watchdog_retry_fixture(tmp_path: Path) -> dict[str, object]:
                 "status": "repaired",
                 "status_reason": None,
                 "canonical_recipe": {
-                    "title": dict((payload or {}).get("hint") or {}).get("title"),
-                    "ingredients": list(
-                        dict((payload or {}).get("hint") or {}).get("ingredients") or []
-                    ),
-                    "steps": list(
-                        dict((payload or {}).get("hint") or {}).get("steps") or []
-                    ),
+                    "title": (payload or {}).get("title"),
+                    "ingredients": list((payload or {}).get("ingredients") or []),
+                    "steps": list((payload or {}).get("steps") or []),
                     "description": None,
                     "recipe_yield": None,
                 },

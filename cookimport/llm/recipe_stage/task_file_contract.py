@@ -63,10 +63,9 @@ def _build_recipe_task_file_unit(*, task_plan: _RecipeTaskPlan) -> dict[str, Any
     payload = _coerce_dict(task_plan.manifest_entry.input_payload)
     recipe_row = _coerce_dict((payload.get('r') or [{}])[0])
     recipe_id = str(recipe_row.get('rid') or '').strip() or task_plan.task_id
-    hint_payload = _coerce_dict(recipe_row.get('h'))
     source_text = str(recipe_row.get('txt') or payload.get('txt') or '').strip()
     source_rows = [list(row) for row in recipe_row.get('ev') or payload.get('ev') or [] if isinstance(row, (list, tuple)) and len(row) >= 2]
-    return {'unit_id': f'recipe::{recipe_id}', 'owned_id': recipe_id, 'evidence': {'recipe_id': recipe_id, 'source_text': source_text, 'source_rows': source_rows, 'hint': {'title': hint_payload.get('n'), 'ingredients': list(hint_payload.get('i') or []), 'steps': list(hint_payload.get('s') or []), 'quality_flags': list(hint_payload.get('q') or []), 'candidate_tags': list(hint_payload.get('tags') or [])}}, 'answer': {}}
+    return {'unit_id': f'recipe::{recipe_id}', 'owned_id': recipe_id, 'evidence': {'recipe_id': recipe_id, 'source_text': source_text, 'source_rows': source_rows}, 'answer': {}}
 
 def _recipe_task_file_answer_schema() -> dict[str, Any]:
     return {'editable_pointer_pattern': '/units/*/answer', 'required_keys': ['status', 'canonical_recipe', 'ingredient_step_mapping', 'ingredient_step_mapping_reason', 'divested_block_indices', 'selected_tags', 'warnings'], 'allowed_values': {'status': ['repaired', 'fragmentary', 'not_a_recipe']}, 'example_answers': [{'status': 'repaired', 'status_reason': None, 'canonical_recipe': {'title': 'Toast', 'ingredients': ['1 slice bread'], 'steps': ['Toast the bread.'], 'description': None, 'recipe_yield': None}, 'ingredient_step_mapping': [], 'ingredient_step_mapping_reason': 'not_needed_single_step', 'divested_block_indices': [], 'selected_tags': [], 'warnings': []}]}

@@ -59,15 +59,15 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
     )
 
     assert len(runner.calls) == 1
-    assert runner.calls[0]["mode"] == "taskfile"
-    task_file = exec_runner_module.load_task_file(
-        apply_result.llm_raw_dir
-        / "recipe_phase_runtime"
-        / "workers"
-        / "worker-001"
-        / "task.json"
-    )
-    assert task_file["units"][0]["owned_id"] == "urn:recipe:test:toast"
+    assert runner.calls[0]["mode"] == "structured_prompt"
+    task_manifest_rows = [
+        json.loads(line)
+        for line in (
+            apply_result.llm_raw_dir / "recipe_phase_runtime" / "task_manifest.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert task_manifest_rows[0]["owned_ids"] == ["urn:recipe:test:toast"]
     authoritative_payload = apply_result.authoritative_recipe_payloads_by_recipe_id[
         "urn:recipe:test:toast"
     ]
@@ -109,19 +109,10 @@ def test_orchestrator_runs_single_correction_pipeline_and_writes_manifest(
         ]
         == "promotable"
     )
-    correction_input = task_file["units"][0]["evidence"]
-    assert "draft_hint" not in correction_input
-    assert correction_input["hint"] == {
-        "title": "Toast",
-        "ingredients": ["1 slice bread", "1 tablespoon butter"],
-        "steps": [
-            "Toast the bread until golden.",
-            "Spread with butter and serve hot.",
-        ],
-        "candidate_tags": [],
-        "quality_flags": [],
-    }
-    assert correction_input["recipe_id"] == "urn:recipe:test:toast"
+    correction_input = task_manifest_rows[0]["input_payload"]
+    assert correction_input["ids"] == ["urn:recipe:test:toast"]
+    assert "q" not in correction_input["r"][0]
+    assert "s" not in correction_input["tg"]
     assert not (apply_result.llm_raw_dir / "recipe_correction").exists()
     assert apply_result.updated_conversion_result.recipes[0].tags == [
         "breakfast",
@@ -729,10 +720,10 @@ def test_orchestrator_rejects_complex_empty_mapping_without_reason_and_skips_pro
         ).read_text(encoding="utf-8")
     )
 
-    assert [call["mode"] for call in runner.calls] == ["taskfile"]
+    assert [call["mode"] for call in runner.calls] == ["structured_prompt"]
     assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
     assert proposal["payload"] is None
-    assert proposal["repair_attempted"] is True
+    assert proposal["repair_attempted"] is False
     assert manifest["counts"]["recipe_correction_ok"] == 0
     assert manifest["counts"]["recipe_correction_error"] == 1
     assert manifest["counts"]["recipe_build_final_ok"] == 0
@@ -815,9 +806,9 @@ def test_orchestrator_rejects_multi_ingredient_single_step_empty_mapping_without
         ).read_text(encoding="utf-8")
     )
 
-    assert [call["mode"] for call in runner.calls] == ["taskfile"]
+    assert [call["mode"] for call in runner.calls] == ["structured_prompt"]
     assert proposal["payload"] is None
-    assert proposal["repair_attempted"] is True
+    assert proposal["repair_attempted"] is False
     assert manifest["counts"]["recipe_correction_error"] == 1
     assert manifest["recipes"]["urn:recipe:test:toast"]["recipe_refine"] == "error"
     assert manifest["recipes"]["urn:recipe:test:toast"]["recipe_build_final"] == "error"

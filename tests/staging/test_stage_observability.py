@@ -384,12 +384,9 @@ def test_write_stage_observability_report_writes_recipe_and_line_role_stage_summ
         json.dumps(
             {
                 "atomic_index": 0,
-                "label": "OTHER",
+                "label": "RECIPE_NOTES",
                 "decided_by": "fallback",
-                "reason_tags": [
-                    "codex_policy_rejected",
-                    "codex_policy_rejected:outside_recipe_knowledge_not_allowed",
-                ],
+                "reason_tags": ["deterministic_unresolved"],
             },
             sort_keys=True,
         )
@@ -429,9 +426,9 @@ def test_build_stage_observability_report_surfaces_processing_attention_summarie
         json.dumps(
             {
                 "atomic_index": 0,
-                "label": "OTHER",
+                "label": "RECIPE_NOTES",
                 "decided_by": "fallback",
-                "reason_tags": ["codex_policy_rejected", "codex_policy_rejected:title_without_local_support"],
+                "reason_tags": ["deterministic_unresolved"],
             },
             sort_keys=True,
         )
@@ -502,7 +499,7 @@ def test_build_stage_observability_report_surfaces_processing_attention_summarie
     nonrecipe_stage = next(stage for stage in payload["stages"] if stage["stage_key"] == "nonrecipe_route")
     final_recipe_stage = next(stage for stage in payload["stages"] if stage["stage_key"] == "recipe_build_final")
 
-    assert label_stage["workbooks"][0]["attention_summary"]["zero_target_counts"]["codex_policy_rejected_row_count"] == 1
+    assert label_stage["workbooks"][0]["attention_summary"]["zero_target_counts"]["fallback_line_count"] == 1
     assert span_stage["workbooks"][0]["attention_summary"]["zero_target_counts"]["rejected_pseudo_recipe_span_count"] == 1
     assert nonrecipe_stage["workbooks"][0]["attention_summary"]["context_counts"]["excluded_row_count"] == 1
     assert final_recipe_stage["workbooks"][0]["attention_summary"]["zero_target_counts"]["final_recipe_not_promoted_count"] == 2
@@ -793,7 +790,7 @@ def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: 
     )
     _write_json(
         stage_root / "promotion_report.json",
-        {"invalid_shards": 1, "missing_output_shards": 1},
+        {"invalid_shards": 0, "missing_output_shards": 0},
     )
     (stage_root / "shard_manifest.jsonl").write_text(
         json.dumps({"shard_id": "line-role-canonical-0001"}) + "\n",
@@ -819,8 +816,8 @@ def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: 
                 "metadata": {
                     "llm_authoritative_row_count": 2,
                     "unresolved_row_count": 0,
-                    "suspicious_row_count": 2,
-                    "suspicious_shard": True,
+                    "suspicious_row_count": 0,
+                    "suspicious_shard": False,
                 },
             }
         )
@@ -851,12 +848,9 @@ def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: 
                 json.dumps(
                     {
                         "atomic_index": 0,
-                        "label": "OTHER",
+                        "label": "RECIPE_NOTES",
                         "decided_by": "fallback",
-                        "reason_tags": [
-                            "codex_policy_rejected",
-                            "codex_policy_rejected:outside_recipe_knowledge_not_allowed",
-                        ],
+                        "reason_tags": ["deterministic_unresolved"],
                     },
                     sort_keys=True,
                 ),
@@ -884,7 +878,7 @@ def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: 
     assert summary["shards"]["shard_total"] == 1
     assert summary["shards"]["state_counts"] == {"validated": 1}
     assert summary["shards"]["attempt_type_counts"] == {"resume_existing_output": 1}
-    assert summary["shards"]["suspicious_shard_count"] == 1
+    assert summary["shards"]["suspicious_shard_count"] == 0
     assert summary["important_artifacts"]["canonical_line_table_jsonl"] == "canonical_line_table.jsonl"
     assert summary["important_artifacts"]["shard_status_jsonl"] == "shard_status.jsonl"
     assert (
@@ -901,16 +895,10 @@ def test_build_line_role_stage_summary_reports_shard_and_line_rollups(tmp_path: 
     )
     assert summary["worker_session_guardrails"]["planned_happy_path_worker_cap"] == 1
     assert summary["task_file_guardrails"]["warning_count"] == 0
-    assert summary["attention_summary"]["needs_attention"] is True
-    assert summary["attention_summary"]["zero_target_counts"]["invalid_shard_count"] == 1
-    assert summary["attention_summary"]["zero_target_counts"]["missing_output_shard_count"] == 1
-    assert summary["attention_summary"]["zero_target_counts"]["codex_policy_rejected_row_count"] == 1
-    assert (
-        summary["attention_summary"]["reason_counts"]["codex_policy_rejection_reason_counts"][
-            "outside_recipe_knowledge_not_allowed"
-        ]
-        == 1
-    )
+    assert summary["attention_summary"]["needs_attention"] is False
+    assert summary["attention_summary"]["zero_target_counts"]["invalid_shard_count"] == 0
+    assert summary["attention_summary"]["zero_target_counts"]["missing_output_shard_count"] == 0
+    assert summary["attention_summary"]["zero_target_counts"]["suspicious_shard_count"] == 0
 
 
 def test_build_line_role_stage_summary_reports_inline_watchdog_and_repair_budgets(

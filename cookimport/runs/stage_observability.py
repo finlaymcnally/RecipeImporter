@@ -416,33 +416,6 @@ def _line_role_run_root(stage_root: Path) -> Path:
         return stage_root
 
 
-def _count_codex_policy_rejections_in_label_rows(
-    labeled_line_rows: list[dict[str, Any]],
-) -> tuple[int, dict[str, int]]:
-    rejected_total = 0
-    reason_counts: Counter[str] = Counter()
-    for row in labeled_line_rows:
-        reason_tags = row.get("reason_tags")
-        if not isinstance(reason_tags, list):
-            continue
-        saw_rejection = False
-        for raw_tag in reason_tags:
-            tag = str(raw_tag or "").strip()
-            if not tag:
-                continue
-            if tag == "codex_policy_rejected":
-                saw_rejection = True
-                continue
-            if tag.startswith("codex_policy_rejected:"):
-                saw_rejection = True
-                reason = tag.split(":", 1)[1].strip()
-                if reason:
-                    reason_counts[reason] += 1
-        if saw_rejection:
-            rejected_total += 1
-    return rejected_total, dict(sorted(reason_counts.items()))
-
-
 def _load_all_label_llm_rows(run_root: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     label_root = run_root / "label_refine"
@@ -471,9 +444,6 @@ def _build_label_llm_attention_summary(workbook_dir: Path) -> dict[str, Any]:
         for row in labeled_line_rows
         if str(row.get("decided_by") or "").strip() == "fallback"
     )
-    codex_policy_rejected_row_count, codex_policy_rejection_reason_counts = (
-        _count_codex_policy_rejections_in_label_rows(labeled_line_rows)
-    )
     context_counts = {
         "line_total": len(labeled_line_rows),
         "codex_line_count": sum(
@@ -486,12 +456,8 @@ def _build_label_llm_attention_summary(workbook_dir: Path) -> dict[str, Any]:
     return _build_attention_summary(
         zero_target_counts={
             "fallback_line_count": fallback_line_count,
-            "codex_policy_rejected_row_count": codex_policy_rejected_row_count,
         },
         context_counts=context_counts,
-        reason_counts={
-            "codex_policy_rejection_reason_counts": codex_policy_rejection_reason_counts,
-        },
     )
 
 
@@ -1514,9 +1480,6 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
         for row in task_rows
         if isinstance(row, dict)
     )
-    codex_policy_rejected_row_count, codex_policy_rejection_reason_counts = (
-        _count_codex_policy_rejections_in_label_rows(labeled_line_rows)
-    )
     active_transport = TASKFILE_TRANSPORT
     telemetry_summary = (
         telemetry_payload.get("summary")
@@ -1649,7 +1612,6 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
             "invalid_shard_count": promotion_report.get("invalid_shards"),
             "missing_output_shard_count": promotion_report.get("missing_output_shards"),
             "unresolved_row_count": unresolved_row_count,
-            "codex_policy_rejected_row_count": codex_policy_rejected_row_count,
             "suspicious_shard_count": suspicious_packet_count,
             "suspicious_row_count": suspicious_row_count,
             "repair_attempted_count": repair_attempted,
@@ -1662,7 +1624,6 @@ def build_line_role_stage_summary(stage_root: Path) -> dict[str, Any]:
             "repair_running_count": repair_running,
         },
         reason_counts={
-            "codex_policy_rejection_reason_counts": codex_policy_rejection_reason_counts,
             "terminal_outcome_counts": packet_terminal_outcome_counts,
         },
     )

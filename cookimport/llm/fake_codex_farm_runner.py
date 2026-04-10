@@ -16,6 +16,17 @@ from .codex_farm_knowledge_contracts import (
 from .recipe_tagging_guide import build_recipe_tagging_guide, recipe_tagging_guide_categories
 
 OutputBuilder = Callable[[dict[str, Any] | str], dict[str, Any]]
+_RECIPE_TASK_INGREDIENT_LEAD_RE = re.compile(
+    r"^\s*(?:\d+\s+\d+/\d+|\d+/\d+|\d+(?:\.\d+)?)\s+\S"
+)
+_RECIPE_TASK_INGREDIENT_UNIT_RE = re.compile(
+    r"\b(cups?|tbsp|tablespoons?|tsp|teaspoons?|oz|ounces?|lb|lbs|pounds?|g|kg|ml|l|pinch|dash|cloves?|cans?|sticks?)\b",
+    re.IGNORECASE,
+)
+_RECIPE_TASK_STEP_LEAD_RE = re.compile(
+    r"^\s*(?:add|arrange|bake|beat|blend|boil|combine|cook|drain|fold|heat|mix|pour|serve|simmer|spread|steep|stir|toast|whisk)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -343,14 +354,12 @@ def _default_recipe_correction_output(payload: dict[str, Any]) -> dict[str, Any]
 
 
 def _default_recipe_refine_task_output(payload: dict[str, Any]) -> dict[str, Any]:
-    recipe_hint = payload.get("hint") or {}
-    if not isinstance(recipe_hint, dict):
-        recipe_hint = {}
+    title, ingredients, steps = _derive_recipe_task_outline(payload)
     ingredient_count = len(
-        [item for item in recipe_hint.get("ingredients", []) if str(item or "").strip()]
+        [item for item in ingredients if str(item or "").strip()]
     )
     step_count = len(
-        [item for item in recipe_hint.get("steps", []) if str(item or "").strip()]
+        [item for item in steps if str(item or "").strip()]
     )
     if step_count <= 1:
         mapping_reason = "not_needed_single_step"
@@ -362,9 +371,9 @@ def _default_recipe_refine_task_output(payload: dict[str, Any]) -> dict[str, Any
         "status": "repaired",
         "status_reason": None,
         "canonical_recipe": {
-            "title": recipe_hint.get("title"),
-            "ingredients": list(recipe_hint.get("ingredients") or []),
-            "steps": list(recipe_hint.get("steps") or []),
+            "title": title,
+            "ingredients": ingredients,
+            "steps": steps,
             "description": None,
             "recipe_yield": None,
         },
@@ -382,6 +391,64 @@ def _default_recipe_refine_task_output(payload: dict[str, Any]) -> dict[str, Any
         ],
         "warnings": [],
     }
+
+
+def _derive_recipe_task_outline(payload: Mapping[str, Any]) -> tuple[str, list[str], list[str]]:
+    recipe_id = str(payload.get("recipe_id") or "recipe").strip() or "recipe"
+    source_rows = payload.get("source_rows")
+    row_texts: list[str] = []
+    if isinstance(source_rows, list):
+        for row in source_rows:
+            if isinstance(row, (list, tuple)) and len(row) >= 2:
+                text = str(row[1] or "").strip()
+                if text:
+                    row_texts.append(text)
+    source_text = str(payload.get("source_text") or "").strip()
+    if not row_texts and source_text:
+        row_texts = [line.strip() for line in source_text.splitlines() if line.strip()]
+    title = row_texts[0] if row_texts else recipe_id or "Untitled Recipe"
+    body_lines = row_texts[1:] if len(row_texts) > 1 else row_texts[:]
+    ingredients: list[str] = []
+    steps: list[str] = []
+    saw_step = False
+    for line in body_lines:
+        if saw_step:
+            steps.append(line)
+            continue
+        if _looks_like_recipe_task_step(line):
+            saw_step = True
+            steps.append(line)
+            continue
+        if _looks_like_recipe_task_ingredient(line):
+            ingredients.append(line)
+            continue
+        if ingredients:
+            saw_step = True
+            steps.append(line)
+            continue
+        ingredients.append(line)
+    if not ingredients and body_lines:
+        ingredients = body_lines[:1]
+    if not steps and body_lines:
+        steps = body_lines[1:] if len(body_lines) > 1 else body_lines[:1]
+    return title, ingredients, steps
+
+
+def _looks_like_recipe_task_ingredient(text: str) -> bool:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return False
+    return bool(
+        _RECIPE_TASK_INGREDIENT_LEAD_RE.match(normalized)
+        or _RECIPE_TASK_INGREDIENT_UNIT_RE.search(normalized)
+    )
+
+
+def _looks_like_recipe_task_step(text: str) -> bool:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return False
+    return bool(_RECIPE_TASK_STEP_LEAD_RE.match(normalized) or normalized.endswith("."))
 
 
 def _default_knowledge_classification_task_output(payload: dict[str, Any]) -> dict[str, Any]:

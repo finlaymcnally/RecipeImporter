@@ -46,7 +46,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Writes recipe-authority artifacts, intermediate/final outputs, non-recipe route/finalize artifacts, section artifacts, chunks, raw artifacts, and report JSON.
   - Generates/stabilizes IDs where needed.
 - `cookimport/staging/recipe_block_evidence.py`, `knowledge_block_evidence.py`, `block_label_resolution.py`
-  - Owned builders for recipe-local evidence, final non-recipe knowledge evidence, and block-label priority resolution.
+  - Owned builders for recipe-local evidence, final non-recipe knowledge evidence, and block-label priority resolution. `recipe_block_evidence.py` is now exact-or-unresolved: it uses exact grounded matches plus explicit unresolved metadata instead of fuzzy/scored back-projection for title, variant, yield, and time evidence.
 - `cookimport/staging/stage_block_predictions.py`
   - Thin assembly layer for deterministic block-level benchmark evidence labels (`stage_block_predictions.v1`).
 - `cookimport/staging/pdf_jobs.py`

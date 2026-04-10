@@ -25,7 +25,6 @@ from cookimport.llm.codex_farm_contracts import (
 )
 from cookimport.llm.codex_farm_orchestrator import (
     _RecipeState,
-    _build_recipe_candidate_quality_hint,
     _build_recipe_correction_input,
     render_recipe_direct_prompt,
 )
@@ -636,10 +635,6 @@ def _build_recipe_preview_rows(
             {
                 "call_id": f"r{recipe_index}",
                 "recipe_id": recipe_id,
-                "candidate_quality_hint": _build_recipe_candidate_quality_hint(
-                    included_blocks=included_blocks,
-                    recipe_candidate_hint=input_payload.recipe_candidate_hint,
-                ),
                 "input_payload": serialized_input,
                 "input_text": _serialize_compact_prompt_json(serialized_input),
             }
@@ -710,9 +705,6 @@ def _build_recipe_shard_preview_rows(
                     ],
                     recipe_candidate_hint=_coerce_dict(
                         payload.get("recipe_candidate_hint", payload.get("h"))
-                    ),
-                    candidate_quality_hint=_coerce_dict(
-                        row.get("candidate_quality_hint")
                     ),
                     warnings=[],
                 )

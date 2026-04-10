@@ -336,34 +336,6 @@ def serialize_merged_recipe_repair_input(
     return serialized
 
 
-class RecipeCandidateQualityHint(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="forbid")
-
-    evidence_row_count: int = Field(default=0, alias="e")
-    evidence_ingredient_count: int = Field(default=0, alias="ei")
-    evidence_step_count: int = Field(default=0, alias="es")
-    hint_ingredient_count: int = Field(default=0, alias="hi")
-    hint_step_count: int = Field(default=0, alias="hs")
-    suspicion_flags: list[str] = Field(default_factory=list, alias="f")
-
-    @field_validator(
-        "evidence_row_count",
-        "evidence_ingredient_count",
-        "evidence_step_count",
-        "hint_ingredient_count",
-        "hint_step_count",
-        mode="before",
-    )
-    @classmethod
-    def _normalize_count_fields(cls, value: Any, info: Any) -> int:
-        return _coerce_nonnegative_int(value or 0, info.field_name)
-
-    @field_validator("suspicion_flags", mode="before")
-    @classmethod
-    def _normalize_suspicion_flags(cls, value: Any) -> list[str]:
-        return _sanitize_text_list_field(value, "suspicion_flags")
-
-
 class RecipeCorrectionShardRecipeInput(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -371,10 +343,6 @@ class RecipeCorrectionShardRecipeInput(BaseModel):
     canonical_text: str = Field(alias="txt")
     evidence_rows: list[tuple[int, str]] = Field(default_factory=list, alias="ev")
     recipe_candidate_hint: dict[str, Any] = Field(default_factory=dict, alias="h")
-    candidate_quality_hint: RecipeCandidateQualityHint = Field(
-        default_factory=RecipeCandidateQualityHint,
-        alias="q",
-    )
     warnings: list[str] = Field(default_factory=list, alias="w")
 
     @field_validator("canonical_text", mode="before")
@@ -386,11 +354,6 @@ class RecipeCorrectionShardRecipeInput(BaseModel):
     @classmethod
     def _coerce_hint_objects(cls, value: Any) -> dict[str, Any]:
         return _coerce_json_object_field(value or {}, "recipe_candidate_hint")
-
-    @field_validator("candidate_quality_hint", mode="before")
-    @classmethod
-    def _coerce_candidate_quality_hint(cls, value: Any) -> dict[str, Any]:
-        return _coerce_json_object_field(value or {}, "candidate_quality_hint")
 
     @field_validator("warnings", mode="before")
     @classmethod

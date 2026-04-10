@@ -477,14 +477,11 @@ def _label_atomic_lines_internal(
     sanitized_by_index: dict[int, CanonicalLineRolePrediction] = {}
     for candidate in ordered:
         current = predictions[candidate.atomic_index]
-        baseline_prediction = deterministic_baseline[candidate.atomic_index]
-        if current.decided_by == "codex":
-            current = _reject_codex_prediction_to_baseline_if_policy_violated(
-                prediction=current,
-                candidate=candidate,
-                by_atomic_index=by_atomic_index,
-                baseline_prediction=baseline_prediction,
-            )
+        current = _normalize_prediction_metadata(
+            prediction=current,
+            candidate=candidate,
+            by_atomic_index=by_atomic_index,
+        )
         current = _apply_prediction_decision_metadata(
             prediction=current,
             candidate=candidate,

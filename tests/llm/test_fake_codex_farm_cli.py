@@ -560,12 +560,12 @@ def test_knowledge_taskfile_worker_can_run_through_fake_codex_farm_subprocess(
         for row in status["telemetry"]["rows"]
     } == {("completed", "workspace_expected_outputs_completed")}
     assert status["telemetry"]["summary"]["taskfile_session_count"] == 1
-    assert status["telemetry"]["rows"][0]["same_session_transition_count"] == 2
+    assert status["telemetry"]["rows"][0]["same_session_transition_count"] == 1
     assert live_status["state"] == "completed"
     assert live_status["reason_code"] == "workspace_expected_outputs_completed"
     assert live_status["warning_count"] == 0
-    assert worker_manifest["entry_files"] == ["task.json"]
-    assert worker_manifest["single_file_worker_runtime"] is True
+    assert worker_manifest["entry_files"] == ["worker_manifest.json", "task.json"]
+    assert worker_manifest["single_file_worker_runtime"] is False
     assert not (worker_root / "assigned_shards.json").exists()
     assert not (worker_root / "assigned_tasks.json").exists()
     assert not (worker_root / "current_task.json").exists()
@@ -575,7 +575,7 @@ def test_knowledge_taskfile_worker_can_run_through_fake_codex_farm_subprocess(
     assert not (worker_root / "current_result_path.txt").exists()
     assert (worker_root / "task.json").exists()
     assert json.loads((worker_root / "task.json").read_text(encoding="utf-8"))["stage_key"] == (
-        "knowledge_group"
+        "nonrecipe_classify"
     )
     assert sorted(path.name for path in (worker_root / "out").glob("*.json"))
     assert not sorted(path.name for path in (worker_root / "in").glob("*.pass2.json"))
@@ -584,9 +584,7 @@ def test_knowledge_taskfile_worker_can_run_through_fake_codex_farm_subprocess(
     assert shard_output["block_decisions"][0]["category"] == "knowledge"
     grounding = shard_output["block_decisions"][0]["grounding"]
     assert grounding["tag_keys"] or grounding["proposed_tags"]
-    assert shard_output["idea_groups"] == [
-        {"group_id": "g01", "topic_label": "Fake knowledge group", "block_indices": [4]}
-    ]
+    assert shard_output["idea_groups"] == []
 
 
 def test_line_role_runtime_can_run_through_fake_codex_farm_subprocess(

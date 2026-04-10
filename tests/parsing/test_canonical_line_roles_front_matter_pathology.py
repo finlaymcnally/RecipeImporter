@@ -52,7 +52,7 @@ def _front_matter_baseline() -> dict[int, CanonicalLineRolePrediction]:
     )
 
 
-def test_line_role_inline_prompt_includes_front_matter_profile_guidance() -> None:
+def test_line_role_inline_prompt_keeps_only_shared_contract_and_packet_rows() -> None:
     shard = _front_matter_shard()
     baseline = _front_matter_baseline()
 
@@ -65,15 +65,11 @@ def test_line_role_inline_prompt_includes_front_matter_profile_guidance() -> Non
         packet=packet,
     )
 
-    assert packet["shard_profile"]["summary"] == (
-        "This shard reads like front matter and contents navigation, not one live recipe."
-    )
+    assert "shard_profile" not in packet
     assert "Shared labeling contract:" in prompt
     assert "Contents-style title lists, endorsements, intro framing" in prompt
-    assert "Shard profile evidence:" in prompt
-    assert "`CONTENTS`" in prompt
-    assert "`Epigraph`" in prompt
-    assert "`What is Salt?`" in prompt
+    assert "Shard profile evidence:" not in prompt
+    assert '"rows": [' in prompt
 
 
 def test_line_role_structured_response_keeps_front_matter_like_labels_when_valid() -> None:

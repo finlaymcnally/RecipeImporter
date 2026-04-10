@@ -212,9 +212,8 @@ def _build_valid_recipe_task_output(task_payload: dict[str, object]) -> dict[str
         str(task_payload.get("stage_key") or "").strip() == "recipe_refine"
         and task_payload.get("recipe_id") is not None
     ):
-        recipe_hint = dict(task_payload.get("hint") or {})
-        ingredients = list(recipe_hint.get("ingredients") or [])
-        steps = list(recipe_hint.get("steps") or [])
+        ingredients = list(task_payload.get("ingredients") or [])
+        steps = list(task_payload.get("steps") or [])
         mapping_reason = (
             "not_needed_single_step" if len(steps) <= 1 else "unclear_alignment"
         )
@@ -222,7 +221,7 @@ def _build_valid_recipe_task_output(task_payload: dict[str, object]) -> dict[str
             "status": "repaired",
             "status_reason": None,
             "canonical_recipe": {
-                "title": recipe_hint.get("title"),
+                "title": task_payload.get("title"),
                 "ingredients": ingredients,
                 "steps": steps,
                 "description": None,

@@ -59,6 +59,7 @@ class RecipeBlockEvidence:
     block_labels: dict[int, set[str]]
     unresolved_recipe_owned_indices: list[int]
     unresolved_recipe_owned_recipe_id_by_index: dict[int, str]
+    unresolved_exact_evidence: list[dict[str, Any]]
     notes: list[str]
 
 
@@ -164,6 +165,7 @@ def build_recipe_block_evidence(
     }
     unresolved_recipe_owned_indices: set[int] = set()
     unresolved_recipe_owned_recipe_id_by_index: dict[int, str] = {}
+    unresolved_exact_evidence: list[dict[str, Any]] = []
 
     for ownership_entry in recipe_ownership_result.recipe_entries:
         recipe_id = str(ownership_entry.recipe_id).strip()
@@ -181,6 +183,7 @@ def build_recipe_block_evidence(
                 archive_by_index=archive_by_index,
                 owned_block_indices=ownership_entry.owned_block_indices,
                 block_labels=block_labels,
+                unresolved_exact_evidence=unresolved_exact_evidence,
                 notes=notes,
             )
             continue
@@ -207,6 +210,7 @@ def build_recipe_block_evidence(
         block_labels=block_labels,
         unresolved_recipe_owned_indices=sorted(unresolved_recipe_owned_indices),
         unresolved_recipe_owned_recipe_id_by_index=unresolved_recipe_owned_recipe_id_by_index,
+        unresolved_exact_evidence=unresolved_exact_evidence,
         notes=notes,
     )
 
@@ -284,6 +288,7 @@ def _label_recipe_blocks(
     archive_by_index: dict[int, ArchiveBlockView],
     owned_block_indices: list[int],
     block_labels: dict[int, set[str]],
+    unresolved_exact_evidence: list[dict[str, Any]],
     notes: list[str],
 ) -> None:
     recipe_id = _require_recipe_id(recipe)
@@ -308,6 +313,13 @@ def _label_recipe_blocks(
     title_index = _find_title_block_index(recipe, candidate_blocks)
     if title_index is not None:
         _mark_label(block_labels, title_index, "RECIPE_TITLE")
+    elif str(recipe.name or "").strip():
+        _record_unresolved_exact_evidence(
+            unresolved_exact_evidence,
+            recipe_id=recipe_id,
+            label="RECIPE_TITLE",
+            value=str(recipe.name or "").strip(),
+        )
 
     ingredient_indices = _match_texts_to_block_indices(
         _ingredient_texts(recipe),
@@ -380,11 +392,41 @@ def _label_recipe_blocks(
     }
     for idx in variant_indices:
         _mark_label(block_labels, idx, "RECIPE_VARIANT")
+    if variant_texts and not variant_indices:
+        for text in _dedupe_text_rows(list(variant_texts)):
+            _record_unresolved_exact_evidence(
+                unresolved_exact_evidence,
+                recipe_id=recipe_id,
+                label="RECIPE_VARIANT",
+                value=text,
+            )
 
-    for idx in _find_yield_block_indices(recipe, candidate_blocks):
+    yield_indices = _find_yield_block_indices(recipe, candidate_blocks)
+    for idx in yield_indices:
         _mark_label(block_labels, idx, "YIELD_LINE")
-    for idx in _find_time_block_indices(recipe, candidate_blocks):
+    if str(recipe.recipe_yield or "").strip() and not yield_indices:
+        _record_unresolved_exact_evidence(
+            unresolved_exact_evidence,
+            recipe_id=recipe_id,
+            label="YIELD_LINE",
+            value=str(recipe.recipe_yield or "").strip(),
+        )
+    time_indices = _find_time_block_indices(recipe, candidate_blocks)
+    for idx in time_indices:
         _mark_label(block_labels, idx, "TIME_LINE")
+    time_values = [
+        str(value).strip()
+        for value in (recipe.prep_time, recipe.cook_time, recipe.total_time)
+        if value is not None and str(value).strip()
+    ]
+    if time_values and not time_indices:
+        for value in _dedupe_text_rows(time_values):
+            _record_unresolved_exact_evidence(
+                unresolved_exact_evidence,
+                recipe_id=recipe_id,
+                label="TIME_LINE",
+                value=value,
+            )
 
     if not ingredient_indices:
         for block in candidate_blocks:
@@ -502,6 +544,14 @@ def _normalize_for_match(text: str) -> str:
     normalized = re.sub(r"\s+", " ", normalized)
     normalized = re.sub(r"[^a-z0-9 ]+", "", normalized)
     return normalized.strip()
+
+
+def _normalize_title_for_match(text: str) -> str:
+    stripped = str(text or "").strip()
+    lowered = stripped.lower()
+    if lowered.startswith("title:"):
+        stripped = stripped.split(":", 1)[1].strip()
+    return _normalize_for_match(stripped)
 
 
 def _match_archive_indices_for_line_range(
@@ -686,55 +736,30 @@ def _find_title_block_index(
     candidate_blocks: list[ArchiveBlockView],
 ) -> int | None:
     recipe_name = (recipe.name or "").strip()
-    target = _normalize_for_match(recipe_name) if recipe_name else ""
+    target = _normalize_title_for_match(recipe_name) if recipe_name else ""
     if target:
         for position, block in enumerate(candidate_blocks[:60]):
-            if _normalize_for_match(block.text) == target and _is_valid_title_or_variant_candidate(
+            if _normalize_title_for_match(block.text) == target and _is_valid_title_or_variant_candidate(
                 block,
                 candidate_blocks=candidate_blocks,
                 candidate_position=position,
                 kind="title",
             ):
                 return block.index
-        for position, block in enumerate(candidate_blocks[:60]):
-            block_norm = _normalize_for_match(block.text)
-            if not block_norm:
-                continue
-            if (target in block_norm or block_norm in target) and _is_valid_title_or_variant_candidate(
-                block,
-                candidate_blocks=candidate_blocks,
-                candidate_position=position,
-                kind="title",
-            ):
-                return block.index
-
-    best: tuple[int, int] | None = None
-    start_index = candidate_blocks[0].index
-    for position, block in enumerate(candidate_blocks[:20]):
-        text = (block.text or "").strip()
-        if not text or len(text) > 140:
-            continue
-        if not _is_valid_title_or_variant_candidate(
+    role_matches = [
+        block.index
+        for position, block in enumerate(candidate_blocks[:20])
+        if _block_role(block) == "recipe_title"
+        and _is_valid_title_or_variant_candidate(
             block,
             candidate_blocks=candidate_blocks,
             candidate_position=position,
             kind="title",
-        ):
-            continue
-        score = 0
-        features = _block_features(block)
-        if features.get("is_heading") or features.get("is_header_likely"):
-            score += 10
-        if features.get("block_role") in {"recipe_title", "section_heading"}:
-            score += 4
-        if _YIELD_KEYWORDS_RE.search(text) or _TIME_KEYWORDS_RE.search(text):
-            score -= 8
-        if _INSTRUCTION_PREFIX_RE.match(text):
-            score -= 6
-        score -= max(0, block.index - start_index)
-        if best is None or score > best[0]:
-            best = (score, block.index)
-    return best[1] if best is not None and best[0] > 0 else None
+        )
+    ]
+    if len(role_matches) == 1:
+        return role_matches[0]
+    return None
 
 
 def _find_yield_block_indices(
@@ -751,11 +776,21 @@ def _find_yield_block_indices(
                 matches.add(block.index)
     if matches:
         return matches
-    for block in candidate_blocks[:30]:
-        text = (block.text or "").strip()
-        if text and _YIELD_KEYWORDS_RE.search(text) and _block_role(block) != "instruction_line":
-            matches.add(block.index)
-    return matches
+    role_matches = {
+        block.index for block in candidate_blocks[:30] if _block_role(block) == "yield_line"
+    }
+    if role_matches:
+        return role_matches
+    keyword_matches = {
+        block.index
+        for block in candidate_blocks[:30]
+        if (text := (block.text or "").strip())
+        and _YIELD_KEYWORDS_RE.search(text)
+        and _block_role(block) != "instruction_line"
+    }
+    if len(keyword_matches) == 1:
+        return keyword_matches
+    return set()
 
 
 def _find_time_block_indices(
@@ -776,9 +811,23 @@ def _find_time_block_indices(
         if any(value and value in block_norm for value in normalized_values):
             matches.add(block.index)
             continue
-        if _TIME_KEYWORDS_RE.search(text) and _TIME_VALUE_RE.search(text):
-            if _block_role(block) != "instruction_line":
-                matches.add(block.index)
+    if matches:
+        return matches
+    role_matches = {
+        block.index for block in candidate_blocks[:40] if _block_role(block) == "time_line"
+    }
+    if role_matches:
+        return role_matches
+    keyword_matches = {
+        block.index
+        for block in candidate_blocks[:40]
+        if (text := (block.text or "").strip())
+        and _TIME_KEYWORDS_RE.search(text)
+        and _TIME_VALUE_RE.search(text)
+        and _block_role(block) != "instruction_line"
+    }
+    if len(keyword_matches) == 1:
+        return keyword_matches
     return matches
 
 
@@ -874,27 +923,26 @@ def _match_texts_to_block_indices(
         if chosen_exact is not None:
             used_indices.add(chosen_exact)
             matched.add(chosen_exact)
-            continue
-        fuzzy_candidates: list[int] = []
-        for block in candidate_blocks:
-            block_norm = _normalize_for_match(block.text)
-            if not block_norm:
-                continue
-            if len(row) >= 12 and row in block_norm:
-                fuzzy_candidates.append(block.index)
-                continue
-            if len(block_norm) >= 12 and block_norm in row:
-                fuzzy_candidates.append(block.index)
-        chosen_fuzzy = _pick_first_unmatched(
-            fuzzy_candidates,
-            used_indices,
-            preferred_roles=normalized_preferred_roles if normalized_preferred_roles else None,
-            role_by_index=role_by_index if normalized_preferred_roles else None,
-        )
-        if chosen_fuzzy is not None:
-            used_indices.add(chosen_fuzzy)
-            matched.add(chosen_fuzzy)
     return matched
+
+
+def _record_unresolved_exact_evidence(
+    unresolved_exact_evidence: list[dict[str, Any]],
+    *,
+    recipe_id: str,
+    label: str,
+    value: str,
+) -> None:
+    rendered_value = str(value or "").strip()
+    if not rendered_value:
+        return
+    unresolved_exact_evidence.append(
+        {
+            "recipe_id": str(recipe_id).strip(),
+            "label": str(label).strip(),
+            "value": rendered_value,
+        }
+    )
 
 
 def _pick_first_unmatched(
