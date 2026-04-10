@@ -77,6 +77,7 @@ Progress telemetry note:
 
 - `cookimport/staging/import_session_flows/output_stage.py` emits structured stage-progress snapshots for label-first authority building, knowledge chunk generation, and multi-step output writing, so stage/benchmark spinners and `processing_timeseries.jsonl` retain more than a single status line during those phases.
 - The shared stage session now runs through explicit five-stage runtime objects before writing: `extract`, `recipe-boundary`, `recipe-refine`, `nonrecipe-route`, `nonrecipe-finalize`.
+- `stage_observability.json` now sorts those semantic stages to match that dependency order instead of historical slot numbers, so recipe pipeline stages appear before `nonrecipe_route` and Codex-backed `line_role` appears before `recipe_boundary`.
 
 ## Canonical Naming Conventions (User-Facing)
 

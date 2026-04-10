@@ -151,7 +151,7 @@ def test_run_settings_defaults_use_current_codex_farm_pipeline_pack_ids() -> Non
     assert settings.recipe_prompt_target_count == 5
     assert settings.line_role_prompt_target_count == 5
     assert settings.knowledge_prompt_target_count == 5
-    assert settings.knowledge_grouping_enabled is True
+    assert settings.knowledge_grouping_enabled is False
     assert settings.recipe_codex_exec_style.value == "inline-json-v1"
     assert settings.epub_unstructured_preprocess_mode.value == "br_split_v1"
 

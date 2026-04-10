@@ -855,6 +855,15 @@ def test_build_codex_farm_prompt_response_log_expands_structured_session_turns(
         "book.ks0000.nr__turn_03_grouping_2",
     ]
 
+    category_log = (
+        eval_output_dir / "prompts" / "prompt_nonrecipe_finalize.txt"
+    ).read_text(encoding="utf-8")
+    assert "PROMPT nonrecipe_finalize => classification_initial" in category_log
+    assert "classification_initial prompt body" in category_log
+    assert "PACKET nonrecipe_finalize => classification_initial" in category_log
+    assert '"Salt is flavor."' in category_log
+    assert "OUTPUT nonrecipe_finalize => grouping_2" in category_log
+
 
 def test_build_codex_farm_activity_trace_summary_reads_exported_trace_json(
     tmp_path: Path,

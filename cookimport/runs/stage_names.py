@@ -40,7 +40,7 @@ _STAGE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "label": "Non-Recipe Route",
         "artifact_stem": NONRECIPE_ROUTE_STAGE_KEY,
         "family": "deterministic",
-        "order": 8,
+        "order": 35,
     },
     RECIPE_BUILD_INTERMEDIATE_STAGE_KEY: {
         "label": "Recipe Build Intermediate",

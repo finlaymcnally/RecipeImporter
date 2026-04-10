@@ -609,6 +609,43 @@ def _append_line_role_prompt_artifacts(*, pred_run: Path, eval_output_dir: Path,
     build_codex_farm_prompt_type_samples_markdown(full_prompt_log_path=full_prompt_log_path, output_path=prompt_type_samples_path, examples_per_pass=3)
     return prompt_response_log_path
 
+def _append_structured_session_turn_to_category_log(
+    *,
+    category: list[str],
+    stage_key: str,
+    turn_kind: str,
+    turn_index: int,
+    turn_prompt_text: str,
+    turn_packet_text: str,
+    turn_response_text: str,
+    turn_packet_path: Path | None,
+    turn_response_path: Path | None,
+) -> None:
+    category.append(
+        f"--- STRUCTURED SESSION TURN {turn_index:02d} ({stage_key} / {turn_kind}) ---"
+    )
+    category.append(f"PROMPT {stage_key} => {turn_kind}")
+    category.append("-" * 80)
+    category.append(turn_prompt_text)
+    category.append("-" * 80)
+    category.append("")
+    if turn_packet_text:
+        category.append(f"PACKET {stage_key} => {turn_kind}")
+        if isinstance(turn_packet_path, Path):
+            category.append(f"path: {turn_packet_path}")
+        category.append("-" * 80)
+        category.append(turn_packet_text)
+        category.append("-" * 80)
+        category.append("")
+    if turn_response_text:
+        category.append(f"OUTPUT {stage_key} => {turn_kind}")
+        if isinstance(turn_response_path, Path):
+            category.append(f"path: {turn_response_path}")
+        category.append("-" * 80)
+        category.append(turn_response_text)
+        category.append("-" * 80)
+        category.append("")
+
 def render_prompt_artifacts_from_descriptors(*, pred_run: Path, eval_output_dir: Path, repo_root: Path, run_descriptors: Sequence[PromptRunDescriptor]) -> Path | None:
     if not run_descriptors:
         return None
@@ -944,6 +981,18 @@ def render_prompt_artifacts_from_descriptors(*, pred_run: Path, eval_output_dir:
                                 turn_request_telemetry['activity_trace_path'] = activity_trace_payload.get('path')
                             full_prompt_log_handle.write(json.dumps(PromptCallRecord(schema_version=PROMPT_CALL_RECORD_SCHEMA_VERSION, row=turn_row_payload).to_row(), ensure_ascii=False) + '\n')
                             full_prompt_log_rows += 1
+                            category_has_payload[category_key] = True
+                            _append_structured_session_turn_to_category_log(
+                                category=category,
+                                stage_key=stage.stage_key,
+                                turn_kind=turn_kind,
+                                turn_index=turn_index,
+                                turn_prompt_text=turn_prompt_text,
+                                turn_packet_text=turn_packet_text,
+                                turn_response_text=turn_response_text,
+                                turn_packet_path=turn_artifact.get('packet_path') if isinstance(turn_artifact.get('packet_path'), Path) else None,
+                                turn_response_path=turn_response_path if isinstance(turn_response_path, Path) else None,
+                            )
                         continue
                     if (
                         request_payload_source == 'reconstructed_from_prompt_template'

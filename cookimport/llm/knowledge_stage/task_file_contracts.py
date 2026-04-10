@@ -212,6 +212,7 @@ def _knowledge_classification_review_contract() -> dict[str, Any]:
             "A heading alone is not enough for knowledge; keep a heading only when it directly introduces reusable explanatory content in the owned packet.",
             "Ground knowledge to existing tags from the provided catalog whenever a real fit exists.",
             "Propose a new tag only when no existing tag fits cleanly and the exact block is still worth retrieving later as standalone cooking knowledge.",
+            "Do not propose a tag whose key or display name is just an exact restatement of an existing catalog tag; use the existing tag instead.",
             "Short conceptual headings can still be knowledge when they introduce real explanatory content; shortness alone is not enough to drop a block.",
         ],
         "anti_patterns": [
@@ -519,6 +520,9 @@ def validate_knowledge_classification_task_file(
     catalog = load_knowledge_tag_catalog()
     category_keys = set(catalog.category_by_key)
     tag_keys = set(catalog.tag_by_key)
+    tag_keys_by_normalized_display_name = (
+        catalog.tag_keys_by_normalized_display_name
+    )
     answers_by_unit_id, errors, metadata = validate_edited_task_file(
         original_task_file=original_task_file,
         edited_task_file=edited_task_file,
@@ -551,6 +555,7 @@ def validate_knowledge_classification_task_file(
         unit_failed = False
         unit_grounding_drop_codes: list[str] = []
         unit_grounding_drop_details: list[dict[str, Any]] = []
+        unit_existing_tag_conflict = False
         if not category:
             next_errors.append("knowledge_block_missing_decision")
             missing_block_indices.append(block_index)
@@ -677,6 +682,21 @@ def validate_knowledge_classification_task_file(
                         "message": "proposed display_name must be a short non-empty string",
                     }
                 )
+            normalized_display_name = normalize_knowledge_tag_key(display_name)
+            conflicting_existing_tag_keys = sorted(
+                tag_keys_by_normalized_display_name.get(normalized_display_name) or ()
+            )
+            if conflicting_existing_tag_keys:
+                proposed_drop_details.append(
+                    {
+                        "path": f"/units/{unit_id}/answer/grounding/proposed_tags/{index}/display_name",
+                        "code": "proposed_tag_display_name_conflicts_existing",
+                        "message": (
+                            "proposed tag display_name matches an existing tag; "
+                            "use the existing tag instead"
+                        ),
+                    }
+                )
             proposed_category_key = normalize_knowledge_tag_key(row.get("category_key"))
             if not proposed_category_key or proposed_category_key not in category_keys:
                 proposed_drop_details.append(
@@ -687,6 +707,15 @@ def validate_knowledge_classification_task_file(
                     }
                 )
             if proposed_drop_details:
+                if any(
+                    str(detail.get("code") or "").strip()
+                    in {
+                        "proposed_tag_key_conflicts_existing",
+                        "proposed_tag_display_name_conflicts_existing",
+                    }
+                    for detail in proposed_drop_details
+                ):
+                    unit_existing_tag_conflict = True
                 unit_grounding_drop_codes.extend(
                     str(detail.get("code") or "").strip()
                     for detail in proposed_drop_details
@@ -711,6 +740,19 @@ def validate_knowledge_classification_task_file(
                 }
                 for detail in unit_grounding_drop_details
             )
+        if category == "knowledge" and unit_existing_tag_conflict:
+            next_errors.append("knowledge_grounding_existing_tag_required")
+            error_details.append(
+                {
+                    "path": f"/units/{unit_id}/answer/grounding",
+                    "code": "knowledge_grounding_existing_tag_required",
+                    "message": (
+                        "use the existing catalog tag instead of proposing an exact "
+                        "existing-tag duplicate"
+                    ),
+                }
+            )
+            unit_failed = True
         if category == "knowledge":
             if (
                 not unit_failed
@@ -978,7 +1020,7 @@ def transition_knowledge_classification_task_file(
     original_task_file: Mapping[str, Any],
     edited_task_file: Mapping[str, Any],
     unit_to_shard_id: Mapping[str, str],
-    knowledge_grouping_enabled: bool = True,
+    knowledge_grouping_enabled: bool = False,
     classification_task_file: Mapping[str, Any] | None = None,
     existing_classification_answers_by_unit_id: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> KnowledgeTaskFileTransition:

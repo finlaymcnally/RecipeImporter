@@ -231,6 +231,49 @@ def test_grounding_validator_drops_invalid_entries_when_valid_grounding_survives
     }
 
 
+def test_grounding_validator_requires_existing_tag_for_exact_display_name_duplicate() -> None:
+    task_file, _ = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[_shard(text="Whisk oil into vinegar slowly to emulsify the dressing.")],
+    )
+    edited = deepcopy(task_file)
+    edited["units"][0]["answer"] = {
+        "category": "knowledge",
+        "grounding": {
+            "tag_keys": [],
+            "category_keys": ["techniques"],
+            "proposed_tags": [
+                {
+                    "key": "stable-emulsion",
+                    "display_name": "Emulsify",
+                    "category_key": "techniques",
+                }
+            ],
+        },
+    }
+
+    answers_by_unit_id, errors, metadata = validate_knowledge_classification_task_file(
+        original_task_file=task_file,
+        edited_task_file=edited,
+    )
+
+    assert answers_by_unit_id is None
+    assert errors == ("knowledge_grounding_existing_tag_required",)
+    assert metadata["failed_unit_ids"] == ["knowledge::10"]
+    assert metadata["grounding_drop_details"] == [
+        {
+            "unit_id": "knowledge::10",
+            "block_index": 10,
+            "path": "/units/knowledge::10/answer/grounding/proposed_tags/0/display_name",
+            "code": "proposed_tag_display_name_conflicts_existing",
+            "message": (
+                "proposed tag display_name matches an existing tag; use the existing "
+                "tag instead"
+            ),
+        }
+    ]
+
+
 def test_grounding_validator_still_rejects_malformed_grounding_shapes() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
@@ -274,6 +317,10 @@ def test_structured_prompt_explicitly_forbids_category_only_grounding() -> None:
     assert "category-only grounding is invalid" in prompt
     assert "return `other` with empty grounding" in prompt
     assert "Use the provided existing `tags` catalog first" in prompt
+    assert (
+        "Do not propose a tag whose key or display name exactly restates an existing "
+        "catalog tag"
+    ) in prompt
 
 
 def test_structured_packet_uses_local_row_ids_and_compact_hints() -> None:

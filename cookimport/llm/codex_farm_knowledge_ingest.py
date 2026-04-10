@@ -41,6 +41,8 @@ _KNOWLEDGE_COVERAGE_VALIDATION_ERRORS = frozenset(
         "invalid_proposed_tag_key",
         "invalid_proposed_tag_display_name",
         "proposed_tag_key_conflicts_existing",
+        "proposed_tag_display_name_conflicts_existing",
+        "knowledge_grounding_existing_tag_required",
     }
 )
 _KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS = frozenset(
@@ -62,6 +64,8 @@ _KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS = frozenset(
         "invalid_proposed_tag_key",
         "invalid_proposed_tag_display_name",
         "proposed_tag_key_conflicts_existing",
+        "proposed_tag_display_name_conflicts_existing",
+        "knowledge_grounding_existing_tag_required",
     }
 )
 
@@ -704,12 +708,16 @@ def _validate_single_packet_payload(
 
     errors: list[str] = []
     catalog = load_knowledge_tag_catalog()
+    tag_keys_by_normalized_display_name = catalog.tag_keys_by_normalized_display_name
     unknown_grounding_tag_keys: set[str] = set()
     unknown_grounding_category_keys: set[str] = set()
     invalid_proposed_tag_keys: set[str] = set()
     invalid_proposed_tag_display_names: set[str] = set()
     proposed_tag_key_conflicts_existing: set[str] = set()
+    proposed_tag_display_name_conflicts_existing: set[str] = set()
+    knowledge_grounding_existing_tag_required_blocks: set[int] = set()
     for row in parsed.block_decisions:
+        row_has_existing_tag_conflict = False
         for tag_key in row.grounding.tag_keys:
             normalized_tag_key = normalize_knowledge_tag_key(tag_key)
             if normalized_tag_key not in catalog.tag_by_key:
@@ -724,11 +732,19 @@ def _validate_single_packet_payload(
                 invalid_proposed_tag_keys.add(str(proposed_tag.key))
             if normalized_proposed_key in catalog.tag_by_key:
                 proposed_tag_key_conflicts_existing.add(normalized_proposed_key)
+                row_has_existing_tag_conflict = True
             normalized_category_key = normalize_knowledge_tag_key(proposed_tag.category_key)
             if normalized_category_key not in catalog.category_by_key:
                 unknown_grounding_category_keys.add(normalized_category_key)
-            if not str(proposed_tag.display_name).strip() or len(str(proposed_tag.display_name).strip()) > 64:
+            display_name = str(proposed_tag.display_name).strip()
+            if not display_name or len(display_name) > 64:
                 invalid_proposed_tag_display_names.add(str(proposed_tag.display_name))
+            normalized_display_name = normalize_knowledge_tag_key(display_name)
+            if tag_keys_by_normalized_display_name.get(normalized_display_name):
+                proposed_tag_display_name_conflicts_existing.add(normalized_display_name)
+                row_has_existing_tag_conflict = True
+        if row_has_existing_tag_conflict and not row.grounding.tag_keys:
+            knowledge_grounding_existing_tag_required_blocks.add(int(row.block_index))
     if unknown_grounding_tag_keys:
         errors.append("unknown_grounding_tag_key")
         metadata["unknown_grounding_tag_keys"] = sorted(unknown_grounding_tag_keys)
@@ -747,6 +763,16 @@ def _validate_single_packet_payload(
         errors.append("proposed_tag_key_conflicts_existing")
         metadata["proposed_tag_key_conflicts_existing"] = sorted(
             proposed_tag_key_conflicts_existing
+        )
+    if proposed_tag_display_name_conflicts_existing:
+        errors.append("proposed_tag_display_name_conflicts_existing")
+        metadata["proposed_tag_display_name_conflicts_existing"] = sorted(
+            proposed_tag_display_name_conflicts_existing
+        )
+    if knowledge_grounding_existing_tag_required_blocks:
+        errors.append("knowledge_grounding_existing_tag_required")
+        metadata["knowledge_grounding_existing_tag_required_blocks"] = sorted(
+            knowledge_grounding_existing_tag_required_blocks
         )
     if actual_block_indices != expected_block_indices:
         missing = [idx for idx in expected_block_indices if idx not in actual_block_indices]

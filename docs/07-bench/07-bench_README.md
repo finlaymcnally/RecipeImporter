@@ -166,6 +166,7 @@ Current interactive contracts:
 - upload-bundle recipe-stage blame uses that same projected span mapping so recipe-local changed lines do not silently fall back into the default `line_role` bucket just because prompt evidence was recorded in source block indices
 - benchmark manifests now surface both `full_prompt_log_rows` and `full_prompt_log_runtime_shard_count`; use the shard count for real shard-job volume and treat row count as reviewer-log / actual model-turn volume
 - benchmark run manifests publish those prompt-log metrics inside the standard top-level `artifacts` map; there is no separate persisted `benchmark_artifacts` object in `run_manifest.json`
+- for inline-json knowledge structured-session runs, treat `prompts/full_prompt_log.jsonl` as the canonical turn-by-turn prompt record; `prompts/prompt_nonrecipe_finalize.txt` now mirrors those per-turn prompt / packet / response bodies too, but older benchmark bundles may still show only the stage IO export there
 - benchmark status panels now treat generic `task X/Y | running N` progress strings as worker activity, so shard-backed line-role and similar phases do not collapse back to one stale status line
 - recipe, knowledge, and line-role benchmark progress now all share the same story shape: visible work-unit counter, separate worker-session summary, separate repo follow-up/finalization summary, and worker rows that represent real worker sessions rather than repo cleanup
 - single-profile matched-book runs write under `.../single-profile-benchmark/`

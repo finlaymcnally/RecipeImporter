@@ -108,6 +108,63 @@ def test_build_stage_observability_report_for_knowledge_enabled_run(tmp_path: Pa
     )
 
 
+def test_build_stage_observability_report_orders_recipe_pipeline_before_nonrecipe_route(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run"
+    llm_root = run_root / "raw" / "llm" / "book"
+    recipe_runtime_root = llm_root / "recipe_phase_runtime"
+    (recipe_runtime_root / "inputs").mkdir(parents=True, exist_ok=True)
+    (recipe_runtime_root / "proposals").mkdir(parents=True, exist_ok=True)
+    _write_json(
+        llm_root / RECIPE_MANIFEST_FILE_NAME,
+        {
+            "pipeline": RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
+            "paths": {
+                "recipe_phase_runtime_dir": str(recipe_runtime_root),
+                "recipe_phase_input_dir": str(recipe_runtime_root / "inputs"),
+                "recipe_phase_proposals_dir": str(recipe_runtime_root / "proposals"),
+            },
+            "process_runs": {"recipe_correction": {}},
+        },
+    )
+    (run_root / "08_nonrecipe_route.json").write_text("{}", encoding="utf-8")
+    (run_root / "08_nonrecipe_exclusions.jsonl").write_text("", encoding="utf-8")
+    (llm_root / "knowledge" / "in").mkdir(parents=True, exist_ok=True)
+    _write_json(
+        llm_root / KNOWLEDGE_MANIFEST_FILE_NAME,
+        {"pipeline_id": "recipe.knowledge.compact.v1"},
+    )
+
+    report = build_stage_observability_report(
+        run_root=run_root,
+        run_kind="stage",
+        created_at="2026-04-09T22:00:00",
+        run_config={},
+    )
+
+    assert _stage_keys(report) == [
+        "recipe_build_intermediate",
+        "recipe_refine",
+        "recipe_build_final",
+        "nonrecipe_route",
+        "nonrecipe_finalize",
+        "write_outputs",
+    ]
+    payload = report.model_dump(exclude_none=True)
+    recipe_final_stage = next(
+        stage for stage in payload["stages"] if stage["stage_key"] == "recipe_build_final"
+    )
+    nonrecipe_route_stage = next(
+        stage for stage in payload["stages"] if stage["stage_key"] == "nonrecipe_route"
+    )
+    nonrecipe_finalize_stage = next(
+        stage for stage in payload["stages"] if stage["stage_key"] == "nonrecipe_finalize"
+    )
+    assert recipe_final_stage["stage_order"] < nonrecipe_route_stage["stage_order"]
+    assert nonrecipe_route_stage["stage_order"] < nonrecipe_finalize_stage["stage_order"]
+
+
 def test_build_stage_observability_report_can_scan_external_processed_output_root(
     tmp_path: Path,
 ) -> None:

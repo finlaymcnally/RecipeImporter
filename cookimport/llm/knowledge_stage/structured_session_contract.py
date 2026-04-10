@@ -374,6 +374,7 @@ def build_knowledge_structured_prompt(
             "Use the provided existing `tags` catalog first whenever a real tag fit exists.\n"
             "If `category` is `knowledge`, grounding must include at least one existing `tag_key` or one proposed tag.\n"
             "Only propose a new tag when no existing tag fits cleanly and the row is still clearly worth retrieving later as standalone cooking knowledge.\n"
+            "Do not propose a tag whose key or display name exactly restates an existing catalog tag; use the existing tag instead.\n"
             "`category_keys` may support that grounding, but category-only grounding is invalid and will be returned for repair.\n"
             "If you cannot name a real existing tag fit or a concrete proposed tag, return `other` with empty grounding.\n"
             "Memoir, book framing, navigation, decorative headings, and true-but-low-utility prose belong in `other` even if they mention cooking.\n"

@@ -507,6 +507,15 @@ def register(app: typer.Typer) -> dict[str, object]:
             hidden=True,
             help="Internal: preferred recipe shard count for Codex-backed stage runs.",
         ),
+        recipe_codex_exec_style: str = typer.Option(
+            str(serialized_run_setting_default("recipe_codex_exec_style")),
+            "--recipe-codex-exec-style",
+            hidden=True,
+            help=(
+                "Internal: direct Codex worker style for recipe correction "
+                "(taskfile-v1 or inline-json-v1)."
+            ),
+        ),
         llm_knowledge_pipeline: str = typer.Option(
             "off",
             "--llm-knowledge-pipeline",
@@ -518,6 +527,29 @@ def register(app: typer.Typer) -> dict[str, object]:
             min=1,
             hidden=True,
             help="Internal: preferred knowledge shard count for Codex-backed stage runs.",
+        ),
+        knowledge_packet_input_char_budget: int | None = typer.Option(
+            18000,
+            "--knowledge-packet-input-char-budget",
+            min=1,
+            hidden=True,
+            help="Internal: maximum prompt-side character budget per knowledge packet.",
+        ),
+        knowledge_packet_output_char_budget: int | None = typer.Option(
+            12000,
+            "--knowledge-packet-output-char-budget",
+            min=1,
+            hidden=True,
+            help="Internal: maximum response-side character budget per knowledge packet.",
+        ),
+        knowledge_grouping_enabled: bool = typer.Option(
+            bool(serialized_run_setting_default("knowledge_grouping_enabled")),
+            "--knowledge-grouping-enabled/--no-knowledge-grouping-enabled",
+            hidden=True,
+            help=(
+                "Internal: keep knowledge classification while optionally skipping "
+                "idea grouping."
+            ),
         ),
         allow_codex: bool = typer.Option(
             False,
@@ -581,6 +613,24 @@ def register(app: typer.Typer) -> dict[str, object]:
             help=(
                 "Legacy grouping metadata hint. The active runtime groups one shard in one "
                 "pass instead of splitting runtime grouping into batches."
+            ),
+        ),
+        line_role_codex_exec_style: str = typer.Option(
+            str(serialized_run_setting_default("line_role_codex_exec_style")),
+            "--line-role-codex-exec-style",
+            hidden=True,
+            help=(
+                "Internal: direct Codex worker style for line-role "
+                "(taskfile-v1 or inline-json-v1)."
+            ),
+        ),
+        knowledge_codex_exec_style: str = typer.Option(
+            str(serialized_run_setting_default("knowledge_codex_exec_style")),
+            "--knowledge-codex-exec-style",
+            hidden=True,
+            help=(
+                "Internal: direct Codex worker style for knowledge "
+                "(taskfile-v1 or inline-json-v1)."
             ),
         ),
         workspace_completion_quiescence_seconds: float = typer.Option(
@@ -715,9 +765,19 @@ def register(app: typer.Typer) -> dict[str, object]:
         )
         llm_recipe_pipeline = _unwrap_typer_option_default(llm_recipe_pipeline)
         recipe_prompt_target_count = _unwrap_typer_option_default(recipe_prompt_target_count)
+        recipe_codex_exec_style = _unwrap_typer_option_default(recipe_codex_exec_style)
         llm_knowledge_pipeline = _unwrap_typer_option_default(llm_knowledge_pipeline)
         knowledge_prompt_target_count = _unwrap_typer_option_default(
             knowledge_prompt_target_count
+        )
+        knowledge_packet_input_char_budget = _unwrap_typer_option_default(
+            knowledge_packet_input_char_budget
+        )
+        knowledge_packet_output_char_budget = _unwrap_typer_option_default(
+            knowledge_packet_output_char_budget
+        )
+        knowledge_grouping_enabled = _unwrap_typer_option_default(
+            knowledge_grouping_enabled
         )
         allow_codex = _unwrap_typer_option_default(allow_codex)
         codex_farm_cmd = _unwrap_typer_option_default(codex_farm_cmd)
@@ -735,6 +795,12 @@ def register(app: typer.Typer) -> dict[str, object]:
         )
         knowledge_group_task_max_evidence_chars = _unwrap_typer_option_default(
             knowledge_group_task_max_evidence_chars
+        )
+        line_role_codex_exec_style = _unwrap_typer_option_default(
+            line_role_codex_exec_style
+        )
+        knowledge_codex_exec_style = _unwrap_typer_option_default(
+            knowledge_codex_exec_style
         )
         workspace_completion_quiescence_seconds = _unwrap_typer_option_default(
             workspace_completion_quiescence_seconds
@@ -956,10 +1022,16 @@ def register(app: typer.Typer) -> dict[str, object]:
             recipe_score_min_instruction_lines=selected_recipe_score_min_instruction_lines,
             llm_recipe_pipeline=selected_llm_recipe_pipeline,
             recipe_prompt_target_count=recipe_prompt_target_count,
+            recipe_codex_exec_style=recipe_codex_exec_style,
             llm_knowledge_pipeline=selected_llm_knowledge_pipeline,
             knowledge_prompt_target_count=knowledge_prompt_target_count,
+            knowledge_packet_input_char_budget=knowledge_packet_input_char_budget,
+            knowledge_packet_output_char_budget=knowledge_packet_output_char_budget,
+            knowledge_grouping_enabled=knowledge_grouping_enabled,
             knowledge_group_task_max_units=knowledge_group_task_max_units,
             knowledge_group_task_max_evidence_chars=knowledge_group_task_max_evidence_chars,
+            line_role_codex_exec_style=line_role_codex_exec_style,
+            knowledge_codex_exec_style=knowledge_codex_exec_style,
             codex_farm_cmd=codex_farm_cmd,
             codex_farm_root=codex_farm_root,
             codex_farm_workspace_root=codex_farm_workspace_root,

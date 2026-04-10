@@ -93,6 +93,7 @@ def test_build_stage_call_kwargs_propagates_codex_prompt_targets() -> None:
         llm_knowledge_pipeline="codex-knowledge-candidate-v2",
         recipe_prompt_target_count=9,
         knowledge_prompt_target_count=4,
+        knowledge_grouping_enabled=False,
     )
 
     kwargs = build_stage_call_kwargs_from_run_settings(
@@ -106,7 +107,43 @@ def test_build_stage_call_kwargs_propagates_codex_prompt_targets() -> None:
 
     assert kwargs["recipe_prompt_target_count"] == 9
     assert kwargs["knowledge_prompt_target_count"] == 4
+    assert kwargs["knowledge_grouping_enabled"] is False
     assert kwargs["llm_knowledge_pipeline"] == "codex-knowledge-candidate-v2"
+
+
+def test_run_settings_adapters_bind_to_registered_stage_and_benchmark_commands() -> None:
+    settings = RunSettings(
+        llm_recipe_pipeline="codex-recipe-shard-v1",
+        llm_knowledge_pipeline="codex-knowledge-candidate-v2",
+        recipe_prompt_target_count=7,
+        knowledge_prompt_target_count=3,
+        knowledge_grouping_enabled=False,
+    )
+
+    stage_kwargs = build_stage_call_kwargs_from_run_settings(
+        settings,
+        out=Path("/tmp/out"),
+        mapping=None,
+        overrides=None,
+        limit=None,
+        write_markdown=False,
+    )
+    inspect.signature(cli.stage).bind_partial(
+        Path("/tmp/input.txt"),
+        **stage_kwargs,
+    )
+
+    benchmark_kwargs = build_benchmark_call_kwargs_from_run_settings(
+        settings,
+        output_dir=Path("/tmp/output"),
+        eval_output_dir=Path("/tmp/eval"),
+        processed_output_dir=Path("/tmp/processed"),
+        eval_mode="canonical-text",
+        no_upload=True,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+    )
+    inspect.signature(cli.labelstudio_benchmark).bind_partial(**benchmark_kwargs)
 
 
 def test_build_stage_call_kwargs_propagates_runtime_defaults_knobs() -> None:

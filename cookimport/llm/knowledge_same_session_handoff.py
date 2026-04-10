@@ -41,7 +41,7 @@ def initialize_knowledge_same_session_state(
     classification_task_file: Mapping[str, Any],
     unit_to_shard_id: Mapping[str, str],
     output_dir: Path,
-    knowledge_grouping_enabled: bool = True,
+    knowledge_grouping_enabled: bool = False,
 ) -> dict[str, Any]:
     payload = {
         "schema_version": KNOWLEDGE_SAME_SESSION_HANDOFF_SCHEMA_VERSION,
@@ -313,7 +313,7 @@ def advance_knowledge_same_session_handoff(
             edited_task_file=edited_task_file,
             unit_to_shard_id=unit_to_shard_id,
             knowledge_grouping_enabled=bool(
-                state.get("knowledge_grouping_enabled", True)
+                state.get("knowledge_grouping_enabled", False)
             ),
             classification_task_file=dict(state.get("classification_task_file") or {}),
             existing_classification_answers_by_unit_id=dict(

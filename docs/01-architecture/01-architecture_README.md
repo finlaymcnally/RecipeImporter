@@ -57,6 +57,7 @@ Architecture priorities:
 - output-writing primitives live in `cookimport/staging/writer.py`.
 - recipe-ID reassignment logic lives in `cookimport/staging/pdf_jobs.py`.
 - stage import session now builds recipe-boundary authority before drafting from one of two label owners: deterministic runs still write `label_deterministic`, optional `label_refine`, and `recipe_boundary`, while Codex-backed line-role runs publish their authoritative labeled-line mirrors under `line-role-pipeline/` and feed `recipe_boundary` from that earlier line-role authority.
+- the semantic stage registry used by `stage_observability.json` now sorts stages to match runtime dependencies instead of historical insertion order: the recipe pipeline (`recipe_build_intermediate`, `recipe_refine`, `recipe_build_final`) sorts ahead of `nonrecipe_route`, and Codex-backed `line_role` sorts ahead of `recipe_boundary`.
 - when label-first regrouping yields zero recipes, the run explains that outcome through `recipe_boundary/<workbook_slug>/recipe_spans.json` and `span_decisions.json`; stage-backed flows no longer compare against importer recipe candidates.
 - The old numbered non-recipe lane was replaced by explicit `nonrecipe-route` and `nonrecipe-finalize` runtime results; final authority lives on the stage runtime objects and published non-recipe artifacts rather than on `ConversionResult`.
 

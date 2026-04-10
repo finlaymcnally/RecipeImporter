@@ -1025,7 +1025,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
         else:
             grouping_answers_by_unit_id: dict[str, dict[str, Any]] = {}
             knowledge_grouping_enabled = bool(
-                settings.get("knowledge_grouping_enabled", True)
+                settings.get("knowledge_grouping_enabled", False)
             )
             grouping_task_files: list[dict[str, Any]] = []
             if knowledge_grouping_enabled:
@@ -1737,7 +1737,7 @@ def _run_phase_knowledge_worker_assignment_v1(
             unit_to_shard_id=unit_to_shard_id,
             output_dir=out_dir,
             knowledge_grouping_enabled=bool(
-                settings.get("knowledge_grouping_enabled", True)
+                settings.get("knowledge_grouping_enabled", False)
             ),
         )
         write_task_file(path=worker_root / TASK_FILE_NAME, payload=task_file_payload)

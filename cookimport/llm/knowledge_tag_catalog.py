@@ -60,6 +60,19 @@ class KnowledgeTagCatalog:
     def tag_by_key(self) -> dict[str, KnowledgeTag]:
         return {tag.key: tag for tag in self.tags}
 
+    @property
+    def tag_keys_by_normalized_display_name(self) -> dict[str, tuple[str, ...]]:
+        grouped: dict[str, list[str]] = {}
+        for tag in self.tags:
+            normalized_display_name = normalize_knowledge_tag_key(tag.display_name)
+            if not normalized_display_name:
+                continue
+            grouped.setdefault(normalized_display_name, []).append(tag.key)
+        return {
+            normalized_display_name: tuple(keys)
+            for normalized_display_name, keys in grouped.items()
+        }
+
     def task_scope_payload(self) -> dict[str, Any]:
         return {
             "catalog_version": self.catalog_version,

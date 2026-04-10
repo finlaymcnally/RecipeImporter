@@ -185,6 +185,7 @@ Interactive `Import` and benchmark runs (`single_book` + matched-books) ask:
   - when target-specific planning data is available, the shard-count column remains the operator's launch request, `min` stays the advisory survivability recommendation, row notes stay compact, and any longer planner warnings render in a dedicated block below the table
   - block labelling now adds a planner warning when the current shard count would leave more than `150 lines/sh`, even if survivability is otherwise okay
   - knowledge grouping does not have its own planner toggle; it follows `knowledge_grouping_enabled`
+  - knowledge grouping is currently default-off
   - when `knowledge_grouping_enabled=false`, the knowledge row shows a reminder warning in the planner, classification still runs, and grouping is skipped so the run writes empty idea-group artifacts
   - row notes still use short plain-English labels for the main limiting factor (`prompt`, `output`, `session`, or `work`) plus average prompt size, average session size, and average owned work units per shard
   - live planning still fails closed later if the requested shard count is unsafe

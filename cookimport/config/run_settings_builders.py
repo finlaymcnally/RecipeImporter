@@ -131,7 +131,7 @@ def build_run_settings(
     knowledge_prompt_target_count: int | None = 5,
     knowledge_packet_input_char_budget: int | None = 18000,
     knowledge_packet_output_char_budget: int | None = 6000,
-    knowledge_grouping_enabled: bool = True,
+    knowledge_grouping_enabled: bool = False,
     knowledge_group_task_max_units: int = 40,
     knowledge_group_task_max_evidence_chars: int = 12000,
     codex_farm_recipe_mode: str | CodexFarmRecipeMode = CodexFarmRecipeMode.extract,

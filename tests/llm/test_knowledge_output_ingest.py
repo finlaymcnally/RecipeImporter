@@ -157,6 +157,43 @@ def test_validate_knowledge_shard_output_rejects_unknown_grounding_tag_keys() ->
     assert metadata["unknown_grounding_tag_keys"] == ["not-a-real-tag"]
 
 
+def test_validate_knowledge_shard_output_requires_existing_tag_for_exact_name_duplicate() -> None:
+    payload = _semantic_payload(
+        block_decisions=[
+            {
+                "block_index": 4,
+                "category": "knowledge",
+                "grounding": {
+                    "tag_keys": [],
+                    "category_keys": ["techniques"],
+                    "proposed_tags": [
+                        {
+                            "key": "stable-emulsion",
+                            "display_name": "Emulsify",
+                            "category_key": "techniques",
+                        }
+                    ],
+                },
+            },
+            {
+                "block_index": 5,
+                "category": "other",
+                "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
+            },
+        ],
+    )
+
+    valid, errors, metadata = validate_knowledge_shard_output(_shard(), payload)
+
+    assert valid is False
+    assert errors == (
+        "proposed_tag_display_name_conflicts_existing",
+        "knowledge_grounding_existing_tag_required",
+    )
+    assert metadata["proposed_tag_display_name_conflicts_existing"] == ["emulsify"]
+    assert metadata["knowledge_grounding_existing_tag_required_blocks"] == [4]
+
+
 def test_sanitize_knowledge_worker_payload_demotes_book_framing_rows() -> None:
     framing_shard = ShardManifestEntryV1(
         shard_id="book.ks0000.nr",
