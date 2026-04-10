@@ -370,18 +370,23 @@ def build_knowledge_structured_prompt(
         )
         task_note = (
             "Review the ordered knowledge rows and answer every `row_id` exactly once.\n"
+            "Reason about the packet holistically first: read short local runs of adjacent rows together before deciding any single row.\n"
+            "Decide by local span, emit by row. Neighboring rows often explain what role a row plays, but you must still return one final answer per `row_id`.\n"
             "Classify each row as `knowledge` or `other` and include `grounding`.\n"
+            "A heading, bridge line, or short setup row may help nearby rows count as knowledge without itself being `knowledge`.\n"
             "Use the provided existing `tags` catalog first whenever a real tag fit exists.\n"
             "If `category` is `knowledge`, grounding must include at least one existing `tag_key` or one proposed tag.\n"
             "Only propose a new tag when no existing tag fits cleanly and the row is still clearly worth retrieving later as standalone cooking knowledge.\n"
             "Do not propose a tag whose key or display name exactly restates an existing catalog tag; use the existing tag instead.\n"
+            "A proposed tag should name one concrete retrieval concept anchored in this exact row, such as a specific technique, ingredient behavior, diagnostic, storage rule, or equipment use.\n"
+            "Do not coin broad chapter-theme, editorial, or pedagogy-summary tags such as umbrella 'heat science', 'fat management', or 'ingredient quality' labels when the row is only one local explanation inside a broader lesson.\n"
             "`category_keys` may support that grounding, but category-only grounding is invalid and will be returned for repair.\n"
             "If you cannot name a real existing tag fit or a concrete proposed tag, return `other` with empty grounding.\n"
             "Memoir, book framing, navigation, decorative headings, and true-but-low-utility prose belong in `other` even if they mention cooking.\n"
-            "Treat category labels, heading hints, and row order as weak hints only.\n"
+            "Treat category labels and heading shape as weak hints only, but do use row order and nearby rows to understand the local run.\n"
         )
     context_note = (
-        "Use nearby context only when the row includes `context_before` or `context_after`, and only to disambiguate that row.\n"
+        "Use nearby context when the row includes `context_before` or `context_after` so you can understand the local run, then make the final label for that row itself.\n"
         if has_context
         else ""
     )

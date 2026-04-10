@@ -19,7 +19,8 @@ _RECIPE_LOCAL_LABELS = {
     "RECIPE_NOTES",
     "RECIPE_VARIANT",
 }
-_TITLE_LIKE_LABELS = {"RECIPE_TITLE", "RECIPE_VARIANT"}
+_SPAN_START_LABELS = {"RECIPE_TITLE"}
+_TITLE_ANCHOR_LABELS = {"RECIPE_TITLE"}
 _RECIPE_STRUCTURE_LABELS = {
     "INGREDIENT_LINE",
     "INSTRUCTION_LINE",
@@ -29,7 +30,7 @@ _RECIPE_STRUCTURE_LABELS = {
 }
 _INGREDIENT_EVIDENCE_LABELS = {"INGREDIENT_LINE"}
 _INSTRUCTION_EVIDENCE_LABELS = {"INSTRUCTION_LINE"}
-_BRIDGEABLE_RECIPE_STRUCTURE_LABELS = _RECIPE_LOCAL_LABELS - _TITLE_LIKE_LABELS
+_BRIDGEABLE_RECIPE_STRUCTURE_LABELS = _RECIPE_LOCAL_LABELS - _TITLE_ANCHOR_LABELS
 _NONRECIPE_GAP_LABELS = {"NONRECIPE_CANDIDATE"}
 
 
@@ -65,7 +66,7 @@ def recipe_boundary_from_labels(
 
     for position, block in enumerate(ordered_blocks):
         label = str(block.final_label or "NONRECIPE_CANDIDATE")
-        if label in _TITLE_LIKE_LABELS:
+        if label in _SPAN_START_LABELS:
             if pending:
                 flush_pending()
             pending = [block]
@@ -85,13 +86,13 @@ def recipe_boundary_from_labels(
             continue
         if pending:
             warning = None
-            if pending and str(pending[0].final_label or "NONRECIPE_CANDIDATE") not in _TITLE_LIKE_LABELS:
+            if pending and str(pending[0].final_label or "NONRECIPE_CANDIDATE") not in _SPAN_START_LABELS:
                 warning = "recipe_span_started_without_title"
             flush_pending(warning=warning)
 
     if pending:
         warning = None
-        if pending and str(pending[0].final_label or "NONRECIPE_CANDIDATE") not in _TITLE_LIKE_LABELS:
+        if pending and str(pending[0].final_label or "NONRECIPE_CANDIDATE") not in _SPAN_START_LABELS:
             warning = "recipe_span_started_without_title"
         flush_pending(warning=warning)
 
@@ -124,7 +125,7 @@ def _build_span_decision(
         )
         atomic_indices.extend(block_atomic_indices)
         escalation_reasons.extend(row.escalation_reasons)
-        if title_block_index is None and str(row.final_label or "NONRECIPE_CANDIDATE") in _TITLE_LIKE_LABELS:
+        if title_block_index is None and str(row.final_label or "NONRECIPE_CANDIDATE") in _TITLE_ANCHOR_LABELS:
             title_block_index = int(row.source_block_index)
             if block_atomic_indices:
                 title_atomic_index = block_atomic_indices[0]
@@ -216,7 +217,7 @@ def _should_bridge_nonrecipe_gap(
 
 def _has_title_anchor(block_rows: Sequence[AuthoritativeBlockLabel]) -> bool:
     return any(
-        str(row.final_label or "NONRECIPE_CANDIDATE") in _TITLE_LIKE_LABELS
+        str(row.final_label or "NONRECIPE_CANDIDATE") in _TITLE_ANCHOR_LABELS
         for row in block_rows
     )
 

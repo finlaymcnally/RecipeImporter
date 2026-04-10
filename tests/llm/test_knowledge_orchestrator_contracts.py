@@ -195,6 +195,10 @@ def test_knowledge_task_file_summary_surfaces_semantic_review_contract() -> None
     assert review_contract.get("mode") == "semantic_review"
     assert "close semantic review" in str(review_contract.get("worker_role") or "")
     assert "candidate tags" not in " ".join(review_contract.get("anti_patterns") or []).lower()
+    assert any(
+        "heading alone is not enough" in row.lower()
+        for row in (review_contract.get("decision_policy") or [])
+    )
 
     summary = summarize_task_file(payload=task_file)
     summary_contract = summary.get("review_contract")
@@ -208,7 +212,11 @@ def test_knowledge_task_file_summary_surfaces_semantic_review_contract() -> None
         for row in (summary_contract.get("decision_policy") or [])
     )
     assert any(
-        "heading alone is not enough" in row.lower()
+        "local runs of adjacent rows" in row.lower()
+        for row in (summary_contract.get("decision_policy") or [])
+    )
+    assert any(
+        "decide by local span, emit by row" in row.lower()
         for row in (summary_contract.get("decision_policy") or [])
     )
     assert any(

@@ -43,7 +43,7 @@ _RECIPE_LOCAL_LABELS = {
     "RECIPE_NOTES",
     "RECIPE_VARIANT",
 }
-_TITLE_LIKE_LABELS = {"RECIPE_TITLE", "RECIPE_VARIANT"}
+_TITLE_LIKE_LABELS = {"RECIPE_TITLE"}
 _LABEL_RESOLUTION_PRIORITY: tuple[str, ...] = (
     "RECIPE_VARIANT",
     "RECIPE_TITLE",
@@ -574,8 +574,18 @@ def _build_recipe_candidate_from_span(
         if text not in by_label[row.final_label]:
             by_label[row.final_label].append(text)
 
-    title_candidates = by_label.get("RECIPE_TITLE") or by_label.get("RECIPE_VARIANT") or []
+    title_candidates = by_label.get("RECIPE_TITLE") or []
     recipe_name = title_candidates[0] if title_candidates else _fallback_recipe_name(span_rows)
+    instruction_rows: list[str] = []
+    seen_instruction_rows: set[str] = set()
+    for row in span_rows:
+        if row.final_label not in {"HOWTO_SECTION", "INSTRUCTION_LINE", "RECIPE_VARIANT"}:
+            continue
+        text = str(row.text or "").strip()
+        if not text or text in seen_instruction_rows:
+            continue
+        seen_instruction_rows.add(text)
+        instruction_rows.append(text)
     location = {
         "start_block": span.start_block_index,
         "end_block": span.end_block_index,
@@ -597,9 +607,7 @@ def _build_recipe_candidate_from_span(
             f"label_span_{recipe_index}",
         ),
         recipeIngredient=list(by_label.get("INGREDIENT_LINE", [])),
-        recipeInstructions=list(
-            by_label.get("HOWTO_SECTION", []) + by_label.get("INSTRUCTION_LINE", [])
-        ),
+        recipeInstructions=instruction_rows,
         recipeYield=(by_label.get("YIELD_LINE") or [None])[0],
         totalTime=(by_label.get("TIME_LINE") or [None])[0],
         comment=comments,

@@ -42,6 +42,11 @@ def test_classification_task_file_exposes_ontology_once_without_repo_tag_hints()
 
     assert task_file["ontology"]["catalog_version"] == "cookbook-tag-catalog-2026-03-30"
     assert "candidate_tag_keys" not in task_file["units"][0]["evidence"]
+    assert any(
+        "Do not coin broad chapter-theme, editorial, or pedagogy-summary tags"
+        in pattern
+        for pattern in task_file["review_contract"]["anti_patterns"]
+    )
     assert task_file["units"][0]["answer"] == {
         "category": None,
         "grounding": {
@@ -320,6 +325,22 @@ def test_structured_prompt_explicitly_forbids_category_only_grounding() -> None:
     assert (
         "Do not propose a tag whose key or display name exactly restates an existing "
         "catalog tag"
+    ) in prompt
+    assert (
+        "A proposed tag should name one concrete retrieval concept anchored in this "
+        "exact row"
+    ) in prompt
+    assert (
+        "Do not coin broad chapter-theme, editorial, or pedagogy-summary tags"
+    ) in prompt
+    assert "Reason about the packet holistically first" in prompt
+    assert "Decide by local span, emit by row." in prompt
+    assert (
+        "A heading, bridge line, or short setup row may help nearby rows count as "
+        "knowledge without itself being `knowledge`."
+    ) in prompt
+    assert (
+        "do use row order and nearby rows to understand the local run"
     ) in prompt
 
 
