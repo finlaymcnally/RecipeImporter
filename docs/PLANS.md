@@ -14,7 +14,7 @@ When authoring an executable specification (ExecPlan), follow PLANS.md _to the l
  
 When implementing an executable specification (ExecPlan), do not prompt the user for "next steps"; simply proceed to the next milestone. Keep all sections up to date, add or split entries in the list at every stopping point to affirmatively state the progress made and next steps. Resolve ambiguities autonomously, and commit frequently.
  
-When discussing an executable specification (ExecPlan), record decisions in a log in the spec for posterity; it should be unambiguously clear why any change to the specification was made. ExecPlans are living documents, and it should always be possible to restart from _only_ the ExecPlan and no other work.
+When discussing an executable specification (ExecPlan), record decisions in a log in the spec so it is unambiguously clear why any change to the specification was made. ExecPlans are living documents while the work is active, and during that active life it should always be possible to restart from _only_ the ExecPlan and no other work.
  
 When researching a design with challenging requirements or significant unknowns, use milestones to implement proof of concepts, "toy implementations", etc., that allow validating whether the user's proposal is feasible. Read the source code of libraries by finding or acquiring them, research deeply, and include prototypes to guide a fuller implementation.
 
@@ -22,25 +22,27 @@ When researching a design with challenging requirements or significant unknowns,
 
 This repository uses beads (`bd`) for task tracking. ExecPlans and beads are complementary, not interchangeable.
 
-Use an ExecPlan for the design and implementation narrative of a substantial feature, refactor, or cross-cutting change. The ExecPlan should explain the goal, the approach, the concrete edits, the validation steps, and the decisions made as the work unfolds. A finished ExecPlan should read like a self-contained guide to what was built and why.
+Use an ExecPlan for the design and implementation narrative of a substantial feature, refactor, or cross-cutting change. The ExecPlan should explain the goal, the approach, the concrete edits, the validation steps, and the decisions made as the work unfolds. During active work, the ExecPlan should read like a self-contained guide to what is being built and why.
 
 Use beads for execution tracking. Create a beads issue for the overall effort before writing code, and create child issues when the plan naturally breaks into independently actionable chunks. Beads should hold the moving parts: what is ready, what is blocked, who is working on what, and what remains. The ExecPlan should hold the stable understanding: the design, rationale, evidence, and implementation story.
 
 Do not copy a whole ExecPlan into beads. Instead, turn the plan into a small set of concrete beads with clear dependencies. A good default is one parent beads issue for the overall plan plus child issues for the milestones or workstreams that can be completed and validated separately. As implementation proceeds, keep both artifacts current: update beads when task status changes, and update the ExecPlan when design knowledge or implementation reality changes.
+
+ExecPlans are disposable by default. Once the work is complete and any durable knowledge has been moved into the appropriate long-lived docs, code comments, tests, or beads notes, remove the ExecPlan. Do not keep completed ExecPlans around as default project memory. Keep one only when the user explicitly wants it retained or archived for unusual reference value.
  
 ## Requirements
  
 NON-NEGOTIABLE REQUIREMENTS:
  
-* Every ExecPlan must be fully self-contained. Self-contained means that in its current form it contains all knowledge and instructions needed for a novice to succeed.
-* Every ExecPlan is a living document. Contributors are required to revise it as progress is made, as discoveries occur, and as design decisions are finalized. Each revision must remain fully self-contained.
+* Every active ExecPlan must be fully self-contained. Self-contained means that in its current form it contains all knowledge and instructions needed for a novice to succeed.
+* Every active ExecPlan is a living document. Contributors are required to revise it as progress is made, as discoveries occur, and as design decisions are finalized. Each revision must remain fully self-contained.
 * Every ExecPlan must enable a complete novice to implement the feature end-to-end without prior knowledge of this repo.
 * Every ExecPlan must produce a demonstrably working behavior, not merely code changes to "meet a definition".
 * Every ExecPlan must define every term of art in plain language or do not use it.
  
 Purpose and intent come first. Begin by explaining, in a few sentences, why the work matters from a user's perspective: what someone can do after this change that they could not do before, and how to see it working. Then guide the reader through the exact steps to achieve that outcome, including what to edit, what to run, and what they should observe.
  
-The agent executing your plan can list files, read files, search, run the project, and run tests. It does not know any prior context and cannot infer what you meant from earlier milestones. Repeat any assumption you rely on. Do not point to external blogs or docs; if knowledge is required, embed it in the plan itself in your own words. If an ExecPlan builds upon a prior ExecPlan and that file is checked in, incorporate it by reference. If it is not, you must include all relevant context from that plan.
+The agent executing your plan can list files, read files, search, run the project, and run tests. It does not know any prior context and cannot infer what you meant from earlier milestones. Repeat any assumption you rely on. Do not point to external blogs or docs; if knowledge is required, embed it in the plan itself in your own words. Do not assume any older ExecPlan will still exist by the time someone reads the current one. If older plan context matters, restate the relevant parts in the current plan.
  
 ## Formatting
  
@@ -75,12 +77,13 @@ Milestones are narrative, not bureaucracy. If you break the work into milestones
 Each milestone must be independently verifiable and incrementally implement the overall goal of the execution plan.
  
 ## Living plans and design decisions
- 
-* ExecPlans are living documents. As you make key design decisions, update the plan to record both the decision and the thinking behind it. Record all decisions in the `Decision Log` section.
-* ExecPlans must contain and maintain a `Progress` section, a `Surprises & Discoveries` section, a `Decision Log`, and an `Outcomes & Retrospective` section. These are not optional.
+
+* Active ExecPlans are living documents. As you make key design decisions, update the plan to record both the decision and the thinking behind it. Record all decisions in the `Decision Log` section.
+* Active ExecPlans must contain and maintain a `Progress` section, a `Surprises & Discoveries` section, a `Decision Log`, and an `Outcomes & Retrospective` section. These are not optional.
 * When you discover optimizer behavior, performance tradeoffs, unexpected bugs, or inverse/unapply semantics that shaped your approach, capture those observations in the `Surprises & Discoveries` section with short evidence snippets (test output is ideal).
 * If you change course mid-implementation, document why in the `Decision Log` and reflect the implications in `Progress`. Plans are guides for the next contributor as much as checklists for you.
 * At completion of a major task or the full plan, write an `Outcomes & Retrospective` entry summarizing what was achieved, what remains, and lessons learned.
+* Before deleting a completed ExecPlan, copy any lasting operational knowledge into the owning long-lived docs. The plan should disappear only after durable knowledge has been transferred.
  
 # Prototyping milestones and parallel implementations
  
@@ -163,6 +166,6 @@ Prefer additive code changes followed by subtractions that keep tests passing. P
             fn plan(&self, observed: &Observed) -> Vec<Action>;
         }
  
-If you follow the guidance above, a single, stateless agent -- or a human novice -- can read your ExecPlan from top to bottom and produce a working, observable result. That is the bar: SELF-CONTAINED, SELF-SUFFICIENT, NOVICE-GUIDING, OUTCOME-FOCUSED.
- 
-When you revise a plan, you must ensure your changes are comprehensively reflected across all sections, including the living document sections, and you must write a note at the bottom of the plan describing the change and the reason why. ExecPlans must describe not just the what but the why for almost everything.
+If you follow the guidance above, a single, stateless agent -- or a human novice -- can read your active ExecPlan from top to bottom and produce a working, observable result. That is the bar: SELF-CONTAINED, SELF-SUFFICIENT, NOVICE-GUIDING, OUTCOME-FOCUSED.
+
+When you revise a plan, you must ensure your changes are comprehensively reflected across all sections, including the living document sections, and you must write a note at the bottom of the plan describing the change and the reason why. ExecPlans must describe not just the what but the why for almost everything while they are active. Once the work is complete and the durable knowledge has been transferred, delete the plan unless the user explicitly wants it retained.
