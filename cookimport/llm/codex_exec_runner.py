@@ -786,8 +786,8 @@ class FakeCodexExecRunner:
                 if packet_kind == "pass1":
                     normalized_row["category"] = str(row.get("category") or "").strip()
                 else:
-                    normalized_row["group_key"] = str(
-                        row.get("group_key") or row.get("group_id") or ""
+                    normalized_row["group_id"] = str(
+                        row.get("group_id") or row.get("group_key") or ""
                     ).strip()
                     normalized_row["topic_label"] = str(row.get("topic_label") or "").strip()
                 normalized_rows.append(normalized_row)
@@ -806,6 +806,7 @@ class FakeCodexExecRunner:
                 if isinstance(row, Mapping) and row.get("block_index") is not None
             }
             default_category = "knowledge" if not decision_by_block_index else "other"
+            default_category = "keep_for_review" if default_category == "knowledge" else default_category
             return {
                 "v": "1",
                 "task_id": task_id,
@@ -814,11 +815,24 @@ class FakeCodexExecRunner:
                 "rows": [
                     {
                         "block_index": int(row.get("block_index")),
-                        "category": decision_by_block_index.get(
-                            int(row.get("block_index")),
-                            default_category,
-                        )
-                        or default_category,
+                        "category": (
+                            "keep_for_review"
+                            if (
+                                decision_by_block_index.get(
+                                    int(row.get("block_index")),
+                                    default_category,
+                                )
+                                or default_category
+                            )
+                            == "knowledge"
+                            else (
+                                decision_by_block_index.get(
+                                    int(row.get("block_index")),
+                                    default_category,
+                                )
+                                or default_category
+                            )
+                        ),
                     }
                     for row in rows
                     if isinstance(row, Mapping) and row.get("block_index") is not None
@@ -831,7 +845,7 @@ class FakeCodexExecRunner:
         for group in output_payload.get("idea_groups") or []:
             if not isinstance(group, Mapping):
                 continue
-            group_key = str(group.get("group_key") or group.get("group_id") or "").strip()
+            group_key = str(group.get("group_id") or group.get("group_key") or "").strip()
             topic_label = str(group.get("topic_label") or "").strip()
             if not group_key or not topic_label:
                 continue
@@ -857,7 +871,7 @@ class FakeCodexExecRunner:
             "rows": [
                 {
                     "block_index": int(row.get("block_index")),
-                    "group_key": (
+                    "group_id": (
                         group_by_block_index.get(int(row.get("block_index")), {}).get(
                             "group_key"
                         )

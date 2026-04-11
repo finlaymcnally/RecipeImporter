@@ -70,6 +70,13 @@ def test_knowledge_phase_workers_reject_off_surface_group_outputs(tmp_path: Path
                         "group_id": "g01",
                         "topic_label": "bad",
                         "block_indices": [4, 99],
+                        "grounding": {
+                            "tag_keys": ["emulsify"],
+                            "category_keys": ["techniques"],
+                            "proposed_tags": [],
+                        },
+                        "why_no_existing_tag": None,
+                        "retrieval_query": None,
                     }
                 ],
             }

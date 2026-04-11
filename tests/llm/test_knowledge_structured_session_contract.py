@@ -5,6 +5,8 @@ import json
 from cookimport.llm.knowledge_stage.structured_session_contract import (
     build_knowledge_edited_task_file_from_classification_response,
     build_knowledge_edited_task_file_from_grouping_response,
+    build_knowledge_structured_prompt,
+    knowledge_task_file_to_structured_packet,
 )
 from cookimport.llm.knowledge_stage.task_file_contracts import (
     build_knowledge_classification_task_file,
@@ -36,122 +38,96 @@ def _shard(*, shard_id: str, block_index: int, text: str) -> ShardManifestEntryV
     )
 
 
-def test_classification_structured_response_reports_missing_duplicate_and_unknown_row_ids() -> None:
+def test_classification_structured_packet_and_prompt_use_compact_binary_surface() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(
-                shard_id="book.ks0000.nr",
-                block_index=21,
-                text="Acid brightens rich dishes.",
-            ),
-            _shard(
-                shard_id="book.ks0001.nr",
-                block_index=22,
-                text="Chapter opener.",
-            ),
+            _shard(shard_id="book.ks0000.nr", block_index=21, text="Acid brightens rich dishes."),
+            _shard(shard_id="book.ks0001.nr", block_index=22, text="Chapter opener."),
+        ],
+    )
+
+    packet = knowledge_task_file_to_structured_packet(
+        task_file_payload=task_file,
+        packet_kind="initial",
+    )
+    prompt = build_knowledge_structured_prompt(
+        task_file_payload=task_file,
+        packet=packet,
+    )
+
+    assert packet["rows"] == [
+        "r01 | 21 | Acid brightens rich dishes.",
+        "r02 | 22 | Chapter opener.",
+    ]
+    assert "labels" in prompt
+    assert "keep_for_review" in prompt
+    assert "Do not think about tags during classification." in prompt
+
+
+def test_classification_structured_response_accepts_labels_array() -> None:
+    task_file, _ = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[
+            _shard(shard_id="book.ks0000.nr", block_index=21, text="Acid brightens rich dishes."),
+            _shard(shard_id="book.ks0001.nr", block_index=22, text="Chapter opener."),
         ],
     )
 
     edited, errors, metadata = build_knowledge_edited_task_file_from_classification_response(
         original_task_file=task_file,
-        response_text=json.dumps(
-            {
-                "rows": [
-                    {
-                        "row_id": "r01",
-                        "category": "knowledge",
-                        "grounding": {
-                            "tag_keys": ["bright"],
-                            "category_keys": ["flavor-profile"],
-                        },
-                    },
-                    {
-                        "row_id": "r01",
-                        "category": "other",
-                        "grounding": {
-                            "tag_keys": [],
-                            "category_keys": [],
-                        },
-                    },
-                    {
-                        "row_id": "r99",
-                        "category": "other",
-                        "grounding": {
-                            "tag_keys": [],
-                            "category_keys": [],
-                        },
-                    },
-                ]
-            }
-        ),
+        response_text=json.dumps({"labels": ["keep_for_review", "other"]}),
     )
 
     assert edited is not None
-    assert errors == (
-        "knowledge_missing_response_rows",
-        "knowledge_duplicate_row_ids",
-        "knowledge_unknown_row_ids",
+    assert errors == ()
+    assert metadata == {}
+    answers, validation_errors, validation_metadata = validate_knowledge_classification_task_file(
+        original_task_file=task_file,
+        edited_task_file=edited,
     )
-    assert metadata["failed_unit_ids"] == ["knowledge::21", "knowledge::22"]
-    assert metadata["missing_block_indices"] == [22]
-    assert metadata["missing_row_ids"] == ["r02"]
-    assert metadata["duplicate_row_ids"] == ["r01"]
-    assert metadata["unknown_row_ids"] == ["r99"]
-    assert edited["units"][0]["answer"]["category"] == "knowledge"
-    assert edited["units"][1]["answer"]["category"] is None
-
-    _answers, validation_errors, validation_metadata = (
-        validate_knowledge_classification_task_file(
-            original_task_file=task_file,
-            edited_task_file=edited,
-        )
-    )
-
-    assert "knowledge_block_missing_decision" in validation_errors
-    assert "invalid_category" not in validation_errors
-    assert validation_metadata["failed_unit_ids"] == ["knowledge::22"]
-    assert validation_metadata["missing_block_indices"] == [22]
+    assert validation_errors == ()
+    assert validation_metadata["failed_unit_ids"] == []
+    assert answers == {
+        "knowledge::21": {"category": "keep_for_review"},
+        "knowledge::22": {"category": "other"},
+    }
 
 
-def test_grouping_structured_response_reports_missing_duplicate_and_unknown_row_ids() -> None:
+def test_grouping_structured_prompt_is_group_first_and_parser_maps_group_grounding() -> None:
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(
-                shard_id="book.ks0000.nr",
-                block_index=31,
-                text="Use gentle heat for eggs.",
-            ),
-            _shard(
-                shard_id="book.ks0001.nr",
-                block_index=32,
-                text="Rest dough before rolling.",
-            ),
+            _shard(shard_id="book.ks0000.nr", block_index=31, text="Use gentle heat for eggs."),
+            _shard(shard_id="book.ks0001.nr", block_index=32, text="Rest dough before rolling."),
         ],
     )
     grouping_task_file, _ = build_knowledge_grouping_task_file(
-        assignment_id=str(classification_task_file.get("assignment_id") or ""),
-        worker_id=str(classification_task_file.get("worker_id") or ""),
+        assignment_id="worker-structured-001",
+        worker_id="worker-structured-001",
         classification_task_file=classification_task_file,
         classification_answers_by_unit_id={
-            "knowledge::31": {
-                "category": "knowledge",
-                "grounding": {
-                    "tag_keys": ["saute"],
-                    "category_keys": ["cooking-method"],
-                },
-            },
-            "knowledge::32": {
-                "category": "proposal_candidate",
-                "grounding": {
-                    "tag_keys": [],
-                    "category_keys": [],
-                },
-            },
+            "knowledge::31": {"category": "keep_for_review"},
+            "knowledge::32": {"category": "keep_for_review"},
         },
         unit_to_shard_id=unit_to_shard_id,
     )
+
+    packet = knowledge_task_file_to_structured_packet(
+        task_file_payload=grouping_task_file,
+        packet_kind="initial",
+    )
+    prompt = build_knowledge_structured_prompt(
+        task_file_payload=grouping_task_file,
+        packet=packet,
+    )
+
+    assert packet["row_facts"] == [
+        "r01 | classification=keep_for_review",
+        "r02 | classification=keep_for_review",
+    ]
+    assert "group-first tagging pass" in prompt
+    assert "Rows about the same idea must share the same `group_id`" in prompt
 
     edited, errors, metadata = build_knowledge_edited_task_file_from_grouping_response(
         original_task_file=grouping_task_file,
@@ -160,30 +136,33 @@ def test_grouping_structured_response_reports_missing_duplicate_and_unknown_row_
                 "rows": [
                     {
                         "row_id": "r01",
-                        "group_key": "heat-control",
+                        "group_id": "g01",
                         "topic_label": "Heat control",
-                        "proposal_decision": "not_applicable",
-                        "proposed_tag": None,
+                        "grounding": {
+                            "tag_keys": ["saute"],
+                            "category_keys": ["cooking-method"],
+                            "proposed_tags": [],
+                        },
                         "why_no_existing_tag": None,
                         "retrieval_query": None,
                     },
                     {
-                        "row_id": "r01",
-                        "group_key": "heat-control-duplicate",
-                        "topic_label": "Duplicate",
-                        "proposal_decision": "not_applicable",
-                        "proposed_tag": None,
-                        "why_no_existing_tag": None,
-                        "retrieval_query": None,
-                    },
-                    {
-                        "row_id": "r99",
-                        "group_key": "unexpected",
-                        "topic_label": "Unexpected",
-                        "proposal_decision": "not_applicable",
-                        "proposed_tag": None,
-                        "why_no_existing_tag": None,
-                        "retrieval_query": None,
+                        "row_id": "r02",
+                        "group_id": "g02",
+                        "topic_label": "Dough resting",
+                        "grounding": {
+                            "tag_keys": [],
+                            "category_keys": ["techniques"],
+                            "proposed_tags": [
+                                {
+                                    "key": "dough-resting",
+                                    "display_name": "Dough resting",
+                                    "category_key": "techniques",
+                                }
+                            ],
+                        },
+                        "why_no_existing_tag": "No existing tag fits the dough-resting concept.",
+                        "retrieval_query": "why rest dough before rolling",
                     },
                 ]
             }
@@ -191,41 +170,20 @@ def test_grouping_structured_response_reports_missing_duplicate_and_unknown_row_
     )
 
     assert edited is not None
-    assert errors == (
-        "knowledge_missing_response_rows",
-        "knowledge_duplicate_row_ids",
-        "knowledge_unknown_row_ids",
-    )
-    assert metadata["failed_unit_ids"] == ["knowledge::31", "knowledge::32"]
-    assert metadata["missing_block_indices"] == [32]
-    assert metadata["missing_row_ids"] == ["r02"]
-    assert metadata["duplicate_row_ids"] == ["r01"]
-    assert metadata["unknown_row_ids"] == ["r99"]
-    assert edited["units"][0]["answer"] == {
-        "group_key": "heat-control",
-        "topic_label": "Heat control",
-        "proposal_decision": "not_applicable",
-        "proposed_tag": None,
-        "proposed_tags": None,
-        "why_no_existing_tag": "",
-        "retrieval_query": "",
-    }
-    assert edited["units"][1]["answer"] == {
-        "group_key": None,
-        "topic_label": None,
-        "proposal_decision": None,
-        "proposed_tag": None,
-        "proposed_tags": None,
-        "why_no_existing_tag": None,
-        "retrieval_query": None,
-    }
-
-    _answers, validation_errors, validation_metadata = validate_knowledge_grouping_task_file(
+    assert errors == ()
+    assert metadata == {}
+    answers, validation_errors, validation_metadata = validate_knowledge_grouping_task_file(
         original_task_file=grouping_task_file,
         edited_task_file=edited,
     )
-
-    assert "knowledge_block_missing_group" in validation_errors
-    assert "proposal_candidate_resolution_required" in validation_errors
-    assert validation_metadata["failed_unit_ids"] == ["knowledge::32"]
-    assert validation_metadata["knowledge_blocks_missing_group"] == [32]
+    assert validation_errors == ()
+    assert validation_metadata["failed_unit_ids"] == []
+    assert answers["knowledge::31"]["group_id"] == "g01"
+    assert answers["knowledge::31"]["grounding"]["tag_keys"] == ["saute"]
+    assert answers["knowledge::32"]["grounding"]["proposed_tags"] == [
+        {
+            "key": "dough-resting",
+            "display_name": "Dough resting",
+            "category_key": "techniques",
+        }
+    ]

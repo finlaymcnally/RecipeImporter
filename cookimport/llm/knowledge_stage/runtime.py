@@ -546,17 +546,20 @@ def run_codex_farm_nonrecipe_finalize(
                 "retrieval_gate_rejected_block_count": int(
                     grounding_counts.get("retrieval_gate_rejected_block_count") or 0
                 ),
-                "existing_tag_kept_knowledge_block_count": int(
-                    grounding_counts.get("existing_tag_kept_knowledge_block_count") or 0
+                "kept_for_review_block_count": int(
+                    grounding_counts.get("kept_for_review_block_count") or 0
                 ),
-                "proposal_candidate_block_count": int(
-                    grounding_counts.get("proposal_candidate_block_count") or 0
+                "knowledge_group_count": int(
+                    grounding_counts.get("knowledge_group_count") or 0
                 ),
-                "approved_proposal_candidate_block_count": int(
-                    grounding_counts.get("approved_proposal_candidate_block_count") or 0
+                "knowledge_group_split_count": int(
+                    grounding_counts.get("knowledge_group_split_count") or 0
                 ),
-                "rejected_proposal_candidate_block_count": int(
-                    grounding_counts.get("rejected_proposal_candidate_block_count") or 0
+                "knowledge_groups_using_existing_tags": int(
+                    grounding_counts.get("knowledge_groups_using_existing_tags") or 0
+                ),
+                "knowledge_groups_using_proposed_tags": int(
+                    grounding_counts.get("knowledge_groups_using_proposed_tags") or 0
                 ),
                 "knowledge_blocks_grounded_to_existing_tags": int(
                     grounding_counts.get("knowledge_blocks_grounded_to_existing_tags") or 0

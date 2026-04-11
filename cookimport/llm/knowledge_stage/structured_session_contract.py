@@ -228,14 +228,8 @@ def _compact_knowledge_row_facts(
     *,
     row_id: str,
     classification_category: str,
-    existing_tag_keys: Sequence[str],
-    existing_category_keys: Sequence[str],
 ) -> str:
     parts = [f"{row_id} | classification={classification_category}"]
-    if existing_tag_keys:
-        parts.append("existing_tags=" + ",".join(existing_tag_keys))
-    if existing_category_keys:
-        parts.append("existing_categories=" + ",".join(existing_category_keys))
     return " | ".join(parts)
 
 
@@ -295,24 +289,11 @@ def knowledge_task_file_to_structured_packet(
             classification_category = str(
                 classification.get("category") or ""
             ).strip()
-            grounding = _coerce_dict(classification.get("grounding"))
-            existing_tag_keys = [
-                str(value).strip()
-                for value in (grounding.get("tag_keys") or [])
-                if str(value).strip()
-            ]
-            existing_category_keys = [
-                str(value).strip()
-                for value in (grounding.get("category_keys") or [])
-                if str(value).strip()
-            ]
             if classification_category:
                 row_facts.append(
                     _compact_knowledge_row_facts(
                         row_id=row_id,
                         classification_category=classification_category,
-                        existing_tag_keys=existing_tag_keys,
-                        existing_category_keys=existing_category_keys,
                     )
                 )
     packet = {
@@ -371,41 +352,34 @@ def build_knowledge_structured_prompt(
     has_context = bool(packet.get("context_before_rows") or packet.get("context_after_rows"))
     if stage_key == KNOWLEDGE_GROUP_STAGE_KEY:
         response_shape = (
-            '{"rows":[{"row_id":"r01","group_key":"heat-control","topic_label":"Heat control","proposal_decision":"approved","proposed_tags":[{"key":"rendering","display_name":"Rendering","category_key":"techniques"},{"key":"rendering-fat","display_name":"Rendering fat","category_key":"techniques"}],"why_no_existing_tag":"This row is about rendering fat specifically, not generic heat control.","retrieval_query":"how to render chicken fat"}]}'
+            '{"rows":[{"row_id":"r01","group_id":"g01","topic_label":"Heat control","grounding":{"tag_keys":["heat-control"],"category_keys":["techniques"],"proposed_tags":[]},"why_no_existing_tag":null,"retrieval_query":null},{"row_id":"r02","group_id":"g01","topic_label":"Heat control","grounding":{"tag_keys":["heat-control"],"category_keys":["techniques"],"proposed_tags":[]},"why_no_existing_tag":null,"retrieval_query":null}]}'
         )
         task_note = (
             "Review the ordered knowledge rows and answer every `row_id` exactly once.\n"
             "The packet `rows` array is ordered and authoritative; each row is rendered as `rXX | block_index | text`.\n"
-            "Rows about the same idea should share the same `group_key` and `topic_label`.\n"
-            "When present, `row_facts` gives factual row metadata such as classification category and existing grounding in compact `rXX | key=value` form.\n"
-            "Rows marked `classification=knowledge` are already retained. Usually keep them grouped with `proposal_decision=not_applicable` and empty proposal fields.\n"
-            "If a kept knowledge row is real retrieval-grade knowledge but the existing tags are a bad fit, you may instead set `proposal_decision=approved` and add one or more new proposed tags.\n"
-            "Rows marked `classification=proposal_candidate` must be resolved here with `proposal_decision` set to `approved` or `rejected`.\n"
-            "Approve only when the proposed tag is a strong standalone search handle a cook might actually use later.\n"
-            "When you approve a new tag, its `category_key` must be chosen from the packet `categories` list.\n"
+            "This is a group-first tagging pass: every row in this packet already survived the binary review and must be assigned to exactly one group.\n"
+            "Rows about the same idea must share the same `group_id`, `topic_label`, and full `grounding` story.\n"
+            "If some nearby rows need different tags, split them into a new `group_id` instead of mixing tag stories inside one group.\n"
+            "When present, `row_facts` gives factual row metadata in compact `rXX | key=value` form.\n"
+            "Use existing `tags` first whenever they fit cleanly.\n"
+            "If no existing tag fits, you may use `grounding.proposed_tags`, but proposed tags must be strong standalone retrieval handles and must include both `why_no_existing_tag` and `retrieval_query`.\n"
+            "When you propose a new tag, its `category_key` must be chosen from the packet `categories` list.\n"
             "Prefer concrete kitchen vocabulary rooted in the packet ontology, such as techniques, ingredients, storage, or equipment.\n"
-            "Reject broad chapter-theme, editorial, or pedagogy-summary labels. If the only proposal that comes to mind is vague or bookish, reject it.\n"
-            "Approved rows may include as many proposal tags as are genuinely warranted. Prefer a `proposed_tags` array; a legacy single `proposed_tag` is also accepted.\n"
+            "Reject broad chapter-theme, editorial, or pedagogy-summary labels. If the only tag story that comes to mind is vague or bookish, split the rows differently or choose a better existing tag.\n"
             "Keep each proposed tag key as a normalized slug like `rendering-fat`, not prose.\n"
-            "Rejected proposal candidates must leave `proposed_tag` or `proposed_tags`, `why_no_existing_tag`, and `retrieval_query` empty.\n"
         )
     else:
-        response_shape = (
-            '{"rows":[{"row_id":"r01","category":"knowledge","grounding":{"tag_keys":["emulsify"],"category_keys":["techniques"]}}]}'
-        )
+        response_shape = '{"labels":["keep_for_review","other"]}'
         task_note = (
             "Review the ordered knowledge rows and answer every `row_id` exactly once.\n"
             "The packet `rows` array is ordered and authoritative; each row is rendered as `rXX | block_index | text`.\n"
             "Reason about the packet holistically first: read short local runs of adjacent rows together before deciding any single row.\n"
             "Decide by local span, emit by row. Neighboring rows often explain what role a row plays, but you must still return one final answer per `row_id`.\n"
-            "Classify each row as `knowledge`, `proposal_candidate`, or `other` and include `grounding`.\n"
+            "Return one ordered `labels` array with exactly one label per row.\n"
+            "Classify each row only as `keep_for_review` or `other`.\n"
             "A heading, bridge line, or short setup row may help nearby rows count as knowledge without itself being `knowledge`.\n"
-            "Use the provided existing `tags` catalog first whenever a real tag fit exists.\n"
-            "If `category` is `knowledge`, grounding must include at least one existing `tag_key`.\n"
-            "If the row still feels worth retrieving later but no existing tag fits cleanly, return `proposal_candidate` with empty grounding.\n"
-            "Do not invent or preview proposed tags during classification. Proposal approval happens in the second pass.\n"
-            "`category_keys` may support existing-tag grounding, but category-only grounding is invalid and will be returned for repair.\n"
-            "If you cannot name a real existing tag fit and the row is not a strong standalone retrieval target, return `other` with empty grounding.\n"
+            "Do not think about tags during classification. Tagging happens only in the second pass.\n"
+            "If the row looks like reusable cooking knowledge worth carrying forward, return `keep_for_review`; otherwise return `other`.\n"
             "Memoir, book framing, navigation, decorative headings, and true-but-low-utility prose belong in `other` even if they mention cooking.\n"
             "Treat category labels and heading shape as weak hints only, but do use row order and nearby rows to understand the local run.\n"
         )
@@ -432,6 +406,7 @@ def _blank_grounding_payload() -> dict[str, Any]:
     return {
         "tag_keys": [],
         "category_keys": [],
+        "proposed_tags": [],
     }
 
 
@@ -565,9 +540,7 @@ def build_knowledge_edited_task_file_from_classification_response(
         return None, ("response_json_invalid",), {"parse_error": str(exc)}
     if not isinstance(parsed, Mapping):
         return None, ("response_not_json_object",), {"response_type": type(parsed).__name__}
-    decision_rows = parsed.get("rows")
-    if not isinstance(decision_rows, list):
-        return None, ("rows_missing_or_not_a_list",), {}
+    labels = parsed.get("labels")
     (
         _row_id_by_unit_id,
         unit_id_by_row_id,
@@ -578,24 +551,40 @@ def build_knowledge_edited_task_file_from_classification_response(
     seen_row_ids: set[str] = set()
     duplicate_row_ids: set[str] = set()
     unknown_row_ids: set[str] = set()
-    for row in decision_rows:
-        if not isinstance(row, Mapping):
-            return None, ("row_not_a_json_object",), {}
-        row_id = str(row.get("row_id") or "").strip()
-        if not row_id:
-            return None, ("row_id_missing",), {}
-        if row_id in seen_row_ids:
-            duplicate_row_ids.add(row_id)
-            continue
-        seen_row_ids.add(row_id)
-        unit_id = unit_id_by_row_id.get(row_id)
-        if not unit_id:
-            unknown_row_ids.add(row_id)
-            continue
-        answers_by_unit_id[unit_id] = {
-            "category": str(row.get("category") or "").strip(),
-            "grounding": dict(row.get("grounding") or _blank_grounding_payload()),
-        }
+    if isinstance(labels, list):
+        if len(labels) != len(owned_row_ids):
+            return None, ("label_count_mismatch",), {
+                "expected_label_count": len(owned_row_ids),
+                "returned_label_count": len(labels),
+            }
+        for index, row_id in enumerate(owned_row_ids):
+            unit_id = unit_id_by_row_id.get(row_id)
+            if not unit_id:
+                continue
+            answers_by_unit_id[unit_id] = {
+                "category": str(labels[index] or "").strip(),
+            }
+    else:
+        decision_rows = parsed.get("rows")
+        if not isinstance(decision_rows, list):
+            return None, ("rows_missing_or_not_a_list",), {}
+        for row in decision_rows:
+            if not isinstance(row, Mapping):
+                return None, ("row_not_a_json_object",), {}
+            row_id = str(row.get("row_id") or "").strip()
+            if not row_id:
+                return None, ("row_id_missing",), {}
+            if row_id in seen_row_ids:
+                duplicate_row_ids.add(row_id)
+                continue
+            seen_row_ids.add(row_id)
+            unit_id = unit_id_by_row_id.get(row_id)
+            if not unit_id:
+                unknown_row_ids.add(row_id)
+                continue
+            answers_by_unit_id[unit_id] = {
+                "category": str(row.get("category") or "").strip(),
+            }
     missing_unit_ids = [
         unit_id_by_row_id[row_id]
         for row_id in owned_row_ids
@@ -660,35 +649,35 @@ def build_knowledge_edited_task_file_from_grouping_response(
             if not unit_id:
                 unknown_row_ids.add(row_id)
                 continue
+            proposed_tags = [
+                dict(tag)
+                for tag in (
+                    row.get("proposed_tags")
+                    or ([row.get("proposed_tag")] if isinstance(row.get("proposed_tag"), Mapping) else [])
+                )
+                if isinstance(tag, Mapping)
+            ]
             answers_by_unit_id[unit_id] = {
-                "group_key": str(
-                    row.get("group_key") or row.get("group_index") or ""
+                "group_id": str(
+                    row.get("group_id") or row.get("group_key") or row.get("group_index") or ""
                 ).strip(),
                 "topic_label": str(row.get("topic_label") or "").strip(),
-                "proposal_decision": str(row.get("proposal_decision") or "").strip(),
-                "proposed_tag": (
-                    dict(row.get("proposed_tag"))
-                    if isinstance(row.get("proposed_tag"), Mapping)
-                    else (
-                        dict(row.get("proposed_tags")[0])
-                        if isinstance(row.get("proposed_tags"), list)
-                        and row.get("proposed_tags")
-                        and isinstance(row.get("proposed_tags")[0], Mapping)
-                        else row.get("proposed_tag")
-                    )
-                ),
-                "proposed_tags": (
-                    [dict(tag) for tag in row.get("proposed_tags") if isinstance(tag, Mapping)]
-                    if isinstance(row.get("proposed_tags"), list)
-                    else (
-                        [dict(row.get("proposed_tag"))]
-                        if isinstance(row.get("proposed_tag"), Mapping)
-                        else (
-                            [dict(tag) for tag in row.get("proposed_tag") if isinstance(tag, Mapping)]
-                            if isinstance(row.get("proposed_tag"), list)
-                            else row.get("proposed_tags")
-                        )
-                    )
+                "grounding": (
+                    dict(row.get("grounding"))
+                    if isinstance(row.get("grounding"), Mapping)
+                    else {
+                        "tag_keys": [
+                            str(value).strip()
+                            for value in (row.get("tag_keys") or [])
+                            if str(value).strip()
+                        ],
+                        "category_keys": [
+                            str(value).strip()
+                            for value in (row.get("category_keys") or [])
+                            if str(value).strip()
+                        ],
+                        "proposed_tags": proposed_tags,
+                    }
                 ),
                 "why_no_existing_tag": str(
                     row.get("why_no_existing_tag") or ""

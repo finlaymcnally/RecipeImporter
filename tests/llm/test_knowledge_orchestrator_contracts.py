@@ -90,18 +90,18 @@ def test_worker_prompt_describes_task_file_contract() -> None:
     assert "Do not invent queue advancement, control files, helper ledgers, or alternate output files." in prompt
     assert "This is the classification step." in prompt
     assert "Read the full classification file once" in prompt
-    assert "Answer each unit with `category` and `grounding`." in prompt
+    assert "Answer each unit with `category` only." in prompt
     assert "You are doing close semantic review, not building a heuristic classifier" in prompt
     assert "Treat heading shape and packet position as weak hints only" in prompt
     assert "If you feel tempted to invent a rule that covers many rows at once" in prompt
-    assert "If `category` is `knowledge`, `grounding` must include at least one existing `tag_key`" in prompt
     assert "personal story with an embedded cooking lesson is still usually `other`" in prompt
     assert "Praise, endorsement, foreword, thesis, manifesto" in prompt
     assert "A heading alone is not enough for `knowledge`." in prompt
     assert "Short conceptual headings can still be `knowledge`" in prompt
     assert "unsupported by reusable explanatory body text in the owned packet" in prompt
-    assert "answer `proposal_candidate` with empty grounding" in prompt
-    assert "Do not invent or preview proposed tags in the classification step." in prompt
+    assert "Final categories must be exactly one of `keep_for_review` or `other`." in prompt
+    assert "Do not think about tags in this step." in prompt
+    assert "answer `proposal_candidate` with empty grounding" not in prompt
     assert "Do not compress the packet into one global keep/drop rule" in prompt
     assert "Do not invent `group_key`, `topic_label`, packet summaries, or cross-unit grouping notes in this step." in prompt
     assert "Do not return shard outputs in your final message." in prompt
@@ -203,7 +203,7 @@ def test_knowledge_task_file_summary_surfaces_semantic_review_contract() -> None
     summary_contract = summary.get("review_contract")
     assert isinstance(summary_contract, dict)
     assert summary_contract.get("mode") == "semantic_review"
-    assert "standalone cooking concept" in str(
+    assert "second-pass knowledge grouping and tagging review" in str(
         summary_contract.get("primary_question") or ""
     )
     assert any(
@@ -255,18 +255,7 @@ def test_knowledge_repair_task_file_preserves_semantic_review_contract() -> None
         failed_unit_ids=["knowledge::4"],
         previous_answers_by_unit_id={
             "knowledge::4": {
-                "category": "knowledge",
-                "grounding": {
-                    "tag_keys": [],
-                    "category_keys": [],
-                    "proposed_tags": [
-                        {
-                            "key": "heat-control",
-                            "display_name": "Heat control",
-                            "category_key": "techniques",
-                        }
-                    ],
-                },
+                "category": "keep_for_review",
             }
         },
         validation_feedback_by_unit_id={

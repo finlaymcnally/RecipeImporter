@@ -27,6 +27,13 @@ def _packet_payload(*, packet_id: str, block_indices: list[int]) -> dict[str, ob
                 "group_id": "g01",
                 "topic_label": "Heat control",
                 "block_indices": list(block_indices),
+                "grounding": {
+                    "tag_keys": ["saute"],
+                    "category_keys": ["cooking-method"],
+                    "proposed_tags": [],
+                },
+                "why_no_existing_tag": None,
+                "retrieval_query": None,
                 "snippets": [
                     {
                         "body": "Use steady heat to control the pan.",
@@ -57,7 +64,7 @@ def _shard(*, packet_id: str, block_indices: list[int]) -> ShardManifestEntryV1:
     )
 
 
-def test_normalize_knowledge_worker_payload_serializes_packet_result() -> None:
+def test_normalize_knowledge_worker_payload_serializes_group_grounding() -> None:
     payload, metadata = normalize_knowledge_worker_payload(
         _packet_payload(packet_id="book.kp0001.nr", block_indices=[4, 5])
     )
@@ -83,6 +90,9 @@ def test_normalize_knowledge_worker_payload_serializes_packet_result() -> None:
                 "gid": "g01",
                 "l": "Heat control",
                 "bi": [4, 5],
+                "gr": {"tk": ["saute"], "ck": ["cooking-method"], "pt": []},
+                "wn": None,
+                "rq": None,
                 "s": [
                     {
                         "b": "Use steady heat to control the pan.",
@@ -94,7 +104,7 @@ def test_normalize_knowledge_worker_payload_serializes_packet_result() -> None:
     }
 
 
-def test_validate_knowledge_shard_output_accepts_complete_packet_groups() -> None:
+def test_validate_knowledge_shard_output_accepts_complete_grouped_result() -> None:
     valid, errors, metadata = validate_knowledge_shard_output(
         _shard(packet_id="book.kp0002.nr", block_indices=[10, 11]),
         _packet_payload(packet_id="book.kp0002.nr", block_indices=[10, 11]),
@@ -106,49 +116,16 @@ def test_validate_knowledge_shard_output_accepts_complete_packet_groups() -> Non
     assert metadata["idea_group_count"] == 1
 
 
-def test_validate_knowledge_shard_output_rejects_knowledge_blocks_missing_groups() -> None:
+def test_validate_knowledge_shard_output_rejects_group_grounding_mismatch() -> None:
+    payload = _packet_payload(packet_id="book.kp0003.nr", block_indices=[20, 21])
+    payload["idea_groups"][0]["grounding"]["tag_keys"] = ["bright"]
+    payload["idea_groups"][0]["grounding"]["category_keys"] = ["flavor-profile"]
+
     valid, errors, metadata = validate_knowledge_shard_output(
         _shard(packet_id="book.kp0003.nr", block_indices=[20, 21]),
-        {
-            "packet_id": "book.kp0003.nr",
-            "block_decisions": [
-                {
-                    "block_index": 20,
-                    "category": "knowledge",
-                    "grounding": {
-                        "tag_keys": ["saute"],
-                        "category_keys": ["cooking-method"],
-                        "proposed_tags": [],
-                    },
-                },
-                {
-                    "block_index": 21,
-                    "category": "knowledge",
-                    "grounding": {
-                        "tag_keys": ["saute"],
-                        "category_keys": ["cooking-method"],
-                        "proposed_tags": [],
-                    },
-                },
-            ],
-            "idea_groups": [
-                {
-                    "group_id": "g01",
-                    "topic_label": "One block only",
-                    "block_indices": [20],
-                    "snippets": [
-                        {
-                            "body": "Keep the pan steady.",
-                            "evidence": [
-                                {"block_index": 20, "quote": "Keep the pan steady."}
-                            ],
-                        }
-                    ],
-                }
-            ],
-        },
+        payload,
     )
 
     assert valid is False
-    assert "knowledge_block_missing_group" in errors
-    assert metadata["knowledge_blocks_missing_group"] == [21]
+    assert "knowledge_group_grounding_mismatch" in errors
+    assert metadata["knowledge_group_grounding_mismatch_blocks"] == [20, 21]

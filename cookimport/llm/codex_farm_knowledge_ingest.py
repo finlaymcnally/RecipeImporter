@@ -31,6 +31,7 @@ _KNOWLEDGE_COVERAGE_VALIDATION_ERRORS = frozenset(
         "block_decision_order_mismatch",
         "knowledge_block_missing_group",
         "knowledge_block_group_conflict",
+        "knowledge_group_grounding_mismatch",
         "group_contains_other_block",
         "unknown_grounding_tag_key",
         "unknown_grounding_category_key",
@@ -54,6 +55,7 @@ _KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS = frozenset(
         "block_decision_order_mismatch",
         "knowledge_block_missing_group",
         "knowledge_block_group_conflict",
+        "knowledge_group_grounding_mismatch",
         "group_contains_other_block",
         "unknown_grounding_tag_key",
         "unknown_grounding_category_key",
@@ -162,6 +164,9 @@ def sanitize_knowledge_worker_payload_for_shard(
                 "gid": str(group.group_id),
                 "l": str(group.topic_label),
                 "bi": [int(block_index) for block_index in group.block_indices],
+                "gr": _serialize_grounding_for_payload(group.grounding),
+                "wn": str(group.why_no_existing_tag or "").strip() or None,
+                "rq": str(group.retrieval_query or "").strip() or None,
                 "s": [
                     {
                         "b": str(snippet.body),
@@ -703,8 +708,10 @@ def _validate_single_packet_payload(
     }
     grouped_blocks: dict[int, str] = {}
     group_labels_by_id: dict[str, str] = {}
+    group_grounding_by_id: dict[str, dict[str, Any]] = {}
     conflicting_blocks: set[int] = set()
     groups_on_other_blocks: set[int] = set()
+    group_grounding_mismatch_blocks: set[int] = set()
     for group in parsed.idea_groups:
         normalized_group_id = str(group.group_id).strip()
         normalized_topic_label = str(group.topic_label).strip()
@@ -714,6 +721,9 @@ def _validate_single_packet_payload(
         elif previous_topic != normalized_topic_label:
             errors.append("knowledge_block_group_conflict")
             metadata.setdefault("group_id_topic_conflicts", []).append(normalized_group_id)
+        group_grounding_by_id[normalized_group_id] = _serialize_grounding_for_payload(
+            group.grounding
+        )
         for block_index in group.block_indices:
             normalized_block_index = int(block_index)
             if category_by_block.get(normalized_block_index) != "knowledge":
@@ -722,6 +732,18 @@ def _validate_single_packet_payload(
             previous_group_id = grouped_blocks.get(normalized_block_index)
             if previous_group_id is None:
                 grouped_blocks[normalized_block_index] = normalized_group_id
+                decision = next(
+                    (
+                        row
+                        for row in parsed.block_decisions
+                        if int(row.block_index) == normalized_block_index
+                    ),
+                    None,
+                )
+                if decision is not None and _serialize_grounding_for_payload(
+                    decision.grounding
+                ) != group_grounding_by_id.get(normalized_group_id):
+                    group_grounding_mismatch_blocks.add(normalized_block_index)
                 continue
             if previous_group_id != normalized_group_id:
                 conflicting_blocks.add(normalized_block_index)
@@ -742,4 +764,9 @@ def _validate_single_packet_payload(
     if groups_on_other_blocks:
         errors.append("group_contains_other_block")
         metadata["group_blocks_out_of_surface"] = sorted(groups_on_other_blocks)
+    if group_grounding_mismatch_blocks:
+        errors.append("knowledge_group_grounding_mismatch")
+        metadata["knowledge_group_grounding_mismatch_blocks"] = sorted(
+            group_grounding_mismatch_blocks
+        )
     return not errors, tuple(dict.fromkeys(errors)), metadata

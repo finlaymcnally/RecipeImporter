@@ -41,12 +41,36 @@ def write_knowledge_artifacts(
         }
         for group_index, group in enumerate(output.idea_groups, start=1):
             knowledge_group_id = f"{packet_id}.{group.group_id}"
+            shared_grounding = {
+                "tag_keys": [
+                    str(value).strip()
+                    for value in (getattr(group.grounding, "tag_keys", ()) or ())
+                    if str(value).strip()
+                ],
+                "category_keys": [
+                    str(value).strip()
+                    for value in (getattr(group.grounding, "category_keys", ()) or ())
+                    if str(value).strip()
+                ],
+                "proposed_tags": [
+                    {
+                        "key": str(tag.key).strip(),
+                        "display_name": str(tag.display_name).strip(),
+                        "category_key": str(tag.category_key).strip(),
+                    }
+                    for tag in (getattr(group.grounding, "proposed_tags", ()) or ())
+                    if str(getattr(tag, "key", "")).strip()
+                ],
+            }
             record = {
                 "knowledge_group_id": knowledge_group_id,
                 "packet_id": packet_id,
                 "group_id": group.group_id,
                 "topic_label": group.topic_label,
                 "block_indices": list(group.block_indices),
+                "shared_grounding": shared_grounding,
+                "why_no_existing_tag": str(group.why_no_existing_tag or "").strip() or None,
+                "retrieval_query": str(group.retrieval_query or "").strip() or None,
                 "grounded_blocks": [],
                 "snippets": [],
             }
@@ -148,6 +172,24 @@ def _render_preview_md(
             lines.append(
                 f"- block_indices: `{block_indices[0]}..{block_indices[-1]}` ({len(block_indices)} blocks)"
             )
+        shared_grounding = dict(record.get("shared_grounding") or {})
+        tag_keys = ", ".join(str(value) for value in (shared_grounding.get("tag_keys") or []))
+        if tag_keys:
+            lines.append(f"- shared_tag_keys: {tag_keys}")
+        proposed_tags = [
+            str(row.get("display_name") or row.get("key") or "").strip()
+            for row in (shared_grounding.get("proposed_tags") or [])
+            if isinstance(row, Mapping)
+            and str(row.get("display_name") or row.get("key") or "").strip()
+        ]
+        if proposed_tags:
+            lines.append(f"- shared_proposed_tags: {', '.join(proposed_tags)}")
+        why_no_existing_tag = str(record.get("why_no_existing_tag") or "").strip()
+        if why_no_existing_tag:
+            lines.append(f"- why_no_existing_tag: {why_no_existing_tag}")
+        retrieval_query = str(record.get("retrieval_query") or "").strip()
+        if retrieval_query:
+            lines.append(f"- retrieval_query: {retrieval_query}")
         lines.append("")
 
         lines.append("Source context:")

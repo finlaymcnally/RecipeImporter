@@ -1250,33 +1250,43 @@ def _build_knowledge_stage_rollup_fixture(tmp_path: Path) -> dict[str, object]:
             {
                 "pipeline_id": "recipe.knowledge.compact.v1",
                 "counts": {
+                    "kept_for_review_block_count": 2,
                     "kept_knowledge_block_count": 2,
                     "retrieval_gate_rejected_block_count": 1,
-                    "existing_tag_kept_knowledge_block_count": 1,
-                    "proposal_candidate_block_count": 1,
-                    "approved_proposal_candidate_block_count": 1,
-                    "rejected_proposal_candidate_block_count": 0,
+                    "knowledge_group_count": 2,
+                    "knowledge_group_split_count": 1,
+                    "knowledge_groups_using_existing_tags": 1,
+                    "knowledge_groups_using_proposed_tags": 1,
                     "knowledge_blocks_grounded_to_existing_tags": 1,
                     "knowledge_blocks_using_proposed_tags": 1,
                     "tag_proposal_count": 1,
                 },
                 "grounding_counts": {
-                    "proposal_resolution_details": [
+                    "group_resolution_details": [
                         {
-                            "block_index": 11,
-                            "classification_category": "knowledge",
-                            "final_category": "knowledge",
-                            "proposal_decision": "not_applicable",
+                            "group_id": "g01",
+                            "topic_label": "Heat control",
+                            "block_indices": [11],
+                            "grounding": {
+                                "tag_keys": ["saute"],
+                                "category_keys": ["cooking-method"],
+                                "proposed_tags": [],
+                            },
                         },
                         {
-                            "block_index": 12,
-                            "classification_category": "proposal_candidate",
-                            "final_category": "knowledge",
-                            "proposal_decision": "approved",
-                            "proposed_tag": {
-                                "key": "rendering",
-                                "display_name": "Rendering",
-                                "category_key": "techniques",
+                            "group_id": "g02",
+                            "topic_label": "Rendering fat",
+                            "block_indices": [12],
+                            "grounding": {
+                                "tag_keys": [],
+                                "category_keys": ["techniques"],
+                                "proposed_tags": [
+                                    {
+                                        "key": "rendering",
+                                        "display_name": "Rendering",
+                                        "category_key": "techniques",
+                                    }
+                                ],
                             },
                             "why_no_existing_tag": "This is specifically about rendering fat.",
                             "retrieval_query": "how to render fat",
@@ -1498,31 +1508,41 @@ def test_summarize_knowledge_stage_artifacts_reports_packet_and_worker_rollups(
         "protocol_overhead_share": 0.3333,
     }
     assert summary["grounding_counts"] == {
+        "kept_for_review_block_count": 2,
         "kept_knowledge_block_count": 2,
         "retrieval_gate_rejected_block_count": 1,
-        "existing_tag_kept_knowledge_block_count": 1,
-        "proposal_candidate_block_count": 1,
-        "approved_proposal_candidate_block_count": 1,
-        "rejected_proposal_candidate_block_count": 0,
+        "knowledge_group_count": 2,
+        "knowledge_group_split_count": 1,
+        "knowledge_groups_using_existing_tags": 1,
+        "knowledge_groups_using_proposed_tags": 1,
         "knowledge_blocks_grounded_to_existing_tags": 1,
         "knowledge_blocks_using_proposed_tags": 1,
         "tag_proposal_count": 1,
-        "proposal_resolution_details": [
+        "group_resolution_details": [
             {
-                "block_index": 11,
-                "classification_category": "knowledge",
-                "final_category": "knowledge",
-                "proposal_decision": "not_applicable",
+                "group_id": "g01",
+                "topic_label": "Heat control",
+                "block_indices": [11],
+                "grounding": {
+                    "tag_keys": ["saute"],
+                    "category_keys": ["cooking-method"],
+                    "proposed_tags": [],
+                },
             },
             {
-                "block_index": 12,
-                "classification_category": "proposal_candidate",
-                "final_category": "knowledge",
-                "proposal_decision": "approved",
-                "proposed_tag": {
-                    "key": "rendering",
-                    "display_name": "Rendering",
-                    "category_key": "techniques",
+                "group_id": "g02",
+                "topic_label": "Rendering fat",
+                "block_indices": [12],
+                "grounding": {
+                    "tag_keys": [],
+                    "category_keys": ["techniques"],
+                    "proposed_tags": [
+                        {
+                            "key": "rendering",
+                            "display_name": "Rendering",
+                            "category_key": "techniques",
+                        }
+                    ],
                 },
                 "why_no_existing_tag": "This is specifically about rendering fat.",
                 "retrieval_query": "how to render fat",

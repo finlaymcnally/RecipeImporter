@@ -596,7 +596,11 @@ def _run_exec(args: argparse.Namespace) -> int:
         parsed_payload = _extract_prompt_packet_payload(prompt_text)
     if parsed_payload is None:
         parsed_payload = _extract_first_json_object(prompt_text)
-    if isinstance(parsed_payload, dict) and str(parsed_payload.get("schema_version") or "").strip() == "knowledge_structured_packet.v1":
+    if (
+        isinstance(parsed_payload, dict)
+        and str(parsed_payload.get("schema_version") or "").strip()
+        == "knowledge_structured_packet.v2"
+    ):
         pipeline_id = "recipe.knowledge.packet.v1"
     payload = parsed_payload if parsed_payload is not None else prompt_text
     response_payload = build_structural_pipeline_output(pipeline_id, payload)

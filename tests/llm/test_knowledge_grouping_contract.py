@@ -5,7 +5,6 @@ from copy import deepcopy
 from cookimport.llm.knowledge_stage.task_file_contracts import (
     KNOWLEDGE_GROUP_SCHEMA_VERSION,
     KNOWLEDGE_GROUP_STAGE_KEY,
-    KNOWLEDGE_GROUP_TASK_MAX_UNITS,
     build_knowledge_classification_task_file,
     build_knowledge_grouping_task_file,
     build_knowledge_grouping_task_files,
@@ -14,6 +13,7 @@ from cookimport.llm.knowledge_stage.task_file_contracts import (
 from cookimport.llm.knowledge_stage.structured_session_contract import (
     build_knowledge_edited_task_file_from_grouping_response,
 )
+from cookimport.llm.knowledge_tag_catalog import load_knowledge_tag_catalog
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1, WorkerAssignmentV1
 
 
@@ -38,7 +38,41 @@ def _shard(*, block_index: int, text: str) -> ShardManifestEntryV1:
     )
 
 
-def test_grouping_task_file_only_contains_accepted_knowledge_units() -> None:
+def _group_answer(
+    *,
+    group_id: str,
+    topic_label: str,
+    tag_keys: list[str] | None = None,
+    proposed_tags: list[dict[str, str]] | None = None,
+    why_no_existing_tag: str | None = None,
+    retrieval_query: str | None = None,
+) -> dict[str, object]:
+    catalog = load_knowledge_tag_catalog()
+    categories = [
+        catalog.tag_by_key[tag_key].category_key
+        for tag_key in (tag_keys or [])
+        if tag_key in catalog.tag_by_key
+    ]
+    if proposed_tags:
+        categories.extend(
+            str(tag.get("category_key") or "").strip()
+            for tag in proposed_tags
+            if str(tag.get("category_key") or "").strip()
+        )
+    return {
+        "group_id": group_id,
+        "topic_label": topic_label,
+        "grounding": {
+            "tag_keys": list(tag_keys or []),
+            "category_keys": categories,
+            "proposed_tags": list(proposed_tags or []),
+        },
+        "why_no_existing_tag": why_no_existing_tag,
+        "retrieval_query": retrieval_query,
+    }
+
+
+def test_grouping_task_file_only_contains_kept_rows() -> None:
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
@@ -53,7 +87,7 @@ def test_grouping_task_file_only_contains_accepted_knowledge_units() -> None:
         classification_task_file=classification_task_file,
         classification_answers_by_unit_id={
             "knowledge::5": {"category": "other"},
-            "knowledge::6": {"category": "knowledge"},
+            "knowledge::6": {"category": "keep_for_review"},
         },
         unit_to_shard_id=unit_to_shard_id,
     )
@@ -64,7 +98,7 @@ def test_grouping_task_file_only_contains_accepted_knowledge_units() -> None:
     assert grouping_unit_to_shard_id == {"knowledge::6": "book.ks0000.nr"}
 
 
-def test_grouping_validator_requires_non_empty_group_fields() -> None:
+def test_grouping_validator_accepts_existing_tag_group_grounding() -> None:
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[_shard(block_index=8, text="Use low heat and whisk steadily.")],
@@ -73,20 +107,15 @@ def test_grouping_validator_requires_non_empty_group_fields() -> None:
         assignment_id="worker-001",
         worker_id="worker-001",
         classification_task_file=classification_task_file,
-        classification_answers_by_unit_id={
-            "knowledge::8": {"category": "knowledge"}
-        },
+        classification_answers_by_unit_id={"knowledge::8": {"category": "keep_for_review"}},
         unit_to_shard_id=unit_to_shard_id,
     )
     edited = deepcopy(grouping_task_file)
-    edited["units"][0]["answer"] = {
-        "group_key": "heat-control",
-        "topic_label": "Heat control",
-        "proposal_decision": "not_applicable",
-        "proposed_tag": None,
-        "why_no_existing_tag": None,
-        "retrieval_query": None,
-    }
+    edited["units"][0]["answer"] = _group_answer(
+        group_id="g01",
+        topic_label="Heat control",
+        tag_keys=["saute"],
+    )
 
     answers_by_unit_id, errors, metadata = validate_knowledge_grouping_task_file(
         original_task_file=grouping_task_file,
@@ -97,379 +126,144 @@ def test_grouping_validator_requires_non_empty_group_fields() -> None:
     assert metadata["failed_unit_ids"] == []
     assert answers_by_unit_id == {
         "knowledge::8": {
-            "group_key": "heat-control",
+            "group_id": "g01",
             "topic_label": "Heat control",
-            "proposal_decision": "not_applicable",
-            "proposed_tag": None,
-            "proposed_tags": None,
+            "grounding": {
+                "tag_keys": ["saute"],
+                "category_keys": ["cooking-method"],
+                "proposed_tags": [],
+            },
             "why_no_existing_tag": None,
             "retrieval_query": None,
         }
     }
 
+
+def test_grouping_validator_requires_tag_story_and_group_consistency() -> None:
+    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[
+            _shard(block_index=11, text="Rest dough before rolling."),
+            _shard(block_index=12, text="Resting relaxes the gluten."),
+        ],
+    )
+    grouping_task_file, _ = build_knowledge_grouping_task_file(
+        assignment_id="worker-001",
+        worker_id="worker-001",
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id={
+            "knowledge::11": {"category": "keep_for_review"},
+            "knowledge::12": {"category": "keep_for_review"},
+        },
+        unit_to_shard_id=unit_to_shard_id,
+    )
+
     invalid = deepcopy(grouping_task_file)
-    invalid["units"][0]["answer"] = {"group_key": "heat-control", "topic_label": ""}
+    invalid["units"][0]["answer"] = _group_answer(
+        group_id="g01",
+        topic_label="Dough resting",
+        tag_keys=["rest"],
+    )
+    invalid["units"][1]["answer"] = _group_answer(
+        group_id="g01",
+        topic_label="Dough resting",
+        proposed_tags=[
+            {
+                "key": "dough-resting",
+                "display_name": "Dough resting",
+                "category_key": "techniques",
+            }
+        ],
+        why_no_existing_tag="No existing tag fits the dough-resting concept.",
+        retrieval_query="why rest dough before rolling",
+    )
+
     answers_by_unit_id, errors, metadata = validate_knowledge_grouping_task_file(
         original_task_file=grouping_task_file,
         edited_task_file=invalid,
     )
 
     assert answers_by_unit_id is None
-    assert errors == (
-        "knowledge_block_missing_group",
-        "invalid_proposal_decision",
-        "knowledge_grouping_proposal_forbidden",
-    )
-    assert metadata["failed_unit_ids"] == ["knowledge::8"]
-    assert metadata["knowledge_blocks_missing_group"] == [8]
+    assert "knowledge_group_mixed_tag_story" in errors
+    assert sorted(metadata["failed_unit_ids"]) == ["knowledge::11", "knowledge::12"]
 
 
-def test_grouping_validator_accepts_approved_ingredient_proposal_category() -> None:
-    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
-        assignment=_assignment(),
-        shards=[_shard(block_index=9, text="Choose fresh extra-virgin olive oil.")],
-    )
-    grouping_task_file, _ = build_knowledge_grouping_task_file(
-        assignment_id="worker-001",
-        worker_id="worker-001",
-        classification_task_file=classification_task_file,
-        classification_answers_by_unit_id={
-            "knowledge::9": {"category": "proposal_candidate"}
-        },
-        unit_to_shard_id=unit_to_shard_id,
-    )
-    edited = deepcopy(grouping_task_file)
-    edited["units"][0]["answer"] = {
-        "group_key": "olive-oil-selection",
-        "topic_label": "Choosing olive oil",
-        "proposal_decision": "approved",
-        "proposed_tag": {
-            "key": "extra-virgin-olive-oil-selection",
-            "display_name": "Choosing extra-virgin olive oil",
-            "category_key": "ingredients",
-        },
-        "why_no_existing_tag": "This captures ingredient selection guidance not covered by an existing tag.",
-        "retrieval_query": "how to choose extra virgin olive oil",
-    }
-
-    answers_by_unit_id, errors, metadata = validate_knowledge_grouping_task_file(
-        original_task_file=grouping_task_file,
-        edited_task_file=edited,
-    )
-
-    assert errors == ()
-    assert metadata["failed_unit_ids"] == []
-    assert answers_by_unit_id == {
-        "knowledge::9": {
-            "group_key": "olive-oil-selection",
-            "topic_label": "Choosing olive oil",
-            "proposal_decision": "approved",
-            "proposed_tag": {
-                "key": "extra-virgin-olive-oil-selection",
-                "display_name": "Choosing extra-virgin olive oil",
-                "category_key": "ingredients",
-            },
-            "proposed_tags": [
-                {
-                    "key": "extra-virgin-olive-oil-selection",
-                    "display_name": "Choosing extra-virgin olive oil",
-                    "category_key": "ingredients",
-                }
-            ],
-            "why_no_existing_tag": "This captures ingredient selection guidance not covered by an existing tag.",
-            "retrieval_query": "how to choose extra virgin olive oil",
-        }
-    }
-
-
-def test_grouping_validator_accepts_approved_new_tag_for_kept_knowledge() -> None:
-    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
-        assignment=_assignment(),
-        shards=[_shard(block_index=12, text="Salt a bit early so the meat seasons more evenly.")],
-    )
-    grouping_task_file, _ = build_knowledge_grouping_task_file(
-        assignment_id="worker-001",
-        worker_id="worker-001",
-        classification_task_file=classification_task_file,
-        classification_answers_by_unit_id={
-            "knowledge::12": {
-                "category": "knowledge",
-                "grounding": {
-                    "tag_keys": ["salt"],
-                    "category_keys": ["ingredients"],
-                    "proposed_tags": [],
-                },
-            }
-        },
-        unit_to_shard_id=unit_to_shard_id,
-    )
-    edited = deepcopy(grouping_task_file)
-    edited["units"][0]["answer"] = {
-        "group_key": "early-salting",
-        "topic_label": "Early salting",
-        "proposal_decision": "approved",
-        "proposed_tag": None,
-        "proposed_tags": [
-            {
-                "key": "early-salting",
-                "display_name": "Early salting",
-                "category_key": "techniques",
-            },
-            {
-                "key": "seasoning-timing",
-                "display_name": "Seasoning timing",
-                "category_key": "techniques",
-            },
-        ],
-        "why_no_existing_tag": "The existing salt tag is too broad for this specific timing technique.",
-        "retrieval_query": "when to salt meat early",
-    }
-
-    answers_by_unit_id, errors, metadata = validate_knowledge_grouping_task_file(
-        original_task_file=grouping_task_file,
-        edited_task_file=edited,
-    )
-
-    assert errors == ()
-    assert metadata["failed_unit_ids"] == []
-    assert answers_by_unit_id == {
-        "knowledge::12": {
-            "group_key": "early-salting",
-            "topic_label": "Early salting",
-            "proposal_decision": "approved",
-            "proposed_tag": {
-                "key": "early-salting",
-                "display_name": "Early salting",
-                "category_key": "techniques",
-            },
-            "proposed_tags": [
-                {
-                    "key": "early-salting",
-                    "display_name": "Early salting",
-                    "category_key": "techniques",
-                },
-                {
-                    "key": "seasoning-timing",
-                    "display_name": "Seasoning timing",
-                    "category_key": "techniques",
-                },
-            ],
-            "why_no_existing_tag": "The existing salt tag is too broad for this specific timing technique.",
-            "retrieval_query": "when to salt meat early",
-        }
-    }
-
-
-def test_grouping_task_files_split_large_grouping_scope_across_batches() -> None:
-    block_count = KNOWLEDGE_GROUP_TASK_MAX_UNITS + 1
+def test_grouping_structured_response_maps_group_fields_and_reports_missing_rows() -> None:
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            ShardManifestEntryV1(
-                shard_id="book.ks0000.nr",
-                owned_ids=("book.ks0000.nr",),
-                input_payload={
-                    "v": "1",
-                    "bid": "book.ks0000.nr",
-                    "b": [
-                        {
-                            "i": block_index,
-                            "id": f"book.ks0000.nr:{block_index}",
-                            "t": f"Knowledge block {block_index}",
-                        }
-                        for block_index in range(block_count)
-                    ],
-                },
-                metadata={
-                    "owned_block_indices": list(range(block_count)),
-                    "owned_block_count": block_count,
-                },
-            )
+            _shard(block_index=21, text="Use gentle heat for eggs."),
+            _shard(block_index=22, text="Rest dough before rolling."),
         ],
-    )
-    classification_answers_by_unit_id = {
-        f"knowledge::{block_index}": {"category": "knowledge"}
-        for block_index in range(block_count)
-    }
-
-    task_files, grouping_unit_to_shard_id, batch_unit_ids = build_knowledge_grouping_task_files(
-        assignment_id="worker-001",
-        worker_id="worker-001",
-        classification_task_file=classification_task_file,
-        classification_answers_by_unit_id=classification_answers_by_unit_id,
-        unit_to_shard_id=unit_to_shard_id,
-    )
-
-    assert len(task_files) == 2
-    assert len(batch_unit_ids) == 2
-    assert [len(task_file["units"]) for task_file in task_files] == [
-        KNOWLEDGE_GROUP_TASK_MAX_UNITS,
-        1,
-    ]
-    assert task_files[0]["grouping_batch"] == {
-        "current_batch_index": 1,
-        "total_batches": 2,
-        "unit_count": KNOWLEDGE_GROUP_TASK_MAX_UNITS,
-        "total_grouping_unit_count": block_count,
-        "remaining_batches_after_this": 1,
-        "estimated_evidence_chars": task_files[0]["grouping_batch"]["estimated_evidence_chars"],
-        "max_units_per_batch": KNOWLEDGE_GROUP_TASK_MAX_UNITS,
-        "max_evidence_chars_per_batch": task_files[0]["grouping_batch"][
-            "max_evidence_chars_per_batch"
-        ],
-        "shard_ids": ["book.ks0000.nr"],
-    }
-    assert task_files[1]["grouping_batch"] == {
-        "current_batch_index": 2,
-        "total_batches": 2,
-        "unit_count": 1,
-        "total_grouping_unit_count": block_count,
-        "remaining_batches_after_this": 0,
-        "estimated_evidence_chars": task_files[1]["grouping_batch"]["estimated_evidence_chars"],
-        "max_units_per_batch": KNOWLEDGE_GROUP_TASK_MAX_UNITS,
-        "max_evidence_chars_per_batch": task_files[1]["grouping_batch"][
-            "max_evidence_chars_per_batch"
-        ],
-        "shard_ids": ["book.ks0000.nr"],
-    }
-    assert batch_unit_ids[0] == [
-        f"knowledge::{block_index}" for block_index in range(KNOWLEDGE_GROUP_TASK_MAX_UNITS)
-    ]
-    assert batch_unit_ids[1] == [f"knowledge::{block_count - 1}"]
-    assert grouping_unit_to_shard_id[f"knowledge::{block_count - 1}"] == "book.ks0000.nr"
-
-
-def test_grouping_task_files_use_custom_limits_from_classification_task() -> None:
-    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
-        assignment=_assignment(),
-        shards=[
-            ShardManifestEntryV1(
-                shard_id="book.ks0000.nr",
-                owned_ids=("book.ks0000.nr",),
-                input_payload={
-                    "v": "1",
-                    "bid": "book.ks0000.nr",
-                    "b": [
-                        {"i": 1, "id": "book.ks0000.nr:1", "t": "A" * 40},
-                        {"i": 2, "id": "book.ks0000.nr:2", "t": "B" * 40},
-                        {"i": 3, "id": "book.ks0000.nr:3", "t": "C" * 40},
-                    ],
-                },
-                metadata={"owned_block_indices": [1, 2, 3], "owned_block_count": 3},
-            )
-        ],
-        knowledge_group_task_max_units=2,
-        knowledge_group_task_max_evidence_chars=10_000,
-    )
-    classification_answers_by_unit_id = {
-        "knowledge::1": {"category": "knowledge"},
-        "knowledge::2": {"category": "knowledge"},
-        "knowledge::3": {"category": "knowledge"},
-    }
-
-    transition_task_file, _grouping_unit_to_shard_id = build_knowledge_grouping_task_file(
-        assignment_id="worker-001",
-        worker_id="worker-001",
-        classification_task_file=classification_task_file,
-        classification_answers_by_unit_id=classification_answers_by_unit_id,
-        unit_to_shard_id=unit_to_shard_id,
-        max_units_per_batch=int(
-            classification_task_file["grouping_limits"]["max_units_per_batch"]
-        ),
-        max_evidence_chars_per_batch=int(
-            classification_task_file["grouping_limits"]["max_evidence_chars_per_batch"]
-        ),
-    )
-
-    assert classification_task_file["grouping_limits"] == {
-        "max_units_per_batch": 2,
-        "max_evidence_chars_per_batch": 10_000,
-    }
-    assert len(transition_task_file["units"]) == 2
-    assert transition_task_file["grouping_batch"]["max_units_per_batch"] == 2
-    assert transition_task_file["grouping_batch"]["total_batches"] == 2
-
-
-def test_structured_grouping_response_accepts_group_index_alias() -> None:
-    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
-        assignment=_assignment(),
-        shards=[_shard(block_index=8, text="Use low heat and whisk steadily.")],
     )
     grouping_task_file, _ = build_knowledge_grouping_task_file(
         assignment_id="worker-001",
         worker_id="worker-001",
         classification_task_file=classification_task_file,
         classification_answers_by_unit_id={
-            "knowledge::8": {"category": "knowledge"}
+            "knowledge::21": {"category": "keep_for_review"},
+            "knowledge::22": {"category": "keep_for_review"},
         },
         unit_to_shard_id=unit_to_shard_id,
     )
 
     edited, errors, metadata = build_knowledge_edited_task_file_from_grouping_response(
         original_task_file=grouping_task_file,
-        response_text=(
-            '{"rows":[{"row_id":"r01","group_index":"heat-control","topic_label":"Heat control","proposal_decision":"not_applicable","proposed_tag":null,"why_no_existing_tag":null,"retrieval_query":null}]}'
-        ),
+        response_text='{"rows":[{"row_id":"r01","group_id":"g01","topic_label":"Heat control","grounding":{"tag_keys":["saute"],"category_keys":["cooking-method"],"proposed_tags":[]},"why_no_existing_tag":null,"retrieval_query":null}]}',
     )
 
     assert edited is not None
-    assert errors == ()
-    assert metadata == {}
+    assert errors == ("knowledge_missing_response_rows",)
+    assert metadata["failed_unit_ids"] == ["knowledge::22"]
     assert edited["units"][0]["answer"] == {
-        "group_key": "heat-control",
-        "topic_label": "Heat control",
-        "proposal_decision": "not_applicable",
-        "proposed_tag": None,
-        "proposed_tags": None,
+            "group_id": "g01",
+            "topic_label": "Heat control",
+            "grounding": {
+                "tag_keys": ["saute"],
+                "category_keys": ["cooking-method"],
+                "proposed_tags": [],
+            },
         "why_no_existing_tag": "",
         "retrieval_query": "",
     }
+    assert edited["units"][1]["answer"] == {
+        "group_id": None,
+        "topic_label": None,
+        "grounding": {
+            "tag_keys": [],
+            "category_keys": [],
+            "proposed_tags": [],
+        },
+        "why_no_existing_tag": None,
+        "retrieval_query": None,
+    }
 
 
-def test_structured_grouping_response_accepts_proposed_tags_array() -> None:
+def test_grouping_batches_stay_partitioned_for_large_kept_sets() -> None:
+    shards = [
+        _shard(block_index=index, text=f"Technique note {index}")
+        for index in range(40, 46)
+    ]
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
-        shards=[_shard(block_index=13, text="Resting batter smooths hydration and texture.")],
+        shards=shards,
     )
-    grouping_task_file, _ = build_knowledge_grouping_task_file(
+    task_files, _unit_to_shard, batch_unit_ids = build_knowledge_grouping_task_files(
         assignment_id="worker-001",
         worker_id="worker-001",
         classification_task_file=classification_task_file,
-        classification_answers_by_unit_id={"knowledge::13": {"category": "proposal_candidate"}},
-        unit_to_shard_id=unit_to_shard_id,
-    )
-
-    edited, errors, metadata = build_knowledge_edited_task_file_from_grouping_response(
-        original_task_file=grouping_task_file,
-        response_text=(
-            '{"rows":[{"row_id":"r01","group_key":"batter-resting","topic_label":"Batter resting","proposal_decision":"approved","proposed_tags":[{"key":"batter-resting","display_name":"Batter resting","category_key":"techniques"},{"key":"hydration-rest","display_name":"Hydration rest","category_key":"techniques"}],"why_no_existing_tag":"The row points to two specific retrieval handles around resting batter.","retrieval_query":"why rest batter before cooking"}]}'
-        ),
-    )
-
-    assert edited is not None
-    assert errors == ()
-    assert metadata == {}
-    assert edited["units"][0]["answer"] == {
-        "group_key": "batter-resting",
-        "topic_label": "Batter resting",
-        "proposal_decision": "approved",
-        "proposed_tag": {
-            "key": "batter-resting",
-            "display_name": "Batter resting",
-            "category_key": "techniques",
+        classification_answers_by_unit_id={
+            f"knowledge::{index}": {"category": "keep_for_review"}
+            for index in range(40, 46)
         },
-        "proposed_tags": [
-            {
-                "key": "batter-resting",
-                "display_name": "Batter resting",
-                "category_key": "techniques",
-            },
-            {
-                "key": "hydration-rest",
-                "display_name": "Hydration rest",
-                "category_key": "techniques",
-            },
-        ],
-        "why_no_existing_tag": "The row points to two specific retrieval handles around resting batter.",
-        "retrieval_query": "why rest batter before cooking",
-    }
+        unit_to_shard_id=unit_to_shard_id,
+        max_units_per_batch=2,
+        max_evidence_chars_per_batch=10_000,
+    )
+
+    assert len(task_files) == 3
+    assert batch_unit_ids == [
+        ["knowledge::40", "knowledge::41"],
+        ["knowledge::42", "knowledge::43"],
+        ["knowledge::44", "knowledge::45"],
+    ]

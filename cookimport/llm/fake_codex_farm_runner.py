@@ -126,6 +126,30 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
         if stage_key == "knowledge_group" and payload.get("block_index") is not None:
             return _default_knowledge_grouping_task_output(payload)
         blocks = knowledge_input_blocks(payload)
+        group_grounding = _default_fake_knowledge_grounding(
+            " ".join(
+                str(knowledge_input_block_text(block) or "")
+                for block in blocks
+                if isinstance(block, dict)
+            )
+        )
+        idea_group = {
+            "group_id": "g01",
+            "topic_label": "Fake knowledge group",
+            "block_indices": [
+                int(knowledge_input_block_index(block) or 0)
+                for block in blocks
+                if isinstance(block, dict)
+            ],
+            "grounding": group_grounding,
+            "why_no_existing_tag": None,
+            "retrieval_query": None,
+        }
+        if group_grounding.get("proposed_tags"):
+            idea_group["why_no_existing_tag"] = (
+                "No existing tag captures this exact concept."
+            )
+            idea_group["retrieval_query"] = "fake knowledge concept cooking"
         return {
             "packet_id": knowledge_input_bundle_id(payload),
             "block_decisions": [
@@ -139,17 +163,7 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
                 for block in blocks
                 if isinstance(block, dict)
             ],
-            "idea_groups": [
-                {
-                    "group_id": "g01",
-                    "topic_label": "Fake knowledge group",
-                    "block_indices": [
-                        int(knowledge_input_block_index(block) or 0)
-                        for block in blocks
-                        if isinstance(block, dict)
-                    ],
-                }
-            ],
+            "idea_groups": [idea_group],
         }
     if pipeline_id == "line-role.canonical.v1":
         if isinstance(payload, dict) and (
@@ -251,79 +265,52 @@ def _default_fake_knowledge_grounding(text: str) -> dict[str, Any]:
 def _default_structured_knowledge_classification_output(
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
-    output_rows: list[dict[str, Any]] = []
+    labels: list[str] = []
     for row in (payload.get("rows") or []):
-        row_id, text = _structured_knowledge_row_parts(row)
-        if not row_id:
-            continue
+        _row_id, text = _structured_knowledge_row_parts(row)
         grounding = _default_fake_knowledge_grounding(text)
-        if grounding["tag_keys"]:
-            output_rows.append(
-                {
-                    "row_id": row_id,
-                    "category": "knowledge",
-                    "grounding": {
-                        "tag_keys": list(grounding["tag_keys"]),
-                        "category_keys": list(grounding["category_keys"]),
-                    },
-                }
-            )
-        else:
-            output_rows.append(
-                {
-                    "row_id": row_id,
-                    "category": "proposal_candidate",
-                    "grounding": {
-                        "tag_keys": [],
-                        "category_keys": [],
-                    },
-                }
-            )
-    return {"rows": output_rows}
+        labels.append("keep_for_review" if grounding["tag_keys"] else "other")
+    return {"labels": labels}
 
 
 def _default_structured_knowledge_grouping_output(
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
     output_rows: list[dict[str, Any]] = []
-    facts_by_row_id = _structured_knowledge_row_facts(payload)
     for row in (payload.get("rows") or []):
         row_id, text_value = _structured_knowledge_row_parts(row)
         if not row_id:
             continue
-        classification_category = str(
-            (facts_by_row_id.get(row_id) or {}).get("classification") or ""
-        ).strip()
         text = text_value.lower()
-        group_key = "heat-control" if "heat" in text else "fake-knowledge-group"
+        group_key = "g01" if "heat" in text else "g02"
         topic_label = "Heat control" if "heat" in text else "Fake knowledge group"
-        answer: dict[str, Any] = {
+        grounding = _default_fake_knowledge_grounding(text)
+        answer = {
             "row_id": row_id,
-            "group_key": group_key,
+            "group_id": group_key,
             "topic_label": topic_label,
+            "grounding": {
+                "tag_keys": list(grounding["tag_keys"]),
+                "category_keys": list(grounding["category_keys"]),
+                "proposed_tags": [],
+            },
+            "why_no_existing_tag": None,
+            "retrieval_query": None,
         }
-        if classification_category == "proposal_candidate":
-            answer.update(
-                {
-                    "proposal_decision": "approved",
-                    "proposed_tag": {
+        if not grounding["tag_keys"]:
+            answer["grounding"] = {
+                "tag_keys": [],
+                "category_keys": ["techniques"],
+                "proposed_tags": [
+                    {
                         "key": "fake-knowledge-concept",
                         "display_name": "Fake Knowledge Concept",
                         "category_key": "techniques",
-                    },
-                    "why_no_existing_tag": "No existing tag names this exact retrieval concept.",
-                    "retrieval_query": "fake knowledge concept cooking",
-                }
-            )
-        else:
-            answer.update(
-                {
-                    "proposal_decision": "not_applicable",
-                    "proposed_tag": None,
-                    "why_no_existing_tag": None,
-                    "retrieval_query": None,
-                }
-            )
+                    }
+                ],
+            }
+            answer["why_no_existing_tag"] = "No existing tag names this exact retrieval concept."
+            answer["retrieval_query"] = "fake knowledge concept cooking"
         output_rows.append(answer)
     return {"rows": output_rows}
 
@@ -539,54 +526,43 @@ def _looks_like_recipe_task_step(text: str) -> bool:
 
 def _default_knowledge_classification_task_output(payload: dict[str, Any]) -> dict[str, Any]:
     grounding = _default_fake_knowledge_grounding(str(payload.get("text") or ""))
-    if grounding["tag_keys"]:
-        return {
-            "category": "knowledge",
-            "grounding": {
-                "tag_keys": list(grounding["tag_keys"]),
-                "category_keys": list(grounding["category_keys"]),
-            },
-        }
-    return {
-        "category": "proposal_candidate",
-        "grounding": {"tag_keys": [], "category_keys": []},
-    }
+    return {"category": "keep_for_review" if grounding["tag_keys"] else "other"}
 
 
 def _default_knowledge_grouping_task_output(payload: dict[str, Any]) -> dict[str, Any]:
     text = str(payload.get("text") or "").strip().lower()
     if "heat" in text:
         answer = {
-            "group_key": "heat-control",
+            "group_id": "g01",
             "topic_label": "Heat control",
         }
     else:
         answer = {
-        "group_key": "fake-knowledge-group",
+        "group_id": "g02",
         "topic_label": "Fake knowledge group",
         }
-    if str(payload.get("classification_category") or "").strip() == "proposal_candidate":
-        answer.update(
-            {
-                "proposal_decision": "approved",
-                "proposed_tag": {
+    grounding = _default_fake_knowledge_grounding(text)
+    answer["grounding"] = {
+        "tag_keys": list(grounding["tag_keys"]),
+        "category_keys": list(grounding["category_keys"]),
+        "proposed_tags": [],
+    }
+    answer["why_no_existing_tag"] = None
+    answer["retrieval_query"] = None
+    if not grounding["tag_keys"]:
+        answer["grounding"] = {
+            "tag_keys": [],
+            "category_keys": ["techniques"],
+            "proposed_tags": [
+                {
                     "key": "fake-knowledge-concept",
                     "display_name": "Fake Knowledge Concept",
                     "category_key": "techniques",
-                },
-                "why_no_existing_tag": "No existing tag captures this exact concept.",
-                "retrieval_query": "fake knowledge concept cooking",
-            }
-        )
-    else:
-        answer.update(
-            {
-                "proposal_decision": "not_applicable",
-                "proposed_tag": None,
-                "why_no_existing_tag": None,
-                "retrieval_query": None,
-            }
-        )
+                }
+            ],
+        }
+        answer["why_no_existing_tag"] = "No existing tag captures this exact concept."
+        answer["retrieval_query"] = "fake knowledge concept cooking"
     return answer
 
 

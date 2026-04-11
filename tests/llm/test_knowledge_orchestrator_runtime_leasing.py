@@ -44,7 +44,11 @@ def _run_runtime_phase(
     runtime_block_texts = (
         list(block_texts)
         if block_texts is not None
-        else ["Knowledge zero.", "Recipe gap.", "Knowledge two."]
+        else [
+            "Whisk constantly to build the emulsion.",
+            "Recipe gap.",
+            "Control pan heat so the food browns without burning.",
+        ]
     )
     runtime_spans = list(spans) if spans is not None else [knowledge_span(0), knowledge_span(2)]
     apply_result = run_codex_farm_nonrecipe_finalize(
@@ -165,13 +169,15 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert not (worker_root / "current_result_path.txt").exists()
     assert classify_snapshot["stage_key"] == "nonrecipe_classify"
     assert classify_snapshot["answer_schema"]["editable_pointer_pattern"] == "/units/*/answer"
-    assert classify_snapshot["ontology"]["catalog_version"] == "cookbook-tag-catalog-2026-03-30"
     assert "helper_commands" not in classify_snapshot
-    assert classify_snapshot["answer_schema"]["example_answers"][0]["category"] == "knowledge"
+    assert "ontology" not in classify_snapshot
+    assert classify_snapshot["answer_schema"]["example_answers"][0]["category"] == (
+        "keep_for_review"
+    )
     assert task_file["stage_key"] == "knowledge_group"
     assert "helper_commands" not in task_file
     assert task_file["answer_schema"]["editable_pointer_pattern"] == "/units/*/answer"
-    assert task_file["answer_schema"]["example_answers"][0]["group_key"] == "heat-control"
+    assert task_file["answer_schema"]["example_answers"][0]["group_id"] == "g01"
     assert first_output["packet_id"] == "book.ks0000.nr"
     assert first_output["block_decisions"][0]["block_index"] == 0
     assert first_output["block_decisions"][0]["category"] == "knowledge"
@@ -179,8 +185,20 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
         first_output["block_decisions"][0]["grounding"]["tag_keys"]
         or first_output["block_decisions"][0]["grounding"]["proposed_tags"]
     )
+    first_grounding = first_output["block_decisions"][0]["grounding"]
     assert first_output["idea_groups"] == [
-        {"group_id": "g01", "topic_label": "Fake knowledge group", "block_indices": [0]}
+        {
+            "group_id": "g02",
+            "topic_label": "Fake knowledge group",
+            "block_indices": [0],
+            "grounding": {
+                "tag_keys": first_grounding["tag_keys"],
+                "category_keys": first_grounding["category_keys"],
+                "proposed_tags": first_grounding["proposed_tags"],
+            },
+            "why_no_existing_tag": None,
+            "retrieval_query": None,
+        }
     ]
     assert second_output["packet_id"] == "book.ks0001.nr"
     assert second_output["block_decisions"][0]["block_index"] == 2
@@ -189,6 +207,21 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
         second_output["block_decisions"][0]["grounding"]["tag_keys"]
         or second_output["block_decisions"][0]["grounding"]["proposed_tags"]
     )
+    second_grounding = second_output["block_decisions"][0]["grounding"]
+    assert second_output["idea_groups"] == [
+        {
+            "group_id": "g01",
+            "topic_label": "Heat control",
+            "block_indices": [2],
+            "grounding": {
+                "tag_keys": second_grounding["tag_keys"],
+                "category_keys": second_grounding["category_keys"],
+                "proposed_tags": second_grounding["proposed_tags"],
+            },
+            "why_no_existing_tag": None,
+            "retrieval_query": None,
+        }
+    ]
     phase_manifest = json.loads((phase_dir / "phase_manifest.json").read_text(encoding="utf-8"))
     telemetry = json.loads((phase_dir / "telemetry.json").read_text(encoding="utf-8"))
     worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
@@ -249,7 +282,7 @@ def test_knowledge_orchestrator_runs_grouping_for_kept_knowledge_rows(
         tmp_path,
         runner=runner,
         settings=settings,
-        block_texts=["Knowledge zero."],
+        block_texts=["Whisk constantly to build the emulsion."],
         spans=[knowledge_span(0)],
     )
     phase_dir = Path(fixture["phase_dir"])
@@ -262,8 +295,11 @@ def test_knowledge_orchestrator_runs_grouping_for_kept_knowledge_rows(
     assert output_payload["idea_groups"] == [
         {
             "block_indices": [0],
-            "group_id": "g01",
+            "group_id": "g02",
             "topic_label": "Fake knowledge group",
+            "grounding": output_payload["block_decisions"][0]["grounding"],
+            "why_no_existing_tag": None,
+            "retrieval_query": None,
         }
     ]
     assert telemetry["summary"]["packet_economics"]["grouping_step_count_total"] == 1
@@ -361,7 +397,7 @@ def test_knowledge_orchestrator_inline_json_retries_classification_more_than_onc
         tmp_path,
         runner=runner,
         settings=settings,
-        block_texts=["Knowledge zero."],
+        block_texts=["Whisk constantly to build the emulsion."],
         spans=[knowledge_span(0)],
     )
     phase_dir = Path(fixture["phase_dir"])
@@ -440,7 +476,11 @@ def test_knowledge_orchestrator_grouping_repairs_only_missing_rows_without_schem
         tmp_path,
         runner=runner,
         settings=settings,
-        block_texts=["Knowledge zero.", "Knowledge one.", "Knowledge two."],
+        block_texts=[
+            "Whisk constantly to build the emulsion.",
+            "Keep the pan moving so the emulsion stays stable.",
+            "Control pan heat so the food browns without burning.",
+        ],
         spans=[knowledge_span(0), knowledge_span(1), knowledge_span(2)],
     )
     phase_dir = Path(fixture["phase_dir"])
@@ -472,7 +512,9 @@ def test_knowledge_orchestrator_grouping_repairs_only_missing_rows_without_schem
             / "grouping_repair_packet_01_01.json"
         ).read_text(encoding="utf-8")
     )
-    assert repair_packet["rows"] == ["r01 | 2 | Knowledge two."]
+    assert repair_packet["rows"] == [
+        "r01 | 2 | Control pan heat so the food browns without burning."
+    ]
 
 
 def test_knowledge_orchestrator_inline_json_populates_top_level_telemetry_and_survivability(
@@ -540,7 +582,7 @@ def test_knowledge_orchestrator_inline_json_updates_task_status_and_stage_summar
         tmp_path,
         runner=runner,
         settings=settings,
-        block_texts=["Knowledge zero."],
+        block_texts=["Whisk constantly to build the emulsion."],
         spans=[knowledge_span(0)],
     )
     phase_dir = Path(fixture["phase_dir"])
@@ -656,20 +698,7 @@ class _FreshSessionKnowledgeRunner(FakeCodexExecRunner):
             task_file = load_task_file(working_dir / "task.json")
             edited = deepcopy(task_file)
             for unit in edited["units"]:
-                unit["answer"] = {
-                    "category": "knowledge",
-                    "grounding": {
-                        "tag_keys": [],
-                        "category_keys": [],
-                        "proposed_tags": [
-                            {
-                                "key": "recovered-concept",
-                                "display_name": "Recovered concept",
-                                "category_key": "techniques",
-                            }
-                        ],
-                    },
-                }
+                unit["answer"] = {"category": "keep_for_review"}
             write_task_file(path=working_dir / "task.json", payload=edited)
             return CodexExecRunResult(
                 command=["codex", "exec"],
@@ -780,19 +809,11 @@ def _structured_packet_grouping_categories(
     return categories_by_row_id
 
 
-def _structured_classification_rows(payload: dict[str, object]) -> list[dict[str, object]]:
+def _structured_classification_labels(payload: dict[str, object]) -> list[str]:
     return [
-        {
-            "row_id": row_id,
-            "category": "proposal_candidate",
-            "grounding": {
-                "tag_keys": [],
-                "category_keys": [],
-                "proposed_tags": [],
-            },
-        }
+        "keep_for_review"
         for row in (payload.get("rows") or [])
-        if (row_id := _structured_packet_row_id(row))
+        if _structured_packet_row_id(row)
     ]
 
 
@@ -801,33 +822,19 @@ def _structured_grouping_rows(
     *,
     topic_label: str,
 ) -> list[dict[str, object]]:
-    classification_category_by_row_id = _structured_packet_grouping_categories(payload)
     return [
-        (
-            {
-                "row_id": row_id,
-                "group_key": "heat-control",
-                "topic_label": topic_label,
-                "proposal_decision": "approved",
-                "proposed_tag": {
-                    "key": "heat-control",
-                    "display_name": "Heat Control",
-                    "category_key": "techniques",
-                },
-                "why_no_existing_tag": "The row is about heat control broadly rather than an existing catalog tag.",
-                "retrieval_query": "heat control cooking",
-            }
-            if classification_category_by_row_id.get(row_id) == "proposal_candidate"
-            else {
-                "row_id": row_id,
-                "group_key": "heat-control",
-                "topic_label": topic_label,
-                "proposal_decision": "not_applicable",
-                "proposed_tag": None,
-                "why_no_existing_tag": None,
-                "retrieval_query": None,
-            }
-        )
+        {
+            "row_id": row_id,
+            "group_id": "g01",
+            "topic_label": topic_label,
+            "grounding": {
+                "tag_keys": ["saute"],
+                "category_keys": ["cooking-method"],
+                "proposed_tags": [],
+            },
+            "why_no_existing_tag": None,
+            "retrieval_query": None,
+        }
         for row in (payload.get("rows") or [])
         if (row_id := _structured_packet_row_id(row))
     ]
@@ -858,7 +865,7 @@ class _MultiRepairClassificationInlineRunner(FakeCodexExecRunner):
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(
-                    {"rows": _structured_classification_rows(payload)},
+                    {"labels": _structured_classification_labels(payload)},
                     indent=2,
                     sort_keys=True,
                 ),
@@ -889,7 +896,7 @@ class _MultiRepairGroupingInlineRunner(FakeCodexExecRunner):
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(
-                    {"rows": _structured_classification_rows(payload)},
+                    {"labels": _structured_classification_labels(payload)},
                     indent=2,
                     sort_keys=True,
                 ),
@@ -938,7 +945,7 @@ class _PartialGroupingRepairInlineRunner(FakeCodexExecRunner):
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(
-                    {"rows": _structured_classification_rows(payload)},
+                    {"labels": _structured_classification_labels(payload)},
                     indent=2,
                     sort_keys=True,
                 ),

@@ -42,18 +42,19 @@ def _shard(
     )
 
 
-def test_promotion_combines_classification_and_grouping_into_final_packet_outputs() -> None:
+def test_promotion_projects_group_grounding_onto_final_rows() -> None:
     shards = [
         _shard(
             shard_id="book.ks0000.nr",
             blocks=[
                 (10, "Balsamic Vinaigrette"),
                 (11, "Acid brightens rich dishes by cutting heaviness."),
+                (12, "A squeeze of lemon can rescue a heavy sauce."),
             ],
         ),
         _shard(
             shard_id="book.ks0001.nr",
-            blocks=[(25, "Resting dough lets gluten relax so rolling gets easier.")],
+            blocks=[(25, "Front matter fluff.")],
         ),
     ]
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
@@ -64,62 +65,33 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
     outputs = combine_knowledge_task_file_outputs(
         classification_task_file=classification_task_file,
         classification_answers_by_unit_id={
-            "knowledge::10": {
-                "category": "other",
-                "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
-            },
+            "knowledge::10": {"category": "other"},
+            "knowledge::11": {"category": "keep_for_review"},
+            "knowledge::12": {"category": "keep_for_review"},
+            "knowledge::25": {"category": "other"},
+        },
+        grouping_answers_by_unit_id={
             "knowledge::11": {
-                "category": "knowledge",
+                "group_id": "g01",
+                "topic_label": "Acid balance",
                 "grounding": {
                     "tag_keys": ["bright"],
                     "category_keys": ["flavor-profile"],
                     "proposed_tags": [],
                 },
+                "why_no_existing_tag": None,
+                "retrieval_query": None,
             },
-            "knowledge::25": {
-                "category": "proposal_candidate",
+            "knowledge::12": {
+                "group_id": "g01",
+                "topic_label": "Acid balance",
                 "grounding": {
-                    "tag_keys": [],
-                    "category_keys": [],
+                    "tag_keys": ["bright"],
+                    "category_keys": ["flavor-profile"],
                     "proposed_tags": [],
                 },
-            },
-        },
-        grouping_answers_by_unit_id={
-            "knowledge::11": {
-                "group_key": "acid-balance",
-                "topic_label": "Acid balance",
-                "proposal_decision": "approved",
-                "proposed_tag": None,
-                "proposed_tags": [
-                    {
-                        "key": "acid-balancing",
-                        "display_name": "Acid balancing",
-                        "category_key": "techniques",
-                    },
-                    {
-                        "key": "richness-balancing",
-                        "display_name": "Richness balancing",
-                        "category_key": "techniques",
-                    },
-                ],
-                "why_no_existing_tag": "This row is about using acid to balance richness, not just brightness.",
-                "retrieval_query": "how to balance richness with acid",
-            },
-            "knowledge::25": {
-                "group_key": "dough-resting",
-                "topic_label": "Dough resting",
-                "proposal_decision": "approved",
-                "proposed_tag": None,
-                "proposed_tags": [
-                    {
-                        "key": "gluten-relaxation",
-                        "display_name": "Gluten Relaxation",
-                        "category_key": "techniques",
-                    }
-                ],
-                "why_no_existing_tag": "The row is specifically about letting gluten relax.",
-                "retrieval_query": "rest dough gluten relax",
+                "why_no_existing_tag": None,
+                "retrieval_query": None,
             },
         },
         unit_to_shard_id=unit_to_shard_id,
@@ -138,24 +110,33 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
                 "category": "knowledge",
                 "grounding": {
                     "tag_keys": ["bright"],
-                    "category_keys": ["flavor-profile", "techniques"],
-                    "proposed_tags": [
-                        {
-                            "key": "acid-balancing",
-                            "display_name": "Acid balancing",
-                            "category_key": "techniques",
-                        },
-                        {
-                            "key": "richness-balancing",
-                            "display_name": "Richness balancing",
-                            "category_key": "techniques",
-                        }
-                    ],
+                    "category_keys": ["flavor-profile"],
+                    "proposed_tags": [],
+                },
+            },
+            {
+                "block_index": 12,
+                "category": "knowledge",
+                "grounding": {
+                    "tag_keys": ["bright"],
+                    "category_keys": ["flavor-profile"],
+                    "proposed_tags": [],
                 },
             },
         ],
         "idea_groups": [
-            {"group_id": "g01", "topic_label": "Acid balance", "block_indices": [11]}
+            {
+                "group_id": "g01",
+                "topic_label": "Acid balance",
+                "block_indices": [11, 12],
+                "grounding": {
+                    "tag_keys": ["bright"],
+                    "category_keys": ["flavor-profile"],
+                    "proposed_tags": [],
+                },
+                "why_no_existing_tag": None,
+                "retrieval_query": None,
+            }
         ],
     }
     assert outputs["book.ks0001.nr"] == {
@@ -163,23 +144,11 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
         "block_decisions": [
             {
                 "block_index": 25,
-                "category": "knowledge",
-                "grounding": {
-                    "tag_keys": [],
-                    "category_keys": ["techniques"],
-                    "proposed_tags": [
-                        {
-                            "key": "gluten-relaxation",
-                            "display_name": "Gluten Relaxation",
-                            "category_key": "techniques",
-                        }
-                    ],
-                },
+                "category": "other",
+                "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
             }
         ],
-        "idea_groups": [
-            {"group_id": "g01", "topic_label": "Dough resting", "block_indices": [25]}
-        ],
+        "idea_groups": [],
     }
     for shard in shards:
         valid, errors, metadata = validate_knowledge_shard_output(
@@ -191,26 +160,37 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
         assert metadata["knowledge_decision_count"] >= 0
 
 
-def test_grounding_detail_rollup_includes_proposal_resolution_counts() -> None:
+def test_grounding_detail_rollup_uses_group_oriented_counts() -> None:
     outputs = {
         "book.ks0000.nr": SimpleNamespace(
             block_decisions=(
                 SimpleNamespace(
                     block_index=10,
                     category="other",
-                    grounding=SimpleNamespace(
-                        tag_keys=(),
-                        category_keys=(),
-                        proposed_tags=(),
-                    ),
+                    grounding=SimpleNamespace(tag_keys=(), category_keys=(), proposed_tags=()),
                 ),
                 SimpleNamespace(
                     block_index=11,
                     category="knowledge",
                     grounding=SimpleNamespace(
-                        tag_keys=("bright",),
-                        category_keys=("flavor-profile",),
+                        tag_keys=("heat-control",),
+                        category_keys=("techniques",),
                         proposed_tags=(),
+                    ),
+                ),
+                SimpleNamespace(
+                    block_index=12,
+                    category="knowledge",
+                    grounding=SimpleNamespace(
+                        tag_keys=(),
+                        category_keys=("techniques",),
+                        proposed_tags=(
+                            SimpleNamespace(
+                                key="rendering-fat",
+                                display_name="Rendering fat",
+                                category_key="techniques",
+                            ),
+                        ),
                     ),
                 ),
             )
@@ -219,21 +199,61 @@ def test_grounding_detail_rollup_includes_proposal_resolution_counts() -> None:
 
     _grounding_by_block, counts, proposal_rows = _collect_block_grounding_details(
         outputs=outputs,
-        allowed_block_indices={10: "candidate", 11: "candidate"},
+        allowed_block_indices={10: "candidate", 11: "candidate", 12: "candidate"},
         proposal_metadata_by_packet_id={
             "book.ks0000.nr": {
-                "proposal_candidate_block_count": 1,
-                "approved_proposal_candidate_block_count": 1,
-                "rejected_proposal_candidate_block_count": 0,
+                "kept_for_review_block_count": 2,
+                "group_resolution_details": [
+                    {
+                        "group_id": "g01",
+                        "topic_label": "Heat control",
+                        "block_indices": [11],
+                        "grounding": {
+                            "tag_keys": ["saute"],
+                            "category_keys": ["cooking-method"],
+                            "proposed_tags": [],
+                        },
+                    },
+                    {
+                        "group_id": "g02",
+                        "topic_label": "Rendering fat",
+                        "block_indices": [12],
+                        "grounding": {
+                            "tag_keys": [],
+                            "category_keys": ["techniques"],
+                            "proposed_tags": [
+                                {
+                                    "key": "rendering-fat",
+                                    "display_name": "Rendering fat",
+                                    "category_key": "techniques",
+                                }
+                            ],
+                        },
+                        "why_no_existing_tag": "No existing tag fits the rendering idea.",
+                        "retrieval_query": "how to render chicken fat",
+                    },
+                ],
             }
         },
     )
 
-    assert counts["kept_knowledge_block_count"] == 1
+    assert counts["kept_for_review_block_count"] == 2
+    assert counts["kept_knowledge_block_count"] == 2
     assert counts["retrieval_gate_rejected_block_count"] == 1
-    assert counts["existing_tag_kept_knowledge_block_count"] == 1
-    assert counts["proposal_candidate_block_count"] == 1
-    assert counts["approved_proposal_candidate_block_count"] == 1
-    assert counts["rejected_proposal_candidate_block_count"] == 0
+    assert counts["knowledge_group_count"] == 2
+    assert counts["knowledge_group_split_count"] == 1
+    assert counts["knowledge_groups_using_existing_tags"] == 1
+    assert counts["knowledge_groups_using_proposed_tags"] == 1
     assert counts["knowledge_blocks_grounded_to_existing_tags"] == 1
-    assert proposal_rows == []
+    assert counts["knowledge_blocks_using_proposed_tags"] == 1
+    assert len(counts["group_resolution_details"]) == 2
+    assert proposal_rows == [
+        {
+            "key": "rendering-fat",
+            "display_name": "Rendering fat",
+            "category_key": "techniques",
+            "occurrence_count": 1,
+            "packet_ids": ["book.ks0000.nr"],
+            "block_indices": [12],
+        }
+    ]

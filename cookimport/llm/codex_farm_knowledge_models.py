@@ -6,9 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 _BUNDLE_VERSION_V3: Literal["3"] = "3"
 ALLOWED_KNOWLEDGE_CLASSIFICATION_CATEGORIES: tuple[str, ...] = (
-    "knowledge",
+    "keep_for_review",
     "other",
-    "proposal_candidate",
 )
 ALLOWED_KNOWLEDGE_FINAL_CATEGORIES: tuple[str, ...] = ("knowledge", "other")
 ALLOWED_KNOWLEDGE_PROPOSAL_DECISIONS: tuple[str, ...] = (
@@ -130,6 +129,9 @@ class KnowledgeIdeaGroupV1(BaseModel):
     group_id: str = Field(alias="gid")
     topic_label: str = Field(alias="l")
     block_indices: list[int] = Field(default_factory=list, alias="bi")
+    grounding: KnowledgeGroundingV1 = Field(default_factory=KnowledgeGroundingV1, alias="gr")
+    why_no_existing_tag: str | None = Field(default=None, alias="wn")
+    retrieval_query: str | None = Field(default=None, alias="rq")
     snippets: list[KnowledgeSnippetV1] = Field(default_factory=list, alias="s")
 
     @field_validator("group_id", "topic_label", mode="before")
@@ -138,6 +140,14 @@ class KnowledgeIdeaGroupV1(BaseModel):
         if value is None:
             return value
         return str(value).strip()
+
+    @field_validator("why_no_existing_tag", "retrieval_query", mode="before")
+    @classmethod
+    def _normalize_optional_text(cls, value: object) -> object:
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
 
     @field_validator("block_indices", mode="before")
     @classmethod
@@ -154,6 +164,26 @@ class KnowledgeIdeaGroupV1(BaseModel):
         if len(set(value)) != len(value):
             raise ValueError("idea_groups must not repeat block indices.")
         return value
+
+    @model_validator(mode="after")
+    def _validate_group_grounding(self) -> "KnowledgeIdeaGroupV1":
+        has_existing_tags = bool(self.grounding.tag_keys)
+        has_proposed_tags = bool(self.grounding.proposed_tags)
+        if not has_existing_tags and not has_proposed_tags:
+            raise ValueError(
+                "idea_groups must include at least one existing tag or proposed tag."
+            )
+        if has_proposed_tags and (
+            not self.why_no_existing_tag or not self.retrieval_query
+        ):
+            raise ValueError(
+                "idea_groups with proposed_tags must include why_no_existing_tag and retrieval_query."
+            )
+        if not has_proposed_tags and (self.why_no_existing_tag or self.retrieval_query):
+            raise ValueError(
+                "idea_groups without proposed_tags must not include proposal-only justification fields."
+            )
+        return self
 
 class KnowledgeBundleOutputV2(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
@@ -338,6 +368,9 @@ class KnowledgeSemanticIdeaGroupV1(BaseModel):
     group_id: str
     topic_label: str
     block_indices: list[int] = Field(default_factory=list)
+    grounding: KnowledgeSemanticGroundingV1 = Field(default_factory=KnowledgeSemanticGroundingV1)
+    why_no_existing_tag: str | None = None
+    retrieval_query: str | None = None
     snippets: list[KnowledgeSemanticSnippetV1] = Field(default_factory=list)
 
     @field_validator("group_id", "topic_label", mode="before")
@@ -347,12 +380,40 @@ class KnowledgeSemanticIdeaGroupV1(BaseModel):
             return value
         return str(value).strip()
 
+    @field_validator("why_no_existing_tag", "retrieval_query", mode="before")
+    @classmethod
+    def _normalize_optional_text(cls, value: object) -> object:
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
+
     @field_validator("block_indices", mode="before")
     @classmethod
     def _coerce_block_indices(cls, value: object) -> object:
         if value is None:
             return []
         return [int(item) for item in value]
+
+    @model_validator(mode="after")
+    def _validate_group_grounding(self) -> "KnowledgeSemanticIdeaGroupV1":
+        has_existing_tags = bool(self.grounding.tag_keys)
+        has_proposed_tags = bool(self.grounding.proposed_tags)
+        if not has_existing_tags and not has_proposed_tags:
+            raise ValueError(
+                "idea_groups must include at least one existing tag or proposed tag."
+            )
+        if has_proposed_tags and (
+            not self.why_no_existing_tag or not self.retrieval_query
+        ):
+            raise ValueError(
+                "idea_groups with proposed_tags must include why_no_existing_tag and retrieval_query."
+            )
+        if not has_proposed_tags and (self.why_no_existing_tag or self.retrieval_query):
+            raise ValueError(
+                "idea_groups without proposed_tags must not include proposal-only justification fields."
+            )
+        return self
 
 
 class KnowledgePacketSemanticResultV1(BaseModel):
@@ -398,6 +459,20 @@ def serialize_canonical_knowledge_packet(
                 "gid": group.group_id,
                 "l": group.topic_label,
                 "bi": list(group.block_indices),
+                "gr": {
+                    "tk": list(group.grounding.tag_keys),
+                    "ck": list(group.grounding.category_keys),
+                    "pt": [
+                        {
+                            "k": tag.key,
+                            "d": tag.display_name,
+                            "ck": tag.category_key,
+                        }
+                        for tag in group.grounding.proposed_tags
+                    ],
+                },
+                "wn": group.why_no_existing_tag,
+                "rq": group.retrieval_query,
                 "s": [
                     {
                         "b": snippet.body,

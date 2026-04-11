@@ -586,8 +586,15 @@ def test_knowledge_taskfile_worker_can_run_through_fake_codex_farm_subprocess(
     assert shard_output["idea_groups"] == [
         {
             "block_indices": [4],
-            "group_id": "g01",
+            "grounding": {
+                "category_keys": grounding["category_keys"],
+                "proposed_tags": grounding["proposed_tags"],
+                "tag_keys": grounding["tag_keys"],
+            },
+            "group_id": "g02",
+            "retrieval_query": None,
             "topic_label": "Fake knowledge group",
+            "why_no_existing_tag": None,
         }
     ]
 
