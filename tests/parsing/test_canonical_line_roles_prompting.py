@@ -194,6 +194,34 @@ def test_line_role_inline_packet_uses_ordered_rows_and_neighbor_context() -> Non
     assert "nearby context rows are shown" in prompt
 
 
+def test_line_role_watchdog_retry_prompt_uses_compact_rows_and_labels_array() -> None:
+    shard = ShardManifestEntryV1(
+        shard_id="line-role-canonical-0001-a000010-a000011",
+        owned_ids=("10", "11"),
+        input_payload={
+            "rows": [[10, 210, "Bright Cabbage Slaw"], [11, 211, "Serves 4 generously"]],
+        },
+    )
+
+    prompt = canonical_line_roles_module._build_line_role_watchdog_retry_prompt(  # noqa: SLF001
+        shard=shard,
+        original_reason_code="watchdog_reasoning_without_output",
+        original_reason_detail="timed out without JSON",
+        successful_examples=[
+            {
+                "shard_id": "line-role-canonical-0001-a000008-a000009",
+                "output": {"labels": ["RECIPE_TITLE", "YIELD_LINE"]},
+            }
+        ],
+    )
+
+    assert '{"labels":["<ALLOWED_LABEL>"]}' in prompt
+    assert "Use only the top-level key `labels`." in prompt
+    assert "Keep label order exactly aligned with the authoritative row order shown below." in prompt
+    assert '<BEGIN_AUTHORITATIVE_ROWS>\n"r01 | 210 | Bright Cabbage Slaw"\n"r02 | 211 | Serves 4 generously"\n<END_AUTHORITATIVE_ROWS>' in prompt
+    assert '"output": {"labels": ["RECIPE_TITLE", "YIELD_LINE"]}' in prompt
+
+
 def test_shared_line_role_contract_block_appears_in_file_prompt() -> None:
     shared_contract = build_line_role_shared_contract_block()
     file_prompt = build_canonical_line_role_file_prompt(

@@ -344,14 +344,19 @@ def test_structured_packet_uses_local_row_ids_and_compact_hints() -> None:
         packet_kind="initial",
     )
 
-    assert [row["row_id"] for row in packet["rows"]] == ["r01", "r02"]
-    assert [row["text"] for row in packet["rows"]] == [
-        "Whisk to emulsify.",
-        "Chapter opener.",
+    assert packet["schema_version"] == "knowledge_structured_packet.v2"
+    assert packet["rows"] == [
+        "r01 | 10 | Whisk to emulsify.",
+        "r02 | 11 | Chapter opener.",
     ]
-    assert packet["rows"][0]["context_before"] == "Previous row."
-    assert packet["rows"][0]["context_after"] == "Next row."
-    assert "candidate_tag_keys" not in packet["rows"][0]
+    assert packet["context_before_rows"] == [
+        "r01 | 9 | Previous row.",
+        "r02 | 9 | Previous row.",
+    ]
+    assert packet["context_after_rows"] == [
+        "r01 | 12 | Next row.",
+        "r02 | 12 | Next row.",
+    ]
     assert "categories" in packet
     assert "tags" in packet
     assert any(tag["key"] == "emulsify" for tag in packet["tags"])

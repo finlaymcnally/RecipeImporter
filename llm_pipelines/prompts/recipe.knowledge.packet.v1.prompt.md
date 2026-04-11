@@ -9,12 +9,13 @@ Task input:
 - Do not run shell commands, Python, or any other tools.
 
 Evidence rules:
-- Only `b[*].t` may supply evidence quotes.
-- `x.*` is nearby context only; never cite it.
+- Only the text inside owned `rows[*]` may supply evidence quotes.
+- `context_before_rows` and `context_after_rows` are nearby context only; never cite them.
 - `ontology` is the checked-in Cookbook tag catalog. Use it as the grounding surface for stored concepts.
-- `g.r` marks nearby recipe blocks. Do not let recipe content leak into outside-recipe decisions.
-- If a block has `th`, use it only as structural context; quotes must still come from block text.
-- Block order is preserved, but packet adjacency is not semantic proof. Large `b[*].i` jumps or obvious topic shifts often mean unrelated source regions were packed together.
+- `recipe_neighbor_block_indices` marks nearby recipe blocks. Do not let recipe content leak into outside-recipe decisions.
+- Each owned row is rendered as `rXX | block_index | text`.
+- Neighboring context rows are rendered as `block_index | text`.
+- Block order is preserved, but packet adjacency is not semantic proof. Large block-index jumps or obvious topic shifts often mean unrelated source regions were packed together.
 - Classify each owned block on its own merits. Use nearby blocks only as weak context, and weaken grouping assumptions across large index jumps or abrupt topic changes.
 - Do the keep/drop judgment block by block before you think about idea groups.
 - Do not let one useful block launder nearby memoir, framing, decorative-heading, or navigation blocks into `knowledge`.
@@ -65,11 +66,9 @@ Short output keys:
 - evidence: `i`, `q`
 
 Input keys:
-- top level: `v` packet version, `bid` packet id, `b` owned packet blocks, optional `x` context, optional `g` guardrails, optional `ontology`
-- per block: `i` block index, `t` text, optional `hl` heading level, optional `th` compact table hint
-- block table hint: `id` table id, optional `c` caption, optional `r` row index
-- context: optional `p` previous blocks, optional `n` next blocks
-- guardrails: optional `r` nearby recipe block indices
+- top level: `v` packet version, `bid` packet id, `rows` owned packet rows, optional `context_before_rows`, optional `context_after_rows`, optional `recipe_neighbor_block_indices`, optional `ontology`
+- per owned row: `rXX | block_index | text`
+- per neighboring context row: `block_index | text`
 - ontology: `categories[*].key`, `categories[*].display_name`, `tags[*].key`, `tags[*].display_name`, `tags[*].category_key`
 
 Packet result:

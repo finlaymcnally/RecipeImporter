@@ -204,6 +204,41 @@ def _knowledge_local_row_maps(
     return row_id_by_unit_id, unit_id_by_row_id, block_index_by_unit_id, ordered_row_ids
 
 
+def _compact_knowledge_packet_row(
+    *,
+    row_id: str,
+    block_index: int,
+    text: str,
+) -> str:
+    return f"{row_id} | {int(block_index)} | {str(text or '')}"
+
+
+def _compact_knowledge_context_row(
+    *,
+    row_id: str,
+    block_index: int | None,
+    text: str,
+) -> str:
+    if block_index is None:
+        return f"{row_id} | {str(text or '')}"
+    return f"{row_id} | {int(block_index)} | {str(text or '')}"
+
+
+def _compact_knowledge_row_facts(
+    *,
+    row_id: str,
+    classification_category: str,
+    existing_tag_keys: Sequence[str],
+    existing_category_keys: Sequence[str],
+) -> str:
+    parts = [f"{row_id} | classification={classification_category}"]
+    if existing_tag_keys:
+        parts.append("existing_tags=" + ",".join(existing_tag_keys))
+    if existing_category_keys:
+        parts.append("existing_categories=" + ",".join(existing_category_keys))
+    return " | ".join(parts)
+
+
 def knowledge_task_file_to_structured_packet(
     *,
     task_file_payload: Mapping[str, Any],
@@ -211,51 +246,77 @@ def knowledge_task_file_to_structured_packet(
     validation_errors: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     stage_key = str(task_file_payload.get("stage_key") or "").strip()
-    rows: list[dict[str, Any]] = []
+    rows: list[str] = []
+    context_before_rows: list[str] = []
+    context_after_rows: list[str] = []
+    row_facts: list[str] = []
     for index, unit in enumerate(task_file_payload.get("units") or []):
         if not isinstance(unit, Mapping):
             continue
         evidence = _coerce_dict(unit.get("evidence"))
-        row_payload: dict[str, Any] = {
-            "row_id": _knowledge_local_row_id(index),
-            "text": str(evidence.get("text") or ""),
-        }
-        structure = _coerce_dict(evidence.get("structure"))
-        if structure.get("heading_level") is not None:
-            row_payload["heading_level"] = int(structure.get("heading_level"))
-        if isinstance(structure.get("table_hint"), Mapping) and structure.get("table_hint"):
-            row_payload["table_hint"] = dict(structure.get("table_hint"))
+        row_id = _knowledge_local_row_id(index)
+        row_text = str(evidence.get("text") or "")
+        block_index = int(evidence.get("block_index") or 0)
+        rows.append(
+            _compact_knowledge_packet_row(
+                row_id=row_id,
+                block_index=block_index,
+                text=row_text,
+            )
+        )
         context_before = str(evidence.get("context_before") or "").strip()
         if context_before:
-            row_payload["context_before"] = context_before
+            context_before_rows.append(
+                _compact_knowledge_context_row(
+                    row_id=row_id,
+                    block_index=(
+                        int(evidence.get("context_before_block_index"))
+                        if evidence.get("context_before_block_index") is not None
+                        else None
+                    ),
+                    text=context_before,
+                )
+            )
         context_after = str(evidence.get("context_after") or "").strip()
         if context_after:
-            row_payload["context_after"] = context_after
+            context_after_rows.append(
+                _compact_knowledge_context_row(
+                    row_id=row_id,
+                    block_index=(
+                        int(evidence.get("context_after_block_index"))
+                        if evidence.get("context_after_block_index") is not None
+                        else None
+                    ),
+                    text=context_after,
+                )
+            )
         if stage_key == KNOWLEDGE_GROUP_STAGE_KEY:
             classification = _coerce_dict(unit.get("classification"))
             classification_category = str(
                 classification.get("category") or ""
             ).strip()
-            if classification_category:
-                row_payload["classification_category"] = classification_category
             grounding = _coerce_dict(classification.get("grounding"))
             existing_tag_keys = [
                 str(value).strip()
                 for value in (grounding.get("tag_keys") or [])
                 if str(value).strip()
             ]
-            if existing_tag_keys:
-                row_payload["existing_tag_keys"] = existing_tag_keys
             existing_category_keys = [
                 str(value).strip()
                 for value in (grounding.get("category_keys") or [])
                 if str(value).strip()
             ]
-            if existing_category_keys:
-                row_payload["existing_category_keys"] = existing_category_keys
-        rows.append(row_payload)
+            if classification_category:
+                row_facts.append(
+                    _compact_knowledge_row_facts(
+                        row_id=row_id,
+                        classification_category=classification_category,
+                        existing_tag_keys=existing_tag_keys,
+                        existing_category_keys=existing_category_keys,
+                    )
+                )
     packet = {
-        "schema_version": "knowledge_structured_packet.v1",
+        "schema_version": "knowledge_structured_packet.v2",
         "stage_key": stage_key,
         "packet_kind": str(packet_kind or "initial"),
         "assignment_id": str(task_file_payload.get("assignment_id") or ""),
@@ -263,6 +324,12 @@ def knowledge_task_file_to_structured_packet(
         "bid": str(task_file_payload.get("assignment_id") or "knowledge-packet"),
         "rows": rows,
     }
+    if context_before_rows:
+        packet["context_before_rows"] = context_before_rows
+    if context_after_rows:
+        packet["context_after_rows"] = context_after_rows
+    if row_facts:
+        packet["row_facts"] = row_facts
     if isinstance(task_file_payload.get("ontology"), Mapping):
         categories = [
             {
@@ -300,24 +367,20 @@ def build_knowledge_structured_prompt(
     packet: Mapping[str, Any],
 ) -> str:
     stage_key = str(task_file_payload.get("stage_key") or "").strip()
-    packet_rows = [
-        dict(row) for row in (packet.get("rows") or []) if isinstance(row, Mapping)
-    ]
-    has_context = any(
-        str(row.get("context_before") or "").strip()
-        or str(row.get("context_after") or "").strip()
-        for row in packet_rows
-    )
+    row_count = len([row for row in (packet.get("rows") or []) if isinstance(row, str)])
+    has_context = bool(packet.get("context_before_rows") or packet.get("context_after_rows"))
     if stage_key == KNOWLEDGE_GROUP_STAGE_KEY:
         response_shape = (
             '{"rows":[{"row_id":"r01","group_key":"heat-control","topic_label":"Heat control","proposal_decision":"approved","proposed_tags":[{"key":"rendering","display_name":"Rendering","category_key":"techniques"},{"key":"rendering-fat","display_name":"Rendering fat","category_key":"techniques"}],"why_no_existing_tag":"This row is about rendering fat specifically, not generic heat control.","retrieval_query":"how to render chicken fat"}]}'
         )
         task_note = (
             "Review the ordered knowledge rows and answer every `row_id` exactly once.\n"
+            "The packet `rows` array is ordered and authoritative; each row is rendered as `rXX | block_index | text`.\n"
             "Rows about the same idea should share the same `group_key` and `topic_label`.\n"
-            "Rows marked `classification_category=knowledge` are already retained. Usually keep them grouped with `proposal_decision=not_applicable` and empty proposal fields.\n"
+            "When present, `row_facts` gives factual row metadata such as classification category and existing grounding in compact `rXX | key=value` form.\n"
+            "Rows marked `classification=knowledge` are already retained. Usually keep them grouped with `proposal_decision=not_applicable` and empty proposal fields.\n"
             "If a kept knowledge row is real retrieval-grade knowledge but the existing tags are a bad fit, you may instead set `proposal_decision=approved` and add one or more new proposed tags.\n"
-            "Rows marked `classification_category=proposal_candidate` must be resolved here with `proposal_decision` set to `approved` or `rejected`.\n"
+            "Rows marked `classification=proposal_candidate` must be resolved here with `proposal_decision` set to `approved` or `rejected`.\n"
             "Approve only when the proposed tag is a strong standalone search handle a cook might actually use later.\n"
             "When you approve a new tag, its `category_key` must be chosen from the packet `categories` list.\n"
             "Prefer concrete kitchen vocabulary rooted in the packet ontology, such as techniques, ingredients, storage, or equipment.\n"
@@ -332,6 +395,7 @@ def build_knowledge_structured_prompt(
         )
         task_note = (
             "Review the ordered knowledge rows and answer every `row_id` exactly once.\n"
+            "The packet `rows` array is ordered and authoritative; each row is rendered as `rXX | block_index | text`.\n"
             "Reason about the packet holistically first: read short local runs of adjacent rows together before deciding any single row.\n"
             "Decide by local span, emit by row. Neighboring rows often explain what role a row plays, but you must still return one final answer per `row_id`.\n"
             "Classify each row as `knowledge`, `proposal_candidate`, or `other` and include `grounding`.\n"
@@ -346,7 +410,7 @@ def build_knowledge_structured_prompt(
             "Treat category labels and heading shape as weak hints only, but do use row order and nearby rows to understand the local run.\n"
         )
     context_note = (
-        "Use nearby context when the row includes `context_before` or `context_after` so you can understand the local run, then make the final label for that row itself.\n"
+        "Use `context_before_rows` and `context_after_rows` when present so you can understand the local run, then make the final label for the owned row itself.\n"
         if has_context
         else ""
     )
@@ -354,6 +418,7 @@ def build_knowledge_structured_prompt(
         "Return JSON only.\n\n"
         + task_note
         + context_note
+        + f"Return exactly {row_count} result row(s): one for each owned `row_id` shown in `rows`.\n"
         + "Do not include commentary, markdown, or extra keys.\n"
         + "Response shape:\n"
         + response_shape

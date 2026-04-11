@@ -69,6 +69,19 @@ def _knowledge_packet_payloads(payload: Mapping[str, Any] | None) -> list[dict[s
 
 
 def _packet_context_text(packet: Mapping[str, Any], *, key: str, last: bool) -> str | None:
+    row = _packet_context_row(packet, key=key, last=last)
+    if row is None:
+        return None
+    cleaned = str(row.get("text") or "").strip()
+    return cleaned or None
+
+
+def _packet_context_row(
+    packet: Mapping[str, Any],
+    *,
+    key: str,
+    last: bool,
+) -> dict[str, Any] | None:
     packet_context = _coerce_dict(packet.get("x"))
     rows = list(packet_context.get(key) or [])
     if not rows:
@@ -77,7 +90,12 @@ def _packet_context_text(packet: Mapping[str, Any], *, key: str, last: bool) -> 
     if not isinstance(row, Mapping):
         return None
     cleaned = str(row.get("t") or "").strip()
-    return cleaned or None
+    if not cleaned:
+        return None
+    return {
+        "block_index": int(row.get("i") or row.get("block_index") or 0),
+        "text": cleaned,
+    }
 
 
 def _blank_classification_answer() -> dict[str, Any]:
@@ -557,7 +575,13 @@ def _collect_knowledge_grouping_units(
                     "block_id": str(evidence.get("block_id") or owned_id),
                     "text": str(evidence.get("text") or ""),
                     "context_before": evidence.get("context_before"),
+                    "context_before_block_index": evidence.get(
+                        "context_before_block_index"
+                    ),
                     "context_after": evidence.get("context_after"),
+                    "context_after_block_index": evidence.get(
+                        "context_after_block_index"
+                    ),
                     "structure": dict(_coerce_dict(evidence.get("structure"))),
                 },
                 "classification": {
@@ -700,8 +724,18 @@ def build_knowledge_classification_task_file(
     unit_to_shard_id: dict[str, str] = {}
     for shard in shards:
         for packet in _knowledge_packet_payloads(shard.input_payload):
-            context_before = _packet_context_text(packet, key="p", last=True)
-            context_after = _packet_context_text(packet, key="n", last=False)
+            context_before_row = _packet_context_row(packet, key="p", last=True)
+            context_after_row = _packet_context_row(packet, key="n", last=False)
+            context_before = (
+                str(context_before_row.get("text") or "").strip()
+                if context_before_row is not None
+                else None
+            )
+            context_after = (
+                str(context_after_row.get("text") or "").strip()
+                if context_after_row is not None
+                else None
+            )
             for block in packet.get("b") or []:
                 if not isinstance(block, Mapping):
                     continue
@@ -719,7 +753,17 @@ def build_knowledge_classification_task_file(
                         "block_id": block_id,
                         "text": str(block.get("t") or ""),
                         "context_before": context_before,
+                        "context_before_block_index": (
+                            int(context_before_row.get("block_index") or 0)
+                            if context_before_row is not None
+                            else None
+                        ),
                         "context_after": context_after,
+                        "context_after_block_index": (
+                            int(context_after_row.get("block_index") or 0)
+                            if context_after_row is not None
+                            else None
+                        ),
                         "structure": {
                             "heading_level": (
                                 int(block.get("hl"))

@@ -9,6 +9,10 @@ def test_build_knowledge_direct_prompt_uses_inline_json_contract() -> None:
             "bid": "fixture.kp0001.nr",
             "v": "1",
             "b": [{"i": 4, "t": "Whisk constantly."}],
+            "x": {
+                "p": [{"i": 3, "t": "Previous row."}],
+                "n": [{"i": 5, "t": "Next row."}],
+            },
         }
     )
 
@@ -19,6 +23,7 @@ def test_build_knowledge_direct_prompt_uses_inline_json_contract() -> None:
     assert "The raw packet block text is authoritative. Only mechanically true structure is provided." in prompt
     assert "checked-in Cookbook tag catalog" in prompt
     assert "packet adjacency is not semantic proof" in prompt
+    assert "Each owned row is rendered as `rXX | block_index | text`." in prompt
     assert "Classify each owned block on its own merits." in prompt
     assert "Do the keep/drop judgment block by block before you think about idea groups." in prompt
     assert "Do not let one useful block launder nearby memoir" in prompt
@@ -36,7 +41,7 @@ def test_build_knowledge_direct_prompt_uses_inline_json_contract() -> None:
     assert "Every `knowledge` block must belong to exactly one idea group." in prompt
     assert "top level: `v`, `bid`, `d`, `g`" in prompt
     assert "decision: `i`, `c`, `gr`" in prompt
-    assert "top level: `v` packet version, `bid` packet id, `b` owned packet blocks" in prompt
+    assert "top level: `v` packet version, `bid` packet id, `rows` owned packet rows" in prompt
     assert "Every `g[*].s[*]` needs at least one evidence quote from owned packet blocks." in prompt
     assert "final answer must be that JSON object only" in prompt
     assert "return compact minified JSON on a single line" in prompt
@@ -44,3 +49,6 @@ def test_build_knowledge_direct_prompt_uses_inline_json_contract() -> None:
     assert "<END_INPUT_JSON>" in prompt
     assert '"ontology":{' in prompt
     assert '"bid":"fixture.kp0001.nr"' in prompt
+    assert '"rows":["r01 | 4 | Whisk constantly."]' in prompt
+    assert '"context_before_rows":["3 | Previous row."]' in prompt
+    assert '"context_after_rows":["5 | Next row."]' in prompt

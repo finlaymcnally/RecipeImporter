@@ -17,8 +17,60 @@ _INPUT_JSON_START = "<BEGIN_INPUT_JSON>"
 _INPUT_JSON_END = "<END_INPUT_JSON>"
 
 
+def _compact_owned_row(block: Mapping[str, Any], *, row_index: int) -> str:
+    row_id = f"r{row_index + 1:02d}"
+    block_index = int(block.get("i", block.get("block_index")) or 0)
+    text = str(block.get("t", block.get("text")) or "")
+    return f"{row_id} | {block_index} | {text}"
+
+
+def _compact_context_row(block: Mapping[str, Any]) -> str:
+    block_index = int(block.get("i", block.get("block_index")) or 0)
+    text = str(block.get("t", block.get("text")) or "")
+    return f"{block_index} | {text}"
+
+
+def _compact_prompt_payload(input_payload: Mapping[str, Any]) -> dict[str, Any]:
+    payload = dict(input_payload)
+    compact_payload: dict[str, Any] = {
+        "v": payload.get("v"),
+        "bid": str(payload.get("bid") or payload.get("packet_id") or "").strip(),
+        "rows": [
+            _compact_owned_row(block, row_index=index)
+            for index, block in enumerate(payload.get("b") or [])
+            if isinstance(block, Mapping)
+        ],
+    }
+    context = dict(payload.get("x") or {}) if isinstance(payload.get("x"), Mapping) else {}
+    context_before_rows = [
+        _compact_context_row(block)
+        for block in (context.get("p") or [])
+        if isinstance(block, Mapping)
+    ]
+    if context_before_rows:
+        compact_payload["context_before_rows"] = context_before_rows
+    context_after_rows = [
+        _compact_context_row(block)
+        for block in (context.get("n") or [])
+        if isinstance(block, Mapping)
+    ]
+    if context_after_rows:
+        compact_payload["context_after_rows"] = context_after_rows
+    guardrails = dict(payload.get("g") or {}) if isinstance(payload.get("g"), Mapping) else {}
+    recipe_neighbor_block_indices = [
+        int(value)
+        for value in (guardrails.get("r") or [])
+        if value is not None
+    ]
+    if recipe_neighbor_block_indices:
+        compact_payload["recipe_neighbor_block_indices"] = recipe_neighbor_block_indices
+    if isinstance(payload.get("ontology"), Mapping):
+        compact_payload["ontology"] = dict(payload["ontology"])
+    return compact_payload
+
+
 def build_knowledge_direct_prompt(input_payload: Mapping[str, Any]) -> str:
-    rendered_input = dict(input_payload)
+    rendered_input = _compact_prompt_payload(input_payload)
     rendered_input.setdefault("ontology", load_knowledge_tag_catalog().task_scope_payload())
     template_text = (
         _load_template_text()

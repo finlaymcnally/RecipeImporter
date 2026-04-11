@@ -177,6 +177,45 @@ def _structured_knowledge_row_id(row: Mapping[str, Any]) -> str:
     return str(row.get("row_id") or "").strip()
 
 
+def _structured_knowledge_row_parts(row: Any) -> tuple[str, str]:
+    if isinstance(row, Mapping):
+        return (
+            str(row.get("row_id") or "").strip(),
+            str(row.get("text") or "").strip(),
+        )
+    if not isinstance(row, str):
+        return "", ""
+    parts = row.split(" | ", 2)
+    if len(parts) < 3:
+        return "", ""
+    return str(parts[0]).strip(), str(parts[2]).strip()
+
+
+def _structured_knowledge_row_facts(
+    payload: Mapping[str, Any],
+) -> dict[str, dict[str, str]]:
+    facts_by_row_id: dict[str, dict[str, str]] = {}
+    for raw_row in payload.get("row_facts") or []:
+        if not isinstance(raw_row, str):
+            continue
+        parts = [part.strip() for part in raw_row.split(" | ") if part.strip()]
+        if not parts:
+            continue
+        row_id = parts[0]
+        row_facts: dict[str, str] = {}
+        for part in parts[1:]:
+            key, separator, value = part.partition("=")
+            if not separator:
+                continue
+            cleaned_key = str(key).strip()
+            cleaned_value = str(value).strip()
+            if cleaned_key and cleaned_value:
+                row_facts[cleaned_key] = cleaned_value
+        if row_facts:
+            facts_by_row_id[row_id] = row_facts
+    return facts_by_row_id
+
+
 def _default_fake_knowledge_grounding(text: str) -> dict[str, Any]:
     lowered = str(text or "").strip().lower()
     if "emulsif" in lowered or "whisk" in lowered:
@@ -212,14 +251,16 @@ def _default_fake_knowledge_grounding(text: str) -> dict[str, Any]:
 def _default_structured_knowledge_classification_output(
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
-    rows = [dict(row) for row in (payload.get("rows") or []) if isinstance(row, Mapping)]
     output_rows: list[dict[str, Any]] = []
-    for row in rows:
-        grounding = _default_fake_knowledge_grounding(str(row.get("text") or ""))
+    for row in (payload.get("rows") or []):
+        row_id, text = _structured_knowledge_row_parts(row)
+        if not row_id:
+            continue
+        grounding = _default_fake_knowledge_grounding(text)
         if grounding["tag_keys"]:
             output_rows.append(
                 {
-                    "row_id": _structured_knowledge_row_id(row),
+                    "row_id": row_id,
                     "category": "knowledge",
                     "grounding": {
                         "tag_keys": list(grounding["tag_keys"]),
@@ -230,7 +271,7 @@ def _default_structured_knowledge_classification_output(
         else:
             output_rows.append(
                 {
-                    "row_id": _structured_knowledge_row_id(row),
+                    "row_id": row_id,
                     "category": "proposal_candidate",
                     "grounding": {
                         "tag_keys": [],
@@ -244,15 +285,20 @@ def _default_structured_knowledge_classification_output(
 def _default_structured_knowledge_grouping_output(
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
-    rows = [dict(row) for row in (payload.get("rows") or []) if isinstance(row, Mapping)]
     output_rows: list[dict[str, Any]] = []
-    for row in rows:
-        classification_category = str(row.get("classification_category") or "").strip()
-        text = str(row.get("text") or "").strip().lower()
+    facts_by_row_id = _structured_knowledge_row_facts(payload)
+    for row in (payload.get("rows") or []):
+        row_id, text_value = _structured_knowledge_row_parts(row)
+        if not row_id:
+            continue
+        classification_category = str(
+            (facts_by_row_id.get(row_id) or {}).get("classification") or ""
+        ).strip()
+        text = text_value.lower()
         group_key = "heat-control" if "heat" in text else "fake-knowledge-group"
         topic_label = "Heat control" if "heat" in text else "Fake knowledge group"
         answer: dict[str, Any] = {
-            "row_id": _structured_knowledge_row_id(row),
+            "row_id": row_id,
             "group_key": group_key,
             "topic_label": topic_label,
         }

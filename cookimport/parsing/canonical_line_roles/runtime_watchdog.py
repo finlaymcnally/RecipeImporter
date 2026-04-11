@@ -609,21 +609,37 @@ def _build_line_role_watchdog_example(
 ) -> dict[str, Any] | None:
     if not isinstance(payload, Mapping):
         return None
+    labels = payload.get("labels")
+    if isinstance(labels, list):
+        compact_labels = [
+            str(label).strip()
+            for label in labels[:2]
+            if str(label).strip()
+        ]
+        if not compact_labels:
+            return None
+        return {
+            "shard_id": shard.shard_id,
+            "owned_ids": list(shard.owned_ids),
+            "output": {
+                "labels": compact_labels,
+            },
+        }
     rows = payload.get("rows")
     if not isinstance(rows, list):
         return None
-    compact_rows = [
-        dict(row_payload)
+    compact_labels = [
+        str(row_payload.get("label") or "").strip()
         for row_payload in rows[:2]
-        if isinstance(row_payload, Mapping)
+        if isinstance(row_payload, Mapping) and str(row_payload.get("label") or "").strip()
     ]
-    if not compact_rows:
+    if not compact_labels:
         return None
     return {
         "shard_id": shard.shard_id,
         "owned_ids": list(shard.owned_ids),
         "output": {
-            "rows": compact_rows,
+            "labels": compact_labels,
         },
     }
 
@@ -733,10 +749,7 @@ def _build_line_role_watchdog_retry_prompt(
 ) -> str:
     from . import runtime as root
 
-    row_ids = ", ".join(
-        f"r{index + 1:02d}"
-        for index, _row in enumerate(list((shard.input_payload or {}).get("rows") or []))
-    )
+    row_count = len(list((shard.input_payload or {}).get("rows") or []))
     allowed_labels = ", ".join(root.CANONICAL_LINE_ROLE_ALLOWED_LABELS)
     authoritative_rows = root._render_line_role_authoritative_rows(shard)
     example_rows = [
@@ -760,10 +773,12 @@ def _build_line_role_watchdog_retry_prompt(
         "- Do not think step-by-step out loud.\n"
         "- The first emitted character must be `{`.\n"
         "- Your first response must be the final JSON object.\n"
-        "- Return one JSON object shaped like {\"rows\":[{\"row_id\":\"r01\",\"label\":\"<ALLOWED_LABEL>\"}]}.\n"
-        f"- Return each owned row_id exactly once, in input order: {row_ids}\n"
+        f"- Return one JSON object shaped like {{\"labels\":[\"<ALLOWED_LABEL>\"]}} with exactly {row_count} label(s).\n"
+        "- Use only the top-level key `labels`.\n"
+        "- Keep label order exactly aligned with the authoritative row order shown below.\n"
+        "- The first label applies to the first row, the second label applies to the second row, and so on.\n"
         f"- Allowed labels: {allowed_labels}\n"
-        "- Use only the keys `rows`, `row_id`, and `label`.\n\n"
+        "- Finish the full owned-row list; do not stop early.\n\n"
         "- Treat span codes and hint lists as weak hints only, not final truth.\n"
         "- `INGREDIENT_LINE` means quantity/unit ingredients or bare ingredient-list items.\n"
         "- `INSTRUCTION_LINE` means a recipe-local procedural step, not generic cooking advice.\n"
@@ -777,6 +792,7 @@ def _build_line_role_watchdog_retry_prompt(
         "<BEGIN_AUTHORITATIVE_ROWS>\n"
         f"{authoritative_rows}\n"
         "<END_AUTHORITATIVE_ROWS>\n\n"
+        "Each authoritative row is rendered as `rXX | block_index | text`.\n"
         "Recompute the full shard from those rows. Do not copy sibling examples verbatim.\n\n"
         "Successful sibling examples:\n"
         "<BEGIN_SUCCESSFUL_SIBLING_EXAMPLES>\n"
