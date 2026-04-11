@@ -725,6 +725,7 @@ def _evaluate_line_role_structured_response(
     deterministic_baseline_by_atomic_index: root.Mapping[int, root.CanonicalLineRolePrediction],
     validator: root.Callable[[root.ShardManifestEntryV1, dict[str, root.Any]], tuple[bool, root.Sequence[str], dict[str, root.Any] | None]],
 ) -> tuple[dict[str, root.Any] | None, tuple[str, ...], dict[str, root.Any], str]:
+    del deterministic_baseline_by_atomic_index
     cleaned_response_text = str(response_text or "").strip()
     if not cleaned_response_text:
         return None, ("missing_output_file",), {}, "missing_output"
@@ -812,17 +813,7 @@ def _evaluate_line_role_structured_response(
         )
     )
     proposal_status = "validated" if not merged_errors and not unresolved_atomic_indices else "invalid"
-    final_validation_errors, final_validation_metadata, final_proposal_status = (
-        root._apply_line_role_semantic_guard(
-            shard=shard,
-            validation_errors=merged_errors,
-            validation_metadata=merged_metadata,
-            proposal_status=proposal_status,
-            payload={"rows": translated_rows},
-            deterministic_baseline_by_atomic_index=deterministic_baseline_by_atomic_index,
-        )
-    )
-    return parsed_payload, final_validation_errors, final_validation_metadata, final_proposal_status
+    return parsed_payload, merged_errors, merged_metadata, proposal_status
 
 def _build_line_role_repair_shard(*, shard: root.ShardManifestEntryV1, unresolved_atomic_indices: root.Sequence[int]) -> root.ShardManifestEntryV1:
     unresolved_set = {int(value) for value in unresolved_atomic_indices}

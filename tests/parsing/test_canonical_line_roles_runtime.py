@@ -1822,7 +1822,7 @@ def test_label_atomic_lines_preserves_partial_inline_shard_authority_and_repairs
     assert shard_status_rows[0]["metadata"]["unresolved_row_count"] == 0
 
 
-def test_label_atomic_lines_repairs_semantically_invalid_complete_labels_for_only_suspicious_rows(
+def test_label_atomic_lines_accepts_structurally_valid_labels_without_semantic_repair(
     tmp_path,
 ) -> None:
     candidates = [
@@ -1884,42 +1884,9 @@ def test_label_atomic_lines_repairs_semantically_invalid_complete_labels_for_onl
     assert [prediction.label for prediction in predictions] == [
         "RECIPE_TITLE",
         "YIELD_LINE",
-        "INGREDIENT_LINE",
+        "RECIPE_NOTES",
     ]
-    assert [call["mode"] for call in runner.calls] == [
-        "structured_prompt",
-        "structured_prompt_resume",
-    ]
-
-    repair_packet = json.loads(
-        (
-            tmp_path
-            / "line-role-pipeline"
-            / "runtime"
-            / "line_role"
-            / "workers"
-            / "worker-001"
-            / "shards"
-            / "line-role-canonical-0001-a000000-a000002"
-            / "structured_session"
-            / "repair_packet_01.json"
-        ).read_text(encoding="utf-8")
-    )
-    assert repair_packet["rows"] == ["r01 | 2 | 1 cup thinly sliced cabbage"]
-    assert repair_packet["validation_errors"] == [
-        "semantic_invariant_violation:recipe_ingredient_anchor:2"
-    ]
-    assert repair_packet["previous_failed_rows"] == [
-        {
-            "failure_reasons": [
-                "semantic_invariant_violation",
-                "semantic_invariant_violation:recipe_ingredient_anchor:2",
-            ],
-            "previous_label": "RECIPE_NOTES",
-            "row_index": 0,
-            "row_text": "1 cup thinly sliced cabbage",
-        }
-    ]
+    assert [call["mode"] for call in runner.calls] == ["structured_prompt"]
 
     proposal_payload = json.loads(
         (
@@ -1931,16 +1898,12 @@ def test_label_atomic_lines_repairs_semantically_invalid_complete_labels_for_onl
             / "line-role-canonical-0001-a000000-a000002.json"
         ).read_text(encoding="utf-8")
     )
-    assert proposal_payload["repair_attempted"] is True
-    assert proposal_payload["repair_status"] == "repaired"
-    semantic_diagnostics = proposal_payload["validation_metadata"]["semantic_diagnostics"]
-    assert [row["code"] for row in semantic_diagnostics] == [
-        "recipe_ingredient_anchor"
-    ]
-    assert proposal_payload["validation_metadata"]["semantic_rejected_atomic_indices"] == [2]
+    assert proposal_payload["repair_attempted"] is False
+    assert proposal_payload["repair_status"] == "not_attempted"
+    assert "semantic_diagnostics" not in proposal_payload["validation_metadata"]
 
 
-def test_label_atomic_lines_repairs_complete_recipe_start_when_title_yield_and_ingredient_are_semantically_wrong(
+def test_label_atomic_lines_accepts_structurally_valid_recipe_start_even_when_semantically_weird(
     tmp_path,
 ) -> None:
     candidates = [
@@ -2005,64 +1968,22 @@ def test_label_atomic_lines_repairs_complete_recipe_start_when_title_yield_and_i
     )
 
     assert [prediction.label for prediction in predictions] == [
-        "RECIPE_TITLE",
-        "YIELD_LINE",
         "INGREDIENT_LINE",
+        "RECIPE_NOTES",
+        "NONRECIPE_CANDIDATE",
     ]
-
-    repair_packet = json.loads(
+    proposal_payload = json.loads(
         (
             tmp_path
             / "line-role-pipeline"
             / "runtime"
             / "line_role"
-            / "workers"
-            / "worker-001"
-            / "shards"
-            / "line-role-canonical-0001-a000000-a000002"
-            / "structured_session"
-            / "repair_packet_01.json"
+            / "proposals"
+            / "line-role-canonical-0001-a000000-a000002.json"
         ).read_text(encoding="utf-8")
     )
-    assert repair_packet["rows"] == [
-        "r01 | 0 | Bright Cabbage Slaw",
-        "r02 | 1 | Serves 4 generously",
-        "r03 | 2 | 1 cup thinly sliced cabbage",
-    ]
-    assert repair_packet["validation_errors"] == [
-        "semantic_invariant_violation:recipe_title_reset:0",
-        "semantic_invariant_violation:recipe_yield_anchor:1",
-        "semantic_invariant_violation:recipe_ingredient_anchor:2",
-    ]
-    assert repair_packet["previous_failed_rows"] == [
-        {
-            "failure_reasons": [
-                "semantic_invariant_violation",
-                "semantic_invariant_violation:recipe_title_reset:0",
-            ],
-            "previous_label": "INGREDIENT_LINE",
-            "row_index": 0,
-            "row_text": "Bright Cabbage Slaw",
-        },
-        {
-            "failure_reasons": [
-                "semantic_invariant_violation",
-                "semantic_invariant_violation:recipe_yield_anchor:1",
-            ],
-            "previous_label": "RECIPE_NOTES",
-            "row_index": 1,
-            "row_text": "Serves 4 generously",
-        },
-        {
-            "failure_reasons": [
-                "semantic_invariant_violation",
-                "semantic_invariant_violation:recipe_ingredient_anchor:2",
-            ],
-            "previous_label": "NONRECIPE_CANDIDATE",
-            "row_index": 2,
-            "row_text": "1 cup thinly sliced cabbage",
-        },
-    ]
+    assert proposal_payload["repair_attempted"] is False
+    assert proposal_payload["repair_status"] == "not_attempted"
 
 
 def test_label_atomic_lines_repairs_partial_labels_reply_only_for_missing_rows(

@@ -119,7 +119,6 @@ from . import (
     _YIELD_PREFIX_RE,
     _annotate_line_role_final_outcome_row,
     _annotate_line_role_final_proposal_status,
-    _apply_line_role_semantic_guard,
     _apply_line_role_final_outcome_to_runner_payload,
     _apply_prediction_decision_metadata,
     _apply_repo_baseline_semantic_policy,
