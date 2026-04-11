@@ -1822,6 +1822,216 @@ def test_label_atomic_lines_preserves_partial_inline_shard_authority_and_repairs
     assert shard_status_rows[0]["metadata"]["unresolved_row_count"] == 0
 
 
+def test_label_atomic_lines_repairs_semantically_invalid_complete_labels_for_only_suspicious_rows(
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:inline-semantic:0",
+            block_index=0,
+            atomic_index=0,
+            text="Bright Cabbage Slaw",
+            within_recipe_span=True,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:inline-semantic:1",
+            block_index=1,
+            atomic_index=1,
+            text="Serves 4 generously",
+            within_recipe_span=True,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:inline-semantic:2",
+            block_index=2,
+            atomic_index=2,
+            text="1 cup thinly sliced cabbage",
+            within_recipe_span=True,
+            rule_tags=[],
+        ),
+    ]
+
+    def _semantic_builder(payload):
+        packet_kind = str((payload or {}).get("packet_kind") or "").strip()
+        if packet_kind == "initial":
+            return {
+                "labels": [
+                    "RECIPE_TITLE",
+                    "YIELD_LINE",
+                    "RECIPE_NOTES",
+                ]
+            }
+        return {"labels": ["INGREDIENT_LINE"]}
+
+    runner = FakeCodexExecRunner(output_builder=_semantic_builder)
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-route-v2",
+            line_role_codex_exec_style="inline-json-v1",
+            line_role_prompt_target_count=1,
+            line_role_worker_count=1,
+        ),
+        artifact_root=tmp_path,
+        codex_runner=runner,
+        live_llm_allowed=True,
+    )
+
+    assert [prediction.label for prediction in predictions] == [
+        "RECIPE_TITLE",
+        "YIELD_LINE",
+        "INGREDIENT_LINE",
+    ]
+    assert [call["mode"] for call in runner.calls] == [
+        "structured_prompt",
+        "structured_prompt_resume",
+    ]
+
+    repair_packet = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "workers"
+            / "worker-001"
+            / "shards"
+            / "line-role-canonical-0001-a000000-a000002"
+            / "structured_session"
+            / "repair_packet_01.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert repair_packet["rows"] == ["1 cup thinly sliced cabbage"]
+    assert repair_packet["validation_errors"] == [
+        "semantic_invariant_violation:recipe_ingredient_anchor:2"
+    ]
+    assert len(repair_packet["validation_hints"]) == 1
+    assert "INGREDIENT_LINE" in repair_packet["validation_hints"][0]
+    assert "rows[0]:" in repair_packet["validation_hints"][0]
+
+    proposal_payload = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "proposals"
+            / "line-role-canonical-0001-a000000-a000002.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert proposal_payload["repair_attempted"] is True
+    assert proposal_payload["repair_status"] == "repaired"
+    semantic_diagnostics = proposal_payload["validation_metadata"]["semantic_diagnostics"]
+    assert [row["code"] for row in semantic_diagnostics] == [
+        "recipe_ingredient_anchor"
+    ]
+    assert proposal_payload["validation_metadata"]["semantic_rejected_atomic_indices"] == [2]
+
+
+def test_label_atomic_lines_repairs_complete_recipe_start_when_title_yield_and_ingredient_are_semantically_wrong(
+    tmp_path,
+) -> None:
+    candidates = [
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:inline-semantic-all:0",
+            block_index=0,
+            atomic_index=0,
+            text="Bright Cabbage Slaw",
+            within_recipe_span=True,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:inline-semantic-all:1",
+            block_index=1,
+            atomic_index=1,
+            text="Serves 4 generously",
+            within_recipe_span=True,
+            rule_tags=[],
+        ),
+        AtomicLineCandidate(
+            recipe_id="recipe:0",
+            block_id="block:inline-semantic-all:2",
+            block_index=2,
+            atomic_index=2,
+            text="1 cup thinly sliced cabbage",
+            within_recipe_span=True,
+            rule_tags=[],
+        ),
+    ]
+
+    def _semantic_builder(payload):
+        packet_kind = str((payload or {}).get("packet_kind") or "").strip()
+        if packet_kind == "initial":
+            return {
+                "labels": [
+                    "INGREDIENT_LINE",
+                    "RECIPE_NOTES",
+                    "NONRECIPE_CANDIDATE",
+                ]
+            }
+        return {
+            "labels": [
+                "RECIPE_TITLE",
+                "YIELD_LINE",
+                "INGREDIENT_LINE",
+            ]
+        }
+
+    predictions = label_atomic_lines(
+        candidates,
+        _settings(
+            "codex-line-role-route-v2",
+            line_role_codex_exec_style="inline-json-v1",
+            line_role_prompt_target_count=1,
+            line_role_worker_count=1,
+        ),
+        artifact_root=tmp_path,
+        codex_runner=FakeCodexExecRunner(output_builder=_semantic_builder),
+        live_llm_allowed=True,
+    )
+
+    assert [prediction.label for prediction in predictions] == [
+        "RECIPE_TITLE",
+        "YIELD_LINE",
+        "INGREDIENT_LINE",
+    ]
+
+    repair_packet = json.loads(
+        (
+            tmp_path
+            / "line-role-pipeline"
+            / "runtime"
+            / "line_role"
+            / "workers"
+            / "worker-001"
+            / "shards"
+            / "line-role-canonical-0001-a000000-a000002"
+            / "structured_session"
+            / "repair_packet_01.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert repair_packet["rows"] == [
+        "Bright Cabbage Slaw",
+        "Serves 4 generously",
+        "1 cup thinly sliced cabbage",
+    ]
+    assert repair_packet["validation_errors"] == [
+        "semantic_invariant_violation:recipe_title_reset:0",
+        "semantic_invariant_violation:recipe_yield_anchor:1",
+        "semantic_invariant_violation:recipe_ingredient_anchor:2",
+    ]
+    assert len(repair_packet["validation_hints"]) == 3
+    assert any("RECIPE_TITLE" in hint for hint in repair_packet["validation_hints"])
+    assert any("YIELD_LINE" in hint for hint in repair_packet["validation_hints"])
+    assert any("INGREDIENT_LINE" in hint for hint in repair_packet["validation_hints"])
+
+
 def test_label_atomic_lines_repairs_partial_labels_reply_only_for_missing_rows(
     tmp_path,
 ) -> None:

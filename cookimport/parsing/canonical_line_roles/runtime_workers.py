@@ -502,8 +502,8 @@ def _line_role_structured_context_rows(
 
 
 def _build_line_role_structured_packet(*, shard: root.ShardManifestEntryV1, packet_kind: str, validation_errors: root.Sequence[str] | None=None, validation_metadata: root.Mapping[str, root.Any] | None=None, deterministic_baseline_by_atomic_index: root.Mapping[int, root.CanonicalLineRolePrediction] | None=None) -> dict[str, root.Any]:
-    del validation_metadata
     del deterministic_baseline_by_atomic_index
+    validation_metadata_dict = dict(validation_metadata or {})
     payload: dict[str, root.Any] = {
         "schema_version": "line_role_structured_packet.v2",
         "stage_key": "line_role",
@@ -525,6 +525,22 @@ def _build_line_role_structured_packet(*, shard: root.ShardManifestEntryV1, pack
         payload["context_after_rows"] = context_after_rows
     if validation_errors:
         payload["validation_errors"] = [str(error).strip() for error in validation_errors if str(error).strip()]
+    semantic_repair_hints_by_atomic_index = root._coerce_mapping_dict(
+        validation_metadata_dict.get("semantic_repair_hints_by_atomic_index")
+    )
+    if semantic_repair_hints_by_atomic_index:
+        validation_hints: list[str] = []
+        for position, (atomic_index, _text) in enumerate(_line_role_structured_input_rows(shard)):
+            rendered_hint = str(
+                semantic_repair_hints_by_atomic_index.get(str(atomic_index))
+                or semantic_repair_hints_by_atomic_index.get(atomic_index)
+                or ""
+            ).strip()
+            if not rendered_hint:
+                continue
+            validation_hints.append(f"rows[{position}]: {rendered_hint}")
+        if validation_hints:
+            payload["validation_hints"] = validation_hints
     return payload
 
 
@@ -547,6 +563,13 @@ def _build_line_role_structured_prompt_packet(
     ]
     if validation_errors:
         prompt_packet["validation_errors"] = validation_errors
+    validation_hints = [
+        str(value).strip()
+        for value in (packet.get("validation_hints") or [])
+        if str(value).strip()
+    ]
+    if validation_hints:
+        prompt_packet["validation_hints"] = validation_hints
     return prompt_packet
 
 
@@ -587,6 +610,7 @@ def _build_line_role_structured_prompt(*, packet: root.Mapping[str, root.Any]) -
         "- The first label applies to `rows[0]`, the second label applies to `rows[1]`, and so on.\n"
         "- Finish the full owned-row list; do not stop early.\n"
         "- Do not copy the placeholder schema literally; replace it with the full ordered label list for this shard.\n"
+        "- If `validation_hints` are shown, treat them as deterministic evidence about why the previous answer looked locally inconsistent. Use them to re-check the rows, but still decide labels from the packet text and nearby context.\n"
         f"- {context_note}Do not label any `context_before_rows` or `context_after_rows`; they are reference-only.\n"
         "- Return one JSON object with only the top-level key `labels`.\n"
         "- Do not include commentary, markdown, or extra keys.\n\n"

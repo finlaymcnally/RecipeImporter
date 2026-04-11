@@ -656,6 +656,7 @@ def _should_attempt_line_role_repair(
                 "missing_row_ids:",
                 "duplicate_row_id:",
                 "unknown_row_id:",
+                "semantic_invariant_violation:",
             )
         ):
             return True

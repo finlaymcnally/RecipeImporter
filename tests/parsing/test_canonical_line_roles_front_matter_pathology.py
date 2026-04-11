@@ -179,6 +179,7 @@ def test_line_role_semantic_guard_allows_real_knowledge_heading_cluster() -> Non
     assert proposal_status == "validated"
     assert validation_errors == ()
     assert validation_metadata["accepted_atomic_indices"] == [0, 1, 2]
+    assert validation_metadata.get("semantic_diagnostics") in (None, [])
 
 
 def test_label_atomic_lines_keeps_front_matter_pathology_fixture_labels(tmp_path) -> None:
