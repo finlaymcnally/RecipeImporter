@@ -18,11 +18,12 @@ from cookimport.config.runtime_support import (
     resolve_oracle_browser_shard_target_bytes,
 )
 
-ORACLE_BROWSER_CMD = "/home/mcnal/.local/bin/oracle"
-ORACLE_BROWSER_CHROME_PATH = "/home/mcnal/.local/bin/chromium-oracle-auto"
+ORACLE_FORK_ROOT = Path("/home/mcnal/projects/shared/oracle-fork")
+ORACLE_BROWSER_CMD = str(ORACLE_FORK_ROOT / "scripts" / "wsl" / "oracle-runtime.sh")
+ORACLE_BROWSER_CHROME_PATH = "/home/mcnal/.local/bin/chromium-nosandbox-xvfb"
 ORACLE_BROWSER_REMOTE_DEBUG_HOST = "127.0.0.1"
 ORACLE_BROWSER_MODEL_STRATEGY = "select"
-ORACLE_HOME_DIR = str(Path.home() / ".local" / "share" / "oracle")
+ORACLE_HOME_DIR = str(ORACLE_FORK_ROOT / "var" / "oracle")
 ORACLE_BROWSER_PROFILE_DIR = str(Path(ORACLE_HOME_DIR) / "browser-profile")
 ORACLE_MODEL_LANE_INSTANT = "instant"
 ORACLE_MODEL_LANE_PRO = "pro"

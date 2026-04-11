@@ -10,6 +10,7 @@ from tests.bench.oracle_benchmark_support import build_minimal_upload_bundle
 
 from cookimport.bench.oracle_followup import (
     ORACLE_AUTO_FOLLOWUP_STATUS_NAME,
+    ORACLE_BROWSER_CMD,
     _find_followup_source_launch_dir,
     extract_requested_followup_section,
     parse_requested_followup_text,
@@ -155,7 +156,7 @@ def test_run_oracle_benchmark_followup_dry_run_prepares_packet_and_command(
     assert result.status == "dry_run"
     assert result.session_id == "you-are-reviewing-a-benchmark-301"
     assert result.command[:3] == [
-        "/home/mcnal/.local/bin/oracle",
+        ORACLE_BROWSER_CMD,
         "continue-session",
         "you-are-reviewing-a-benchmark-301",
     ]
@@ -868,7 +869,7 @@ def _run_followup_timeout_recovery_fixture(
     def fake_runner(command, **kwargs):
         runner_calls.append([str(part) for part in command])
         assert command[:3] == [
-            "/home/mcnal/.local/bin/oracle",
+            ORACLE_BROWSER_CMD,
             "session",
             "you-are-reviewing-a-benchmark-392",
         ]
