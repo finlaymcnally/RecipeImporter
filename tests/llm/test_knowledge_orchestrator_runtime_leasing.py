@@ -421,7 +421,7 @@ def test_knowledge_orchestrator_inline_json_retries_grouping_more_than_once(
     }
 
 
-def test_knowledge_orchestrator_grouping_enforces_exact_row_count_and_repairs_only_missing_rows(
+def test_knowledge_orchestrator_grouping_repairs_only_missing_rows_without_schema_files(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -456,29 +456,12 @@ def test_knowledge_orchestrator_grouping_enforces_exact_row_count_and_repairs_on
         "structured_prompt",
         "structured_prompt",
     ]
-    assert Path(str(runner.calls[0]["output_schema_path"])).name == (
-        "output_schema_classification_initial.json"
+    assert [call["output_schema_path"] for call in runner.calls] == [None, None, None]
+    assert not list(
+        (
+            worker_root / "shards" / "book.ks0000.nr" / "structured_session"
+        ).glob("output_schema_*.json")
     )
-    assert Path(str(runner.calls[1]["output_schema_path"])).name == "output_schema_grouping_01.json"
-    assert Path(str(runner.calls[2]["output_schema_path"])).name == (
-        "output_schema_grouping_repair_01_01.json"
-    )
-
-    classification_schema_payload = json.loads(
-        Path(str(runner.calls[0]["output_schema_path"])).read_text(encoding="utf-8")
-    )
-    grouping_schema_payload = json.loads(
-        Path(str(runner.calls[1]["output_schema_path"])).read_text(encoding="utf-8")
-    )
-    repair_schema_payload = json.loads(
-        Path(str(runner.calls[2]["output_schema_path"])).read_text(encoding="utf-8")
-    )
-    assert classification_schema_payload["properties"]["rows"]["minItems"] == 3
-    assert classification_schema_payload["properties"]["rows"]["maxItems"] == 3
-    assert grouping_schema_payload["properties"]["rows"]["minItems"] == 3
-    assert grouping_schema_payload["properties"]["rows"]["maxItems"] == 3
-    assert repair_schema_payload["properties"]["rows"]["minItems"] == 1
-    assert repair_schema_payload["properties"]["rows"]["maxItems"] == 1
 
     repair_packet = json.loads(
         (
@@ -489,7 +472,7 @@ def test_knowledge_orchestrator_grouping_enforces_exact_row_count_and_repairs_on
             / "grouping_repair_packet_01_01.json"
         ).read_text(encoding="utf-8")
     )
-    assert [row["text"] for row in repair_packet["rows"]] == ["Knowledge two."]
+    assert repair_packet["rows"] == ["r01 | 2 | Knowledge two."]
 
 
 def test_knowledge_orchestrator_inline_json_populates_top_level_telemetry_and_survivability(
@@ -768,10 +751,39 @@ def _packet_result_from_base(
     )
 
 
+def _structured_packet_row_id(row: object) -> str:
+    if not isinstance(row, str):
+        return ""
+    return str(row.split(" | ", 1)[0] or "").strip()
+
+
+def _structured_packet_grouping_categories(
+    payload: dict[str, object],
+) -> dict[str, str]:
+    categories_by_row_id: dict[str, str] = {}
+    for row_fact in payload.get("row_facts") or []:
+        if not isinstance(row_fact, str):
+            continue
+        parts = [part.strip() for part in row_fact.split(" | ") if part.strip()]
+        if len(parts) < 2:
+            continue
+        row_id = str(parts[0] or "").strip()
+        if not row_id:
+            continue
+        for part in parts[1:]:
+            if not part.startswith("classification="):
+                continue
+            categories_by_row_id[row_id] = str(
+                part.removeprefix("classification=") or ""
+            ).strip()
+            break
+    return categories_by_row_id
+
+
 def _structured_classification_rows(payload: dict[str, object]) -> list[dict[str, object]]:
     return [
         {
-            "row_id": str(block.get("row_id") or ""),
+            "row_id": row_id,
             "category": "proposal_candidate",
             "grounding": {
                 "tag_keys": [],
@@ -779,8 +791,8 @@ def _structured_classification_rows(payload: dict[str, object]) -> list[dict[str
                 "proposed_tags": [],
             },
         }
-        for block in (payload.get("rows") or [])
-        if isinstance(block, dict)
+        for row in (payload.get("rows") or [])
+        if (row_id := _structured_packet_row_id(row))
     ]
 
 
@@ -789,10 +801,11 @@ def _structured_grouping_rows(
     *,
     topic_label: str,
 ) -> list[dict[str, object]]:
+    classification_category_by_row_id = _structured_packet_grouping_categories(payload)
     return [
         (
             {
-                "row_id": str(block.get("row_id") or ""),
+                "row_id": row_id,
                 "group_key": "heat-control",
                 "topic_label": topic_label,
                 "proposal_decision": "approved",
@@ -804,10 +817,9 @@ def _structured_grouping_rows(
                 "why_no_existing_tag": "The row is about heat control broadly rather than an existing catalog tag.",
                 "retrieval_query": "heat control cooking",
             }
-            if str(block.get("classification_category") or "").strip()
-            == "proposal_candidate"
+            if classification_category_by_row_id.get(row_id) == "proposal_candidate"
             else {
-                "row_id": str(block.get("row_id") or ""),
+                "row_id": row_id,
                 "group_key": "heat-control",
                 "topic_label": topic_label,
                 "proposal_decision": "not_applicable",
@@ -816,8 +828,8 @@ def _structured_grouping_rows(
                 "retrieval_query": None,
             }
         )
-        for block in (payload.get("rows") or [])
-        if isinstance(block, dict)
+        for row in (payload.get("rows") or [])
+        if (row_id := _structured_packet_row_id(row))
     ]
 
 
