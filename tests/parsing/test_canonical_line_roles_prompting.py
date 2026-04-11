@@ -159,9 +159,9 @@ def test_line_role_inline_packet_uses_ordered_rows_and_neighbor_context() -> Non
         shard_id="line-role-canonical-0001-a000010-a000011",
         owned_ids=("10", "11"),
         input_payload={
-            "rows": [[10, "Bright Cabbage Slaw"], [11, "Serves 4 generously"]],
-            "context_before_rows": [[9, "Variations"]],
-            "context_after_rows": [[12, "1/2 medium red onion, sliced thinly"]],
+            "rows": [[10, 210, "Bright Cabbage Slaw"], [11, 211, "Serves 4 generously"]],
+            "context_before_rows": [[9, 209, "Variations"]],
+            "context_after_rows": [[12, 212, "1/2 medium red onion, sliced thinly"]],
         },
     )
 
@@ -173,14 +173,17 @@ def test_line_role_inline_packet_uses_ordered_rows_and_neighbor_context() -> Non
         packet=packet,
     )
 
-    assert packet["rows"] == ["Bright Cabbage Slaw", "Serves 4 generously"]
-    assert packet["context_before_rows"] == ["Variations"]
-    assert packet["context_after_rows"] == ["1/2 medium red onion, sliced thinly"]
+    assert packet["rows"] == [
+        "r01 | 210 | Bright Cabbage Slaw",
+        "r02 | 211 | Serves 4 generously",
+    ]
+    assert packet["context_before_rows"] == ["209 | Variations"]
+    assert packet["context_after_rows"] == ["212 | 1/2 medium red onion, sliced thinly"]
     assert "owned_ids" not in packet
     assert '{"labels":["<ALLOWED_LABEL>","<ALLOWED_LABEL>"]}' in prompt
     assert "This packet has 2 owned row(s)" in prompt
     assert "Return exactly 2 label(s): one for each owned row shown in `rows`." in prompt
-    assert "`rows` is an ordered array of raw text strings." in prompt
+    assert "`rows` is an ordered array of compact row strings in the form `rXX | block_index | text`." in prompt
     assert "Treat `rows` as one contiguous ordered shard slice, not as isolated examples." in prompt
     assert "Label in one pass, but use the surrounding owned rows" in prompt
     assert "Keep the whole shard sequence in mind while labeling" in prompt
@@ -198,7 +201,7 @@ def test_shared_line_role_contract_block_appears_in_file_prompt() -> None:
         input_payload={
             "v": 2,
             "shard_id": "line-role-canonical-0001-a000123-a000456",
-            "rows": [[123, "1 cup flour"]],
+            "rows": [[123, 210, "1 cup flour"]],
         },
     )
 
@@ -378,15 +381,15 @@ def test_line_role_shard_plans_include_boundary_neighbor_context_when_neighbors_
 
     first_plan = plans[0]
     assert "context_before_rows" not in first_plan.manifest_entry.input_payload
-    assert first_plan.manifest_entry.input_payload["context_after_rows"] == [[3, "Line 3"]]
+    assert first_plan.manifest_entry.input_payload["context_after_rows"] == [[3, 3, "Line 3"]]
     assert "context_before_rows" not in first_plan.debug_input_payload
     assert first_plan.debug_input_payload["context_after_rows"] == [
         {"atomic_index": 3, "current_line": "Line 3"}
     ]
 
     middle_plan = plans[1]
-    assert middle_plan.manifest_entry.input_payload["context_before_rows"] == [[2, "Line 2"]]
-    assert middle_plan.manifest_entry.input_payload["context_after_rows"] == [[6, "Line 6"]]
+    assert middle_plan.manifest_entry.input_payload["context_before_rows"] == [[2, 2, "Line 2"]]
+    assert middle_plan.manifest_entry.input_payload["context_after_rows"] == [[6, 6, "Line 6"]]
     assert middle_plan.debug_input_payload["context_before_rows"] == [
         {"atomic_index": 2, "current_line": "Line 2"}
     ]
@@ -395,7 +398,7 @@ def test_line_role_shard_plans_include_boundary_neighbor_context_when_neighbors_
     ]
 
     last_plan = plans[2]
-    assert last_plan.manifest_entry.input_payload["context_before_rows"] == [[5, "Line 5"]]
+    assert last_plan.manifest_entry.input_payload["context_before_rows"] == [[5, 5, "Line 5"]]
     assert "context_after_rows" not in last_plan.manifest_entry.input_payload
     assert last_plan.debug_input_payload["context_before_rows"] == [
         {"atomic_index": 5, "current_line": "Line 5"}
@@ -409,9 +412,9 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
         input_payload={
             "v": 2,
             "shard_id": "line-role-canonical-0001-a000123-a000456",
-            "context_before_rows": [[122, "Earlier context"]],
-            "context_after_rows": [[124, "Later context"]],
-            "rows": [[123, "1 cup flour"]],
+            "context_before_rows": [[122, 209, "Earlier context"]],
+            "context_after_rows": [[124, 211, "Later context"]],
+            "rows": [[123, 210, "1 cup flour"]],
         },
     )
 
@@ -430,13 +433,16 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert "Do not describe your plan, reasoning, or heuristics." in prompt
     assert "Your first response must be the final JSON object." in prompt
     assert "Use only the top-level key `labels`." in prompt
-    assert "`rows` is an ordered array of raw text strings." in prompt
+    assert "The task file `rows` array stores compact row tuples `[atomic_index, block_index, current_line]`." in prompt
     assert "Return exactly one label for every owned input row in `rows`." in prompt
     assert "Finish the full owned-row list; do not stop early." in prompt
-    assert "Use each `rows[*]` string as the line to label." in prompt
+    assert "Use each `rows[*][2]` current-line string as the line to label." in prompt
     assert "Never label reference-only neighboring rows" in prompt
     assert "Do not label `context_before_rows` or `context_after_rows`; they are for interpretation only." in prompt
     assert "Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`." in prompt
+    assert '"r01 | 210 | 1 cup flour"' in prompt
+    assert '"209 | Earlier context"' in prompt
+    assert '"211 | Later context"' in prompt
     assert "If the shard rows are outside recipe context, default to `NONRECIPE_CANDIDATE`" in prompt
     assert (
         "Variant context is local, not sticky. End a nearby `Variations` run"
@@ -471,9 +477,9 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert "A single outside-recipe heading by itself is not enough" in prompt
     assert "Reference-only neighboring context:" in prompt
     assert "These neighboring rows are for context only. Do not label them." in prompt
-    assert '<BEGIN_CONTEXT_BEFORE_ROWS>\n"Earlier context"\n<END_CONTEXT_BEFORE_ROWS>' in prompt
-    assert '<BEGIN_CONTEXT_AFTER_ROWS>\n"Later context"\n<END_CONTEXT_AFTER_ROWS>' in prompt
-    assert '<BEGIN_AUTHORITATIVE_ROWS>\n"1 cup flour"\n<END_AUTHORITATIVE_ROWS>' in prompt
+    assert '<BEGIN_CONTEXT_BEFORE_ROWS>\n"209 | Earlier context"\n<END_CONTEXT_BEFORE_ROWS>' in prompt
+    assert '<BEGIN_CONTEXT_AFTER_ROWS>\n"211 | Later context"\n<END_CONTEXT_AFTER_ROWS>' in prompt
+    assert '<BEGIN_AUTHORITATIVE_ROWS>\n"r01 | 210 | 1 cup flour"\n<END_AUTHORITATIVE_ROWS>' in prompt
 
 
 def test_canonical_line_role_file_prompt_ignores_removed_shard_context_fields() -> None:

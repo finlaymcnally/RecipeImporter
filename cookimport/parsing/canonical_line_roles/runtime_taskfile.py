@@ -46,7 +46,7 @@ def _build_line_role_task_file(
             if not isinstance(row, (list, tuple)) or len(row) < 2:
                 continue
             atomic_index = int(row[0])
-            text = str(row[1] or "")
+            text = str((row[2] if len(row) >= 3 else row[1]) or "")
             row_id = _line_role_taskfile_row_id(index)
             unit_id = _line_role_taskfile_unit_id(shard_id=shard.shard_id, row_id=row_id)
             unit_to_shard_id[unit_id] = shard.shard_id

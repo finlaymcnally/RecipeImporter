@@ -15,23 +15,23 @@ Return strict JSON as a JSON object with one ordered `labels` array:
 {"labels":["<ALLOWED_LABEL>","<ALLOWED_LABEL>"]}
 
 Task file shape:
-{"v":2,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":["Earlier context"],"rows":["1 cup flour"],"context_after_rows":["Later context"]}
+{"v":2,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[[122,209,"Earlier context"]],"rows":[[123,210,"1 cup flour"]],"context_after_rows":[[124,211,"Later context"]]}
 
 Rules:
 - Output only JSON.
 - Your final answer must be that JSON object and nothing else.
 - Use only the top-level key `labels`.
 - Return exactly one label for every owned input row in `rows`.
-- `rows` is an ordered array of raw text strings.
+- The task file `rows` array stores compact row tuples `[atomic_index, block_index, current_line]`.
 - Keep label order exactly aligned with the task file's `rows` array.
 - The first label applies to `rows[0]`, the second label applies to `rows[1]`, and so on.
 - Finish the full owned-row list; do not stop early.
 - Treat the task file as one ordered contiguous slice of the book.
 - The task file has one version marker `v`, one `shard_id`, optional `context_before_rows` / `context_after_rows`, and owned `rows` arrays.
-- `context_before_rows` and `context_after_rows`, when present, are reference-only neighboring raw-text rows.
+- `context_before_rows` and `context_after_rows`, when present, are reference-only neighboring row tuples `[atomic_index, block_index, current_line]`.
 - Never label reference-only neighboring rows.
 - Do not label `context_before_rows` or `context_after_rows`; they are for interpretation only.
-- Use each `rows[*]` string as the line to label.
+- Use each `rows[*][2]` current-line string as the line to label.
 - Use neighboring rows in `rows[*]` for local context when needed.
 - Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`.
 - Return one JSON object with only the top-level key `labels`.

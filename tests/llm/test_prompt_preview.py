@@ -942,7 +942,7 @@ def test_prompt_preview_rebuilds_knowledge_and_line_role_prompts(tmp_path: Path)
     line_role_row = rows_by_stage["line_role"][0]
     assert "You are labeling canonical line-role route labels" in line_role_row["rendered_prompt_text"]
     assert "line_role_input_0001.json" in line_role_row["rendered_prompt_text"]
-    assert '<BEGIN_AUTHORITATIVE_ROWS>\n"Ambiguous title-ish line"' in line_role_row["rendered_prompt_text"]
+    assert '<BEGIN_AUTHORITATIVE_ROWS>\n"r01 | 0 | Ambiguous title-ish line"' in line_role_row["rendered_prompt_text"]
     assert "one label for every owned input row in `rows`" in line_role_row["rendered_prompt_text"]
     assert line_role_row["prompt_input_mode"] == "inline"
     assert line_role_row["request_input_payload"]["v"] == 2
@@ -952,8 +952,9 @@ def test_prompt_preview_rebuilds_knowledge_and_line_role_prompts(tmp_path: Path)
         2,
         3,
     ]
-    assert line_role_row["request_input_payload"]["rows"][0][1] == "Ambiguous title-ish line"
-    assert line_role_row["request_input_payload"]["rows"][3][1] == "Advertisement copy."
+    assert line_role_row["request_input_payload"]["rows"][0][1] == 0
+    assert line_role_row["request_input_payload"]["rows"][0][2] == "Ambiguous title-ish line"
+    assert line_role_row["request_input_payload"]["rows"][3][2] == "Advertisement copy."
     assert line_role_row["debug_input_payload"]["phase_key"] == "line_role"
     assert line_role_row["debug_input_payload"]["rows"][0]["current_line"] == "Ambiguous title-ish line"
     assert "block_index" in line_role_row["debug_input_payload"]["rows"][0]
@@ -1278,7 +1279,7 @@ def test_prompt_preview_budget_summary_emits_extreme_warning(tmp_path: Path) -> 
                 "rendered_prompt_text": "line-role wrapper",
                 "prompt_input_mode": "path",
                 "task_prompt_text": huge_task_prompt,
-                "request_input_payload": {"v": 1, "rows": [[1, "L0", "Line one"]]},
+                "request_input_payload": {"v": 2, "rows": [[1, 10, "Line one"]]},
             },
         ],
         preview_dir=tmp_path / "preview",

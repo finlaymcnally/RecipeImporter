@@ -31,7 +31,8 @@ def _coerce_shard_input_rows(
             atomic_index = int(row[0])
         except (TypeError, ValueError):
             continue
-        rows.append((atomic_index, str(row[1] or "")))
+        text_value = row[2] if len(row) >= 3 else row[1]
+        rows.append((atomic_index, str(text_value or "")))
     return rows
 
 

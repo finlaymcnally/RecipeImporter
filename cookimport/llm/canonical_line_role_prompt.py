@@ -249,22 +249,22 @@ def build_canonical_line_role_file_prompt(
             "Return strict JSON as a JSON object with one ordered `labels` array:\n"
             '{"labels":["<ALLOWED_LABEL>","<ALLOWED_LABEL>"]}\n\n'
             "Task file shape:\n"
-            '{"v":2,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":["Earlier context"],"rows":["1 cup flour"],"context_after_rows":["Later context"]}\n\n'
+            '{"v":2,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[[122,209,"Earlier context"]],"rows":[[123,210,"1 cup flour"]],"context_after_rows":[[124,211,"Later context"]]}\n\n'
             "Rules:\n"
             "- Output only JSON.\n"
             "- Your final answer must be that JSON object and nothing else.\n"
             "- Use only the top-level key `labels`.\n"
             "- Return exactly one label for every owned input row in `rows`.\n"
-            "- `rows` is an ordered array of raw text strings.\n"
+            "- The task file `rows` array stores compact row tuples `[atomic_index, block_index, current_line]`.\n"
             "- Keep label order exactly aligned with the task file's `rows` array.\n"
             "- The first label applies to `rows[0]`, the second label applies to `rows[1]`, and so on.\n"
             "- Finish the full owned-row list; do not stop early.\n"
             "- Treat the task file as one ordered contiguous slice of the book.\n"
             "- The task file has one version marker `v`, one `shard_id`, optional `context_before_rows` / `context_after_rows`, and owned `rows` arrays.\n"
-            "- `context_before_rows` and `context_after_rows`, when present, are reference-only neighboring raw-text rows.\n"
+            "- `context_before_rows` and `context_after_rows`, when present, are reference-only neighboring row tuples `[atomic_index, block_index, current_line]`.\n"
             "- Never label reference-only neighboring rows.\n"
             "- Do not label `context_before_rows` or `context_after_rows`; they are for interpretation only.\n"
-            "- Use each `rows[*]` string as the line to label.\n"
+            "- Use each `rows[*][2]` current-line string as the line to label.\n"
             "- Use neighboring rows in `rows[*]` for local context when needed.\n"
             "- Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`.\n"
             "- Return one JSON object with only the top-level key `labels`.\n"
@@ -303,10 +303,19 @@ def _render_authoritative_rows_for_prompt(
 ) -> str:
     rows = list((dict(input_payload or {})).get("rows") or [])
     rendered_rows: list[str] = []
-    for row in rows:
+    for index, row in enumerate(rows):
         if isinstance(row, (list, tuple)):
+            if len(row) >= 3:
+                block_index = int(row[1])
+                text = str(row[2] or "")
+            else:
+                block_index = int(row[0])
+                text = str(row[1] or "")
             rendered_rows.append(
-                json.dumps(str(row[1] or ""), ensure_ascii=False)
+                json.dumps(
+                    f"r{index + 1:02d} | {block_index} | {text}",
+                    ensure_ascii=False,
+                )
             )
         elif isinstance(row, Mapping):
             row_dict = dict(row)
@@ -336,8 +345,14 @@ def _render_reference_context_block(
         rendered_rows: list[str] = []
         for row in rows:
             if isinstance(row, (list, tuple)):
+                if len(row) >= 3:
+                    block_index = int(row[1])
+                    text = str(row[2] or "")
+                else:
+                    block_index = int(row[0])
+                    text = str(row[1] or "")
                 rendered_rows.append(
-                    json.dumps(str(row[1] or ""), ensure_ascii=False)
+                    json.dumps(f"{block_index} | {text}", ensure_ascii=False)
                 )
             elif isinstance(row, Mapping):
                 row_dict = dict(row)
@@ -356,7 +371,7 @@ def _render_reference_context_block(
     lines = [
         "Reference-only neighboring context:",
         "- These neighboring rows are for context only. Do not label them.",
-        "- Neighboring context rows expose only raw text, not stable row identities.",
+        "- Neighboring context rows are rendered as `block_index | text` compact strings.",
         "<BEGIN_CONTEXT_BEFORE_ROWS>",
         _render_rows(context_before_rows),
         "<END_CONTEXT_BEFORE_ROWS>",

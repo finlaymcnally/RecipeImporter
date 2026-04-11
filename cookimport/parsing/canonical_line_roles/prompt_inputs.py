@@ -49,6 +49,7 @@ def serialize_line_role_model_context_row(
 ) -> list[Any]:
     return [
         int(candidate.atomic_index),
+        int(candidate.block_index),
         str(candidate.text),
     ]
 
@@ -57,4 +58,8 @@ def serialize_line_role_model_row(
     *,
     candidate: AtomicLineCandidate,
 ) -> list[Any]:
-    return [int(candidate.atomic_index), str(candidate.text)]
+    return [
+        int(candidate.atomic_index),
+        int(candidate.block_index),
+        str(candidate.text),
+    ]

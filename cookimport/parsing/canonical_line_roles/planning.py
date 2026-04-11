@@ -288,7 +288,10 @@ def _render_line_role_authoritative_rows(shard: ShardManifestEntryV1) -> str:
         if isinstance(row, (list, tuple)):
             rendered_rows.append(
                 json.dumps(
-                    {"row_id": f"r{index + 1:02d}", "text": str(row[1] or "")},
+                    {
+                        "row_id": f"r{index + 1:02d}",
+                        "text": str((row[2] if len(row) >= 3 else row[1]) or ""),
+                    },
                     ensure_ascii=False,
                     sort_keys=True,
                 )

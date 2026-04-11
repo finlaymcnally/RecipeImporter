@@ -163,7 +163,8 @@ def test_line_role_phase_workers_write_runtime_artifacts_and_reuse_workers(
     )
     assert compact_input["v"] == 2
     assert compact_input["rows"][0][0] == 0
-    assert compact_input["rows"][0][1] == "Ambiguous line 0"
+    assert compact_input["rows"][0][1] == 0
+    assert compact_input["rows"][0][2] == "Ambiguous line 0"
     assert debug_input["phase_key"] == "line_role"
     assert debug_input["rows"][0]["atomic_index"] == 0
     assert debug_input["rows"][0]["current_line"] == "Ambiguous line 0"
