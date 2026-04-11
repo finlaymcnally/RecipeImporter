@@ -421,6 +421,77 @@ def test_knowledge_orchestrator_inline_json_retries_grouping_more_than_once(
     }
 
 
+def test_knowledge_orchestrator_grouping_enforces_exact_row_count_and_repairs_only_missing_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
+    pack_root, _run_root = make_runtime_pack_and_run_dirs(tmp_path)
+    settings = make_runtime_settings(
+        pack_root=pack_root,
+        worker_count=1,
+        knowledge_prompt_target_count=1,
+        knowledge_codex_exec_style="inline-json-v1",
+    )
+    runner = _PartialGroupingRepairInlineRunner()
+
+    fixture = _run_runtime_phase(
+        monkeypatch,
+        tmp_path,
+        runner=runner,
+        settings=settings,
+        block_texts=["Knowledge zero.", "Knowledge one.", "Knowledge two."],
+        spans=[knowledge_span(0), knowledge_span(1), knowledge_span(2)],
+    )
+    phase_dir = Path(fixture["phase_dir"])
+    worker_root = Path(fixture["worker_root"])
+    proposal = json.loads(
+        (phase_dir / "proposals" / "book.ks0000.nr.json").read_text(encoding="utf-8")
+    )
+
+    assert proposal["payload"] is not None
+    assert proposal["validation_errors"] == []
+    assert [call["mode"] for call in runner.calls] == [
+        "structured_prompt",
+        "structured_prompt",
+        "structured_prompt",
+    ]
+    assert Path(str(runner.calls[0]["output_schema_path"])).name == (
+        "output_schema_classification_initial.json"
+    )
+    assert Path(str(runner.calls[1]["output_schema_path"])).name == "output_schema_grouping_01.json"
+    assert Path(str(runner.calls[2]["output_schema_path"])).name == (
+        "output_schema_grouping_repair_01_01.json"
+    )
+
+    classification_schema_payload = json.loads(
+        Path(str(runner.calls[0]["output_schema_path"])).read_text(encoding="utf-8")
+    )
+    grouping_schema_payload = json.loads(
+        Path(str(runner.calls[1]["output_schema_path"])).read_text(encoding="utf-8")
+    )
+    repair_schema_payload = json.loads(
+        Path(str(runner.calls[2]["output_schema_path"])).read_text(encoding="utf-8")
+    )
+    assert classification_schema_payload["properties"]["rows"]["minItems"] == 3
+    assert classification_schema_payload["properties"]["rows"]["maxItems"] == 3
+    assert grouping_schema_payload["properties"]["rows"]["minItems"] == 3
+    assert grouping_schema_payload["properties"]["rows"]["maxItems"] == 3
+    assert repair_schema_payload["properties"]["rows"]["minItems"] == 1
+    assert repair_schema_payload["properties"]["rows"]["maxItems"] == 1
+
+    repair_packet = json.loads(
+        (
+            worker_root
+            / "shards"
+            / "book.ks0000.nr"
+            / "structured_session"
+            / "grouping_repair_packet_01_01.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert [row["text"] for row in repair_packet["rows"]] == ["Knowledge two."]
+
+
 def test_knowledge_orchestrator_inline_json_populates_top_level_telemetry_and_survivability(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -831,6 +902,46 @@ class _MultiRepairGroupingInlineRunner(FakeCodexExecRunner):
                         sort_keys=True,
                     ),
                 )
+            return _packet_result_from_base(
+                base_result,
+                response_text=json.dumps(
+                    {"rows": _structured_grouping_rows(payload, topic_label="Heat control")},
+                    indent=2,
+                    sort_keys=True,
+                ),
+            )
+        return base_result
+
+
+class _PartialGroupingRepairInlineRunner(FakeCodexExecRunner):
+    def __init__(self) -> None:
+        super().__init__(output_builder=lambda payload: {})
+
+    def run_packet_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        base_result = super().run_packet_worker(*args, **kwargs)
+        payload = dict(kwargs.get("input_payload") or {})
+        packet_kind = str(payload.get("packet_kind") or "").strip()
+        stage_key = str(payload.get("stage_key") or "").strip()
+        if stage_key == "nonrecipe_classify":
+            return _packet_result_from_base(
+                base_result,
+                response_text=json.dumps(
+                    {"rows": _structured_classification_rows(payload)},
+                    indent=2,
+                    sort_keys=True,
+                ),
+            )
+        if stage_key == "knowledge_group" and packet_kind == "grouping_1":
+            grouping_rows = _structured_grouping_rows(payload, topic_label="Heat control")
+            return _packet_result_from_base(
+                base_result,
+                response_text=json.dumps(
+                    {"rows": grouping_rows[:-1]},
+                    indent=2,
+                    sort_keys=True,
+                ),
+            )
+        if stage_key == "knowledge_group" and packet_kind == "grouping_1_repair":
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(

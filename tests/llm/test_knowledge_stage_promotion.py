@@ -89,6 +89,14 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
             "knowledge::11": {
                 "group_key": "acid-balance",
                 "topic_label": "Acid balance",
+                "proposal_decision": "approved",
+                "proposed_tag": {
+                    "key": "acid-balancing",
+                    "display_name": "Acid balancing",
+                    "category_key": "techniques",
+                },
+                "why_no_existing_tag": "This row is about using acid to balance richness, not just brightness.",
+                "retrieval_query": "how to balance richness with acid",
             },
             "knowledge::25": {
                 "group_key": "dough-resting",
@@ -119,8 +127,14 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
                 "category": "knowledge",
                 "grounding": {
                     "tag_keys": ["bright"],
-                    "category_keys": ["flavor-profile"],
-                    "proposed_tags": [],
+                    "category_keys": ["flavor-profile", "techniques"],
+                    "proposed_tags": [
+                        {
+                            "key": "acid-balancing",
+                            "display_name": "Acid balancing",
+                            "category_key": "techniques",
+                        }
+                    ],
                 },
             },
         ],

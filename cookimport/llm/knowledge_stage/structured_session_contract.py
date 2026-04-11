@@ -246,6 +246,13 @@ def knowledge_task_file_to_structured_packet(
             ]
             if existing_tag_keys:
                 row_payload["existing_tag_keys"] = existing_tag_keys
+            existing_category_keys = [
+                str(value).strip()
+                for value in (grounding.get("category_keys") or [])
+                if str(value).strip()
+            ]
+            if existing_category_keys:
+                row_payload["existing_category_keys"] = existing_category_keys
         rows.append(row_payload)
     packet = {
         "schema_version": "knowledge_structured_packet.v1",
@@ -256,9 +263,7 @@ def knowledge_task_file_to_structured_packet(
         "bid": str(task_file_payload.get("assignment_id") or "knowledge-packet"),
         "rows": rows,
     }
-    if stage_key == KNOWLEDGE_CLASSIFY_STAGE_KEY and isinstance(
-        task_file_payload.get("ontology"), Mapping
-    ):
+    if isinstance(task_file_payload.get("ontology"), Mapping):
         categories = [
             {
                 "key": str(category.get("key") or "").strip(),
@@ -310,12 +315,15 @@ def build_knowledge_structured_prompt(
         task_note = (
             "Review the ordered knowledge rows and answer every `row_id` exactly once.\n"
             "Rows about the same idea should share the same `group_key` and `topic_label`.\n"
-            "Rows marked `classification_category=knowledge` are already retained via existing tags. Keep them grouped, set `proposal_decision` to `not_applicable`, and leave proposal fields empty.\n"
+            "Rows marked `classification_category=knowledge` are already retained. Usually keep them grouped with `proposal_decision=not_applicable` and empty proposal fields.\n"
+            "If a kept knowledge row is real retrieval-grade knowledge but the existing tags are a bad fit, you may instead set `proposal_decision=approved` and add exactly one new `proposed_tag`.\n"
             "Rows marked `classification_category=proposal_candidate` must be resolved here with `proposal_decision` set to `approved` or `rejected`.\n"
             "Approve only when the proposed tag is a strong standalone search handle a cook might actually use later.\n"
-            "Prefer concrete kitchen vocabulary such as techniques, ingredient behavior, storage, diagnostics, or equipment use.\n"
+            "When you approve a new tag, its `category_key` must be chosen from the packet `categories` list.\n"
+            "Prefer concrete kitchen vocabulary rooted in the packet ontology, such as techniques, ingredients, storage, or equipment.\n"
             "Reject broad chapter-theme, editorial, or pedagogy-summary labels. If the only proposal that comes to mind is vague or bookish, reject it.\n"
-            "Approved proposal candidates must include exactly one `proposed_tag` plus short `why_no_existing_tag` and `retrieval_query` strings.\n"
+            "Approved rows must include exactly one `proposed_tag` plus short `why_no_existing_tag` and `retrieval_query` strings.\n"
+            "Keep `proposed_tag.key` as a normalized slug like `rendering-fat`, not prose.\n"
             "Rejected proposal candidates must leave `proposed_tag`, `why_no_existing_tag`, and `retrieval_query` empty.\n"
         )
     else:

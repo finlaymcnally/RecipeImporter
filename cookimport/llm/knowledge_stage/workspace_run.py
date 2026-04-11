@@ -128,6 +128,66 @@ def _load_json_dict_safely(path: Path) -> dict[str, Any]:
     return dict(payload) if isinstance(payload, Mapping) else {}
 
 
+def _build_knowledge_structured_output_schema(
+    *,
+    session_root: Path,
+    schema_stem: str,
+    stage_key: str,
+    expected_row_count: int,
+) -> Path:
+    if stage_key == KNOWLEDGE_CLASSIFY_STAGE_KEY:
+        row_schema: dict[str, Any] = {
+            "type": "object",
+            "required": ["row_id", "category", "grounding"],
+            "properties": {
+                "row_id": {"type": "string"},
+                "category": {"type": "string"},
+                "grounding": {"type": "object"},
+            },
+        }
+    else:
+        row_schema = {
+            "type": "object",
+            "required": [
+                "row_id",
+                "group_key",
+                "topic_label",
+                "proposal_decision",
+                "proposed_tag",
+                "why_no_existing_tag",
+                "retrieval_query",
+            ],
+            "properties": {
+                "row_id": {"type": "string"},
+                "group_key": {"type": "string"},
+                "topic_label": {"type": "string"},
+                "proposal_decision": {"type": "string"},
+                "proposed_tag": {"type": ["object", "null"]},
+                "why_no_existing_tag": {"type": ["string", "null"]},
+                "retrieval_query": {"type": ["string", "null"]},
+            },
+        }
+    schema_payload = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["rows"],
+        "properties": {
+            "rows": {
+                "type": "array",
+                "minItems": max(0, int(expected_row_count)),
+                "maxItems": max(0, int(expected_row_count)),
+                "items": row_schema,
+            }
+        },
+    }
+    schema_path = session_root / f"output_schema_{schema_stem}.json"
+    schema_path.write_text(
+        json.dumps(schema_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return schema_path
+
+
 _KNOWLEDGE_SAME_SESSION_STATE_FILE_NAME = "knowledge_same_session_state.json"
 def _knowledge_same_session_state_path(worker_root: Path) -> Path:
     return worker_root / "_repo_control" / _KNOWLEDGE_SAME_SESSION_STATE_FILE_NAME
@@ -730,6 +790,12 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
         classification_events_path = session_root / "classification_initial_events.jsonl"
         classification_last_message_path = session_root / "classification_initial_last_message.json"
         classification_usage_path = session_root / "classification_initial_usage.json"
+        classification_output_schema_path = _build_knowledge_structured_output_schema(
+            session_root=session_root,
+            schema_stem="classification_initial",
+            stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY,
+            expected_row_count=len(classification_task_file.get("units") or []),
+        )
         classification_workspace_manifest_path = (
             session_root / "classification_initial_workspace_manifest.json"
         )
@@ -743,7 +809,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
             input_payload=classification_packet,
             working_dir=session_root,
             env=env,
-            output_schema_path=None,
+            output_schema_path=classification_output_schema_path,
             model=model,
             reasoning_effort=reasoning_effort,
             workspace_task_label="knowledge structured classification session",
@@ -886,6 +952,12 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                 repair_usage_path = (
                     session_root / f"classification_repair_usage_{repair_attempt_index:02d}.json"
                 )
+                repair_output_schema_path = _build_knowledge_structured_output_schema(
+                    session_root=session_root,
+                    schema_stem=f"classification_repair_{repair_attempt_index:02d}",
+                    stage_key=KNOWLEDGE_CLASSIFY_STAGE_KEY,
+                    expected_row_count=len(repair_task_file.get("units") or []),
+                )
                 repair_workspace_manifest_path = (
                     session_root
                     / f"classification_repair_workspace_manifest_{repair_attempt_index:02d}.json"
@@ -900,7 +972,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     input_payload=repair_packet,
                     working_dir=session_root,
                     env=env,
-                    output_schema_path=None,
+                    output_schema_path=repair_output_schema_path,
                     model=model,
                     reasoning_effort=reasoning_effort,
                     prepared_execution_working_dir=execution_workspace,
@@ -1058,6 +1130,12 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                 grouping_events_path = session_root / f"grouping_events_{batch_index:02d}.jsonl"
                 grouping_last_message_path = session_root / f"grouping_last_message_{batch_index:02d}.json"
                 grouping_usage_path = session_root / f"grouping_usage_{batch_index:02d}.json"
+                grouping_output_schema_path = _build_knowledge_structured_output_schema(
+                    session_root=session_root,
+                    schema_stem=f"grouping_{batch_index:02d}",
+                    stage_key=KNOWLEDGE_GROUP_STEP_KEY,
+                    expected_row_count=len(grouping_task_file.get("units") or []),
+                )
                 grouping_workspace_manifest_path = (
                     session_root / f"grouping_workspace_manifest_{batch_index:02d}.json"
                 )
@@ -1071,7 +1149,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     input_payload=grouping_packet,
                     working_dir=session_root,
                     env=env,
-                    output_schema_path=None,
+                    output_schema_path=grouping_output_schema_path,
                     model=model,
                     reasoning_effort=reasoning_effort,
                     prepared_execution_working_dir=execution_workspace,
@@ -1203,6 +1281,18 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                             session_root
                             / f"grouping_repair_usage_{batch_index:02d}_{repair_attempt_index:02d}.json"
                         )
+                        repair_grouping_output_schema_path = (
+                            _build_knowledge_structured_output_schema(
+                                session_root=session_root,
+                                schema_stem=(
+                                    f"grouping_repair_{batch_index:02d}_{repair_attempt_index:02d}"
+                                ),
+                                stage_key=KNOWLEDGE_GROUP_STEP_KEY,
+                                expected_row_count=len(
+                                    repair_grouping_task_file.get("units") or []
+                                ),
+                            )
+                        )
                         repair_grouping_workspace_manifest_path = (
                             session_root
                             / f"grouping_repair_workspace_manifest_{batch_index:02d}_{repair_attempt_index:02d}.json"
@@ -1220,7 +1310,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                             input_payload=repair_grouping_packet,
                             working_dir=session_root,
                             env=env,
-                            output_schema_path=None,
+                            output_schema_path=repair_grouping_output_schema_path,
                             model=model,
                             reasoning_effort=reasoning_effort,
                             prepared_execution_working_dir=execution_workspace,

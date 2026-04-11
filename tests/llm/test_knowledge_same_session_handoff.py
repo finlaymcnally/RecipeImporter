@@ -259,6 +259,55 @@ def test_same_session_handoff_resolves_proposal_candidates_during_grouping(
     ]
 
 
+def test_same_session_handoff_allows_kept_knowledge_rows_to_add_new_tags_in_grouping(
+    tmp_path: Path,
+) -> None:
+    workspace_root, state_path = _initialize_workspace(tmp_path)
+
+    task_file = load_task_file(workspace_root / "task.json")
+    edited = deepcopy(task_file)
+    edited["units"][0]["answer"] = _valid_classification_answer()
+    write_task_file(path=workspace_root / "task.json", payload=edited)
+
+    classification_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    grouping_task = load_task_file(workspace_root / "task.json")
+
+    assert classification_result["status"] == "advance_to_grouping"
+
+    grouping_task["units"][0]["answer"] = _grouping_answer(proposal_decision="approved")
+    write_task_file(path=workspace_root / "task.json", payload=grouping_task)
+
+    grouping_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    output_payload = json.loads(
+        (workspace_root / "out" / "book.ks0000.nr.json").read_text(encoding="utf-8")
+    )
+
+    assert grouping_result["status"] == "completed_with_grouping"
+    assert output_payload["block_decisions"] == [
+        {
+            "block_index": 8,
+            "category": "knowledge",
+            "grounding": {
+                "tag_keys": ["saute"],
+                "category_keys": ["cooking-method", "techniques"],
+                "proposed_tags": [
+                    {
+                        "key": "rendering",
+                        "display_name": "Rendering",
+                        "category_key": "techniques",
+                    }
+                ],
+            },
+        }
+    ]
+
+
 def test_same_session_handoff_rejects_category_only_grounding_and_enters_repair(
     tmp_path: Path,
 ) -> None:
@@ -440,7 +489,7 @@ def test_same_session_handoff_keeps_prior_valid_classification_answers_after_rep
     ]
 
 
-def test_same_session_handoff_completes_after_one_grouping_pass(
+def test_same_session_handoff_advances_across_multiple_grouping_batches(
     tmp_path: Path,
 ) -> None:
     block_count = KNOWLEDGE_GROUP_TASK_MAX_UNITS + 1
@@ -484,12 +533,29 @@ def test_same_session_handoff_completes_after_one_grouping_pass(
     assert first_grouping_result["status"] == "advance_to_grouping"
     assert first_grouping_result["grouping_transition_count"] == 1
     assert first_grouping_task["grouping_batch"]["current_batch_index"] == 1
-    assert first_grouping_task["grouping_batch"]["total_batches"] == 1
-    assert len(first_grouping_task["units"]) == block_count
+    assert first_grouping_task["grouping_batch"]["total_batches"] == 2
+    assert len(first_grouping_task["units"]) == KNOWLEDGE_GROUP_TASK_MAX_UNITS
 
     for unit in first_grouping_task["units"]:
         unit["answer"] = _grouping_answer()
     write_task_file(path=workspace_root / "task.json", payload=first_grouping_task)
+
+    second_grouping_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    second_grouping_task = load_task_file(workspace_root / "task.json")
+
+    assert second_grouping_result["status"] == "advance_to_grouping"
+    assert second_grouping_result["grouping_validation_count"] == 1
+    assert second_grouping_result["grouping_transition_count"] == 2
+    assert second_grouping_task["grouping_batch"]["current_batch_index"] == 2
+    assert second_grouping_task["grouping_batch"]["total_batches"] == 2
+    assert len(second_grouping_task["units"]) == 1
+
+    for unit in second_grouping_task["units"]:
+        unit["answer"] = _grouping_answer()
+    write_task_file(path=workspace_root / "task.json", payload=second_grouping_task)
 
     final_result = advance_knowledge_same_session_handoff(
         workspace_root=workspace_root,
@@ -500,8 +566,8 @@ def test_same_session_handoff_completes_after_one_grouping_pass(
     )
 
     assert final_result["status"] == "completed_with_grouping"
-    assert final_result["grouping_validation_count"] == 1
-    assert final_result["grouping_transition_count"] == 1
+    assert final_result["grouping_validation_count"] == 2
+    assert final_result["grouping_transition_count"] == 2
     assert len(output_payload["block_decisions"]) == block_count
     assert output_payload["idea_groups"] == [
         {
