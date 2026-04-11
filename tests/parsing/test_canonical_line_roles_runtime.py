@@ -1419,7 +1419,7 @@ def test_label_atomic_lines_workspace_mirrors_hint_and_input_artifacts(
     ).read_text(encoding="utf-8")
     worker_input_payload = json.loads(worker_input_text)
     assert set(worker_input_payload) == {"v", "shard_id", "rows"}
-    assert worker_input_payload["rows"] == [[0, "Ambiguous line 0"]]
+    assert worker_input_payload["rows"] == [[0, 0, "Ambiguous line 0"]]
     input_payload = json.loads(
         (
             prompt_root
@@ -1442,7 +1442,7 @@ def test_label_atomic_lines_workspace_mirrors_hint_and_input_artifacts(
             / "line-role-canonical-0001-a000000-a000000.json"
         ).read_text(encoding="utf-8")
     )
-    assert input_payload["rows"][0][1] == "Ambiguous line 0"
+    assert input_payload["rows"][0][2] == "Ambiguous line 0"
     assert debug_payload["rows"][0]["current_line"] == "Ambiguous line 0"
     assert "prev_text" not in debug_payload["rows"][0]
     assert "next_text" not in debug_payload["rows"][0]
@@ -1804,7 +1804,7 @@ def test_label_atomic_lines_preserves_partial_inline_shard_authority_and_repairs
             / "repair_packet_01.json"
         ).read_text(encoding="utf-8")
     )
-    assert repair_packet["rows"] == ["1 cup thinly sliced cabbage"]
+    assert repair_packet["rows"] == ["r01 | 2 | 1 cup thinly sliced cabbage"]
 
     shard_status_rows = [
         json.loads(line)
@@ -1905,13 +1905,21 @@ def test_label_atomic_lines_repairs_semantically_invalid_complete_labels_for_onl
             / "repair_packet_01.json"
         ).read_text(encoding="utf-8")
     )
-    assert repair_packet["rows"] == ["1 cup thinly sliced cabbage"]
+    assert repair_packet["rows"] == ["r01 | 2 | 1 cup thinly sliced cabbage"]
     assert repair_packet["validation_errors"] == [
         "semantic_invariant_violation:recipe_ingredient_anchor:2"
     ]
-    assert len(repair_packet["validation_hints"]) == 1
-    assert "INGREDIENT_LINE" in repair_packet["validation_hints"][0]
-    assert "rows[0]:" in repair_packet["validation_hints"][0]
+    assert repair_packet["previous_failed_rows"] == [
+        {
+            "failure_reasons": [
+                "semantic_invariant_violation",
+                "semantic_invariant_violation:recipe_ingredient_anchor:2",
+            ],
+            "previous_label": "RECIPE_NOTES",
+            "row_index": 0,
+            "row_text": "1 cup thinly sliced cabbage",
+        }
+    ]
 
     proposal_payload = json.loads(
         (
@@ -2017,19 +2025,44 @@ def test_label_atomic_lines_repairs_complete_recipe_start_when_title_yield_and_i
         ).read_text(encoding="utf-8")
     )
     assert repair_packet["rows"] == [
-        "Bright Cabbage Slaw",
-        "Serves 4 generously",
-        "1 cup thinly sliced cabbage",
+        "r01 | 0 | Bright Cabbage Slaw",
+        "r02 | 1 | Serves 4 generously",
+        "r03 | 2 | 1 cup thinly sliced cabbage",
     ]
     assert repair_packet["validation_errors"] == [
         "semantic_invariant_violation:recipe_title_reset:0",
         "semantic_invariant_violation:recipe_yield_anchor:1",
         "semantic_invariant_violation:recipe_ingredient_anchor:2",
     ]
-    assert len(repair_packet["validation_hints"]) == 3
-    assert any("RECIPE_TITLE" in hint for hint in repair_packet["validation_hints"])
-    assert any("YIELD_LINE" in hint for hint in repair_packet["validation_hints"])
-    assert any("INGREDIENT_LINE" in hint for hint in repair_packet["validation_hints"])
+    assert repair_packet["previous_failed_rows"] == [
+        {
+            "failure_reasons": [
+                "semantic_invariant_violation",
+                "semantic_invariant_violation:recipe_title_reset:0",
+            ],
+            "previous_label": "INGREDIENT_LINE",
+            "row_index": 0,
+            "row_text": "Bright Cabbage Slaw",
+        },
+        {
+            "failure_reasons": [
+                "semantic_invariant_violation",
+                "semantic_invariant_violation:recipe_yield_anchor:1",
+            ],
+            "previous_label": "RECIPE_NOTES",
+            "row_index": 1,
+            "row_text": "Serves 4 generously",
+        },
+        {
+            "failure_reasons": [
+                "semantic_invariant_violation",
+                "semantic_invariant_violation:recipe_ingredient_anchor:2",
+            ],
+            "previous_label": "NONRECIPE_CANDIDATE",
+            "row_index": 2,
+            "row_text": "1 cup thinly sliced cabbage",
+        },
+    ]
 
 
 def test_label_atomic_lines_repairs_partial_labels_reply_only_for_missing_rows(
@@ -2114,7 +2147,7 @@ def test_label_atomic_lines_repairs_partial_labels_reply_only_for_missing_rows(
             / "repair_packet_01.json"
         ).read_text(encoding="utf-8")
     )
-    assert repair_packet["rows"] == ["1 cup thinly sliced cabbage"]
+    assert repair_packet["rows"] == ["r01 | 2 | 1 cup thinly sliced cabbage"]
 
 
 def test_label_atomic_lines_inline_json_allows_three_incremental_repair_attempts(
@@ -2186,9 +2219,9 @@ def test_label_atomic_lines_inline_json_allows_three_incremental_repair_attempts
         True,
     ]
     assert repair_rows_seen == [
-        ["Serves 4 generously", "1 cup thinly sliced cabbage"],
-        ["1 cup thinly sliced cabbage"],
-        ["1 cup thinly sliced cabbage"],
+        ["r01 | 1 | Serves 4 generously", "r02 | 2 | 1 cup thinly sliced cabbage"],
+        ["r01 | 2 | 1 cup thinly sliced cabbage"],
+        ["r01 | 2 | 1 cup thinly sliced cabbage"],
     ]
 
     proposal_payload = json.loads(
@@ -2223,7 +2256,7 @@ def test_label_atomic_lines_inline_json_allows_three_incremental_repair_attempts
     third_repair_packet = json.loads(
         (structured_session_root / "repair_packet_03.json").read_text(encoding="utf-8")
     )
-    assert third_repair_packet["rows"] == ["1 cup thinly sliced cabbage"]
+    assert third_repair_packet["rows"] == ["r01 | 2 | 1 cup thinly sliced cabbage"]
 
     shard_status_rows = [
         json.loads(line)
