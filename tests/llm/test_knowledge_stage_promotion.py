@@ -90,11 +90,19 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
                 "group_key": "acid-balance",
                 "topic_label": "Acid balance",
                 "proposal_decision": "approved",
-                "proposed_tag": {
-                    "key": "acid-balancing",
-                    "display_name": "Acid balancing",
-                    "category_key": "techniques",
-                },
+                "proposed_tag": None,
+                "proposed_tags": [
+                    {
+                        "key": "acid-balancing",
+                        "display_name": "Acid balancing",
+                        "category_key": "techniques",
+                    },
+                    {
+                        "key": "richness-balancing",
+                        "display_name": "Richness balancing",
+                        "category_key": "techniques",
+                    },
+                ],
                 "why_no_existing_tag": "This row is about using acid to balance richness, not just brightness.",
                 "retrieval_query": "how to balance richness with acid",
             },
@@ -102,11 +110,14 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
                 "group_key": "dough-resting",
                 "topic_label": "Dough resting",
                 "proposal_decision": "approved",
-                "proposed_tag": {
-                    "key": "gluten-relaxation",
-                    "display_name": "Gluten Relaxation",
-                    "category_key": "techniques",
-                },
+                "proposed_tag": None,
+                "proposed_tags": [
+                    {
+                        "key": "gluten-relaxation",
+                        "display_name": "Gluten Relaxation",
+                        "category_key": "techniques",
+                    }
+                ],
                 "why_no_existing_tag": "The row is specifically about letting gluten relax.",
                 "retrieval_query": "rest dough gluten relax",
             },
@@ -132,6 +143,11 @@ def test_promotion_combines_classification_and_grouping_into_final_packet_output
                         {
                             "key": "acid-balancing",
                             "display_name": "Acid balancing",
+                            "category_key": "techniques",
+                        },
+                        {
+                            "key": "richness-balancing",
+                            "display_name": "Richness balancing",
                             "category_key": "techniques",
                         }
                     ],

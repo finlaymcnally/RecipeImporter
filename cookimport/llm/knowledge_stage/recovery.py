@@ -191,13 +191,13 @@ def _build_knowledge_taskfile_prompt(
         else (
             "- This is the grouping and proposal-resolution step.",
             "- Read the full grouping file, then fill every answer object in place before `task-handoff`.",
-            "- Answer each unit with `group_key`, `topic_label`, `proposal_decision`, `proposed_tag`, `why_no_existing_tag`, and `retrieval_query`.",
+            "- Answer each unit with `group_key`, `topic_label`, `proposal_decision`, proposal tags, `why_no_existing_tag`, and `retrieval_query`.",
             "- `group_key` and `topic_label` must both be non-empty strings.",
-            "- Units marked `classification.category=knowledge` are already retained through existing tags. Keep them grouped, set `proposal_decision` to `not_applicable`, and leave proposal fields empty.",
+            "- Units marked `classification.category=knowledge` are already retained through existing tags. Usually keep them grouped with `proposal_decision=not_applicable`, but you may still approve one or more new proposal tags if the existing tags are a bad fit.",
             "- Units marked `classification.category=proposal_candidate` must be resolved here with `proposal_decision` set to `approved` or `rejected`.",
             "- Approve only when the proposed tag names a strong standalone retrieval concept a cook would plausibly search for later.",
-            "- Approved proposal candidates must include exactly one normalized `proposed_tag` plus short `why_no_existing_tag` and `retrieval_query` strings.",
-            "- Rejected proposal candidates must leave `proposed_tag`, `why_no_existing_tag`, and `retrieval_query` empty.",
+            "- Approved rows may include one or more normalized proposal tags. Prefer `proposed_tags`, but legacy single `proposed_tag` is still accepted.",
+            "- Rejected proposal candidates must leave `proposed_tag` or `proposed_tags`, `why_no_existing_tag`, and `retrieval_query` empty.",
             "- Use concise group labels; the repo canonicalizes final group ids during deterministic expansion.",
             "- Do not revisit keep/drop classification in this step except by rejecting a proposal candidate back to `other`.",
         )

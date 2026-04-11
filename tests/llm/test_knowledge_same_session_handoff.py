@@ -76,23 +76,29 @@ def _proposal_candidate_answer() -> dict[str, object]:
 def _grouping_answer(
     *,
     proposal_decision: str = "not_applicable",
+    proposed_tags: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     answer: dict[str, object] = {
         "group_key": "heat-control",
         "topic_label": "Heat control",
         "proposal_decision": proposal_decision,
         "proposed_tag": None,
+        "proposed_tags": None,
         "why_no_existing_tag": None,
         "retrieval_query": None,
     }
     if proposal_decision == "approved":
+        normalized_tags = proposed_tags or [
+            {
+                "key": "rendering",
+                "display_name": "Rendering",
+                "category_key": "techniques",
+            }
+        ]
         answer.update(
             {
-                "proposed_tag": {
-                    "key": "rendering",
-                    "display_name": "Rendering",
-                    "category_key": "techniques",
-                },
+                "proposed_tag": dict(normalized_tags[0]),
+                "proposed_tags": [dict(tag) for tag in normalized_tags],
                 "why_no_existing_tag": "The catalog has adjacent heat tags but no direct rendering tag.",
                 "retrieval_query": "how to render chicken fat",
             }
@@ -302,6 +308,74 @@ def test_same_session_handoff_allows_kept_knowledge_rows_to_add_new_tags_in_grou
                         "display_name": "Rendering",
                         "category_key": "techniques",
                     }
+                ],
+            },
+        }
+    ]
+
+
+def test_same_session_handoff_allows_multiple_new_tags_in_grouping(
+    tmp_path: Path,
+) -> None:
+    workspace_root, state_path = _initialize_workspace(tmp_path)
+
+    task_file = load_task_file(workspace_root / "task.json")
+    edited = deepcopy(task_file)
+    edited["units"][0]["answer"] = _valid_classification_answer()
+    write_task_file(path=workspace_root / "task.json", payload=edited)
+
+    classification_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    grouping_task = load_task_file(workspace_root / "task.json")
+
+    assert classification_result["status"] == "advance_to_grouping"
+
+    grouping_task["units"][0]["answer"] = _grouping_answer(
+        proposal_decision="approved",
+        proposed_tags=[
+            {
+                "key": "rendering",
+                "display_name": "Rendering",
+                "category_key": "techniques",
+            },
+            {
+                "key": "fat-melting",
+                "display_name": "Fat melting",
+                "category_key": "techniques",
+            },
+        ],
+    )
+    write_task_file(path=workspace_root / "task.json", payload=grouping_task)
+
+    grouping_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    output_payload = json.loads(
+        (workspace_root / "out" / "book.ks0000.nr.json").read_text(encoding="utf-8")
+    )
+
+    assert grouping_result["status"] == "completed_with_grouping"
+    assert output_payload["block_decisions"] == [
+        {
+            "block_index": 8,
+            "category": "knowledge",
+            "grounding": {
+                "tag_keys": ["saute"],
+                "category_keys": ["cooking-method", "techniques"],
+                "proposed_tags": [
+                    {
+                        "key": "rendering",
+                        "display_name": "Rendering",
+                        "category_key": "techniques",
+                    },
+                    {
+                        "key": "fat-melting",
+                        "display_name": "Fat melting",
+                        "category_key": "techniques",
+                    },
                 ],
             },
         }

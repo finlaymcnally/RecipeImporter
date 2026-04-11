@@ -310,21 +310,21 @@ def build_knowledge_structured_prompt(
     )
     if stage_key == KNOWLEDGE_GROUP_STAGE_KEY:
         response_shape = (
-            '{"rows":[{"row_id":"r01","group_key":"heat-control","topic_label":"Heat control","proposal_decision":"approved","proposed_tag":{"key":"rendering","display_name":"Rendering","category_key":"techniques"},"why_no_existing_tag":"This row is about rendering fat specifically, not generic heat control.","retrieval_query":"how to render chicken fat"}]}'
+            '{"rows":[{"row_id":"r01","group_key":"heat-control","topic_label":"Heat control","proposal_decision":"approved","proposed_tags":[{"key":"rendering","display_name":"Rendering","category_key":"techniques"},{"key":"rendering-fat","display_name":"Rendering fat","category_key":"techniques"}],"why_no_existing_tag":"This row is about rendering fat specifically, not generic heat control.","retrieval_query":"how to render chicken fat"}]}'
         )
         task_note = (
             "Review the ordered knowledge rows and answer every `row_id` exactly once.\n"
             "Rows about the same idea should share the same `group_key` and `topic_label`.\n"
             "Rows marked `classification_category=knowledge` are already retained. Usually keep them grouped with `proposal_decision=not_applicable` and empty proposal fields.\n"
-            "If a kept knowledge row is real retrieval-grade knowledge but the existing tags are a bad fit, you may instead set `proposal_decision=approved` and add exactly one new `proposed_tag`.\n"
+            "If a kept knowledge row is real retrieval-grade knowledge but the existing tags are a bad fit, you may instead set `proposal_decision=approved` and add one or more new proposed tags.\n"
             "Rows marked `classification_category=proposal_candidate` must be resolved here with `proposal_decision` set to `approved` or `rejected`.\n"
             "Approve only when the proposed tag is a strong standalone search handle a cook might actually use later.\n"
             "When you approve a new tag, its `category_key` must be chosen from the packet `categories` list.\n"
             "Prefer concrete kitchen vocabulary rooted in the packet ontology, such as techniques, ingredients, storage, or equipment.\n"
             "Reject broad chapter-theme, editorial, or pedagogy-summary labels. If the only proposal that comes to mind is vague or bookish, reject it.\n"
-            "Approved rows must include exactly one `proposed_tag` plus short `why_no_existing_tag` and `retrieval_query` strings.\n"
-            "Keep `proposed_tag.key` as a normalized slug like `rendering-fat`, not prose.\n"
-            "Rejected proposal candidates must leave `proposed_tag`, `why_no_existing_tag`, and `retrieval_query` empty.\n"
+            "Approved rows may include as many proposal tags as are genuinely warranted. Prefer a `proposed_tags` array; a legacy single `proposed_tag` is also accepted.\n"
+            "Keep each proposed tag key as a normalized slug like `rendering-fat`, not prose.\n"
+            "Rejected proposal candidates must leave `proposed_tag` or `proposed_tags`, `why_no_existing_tag`, and `retrieval_query` empty.\n"
         )
     else:
         response_shape = (
@@ -604,7 +604,26 @@ def build_knowledge_edited_task_file_from_grouping_response(
                 "proposed_tag": (
                     dict(row.get("proposed_tag"))
                     if isinstance(row.get("proposed_tag"), Mapping)
-                    else row.get("proposed_tag")
+                    else (
+                        dict(row.get("proposed_tags")[0])
+                        if isinstance(row.get("proposed_tags"), list)
+                        and row.get("proposed_tags")
+                        and isinstance(row.get("proposed_tags")[0], Mapping)
+                        else row.get("proposed_tag")
+                    )
+                ),
+                "proposed_tags": (
+                    [dict(tag) for tag in row.get("proposed_tags") if isinstance(tag, Mapping)]
+                    if isinstance(row.get("proposed_tags"), list)
+                    else (
+                        [dict(row.get("proposed_tag"))]
+                        if isinstance(row.get("proposed_tag"), Mapping)
+                        else (
+                            [dict(tag) for tag in row.get("proposed_tag") if isinstance(tag, Mapping)]
+                            if isinstance(row.get("proposed_tag"), list)
+                            else row.get("proposed_tags")
+                        )
+                    )
                 ),
                 "why_no_existing_tag": str(
                     row.get("why_no_existing_tag") or ""

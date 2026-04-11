@@ -101,6 +101,7 @@ def test_grouping_validator_requires_non_empty_group_fields() -> None:
             "topic_label": "Heat control",
             "proposal_decision": "not_applicable",
             "proposed_tag": None,
+            "proposed_tags": None,
             "why_no_existing_tag": None,
             "retrieval_query": None,
         }
@@ -168,6 +169,13 @@ def test_grouping_validator_accepts_approved_ingredient_proposal_category() -> N
                 "display_name": "Choosing extra-virgin olive oil",
                 "category_key": "ingredients",
             },
+            "proposed_tags": [
+                {
+                    "key": "extra-virgin-olive-oil-selection",
+                    "display_name": "Choosing extra-virgin olive oil",
+                    "category_key": "ingredients",
+                }
+            ],
             "why_no_existing_tag": "This captures ingredient selection guidance not covered by an existing tag.",
             "retrieval_query": "how to choose extra virgin olive oil",
         }
@@ -200,11 +208,19 @@ def test_grouping_validator_accepts_approved_new_tag_for_kept_knowledge() -> Non
         "group_key": "early-salting",
         "topic_label": "Early salting",
         "proposal_decision": "approved",
-        "proposed_tag": {
-            "key": "early-salting",
-            "display_name": "Early salting",
-            "category_key": "techniques",
-        },
+        "proposed_tag": None,
+        "proposed_tags": [
+            {
+                "key": "early-salting",
+                "display_name": "Early salting",
+                "category_key": "techniques",
+            },
+            {
+                "key": "seasoning-timing",
+                "display_name": "Seasoning timing",
+                "category_key": "techniques",
+            },
+        ],
         "why_no_existing_tag": "The existing salt tag is too broad for this specific timing technique.",
         "retrieval_query": "when to salt meat early",
     }
@@ -226,6 +242,18 @@ def test_grouping_validator_accepts_approved_new_tag_for_kept_knowledge() -> Non
                 "display_name": "Early salting",
                 "category_key": "techniques",
             },
+            "proposed_tags": [
+                {
+                    "key": "early-salting",
+                    "display_name": "Early salting",
+                    "category_key": "techniques",
+                },
+                {
+                    "key": "seasoning-timing",
+                    "display_name": "Seasoning timing",
+                    "category_key": "techniques",
+                },
+            ],
             "why_no_existing_tag": "The existing salt tag is too broad for this specific timing technique.",
             "retrieval_query": "when to salt meat early",
         }
@@ -392,6 +420,56 @@ def test_structured_grouping_response_accepts_group_index_alias() -> None:
         "topic_label": "Heat control",
         "proposal_decision": "not_applicable",
         "proposed_tag": None,
+        "proposed_tags": None,
         "why_no_existing_tag": "",
         "retrieval_query": "",
+    }
+
+
+def test_structured_grouping_response_accepts_proposed_tags_array() -> None:
+    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[_shard(block_index=13, text="Resting batter smooths hydration and texture.")],
+    )
+    grouping_task_file, _ = build_knowledge_grouping_task_file(
+        assignment_id="worker-001",
+        worker_id="worker-001",
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id={"knowledge::13": {"category": "proposal_candidate"}},
+        unit_to_shard_id=unit_to_shard_id,
+    )
+
+    edited, errors, metadata = build_knowledge_edited_task_file_from_grouping_response(
+        original_task_file=grouping_task_file,
+        response_text=(
+            '{"rows":[{"row_id":"r01","group_key":"batter-resting","topic_label":"Batter resting","proposal_decision":"approved","proposed_tags":[{"key":"batter-resting","display_name":"Batter resting","category_key":"techniques"},{"key":"hydration-rest","display_name":"Hydration rest","category_key":"techniques"}],"why_no_existing_tag":"The row points to two specific retrieval handles around resting batter.","retrieval_query":"why rest batter before cooking"}]}'
+        ),
+    )
+
+    assert edited is not None
+    assert errors == ()
+    assert metadata == {}
+    assert edited["units"][0]["answer"] == {
+        "group_key": "batter-resting",
+        "topic_label": "Batter resting",
+        "proposal_decision": "approved",
+        "proposed_tag": {
+            "key": "batter-resting",
+            "display_name": "Batter resting",
+            "category_key": "techniques",
+        },
+        "proposed_tags": [
+            {
+                "key": "batter-resting",
+                "display_name": "Batter resting",
+                "category_key": "techniques",
+            },
+            {
+                "key": "hydration-rest",
+                "display_name": "Hydration rest",
+                "category_key": "techniques",
+            },
+        ],
+        "why_no_existing_tag": "The row points to two specific retrieval handles around resting batter.",
+        "retrieval_query": "why rest batter before cooking",
     }

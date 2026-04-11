@@ -206,6 +206,7 @@ def test_grouping_structured_response_reports_missing_duplicate_and_unknown_row_
         "topic_label": "Heat control",
         "proposal_decision": "not_applicable",
         "proposed_tag": None,
+        "proposed_tags": None,
         "why_no_existing_tag": "",
         "retrieval_query": "",
     }
@@ -214,6 +215,7 @@ def test_grouping_structured_response_reports_missing_duplicate_and_unknown_row_
         "topic_label": None,
         "proposal_decision": None,
         "proposed_tag": None,
+        "proposed_tags": None,
         "why_no_existing_tag": None,
         "retrieval_query": None,
     }

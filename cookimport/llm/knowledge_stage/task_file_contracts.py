@@ -100,6 +100,7 @@ def _blank_grouping_answer() -> dict[str, Any]:
         "topic_label": None,
         "proposal_decision": None,
         "proposed_tag": None,
+        "proposed_tags": None,
         "why_no_existing_tag": None,
         "retrieval_query": None,
     }
@@ -144,79 +145,157 @@ def _normalize_output_grounding(value: Any) -> dict[str, Any]:
     }
 
 
-def _validate_grouping_approved_proposed_tag(
+def _coerce_grouping_proposed_tag_rows(*values: Any) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for value in values:
+        if isinstance(value, Mapping):
+            rows.append(dict(value))
+            continue
+        if isinstance(value, list):
+            rows.extend(dict(row) for row in value if isinstance(row, Mapping))
+    return rows
+
+
+def _grouping_answer_proposed_tags(answer: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    payload = _coerce_dict(answer)
+    deduped: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for row in _coerce_grouping_proposed_tag_rows(
+        payload.get("proposed_tags"),
+        payload.get("proposed_tag"),
+    ):
+        proposed_key = str(row.get("key") or "").strip()
+        display_name = str(row.get("display_name") or "").strip()
+        category_key = str(row.get("category_key") or "").strip()
+        if not proposed_key or not display_name or not category_key:
+            continue
+        if proposed_key in seen_keys:
+            continue
+        seen_keys.add(proposed_key)
+        deduped.append(
+            {
+                "key": proposed_key,
+                "display_name": display_name,
+                "category_key": category_key,
+            }
+        )
+    return deduped
+
+
+def _validate_grouping_approved_proposed_tags(
     *,
     unit_id: str,
     proposed_tag_raw: Any,
-    proposed_tag: Mapping[str, Any],
+    proposed_tags_raw: Any,
     why_no_existing_tag: str | None,
     retrieval_query: str | None,
     tag_keys: set[str],
     category_keys: set[str],
     tag_keys_by_normalized_display_name: Mapping[str, Sequence[str]],
-) -> tuple[dict[str, Any] | None, list[str], list[dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], list[str], list[dict[str, Any]]]:
     errors: list[str] = []
     error_details: list[dict[str, Any]] = []
-    if not isinstance(proposed_tag_raw, Mapping):
+    proposed_rows = _coerce_grouping_proposed_tag_rows(proposed_tags_raw, proposed_tag_raw)
+    invalid_shape = (
+        proposed_tag_raw not in (None, "")
+        and not isinstance(proposed_tag_raw, (Mapping, list))
+    ) or (
+        proposed_tags_raw not in (None, "")
+        and not isinstance(proposed_tags_raw, (Mapping, list))
+    )
+    if invalid_shape or not proposed_rows:
         errors.append("approved_proposal_tag_required")
         error_details.append(
             {
-                "path": f"/units/{unit_id}/answer/proposed_tag",
+                "path": f"/units/{unit_id}/answer/proposed_tags",
                 "code": "approved_proposal_tag_required",
-                "message": "approved proposal rows must include one proposed_tag object",
+                "message": "approved proposal rows must include one or more proposed tag objects",
             }
         )
-        return None, errors, error_details
-    proposed_key = str(proposed_tag.get("key") or "").strip()
-    normalized_proposed_key = normalize_knowledge_tag_key(proposed_key)
-    display_name = str(proposed_tag.get("display_name") or "").strip()
-    normalized_display_name = normalize_knowledge_tag_key(display_name)
-    proposed_category_key = normalize_knowledge_tag_key(proposed_tag.get("category_key"))
-    if not proposed_key or proposed_key != normalized_proposed_key:
-        errors.append("invalid_proposed_tag_key")
-        error_details.append(
+        return [], errors, error_details
+    normalized_rows: list[dict[str, Any]] = []
+    seen_proposed_keys: set[str] = set()
+    for tag_index, proposed_tag in enumerate(proposed_rows):
+        proposed_key = str(proposed_tag.get("key") or "").strip()
+        normalized_proposed_key = normalize_knowledge_tag_key(proposed_key)
+        display_name = str(proposed_tag.get("display_name") or "").strip()
+        normalized_display_name = normalize_knowledge_tag_key(display_name)
+        proposed_category_key = normalize_knowledge_tag_key(proposed_tag.get("category_key"))
+        path_prefix = f"/units/{unit_id}/answer/proposed_tags/{tag_index}"
+        row_failed = False
+        if not proposed_key or proposed_key != normalized_proposed_key:
+            errors.append("invalid_proposed_tag_key")
+            error_details.append(
+                {
+                    "path": f"{path_prefix}/key",
+                    "code": "invalid_proposed_tag_key",
+                    "message": "proposed tag keys must already be normalized slug strings",
+                }
+            )
+            row_failed = True
+        elif normalized_proposed_key in tag_keys:
+            errors.append("proposed_tag_key_conflicts_existing")
+            error_details.append(
+                {
+                    "path": f"{path_prefix}/key",
+                    "code": "proposed_tag_key_conflicts_existing",
+                    "message": "proposed tag keys must not duplicate an existing tag key",
+                }
+            )
+            row_failed = True
+        elif normalized_proposed_key in seen_proposed_keys:
+            continue
+        if not display_name or len(display_name) > 64:
+            errors.append("invalid_proposed_tag_display_name")
+            error_details.append(
+                {
+                    "path": f"{path_prefix}/display_name",
+                    "code": "invalid_proposed_tag_display_name",
+                    "message": "proposed display_name must be a short non-empty string",
+                }
+            )
+            row_failed = True
+        elif tag_keys_by_normalized_display_name.get(normalized_display_name):
+            errors.append("proposed_tag_display_name_conflicts_existing")
+            error_details.append(
+                {
+                    "path": f"{path_prefix}/display_name",
+                    "code": "proposed_tag_display_name_conflicts_existing",
+                    "message": "proposed tag display_name matches an existing tag; use the existing tag instead",
+                }
+            )
+            row_failed = True
+        if not proposed_category_key or proposed_category_key not in category_keys:
+            errors.append("unknown_grounding_category_key")
+            error_details.append(
+                {
+                    "path": f"{path_prefix}/category_key",
+                    "code": "unknown_grounding_category_key",
+                    "message": "proposed tag category_key must be an existing category key",
+                }
+            )
+            row_failed = True
+        if row_failed:
+            continue
+        seen_proposed_keys.add(normalized_proposed_key)
+        normalized_rows.append(
             {
-                "path": f"/units/{unit_id}/answer/proposed_tag/key",
-                "code": "invalid_proposed_tag_key",
-                "message": "proposed tag keys must already be normalized slug strings",
+                "key": normalized_proposed_key,
+                "display_name": display_name,
+                "category_key": proposed_category_key,
             }
         )
-    elif normalized_proposed_key in tag_keys:
-        errors.append("proposed_tag_key_conflicts_existing")
-        error_details.append(
-            {
-                "path": f"/units/{unit_id}/answer/proposed_tag/key",
-                "code": "proposed_tag_key_conflicts_existing",
-                "message": "proposed tag keys must not duplicate an existing tag key",
-            }
-        )
-    if not display_name or len(display_name) > 64:
-        errors.append("invalid_proposed_tag_display_name")
-        error_details.append(
-            {
-                "path": f"/units/{unit_id}/answer/proposed_tag/display_name",
-                "code": "invalid_proposed_tag_display_name",
-                "message": "proposed display_name must be a short non-empty string",
-            }
-        )
-    elif tag_keys_by_normalized_display_name.get(normalized_display_name):
-        errors.append("proposed_tag_display_name_conflicts_existing")
-        error_details.append(
-            {
-                "path": f"/units/{unit_id}/answer/proposed_tag/display_name",
-                "code": "proposed_tag_display_name_conflicts_existing",
-                "message": "proposed tag display_name matches an existing tag; use the existing tag instead",
-            }
-        )
-    if not proposed_category_key or proposed_category_key not in category_keys:
-        errors.append("unknown_grounding_category_key")
-        error_details.append(
-            {
-                "path": f"/units/{unit_id}/answer/proposed_tag/category_key",
-                "code": "unknown_grounding_category_key",
-                "message": "proposed tag category_key must be an existing category key",
-            }
-        )
+    if not normalized_rows:
+        if "approved_proposal_tag_required" not in errors:
+            errors.append("approved_proposal_tag_required")
+            error_details.append(
+                {
+                    "path": f"/units/{unit_id}/answer/proposed_tags",
+                    "code": "approved_proposal_tag_required",
+                    "message": "approved proposal rows must include at least one valid proposed tag",
+                }
+            )
+        return [], errors, error_details
     if not why_no_existing_tag:
         errors.append("proposal_justification_required")
         error_details.append(
@@ -236,16 +315,8 @@ def _validate_grouping_approved_proposed_tag(
             }
         )
     if errors:
-        return None, errors, error_details
-    return (
-        {
-            "key": normalized_proposed_key,
-            "display_name": display_name,
-            "category_key": proposed_category_key,
-        },
-        [],
-        [],
-    )
+        return [], errors, error_details
+    return normalized_rows, [], []
 
 
 def build_task_file_answer_feedback(
@@ -358,10 +429,10 @@ def _knowledge_grouping_answer_schema() -> dict[str, Any]:
             "group_key",
             "topic_label",
             "proposal_decision",
-            "proposed_tag",
             "why_no_existing_tag",
             "retrieval_query",
         ],
+        "optional_keys": ["proposed_tag", "proposed_tags"],
         "allowed_values": {
             "proposal_decision": list(ALLOWED_KNOWLEDGE_PROPOSAL_DECISIONS),
         },
@@ -371,6 +442,7 @@ def _knowledge_grouping_answer_schema() -> dict[str, Any]:
                 "topic_label": "Heat control",
                 "proposal_decision": "not_applicable",
                 "proposed_tag": None,
+                "proposed_tags": None,
                 "why_no_existing_tag": None,
                 "retrieval_query": None,
             },
@@ -378,11 +450,19 @@ def _knowledge_grouping_answer_schema() -> dict[str, Any]:
                 "group_key": "rendering-fat",
                 "topic_label": "Rendering fat",
                 "proposal_decision": "approved",
-                "proposed_tag": {
-                    "key": "rendering",
-                    "display_name": "Rendering",
-                    "category_key": "techniques",
-                },
+                "proposed_tag": None,
+                "proposed_tags": [
+                    {
+                        "key": "rendering",
+                        "display_name": "Rendering",
+                        "category_key": "techniques",
+                    },
+                    {
+                        "key": "rendering-fat",
+                        "display_name": "Rendering fat",
+                        "category_key": "techniques",
+                    },
+                ],
                 "why_no_existing_tag": "The catalog has nearby heat tags but no direct tag for slowly melting solid fat into usable rendered fat.",
                 "retrieval_query": "how to render chicken fat",
             }
@@ -943,7 +1023,7 @@ def validate_knowledge_grouping_task_file(
         topic_label = str(answer.get("topic_label") or "").strip()
         proposal_decision = str(answer.get("proposal_decision") or "").strip()
         proposed_tag_raw = answer.get("proposed_tag")
-        proposed_tag = _coerce_dict(proposed_tag_raw)
+        proposed_tags_raw = answer.get("proposed_tags")
         why_no_existing_tag = _trimmed_text_or_none(answer.get("why_no_existing_tag"))
         retrieval_query = _trimmed_text_or_none(answer.get("retrieval_query"))
         unit_failed = False
@@ -978,9 +1058,15 @@ def validate_knowledge_grouping_task_file(
             )
             unit_failed = True
         normalized_proposed_tag: dict[str, Any] | None = None
+        normalized_proposed_tags: list[dict[str, Any]] = []
         if classification_category == "knowledge":
             if proposal_decision == "not_applicable":
-                if proposed_tag_raw not in (None, "") or why_no_existing_tag or retrieval_query:
+                if (
+                    proposed_tag_raw not in (None, "")
+                    or proposed_tags_raw not in (None, "")
+                    or why_no_existing_tag
+                    or retrieval_query
+                ):
                     next_errors.append("knowledge_grouping_proposal_forbidden")
                     error_details.append(
                         {
@@ -992,19 +1078,20 @@ def validate_knowledge_grouping_task_file(
                     unit_failed = True
             elif proposal_decision == "approved":
                 (
-                    normalized_proposed_tag,
+                    normalized_proposed_tags,
                     helper_errors,
                     helper_error_details,
-                ) = _validate_grouping_approved_proposed_tag(
+                ) = _validate_grouping_approved_proposed_tags(
                     unit_id=unit_id,
                     proposed_tag_raw=proposed_tag_raw,
-                    proposed_tag=proposed_tag,
+                    proposed_tags_raw=proposed_tags_raw,
                     why_no_existing_tag=why_no_existing_tag,
                     retrieval_query=retrieval_query,
                     tag_keys=tag_keys,
                     category_keys=category_keys,
                     tag_keys_by_normalized_display_name=tag_keys_by_normalized_display_name,
                 )
+                normalized_proposed_tag = normalized_proposed_tags[0] if normalized_proposed_tags else None
                 if helper_errors:
                     next_errors.extend(helper_errors)
                     error_details.extend(helper_error_details)
@@ -1031,7 +1118,12 @@ def validate_knowledge_grouping_task_file(
                 )
                 unit_failed = True
             if proposal_decision == "rejected":
-                if proposed_tag_raw not in (None, "") or why_no_existing_tag or retrieval_query:
+                if (
+                    proposed_tag_raw not in (None, "")
+                    or proposed_tags_raw not in (None, "")
+                    or why_no_existing_tag
+                    or retrieval_query
+                ):
                     next_errors.append("rejected_proposal_candidate_fields_forbidden")
                     error_details.append(
                         {
@@ -1043,19 +1135,20 @@ def validate_knowledge_grouping_task_file(
                     unit_failed = True
             elif proposal_decision == "approved":
                 (
-                    normalized_proposed_tag,
+                    normalized_proposed_tags,
                     helper_errors,
                     helper_error_details,
-                ) = _validate_grouping_approved_proposed_tag(
+                ) = _validate_grouping_approved_proposed_tags(
                     unit_id=unit_id,
                     proposed_tag_raw=proposed_tag_raw,
-                    proposed_tag=proposed_tag,
+                    proposed_tags_raw=proposed_tags_raw,
                     why_no_existing_tag=why_no_existing_tag,
                     retrieval_query=retrieval_query,
                     tag_keys=tag_keys,
                     category_keys=category_keys,
                     tag_keys_by_normalized_display_name=tag_keys_by_normalized_display_name,
                 )
+                normalized_proposed_tag = normalized_proposed_tags[0] if normalized_proposed_tags else None
                 if helper_errors:
                     next_errors.extend(helper_errors)
                     error_details.extend(helper_error_details)
@@ -1069,6 +1162,7 @@ def validate_knowledge_grouping_task_file(
             "topic_label": topic_label,
             "proposal_decision": proposal_decision,
             "proposed_tag": normalized_proposed_tag,
+            "proposed_tags": normalized_proposed_tags or None,
             "why_no_existing_tag": why_no_existing_tag,
             "retrieval_query": retrieval_query,
         }
@@ -1118,24 +1212,19 @@ def combine_knowledge_task_file_outputs(
             grounding = empty_grounding_payload()
             grouping_answer = _coerce_dict(grouping_answers.get(unit_id))
             proposal_decision = str(grouping_answer.get("proposal_decision") or "").strip()
-            proposed_tag = _coerce_dict(grouping_answer.get("proposed_tag"))
+            proposed_tags = _grouping_answer_proposed_tags(grouping_answer)
             if classification_category == "knowledge":
                 final_category = "knowledge"
                 grounding = _normalize_output_grounding(answer.get("grounding"))
-                if proposal_decision == "approved" and proposed_tag:
+                if proposal_decision == "approved" and proposed_tags:
                     combined_category_keys = _normalized_string_list(
                         list(grounding.get("category_keys") or [])
-                        + [str(proposed_tag.get("category_key") or "").strip()]
+                        + [
+                            str(proposed_tag.get("category_key") or "").strip()
+                            for proposed_tag in proposed_tags
+                        ]
                     )
-                    combined_proposed_tags = list(grounding.get("proposed_tags") or []) + [
-                        {
-                            "key": str(proposed_tag.get("key") or "").strip(),
-                            "display_name": str(proposed_tag.get("display_name") or "").strip(),
-                            "category_key": str(
-                                proposed_tag.get("category_key") or ""
-                            ).strip(),
-                        }
-                    ]
+                    combined_proposed_tags = list(grounding.get("proposed_tags") or []) + proposed_tags
                     grounding = {
                         "tag_keys": _normalized_string_list(grounding.get("tag_keys")),
                         "category_keys": combined_category_keys,
@@ -1153,25 +1242,19 @@ def combine_knowledge_task_file_outputs(
                         ],
                     }
             elif classification_category == "proposal_candidate":
-                if proposal_decision == "approved" and proposed_tag:
+                if proposal_decision == "approved" and proposed_tags:
                     final_category = "knowledge"
                     grounding = {
                         "tag_keys": [],
-                        "category_keys": [
-                            str(proposed_tag.get("category_key") or "").strip()
-                        ]
-                        if str(proposed_tag.get("category_key") or "").strip()
-                        else [],
+                        "category_keys": _normalized_string_list(
+                            [
+                                str(proposed_tag.get("category_key") or "").strip()
+                                for proposed_tag in proposed_tags
+                            ]
+                        ),
                         "proposed_tags": [
-                            {
-                                "key": str(proposed_tag.get("key") or "").strip(),
-                                "display_name": str(
-                                    proposed_tag.get("display_name") or ""
-                                ).strip(),
-                                "category_key": str(
-                                    proposed_tag.get("category_key") or ""
-                                ).strip(),
-                            }
+                            dict(proposed_tag)
+                            for proposed_tag in proposed_tags
                         ],
                     }
             block_decisions.append(
@@ -1250,9 +1333,9 @@ def collect_knowledge_resolution_metadata_by_shard(
                 }
             )
         elif classification_category == "proposal_candidate":
-            proposed_tag = _coerce_dict(grouping_answer.get("proposed_tag"))
             shard_row["proposal_candidate_block_count"] += 1
-            approved = proposal_decision == "approved" and bool(proposed_tag)
+            proposed_tags = _grouping_answer_proposed_tags(grouping_answer)
+            approved = proposal_decision == "approved" and bool(proposed_tags)
             if approved:
                 shard_row["approved_proposal_candidate_block_count"] += 1
             else:
@@ -1263,19 +1346,10 @@ def collect_knowledge_resolution_metadata_by_shard(
                     "classification_category": "proposal_candidate",
                     "final_category": "knowledge" if approved else "other",
                     "proposal_decision": proposal_decision or "rejected",
-                    "proposed_tag": (
-                        {
-                            "key": str(proposed_tag.get("key") or "").strip(),
-                            "display_name": str(
-                                proposed_tag.get("display_name") or ""
-                            ).strip(),
-                            "category_key": str(
-                                proposed_tag.get("category_key") or ""
-                            ).strip(),
-                        }
-                        if approved
-                        else None
-                    ),
+                    "proposed_tag": dict(proposed_tags[0]) if approved else None,
+                    "proposed_tags": [dict(proposed_tag) for proposed_tag in proposed_tags]
+                    if approved
+                    else [],
                     "why_no_existing_tag": _trimmed_text_or_none(
                         grouping_answer.get("why_no_existing_tag")
                     ),
