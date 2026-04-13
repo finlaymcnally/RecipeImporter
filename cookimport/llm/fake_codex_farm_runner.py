@@ -276,7 +276,9 @@ def _default_structured_knowledge_classification_output(
 def _default_structured_knowledge_grouping_output(
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
-    output_rows: list[dict[str, Any]] = []
+    output_groups: list[dict[str, Any]] = []
+    current_group: dict[str, Any] | None = None
+    current_story_key: tuple[str, str] | None = None
     for row in (payload.get("rows") or []):
         row_id, text_value = _structured_knowledge_row_parts(row)
         if not row_id:
@@ -286,7 +288,6 @@ def _default_structured_knowledge_grouping_output(
         topic_label = "Heat control" if "heat" in text else "Fake knowledge group"
         grounding = _default_fake_knowledge_grounding(text)
         answer = {
-            "row_id": row_id,
             "group_id": group_key,
             "topic_label": topic_label,
             "grounding": {
@@ -311,8 +312,21 @@ def _default_structured_knowledge_grouping_output(
             }
             answer["why_no_existing_tag"] = "No existing tag names this exact retrieval concept."
             answer["retrieval_query"] = "fake knowledge concept cooking"
-        output_rows.append(answer)
-    return {"rows": output_rows}
+        story_key = (
+            answer["topic_label"],
+            json.dumps(answer["grounding"], sort_keys=True),
+        )
+        if current_group is None or current_story_key != story_key:
+            current_group = {
+                **answer,
+                "start_row_id": row_id,
+                "end_row_id": row_id,
+            }
+            output_groups.append(current_group)
+            current_story_key = story_key
+            continue
+        current_group["end_row_id"] = row_id
+    return {"groups": output_groups}
 
 
 def _default_structured_line_role_output(payload: Mapping[str, Any]) -> dict[str, Any]:

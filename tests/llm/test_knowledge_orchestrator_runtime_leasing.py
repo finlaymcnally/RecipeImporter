@@ -188,7 +188,7 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     first_grounding = first_output["block_decisions"][0]["grounding"]
     assert first_output["idea_groups"] == [
         {
-            "group_id": "g02",
+            "group_id": "g01",
             "topic_label": "Fake knowledge group",
             "block_indices": [0],
             "grounding": {
@@ -295,7 +295,7 @@ def test_knowledge_orchestrator_runs_grouping_for_kept_knowledge_rows(
     assert output_payload["idea_groups"] == [
         {
             "block_indices": [0],
-            "group_id": "g02",
+            "group_id": "g01",
             "topic_label": "Fake knowledge group",
             "grounding": output_payload["block_decisions"][0]["grounding"],
             "why_no_existing_tag": None,
@@ -561,7 +561,7 @@ def test_knowledge_orchestrator_grouping_repairs_only_missing_rows_without_schem
     assert [call["mode"] for call in runner.calls] == [
         "structured_prompt",
         "structured_prompt",
-        "structured_prompt",
+        "structured_prompt_resume",
     ]
     assert [call["output_schema_path"] for call in runner.calls] == [None, None, None]
     assert not list(
@@ -884,15 +884,23 @@ def _structured_classification_labels(payload: dict[str, object]) -> list[str]:
     ]
 
 
-def _structured_grouping_rows(
+def _structured_grouping_groups(
     payload: dict[str, object],
     *,
     topic_label: str,
 ) -> list[dict[str, object]]:
+    row_ids = [
+        row_id
+        for row in (payload.get("rows") or [])
+        if (row_id := _structured_packet_row_id(row))
+    ]
+    if not row_ids:
+        return []
     return [
         {
-            "row_id": row_id,
             "group_id": "g01",
+            "start_row_id": row_ids[0],
+            "end_row_id": row_ids[-1],
             "topic_label": topic_label,
             "grounding": {
                 "tag_keys": ["saute"],
@@ -902,8 +910,6 @@ def _structured_grouping_rows(
             "why_no_existing_tag": None,
             "retrieval_query": None,
         }
-        for row in (payload.get("rows") or [])
-        if (row_id := _structured_packet_row_id(row))
     ]
 
 
@@ -941,7 +947,7 @@ class _MultiRepairClassificationInlineRunner(FakeCodexExecRunner):
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(
-                    {"rows": _structured_grouping_rows(payload, topic_label="Heat control")},
+                    {"groups": _structured_grouping_groups(payload, topic_label="Heat control")},
                     indent=2,
                     sort_keys=True,
                 ),
@@ -972,7 +978,7 @@ class _MultiRepairGroupingInlineRunner(FakeCodexExecRunner):
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(
-                    {"rows": _structured_grouping_rows(payload, topic_label="")},
+                    {"groups": _structured_grouping_groups(payload, topic_label="")},
                     indent=2,
                     sort_keys=True,
                 ),
@@ -983,7 +989,7 @@ class _MultiRepairGroupingInlineRunner(FakeCodexExecRunner):
                 return _packet_result_from_base(
                     base_result,
                     response_text=json.dumps(
-                        {"rows": _structured_grouping_rows(payload, topic_label="")},
+                        {"groups": _structured_grouping_groups(payload, topic_label="")},
                         indent=2,
                         sort_keys=True,
                     ),
@@ -991,7 +997,7 @@ class _MultiRepairGroupingInlineRunner(FakeCodexExecRunner):
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(
-                    {"rows": _structured_grouping_rows(payload, topic_label="Heat control")},
+                    {"groups": _structured_grouping_groups(payload, topic_label="Heat control")},
                     indent=2,
                     sort_keys=True,
                 ),
@@ -1018,11 +1024,14 @@ class _PartialGroupingRepairInlineRunner(FakeCodexExecRunner):
                 ),
             )
         if stage_key == "knowledge_group" and packet_kind == "grouping_1":
-            grouping_rows = _structured_grouping_rows(payload, topic_label="Heat control")
+            grouping_groups = _structured_grouping_groups(payload, topic_label="Heat control")
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(
-                    {"rows": grouping_rows[:-1]},
+                    {"groups": [] if not grouping_groups else [{
+                        **grouping_groups[0],
+                        "end_row_id": "r02",
+                    }]},
                     indent=2,
                     sort_keys=True,
                 ),
@@ -1031,7 +1040,7 @@ class _PartialGroupingRepairInlineRunner(FakeCodexExecRunner):
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(
-                    {"rows": _structured_grouping_rows(payload, topic_label="Heat control")},
+                    {"groups": _structured_grouping_groups(payload, topic_label="Heat control")},
                     indent=2,
                     sort_keys=True,
                 ),

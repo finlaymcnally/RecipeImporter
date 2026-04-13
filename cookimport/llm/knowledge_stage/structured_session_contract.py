@@ -445,14 +445,17 @@ def build_knowledge_structured_prompt(
     has_context = bool(packet.get("context_before_rows") or packet.get("context_after_rows"))
     if stage_key == KNOWLEDGE_GROUP_STAGE_KEY:
         response_shape = (
-            '{"rows":[{"row_id":"r01","group_id":"g01","topic_label":"Heat control","grounding":{"tag_keys":["heat-control"],"category_keys":["techniques"],"proposed_tags":[]},"why_no_existing_tag":null,"retrieval_query":null},{"row_id":"r02","group_id":"g01","topic_label":"Heat control","grounding":{"tag_keys":["heat-control"],"category_keys":["techniques"],"proposed_tags":[]},"why_no_existing_tag":null,"retrieval_query":null}]}'
+            '{"groups":[{"group_id":"g01","start_row_id":"r01","end_row_id":"r02","topic_label":"Heat control","grounding":{"tag_keys":["heat-control"],"category_keys":["techniques"],"proposed_tags":[]},"why_no_existing_tag":null,"retrieval_query":null}]}'
         )
         task_note = (
-            "Review the ordered knowledge rows and answer every `row_id` exactly once.\n"
+            "Review the ordered kept knowledge rows and partition them into contiguous reading-order groups.\n"
             "The packet `rows` array is ordered and authoritative; each row is rendered as `rXX | block_index | text`.\n"
-            "This is a group-first tagging pass: every row in this packet already survived the binary review and must be assigned to exactly one group.\n"
-            "Rows about the same idea must share the same `group_id`, `topic_label`, and full `grounding` story.\n"
-            "If some nearby rows need different tags, split them into a new `group_id` instead of mixing tag stories inside one group.\n"
+            "This is a split-and-tag pass: choose the group boundaries with the tag story in mind.\n"
+            "Every owned row in `rows` already survived the binary review and must belong to exactly one contiguous group.\n"
+            "Return one `groups` array. Each group claims an inclusive span with `start_row_id` and `end_row_id`.\n"
+            "The groups must cover every owned row exactly once, in order, with no gaps and no overlap.\n"
+            "Each group must carry one `group_id`, one `topic_label`, and one shared `grounding` story for that whole span.\n"
+            "If nearby rows need different tags, split them into different groups instead of mixing one vague story across them.\n"
             "When present, `row_facts` gives factual row metadata in compact `rXX | key=value` form.\n"
             "Use existing `tags` first whenever they fit cleanly.\n"
             "If no existing tag fits, you may use `grounding.proposed_tags`, but proposed tags must be strong standalone retrieval handles and must include both `why_no_existing_tag` and `retrieval_query`.\n"
@@ -460,6 +463,7 @@ def build_knowledge_structured_prompt(
             "Prefer concrete kitchen vocabulary rooted in the packet ontology, such as techniques, ingredients, storage, or equipment.\n"
             "Reject broad chapter-theme, editorial, or pedagogy-summary labels. If the only tag story that comes to mind is vague or bookish, split the rows differently or choose a better existing tag.\n"
             "Keep each proposed tag key as a normalized slug like `rendering-fat`, not prose.\n"
+            "Do not answer this step with one row object per row. Return groups, not row-level grouping answers.\n"
         )
     else:
         response_shape = '{"labels":["keep_for_review","other"]}'
@@ -494,7 +498,7 @@ def build_knowledge_structured_prompt(
         + task_note
         + context_note
         + repair_note
-        + f"Return exactly {row_count} result row(s): one for each owned `row_id` shown in `rows`.\n"
+        + f"The `groups` spans together must cover exactly {row_count} owned row(s).\n"
         + "Do not include commentary, markdown, or extra keys.\n"
         + "Response shape:\n"
         + response_shape
@@ -736,7 +740,126 @@ def build_knowledge_edited_task_file_from_grouping_response(
     seen_row_ids: set[str] = set()
     duplicate_row_ids: set[str] = set()
     unknown_row_ids: set[str] = set()
-    if isinstance(rows, list):
+    row_index_by_row_id = {
+        row_id: index for index, row_id in enumerate(owned_row_ids)
+    }
+    error_details: list[dict[str, Any]] = []
+    response_contract_errors: list[str] = []
+    groups = parsed.get("groups")
+    if isinstance(groups, list):
+        for group_index, group in enumerate(groups):
+            if not isinstance(group, Mapping):
+                return None, ("group_not_a_json_object",), {}
+            group_id = str(
+                group.get("group_id") or group.get("group_key") or group.get("group_index") or ""
+            ).strip()
+            topic_label = str(group.get("topic_label") or "").strip()
+            start_row_id = str(group.get("start_row_id") or "").strip()
+            end_row_id = str(group.get("end_row_id") or "").strip()
+            explicit_row_ids = [
+                str(value).strip()
+                for value in (group.get("row_ids") or [])
+                if str(value).strip()
+            ]
+            group_row_ids: list[str] = []
+            if explicit_row_ids:
+                unknown_in_group = [
+                    row_id
+                    for row_id in explicit_row_ids
+                    if row_id not in row_index_by_row_id
+                ]
+                if unknown_in_group:
+                    unknown_row_ids.update(unknown_in_group)
+                    continue
+                explicit_positions = [row_index_by_row_id[row_id] for row_id in explicit_row_ids]
+                expected_positions = list(
+                    range(min(explicit_positions), max(explicit_positions) + 1)
+                )
+                if explicit_positions != expected_positions:
+                    response_contract_errors.append("knowledge_group_noncontiguous_span")
+                    error_details.append(
+                        {
+                            "path": f"/response/groups/{group_index}/row_ids",
+                            "code": "knowledge_group_noncontiguous_span",
+                            "message": "group row_ids must form one contiguous ordered run",
+                        }
+                    )
+                    continue
+                group_row_ids = list(explicit_row_ids)
+            else:
+                if not start_row_id or not end_row_id:
+                    response_contract_errors.append("knowledge_group_missing_span")
+                    error_details.append(
+                        {
+                            "path": f"/response/groups/{group_index}",
+                            "code": "knowledge_group_missing_span",
+                            "message": "each group must provide either row_ids or both start_row_id and end_row_id",
+                        }
+                    )
+                    continue
+                if start_row_id not in row_index_by_row_id:
+                    unknown_row_ids.add(start_row_id)
+                    continue
+                if end_row_id not in row_index_by_row_id:
+                    unknown_row_ids.add(end_row_id)
+                    continue
+                start_index = row_index_by_row_id[start_row_id]
+                end_index = row_index_by_row_id[end_row_id]
+                if start_index > end_index:
+                    response_contract_errors.append("knowledge_group_noncontiguous_span")
+                    error_details.append(
+                        {
+                            "path": f"/response/groups/{group_index}",
+                            "code": "knowledge_group_noncontiguous_span",
+                            "message": "group start_row_id must appear before or equal to end_row_id",
+                        }
+                    )
+                    continue
+                group_row_ids = owned_row_ids[start_index : end_index + 1]
+            proposed_tags = [
+                dict(tag)
+                for tag in (
+                    group.get("proposed_tags")
+                    or ([group.get("proposed_tag")] if isinstance(group.get("proposed_tag"), Mapping) else [])
+                )
+                if isinstance(tag, Mapping)
+            ]
+            group_answer = {
+                "group_id": group_id,
+                "topic_label": topic_label,
+                "grounding": (
+                    dict(group.get("grounding"))
+                    if isinstance(group.get("grounding"), Mapping)
+                    else {
+                        "tag_keys": [
+                            str(value).strip()
+                            for value in (group.get("tag_keys") or [])
+                            if str(value).strip()
+                        ],
+                        "category_keys": [
+                            str(value).strip()
+                            for value in (group.get("category_keys") or [])
+                            if str(value).strip()
+                        ],
+                        "proposed_tags": proposed_tags,
+                    }
+                ),
+                "why_no_existing_tag": str(
+                    group.get("why_no_existing_tag") or ""
+                ).strip(),
+                "retrieval_query": str(group.get("retrieval_query") or "").strip(),
+            }
+            for row_id in group_row_ids:
+                if row_id in seen_row_ids:
+                    duplicate_row_ids.add(row_id)
+                    continue
+                seen_row_ids.add(row_id)
+                unit_id = unit_id_by_row_id.get(row_id)
+                if not unit_id:
+                    unknown_row_ids.add(row_id)
+                    continue
+                answers_by_unit_id[unit_id] = dict(group_answer)
+    elif isinstance(rows, list):
         for row in rows:
             if not isinstance(row, Mapping):
                 return None, ("row_not_a_json_object",), {}
@@ -793,11 +916,21 @@ def build_knowledge_edited_task_file_from_grouping_response(
         for row_id in owned_row_ids
         if row_id in unit_id_by_row_id and unit_id_by_row_id[row_id] not in answers_by_unit_id
     ]
-    response_contract_errors, response_contract_metadata = _response_contract_metadata(
+    base_response_contract_errors, response_contract_metadata = _response_contract_metadata(
         original_task_file=original_task_file,
         missing_unit_ids=missing_unit_ids,
         unknown_row_ids=sorted(unknown_row_ids),
         duplicate_row_ids=sorted(duplicate_row_ids),
+    )
+    combined_response_contract_errors = list(base_response_contract_errors)
+    if error_details:
+        response_contract_metadata = {
+            **dict(response_contract_metadata),
+            "error_details": list(response_contract_metadata.get("error_details") or [])
+            + error_details,
+        }
+    response_contract_errors = tuple(
+        dict.fromkeys(combined_response_contract_errors + response_contract_errors)
     )
     edited = dict(original_task_file)
     edited["units"] = []

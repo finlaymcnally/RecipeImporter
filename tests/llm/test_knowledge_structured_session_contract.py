@@ -127,17 +127,19 @@ def test_grouping_structured_prompt_is_group_first_and_parser_maps_group_groundi
         "r01 | classification=keep_for_review",
         "r02 | classification=keep_for_review",
     ]
-    assert "group-first tagging pass" in prompt
-    assert "Rows about the same idea must share the same `group_id`" in prompt
+    assert "split-and-tag pass" in prompt
+    assert "Return one `groups` array." in prompt
+    assert "choose the group boundaries with the tag story in mind" in prompt
 
     edited, errors, metadata = build_knowledge_edited_task_file_from_grouping_response(
         original_task_file=grouping_task_file,
         response_text=json.dumps(
             {
-                "rows": [
+                "groups": [
                     {
-                        "row_id": "r01",
                         "group_id": "g01",
+                        "start_row_id": "r01",
+                        "end_row_id": "r01",
                         "topic_label": "Heat control",
                         "grounding": {
                             "tag_keys": ["saute"],
@@ -148,8 +150,9 @@ def test_grouping_structured_prompt_is_group_first_and_parser_maps_group_groundi
                         "retrieval_query": None,
                     },
                     {
-                        "row_id": "r02",
                         "group_id": "g02",
+                        "start_row_id": "r02",
+                        "end_row_id": "r02",
                         "topic_label": "Dough resting",
                         "grounding": {
                             "tag_keys": [],
@@ -284,6 +287,54 @@ def test_grouping_repair_packet_preserves_previous_answer_and_validation_feedbac
     ]
     assert "repair_feedback_rows" in prompt
     assert "repair_validation_summary" in prompt
+
+
+def test_grouping_structured_response_rejects_noncontiguous_group_spans() -> None:
+    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[
+            _shard(shard_id="book.ks0000.nr", block_index=31, text="Use gentle heat for eggs."),
+            _shard(shard_id="book.ks0001.nr", block_index=32, text="Rest dough before rolling."),
+            _shard(shard_id="book.ks0002.nr", block_index=33, text="Return to gentle heat."),
+        ],
+    )
+    grouping_task_file, _ = build_knowledge_grouping_task_file(
+        assignment_id="worker-structured-001",
+        worker_id="worker-structured-001",
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id={
+            "knowledge::31": {"category": "keep_for_review"},
+            "knowledge::32": {"category": "keep_for_review"},
+            "knowledge::33": {"category": "keep_for_review"},
+        },
+        unit_to_shard_id=unit_to_shard_id,
+    )
+
+    edited, errors, metadata = build_knowledge_edited_task_file_from_grouping_response(
+        original_task_file=grouping_task_file,
+        response_text=json.dumps(
+            {
+                "groups": [
+                    {
+                        "group_id": "g01",
+                        "row_ids": ["r01", "r03"],
+                        "topic_label": "Heat control",
+                        "grounding": {
+                            "tag_keys": ["saute"],
+                            "category_keys": ["cooking-method"],
+                            "proposed_tags": [],
+                        },
+                        "why_no_existing_tag": None,
+                        "retrieval_query": None,
+                    }
+                ]
+            }
+        ),
+    )
+
+    assert edited is not None
+    assert "knowledge_group_noncontiguous_span" in errors
+    assert metadata["failed_unit_ids"] == ["knowledge::31", "knowledge::32", "knowledge::33"]
 
 
 def test_classification_repair_packet_preserves_packet_level_count_feedback() -> None:

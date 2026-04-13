@@ -72,6 +72,36 @@ def _group_answer(
     }
 
 
+def _group_span(
+    *,
+    group_id: str,
+    start_row_id: str,
+    end_row_id: str,
+    topic_label: str,
+    tag_keys: list[str] | None = None,
+    proposed_tags: list[dict[str, str]] | None = None,
+    why_no_existing_tag: str | None = None,
+    retrieval_query: str | None = None,
+) -> dict[str, object]:
+    answer = _group_answer(
+        group_id=group_id,
+        topic_label=topic_label,
+        tag_keys=tag_keys,
+        proposed_tags=proposed_tags,
+        why_no_existing_tag=why_no_existing_tag,
+        retrieval_query=retrieval_query,
+    )
+    return {
+        "group_id": answer["group_id"],
+        "start_row_id": start_row_id,
+        "end_row_id": end_row_id,
+        "topic_label": answer["topic_label"],
+        "grounding": answer["grounding"],
+        "why_no_existing_tag": answer["why_no_existing_tag"],
+        "retrieval_query": answer["retrieval_query"],
+    }
+
+
 def test_grouping_task_file_only_contains_kept_rows() -> None:
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
@@ -209,7 +239,7 @@ def test_grouping_structured_response_maps_group_fields_and_reports_missing_rows
 
     edited, errors, metadata = build_knowledge_edited_task_file_from_grouping_response(
         original_task_file=grouping_task_file,
-        response_text='{"rows":[{"row_id":"r01","group_id":"g01","topic_label":"Heat control","grounding":{"tag_keys":["saute"],"category_keys":["cooking-method"],"proposed_tags":[]},"why_no_existing_tag":null,"retrieval_query":null}]}',
+        response_text='{"groups":[{"group_id":"g01","start_row_id":"r01","end_row_id":"r01","topic_label":"Heat control","grounding":{"tag_keys":["saute"],"category_keys":["cooking-method"],"proposed_tags":[]},"why_no_existing_tag":null,"retrieval_query":null}]}',
     )
 
     assert edited is not None
@@ -237,6 +267,66 @@ def test_grouping_structured_response_maps_group_fields_and_reports_missing_rows
         "why_no_existing_tag": None,
         "retrieval_query": None,
     }
+
+
+def test_grouping_validator_rejects_noncontiguous_group_runs() -> None:
+    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[
+            _shard(block_index=31, text="Use gentle heat for eggs."),
+            _shard(block_index=32, text="Let dough rest before rolling."),
+            _shard(block_index=33, text="Return to gentle heat before serving."),
+        ],
+    )
+    grouping_task_file, _ = build_knowledge_grouping_task_file(
+        assignment_id="worker-001",
+        worker_id="worker-001",
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id={
+            "knowledge::31": {"category": "keep_for_review"},
+            "knowledge::32": {"category": "keep_for_review"},
+            "knowledge::33": {"category": "keep_for_review"},
+        },
+        unit_to_shard_id=unit_to_shard_id,
+    )
+
+    invalid = deepcopy(grouping_task_file)
+    invalid["units"][0]["answer"] = _group_answer(
+        group_id="g01",
+        topic_label="Heat control",
+        tag_keys=["saute"],
+    )
+    invalid["units"][1]["answer"] = _group_answer(
+        group_id="g02",
+        topic_label="Dough resting",
+        proposed_tags=[
+            {
+                "key": "dough-resting",
+                "display_name": "Dough resting",
+                "category_key": "techniques",
+            }
+        ],
+        why_no_existing_tag="No existing tag fits the dough-resting concept.",
+        retrieval_query="why rest dough before rolling",
+    )
+    invalid["units"][2]["answer"] = _group_answer(
+        group_id="g01",
+        topic_label="Heat control",
+        tag_keys=["saute"],
+    )
+
+    answers_by_unit_id, errors, metadata = validate_knowledge_grouping_task_file(
+        original_task_file=grouping_task_file,
+        edited_task_file=invalid,
+    )
+
+    assert answers_by_unit_id is None
+    assert "knowledge_group_noncontiguous_span" in errors
+    assert sorted(metadata["failed_unit_ids"]) == [
+        "knowledge::31",
+        "knowledge::33",
+    ]
+    assert metadata["knowledge_group_noncontiguous_blocks"] == [31, 33]
 
 
 def test_grouping_batches_stay_partitioned_for_large_kept_sets() -> None:

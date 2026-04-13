@@ -327,6 +327,10 @@ def run_codex_farm_nonrecipe_finalize(
                 "knowledge_prompt_target_count": run_settings.knowledge_prompt_target_count,
                 "knowledge_packet_input_char_budget": run_settings.knowledge_packet_input_char_budget,
                 "knowledge_packet_output_char_budget": run_settings.knowledge_packet_output_char_budget,
+                "knowledge_group_task_max_units": run_settings.knowledge_group_task_max_units,
+                "knowledge_group_task_max_evidence_chars": (
+                    run_settings.knowledge_group_task_max_evidence_chars
+                ),
                 "knowledge_worker_count": run_settings.knowledge_worker_count,
                 "knowledge_shard_max_turns": run_settings.knowledge_shard_max_turns,
                 "codex_farm_pipeline_knowledge": pipeline_id,
@@ -347,6 +351,10 @@ def run_codex_farm_nonrecipe_finalize(
                 "planning_warnings": list(build_report.planning_warnings),
                 "configured_packet_input_char_budget": run_settings.knowledge_packet_input_char_budget,
                 "configured_packet_output_char_budget": run_settings.knowledge_packet_output_char_budget,
+                "configured_group_task_max_units": run_settings.knowledge_group_task_max_units,
+                "configured_group_task_max_evidence_chars": (
+                    run_settings.knowledge_group_task_max_evidence_chars
+                ),
             },
             progress_worker_total=configured_worker_total,
             progress_callback=progress_callback,

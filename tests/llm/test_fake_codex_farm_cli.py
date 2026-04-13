@@ -591,7 +591,7 @@ def test_knowledge_taskfile_worker_can_run_through_fake_codex_farm_subprocess(
                 "proposed_tags": grounding["proposed_tags"],
                 "tag_keys": grounding["tag_keys"],
             },
-            "group_id": "g02",
+            "group_id": "g01",
             "retrieval_query": None,
             "topic_label": "Fake knowledge group",
             "why_no_existing_tag": None,

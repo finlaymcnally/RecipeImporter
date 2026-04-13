@@ -198,6 +198,23 @@ _POLICY_TABLE: dict[tuple[str, str, str | None], StageTransportPolicy] = {
     (
         KNOWLEDGE_POLICY_STAGE_KEY,
         INLINE_JSON_TRANSPORT,
+        None,
+    ): StageTransportPolicy(
+        stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+        transport=INLINE_JSON_TRANSPORT,
+        semantic_step_key=None,
+        allowed_followups=(
+            FollowupBudget(
+                kind=FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP,
+                surface="structured_session",
+                max_attempts=1,
+                scope=FOLLOWUP_SCOPE_SHARD_RESULT,
+            ),
+        ),
+    ),
+    (
+        KNOWLEDGE_POLICY_STAGE_KEY,
+        INLINE_JSON_TRANSPORT,
         KNOWLEDGE_CLASSIFY_STEP_KEY,
     ): StageTransportPolicy(
         stage_key=KNOWLEDGE_POLICY_STAGE_KEY,

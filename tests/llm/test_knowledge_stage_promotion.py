@@ -405,3 +405,120 @@ def test_promotion_remaps_batch_local_group_ids_across_one_shard() -> None:
     )
     assert valid is True
     assert errors == ()
+
+
+def test_promotion_keeps_separate_contiguous_runs_even_when_story_matches() -> None:
+    shards = [
+        _shard(
+            shard_id="book.ks0000.nr",
+            blocks=[
+                (11, "Use gentle heat for eggs."),
+                (12, "Rest dough before rolling."),
+                (13, "Return to gentle heat before serving."),
+            ],
+        )
+    ]
+    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+        assignment=WorkerAssignmentV1(
+            worker_id="worker-001",
+            shard_ids=("book.ks0000.nr",),
+            workspace_root="/tmp/worker-001",
+        ),
+        shards=shards,
+    )
+
+    outputs = combine_knowledge_task_file_outputs(
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id={
+            "knowledge::11": {"category": "keep_for_review"},
+            "knowledge::12": {"category": "keep_for_review"},
+            "knowledge::13": {"category": "keep_for_review"},
+        },
+        grouping_answers_by_unit_id={
+            "knowledge::11": {
+                "group_id": "g01",
+                "topic_label": "Heat control",
+                "grounding": {
+                    "tag_keys": ["saute"],
+                    "category_keys": ["cooking-method"],
+                    "proposed_tags": [],
+                },
+                "why_no_existing_tag": None,
+                "retrieval_query": None,
+            },
+            "knowledge::12": {
+                "group_id": "g02",
+                "topic_label": "Dough resting",
+                "grounding": {
+                    "tag_keys": [],
+                    "category_keys": ["techniques"],
+                    "proposed_tags": [
+                        {
+                            "key": "dough-resting",
+                            "display_name": "Dough resting",
+                            "category_key": "techniques",
+                        }
+                    ],
+                },
+                "why_no_existing_tag": "No existing tag fits the dough-resting concept.",
+                "retrieval_query": "why rest dough before rolling",
+            },
+            "knowledge::13": {
+                "group_id": "g03",
+                "topic_label": "Heat control",
+                "grounding": {
+                    "tag_keys": ["saute"],
+                    "category_keys": ["cooking-method"],
+                    "proposed_tags": [],
+                },
+                "why_no_existing_tag": None,
+                "retrieval_query": None,
+            },
+        },
+        unit_to_shard_id=unit_to_shard_id,
+    )
+
+    assert outputs["book.ks0000.nr"]["idea_groups"] == [
+        {
+            "group_id": "g01",
+            "topic_label": "Heat control",
+            "block_indices": [11],
+            "grounding": {
+                "tag_keys": ["saute"],
+                "category_keys": ["cooking-method"],
+                "proposed_tags": [],
+            },
+            "why_no_existing_tag": None,
+            "retrieval_query": None,
+        },
+        {
+            "group_id": "g02",
+            "topic_label": "Dough resting",
+            "block_indices": [12],
+            "grounding": {
+                "tag_keys": [],
+                "category_keys": ["techniques"],
+                "proposed_tags": [
+                    {
+                        "key": "dough-resting",
+                        "display_name": "Dough resting",
+                        "category_key": "techniques",
+                    }
+                ],
+            },
+            "why_no_existing_tag": "No existing tag fits the dough-resting concept.",
+            "retrieval_query": "why rest dough before rolling",
+        },
+        {
+            "group_id": "g03",
+            "topic_label": "Heat control",
+            "block_indices": [13],
+            "grounding": {
+                "tag_keys": ["saute"],
+                "category_keys": ["cooking-method"],
+                "proposed_tags": [],
+            },
+            "why_no_existing_tag": None,
+            "retrieval_query": None,
+        },
+    ]

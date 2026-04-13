@@ -36,7 +36,7 @@ def test_policy_table_matches_current_stage_transport_matrix() -> None:
         stage_key=KNOWLEDGE_POLICY_STAGE_KEY
     ) == {"structured_repair_followup_limit": 1}
     assert inline_repair_policy_summary(stage_key=LINE_ROLE_POLICY_STAGE_KEY) == {
-        "structured_repair_followup_limit": 1
+        "structured_repair_followup_limit": 3
     }
     assert inline_repair_policy_summary(
         stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
@@ -46,6 +46,10 @@ def test_policy_table_matches_current_stage_transport_matrix() -> None:
         stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
         semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
     ) == {"structured_repair_followup_limit": 3}
+    assert structured_repair_followup_limit(
+        stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+        transport=INLINE_JSON_TRANSPORT,
+    ) == 1
 
 
 def test_policy_rows_are_step_specific_for_knowledge_inline() -> None:
@@ -81,7 +85,7 @@ def test_line_role_inline_policy_includes_watchdog_retry_budget() -> None:
     budgets = {budget.kind: budget.max_attempts for budget in inline_policy.allowed_followups}
     budget_scopes = {budget.kind: budget.scope for budget in inline_policy.allowed_followups}
 
-    assert budgets["structured_repair_followup"] == 1
+    assert budgets["structured_repair_followup"] == 3
     assert budgets["watchdog_retry"] == 1
     assert budget_scopes["structured_repair_followup"] == "shard_result"
     assert budget_scopes["watchdog_retry"] == "shard_result"
@@ -169,6 +173,29 @@ def test_followup_budget_summary_reports_allowed_and_spent_counts() -> None:
         "budget_scope": "semantic_step",
         "allowed_attempts": 3,
         "spent_attempts": 2,
+        "remaining_attempts": 1,
+    }
+
+
+def test_knowledge_inline_budget_summary_reports_whole_shard_repair_followups() -> None:
+    summary = build_followup_budget_summary(
+        stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+        transport=INLINE_JSON_TRANSPORT,
+        spent_attempts_by_kind={
+            "structured_repair_followup": 1,
+        },
+        allowed_attempts_multiplier_by_kind={
+            "structured_repair_followup": 2,
+        },
+    )
+
+    assert summary["semantic_step_key"] is None
+    assert summary["budgets"]["structured_repair_followup"] == {
+        "followup_kind": "structured_repair_followup",
+        "followup_surface": "structured_session",
+        "budget_scope": "shard_result",
+        "allowed_attempts": 2,
+        "spent_attempts": 1,
         "remaining_attempts": 1,
     }
 

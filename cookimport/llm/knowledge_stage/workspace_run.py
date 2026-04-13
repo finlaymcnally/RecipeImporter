@@ -95,6 +95,156 @@ def _knowledge_inline_repair_should_resume(settings: Mapping[str, Any]) -> bool:
     ) == "resume"
 
 
+_KNOWLEDGE_FINAL_VALIDATION_BLOCK_METADATA_KEYS: tuple[tuple[str, str], ...] = (
+    (
+        "knowledge_blocks_missing_group",
+        "this kept row is still missing a valid final group after shard merge.",
+    ),
+    (
+        "knowledge_group_grounding_mismatch_blocks",
+        "this row's final group grounding does not match the row grounding after shard merge.",
+    ),
+    (
+        "knowledge_blocks_with_group_conflicts",
+        "this row ended up assigned to conflicting groups after shard merge.",
+    ),
+    (
+        "group_blocks_out_of_surface",
+        "this final group references a row that does not belong in a knowledge group.",
+    ),
+    (
+        "knowledge_grounding_existing_tag_required_blocks",
+        "this row must use an existing tag because the proposed tag conflicts with the catalog.",
+    ),
+    (
+        "missing_owned_block_indices",
+        "this row is missing from the final merged shard output.",
+    ),
+)
+
+
+def _knowledge_task_file_unit_ids(task_file_payload: Mapping[str, Any]) -> list[str]:
+    return [
+        str(unit.get("unit_id") or "").strip()
+        for unit in (task_file_payload.get("units") or [])
+        if isinstance(unit, Mapping) and str(unit.get("unit_id") or "").strip()
+    ]
+
+
+def _build_knowledge_whole_shard_grouping_validation_feedback(
+    *,
+    task_file_payload: Mapping[str, Any],
+    validation_errors: Sequence[str],
+    validation_metadata: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    unit_id_by_block_index: dict[int, str] = {}
+    for unit in task_file_payload.get("units") or []:
+        if not isinstance(unit, Mapping):
+            continue
+        unit_id = str(unit.get("unit_id") or "").strip()
+        evidence = _coerce_dict(unit.get("evidence"))
+        block_index = evidence.get("block_index")
+        if not unit_id or block_index is None:
+            continue
+        unit_id_by_block_index[int(block_index)] = unit_id
+
+    feedback_by_unit_id: dict[str, dict[str, Any]] = {}
+
+    def _append_feedback(
+        *,
+        unit_id: str,
+        error_code: str,
+        block_index: int,
+        message: str,
+    ) -> None:
+        row = feedback_by_unit_id.setdefault(
+            unit_id,
+            {
+                "validation_errors": [],
+                "error_details": [],
+            },
+        )
+        validation_error_rows = row.setdefault("validation_errors", [])
+        if error_code not in validation_error_rows:
+            validation_error_rows.append(error_code)
+        row.setdefault("error_details", []).append(
+            {
+                "code": error_code,
+                "block_index": int(block_index),
+                "message": message,
+            }
+        )
+
+    for metadata_key, message in _KNOWLEDGE_FINAL_VALIDATION_BLOCK_METADATA_KEYS:
+        for block_index in validation_metadata.get(metadata_key) or []:
+            unit_id = unit_id_by_block_index.get(int(block_index))
+            if unit_id is None:
+                continue
+            for error_code in validation_errors:
+                _append_feedback(
+                    unit_id=unit_id,
+                    error_code=str(error_code).strip(),
+                    block_index=int(block_index),
+                    message=message,
+                )
+    return feedback_by_unit_id
+
+
+def _build_knowledge_whole_shard_grouping_repair_task_file(
+    *,
+    assignment_id: str,
+    worker_id: str,
+    shard_id: str,
+    classification_task_file: Mapping[str, Any],
+    classification_answers_by_unit_id: Mapping[str, Mapping[str, Any]],
+    grouping_answers_by_unit_id: Mapping[str, Mapping[str, Any]],
+    unit_to_shard_id: Mapping[str, str],
+    validation_errors: Sequence[str],
+    validation_metadata: Mapping[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    shard_unit_to_shard_id = {
+        str(unit_id): str(owner_shard_id)
+        for unit_id, owner_shard_id in dict(unit_to_shard_id).items()
+        if str(unit_id).strip() and str(owner_shard_id).strip() == str(shard_id).strip()
+    }
+    if not shard_unit_to_shard_id:
+        return None, None
+    shard_grouping_task_files, _grouping_unit_to_shard_id, _batch_unit_ids = (
+        build_knowledge_grouping_task_files(
+            assignment_id=assignment_id,
+            worker_id=worker_id,
+            classification_task_file=classification_task_file,
+            classification_answers_by_unit_id=classification_answers_by_unit_id,
+            unit_to_shard_id=shard_unit_to_shard_id,
+            max_units_per_batch=max(1, len(shard_unit_to_shard_id)),
+            max_evidence_chars_per_batch=10**9,
+        )
+    )
+    if not shard_grouping_task_files:
+        return None, None
+    shard_grouping_task_file = dict(shard_grouping_task_files[0])
+    shard_unit_ids = _knowledge_task_file_unit_ids(shard_grouping_task_file)
+    if not shard_unit_ids:
+        return None, None
+    repair_task_file = build_repair_task_file(
+        original_task_file=shard_grouping_task_file,
+        failed_unit_ids=shard_unit_ids,
+        previous_answers_by_unit_id={
+            unit_id: dict(grouping_answers_by_unit_id.get(unit_id) or {})
+            for unit_id in shard_unit_ids
+            if isinstance(grouping_answers_by_unit_id.get(unit_id), Mapping)
+        },
+        validation_feedback_by_unit_id=_build_knowledge_whole_shard_grouping_validation_feedback(
+            task_file_payload=shard_grouping_task_file,
+            validation_errors=validation_errors,
+            validation_metadata=validation_metadata,
+        ),
+        repair_validation_errors=validation_errors,
+        repair_validation_metadata=validation_metadata,
+    )
+    return repair_task_file, shard_grouping_task_file
+
+
 def _attach_worker_guardrail_summary(
     *,
     worker_runner_payload: dict[str, Any],
@@ -584,6 +734,9 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
     stage_rows: list[dict[str, Any]] = []
     requested_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
     inline_repair_should_resume = _knowledge_inline_repair_should_resume(settings)
+    classification_repair_followup_count = 0
+    grouping_repair_followup_count = 0
+    whole_shard_grouping_repair_followup_count = 0
 
     def _record_structured_attempt(
         *,
@@ -925,6 +1078,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     prepared_execution_working_dir=execution_workspace,
                     workspace_task_label="knowledge structured classification repair session",
                 )
+                classification_repair_followup_count += 1
                 terminal_run_result = repair_run_result
                 repair_response_path.write_text(
                     str(repair_run_result.response_text or ""),
@@ -1255,6 +1409,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                             prepared_execution_working_dir=execution_workspace,
                             workspace_task_label="knowledge structured grouping repair session",
                         )
+                        grouping_repair_followup_count += 1
                         terminal_run_result = repair_grouping_run_result
                         repair_grouping_response_path.write_text(
                             str(repair_grouping_run_result.response_text or ""),
@@ -1382,69 +1537,290 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     proposal_errors = tuple(grouping_validation_errors)
                     break
             if not grouping_failed:
-                raw_proposal_payload = combine_knowledge_task_file_outputs(
-                    classification_task_file=classification_task_file,
-                    classification_answers_by_unit_id=classification_answers_by_unit_id,
-                    grouping_answers_by_unit_id=grouping_answers_by_unit_id,
-                    unit_to_shard_id=unit_to_shard_id,
-                ).get(shard.shard_id)
-                proposal_metadata = {
-                    **dict(classification_validation_metadata),
-                    **dict(
-                        collect_knowledge_resolution_metadata_by_shard(
-                            classification_task_file=classification_task_file,
-                            classification_answers_by_unit_id=classification_answers_by_unit_id,
-                            grouping_answers_by_unit_id=grouping_answers_by_unit_id,
-                            unit_to_shard_id=unit_to_shard_id,
-                        ).get(shard.shard_id)
-                        or {}
-                    ),
-                }
-                if raw_proposal_payload is None:
-                    proposal_payload = None
-                    proposal_status = "invalid"
-                    proposal_errors = ("missing_output_file",)
-                else:
+
+                def _assemble_and_validate_grouped_shard_proposal(
+                    *,
+                    current_grouping_answers_by_unit_id: Mapping[str, Mapping[str, Any]],
+                ) -> tuple[dict[str, Any] | None, str, tuple[str, ...], dict[str, Any]]:
+                    raw_proposal_payload = combine_knowledge_task_file_outputs(
+                        classification_task_file=classification_task_file,
+                        classification_answers_by_unit_id=classification_answers_by_unit_id,
+                        grouping_answers_by_unit_id=current_grouping_answers_by_unit_id,
+                        unit_to_shard_id=unit_to_shard_id,
+                    ).get(shard.shard_id)
+                    current_proposal_metadata = {
+                        **dict(classification_validation_metadata),
+                        **dict(
+                            collect_knowledge_resolution_metadata_by_shard(
+                                classification_task_file=classification_task_file,
+                                classification_answers_by_unit_id=classification_answers_by_unit_id,
+                                grouping_answers_by_unit_id=current_grouping_answers_by_unit_id,
+                                unit_to_shard_id=unit_to_shard_id,
+                            ).get(shard.shard_id)
+                            or {}
+                        ),
+                    }
+                    if raw_proposal_payload is None:
+                        return None, "invalid", ("missing_output_file",), current_proposal_metadata
                     try:
-                        proposal_payload, normalization_metadata = (
+                        sanitized_proposal_payload, normalization_metadata = (
                             sanitize_knowledge_worker_payload_for_shard(
                                 shard,
                                 raw_proposal_payload,
                             )
                         )
                     except Exception as exc:  # noqa: BLE001
-                        proposal_payload = None
-                        proposal_status = "invalid"
-                        proposal_errors = ("schema_invalid",)
-                        proposal_metadata = {
-                            **proposal_metadata,
-                            "parse_error": str(exc),
-                        }
-                    else:
-                        valid, validation_errors, validation_metadata = (
-                            validate_knowledge_shard_output(
-                                shard,
-                                proposal_payload,
+                        return (
+                            None,
+                            "invalid",
+                            ("schema_invalid",),
+                            {
+                                **current_proposal_metadata,
+                                "parse_error": str(exc),
+                            },
+                        )
+                    valid, validation_errors, validation_metadata = (
+                        validate_knowledge_shard_output(
+                            shard,
+                            sanitized_proposal_payload,
+                        )
+                    )
+                    current_proposal_metadata = {
+                        **current_proposal_metadata,
+                        **dict(validation_metadata or {}),
+                        **dict(normalization_metadata or {}),
+                    }
+                    if valid:
+                        return (
+                            sanitized_proposal_payload,
+                            "validated",
+                            (),
+                            current_proposal_metadata,
+                        )
+                    current_proposal_metadata["failure_classification"] = (
+                        classify_knowledge_validation_failure(
+                            validation_errors=validation_errors,
+                            validation_metadata=current_proposal_metadata,
+                        )
+                    )
+                    return (
+                        None,
+                        "invalid",
+                        tuple(validation_errors),
+                        current_proposal_metadata,
+                    )
+
+                (
+                    proposal_payload,
+                    proposal_status,
+                    proposal_errors,
+                    proposal_metadata,
+                ) = _assemble_and_validate_grouped_shard_proposal(
+                    current_grouping_answers_by_unit_id=grouping_answers_by_unit_id,
+                )
+
+                if proposal_status == "invalid":
+                    (
+                        whole_shard_grouping_repair_task_file,
+                        whole_shard_grouping_task_file,
+                    ) = _build_knowledge_whole_shard_grouping_repair_task_file(
+                        assignment_id=str(classification_task_file.get("assignment_id") or ""),
+                        worker_id=str(classification_task_file.get("worker_id") or ""),
+                        shard_id=shard.shard_id,
+                        classification_task_file=classification_task_file,
+                        classification_answers_by_unit_id=classification_answers_by_unit_id,
+                        grouping_answers_by_unit_id=grouping_answers_by_unit_id,
+                        unit_to_shard_id=unit_to_shard_id,
+                        validation_errors=proposal_errors,
+                        validation_metadata=proposal_metadata,
+                    )
+                    if (
+                        whole_shard_grouping_repair_task_file is not None
+                        and whole_shard_grouping_task_file is not None
+                    ):
+                        repair_packet = _knowledge_task_file_to_structured_packet(
+                            task_file_payload=whole_shard_grouping_repair_task_file,
+                            packet_kind="grouping_final_repair",
+                            validation_errors=proposal_errors,
+                        )
+                        repair_prompt = _build_knowledge_structured_prompt(
+                            task_file_payload=whole_shard_grouping_repair_task_file,
+                            packet=repair_packet,
+                        )
+                        repair_packet_path = session_root / "grouping_final_repair_packet.json"
+                        repair_prompt_path = session_root / "grouping_final_repair_prompt.txt"
+                        repair_response_path = session_root / "grouping_final_repair_response.json"
+                        repair_events_path = session_root / "grouping_final_repair_events.jsonl"
+                        repair_last_message_path = (
+                            session_root / "grouping_final_repair_last_message.json"
+                        )
+                        repair_usage_path = session_root / "grouping_final_repair_usage.json"
+                        repair_workspace_manifest_path = (
+                            session_root / "grouping_final_repair_workspace_manifest.json"
+                        )
+                        repair_packet_path.write_text(
+                            json.dumps(repair_packet, indent=2, sort_keys=True) + "\n",
+                            encoding="utf-8",
+                        )
+                        repair_prompt_path.write_text(repair_prompt, encoding="utf-8")
+                        if inline_repair_should_resume:
+                            assert_structured_session_can_resume(
+                                worker_root=session_root,
+                                execution_working_dir=execution_workspace,
                             )
+                        repair_run_result = runner.run_packet_worker(
+                            prompt_text=repair_prompt,
+                            input_payload=repair_packet,
+                            working_dir=session_root,
+                            env=env,
+                            output_schema_path=None,
+                            model=model,
+                            reasoning_effort=reasoning_effort,
+                            resume_last=inline_repair_should_resume,
+                            persist_session=inline_repair_should_resume,
+                            prepared_execution_working_dir=execution_workspace,
+                            workspace_task_label=(
+                                "knowledge structured whole-shard grouping repair session"
+                            ),
+                        )
+                        whole_shard_grouping_repair_followup_count += 1
+                        terminal_run_result = repair_run_result
+                        repair_response_path.write_text(
+                            str(repair_run_result.response_text or ""),
+                            encoding="utf-8",
+                        )
+                        repair_events_path.write_text(
+                            _render_events_jsonl(repair_run_result.events),
+                            encoding="utf-8",
+                        )
+                        _write_json(
+                            {"text": repair_run_result.response_text},
+                            repair_last_message_path,
+                        )
+                        _write_json(dict(repair_run_result.usage or {}), repair_usage_path)
+                        _write_json(
+                            repair_run_result.workspace_manifest(),
+                            repair_workspace_manifest_path,
+                        )
+                        record_structured_session_turn(
+                            worker_root=session_root,
+                            execution_working_dir=execution_workspace,
+                            turn_kind="grouping_final_repair",
+                            packet_path=repair_packet_path,
+                            prompt_path=repair_prompt_path,
+                            response_path=repair_response_path,
+                        )
+                        _record_structured_attempt(
+                            run_result=repair_run_result,
+                            shard_id=shard.shard_id,
+                            prompt_input_mode="structured_session_grouping_final_repair",
+                            semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
+                            owned_row_count=len(
+                                whole_shard_grouping_repair_task_file.get("units") or []
+                            ),
+                            validation_count=0,
+                            is_repair_attempt=True,
+                            events_path=repair_events_path,
+                            last_message_path=repair_last_message_path,
+                            usage_path=repair_usage_path,
+                            workspace_manifest_path=repair_workspace_manifest_path,
+                        )
+                        (
+                            repair_edited_task_file,
+                            repair_parse_errors,
+                            repair_parse_metadata,
+                        ) = _build_knowledge_edited_task_file_from_grouping_response(
+                            original_task_file=whole_shard_grouping_repair_task_file,
+                            response_text=repair_run_result.response_text,
                         )
                         proposal_metadata = {
-                            **proposal_metadata,
-                            **dict(validation_metadata or {}),
-                            **dict(normalization_metadata or {}),
+                            **dict(proposal_metadata or {}),
+                            "whole_shard_grouping_repair_attempted": True,
                         }
-                        if valid:
-                            proposal_status = "validated"
-                            proposal_errors = ()
-                        else:
+                        if repair_edited_task_file is None:
                             proposal_payload = None
                             proposal_status = "invalid"
-                            proposal_errors = tuple(validation_errors)
-                            proposal_metadata["failure_classification"] = (
-                                classify_knowledge_validation_failure(
-                                    validation_errors=proposal_errors,
-                                    validation_metadata=proposal_metadata,
-                                )
+                            proposal_errors = tuple(repair_parse_errors)
+                            proposal_metadata = {
+                                **proposal_metadata,
+                                **dict(repair_parse_metadata or {}),
+                                "whole_shard_grouping_repair_recovered": False,
+                            }
+                        else:
+                            (
+                                repair_grouping_answers_by_unit_id,
+                                _repair_grouping_errors,
+                                repair_grouping_validation_metadata,
+                            ) = validate_knowledge_grouping_task_file(
+                                original_task_file=whole_shard_grouping_repair_task_file,
+                                edited_task_file=repair_edited_task_file,
                             )
+                            final_grouping_answers_by_unit_id = _knowledge_merge_answers(
+                                grouping_answers_by_unit_id,
+                                dict(
+                                    repair_grouping_validation_metadata.get(
+                                        "validated_answers_by_unit_id"
+                                    )
+                                    or {}
+                                ),
+                            )
+                            final_grouping_answers_by_unit_id = _knowledge_merge_answers(
+                                final_grouping_answers_by_unit_id,
+                                repair_grouping_answers_by_unit_id,
+                            )
+                            final_grouping_task_file = _apply_answers_to_task_file(
+                                original_task_file=whole_shard_grouping_task_file,
+                                answers_by_unit_id=final_grouping_answers_by_unit_id,
+                            )
+                            (
+                                _validated_final_grouping_answers,
+                                final_grouping_validation_errors,
+                                final_grouping_validation_metadata,
+                            ) = validate_knowledge_grouping_task_file(
+                                original_task_file=whole_shard_grouping_task_file,
+                                edited_task_file=final_grouping_task_file,
+                            )
+                            (
+                                final_grouping_validation_errors,
+                                final_grouping_validation_metadata,
+                            ) = _merge_knowledge_response_contract_diagnostics(
+                                validation_errors=final_grouping_validation_errors,
+                                validation_metadata=final_grouping_validation_metadata,
+                                parse_errors=repair_parse_errors,
+                                parse_metadata=repair_parse_metadata,
+                            )
+                            if _knowledge_validation_blocked(
+                                final_grouping_validation_errors,
+                                final_grouping_validation_metadata,
+                            ):
+                                proposal_payload = None
+                                proposal_status = "invalid"
+                                proposal_errors = tuple(final_grouping_validation_errors)
+                                proposal_metadata = {
+                                    **proposal_metadata,
+                                    **dict(final_grouping_validation_metadata or {}),
+                                    "whole_shard_grouping_repair_recovered": False,
+                                }
+                            else:
+                                grouping_answers_by_unit_id = _knowledge_merge_answers(
+                                    grouping_answers_by_unit_id,
+                                    final_grouping_answers_by_unit_id,
+                                )
+                                (
+                                    proposal_payload,
+                                    proposal_status,
+                                    proposal_errors,
+                                    proposal_metadata_after_repair,
+                                ) = _assemble_and_validate_grouped_shard_proposal(
+                                    current_grouping_answers_by_unit_id=grouping_answers_by_unit_id,
+                                )
+                                proposal_metadata = {
+                                    **dict(proposal_metadata_after_repair or {}),
+                                    "whole_shard_grouping_repair_attempted": True,
+                                    "whole_shard_grouping_repair_recovered": (
+                                        proposal_status == "validated"
+                                    ),
+                                }
 
         proposal_path = run_root / artifacts["proposals_dir"] / f"{shard.shard_id}.json"
         _write_json(
@@ -1525,6 +1901,49 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
             stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
             semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
         ),
+    }
+    worker_runner_payload["repair_recovery_policy"] = {
+        "active_transport": INLINE_JSON_TRANSPORT,
+        "worker_assignment": build_followup_budget_summary(
+            stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+            transport=INLINE_JSON_TRANSPORT,
+            allowed_attempts_multiplier_by_kind={
+                FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: len(requested_shards),
+            },
+            spent_attempts_by_kind={
+                FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: (
+                    whole_shard_grouping_repair_followup_count
+                ),
+            },
+        ),
+        "semantic_steps": {
+            KNOWLEDGE_CLASSIFY_STEP_KEY: build_followup_budget_summary(
+                stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                transport=INLINE_JSON_TRANSPORT,
+                semantic_step_key=KNOWLEDGE_CLASSIFY_STEP_KEY,
+                allowed_attempts_multiplier_by_kind={
+                    FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: len(requested_shards),
+                },
+                spent_attempts_by_kind={
+                    FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: (
+                        classification_repair_followup_count
+                    ),
+                },
+            ),
+            KNOWLEDGE_GROUP_STEP_KEY: build_followup_budget_summary(
+                stage_key=KNOWLEDGE_POLICY_STAGE_KEY,
+                transport=INLINE_JSON_TRANSPORT,
+                semantic_step_key=KNOWLEDGE_GROUP_STEP_KEY,
+                allowed_attempts_multiplier_by_kind={
+                    FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: len(requested_shards),
+                },
+                spent_attempts_by_kind={
+                    FOLLOWUP_KIND_STRUCTURED_REPAIR_FOLLOWUP: (
+                        grouping_repair_followup_count
+                    ),
+                },
+            ),
+        },
     }
     _write_json(worker_runner_payload, worker_root / "status.json")
     return _DirectKnowledgeWorkerResult(

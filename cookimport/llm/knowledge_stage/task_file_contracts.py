@@ -1022,11 +1022,18 @@ def validate_knowledge_grouping_task_file(
     validated_answers: dict[str, dict[str, Any]] = {}
     canonical_story_by_group_id: dict[str, str] = {}
     unit_ids_by_group_id: dict[str, list[str]] = {}
+    row_position_by_unit_id: dict[str, int] = {}
     units_by_id = {
         str(unit.get("unit_id") or "").strip(): dict(unit)
         for unit in (original_task_file.get("units") or [])
         if isinstance(unit, Mapping) and str(unit.get("unit_id") or "").strip()
     }
+    for row_position, unit in enumerate(original_task_file.get("units") or []):
+        if not isinstance(unit, Mapping):
+            continue
+        unit_id = str(unit.get("unit_id") or "").strip()
+        if unit_id:
+            row_position_by_unit_id[unit_id] = row_position
     for unit_id, answer in answers_by_unit_id.items():
         unit = units_by_id.get(unit_id) or {}
         block_index = int(_coerce_dict(unit.get("evidence")).get("block_index") or 0)
@@ -1160,6 +1167,40 @@ def validate_knowledge_grouping_task_file(
             "why_no_existing_tag": why_no_existing_tag,
             "retrieval_query": retrieval_query,
         }
+    noncontiguous_blocks: list[int] = []
+    if not next_errors:
+        for group_id, grouped_unit_ids in unit_ids_by_group_id.items():
+            ordered_positions = sorted(
+                row_position_by_unit_id[unit_id]
+                for unit_id in grouped_unit_ids
+                if unit_id in row_position_by_unit_id
+            )
+            if not ordered_positions:
+                continue
+            expected_positions = list(
+                range(ordered_positions[0], ordered_positions[-1] + 1)
+            )
+            if ordered_positions == expected_positions:
+                continue
+            next_errors.append("knowledge_group_noncontiguous_span")
+            for conflicted_unit_id in grouped_unit_ids:
+                if conflicted_unit_id not in failed_unit_ids:
+                    failed_unit_ids.append(conflicted_unit_id)
+                conflicted_block_index = int(
+                    _coerce_dict(
+                        _coerce_dict(units_by_id.get(conflicted_unit_id)).get("evidence")
+                    ).get("block_index")
+                    or 0
+                )
+                unresolved_block_indices.append(conflicted_block_index)
+                noncontiguous_blocks.append(conflicted_block_index)
+            error_details.append(
+                {
+                    "path": f"/groups/{group_id}",
+                    "code": "knowledge_group_noncontiguous_span",
+                    "message": "rows sharing one group_id must form one contiguous run in packet order",
+                }
+            )
     next_metadata = {
         **dict(metadata),
         "error_details": error_details,
@@ -1169,6 +1210,10 @@ def validate_knowledge_grouping_task_file(
     }
     if next_errors:
         next_metadata["knowledge_blocks_missing_group"] = sorted(set(unresolved_block_indices))
+        if noncontiguous_blocks:
+            next_metadata["knowledge_group_noncontiguous_blocks"] = sorted(
+                set(noncontiguous_blocks)
+            )
         return None, tuple(dict.fromkeys(next_errors)), next_metadata
     return validated_answers, (), next_metadata
 
@@ -1325,8 +1370,9 @@ def _canonicalize_knowledge_groups_by_shard(
 ) -> dict[str, list[dict[str, Any]]]:
     grouped_rows_by_shard: dict[str, list[dict[str, Any]]] = {}
     for shard_id, rows in shard_rows.items():
-        story_order: list[str] = []
-        groups_by_story_key: dict[str, dict[str, Any]] = {}
+        canonical_groups: list[dict[str, Any]] = []
+        current_group: dict[str, Any] | None = None
+        current_story_key: str | None = None
         for block_index, answer, unit_id in sorted(rows, key=lambda row: row[0]):
             classification_category = str(answer.get("category") or "other").strip() or "other"
             if classification_category != "keep_for_review":
@@ -1352,9 +1398,8 @@ def _canonicalize_knowledge_groups_by_shard(
                 },
                 sort_keys=True,
             )
-            if story_key not in groups_by_story_key:
-                story_order.append(story_key)
-                groups_by_story_key[story_key] = {
+            if current_story_key != story_key or current_group is None:
+                current_group = {
                     "group_id": "",
                     "topic_label": topic_label,
                     "block_indices": [],
@@ -1362,22 +1407,24 @@ def _canonicalize_knowledge_groups_by_shard(
                     "why_no_existing_tag": why_no_existing_tag,
                     "retrieval_query": retrieval_query,
                 }
-            groups_by_story_key[story_key]["block_indices"].append(block_index)
+                canonical_groups.append(current_group)
+                current_story_key = story_key
+            current_group["block_indices"].append(block_index)
         grouped_rows_by_shard[shard_id] = [
             {
-                **groups_by_story_key[story_key],
+                **group_row,
                 "group_id": f"g{index:02d}",
                 "block_indices": sorted(
                     {
                         int(block_index)
                         for block_index in (
-                            groups_by_story_key[story_key].get("block_indices") or []
+                            group_row.get("block_indices") or []
                         )
                         if block_index is not None
                     }
                 ),
             }
-            for index, story_key in enumerate(story_order, start=1)
+            for index, group_row in enumerate(canonical_groups, start=1)
         ]
     return grouped_rows_by_shard
 
