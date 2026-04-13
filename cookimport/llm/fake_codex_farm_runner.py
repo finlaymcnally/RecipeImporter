@@ -116,7 +116,10 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
         stage_key = str(payload.get("stage_key") or "").strip()
         if stage_key == "nonrecipe_classify" and isinstance(payload.get("rows"), list):
             return _default_structured_knowledge_classification_output(payload)
-        if stage_key == "knowledge_group" and isinstance(payload.get("rows"), list):
+        if stage_key == "knowledge_group" and (
+            isinstance(payload.get("ordered_rows"), list)
+            or isinstance(payload.get("rows"), list)
+        ):
             return _default_structured_knowledge_grouping_output(payload)
         if (
             stage_key in {"nonrecipe_finalize", "nonrecipe_classify"}
@@ -265,12 +268,19 @@ def _default_fake_knowledge_grounding(text: str) -> dict[str, Any]:
 def _default_structured_knowledge_classification_output(
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
-    labels: list[str] = []
+    rows: list[dict[str, str]] = []
     for row in (payload.get("rows") or []):
-        _row_id, text = _structured_knowledge_row_parts(row)
+        row_id, text = _structured_knowledge_row_parts(row)
+        if not row_id:
+            continue
         grounding = _default_fake_knowledge_grounding(text)
-        labels.append("keep_for_review" if grounding["tag_keys"] else "other")
-    return {"labels": labels}
+        rows.append(
+            {
+                "row_id": row_id,
+                "category": "keep_for_review" if grounding["tag_keys"] else "other",
+            }
+        )
+    return {"rows": rows}
 
 
 def _default_structured_knowledge_grouping_output(
@@ -279,9 +289,14 @@ def _default_structured_knowledge_grouping_output(
     output_groups: list[dict[str, Any]] = []
     current_group: dict[str, Any] | None = None
     current_story_key: tuple[str, str] | None = None
-    for row in (payload.get("rows") or []):
+    grouping_rows = payload.get("ordered_rows")
+    if not isinstance(grouping_rows, list):
+        grouping_rows = payload.get("rows")
+    if not isinstance(grouping_rows, list):
+        grouping_rows = []
+    for row in grouping_rows:
         row_id, text_value = _structured_knowledge_row_parts(row)
-        if not row_id:
+        if not row_id or row_id.startswith("ctx"):
             continue
         text = text_value.lower()
         group_key = "g01" if "heat" in text else "g02"

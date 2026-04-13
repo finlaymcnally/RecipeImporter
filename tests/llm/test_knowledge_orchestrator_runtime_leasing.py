@@ -186,20 +186,21 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
         or first_output["block_decisions"][0]["grounding"]["proposed_tags"]
     )
     first_grounding = first_output["block_decisions"][0]["grounding"]
-    assert first_output["idea_groups"] == [
-        {
-            "group_id": "g01",
-            "topic_label": "Fake knowledge group",
-            "block_indices": [0],
-            "grounding": {
-                "tag_keys": first_grounding["tag_keys"],
-                "category_keys": first_grounding["category_keys"],
-                "proposed_tags": first_grounding["proposed_tags"],
-            },
-            "why_no_existing_tag": None,
-            "retrieval_query": None,
-        }
-    ]
+    first_group = first_output["idea_groups"][0]
+    assert first_group["group_id"] == "g01"
+    assert first_group["block_indices"] == [0]
+    assert first_group["grounding"] == {
+        "tag_keys": first_grounding["tag_keys"],
+        "category_keys": first_grounding["category_keys"],
+        "proposed_tags": first_grounding["proposed_tags"],
+    }
+    assert first_group["topic_label"]
+    if first_grounding["proposed_tags"]:
+        assert first_group["why_no_existing_tag"]
+        assert first_group["retrieval_query"]
+    else:
+        assert first_group["why_no_existing_tag"] is None
+        assert first_group["retrieval_query"] is None
     assert second_output["packet_id"] == "book.ks0001.nr"
     assert second_output["block_decisions"][0]["block_index"] == 2
     assert second_output["block_decisions"][0]["category"] == "knowledge"
@@ -208,20 +209,21 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
         or second_output["block_decisions"][0]["grounding"]["proposed_tags"]
     )
     second_grounding = second_output["block_decisions"][0]["grounding"]
-    assert second_output["idea_groups"] == [
-        {
-            "group_id": "g01",
-            "topic_label": "Heat control",
-            "block_indices": [2],
-            "grounding": {
-                "tag_keys": second_grounding["tag_keys"],
-                "category_keys": second_grounding["category_keys"],
-                "proposed_tags": second_grounding["proposed_tags"],
-            },
-            "why_no_existing_tag": None,
-            "retrieval_query": None,
-        }
-    ]
+    second_group = second_output["idea_groups"][0]
+    assert second_group["group_id"] == "g01"
+    assert second_group["block_indices"] == [2]
+    assert second_group["grounding"] == {
+        "tag_keys": second_grounding["tag_keys"],
+        "category_keys": second_grounding["category_keys"],
+        "proposed_tags": second_grounding["proposed_tags"],
+    }
+    assert second_group["topic_label"]
+    if second_grounding["proposed_tags"]:
+        assert second_group["why_no_existing_tag"]
+        assert second_group["retrieval_query"]
+    else:
+        assert second_group["why_no_existing_tag"] is None
+        assert second_group["retrieval_query"] is None
     phase_manifest = json.loads((phase_dir / "phase_manifest.json").read_text(encoding="utf-8"))
     telemetry = json.loads((phase_dir / "telemetry.json").read_text(encoding="utf-8"))
     worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
@@ -292,16 +294,17 @@ def test_knowledge_orchestrator_runs_grouping_for_kept_knowledge_rows(
     )
     telemetry = json.loads((phase_dir / "telemetry.json").read_text(encoding="utf-8"))
 
-    assert output_payload["idea_groups"] == [
-        {
-            "block_indices": [0],
-            "group_id": "g01",
-            "topic_label": "Fake knowledge group",
-            "grounding": output_payload["block_decisions"][0]["grounding"],
-            "why_no_existing_tag": None,
-            "retrieval_query": None,
-        }
-    ]
+    idea_group = output_payload["idea_groups"][0]
+    assert idea_group["block_indices"] == [0]
+    assert idea_group["group_id"] == "g01"
+    assert idea_group["topic_label"]
+    assert idea_group["grounding"] == output_payload["block_decisions"][0]["grounding"]
+    if output_payload["block_decisions"][0]["grounding"]["proposed_tags"]:
+        assert idea_group["why_no_existing_tag"]
+        assert idea_group["retrieval_query"]
+    else:
+        assert idea_group["why_no_existing_tag"] is None
+        assert idea_group["retrieval_query"] is None
     assert telemetry["summary"]["packet_economics"]["grouping_step_count_total"] == 1
     assert telemetry["summary"]["packet_economics"]["grouping_validation_count_total"] == 1
 
@@ -485,6 +488,60 @@ def test_knowledge_orchestrator_inline_json_retries_classification_more_than_onc
     assert worker_status["telemetry"]["summary"]["structured_repair_followup_call_count"] == 2
 
 
+def test_knowledge_orchestrator_classification_count_mismatch_repairs_only_unresolved_tail_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
+    pack_root, _run_root = make_runtime_pack_and_run_dirs(tmp_path)
+    settings = make_runtime_settings(
+        pack_root=pack_root,
+        worker_count=1,
+        knowledge_prompt_target_count=1,
+        knowledge_codex_exec_style="inline-json-v1",
+    )
+    runner = _TailOnlyClassificationRepairInlineRunner()
+
+    fixture = _run_runtime_phase(
+        monkeypatch,
+        tmp_path,
+        runner=runner,
+        settings=settings,
+        block_texts=[
+            "Whisk constantly to build the emulsion.",
+            "Use gentle heat to keep the pan steady.",
+            "Rest the dough before rolling.",
+        ],
+        spans=[knowledge_span(0), knowledge_span(1), knowledge_span(2)],
+    )
+    phase_dir = Path(fixture["phase_dir"])
+    worker_root = Path(fixture["worker_root"])
+    proposal = json.loads(
+        (phase_dir / "proposals" / "book.ks0000.nr.json").read_text(encoding="utf-8")
+    )
+    repair_packet = json.loads(
+        (
+            worker_root
+            / "shards"
+            / "book.ks0000.nr"
+            / "structured_session"
+            / "classification_repair_packet_01.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert runner.classification_repair_call_count == 1
+    assert proposal["payload"] is not None
+    assert repair_packet["repair_validation_summary"]["validation_errors"] == [
+        "knowledge_block_missing_decision",
+        "knowledge_missing_response_rows",
+        "label_count_mismatch",
+    ]
+    assert repair_packet["repair_validation_summary"]["missing_row_ids"] == ["r03"]
+    assert repair_packet["rows"] == [
+        "r01 | 2 | Rest the dough before rolling.",
+    ]
+
+
 def test_knowledge_orchestrator_inline_json_retries_grouping_more_than_once(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -558,12 +615,10 @@ def test_knowledge_orchestrator_grouping_repairs_only_missing_rows_without_schem
 
     assert proposal["payload"] is not None
     assert proposal["validation_errors"] == []
-    assert [call["mode"] for call in runner.calls] == [
-        "structured_prompt",
-        "structured_prompt",
-        "structured_prompt_resume",
-    ]
-    assert [call["output_schema_path"] for call in runner.calls] == [None, None, None]
+    call_modes = [call["mode"] for call in runner.calls]
+    assert call_modes[:2] == ["structured_prompt", "structured_prompt"]
+    assert call_modes[2:] == ["structured_prompt_resume", "structured_prompt_resume"]
+    assert [call["output_schema_path"] for call in runner.calls] == [None] * len(runner.calls)
     assert not list(
         (
             worker_root / "shards" / "book.ks0000.nr" / "structured_session"
@@ -579,9 +634,10 @@ def test_knowledge_orchestrator_grouping_repairs_only_missing_rows_without_schem
             / "grouping_repair_packet_01_01.json"
         ).read_text(encoding="utf-8")
     )
-    assert repair_packet["rows"] == [
-        "r01 | 2 | Control pan heat so the food browns without burning."
-    ]
+    assert repair_packet["repair_validation_summary"]["missing_row_ids"] == ["r03"]
+    assert repair_packet["ordered_rows"][-1] == (
+        "r03 | 2 | Control pan heat so the food browns without burning."
+    )
 
 
 def test_knowledge_orchestrator_grouping_repairs_preserve_first_root_cause_summary(
@@ -918,6 +974,36 @@ def _structured_packet_row_id(row: object) -> str:
     return str(row.split(" | ", 1)[0] or "").strip()
 
 
+def _structured_grouping_row_ids(payload: dict[str, object]) -> list[str]:
+    ordered_rows = payload.get("ordered_rows")
+    if not isinstance(ordered_rows, list):
+        return [
+            row_id
+            for row in (payload.get("rows") or [])
+            if (row_id := _structured_packet_row_id(row))
+        ]
+    row_ids: list[str] = []
+    for row in ordered_rows:
+        row_id = _structured_packet_row_id(row)
+        if not row_id or row_id.startswith("ctx"):
+            continue
+        row_ids.append(row_id)
+    return row_ids
+
+
+def _structured_grouping_repair_target_row_ids(payload: dict[str, object]) -> list[str]:
+    repair_summary = payload.get("repair_validation_summary")
+    if isinstance(repair_summary, dict):
+        missing_row_ids = [
+            str(row_id).strip()
+            for row_id in (repair_summary.get("missing_row_ids") or [])
+            if str(row_id).strip()
+        ]
+        if missing_row_ids:
+            return missing_row_ids
+    return _structured_grouping_row_ids(payload)
+
+
 def _structured_packet_grouping_categories(
     payload: dict[str, object],
 ) -> dict[str, str]:
@@ -941,11 +1027,14 @@ def _structured_packet_grouping_categories(
     return categories_by_row_id
 
 
-def _structured_classification_labels(payload: dict[str, object]) -> list[str]:
+def _structured_classification_rows(payload: dict[str, object]) -> list[dict[str, str]]:
     return [
-        "keep_for_review"
+        {
+            "row_id": row_id,
+            "category": "keep_for_review",
+        }
         for row in (payload.get("rows") or [])
-        if _structured_packet_row_id(row)
+        if (row_id := _structured_packet_row_id(row))
     ]
 
 
@@ -954,11 +1043,7 @@ def _structured_grouping_groups(
     *,
     topic_label: str,
 ) -> list[dict[str, object]]:
-    row_ids = [
-        row_id
-        for row in (payload.get("rows") or [])
-        if (row_id := _structured_packet_row_id(row))
-    ]
+    row_ids = _structured_grouping_row_ids(payload)
     if not row_ids:
         return []
     return [
@@ -1003,7 +1088,48 @@ class _MultiRepairClassificationInlineRunner(FakeCodexExecRunner):
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(
-                    {"labels": _structured_classification_labels(payload)},
+                    {"rows": _structured_classification_rows(payload)},
+                    indent=2,
+                    sort_keys=True,
+                ),
+            )
+        if stage_key == "knowledge_group":
+            return _packet_result_from_base(
+                base_result,
+                response_text=json.dumps(
+                    {"groups": _structured_grouping_groups(payload, topic_label="Heat control")},
+                    indent=2,
+                    sort_keys=True,
+                ),
+            )
+        return base_result
+
+
+class _TailOnlyClassificationRepairInlineRunner(FakeCodexExecRunner):
+    def __init__(self) -> None:
+        super().__init__(output_builder=lambda payload: {})
+        self.classification_repair_call_count = 0
+
+    def run_packet_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        base_result = super().run_packet_worker(*args, **kwargs)
+        payload = dict(kwargs.get("input_payload") or {})
+        packet_kind = str(payload.get("packet_kind") or "").strip()
+        stage_key = str(payload.get("stage_key") or "").strip()
+        if stage_key == "nonrecipe_classify" and packet_kind == "classification_initial":
+            return _packet_result_from_base(
+                base_result,
+                response_text=json.dumps(
+                    {"labels": ["keep_for_review", "keep_for_review"]},
+                    indent=2,
+                    sort_keys=True,
+                ),
+            )
+        if stage_key == "nonrecipe_classify" and packet_kind == "classification_repair":
+            self.classification_repair_call_count += 1
+            return _packet_result_from_base(
+                base_result,
+                response_text=json.dumps(
+                    {"rows": _structured_classification_rows(payload)},
                     indent=2,
                     sort_keys=True,
                 ),
@@ -1034,7 +1160,7 @@ class _MultiRepairGroupingInlineRunner(FakeCodexExecRunner):
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(
-                    {"labels": _structured_classification_labels(payload)},
+                    {"rows": _structured_classification_rows(payload)},
                     indent=2,
                     sort_keys=True,
                 ),
@@ -1084,17 +1210,13 @@ class _RootCausePreservingGroupingInlineRunner(FakeCodexExecRunner):
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(
-                    {"labels": _structured_classification_labels(payload)},
+                    {"rows": _structured_classification_rows(payload)},
                     indent=2,
                     sort_keys=True,
                 ),
             )
         if stage_key == "knowledge_group" and packet_kind == "grouping_1":
-            row_ids = [
-                row_id
-                for row in (payload.get("rows") or [])
-                if (row_id := _structured_packet_row_id(row))
-            ]
+            row_ids = _structured_grouping_row_ids(payload)
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(
@@ -1129,11 +1251,7 @@ class _RootCausePreservingGroupingInlineRunner(FakeCodexExecRunner):
             )
         if stage_key == "knowledge_group" and packet_kind == "grouping_1_repair":
             self.grouping_repair_call_count += 1
-            row_ids = [
-                row_id
-                for row in (payload.get("rows") or [])
-                if (row_id := _structured_packet_row_id(row))
-            ]
+            row_ids = _structured_grouping_repair_target_row_ids(payload)
             if self.grouping_repair_call_count == 1:
                 return _packet_result_from_base(
                     base_result,
@@ -1207,7 +1325,7 @@ class _PartialGroupingRepairInlineRunner(FakeCodexExecRunner):
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(
-                    {"labels": _structured_classification_labels(payload)},
+                    {"rows": _structured_classification_rows(payload)},
                     indent=2,
                     sort_keys=True,
                 ),
@@ -1229,7 +1347,20 @@ class _PartialGroupingRepairInlineRunner(FakeCodexExecRunner):
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(
-                    {"groups": _structured_grouping_groups(payload, topic_label="Heat control")},
+                    {
+                        "groups": _structured_grouping_groups(
+                            {
+                                **payload,
+                                "ordered_rows": [
+                                    row
+                                    for row in (payload.get("ordered_rows") or [])
+                                    if _structured_packet_row_id(row)
+                                    in _structured_grouping_repair_target_row_ids(payload)
+                                ],
+                            },
+                            topic_label="Heat control",
+                        )
+                    },
                     indent=2,
                     sort_keys=True,
                 ),

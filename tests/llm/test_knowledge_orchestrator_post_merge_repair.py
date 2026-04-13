@@ -16,7 +16,7 @@ from tests.llm.knowledge_packet_test_support import (
 from tests.llm.test_knowledge_orchestrator_runtime_leasing import (
     _packet_result_from_base,
     _run_runtime_phase,
-    _structured_classification_labels,
+    _structured_classification_rows,
     _structured_grouping_groups,
 )
 
@@ -35,7 +35,7 @@ class _WholeShardFinalRepairInlineRunner(FakeCodexExecRunner):
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(
-                    {"labels": _structured_classification_labels(payload)},
+                    {"rows": _structured_classification_rows(payload)},
                     indent=2,
                     sort_keys=True,
                 ),
@@ -142,7 +142,7 @@ def test_knowledge_orchestrator_runs_whole_shard_grouping_repair_after_merge_val
     assert final_repair_packet["repair_validation_summary"]["validation_errors"] == [
         "knowledge_group_grounding_mismatch"
     ]
-    assert final_repair_packet["rows"] == [
+    assert final_repair_packet["ordered_rows"] == [
         "r01 | 0 | Use medium heat to keep the pan under control.",
         "r02 | 1 | Stay with the pan so the heat stays even.",
     ]

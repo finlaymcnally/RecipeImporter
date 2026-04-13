@@ -61,14 +61,14 @@ def test_classification_structured_packet_and_prompt_use_compact_binary_surface(
         "r01 | 21 | Acid brightens rich dishes.",
         "r02 | 22 | Chapter opener.",
     ]
-    assert "labels" in prompt
+    assert '"row_id":"r01"' in prompt
     assert "keep_for_review" in prompt
     assert "keep it `other` in this first pass" in prompt
     assert "let the explanatory body carry the knowledge" in prompt
     assert "Do not think about tags during classification." in prompt
 
 
-def test_classification_structured_response_accepts_labels_array() -> None:
+def test_classification_structured_response_accepts_row_grounded_rows_array() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
@@ -79,7 +79,14 @@ def test_classification_structured_response_accepts_labels_array() -> None:
 
     edited, errors, metadata = build_knowledge_edited_task_file_from_classification_response(
         original_task_file=task_file,
-        response_text=json.dumps({"labels": ["keep_for_review", "other"]}),
+        response_text=json.dumps(
+            {
+                "rows": [
+                    {"row_id": "r01", "category": "keep_for_review"},
+                    {"row_id": "r02", "category": "other"},
+                ]
+            }
+        ),
     )
 
     assert edited is not None
@@ -95,6 +102,29 @@ def test_classification_structured_response_accepts_labels_array() -> None:
         "knowledge::21": {"category": "keep_for_review"},
         "knowledge::22": {"category": "other"},
     }
+
+
+def test_classification_structured_response_salvages_short_legacy_labels_array() -> None:
+    task_file, _ = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[
+            _shard(shard_id="book.ks0000.nr", block_index=21, text="Acid brightens rich dishes."),
+            _shard(shard_id="book.ks0001.nr", block_index=22, text="Chapter opener."),
+            _shard(shard_id="book.ks0002.nr", block_index=23, text="Use gentle heat."),
+        ],
+    )
+
+    edited, errors, metadata = build_knowledge_edited_task_file_from_classification_response(
+        original_task_file=task_file,
+        response_text=json.dumps({"labels": ["keep_for_review", "other"]}),
+    )
+
+    assert edited is not None
+    assert errors == ("knowledge_missing_response_rows", "label_count_mismatch")
+    assert metadata["expected_label_count"] == 3
+    assert metadata["returned_label_count"] == 2
+    assert metadata["failed_unit_ids"] == ["knowledge::23"]
+    assert metadata["missing_row_ids"] == ["r03"]
 
 
 def test_grouping_structured_prompt_is_group_first_and_parser_maps_group_grounding() -> None:

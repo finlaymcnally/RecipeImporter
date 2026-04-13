@@ -140,6 +140,7 @@ def test_structured_prompt_keeps_first_pass_tag_free_and_binary() -> None:
     assert "let the explanatory body carry the knowledge" in prompt
     assert "Do not think about tags during classification." in prompt
     assert "Tagging happens only in the second pass." in prompt
+    assert 'Response shape:\n{"rows":[{"row_id":"r01","category":"keep_for_review"},{"row_id":"r02","category":"other"}]}' in prompt
     assert "rows sharing one group_id" not in prompt
     assert "Use the provided existing `tags` catalog first" not in prompt
 

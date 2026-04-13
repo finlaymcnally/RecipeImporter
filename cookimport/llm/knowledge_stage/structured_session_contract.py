@@ -643,13 +643,13 @@ def build_knowledge_structured_prompt(
             "Valid proposed-tag example: `{\"group_id\":\"g02\",\"start_row_id\":\"r03\",\"end_row_id\":\"r03\",\"topic_label\":\"Dough resting\",\"grounding\":{\"tag_keys\":[],\"category_keys\":[\"techniques\"],\"proposed_tags\":[{\"key\":\"dough-resting\",\"display_name\":\"Dough resting\",\"category_key\":\"techniques\"}]},\"why_no_existing_tag\":\"No existing tag covers the rest-before-rolling concept.\",\"retrieval_query\":\"rest dough before rolling\"}`.\n"
         )
     else:
-        response_shape = '{"labels":["keep_for_review","other"]}'
+        response_shape = '{"rows":[{"row_id":"r01","category":"keep_for_review"},{"row_id":"r02","category":"other"}]}'
         task_note = (
             "Review the ordered knowledge rows and answer every `row_id` exactly once.\n"
             "The packet `rows` array is ordered and authoritative; each row is rendered as `rXX | block_index | text`.\n"
             "Reason about the packet holistically first: read short local runs of adjacent rows together before deciding any single row.\n"
             "Decide by local span, emit by row. Neighboring rows often explain what role a row plays, but you must still return one final answer per `row_id`.\n"
-            "Return one ordered `labels` array with exactly one label per row.\n"
+            "Return one ordered `rows` array with exactly one `{row_id, category}` object per row.\n"
             "Classify each row only as `keep_for_review` or `other`.\n"
             "A heading, bridge line, or short setup row may help nearby rows count as knowledge without itself being `keep_for_review`.\n"
             "If a row is functioning as a heading, keep it `other` in this first pass even when it names the nearby concept clearly.\n"
@@ -684,7 +684,7 @@ def build_knowledge_structured_prompt(
     coverage_note = (
         f"The `groups` spans together must cover exactly {row_count} owned row(s).\n"
         if stage_key == KNOWLEDGE_GROUP_STAGE_KEY
-        else f"The `labels` array must contain exactly {row_count} row label(s).\n"
+        else f"The `rows` array must contain exactly {row_count} row object(s).\n"
     )
     return (
         "Return JSON only.\n\n"
@@ -851,13 +851,12 @@ def build_knowledge_edited_task_file_from_classification_response(
     seen_row_ids: set[str] = set()
     duplicate_row_ids: set[str] = set()
     unknown_row_ids: set[str] = set()
+    label_count_mismatch = False
+    returned_label_count = 0
     if isinstance(labels, list):
-        if len(labels) != len(owned_row_ids):
-            return None, ("label_count_mismatch",), {
-                "expected_label_count": len(owned_row_ids),
-                "returned_label_count": len(labels),
-            }
-        for index, row_id in enumerate(owned_row_ids):
+        returned_label_count = len(labels)
+        label_count_mismatch = returned_label_count != len(owned_row_ids)
+        for index, row_id in enumerate(owned_row_ids[:returned_label_count]):
             unit_id = unit_id_by_row_id.get(row_id)
             if not unit_id:
                 continue
@@ -896,6 +895,15 @@ def build_knowledge_edited_task_file_from_classification_response(
         unknown_row_ids=sorted(unknown_row_ids),
         duplicate_row_ids=sorted(duplicate_row_ids),
     )
+    if label_count_mismatch:
+        response_contract_errors = tuple(
+            dict.fromkeys([*response_contract_errors, "label_count_mismatch"])
+        )
+        response_contract_metadata = {
+            **dict(response_contract_metadata),
+            "expected_label_count": len(owned_row_ids),
+            "returned_label_count": returned_label_count,
+        }
     edited = dict(original_task_file)
     edited["units"] = []
     for unit in original_task_file.get("units") or []:
