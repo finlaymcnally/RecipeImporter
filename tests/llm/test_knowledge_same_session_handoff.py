@@ -147,7 +147,6 @@ def test_same_session_handoff_advances_to_grouping_and_projects_group_grounding(
     assert classification_result["status"] == "advance_to_grouping"
     assert classification_result["classification_validation_count"] == 1
     assert grouping_task["stage_key"] == "knowledge_group"
-    assert grouping_task["groupable_row_ids"] == ["r01"]
     assert grouping_task["units"][0]["evidence"]["rows"][0]["classification"] == {
         "category": "keep_for_review"
     }
@@ -242,7 +241,6 @@ def test_same_session_grouping_task_shows_short_other_rows_in_ordered_context(
 
     assert classification_result["status"] == "advance_to_grouping"
     assert grouping_task["stage_key"] == "knowledge_group"
-    assert grouping_task["groupable_row_ids"] == ["r01", "r02"]
     assert [row["row_id"] for row in grouping_task["units"][0]["evidence"]["rows"]] == [
         "r01",
         "r02",
@@ -251,41 +249,21 @@ def test_same_session_grouping_task_shows_short_other_rows_in_ordered_context(
     assert grouping_task["ordered_rows"] == [
         {
             "display_id": "ctx01",
-            "row_id": None,
-            "source_unit_id": "knowledge::7",
-            "context_only": True,
-            "classification_category": "other",
+            "ng": True,
             "block_index": 7,
             "text": "BALANCE",
-            "structure": {"heading_level": None, "table_hint": None},
         },
         {
             "display_id": "r01",
             "row_id": "r01",
-            "source_unit_id": "knowledge::8",
-            "context_only": False,
-            "classification_category": "keep_for_review",
             "block_index": 8,
             "text": "Use low heat and whisk steadily.",
-            "context_before": None,
-            "context_before_block_index": None,
-            "context_after": None,
-            "context_after_block_index": None,
-            "structure": {"heading_level": None, "table_hint": None},
         },
         {
             "display_id": "r02",
             "row_id": "r02",
-            "source_unit_id": "knowledge::9",
-            "context_only": False,
-            "classification_category": "keep_for_review",
             "block_index": 9,
             "text": "Add butter off the heat to prevent splitting.",
-            "context_before": None,
-            "context_before_block_index": None,
-            "context_after": None,
-            "context_after_block_index": None,
-            "structure": {"heading_level": None, "table_hint": None},
         },
     ]
 

@@ -867,20 +867,8 @@ def _build_grouping_ordered_rows(
                 {
                     "display_id": display_id,
                     "row_id": display_id,
-                    "source_unit_id": unit_id,
-                    "context_only": False,
-                    "classification_category": str(
-                        row.get("classification_category") or "keep_for_review"
-                    ),
                     "block_index": int(row.get("block_index") or 0),
                     "text": str(row.get("text") or ""),
-                    "context_before": row.get("context_before"),
-                    "context_before_block_index": row.get(
-                        "context_before_block_index"
-                    ),
-                    "context_after": row.get("context_after"),
-                    "context_after_block_index": row.get("context_after_block_index"),
-                    "structure": dict(_coerce_dict(row.get("structure"))),
                 }
             )
             continue
@@ -889,13 +877,9 @@ def _build_grouping_ordered_rows(
         ordered_rows.append(
             {
                 "display_id": f"ctx{next_context_index:02d}",
-                "row_id": None,
-                "source_unit_id": unit_id,
-                "context_only": True,
-                "classification_category": "other",
+                "ng": True,
                 "block_index": int(row.get("block_index") or 0),
                 "text": str(row.get("text") or ""),
-                "structure": dict(_coerce_dict(row.get("structure"))),
             }
         )
         next_context_index += 1
@@ -1015,10 +999,6 @@ def _build_knowledge_grouping_task_file_from_units(
         answer_schema=_knowledge_grouping_answer_schema(),
     )
     task_file["ontology"] = load_knowledge_tag_catalog().task_scope_payload()
-    if task_units:
-        task_file["groupable_row_ids"] = [
-            f"r{index:02d}" for index, _unit in enumerate(task_units, start=1)
-        ]
     if ordered_rows:
         task_file["ordered_rows"] = [
             dict(row) for row in ordered_rows if isinstance(row, Mapping)
@@ -1094,9 +1074,6 @@ def _build_knowledge_same_session_grouping_task_file_from_units(
         answer_schema=_knowledge_same_session_grouping_answer_schema(),
     )
     task_file["ontology"] = load_knowledge_tag_catalog().task_scope_payload()
-    task_file["groupable_row_ids"] = [
-        f"r{index:02d}" for index, _unit in enumerate(units, start=1)
-    ]
     if ordered_rows:
         task_file["ordered_rows"] = [
             dict(row) for row in ordered_rows if isinstance(row, Mapping)

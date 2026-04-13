@@ -227,16 +227,18 @@ def _compact_knowledge_context_row(
 
 def _compact_knowledge_ordered_row(row: Mapping[str, Any]) -> str | None:
     display_id = str(row.get("display_id") or row.get("row_id") or "").strip()
-    classification_category = str(
-        row.get("classification_category") or row.get("classification") or ""
-    ).strip()
     text = str(row.get("text") or "").strip()
-    if not display_id or not classification_category or not text:
+    if not display_id or not text:
         return None
     block_index = row.get("block_index")
+    no_group = bool(row.get("ng"))
     if block_index is None:
-        return f"{display_id} | {classification_category} | {text}"
-    return f"{display_id} | {classification_category} | {int(block_index)} | {text}"
+        return f"{display_id} | ng | {text}" if no_group else f"{display_id} | {text}"
+    return (
+        f"{display_id} | ng | {int(block_index)} | {text}"
+        if no_group
+        else f"{display_id} | {int(block_index)} | {text}"
+    )
 
 
 def _compact_knowledge_row_facts(
@@ -441,7 +443,6 @@ def knowledge_task_file_to_structured_packet(
     repair_mode = str(task_file_payload.get("mode") or "").strip() == "repair"
     rows: list[str] = []
     ordered_rows: list[str] = []
-    groupable_row_ids: list[str] = []
     context_before_rows: list[str] = []
     context_after_rows: list[str] = []
     row_facts: list[str] = []
@@ -461,8 +462,6 @@ def knowledge_task_file_to_structured_packet(
                     text=row_text,
                 )
             )
-        else:
-            groupable_row_ids.append(row_id)
         context_before = str(evidence.get("context_before") or "").strip()
         if context_before:
             context_before_rows.append(
@@ -517,7 +516,7 @@ def knowledge_task_file_to_structured_packet(
                 ordered_rows.append(compact_row)
     packet = {
         "schema_version": (
-            "knowledge_structured_packet.v4"
+            "knowledge_structured_packet.v5"
             if stage_key == KNOWLEDGE_GROUP_STAGE_KEY
             else "knowledge_structured_packet.v3"
         ),
@@ -529,8 +528,6 @@ def knowledge_task_file_to_structured_packet(
     }
     if rows:
         packet["rows"] = rows
-    if groupable_row_ids:
-        packet["groupable_row_ids"] = groupable_row_ids
     if ordered_rows:
         packet["ordered_rows"] = ordered_rows
     if context_before_rows:
@@ -589,17 +586,31 @@ def build_knowledge_structured_prompt(
 ) -> str:
     stage_key = str(task_file_payload.get("stage_key") or "").strip()
     repair_mode = str(task_file_payload.get("mode") or "").strip() == "repair"
-    row_count = len(
-        [
-            row_id
-            for row_id in (
-                packet.get("groupable_row_ids")
-                if stage_key == KNOWLEDGE_GROUP_STAGE_KEY
-                else packet.get("rows")
-            )
-            or []
-            if isinstance(row_id, str)
-        ]
+    grouping_units = [
+        unit for unit in (task_file_payload.get("units") or []) if isinstance(unit, Mapping)
+    ]
+    same_session_grouping = (
+        stage_key == KNOWLEDGE_GROUP_STAGE_KEY
+        and len(grouping_units) == 1
+        and isinstance(
+            _coerce_dict(grouping_units[0].get("evidence")).get("rows"),
+            list,
+        )
+    )
+    row_count = (
+        len(
+            [
+                row
+                for row in _coerce_dict(grouping_units[0].get("evidence")).get("rows", [])
+                if isinstance(row, Mapping) and str(row.get("row_id") or "").strip()
+            ]
+        )
+        if same_session_grouping
+        else (
+            len(grouping_units)
+            if stage_key == KNOWLEDGE_GROUP_STAGE_KEY
+            else len([row for row in (packet.get("rows") or []) if isinstance(row, str)])
+        )
     )
     has_context = bool(packet.get("context_before_rows") or packet.get("context_after_rows"))
     has_ordered_rows = bool(packet.get("ordered_rows"))
@@ -609,12 +620,12 @@ def build_knowledge_structured_prompt(
         )
         task_note = (
             "Review the ordered kept knowledge rows and partition them into contiguous reading-order groups.\n"
-            "The packet `groupable_row_ids` list is authoritative and names the only rows you may group.\n"
-            "When present, `ordered_rows` is the single reading-order surface and interleaves those groupable kept rows with short context-only `other` rows in source order.\n"
-            "Each `ordered_rows` item is rendered as `display_id | classification | block_index | text`.\n"
+            "Use `ordered_rows` as the single reading-order surface.\n"
+            "Plain `rXX | block_index | text` rows are groupable by default.\n"
+            "Rows rendered as `ctxXX | ng | block_index | text` are context only; `ng` means do not group.\n"
             "This is a split-and-tag pass: choose the group boundaries with the tag story in mind.\n"
-            "Every row id in `groupable_row_ids` already survived the binary review and must belong to exactly one contiguous group.\n"
-            "Only the `rXX` ids listed in `groupable_row_ids` are groupable. `ctxXX` rows in `ordered_rows` are structural context only and must never appear in returned group spans.\n"
+            "Every `rXX` row in `ordered_rows` already survived the binary review and must belong to exactly one contiguous group.\n"
+            "Only the plain `rXX` rows are groupable. `ctxXX | ng | ...` rows are structural context only and must never appear in returned group spans.\n"
             "Return one `groups` array. Each group claims an inclusive span with `start_row_id` and `end_row_id`.\n"
             "The groups must cover every owned row exactly once, in order, with no gaps and no overlap.\n"
             "Each group must carry one `group_id`, one `topic_label`, and one shared `grounding` story for that whole span.\n"
@@ -650,7 +661,7 @@ def build_knowledge_structured_prompt(
             "Treat category labels and heading shape as weak hints only, but do use row order and nearby rows to understand the local run.\n"
         )
     ordered_rows_note = (
-        "Use `ordered_rows` when present to understand the local run, but never treat the `ctxXX` context-only rows as groupable.\n"
+        "Use `ordered_rows` when present to understand the local run. Treat `ctxXX | ng | ...` rows as do-not-group context and treat plain `rXX | ...` rows as the groupable rows.\n"
         if stage_key == KNOWLEDGE_GROUP_STAGE_KEY and has_ordered_rows
         else ""
     )
