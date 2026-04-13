@@ -624,6 +624,19 @@ def register(app: typer.Typer) -> dict[str, object]:
                 "(taskfile-v1 or inline-json-v1)."
             ),
         ),
+        knowledge_inline_repair_transcript_mode: str = typer.Option(
+            str(
+                serialized_run_setting_default(
+                    "knowledge_inline_repair_transcript_mode"
+                )
+            ),
+            "--knowledge-inline-repair-transcript-mode",
+            hidden=True,
+            help=(
+                "Internal: transcript policy for inline knowledge structured repair "
+                "(resume or fresh)."
+            ),
+        ),
         workspace_completion_quiescence_seconds: float = typer.Option(
             float(serialized_run_setting_default("workspace_completion_quiescence_seconds")),
             "--workspace-completion-quiescence-seconds",
@@ -789,6 +802,9 @@ def register(app: typer.Typer) -> dict[str, object]:
         )
         knowledge_codex_exec_style = _unwrap_typer_option_default(
             knowledge_codex_exec_style
+        )
+        knowledge_inline_repair_transcript_mode = _unwrap_typer_option_default(
+            knowledge_inline_repair_transcript_mode
         )
         workspace_completion_quiescence_seconds = _unwrap_typer_option_default(
             workspace_completion_quiescence_seconds
@@ -1019,6 +1035,9 @@ def register(app: typer.Typer) -> dict[str, object]:
             knowledge_group_task_max_evidence_chars=knowledge_group_task_max_evidence_chars,
             line_role_codex_exec_style=line_role_codex_exec_style,
             knowledge_codex_exec_style=knowledge_codex_exec_style,
+            knowledge_inline_repair_transcript_mode=(
+                knowledge_inline_repair_transcript_mode
+            ),
             codex_farm_cmd=codex_farm_cmd,
             codex_farm_root=codex_farm_root,
             codex_farm_workspace_root=codex_farm_workspace_root,

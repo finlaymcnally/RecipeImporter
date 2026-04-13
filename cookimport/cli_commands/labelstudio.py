@@ -1539,6 +1539,18 @@ def register(app: typer.Typer) -> dict[str, object]:
                 "(taskfile-v1 or inline-json-v1)."
             ),
         )] = str(serialized_run_setting_default("knowledge_codex_exec_style")),
+        knowledge_inline_repair_transcript_mode: Annotated[str, typer.Option(
+            "--knowledge-inline-repair-transcript-mode",
+            hidden=True,
+            help=(
+                "Internal: transcript policy for inline knowledge structured repair "
+                "(resume or fresh)."
+            ),
+        )] = str(
+            serialized_run_setting_default(
+                "knowledge_inline_repair_transcript_mode"
+            )
+        ),
         line_role_prompt_target_count: Annotated[int, typer.Option(
             "--line-role-prompt-target-count",
             min=1,
@@ -2052,6 +2064,9 @@ def register(app: typer.Typer) -> dict[str, object]:
                     ),
                     line_role_codex_exec_style=selected_line_role_codex_exec_style,
                     knowledge_codex_exec_style=selected_knowledge_codex_exec_style,
+                    knowledge_inline_repair_transcript_mode=(
+                        knowledge_inline_repair_transcript_mode
+                    ),
                     codex_farm_cmd=codex_farm_cmd,
                     codex_farm_model=selected_codex_farm_model,
                     codex_farm_reasoning_effort=selected_codex_farm_reasoning_effort,
@@ -2210,6 +2225,9 @@ def register(app: typer.Typer) -> dict[str, object]:
                                     knowledge_codex_exec_style=(
                                         selected_knowledge_codex_exec_style
                                     ),
+                                    knowledge_inline_repair_transcript_mode=(
+                                        knowledge_inline_repair_transcript_mode
+                                    ),
                                     atomic_block_splitter=selected_atomic_block_splitter,
                                     line_role_pipeline=selected_line_role_pipeline,
                                     line_role_prompt_target_count=line_role_prompt_target_count,
@@ -2363,6 +2381,9 @@ def register(app: typer.Typer) -> dict[str, object]:
                                 ),
                                 knowledge_codex_exec_style=(
                                     selected_knowledge_codex_exec_style
+                                ),
+                                knowledge_inline_repair_transcript_mode=(
+                                    knowledge_inline_repair_transcript_mode
                                 ),
                                 atomic_block_splitter=selected_atomic_block_splitter,
                                 line_role_pipeline=selected_line_role_pipeline,
@@ -3173,6 +3194,9 @@ def register(app: typer.Typer) -> dict[str, object]:
             ),
             "line_role_codex_exec_style": selected_line_role_codex_exec_style,
             "knowledge_codex_exec_style": selected_knowledge_codex_exec_style,
+            "knowledge_inline_repair_transcript_mode": (
+                knowledge_inline_repair_transcript_mode
+            ),
             "atomic_block_splitter": selected_atomic_block_splitter,
             "line_role_pipeline": selected_line_role_pipeline,
             "line_role_prompt_target_count": line_role_prompt_target_count,

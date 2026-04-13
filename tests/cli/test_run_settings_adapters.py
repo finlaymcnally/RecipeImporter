@@ -348,6 +348,24 @@ def test_build_benchmark_call_kwargs_matches_labelstudio_benchmark_signature() -
     assert extra_kwargs == []
 
 
+def test_build_benchmark_call_kwargs_propagates_knowledge_repair_transcript_mode() -> None:
+    settings = RunSettings(knowledge_inline_repair_transcript_mode="fresh")
+
+    kwargs = build_benchmark_call_kwargs_from_run_settings(
+        settings,
+        output_dir=Path("/tmp/output"),
+        eval_output_dir=Path("/tmp/eval"),
+        processed_output_dir=Path("/tmp/processed"),
+        eval_mode="canonical-text",
+        no_upload=True,
+        write_markdown=False,
+        write_label_studio_tasks=False,
+    )
+
+    assert kwargs["knowledge_inline_repair_transcript_mode"] == "fresh"
+    inspect.signature(cli.labelstudio_benchmark).bind_partial(**kwargs)
+
+
 def test_prediction_identity_excludes_runtime_only_settings() -> None:
     baseline = RunSettings(
         workers=1,

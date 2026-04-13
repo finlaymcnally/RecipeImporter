@@ -30,6 +30,7 @@ def test_labelstudio_benchmark_command_accepts_transport_kwargs_from_run_setting
     assert "recipe_codex_exec_style" in signature.parameters
     assert "line_role_codex_exec_style" in signature.parameters
     assert "knowledge_codex_exec_style" in signature.parameters
+    assert "knowledge_inline_repair_transcript_mode" in signature.parameters
 
 
 def test_build_single_book_interactive_shard_recommendations_reads_preview_phase_plans(

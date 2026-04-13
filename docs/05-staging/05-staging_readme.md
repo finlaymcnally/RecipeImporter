@@ -55,6 +55,7 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Main single-file stage flow uses writer functions.
 - `cookimport/cli_commands/stage.py`
   - Stage command owner for multi-job merge flow; offsets split block provenance, writes merged outputs, merges per-job raw artifacts, and emits run-level manifest/index artifacts with helpers from `cookimport/cli_support/stage.py`.
+  - The hidden stage CLI surface stays aligned with `RunSettings` operator/internal knobs, including `knowledge_inline_repair_transcript_mode`, so adapter-built stage kwargs can bind directly to the registered command.
 - `cookimport/runs/manifest.py`
   - Defines/stores `run_manifest.json` written by stage/pred-run flows for source identity + artifact indexing.
 - `cookimport/labelstudio/ingest_flows/prediction_run.py` and `cookimport/labelstudio/ingest_flows/upload.py`

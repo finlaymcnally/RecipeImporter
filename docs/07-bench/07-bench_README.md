@@ -152,6 +152,7 @@ Current interactive contracts:
 - benchmark prediction/import runs now resolve the same hidden runtime defaults as stage for EPUB segmentation, knowledge grouping caps, and workspace completion grace; support-only benchmark constants such as split-cache wait/poll, single-profile scheduler policy, and Oracle upload shard/poll budgets now live behind shared resolver helpers instead of scattered literals
 - benchmark knowledge runs now use the same single live product behavior as stage: first-pass classification is binary `keep_for_review` versus `other`, and the second pass emits contiguous split-and-tag groups with shared grounding/tagging for each accepted span. Benchmark readers should expect group-oriented knowledge counts rather than row-level proposal-candidate counts.
 - benchmark runtime contracts now preserve all three Codex Exec transport selections from `RunSettings` into `labelstudio-benchmark`: recipe, line-role, and knowledge. Interactive single-book and matched-book runs should keep those per-surface transport choices through prediction generation and manifests.
+- benchmark helper/adaptor calls now also pass the hidden `knowledge_inline_repair_transcript_mode` knob through `labelstudio-benchmark`, so helper-built kwargs stay signature-compatible when knowledge inline repair switches between `resume` and `fresh`
 - paired success can emit:
   - `codex_vs_vanilla_comparison.json`
   - `single_book_summary.md`
