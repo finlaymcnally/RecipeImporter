@@ -75,6 +75,29 @@ def _grouping_answer(
     }
 
 
+def _group_span_answer(
+    *,
+    start_row_id: str = "r01",
+    end_row_id: str = "r01",
+    group_id: str = "g01",
+    topic_label: str = "Heat control",
+) -> dict[str, object]:
+    answer = _grouping_answer(group_id=group_id, topic_label=topic_label)
+    return {
+        "groups": [
+            {
+                "group_id": answer["group_id"],
+                "start_row_id": start_row_id,
+                "end_row_id": end_row_id,
+                "topic_label": answer["topic_label"],
+                "grounding": answer["grounding"],
+                "why_no_existing_tag": answer["why_no_existing_tag"],
+                "retrieval_query": answer["retrieval_query"],
+            }
+        ]
+    }
+
+
 def _initialize_workspace(tmp_path: Path) -> tuple[Path, Path]:
     return _initialize_workspace_with_shards(tmp_path, shards=[_shard()])
 
@@ -124,9 +147,11 @@ def test_same_session_handoff_advances_to_grouping_and_projects_group_grounding(
     assert classification_result["status"] == "advance_to_grouping"
     assert classification_result["classification_validation_count"] == 1
     assert grouping_task["stage_key"] == "knowledge_group"
-    assert grouping_task["units"][0]["classification"] == {"category": "keep_for_review"}
+    assert grouping_task["units"][0]["evidence"]["rows"][0]["classification"] == {
+        "category": "keep_for_review"
+    }
 
-    grouping_task["units"][0]["answer"] = _grouping_answer()
+    grouping_task["units"][0]["answer"] = _group_span_answer()
     write_task_file(path=workspace_root / "task.json", payload=grouping_task)
 
     grouping_result = advance_knowledge_same_session_handoff(
@@ -219,15 +244,21 @@ def test_same_session_handoff_rewrites_invalid_grouping_answers_as_repair(
 
     grouping_task = load_task_file(workspace_root / "task.json")
     grouping_task["units"][0]["answer"] = {
-        "group_id": "",
-        "topic_label": "",
-        "grounding": {
-            "tag_keys": [],
-            "category_keys": [],
-            "proposed_tags": [],
-        },
-        "why_no_existing_tag": None,
-        "retrieval_query": None,
+        "groups": [
+            {
+                "group_id": "",
+                "start_row_id": "r01",
+                "end_row_id": "r01",
+                "topic_label": "",
+                "grounding": {
+                    "tag_keys": [],
+                    "category_keys": [],
+                    "proposed_tags": [],
+                },
+                "why_no_existing_tag": None,
+                "retrieval_query": None,
+            }
+        ]
     }
     write_task_file(path=workspace_root / "task.json", payload=grouping_task)
 
@@ -288,10 +319,26 @@ def test_same_session_handoff_advances_across_multiple_grouping_batches(
     assert first_grouping_result["status"] == "advance_to_grouping"
     assert first_grouping_task["grouping_batch"]["current_batch_index"] == 1
     assert first_grouping_task["grouping_batch"]["total_batches"] == 2
-    assert len(first_grouping_task["units"]) == KNOWLEDGE_GROUP_TASK_MAX_UNITS
+    assert len(first_grouping_task["units"]) == 1
+    assert len(first_grouping_task["units"][0]["evidence"]["rows"]) == KNOWLEDGE_GROUP_TASK_MAX_UNITS
 
-    for unit in first_grouping_task["units"]:
-        unit["answer"] = _grouping_answer()
+    first_grouping_task["units"][0]["answer"] = {
+        "groups": [
+            {
+                "group_id": "g01",
+                "start_row_id": "r01",
+                "end_row_id": f"r{KNOWLEDGE_GROUP_TASK_MAX_UNITS:02d}",
+                "topic_label": "Heat control",
+                "grounding": {
+                    "tag_keys": ["saute"],
+                    "category_keys": ["cooking-method"],
+                    "proposed_tags": [],
+                },
+                "why_no_existing_tag": None,
+                "retrieval_query": None,
+            }
+        ]
+    }
     write_task_file(path=workspace_root / "task.json", payload=first_grouping_task)
 
     second_grouping_result = advance_knowledge_same_session_handoff(
@@ -305,9 +352,9 @@ def test_same_session_handoff_advances_across_multiple_grouping_batches(
     assert second_grouping_task["grouping_batch"]["current_batch_index"] == 2
     assert second_grouping_task["grouping_batch"]["total_batches"] == 2
     assert len(second_grouping_task["units"]) == 1
+    assert len(second_grouping_task["units"][0]["evidence"]["rows"]) == 1
 
-    for unit in second_grouping_task["units"]:
-        unit["answer"] = _grouping_answer()
+    second_grouping_task["units"][0]["answer"] = _group_span_answer()
     write_task_file(path=workspace_root / "task.json", payload=second_grouping_task)
 
     final_result = advance_knowledge_same_session_handoff(

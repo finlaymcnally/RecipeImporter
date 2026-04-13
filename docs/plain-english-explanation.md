@@ -341,6 +341,69 @@ That means recipe-local labels like title, variant, notes, and yield now have a 
 
 The deterministic path still keeps the older label-first story as the vanilla baseline.
 
+Here is an actual example taken from a recent local benchmark run on April 11, 2026 for the `saltfatacidheatcutdown` book.
+
+The real shard was much larger. What I am showing here is the real prompt slice around the `Bright Cabbage Slaw` recipe start:
+
+```text
+rows:
+- "r40 | 6919 | Bright Cabbage Slaw"
+- "r41 | 6920 | Serves 4 generously"
+- "r42 | 6921 | I know that some people hate coleslaw. But I've converted even the most fervent among them with this version, which bears no resemblance to the cloying stuff many of us grew up eating. Light and clean, it'll lend crunch and brightness to any plate. Serve the Mexican variation with Beer-Battered Fish and tortillas for delicious fish tacos. Make Classic Southern Slaw to serve alongside Spicy Fried Chicken. And remember, the richer the food you plan to serve with it, the more acidic the slaw should be."
+- "r43 | 6922 | 1/2 medium head of red or green cabbage (about 1 1/2 pounds)"
+- "r44 | 6923 | 1/2 small red onion, thinly sliced"
+- "r45 | 6924 | 1/4 cup lemon juice"
+- "r46 | 6925 | Salt"
+- "r47 | 6926 | 1/2 cup coarsely chopped parsley leaves"
+- "r48 | 6927 | 3 tablespoons red wine vinegar"
+- "r49 | 6928 | 6 tablespoons extra-virgin olive oil"
+- "r50 | 6929 | Quarter the cabbage through the core. Use a sharp knife to cut the core out at an angle. Thinly slice the cabbage crosswise and place in a colander set inside a large salad bowl. Season with two generous pinches of salt to help draw out water, toss the slices, and set aside."
+- "r51 | 6930 | In a small bowl, toss the sliced onion with the lemon juice and let it sit for 20 minutes to macerate (see page 118). Set aside."
+- "r52 | 6931 | After 20 minutes, drain any water the cabbage may have given off (it's fine if there's nothing to drain-sometimes cabbage isn't very watery). Place the cabbage in the bowl and add the parsley and the macerated onions (but not their lemony juices, yet). Dress the slaw with the vinegar and olive oil. Toss very well to combine."
+- "r53 | 6932 | Taste and adjust, adding the remaining macerating lemon juice and salt as needed. When your palate zings with pleasure, it's ready. Serve chilled or at room temperature."
+- "r54 | 6933 | Store leftover slaw covered, in the fridge, for up to two days."
+- "r55 | 6934 | Variations"
+```
+
+The real model answer for that shard was one giant ordered `labels` array covering the whole shard. This is the exact contiguous slice of that returned array for the rows above:
+
+```json
+[
+  "RECIPE_TITLE",
+  "YIELD_LINE",
+  "RECIPE_NOTES",
+  "INGREDIENT_LINE",
+  "INGREDIENT_LINE",
+  "INGREDIENT_LINE",
+  "INGREDIENT_LINE",
+  "INGREDIENT_LINE",
+  "INGREDIENT_LINE",
+  "INGREDIENT_LINE",
+  "INSTRUCTION_LINE",
+  "INSTRUCTION_LINE",
+  "INSTRUCTION_LINE",
+  "RECIPE_NOTES",
+  "RECIPE_VARIANT",
+  "RECIPE_VARIANT"
+]
+```
+
+In plain English, that real benchmark answer is saying:
+
+- `Bright Cabbage Slaw` is a fresh recipe title
+- `Serves 4 generously` is the yield line
+- the paragraph under the title is recipe-local notes
+- the short quantity rows are ingredients
+- the long action rows are instructions
+- `Variations` starts a recipe-variant run instead of a brand-new recipe
+
+That ordered answer then goes back to deterministic repo code, which checks:
+
+- did the AI return exactly one label for every owned row
+- are the labels legal for this stage
+- did the answer stay aligned with the row order
+- if something is missing or malformed, should the repo ask for a bounded repair pass or fail the shard closed
+
 ## `nonrecipe-finalize`
 
 `nonrecipe-finalize` is the final semantic owner of reviewable outside-recipe material.
@@ -355,18 +418,18 @@ The worker-facing transport can vary by run settings. In some runs the worker ed
 
 The semantic review is split into two jobs, and both run whenever this stage is enabled:
 
-- classification decides, block by block, whether each candidate row is `knowledge`, `proposal_candidate`, or `other`
-- grouping is the second pass that groups retained knowledge rows and also approves or rejects `proposal_candidate` rows
+- classification decides, block by block, whether each candidate row is worth keeping for deeper review or should just become `other`
+- grouping is the second pass that looks only at the kept rows, groups related ideas together, and decides whether each group maps to existing tags or needs proposed new tags
 
 So the model always decides:
 
-- which reviewed rows are direct existing-tag `knowledge`
-- which reviewed rows are potential ontology-gap candidates that need second-pass review
-- which reviewed rows are just `other`
+- which outside-recipe rows are worth keeping for deeper review
+- which outside-recipe rows are just `other`
 
 And when grouping is enabled, it also decides:
 
 - which kept `knowledge` rows belong together as one related idea group
+- whether that grouped idea maps to existing tags or needs a proposed new tag
 
 The reviewed results are then validated and promoted back into the stage-owned authority model.
 
@@ -386,6 +449,108 @@ In artifact terms:
 If reviewer-facing knowledge output is written, `knowledge.md` is the readable rendering of those promoted authority decisions and groups.
 
 This is also where the system can accidentally look "too smart" in the wrong way.
+
+Here is an actual first-pass knowledge example from another recent local benchmark run on April 11, 2026 for the same `saltfatacidheatcutdown` cutdown.
+
+This is the opening of a real classification packet:
+
+```text
+rows:
+- "r01 | 213 | Whether you've never picked up a knife or you're an accomplished chef, there are only four basic factors that determine how good your food will taste: salt, which enhances flavor; fat, which amplifies flavor and makes appealing textures possible; acid, which brightens and balances; and heat, which ultimately determines the texture of food."
+- "r02 | 214 | Have you ever felt lost without a recipe, or envious that some cooks can conjure a meal out of thin air? Salt, Fat, Acid, and Heat will guide you as you choose which ingredients to use, how to cook them, and why last-minute adjustments will ensure that food tastes exactly as it should."
+- "r03 | 215 | As you discover the secrets of Salt, Fat, Acid, and Heat, you'll find yourself improvising more and more in the kitchen."
+- "r04 | 237 | Salt, Fat, Acid, and Heat were the four elements that guided basic decision making in every single dish, no matter what."
+- "r05 | 238 | The idea of making consistently great food had seemed like some inscrutable mystery, but now I had a little mental checklist to think about every time I set foot in a kitchen: Salt, Fat, Acid, Heat."
+- "r06 | 239 | But everyone didn't know that. I'd never heard or read it anywhere, and certainly no one had ever explicitly related the idea to me."
+- "r07 | 242 | I spent my days off in the hills of Chianti... fresh, if modest, ingredients, when treated with care, can deliver the deepest flavors."
+- "r08 | 243 | My pursuit of flavor has continued to lead me around the world..."
+```
+
+The real model answer for the full packet was one ordered labels array. This is the exact opening slice:
+
+```json
+["other","other","other","other","other","other","keep_for_review","keep_for_review"]
+```
+
+That means:
+
+- the first six rows in that real packet were treated as framing, promise, or story setup and dropped as `other`
+- the next two rows were treated as reusable cooking knowledge and kept for the second pass
+
+Then the second pass looks only at the kept rows and asks a different question: "which of these rows belong to the same idea, and what tag or proposed tag should represent that idea?"
+
+Here is an actual grouping example from a recent local benchmark run on April 11, 2026. This time I am showing the opening of a larger real packet about salt:
+
+```text
+row_facts:
+- "r01 | classification=keep_for_review"
+- "r02 | classification=keep_for_review"
+- "r03 | classification=keep_for_review"
+- "r04 | classification=keep_for_review"
+
+rows:
+- "r01 | 237 | Salt, Fat, Acid, and Heat were the four elements that guided basic decision making in every single dish, no matter what."
+- "r02 | 238 | The idea of making consistently great food had seemed like some inscrutable mystery, but now I had a little mental checklist to think about every time I set foot in a kitchen: Salt, Fat, Acid, Heat."
+- "r03 | 262 | Once I developed culinary aspirations... I began to see that there is no better guide in the kitchen than thoughtful tasting, and that nothing is more important to taste thoughtfully for than salt."
+- "r04 | 271 | The secret behind that zing! can be explained by some basic chemistry. Salt is a mineral: sodium chloride."
+```
+
+The real answer repeated the same grouping story for all 16 kept rows in that packet. This is the exact opening of that real JSON response:
+
+```json
+{
+  "rows": [
+    {
+      "row_id": "r01",
+      "group_id": "g01",
+      "topic_label": "Salt",
+      "grounding": {
+        "tag_keys": ["salt"],
+        "category_keys": ["ingredients"],
+        "proposed_tags": [
+          {
+            "key": "salt",
+            "display_name": "Salt",
+            "category_key": "ingredients",
+            "why_no_existing_tag": "No existing ingredient tag captures the chapter's core focus on salt as a cooking element and flavor driver.",
+            "retrieval_query": "salt in cooking flavor, salting to taste, kinds of salt"
+          }
+        ]
+      },
+      "why_no_existing_tag": "No existing ingredient tag captures the chapter's core focus on salt as a cooking element and flavor driver.",
+      "retrieval_query": "salt in cooking flavor, salting to taste, kinds of salt"
+    },
+    {
+      "row_id": "r02",
+      "group_id": "g01",
+      "topic_label": "Salt",
+      "grounding": {
+        "tag_keys": ["salt"],
+        "category_keys": ["ingredients"],
+        "proposed_tags": [
+          {
+            "key": "salt",
+            "display_name": "Salt",
+            "category_key": "ingredients",
+            "why_no_existing_tag": "No existing ingredient tag captures the chapter's core focus on salt as a cooking element and flavor driver.",
+            "retrieval_query": "salt in cooking flavor, salting to taste, kinds of salt"
+          }
+        ]
+      },
+      "why_no_existing_tag": "No existing ingredient tag captures the chapter's core focus on salt as a cooking element and flavor driver.",
+      "retrieval_query": "salt in cooking flavor, salting to taste, kinds of salt"
+    }
+  ]
+}
+```
+
+In plain English, that second answer says:
+
+- these kept rows are all being grouped into one shared idea, `Salt`
+- the model thinks that idea maps to the `salt` tag
+- the model also emits a proposed-tag explanation because it thinks the existing tag is not specific enough for the whole passage
+
+One important note: these are real benchmark artifacts, not hand-cleaned examples. That means they show the system honestly, including places where the model may have made a debatable or overly broad tagging choice. For this document, that honesty is useful because it shows what the prompt and raw model answers actually look like in practice.
 
 If the outside-recipe candidate queue is too broad, then memoir, teaching, and motivational prose can show up in the same review packets as real cooking knowledge. The current prompt no longer carries repo-generated candidate-tag shortlists, but it still shows the real ontology and still allows proposed tags for genuine gaps. That means the model can still decide that a passage counts as `knowledge` simply because it contains a cooking lesson, even when the gold set would rather treat that passage as ordinary narrative or front matter.
 

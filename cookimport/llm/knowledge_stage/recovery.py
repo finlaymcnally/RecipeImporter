@@ -186,10 +186,11 @@ def _build_knowledge_taskfile_prompt(
         if stage_key == "nonrecipe_classify"
         else (
             "- This is the grouping and tagging step.",
-            "- Read the full grouping file, then fill every answer object in place before `task-handoff`.",
-            "- Answer each unit with `group_id`, `topic_label`, `grounding`, `why_no_existing_tag`, and `retrieval_query`.",
+            "- Read the full grouping file, then fill the batch `answer.groups` list before `task-handoff`.",
+            "- Answer the batch with one `groups` list, not one row-local answer per kept row.",
+            "- Every kept `row_id` must appear in exactly one group.",
+            "- Each group must claim one contiguous run via `row_ids` or both `start_row_id` and `end_row_id`.",
             "- `group_id` and `topic_label` must both be non-empty strings.",
-            "- Every grouping unit already survived pass 1. Assign every row to exactly one group.",
             "- Same `group_id` means the same final tag story. If nearby rows need different tags, split them into a new group instead of mixing tag stories inside one group.",
             "- Use existing tags first whenever they fit cleanly.",
             "- Proposed tags are allowed only when no existing tag fits, and then `why_no_existing_tag` plus `retrieval_query` are required.",

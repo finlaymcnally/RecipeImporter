@@ -27,6 +27,7 @@ KNOWLEDGE_CLASSIFY_SCHEMA_VERSION = "knowledge_block_classify.v1"
 KNOWLEDGE_GROUP_SCHEMA_VERSION = "knowledge_group_only.v1"
 KNOWLEDGE_GROUP_TASK_MAX_UNITS = 40
 KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS = 12000
+KNOWLEDGE_GROUP_SAME_SESSION_BATCH_UNIT_ID = "knowledge-group-batch"
 
 
 @dataclass(frozen=True)
@@ -578,6 +579,50 @@ def _knowledge_grouping_answer_schema() -> dict[str, Any]:
     }
 
 
+def _knowledge_same_session_grouping_answer_schema() -> dict[str, Any]:
+    return {
+        "editable_pointer_pattern": "/units/*/answer",
+        "required_keys": ["groups"],
+        "example_answers": [
+            {
+                "groups": [
+                    {
+                        "group_id": "g01",
+                        "start_row_id": "r01",
+                        "end_row_id": "r03",
+                        "topic_label": "Heat control",
+                        "grounding": {
+                            "tag_keys": ["heat-control"],
+                            "category_keys": ["techniques"],
+                            "proposed_tags": [],
+                        },
+                        "why_no_existing_tag": None,
+                        "retrieval_query": None,
+                    },
+                    {
+                        "group_id": "g02",
+                        "row_ids": ["r04"],
+                        "topic_label": "Rendering fat",
+                        "grounding": {
+                            "tag_keys": [],
+                            "category_keys": ["techniques"],
+                            "proposed_tags": [
+                                {
+                                    "key": "rendering-fat",
+                                    "display_name": "Rendering fat",
+                                    "category_key": "techniques",
+                                }
+                            ],
+                        },
+                        "why_no_existing_tag": "The catalog has nearby heat tags but no direct tag for slowly rendering solid fat.",
+                        "retrieval_query": "how to render chicken fat",
+                    },
+                ]
+            }
+        ],
+    }
+
+
 def _grouping_batch_metadata(
     *,
     batch_units: Sequence[Mapping[str, Any]],
@@ -751,6 +796,106 @@ def _build_knowledge_grouping_task_file_from_units(
             max_evidence_chars_per_batch=max_evidence_chars_per_batch,
         )
     return task_file
+
+
+def _knowledge_same_session_group_rows(
+    *,
+    units: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row_index, unit in enumerate(units, start=1):
+        if not isinstance(unit, Mapping):
+            continue
+        unit_dict = dict(unit)
+        evidence = _coerce_dict(unit_dict.get("evidence"))
+        rows.append(
+            {
+                "row_id": f"r{row_index:02d}",
+                "source_unit_id": str(unit_dict.get("unit_id") or "").strip(),
+                "owned_id": str(unit_dict.get("owned_id") or "").strip(),
+                "block_index": int(evidence.get("block_index") or 0),
+                "block_id": str(
+                    evidence.get("block_id")
+                    or unit_dict.get("owned_id")
+                    or unit_dict.get("unit_id")
+                    or ""
+                ).strip(),
+                "text": str(evidence.get("text") or ""),
+                "context_before": evidence.get("context_before"),
+                "context_before_block_index": evidence.get(
+                    "context_before_block_index"
+                ),
+                "context_after": evidence.get("context_after"),
+                "context_after_block_index": evidence.get(
+                    "context_after_block_index"
+                ),
+                "structure": dict(_coerce_dict(evidence.get("structure"))),
+                "classification": dict(_coerce_dict(unit_dict.get("classification"))),
+            }
+        )
+    return rows
+
+
+def _build_knowledge_same_session_grouping_task_file_from_units(
+    *,
+    assignment_id: str,
+    worker_id: str,
+    units: Sequence[Mapping[str, Any]],
+    batch_index: int,
+    batch_count: int,
+    total_grouping_unit_count: int,
+    max_units_per_batch: int,
+    max_evidence_chars_per_batch: int,
+) -> dict[str, Any]:
+    task_file = build_task_file(
+        stage_key=KNOWLEDGE_GROUP_STAGE_KEY,
+        assignment_id=assignment_id,
+        worker_id=worker_id,
+        units=[
+            {
+                "unit_id": KNOWLEDGE_GROUP_SAME_SESSION_BATCH_UNIT_ID,
+                "evidence": {
+                    "rows": _knowledge_same_session_group_rows(units=units),
+                },
+                "answer": {
+                    "groups": [],
+                },
+            }
+        ],
+        schema_version=KNOWLEDGE_GROUP_SCHEMA_VERSION,
+        answer_schema=_knowledge_same_session_grouping_answer_schema(),
+    )
+    task_file["ontology"] = load_knowledge_tag_catalog().task_scope_payload()
+    task_file["grouping_batch"] = _grouping_batch_metadata(
+        batch_units=units,
+        batch_index=batch_index,
+        batch_count=batch_count,
+        total_grouping_unit_count=total_grouping_unit_count,
+        max_units_per_batch=max_units_per_batch,
+        max_evidence_chars_per_batch=max_evidence_chars_per_batch,
+    )
+    return task_file
+
+
+def _is_knowledge_same_session_grouping_task_file(
+    task_file: Mapping[str, Any],
+) -> bool:
+    answer_schema = _coerce_dict(task_file.get("answer_schema"))
+    required_keys = {
+        str(key).strip()
+        for key in (answer_schema.get("required_keys") or [])
+        if str(key).strip()
+    }
+    if required_keys != {"groups"}:
+        return False
+    units = [
+        dict(unit)
+        for unit in (task_file.get("units") or [])
+        if isinstance(unit, Mapping)
+    ]
+    if len(units) != 1:
+        return False
+    return isinstance(_coerce_dict(units[0].get("evidence")).get("rows"), list)
 
 
 def build_knowledge_grouping_task_files(
@@ -1002,11 +1147,325 @@ def build_knowledge_grouping_task_file(
     )
 
 
+def _validate_knowledge_same_session_grouping_task_file(
+    *,
+    original_task_file: Mapping[str, Any],
+    edited_task_file: Mapping[str, Any],
+) -> tuple[dict[str, dict[str, Any]] | None, tuple[str, ...], dict[str, Any]]:
+    catalog = load_knowledge_tag_catalog()
+    answers_by_unit_id, errors, metadata = validate_edited_task_file(
+        original_task_file=original_task_file,
+        edited_task_file=edited_task_file,
+        expected_schema_version=KNOWLEDGE_GROUP_SCHEMA_VERSION,
+    )
+    if answers_by_unit_id is None:
+        return None, errors, metadata
+
+    batch_units = [
+        dict(unit)
+        for unit in (original_task_file.get("units") or [])
+        if isinstance(unit, Mapping)
+    ]
+    batch_unit = batch_units[0] if batch_units else {}
+    batch_unit_id = (
+        str(batch_unit.get("unit_id") or "").strip()
+        or KNOWLEDGE_GROUP_SAME_SESSION_BATCH_UNIT_ID
+    )
+    batch_answer = _coerce_dict(answers_by_unit_id.get(batch_unit_id))
+    next_errors = list(errors)
+    error_details = list(metadata.get("error_details") or [])
+
+    answer_keys = {str(key).strip() for key in batch_answer.keys()}
+    extra_keys = sorted(key for key in answer_keys if key and key != "groups")
+    if extra_keys:
+        next_errors.append("grouping_extra_answer_keys_forbidden")
+        error_details.append(
+            {
+                "path": f"/units/{batch_unit_id}/answer",
+                "code": "grouping_extra_answer_keys_forbidden",
+                "message": "same-session grouping answers may only include `groups`",
+            }
+        )
+
+    groups = batch_answer.get("groups")
+    if not isinstance(groups, list):
+        next_errors.append("groups_missing_or_not_a_list")
+        error_details.append(
+            {
+                "path": f"/units/{batch_unit_id}/answer/groups",
+                "code": "groups_missing_or_not_a_list",
+                "message": "grouping batches must answer with one `groups` list",
+            }
+        )
+        return None, tuple(dict.fromkeys(next_errors)), {
+            **dict(metadata),
+            "error_details": error_details,
+            "failed_unit_ids": [batch_unit_id],
+            "validated_answers_by_unit_id": {},
+        }
+
+    rows = [
+        dict(row)
+        for row in (_coerce_dict(batch_unit.get("evidence")).get("rows") or [])
+        if isinstance(row, Mapping)
+    ]
+    row_ids_in_order = [
+        str(row.get("row_id") or "").strip()
+        for row in rows
+        if str(row.get("row_id") or "").strip()
+    ]
+    row_index_by_row_id = {
+        row_id: index for index, row_id in enumerate(row_ids_in_order)
+    }
+    row_id_to_source_unit_id = {
+        str(row.get("row_id") or "").strip(): str(row.get("source_unit_id") or "").strip()
+        for row in rows
+        if str(row.get("row_id") or "").strip() and str(row.get("source_unit_id") or "").strip()
+    }
+    row_id_to_block_index = {
+        str(row.get("row_id") or "").strip(): int(row.get("block_index") or 0)
+        for row in rows
+        if str(row.get("row_id") or "").strip()
+    }
+
+    validated_answers: dict[str, dict[str, Any]] = {}
+    missing_row_ids: list[str] = []
+    unknown_row_ids: set[str] = set()
+    duplicate_row_ids: set[str] = set()
+    seen_row_ids: set[str] = set()
+
+    for group_index, group in enumerate(groups):
+        if not isinstance(group, Mapping):
+            next_errors.append("group_not_a_json_object")
+            error_details.append(
+                {
+                    "path": f"/units/{batch_unit_id}/answer/groups/{group_index}",
+                    "code": "group_not_a_json_object",
+                    "message": "each group must be a JSON object",
+                }
+            )
+            continue
+        group_dict = dict(group)
+        group_id = str(
+            group_dict.get("group_id")
+            or group_dict.get("group_key")
+            or group_dict.get("group_index")
+            or ""
+        ).strip()
+        topic_label = str(group_dict.get("topic_label") or "").strip()
+        if not group_id:
+            next_errors.append("knowledge_block_missing_group")
+            error_details.append(
+                {
+                    "path": f"/units/{batch_unit_id}/answer/groups/{group_index}/group_id",
+                    "code": "knowledge_block_missing_group",
+                    "message": "group_id must be a non-empty string",
+                }
+            )
+        if not topic_label:
+            next_errors.append("knowledge_block_missing_group")
+            error_details.append(
+                {
+                    "path": f"/units/{batch_unit_id}/answer/groups/{group_index}/topic_label",
+                    "code": "knowledge_block_missing_group",
+                    "message": "topic_label must be a non-empty string",
+                }
+            )
+
+        explicit_row_ids_raw = group_dict.get("row_ids")
+        if explicit_row_ids_raw not in (None, "") and not isinstance(explicit_row_ids_raw, list):
+            next_errors.append("knowledge_group_noncontiguous_span")
+            error_details.append(
+                {
+                    "path": f"/units/{batch_unit_id}/answer/groups/{group_index}/row_ids",
+                    "code": "knowledge_group_noncontiguous_span",
+                    "message": "row_ids must be a list when provided",
+                }
+            )
+            continue
+        explicit_row_ids = [
+            str(value).strip()
+            for value in (explicit_row_ids_raw or [])
+            if str(value).strip()
+        ]
+        group_row_ids: list[str] = []
+        if explicit_row_ids:
+            unknown_in_group = [
+                row_id for row_id in explicit_row_ids if row_id not in row_index_by_row_id
+            ]
+            if unknown_in_group:
+                unknown_row_ids.update(unknown_in_group)
+                continue
+            explicit_positions = [row_index_by_row_id[row_id] for row_id in explicit_row_ids]
+            expected_positions = list(range(min(explicit_positions), max(explicit_positions) + 1))
+            if explicit_positions != expected_positions:
+                next_errors.append("knowledge_group_noncontiguous_span")
+                error_details.append(
+                    {
+                        "path": f"/units/{batch_unit_id}/answer/groups/{group_index}/row_ids",
+                        "code": "knowledge_group_noncontiguous_span",
+                        "message": "group row_ids must form one contiguous ordered run",
+                    }
+                )
+                continue
+            group_row_ids = list(explicit_row_ids)
+        else:
+            start_row_id = str(group_dict.get("start_row_id") or "").strip()
+            end_row_id = str(group_dict.get("end_row_id") or "").strip()
+            if not start_row_id or not end_row_id:
+                next_errors.append("knowledge_group_missing_span")
+                error_details.append(
+                    {
+                        "path": f"/units/{batch_unit_id}/answer/groups/{group_index}",
+                        "code": "knowledge_group_missing_span",
+                        "message": "each group must provide row_ids or both start_row_id and end_row_id",
+                    }
+                )
+                continue
+            if start_row_id not in row_index_by_row_id:
+                unknown_row_ids.add(start_row_id)
+                continue
+            if end_row_id not in row_index_by_row_id:
+                unknown_row_ids.add(end_row_id)
+                continue
+            start_index = row_index_by_row_id[start_row_id]
+            end_index = row_index_by_row_id[end_row_id]
+            if start_index > end_index:
+                next_errors.append("knowledge_group_noncontiguous_span")
+                error_details.append(
+                    {
+                        "path": f"/units/{batch_unit_id}/answer/groups/{group_index}",
+                        "code": "knowledge_group_noncontiguous_span",
+                        "message": "start_row_id must appear before or equal to end_row_id",
+                    }
+                )
+                continue
+            group_row_ids = row_ids_in_order[start_index : end_index + 1]
+
+        why_no_existing_tag = _trimmed_text_or_none(group_dict.get("why_no_existing_tag"))
+        retrieval_query = _trimmed_text_or_none(group_dict.get("retrieval_query"))
+        grounding_raw = group_dict.get("grounding")
+        if grounding_raw not in (None, "") and not isinstance(grounding_raw, Mapping):
+            next_errors.append("group_grounding_not_object")
+            error_details.append(
+                {
+                    "path": f"/units/{batch_unit_id}/answer/groups/{group_index}/grounding",
+                    "code": "group_grounding_not_object",
+                    "message": "grounding must be a JSON object",
+                }
+            )
+            continue
+        normalized_grounding, helper_errors, helper_error_details = _validate_group_grounding(
+            unit_id=batch_unit_id,
+            grounding_raw=grounding_raw,
+            why_no_existing_tag=why_no_existing_tag,
+            retrieval_query=retrieval_query,
+            catalog=catalog,
+        )
+        if helper_errors:
+            next_errors.extend(helper_errors)
+            for detail in helper_error_details:
+                path = str(detail.get("path") or "").strip()
+                suffix = path.split("/answer", 1)[1] if "/answer" in path else ""
+                error_details.append(
+                    {
+                        **dict(detail),
+                        "path": (
+                            f"/units/{batch_unit_id}/answer/groups/{group_index}{suffix}"
+                            if suffix
+                            else f"/units/{batch_unit_id}/answer/groups/{group_index}"
+                        ),
+                    }
+                )
+            continue
+
+        group_answer = {
+            "group_id": group_id,
+            "topic_label": topic_label,
+            "grounding": normalized_grounding,
+            "why_no_existing_tag": why_no_existing_tag,
+            "retrieval_query": retrieval_query,
+        }
+        for row_id in group_row_ids:
+            if row_id in seen_row_ids:
+                duplicate_row_ids.add(row_id)
+                continue
+            seen_row_ids.add(row_id)
+            source_unit_id = row_id_to_source_unit_id.get(row_id)
+            if not source_unit_id:
+                unknown_row_ids.add(row_id)
+                continue
+            validated_answers[source_unit_id] = dict(group_answer)
+
+    if unknown_row_ids:
+        next_errors.append("knowledge_unknown_response_rows")
+        error_details.append(
+            {
+                "path": f"/units/{batch_unit_id}/answer/groups",
+                "code": "knowledge_unknown_response_rows",
+                "message": f"unknown row ids: {', '.join(sorted(unknown_row_ids))}",
+            }
+        )
+    if duplicate_row_ids:
+        next_errors.append("knowledge_duplicate_response_rows")
+        error_details.append(
+            {
+                "path": f"/units/{batch_unit_id}/answer/groups",
+                "code": "knowledge_duplicate_response_rows",
+                "message": f"duplicate row ids: {', '.join(sorted(duplicate_row_ids))}",
+            }
+        )
+
+    missing_row_ids = [
+        row_id
+        for row_id in row_ids_in_order
+        if row_id_to_source_unit_id.get(row_id)
+        and row_id_to_source_unit_id[row_id] not in validated_answers
+    ]
+    unresolved_block_indices = sorted(
+        {
+            row_id_to_block_index[row_id]
+            for row_id in set(missing_row_ids) | duplicate_row_ids | unknown_row_ids
+            if row_id in row_id_to_block_index
+        }
+    )
+    if missing_row_ids:
+        next_errors.append("knowledge_block_missing_group")
+        error_details.append(
+            {
+                "path": f"/units/{batch_unit_id}/answer/groups",
+                "code": "knowledge_block_missing_group",
+                "message": f"every kept row must appear in exactly one group; missing row ids: {', '.join(missing_row_ids)}",
+            }
+        )
+
+    next_metadata = {
+        **dict(metadata),
+        "error_details": error_details,
+        "failed_unit_ids": [batch_unit_id] if next_errors or error_details else [],
+        "unresolved_block_indices": unresolved_block_indices,
+        "validated_answers_by_unit_id": {} if next_errors else validated_answers,
+        "same_session_group_missing_row_ids": missing_row_ids,
+        "same_session_group_unknown_row_ids": sorted(unknown_row_ids),
+        "same_session_group_duplicate_row_ids": sorted(duplicate_row_ids),
+    }
+    if next_errors:
+        if unresolved_block_indices:
+            next_metadata["knowledge_blocks_missing_group"] = unresolved_block_indices
+        return None, tuple(dict.fromkeys(next_errors)), next_metadata
+    return validated_answers, (), next_metadata
+
+
 def validate_knowledge_grouping_task_file(
     *,
     original_task_file: Mapping[str, Any],
     edited_task_file: Mapping[str, Any],
 ) -> tuple[dict[str, dict[str, Any]] | None, tuple[str, ...], dict[str, Any]]:
+    if _is_knowledge_same_session_grouping_task_file(original_task_file):
+        return _validate_knowledge_same_session_grouping_task_file(
+            original_task_file=original_task_file,
+            edited_task_file=edited_task_file,
+        )
     catalog = load_knowledge_tag_catalog()
     answers_by_unit_id, errors, metadata = validate_edited_task_file(
         original_task_file=original_task_file,
@@ -1542,7 +2001,31 @@ def transition_knowledge_classification_task_file(
         ),
     )
     if grouping_task_files:
-        grouping_task_file = grouping_task_files[0]
+        first_grouping_batch_unit_ids = grouping_batch_unit_ids[0] if grouping_batch_unit_ids else []
+        first_grouping_units = [
+            unit
+            for unit in (grouping_task_files[0].get("units") or [])
+            if isinstance(unit, Mapping)
+            and str(unit.get("unit_id") or "").strip() in set(first_grouping_batch_unit_ids)
+        ]
+        grouping_task_file = _build_knowledge_same_session_grouping_task_file_from_units(
+            assignment_id=str(original_task_file.get("assignment_id") or ""),
+            worker_id=str(original_task_file.get("worker_id") or ""),
+            units=first_grouping_units,
+            batch_index=1,
+            batch_count=len(grouping_task_files),
+            total_grouping_unit_count=sum(
+                len(batch_unit_ids) for batch_unit_ids in grouping_batch_unit_ids
+            ),
+            max_units_per_batch=int(
+                grouping_limits.get("max_units_per_batch")
+                or KNOWLEDGE_GROUP_TASK_MAX_UNITS
+            ),
+            max_evidence_chars_per_batch=int(
+                grouping_limits.get("max_evidence_chars_per_batch")
+                or KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS
+            ),
+        )
         total_grouping_unit_count = sum(len(batch_unit_ids) for batch_unit_ids in grouping_batch_unit_ids)
         grouping_batch_metadata = _coerce_dict(grouping_task_file.get("grouping_batch"))
         return KnowledgeTaskFileTransition(
@@ -1559,7 +2042,9 @@ def transition_knowledge_classification_task_file(
                     int(grouping_batch_metadata.get("current_batch_index") or 0),
                     1,
                 ),
-                "current_grouping_batch_unit_count": len(grouping_task_file.get("units") or []),
+                "current_grouping_batch_unit_count": int(
+                    grouping_batch_metadata.get("unit_count") or 0
+                ),
                 "pending_grouping_unit_batches": grouping_batch_unit_ids[1:],
             },
         )
@@ -1691,7 +2176,31 @@ def transition_knowledge_grouping_task_file(
     ]
     if unanswered_batch_indices:
         next_batch_index = unanswered_batch_indices[0]
-        next_grouping_task_file = grouping_task_files[next_batch_index]
+        next_batch_unit_ids = grouping_batch_unit_ids[next_batch_index]
+        next_grouping_units = [
+            unit
+            for unit in (grouping_task_files[next_batch_index].get("units") or [])
+            if isinstance(unit, Mapping)
+            and str(unit.get("unit_id") or "").strip() in set(next_batch_unit_ids)
+        ]
+        next_grouping_task_file = _build_knowledge_same_session_grouping_task_file_from_units(
+            assignment_id=str(original_task_file.get("assignment_id") or ""),
+            worker_id=str(original_task_file.get("worker_id") or ""),
+            units=next_grouping_units,
+            batch_index=next_batch_index + 1,
+            batch_count=len(grouping_task_files),
+            total_grouping_unit_count=sum(
+                len(batch_unit_ids) for batch_unit_ids in grouping_batch_unit_ids
+            ),
+            max_units_per_batch=int(
+                grouping_limits.get("max_units_per_batch")
+                or KNOWLEDGE_GROUP_TASK_MAX_UNITS
+            ),
+            max_evidence_chars_per_batch=int(
+                grouping_limits.get("max_evidence_chars_per_batch")
+                or KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS
+            ),
+        )
         next_grouping_batch_metadata = _coerce_dict(
             next_grouping_task_file.get("grouping_batch")
         )
@@ -1713,8 +2222,8 @@ def transition_knowledge_grouping_task_file(
                     int(next_grouping_batch_metadata.get("current_batch_index") or 0),
                     1,
                 ),
-                "current_grouping_batch_unit_count": len(
-                    next_grouping_task_file.get("units") or []
+                "current_grouping_batch_unit_count": int(
+                    next_grouping_batch_metadata.get("unit_count") or 0
                 ),
                 "pending_grouping_unit_batches": pending_grouping_batches,
             },
