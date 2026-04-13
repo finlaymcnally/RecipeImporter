@@ -66,6 +66,16 @@ _AUTO_LOCAL_CONFIDENCE_MIN_RATIO = 0.93
 _CANONICAL_BOUNDARY_OVERLAP_THRESHOLD = 0.5
 _CANONICAL_SEGMENTATION_BOUNDARY_TOLERANCE_BLOCKS = 0
 _CANONICAL_SEGMENTATION_METRICS_REQUESTED: tuple[str, ...] = ("boundary_f1",)
+_TITLE_LIKE_LABELS = {"RECIPE_TITLE", "RECIPE_VARIANT"}
+_TITLE_STRUCTURE_SUPPORT_LABELS = {
+    "INGREDIENT_LINE",
+    "INSTRUCTION_LINE",
+    "HOWTO_SECTION",
+    "YIELD_LINE",
+    "TIME_LINE",
+}
+_TITLE_LINE_COVERAGE_MIN = 0.8
+_TITLE_STRUCTURE_LOOKAHEAD_LINES = 8
 
 try:  # pragma: no cover - non-Unix runtimes may not expose resource.
     import resource
@@ -1213,7 +1223,7 @@ def _build_gold_line_labels(
     gold_spans: list[dict[str, Any]],
     strict_empty_to_other: bool,
 ) -> dict[int, set[str]]:
-    gold_line_labels: dict[int, set[str]] = {}
+    provisional_labels_by_line: dict[int, set[str]] = {}
     span_cursor = 0
     span_total = len(gold_spans)
 
@@ -1229,20 +1239,83 @@ def _build_gold_line_labels(
         scan_index = span_cursor
         while scan_index < span_total:
             span = gold_spans[scan_index]
+            label = str(span["label"])
             span_start = int(span["start_char"])
             if span_start >= line_end:
                 break
             span_end = int(span["end_char"])
             if span_end > line_start:
-                labels.add(str(span["label"]))
+                if (
+                    label in _TITLE_LIKE_LABELS
+                    and not _should_project_title_label_to_line(
+                        line=line,
+                        span_start=span_start,
+                        span_end=span_end,
+                    )
+                ):
+                    scan_index += 1
+                    continue
+                labels.add(label)
             scan_index += 1
 
+        provisional_labels_by_line[line_index] = labels
+
+    gold_line_labels: dict[int, set[str]] = {}
+    for line in lines:
+        line_index = int(line["line_index"])
+        labels = set(provisional_labels_by_line.get(line_index) or set())
+        if labels & _TITLE_LIKE_LABELS and not _line_has_title_support(
+            line_index=line_index,
+            current_labels=labels,
+            labels_by_line=provisional_labels_by_line,
+        ):
+            labels -= _TITLE_LIKE_LABELS
         if not labels and strict_empty_to_other:
             labels.add("OTHER")
         if labels:
             gold_line_labels[line_index] = labels
 
     return gold_line_labels
+
+
+def _should_project_title_label_to_line(
+    *,
+    line: dict[str, Any],
+    span_start: int,
+    span_end: int,
+) -> bool:
+    line_start = int(line["start_char"])
+    line_end = int(line["end_char"])
+    line_text = str(line.get("text") or "")
+    if not line_text or line_end <= line_start:
+        return False
+    overlap = _overlap_len(line_start, line_end, span_start, span_end)
+    if overlap <= 0:
+        return False
+    stripped = line_text.strip()
+    content_len = len(stripped) if stripped else len(line_text)
+    if content_len <= 0:
+        return False
+    return (overlap / content_len) >= _TITLE_LINE_COVERAGE_MIN
+
+
+def _line_has_title_support(
+    *,
+    line_index: int,
+    current_labels: set[str],
+    labels_by_line: dict[int, set[str]],
+) -> bool:
+    current_has_other = "OTHER" in current_labels
+    for offset in range(1, _TITLE_STRUCTURE_LOOKAHEAD_LINES + 1):
+        neighbor_labels = set(labels_by_line.get(line_index + offset) or set())
+        non_other_labels = neighbor_labels - {"OTHER"}
+        if not non_other_labels:
+            continue
+        if non_other_labels & _TITLE_STRUCTURE_SUPPORT_LABELS:
+            return True
+        if current_has_other and non_other_labels & _TITLE_LIKE_LABELS:
+            return False
+    return False
 
 
 def _build_pred_line_labels(

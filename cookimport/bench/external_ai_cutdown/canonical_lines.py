@@ -6,6 +6,17 @@ from typing import Any
 
 from .io import _coerce_int, _excerpt, _iter_jsonl
 
+_TITLE_LIKE_LABELS = {"RECIPE_TITLE", "RECIPE_VARIANT"}
+_TITLE_STRUCTURE_SUPPORT_LABELS = {
+    "INGREDIENT_LINE",
+    "INSTRUCTION_LINE",
+    "HOWTO_SECTION",
+    "YIELD_LINE",
+    "TIME_LINE",
+}
+_TITLE_LINE_COVERAGE_MIN = 0.8
+_TITLE_STRUCTURE_LOOKAHEAD_LINES = 8
+
 
 def _build_canonical_lines(canonical_text: str) -> list[dict[str, Any]]:
     lines: list[dict[str, Any]] = []
@@ -68,7 +79,7 @@ def _line_gold_labels(
     lines: list[dict[str, Any]],
     spans: list[dict[str, Any]],
 ) -> dict[int, list[str]]:
-    labels_by_line: dict[int, list[str]] = {}
+    provisional_labels_by_line: dict[int, list[str]] = {}
     span_cursor = 0
     span_total = len(spans)
 
@@ -84,26 +95,92 @@ def _line_gold_labels(
         scan_index = span_cursor
         while scan_index < span_total:
             span = spans[scan_index]
+            label = str(span["label"])
             span_start = int(span["start_char"])
             if span_start >= line_end:
                 break
             span_end = int(span["end_char"])
             overlap = _overlap_len(line_start, line_end, span_start, span_end)
             if overlap > 0:
-                overlap_by_label[str(span["label"])] += overlap
+                if (
+                    label in _TITLE_LIKE_LABELS
+                    and not _should_project_title_label_to_line(
+                        line=line,
+                        span_start=span_start,
+                        span_end=span_end,
+                    )
+                ):
+                    scan_index += 1
+                    continue
+                overlap_by_label[label] += overlap
             scan_index += 1
 
         if not overlap_by_label:
-            labels_by_line[line_index] = ["OTHER"]
+            provisional_labels_by_line[line_index] = []
             continue
 
         ordered = sorted(
             overlap_by_label.items(),
             key=lambda item: (-item[1], item[0]),
         )
-        labels_by_line[line_index] = [label for label, _ in ordered]
+        provisional_labels_by_line[line_index] = [label for label, _ in ordered]
+
+    labels_by_line: dict[int, list[str]] = {}
+    for line in lines:
+        line_index = int(line["line_index"])
+        ordered_labels = list(provisional_labels_by_line.get(line_index) or [])
+        if (
+            set(ordered_labels) & _TITLE_LIKE_LABELS
+            and not _line_has_title_support(
+                line_index=line_index,
+                current_labels=set(ordered_labels),
+                labels_by_line=provisional_labels_by_line,
+            )
+        ):
+            ordered_labels = [label for label in ordered_labels if label not in _TITLE_LIKE_LABELS]
+        labels_by_line[line_index] = ordered_labels or ["OTHER"]
 
     return labels_by_line
+
+
+def _should_project_title_label_to_line(
+    *,
+    line: dict[str, Any],
+    span_start: int,
+    span_end: int,
+) -> bool:
+    line_start = int(line["start_char"])
+    line_end = int(line["end_char"])
+    line_text = str(line.get("text") or "")
+    if not line_text or line_end <= line_start:
+        return False
+    overlap = _overlap_len(line_start, line_end, span_start, span_end)
+    if overlap <= 0:
+        return False
+    stripped = line_text.strip()
+    content_len = len(stripped) if stripped else len(line_text)
+    if content_len <= 0:
+        return False
+    return (overlap / content_len) >= _TITLE_LINE_COVERAGE_MIN
+
+
+def _line_has_title_support(
+    *,
+    line_index: int,
+    current_labels: set[str],
+    labels_by_line: dict[int, list[str]],
+) -> bool:
+    current_has_other = "OTHER" in current_labels
+    for offset in range(1, _TITLE_STRUCTURE_LOOKAHEAD_LINES + 1):
+        neighbor_labels = set(labels_by_line.get(line_index + offset) or [])
+        non_other_labels = neighbor_labels - {"OTHER"}
+        if not non_other_labels:
+            continue
+        if non_other_labels & _TITLE_STRUCTURE_SUPPORT_LABELS:
+            return True
+        if current_has_other and non_other_labels & _TITLE_LIKE_LABELS:
+            return False
+    return False
 
 
 def _build_correct_label_sample(

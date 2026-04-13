@@ -135,6 +135,162 @@ def test_build_gold_line_labels_preserves_howto_section_labels() -> None:
     assert labels[4] == {"HOWTO_SECTION"}
 
 
+def test_build_gold_line_labels_ignores_inline_recipe_title_subspan_inside_other_line() -> None:
+    text = (
+        "Make Pasta alle Vongole to practice layering acids. "
+        "Heat a pan and continue cooking."
+    )
+    lines = canonical_eval._build_canonical_lines(text)
+    title_start = text.index("Pasta alle Vongole")
+    title_end = title_start + len("Pasta alle Vongole")
+    gold_spans = [
+        {
+            "span_id": "s0",
+            "label": "OTHER",
+            "start_char": lines[0]["start_char"],
+            "end_char": lines[0]["end_char"],
+        },
+        {
+            "span_id": "s1",
+            "label": "RECIPE_TITLE",
+            "start_char": title_start,
+            "end_char": title_end,
+        },
+    ]
+
+    labels = canonical_eval._build_gold_line_labels(
+        lines=lines,
+        gold_spans=gold_spans,
+        strict_empty_to_other=True,
+    )
+
+    assert labels[0] == {"OTHER"}
+
+
+def test_build_gold_line_labels_drops_unsupported_contents_recipe_titles() -> None:
+    lines = canonical_eval._build_canonical_lines(
+        "Bright Cabbage Slaw\nScented Cream\nSuggested Menus\nFOREWORD"
+    )
+    gold_spans = [
+        {
+            "span_id": "s0",
+            "label": "RECIPE_TITLE",
+            "start_char": lines[0]["start_char"],
+            "end_char": lines[0]["end_char"],
+        },
+        {
+            "span_id": "s1",
+            "label": "RECIPE_TITLE",
+            "start_char": lines[1]["start_char"],
+            "end_char": lines[1]["end_char"],
+        },
+        {
+            "span_id": "s2",
+            "label": "OTHER",
+            "start_char": lines[3]["start_char"],
+            "end_char": lines[3]["end_char"],
+        },
+    ]
+
+    labels = canonical_eval._build_gold_line_labels(
+        lines=lines,
+        gold_spans=gold_spans,
+        strict_empty_to_other=True,
+    )
+
+    assert labels[0] == {"OTHER"}
+    assert labels[1] == {"OTHER"}
+
+
+def test_build_gold_line_labels_keeps_supported_recipe_titles() -> None:
+    lines = canonical_eval._build_canonical_lines("Bright Cabbage Slaw\nServes 4\n1 cup stock")
+    gold_spans = [
+        {
+            "span_id": "s0",
+            "label": "RECIPE_TITLE",
+            "start_char": lines[0]["start_char"],
+            "end_char": lines[0]["end_char"],
+        },
+        {
+            "span_id": "s1",
+            "label": "YIELD_LINE",
+            "start_char": lines[1]["start_char"],
+            "end_char": lines[1]["end_char"],
+        },
+        {
+            "span_id": "s2",
+            "label": "INGREDIENT_LINE",
+            "start_char": lines[2]["start_char"],
+            "end_char": lines[2]["end_char"],
+        },
+    ]
+
+    labels = canonical_eval._build_gold_line_labels(
+        lines=lines,
+        gold_spans=gold_spans,
+        strict_empty_to_other=True,
+    )
+
+    assert labels[0] == {"RECIPE_TITLE"}
+
+
+def test_build_gold_line_labels_drops_section_heading_before_real_recipe_title() -> None:
+    lines = canonical_eval._build_canonical_lines(
+        "A Panzanella for Every Season\n"
+        "Panzanella notes.\n"
+        "Summer: Tomato, Basil, and Cucumber\n"
+        "Serves 4 generously\n"
+        "1 cup stock"
+    )
+    gold_spans = [
+        {
+            "span_id": "s0",
+            "label": "OTHER",
+            "start_char": lines[0]["start_char"],
+            "end_char": lines[0]["end_char"],
+        },
+        {
+            "span_id": "s1",
+            "label": "RECIPE_TITLE",
+            "start_char": lines[0]["start_char"],
+            "end_char": lines[0]["end_char"],
+        },
+        {
+            "span_id": "s2",
+            "label": "OTHER",
+            "start_char": lines[1]["start_char"],
+            "end_char": lines[1]["end_char"],
+        },
+        {
+            "span_id": "s3",
+            "label": "RECIPE_TITLE",
+            "start_char": lines[2]["start_char"],
+            "end_char": lines[2]["end_char"],
+        },
+        {
+            "span_id": "s4",
+            "label": "YIELD_LINE",
+            "start_char": lines[3]["start_char"],
+            "end_char": lines[3]["end_char"],
+        },
+        {
+            "span_id": "s5",
+            "label": "INGREDIENT_LINE",
+            "start_char": lines[4]["start_char"],
+            "end_char": lines[4]["end_char"],
+        },
+    ]
+
+    labels = canonical_eval._build_gold_line_labels(
+        lines=lines,
+        gold_spans=gold_spans,
+        strict_empty_to_other=True,
+    )
+
+    assert labels[0] == {"OTHER"}
+    assert labels[2] == {"RECIPE_TITLE"}
+
+
 def test_load_stage_block_labels_maps_howto_section_by_neighboring_labels(
     tmp_path: Path,
 ) -> None:
