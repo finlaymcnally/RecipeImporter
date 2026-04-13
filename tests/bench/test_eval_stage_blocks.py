@@ -291,6 +291,44 @@ def test_build_gold_line_labels_drops_section_heading_before_real_recipe_title()
     assert labels[2] == {"RECIPE_TITLE"}
 
 
+def test_build_gold_line_labels_keeps_recipe_variant_lines_without_title_support() -> None:
+    lines = canonical_eval._build_canonical_lines(
+        "Variations\n"
+        "To make Classic Torn Croutons, add garlic and oregano.\n"
+        "To make Cheesy Torn Croutons, add Parmesan and pepper."
+    )
+    gold_spans = [
+        {
+            "span_id": "s0",
+            "label": "RECIPE_VARIANT",
+            "start_char": lines[0]["start_char"],
+            "end_char": lines[0]["end_char"],
+        },
+        {
+            "span_id": "s1",
+            "label": "RECIPE_VARIANT",
+            "start_char": lines[1]["start_char"],
+            "end_char": lines[1]["end_char"],
+        },
+        {
+            "span_id": "s2",
+            "label": "RECIPE_VARIANT",
+            "start_char": lines[2]["start_char"],
+            "end_char": lines[2]["end_char"],
+        },
+    ]
+
+    labels = canonical_eval._build_gold_line_labels(
+        lines=lines,
+        gold_spans=gold_spans,
+        strict_empty_to_other=True,
+    )
+
+    assert labels[0] == {"RECIPE_VARIANT"}
+    assert labels[1] == {"RECIPE_VARIANT"}
+    assert labels[2] == {"RECIPE_VARIANT"}
+
+
 def test_load_stage_block_labels_maps_howto_section_by_neighboring_labels(
     tmp_path: Path,
 ) -> None:

@@ -66,7 +66,7 @@ _AUTO_LOCAL_CONFIDENCE_MIN_RATIO = 0.93
 _CANONICAL_BOUNDARY_OVERLAP_THRESHOLD = 0.5
 _CANONICAL_SEGMENTATION_BOUNDARY_TOLERANCE_BLOCKS = 0
 _CANONICAL_SEGMENTATION_METRICS_REQUESTED: tuple[str, ...] = ("boundary_f1",)
-_TITLE_LIKE_LABELS = {"RECIPE_TITLE", "RECIPE_VARIANT"}
+_TITLE_LIKE_LABELS = {"RECIPE_TITLE"}
 _TITLE_STRUCTURE_SUPPORT_LABELS = {
     "INGREDIENT_LINE",
     "INSTRUCTION_LINE",
@@ -1276,6 +1276,23 @@ def _build_gold_line_labels(
             gold_line_labels[line_index] = labels
 
     return gold_line_labels
+
+
+def build_canonical_gold_line_labels(
+    *,
+    canonical_text_path: Path,
+    canonical_spans_path: Path,
+    strict_empty_to_other: bool = True,
+) -> tuple[list[dict[str, Any]], dict[int, set[str]]]:
+    canonical_text = canonical_text_path.read_text(encoding="utf-8")
+    lines = _build_canonical_lines(canonical_text)
+    gold_spans = _load_canonical_gold_spans(canonical_spans_path)
+    labels = _build_gold_line_labels(
+        lines=lines,
+        gold_spans=gold_spans,
+        strict_empty_to_other=strict_empty_to_other,
+    )
+    return lines, labels
 
 
 def _should_project_title_label_to_line(

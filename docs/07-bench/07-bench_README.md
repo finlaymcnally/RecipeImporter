@@ -30,7 +30,7 @@ Current scoring modes:
 
 - `stage-blocks`: compare stage evidence labels against freeform gold block labels
 - `canonical-text`: align prediction text to canonical gold text and score per canonical line
-- canonical-text title scoring now filters raw freeform title spans down to line-level recipe-start reality: tiny inline `RECIPE_TITLE` mentions inside a larger `OTHER` paragraph do not turn the whole line into a title target, and unsupported contents-style title lines do not count as recipe-title misses unless nearby gold lines also show recipe-local structure such as yield, ingredients, or instructions
+- canonical-text title scoring now filters raw freeform `RECIPE_TITLE` spans down to line-level recipe-start reality: tiny inline `RECIPE_TITLE` mentions inside a larger `OTHER` paragraph do not turn the whole line into a title target, and unsupported contents-style title lines do not count as recipe-title misses unless nearby gold lines also show recipe-local structure such as yield, ingredients, or instructions. `RECIPE_VARIANT` spans still project directly; the title-specific filter is not applied to variant runs.
 
 Current benchmark handoff model:
 
@@ -314,6 +314,7 @@ Canonical-text diagnostics commonly include:
 - `missed_gold_blocks.jsonl`
 - `wrong_label_blocks.jsonl`
 - `joined_line_table.jsonl`
+- `joined_line_table.jsonl` now reuses the evaluator's canonical gold line-label projection rules, so reviewer diagnostics should agree with `eval_report.json` on filtered inline `RECIPE_TITLE` mentions, dropped contents-page titles, and preserved `RECIPE_VARIANT` runs
 - older alias files such as `missed_gold_spans.jsonl` and `false_positive_preds.jsonl` are retired
 - `line_role_flips_vs_baseline.jsonl`
 - `slice_metrics.json`

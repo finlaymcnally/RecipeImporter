@@ -341,6 +341,89 @@ def test_joined_line_rows_uses_sequence_context_for_duplicate_texts(
     assert by_line_index[2]["line_role_match_kind"] == "unmatched"
 
 
+def test_joined_line_rows_reuse_canonical_eval_gold_projection_rules(
+    tmp_path: Path,
+) -> None:
+    eval_output_dir = tmp_path / "eval"
+    eval_output_dir.mkdir(parents=True, exist_ok=True)
+    canonical_text = (
+        "Make Pasta alle Vongole to practice layering acids.\n"
+        "Scented Cream\n"
+        "Variations\n"
+        "To make Classic Torn Croutons, add garlic and oregano.\n"
+    )
+    canonical_text_path = tmp_path / "canonical_text.txt"
+    canonical_span_labels_path = tmp_path / "canonical_span_labels.jsonl"
+    canonical_text_path.write_text(canonical_text, encoding="utf-8")
+
+    title_start = canonical_text.index("Pasta alle Vongole")
+    title_end = title_start + len("Pasta alle Vongole")
+    lines = canonical_text.splitlines()
+    first_line_end = len(lines[0])
+    second_line_start = first_line_end + 1
+    second_line_end = second_line_start + len(lines[1])
+    third_line_start = second_line_end + 1
+    third_line_end = third_line_start + len(lines[2])
+    fourth_line_start = third_line_end + 1
+    fourth_line_end = fourth_line_start + len(lines[3])
+    _write_jsonl(
+        canonical_span_labels_path,
+        [
+            {
+                "span_id": "s0",
+                "label": "OTHER",
+                "start_char": 0,
+                "end_char": first_line_end,
+            },
+            {
+                "span_id": "s1",
+                "label": "RECIPE_TITLE",
+                "start_char": title_start,
+                "end_char": title_end,
+            },
+            {
+                "span_id": "s2",
+                "label": "RECIPE_TITLE",
+                "start_char": second_line_start,
+                "end_char": second_line_end,
+            },
+            {
+                "span_id": "s3",
+                "label": "RECIPE_VARIANT",
+                "start_char": third_line_start,
+                "end_char": third_line_end,
+            },
+            {
+                "span_id": "s4",
+                "label": "RECIPE_VARIANT",
+                "start_char": fourth_line_start,
+                "end_char": fourth_line_end,
+            },
+        ],
+    )
+    _write_jsonl(eval_output_dir / "wrong_label_lines.jsonl", [])
+
+    report = {
+        "canonical": {
+            "canonical_text_path": str(canonical_text_path),
+            "canonical_span_labels_path": str(canonical_span_labels_path),
+        }
+    }
+    joined_rows = build_line_role_joined_line_rows(
+        report=report,
+        eval_output_dir=eval_output_dir,
+        line_role_predictions_path=None,
+    )
+    by_line_index = {int(row["line_index"]): row for row in joined_rows}
+
+    assert by_line_index[0]["gold_label"] == "OTHER"
+    assert by_line_index[1]["gold_label"] == "OTHER"
+    assert by_line_index[2]["gold_label"] == "RECIPE_VARIANT"
+    assert by_line_index[3]["gold_label"] == "RECIPE_VARIANT"
+    assert by_line_index[2]["gold_labels"] == ["RECIPE_VARIANT"]
+    assert by_line_index[3]["gold_labels"] == ["RECIPE_VARIANT"]
+
+
 def test_line_role_flips_uses_paired_history_baseline_rows() -> None:
     candidate_rows = [
         {

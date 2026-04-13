@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from cookimport.bench.eval_canonical_text import build_canonical_gold_line_labels
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
 from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
 
@@ -35,17 +36,21 @@ def build_line_role_joined_line_rows(
     if not canonical_text_path.exists() or not canonical_spans_path.exists():
         return []
 
-    canonical_text = canonical_text_path.read_text(encoding="utf-8")
-    canonical_lines = _build_canonical_lines(canonical_text)
-    gold_spans = _load_gold_spans(canonical_spans_path)
-    gold_labels_by_line = _line_gold_labels(lines=canonical_lines, spans=gold_spans)
+    canonical_lines, gold_label_sets_by_line = build_canonical_gold_line_labels(
+        canonical_text_path=canonical_text_path,
+        canonical_spans_path=canonical_spans_path,
+        strict_empty_to_other=True,
+    )
 
     wrong_rows = _read_jsonl(eval_output_dir / "wrong_label_lines.jsonl")
     pred_overrides: dict[int, str] = {}
+    gold_overrides: dict[int, str] = {}
     for row in wrong_rows:
         line_index = _coerce_int(row.get("line_index"))
         if line_index is None:
             continue
+        gold_normalized = _normalize_label(row.get("gold_label"))
+        gold_overrides[line_index] = gold_normalized
         normalized = _normalize_label(row.get("pred_label"))
         pred_overrides[line_index] = normalized
 
@@ -59,7 +64,8 @@ def build_line_role_joined_line_rows(
     joined_rows: list[dict[str, Any]] = []
     for line in canonical_lines:
         line_index = int(line["line_index"])
-        gold_label = gold_labels_by_line.get(line_index, "OTHER")
+        gold_labels = sorted(gold_label_sets_by_line.get(line_index) or {"OTHER"})
+        gold_label = gold_overrides.get(line_index, gold_labels[0])
         pred_label = pred_overrides.get(line_index, gold_label)
         line_meta = line_role_meta.get(line_index, {})
         joined_rows.append(
@@ -68,6 +74,7 @@ def build_line_role_joined_line_rows(
                 "line_index": line_index,
                 "line_text": str(line.get("text") or ""),
                 "gold_label": gold_label,
+                "gold_labels": gold_labels,
                 "pred_label": pred_label,
                 "is_wrong_label": pred_label != gold_label,
                 "within_recipe_span": line_meta.get("within_recipe_span"),
@@ -327,101 +334,6 @@ def _line_role_meta_payload(
 
 def _normalize_line_text(value: Any) -> str:
     return _WHITESPACE_RE.sub(" ", str(value or "").strip())
-
-
-def _build_canonical_lines(canonical_text: str) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    cursor = 0
-    text_length = len(canonical_text)
-    while cursor < text_length:
-        line_end = canonical_text.find("\n", cursor)
-        if line_end == -1:
-            line_end = text_length
-        if line_end > cursor:
-            rows.append(
-                {
-                    "line_index": len(rows),
-                    "start_char": cursor,
-                    "end_char": line_end,
-                    "text": canonical_text[cursor:line_end],
-                }
-            )
-        cursor = line_end + 1
-    if not rows and canonical_text:
-        rows.append(
-            {
-                "line_index": 0,
-                "start_char": 0,
-                "end_char": len(canonical_text),
-                "text": canonical_text,
-            }
-        )
-    return rows
-
-
-def _load_gold_spans(path: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for row in _read_jsonl(path):
-        start_char = _coerce_int(row.get("start_char"))
-        end_char = _coerce_int(row.get("end_char"))
-        if start_char is None or end_char is None or end_char <= start_char:
-            continue
-        label = _normalize_label(row.get("label"))
-        rows.append(
-            {
-                "label": label,
-                "start_char": start_char,
-                "end_char": end_char,
-            }
-        )
-    rows.sort(key=lambda row: (int(row["start_char"]), int(row["end_char"])))
-    return rows
-
-
-def _line_gold_labels(
-    *,
-    lines: list[dict[str, Any]],
-    spans: list[dict[str, Any]],
-) -> dict[int, str]:
-    labels_by_line: dict[int, str] = {}
-    span_cursor = 0
-    span_total = len(spans)
-    for line in lines:
-        line_index = int(line["line_index"])
-        line_start = int(line["start_char"])
-        line_end = int(line["end_char"])
-        while span_cursor < span_total and int(spans[span_cursor]["end_char"]) <= line_start:
-            span_cursor += 1
-        overlap_by_label: dict[str, int] = {}
-        scan_index = span_cursor
-        while scan_index < span_total:
-            span = spans[scan_index]
-            span_start = int(span["start_char"])
-            if span_start >= line_end:
-                break
-            span_end = int(span["end_char"])
-            overlap = _overlap_len(line_start, line_end, span_start, span_end)
-            if overlap > 0:
-                label = str(span["label"])
-                overlap_by_label[label] = overlap_by_label.get(label, 0) + overlap
-            scan_index += 1
-        if not overlap_by_label:
-            labels_by_line[line_index] = "OTHER"
-            continue
-        labels_by_line[line_index] = sorted(
-            overlap_by_label.items(), key=lambda item: (-item[1], item[0])
-        )[0][0]
-    return labels_by_line
-
-
-def _overlap_len(
-    left_start: int,
-    left_end: int,
-    right_start: int,
-    right_end: int,
-) -> int:
-    return max(0, min(left_end, right_end) - max(left_start, right_start))
-
 
 def _sample_indices_evenly(total_count: int, sample_limit: int) -> list[int]:
     if total_count <= 0 or sample_limit <= 0:

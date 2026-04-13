@@ -6,7 +6,7 @@ from typing import Any
 
 from .io import _coerce_int, _excerpt, _iter_jsonl
 
-_TITLE_LIKE_LABELS = {"RECIPE_TITLE", "RECIPE_VARIANT"}
+_TITLE_LIKE_LABELS = {"RECIPE_TITLE"}
 _TITLE_STRUCTURE_SUPPORT_LABELS = {
     "INGREDIENT_LINE",
     "INSTRUCTION_LINE",
