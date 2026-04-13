@@ -36,6 +36,7 @@ def test_build_knowledge_direct_prompt_uses_inline_json_contract() -> None:
     assert "keep only that block and leave the surrounding framing `other`" in prompt
     assert "A heading alone is not enough for `knowledge`." in prompt
     assert "keep that heading with the useful body instead of forcing it to `other`" in prompt
+    assert "short action-key or strategy heading is the semantic key for the following explanatory block" in prompt
     assert "unsupported by reusable explanatory body text in the owned packet" in prompt
     assert "Do not treat two blocks as one idea just because they are adjacent in the packet" in prompt
     assert "Every `knowledge` block must belong to exactly one idea group." in prompt

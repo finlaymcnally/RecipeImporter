@@ -98,6 +98,7 @@ def test_worker_prompt_describes_task_file_contract() -> None:
     assert "Praise, endorsement, foreword, thesis, manifesto" in prompt
     assert "A heading alone is not enough for `knowledge`." in prompt
     assert "Short conceptual headings can still be `knowledge`" in prompt
+    assert "short action-key or strategy heading" in prompt
     assert "unsupported by reusable explanatory body text in the owned packet" in prompt
     assert "Final categories must be exactly one of `keep_for_review` or `other`." in prompt
     assert "Do not think about tags in this step." in prompt
@@ -196,6 +197,10 @@ def test_knowledge_task_file_summary_surfaces_semantic_review_contract() -> None
     assert "candidate tags" not in " ".join(review_contract.get("anti_patterns") or []).lower()
     assert any(
         "heading alone is not enough" in row.lower()
+        for row in (review_contract.get("decision_policy") or [])
+    )
+    assert any(
+        "semantic key for the following owned explanatory row" in row.lower()
         for row in (review_contract.get("decision_policy") or [])
     )
 

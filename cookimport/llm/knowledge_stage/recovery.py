@@ -178,6 +178,7 @@ def _build_knowledge_taskfile_prompt(
             "- Navigation rows, chapter taxonomy, and decorative heading-only rows are `other` even if a plausible tag comes to mind.",
             "- A heading alone is not enough for `knowledge`.",
             "- Short conceptual headings can still be `knowledge` when they introduce real explanatory content; shortness alone is not enough to drop a block.",
+            "- Keep a short action-key or strategy heading when it is the semantic key for the following owned explanatory row, even if the body text does not repeat the heading words.",
             "- If a heading is decorative, thesis-like, or unsupported by reusable explanatory body text in the owned packet, answer `other`.",
             "- Do not compress the packet into one global keep/drop rule, one heading rule, or one candidate-tag rule.",
             "- Do not invent `group_key`, `topic_label`, packet summaries, or cross-unit grouping notes in this step.",

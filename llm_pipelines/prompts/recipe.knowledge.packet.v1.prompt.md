@@ -35,6 +35,7 @@ Decision boundary:
 - If only one block in a mixed packet is genuinely reusable, keep only that block and leave the surrounding framing `other`.
 - A heading alone is not enough for `knowledge`.
 - If a short conceptual heading directly introduces useful explanatory blocks in the same packet, keep that heading with the useful body instead of forcing it to `other`.
+- If a short action-key or strategy heading is the semantic key for the following explanatory block, keep it with that block even when the body text does not restate the heading words.
 - If the heading is decorative, thesis-like, or unsupported by reusable explanatory body text in the owned packet, keep it `other`.
 - Do not treat two blocks as one idea just because they are adjacent in the packet; they still need clear topical continuity in the text itself.
 - Category-only grounding is not enough. If a block cannot ground more specifically than a broad category, keep it `other`.

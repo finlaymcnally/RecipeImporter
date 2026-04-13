@@ -60,6 +60,10 @@ def test_classification_task_file_uses_binary_category_only_answers() -> None:
         "Do not invent a new tag in the first pass" in row
         for row in task_file["review_contract"]["anti_patterns"]
     )
+    assert any(
+        "semantic key for the following owned explanatory row" in row
+        for row in task_file["review_contract"]["decision_policy"]
+    )
 
 
 def test_classification_validator_accepts_keep_for_review_and_other() -> None:
@@ -132,6 +136,7 @@ def test_structured_prompt_keeps_first_pass_tag_free_and_binary() -> None:
     )
 
     assert "Classify each row only as `keep_for_review` or `other`." in prompt
+    assert "reusable concept or strategy name" in prompt
     assert "Do not think about tags during classification." in prompt
     assert "Tagging happens only in the second pass." in prompt
     assert "rows sharing one group_id" not in prompt

@@ -602,10 +602,11 @@ def _knowledge_classification_review_contract() -> dict[str, Any]:
             "Decide by local span, emit by row: neighboring rows can explain the current row without forcing all nearby rows into the same answer.",
             "Treat heading shape and packet position as weak hints only.",
             "A heading or bridge row can support nearby knowledge without itself being knowledge.",
-            "A heading alone is not enough for knowledge; keep a heading only when it directly introduces reusable explanatory content in the owned packet.",
+            "A heading alone is not enough for knowledge; keep a heading only when it directly introduces or names reusable explanatory content in the owned packet.",
             "Return `keep_for_review` only when the row looks like reusable cooking knowledge worth carrying into the second-pass group review.",
             "Do not think about tags in this first pass. Tagging belongs entirely to the second pass.",
             "Short conceptual headings can still be knowledge when they introduce real explanatory content; shortness alone is not enough to drop a block.",
+            "Keep a short action-key or strategy heading when it is the semantic key for the following owned explanatory row, even if the body text does not restate the heading words.",
         ],
         "anti_patterns": [
             "Do not invent a rule that classifies many rows at once from heading level, casing, length, or title shape.",

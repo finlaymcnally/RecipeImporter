@@ -63,6 +63,7 @@ def test_classification_structured_packet_and_prompt_use_compact_binary_surface(
     ]
     assert "labels" in prompt
     assert "keep_for_review" in prompt
+    assert "reusable concept or strategy name" in prompt
     assert "Do not think about tags during classification." in prompt
 
 

@@ -23,7 +23,7 @@ Negative rules:
 - A short named component such as `Lime Vinaigrette` is usually not `HOWTO_SECTION` when the nearby rows show it is simply one ingredient/component among many rather than the start of its own ingredient-and-step subsection.
 - A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.
 - A full sentence or paragraph beginning with `To make ...` or `To serve ...` is usually variant or procedural prose, not `HOWTO_SECTION`, unless the whole line is a short heading-shaped header.
-- A bare cue line such as `Variation` or `Variations` is not itself enough for `RECIPE_VARIANT`; treat it as a cue that following rows may become variant content.
+- A bare cue line such as `Variation` or `Variations` is not itself enough for `RECIPE_VARIANT`; treat it as a cue that following rows may become variant content, and the cue line itself usually stays `OTHER`.
 - The rows after `Variation` or `Variations` may still be `RECIPE_VARIANT` when they clearly form a local alternate-version run inside the current recipe.
 - A heading-like variant title and its immediately attached intro prose can both be `RECIPE_VARIANT` when nearby rows show they are introducing alternate versions within the current recipe rather than a new recipe or generic prose.
 - Short `Variation` / `Variations` follow-up lines such as `To add a little heat ...` or `To evoke the flavors ...` usually stay `RECIPE_VARIANT`.
@@ -169,7 +169,7 @@ Few-shot examples:
 
 30) Context: inside recipe, bare cue heading before alternate-version rows
     Line: `Variations`
-    Label: `RECIPE_NOTES`
+    Label: `OTHER`
 
 31) Context: inside recipe, heading-like local alternate-version title after a `Variations` cue
     Line: `Three Classic Shaved Salads`
