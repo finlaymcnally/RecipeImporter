@@ -441,6 +441,7 @@ def knowledge_task_file_to_structured_packet(
     repair_mode = str(task_file_payload.get("mode") or "").strip() == "repair"
     rows: list[str] = []
     ordered_rows: list[str] = []
+    groupable_row_ids: list[str] = []
     context_before_rows: list[str] = []
     context_after_rows: list[str] = []
     row_facts: list[str] = []
@@ -452,13 +453,16 @@ def knowledge_task_file_to_structured_packet(
         row_id = _knowledge_local_row_id(index)
         row_text = str(evidence.get("text") or "")
         block_index = int(evidence.get("block_index") or 0)
-        rows.append(
-            _compact_knowledge_packet_row(
-                row_id=row_id,
-                block_index=block_index,
-                text=row_text,
+        if stage_key != KNOWLEDGE_GROUP_STAGE_KEY:
+            rows.append(
+                _compact_knowledge_packet_row(
+                    row_id=row_id,
+                    block_index=block_index,
+                    text=row_text,
+                )
             )
-        )
+        else:
+            groupable_row_ids.append(row_id)
         context_before = str(evidence.get("context_before") or "").strip()
         if context_before:
             context_before_rows.append(
@@ -512,14 +516,21 @@ def knowledge_task_file_to_structured_packet(
             if compact_row:
                 ordered_rows.append(compact_row)
     packet = {
-        "schema_version": "knowledge_structured_packet.v3",
+        "schema_version": (
+            "knowledge_structured_packet.v4"
+            if stage_key == KNOWLEDGE_GROUP_STAGE_KEY
+            else "knowledge_structured_packet.v3"
+        ),
         "stage_key": stage_key,
         "packet_kind": str(packet_kind or "initial"),
         "assignment_id": str(task_file_payload.get("assignment_id") or ""),
         "worker_id": str(task_file_payload.get("worker_id") or ""),
         "bid": str(task_file_payload.get("assignment_id") or "knowledge-packet"),
-        "rows": rows,
     }
+    if rows:
+        packet["rows"] = rows
+    if groupable_row_ids:
+        packet["groupable_row_ids"] = groupable_row_ids
     if ordered_rows:
         packet["ordered_rows"] = ordered_rows
     if context_before_rows:
@@ -578,7 +589,18 @@ def build_knowledge_structured_prompt(
 ) -> str:
     stage_key = str(task_file_payload.get("stage_key") or "").strip()
     repair_mode = str(task_file_payload.get("mode") or "").strip() == "repair"
-    row_count = len([row for row in (packet.get("rows") or []) if isinstance(row, str)])
+    row_count = len(
+        [
+            row_id
+            for row_id in (
+                packet.get("groupable_row_ids")
+                if stage_key == KNOWLEDGE_GROUP_STAGE_KEY
+                else packet.get("rows")
+            )
+            or []
+            if isinstance(row_id, str)
+        ]
+    )
     has_context = bool(packet.get("context_before_rows") or packet.get("context_after_rows"))
     has_ordered_rows = bool(packet.get("ordered_rows"))
     if stage_key == KNOWLEDGE_GROUP_STAGE_KEY:
@@ -587,12 +609,12 @@ def build_knowledge_structured_prompt(
         )
         task_note = (
             "Review the ordered kept knowledge rows and partition them into contiguous reading-order groups.\n"
-            "The packet `rows` array is ordered and authoritative; each row is rendered as `rXX | block_index | text`.\n"
-            "When present, `ordered_rows` interleaves those authoritative kept rows with short context-only `other` rows in source order.\n"
+            "The packet `groupable_row_ids` list is authoritative and names the only rows you may group.\n"
+            "When present, `ordered_rows` is the single reading-order surface and interleaves those groupable kept rows with short context-only `other` rows in source order.\n"
             "Each `ordered_rows` item is rendered as `display_id | classification | block_index | text`.\n"
             "This is a split-and-tag pass: choose the group boundaries with the tag story in mind.\n"
-            "Every owned row in `rows` already survived the binary review and must belong to exactly one contiguous group.\n"
-            "Only the `rXX` rows in `rows` are groupable. `ctxXX` rows in `ordered_rows` are structural context only and must never appear in returned group spans.\n"
+            "Every row id in `groupable_row_ids` already survived the binary review and must belong to exactly one contiguous group.\n"
+            "Only the `rXX` ids listed in `groupable_row_ids` are groupable. `ctxXX` rows in `ordered_rows` are structural context only and must never appear in returned group spans.\n"
             "Return one `groups` array. Each group claims an inclusive span with `start_row_id` and `end_row_id`.\n"
             "The groups must cover every owned row exactly once, in order, with no gaps and no overlap.\n"
             "Each group must carry one `group_id`, one `topic_label`, and one shared `grounding` story for that whole span.\n"

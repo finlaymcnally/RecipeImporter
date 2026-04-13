@@ -147,9 +147,11 @@ def test_same_session_handoff_advances_to_grouping_and_projects_group_grounding(
     assert classification_result["status"] == "advance_to_grouping"
     assert classification_result["classification_validation_count"] == 1
     assert grouping_task["stage_key"] == "knowledge_group"
+    assert grouping_task["groupable_row_ids"] == ["r01"]
     assert grouping_task["units"][0]["evidence"]["rows"][0]["classification"] == {
         "category": "keep_for_review"
     }
+    assert "text" not in grouping_task["units"][0]["evidence"]["rows"][0]
 
     grouping_task["units"][0]["answer"] = _group_span_answer()
     write_task_file(path=workspace_root / "task.json", payload=grouping_task)
@@ -240,10 +242,12 @@ def test_same_session_grouping_task_shows_short_other_rows_in_ordered_context(
 
     assert classification_result["status"] == "advance_to_grouping"
     assert grouping_task["stage_key"] == "knowledge_group"
+    assert grouping_task["groupable_row_ids"] == ["r01", "r02"]
     assert [row["row_id"] for row in grouping_task["units"][0]["evidence"]["rows"]] == [
         "r01",
         "r02",
     ]
+    assert "text" not in grouping_task["units"][0]["evidence"]["rows"][0]
     assert grouping_task["ordered_rows"] == [
         {
             "display_id": "ctx01",

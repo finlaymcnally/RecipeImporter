@@ -946,16 +946,6 @@ def _collect_knowledge_grouping_units(
                 "evidence": {
                     "block_index": block_index,
                     "block_id": str(evidence.get("block_id") or owned_id),
-                    "text": str(evidence.get("text") or ""),
-                    "context_before": evidence.get("context_before"),
-                    "context_before_block_index": evidence.get(
-                        "context_before_block_index"
-                    ),
-                    "context_after": evidence.get("context_after"),
-                    "context_after_block_index": evidence.get(
-                        "context_after_block_index"
-                    ),
-                    "structure": dict(_coerce_dict(evidence.get("structure"))),
                 },
                 "classification": {
                     "category": category,
@@ -1025,6 +1015,10 @@ def _build_knowledge_grouping_task_file_from_units(
         answer_schema=_knowledge_grouping_answer_schema(),
     )
     task_file["ontology"] = load_knowledge_tag_catalog().task_scope_payload()
+    if task_units:
+        task_file["groupable_row_ids"] = [
+            f"r{index:02d}" for index, _unit in enumerate(task_units, start=1)
+        ]
     if ordered_rows:
         task_file["ordered_rows"] = [
             dict(row) for row in ordered_rows if isinstance(row, Mapping)
@@ -1063,16 +1057,6 @@ def _knowledge_same_session_group_rows(
                     or unit_dict.get("unit_id")
                     or ""
                 ).strip(),
-                "text": str(evidence.get("text") or ""),
-                "context_before": evidence.get("context_before"),
-                "context_before_block_index": evidence.get(
-                    "context_before_block_index"
-                ),
-                "context_after": evidence.get("context_after"),
-                "context_after_block_index": evidence.get(
-                    "context_after_block_index"
-                ),
-                "structure": dict(_coerce_dict(evidence.get("structure"))),
                 "classification": dict(_coerce_dict(unit_dict.get("classification"))),
             }
         )
@@ -1110,6 +1094,9 @@ def _build_knowledge_same_session_grouping_task_file_from_units(
         answer_schema=_knowledge_same_session_grouping_answer_schema(),
     )
     task_file["ontology"] = load_knowledge_tag_catalog().task_scope_payload()
+    task_file["groupable_row_ids"] = [
+        f"r{index:02d}" for index, _unit in enumerate(units, start=1)
+    ]
     if ordered_rows:
         task_file["ordered_rows"] = [
             dict(row) for row in ordered_rows if isinstance(row, Mapping)

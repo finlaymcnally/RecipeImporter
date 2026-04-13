@@ -150,6 +150,9 @@ def test_grouping_structured_prompt_is_group_first_and_parser_maps_group_groundi
         "r01 | classification=keep_for_review",
         "r02 | classification=keep_for_review",
     ]
+    assert packet["schema_version"] == "knowledge_structured_packet.v4"
+    assert packet["groupable_row_ids"] == ["r01", "r02"]
+    assert "rows" not in packet
     assert packet["ordered_rows"] == [
         "ctx01 | other | 30 | BALANCE",
         "r01 | keep_for_review | 31 | Use gentle heat for eggs.",
@@ -158,6 +161,7 @@ def test_grouping_structured_prompt_is_group_first_and_parser_maps_group_groundi
     assert "split-and-tag pass" in prompt
     assert "Return one `groups` array." in prompt
     assert "choose the group boundaries with the tag story in mind" in prompt
+    assert "groupable_row_ids" in prompt
     assert "ordered_rows" in prompt
     assert "ctxXX" in prompt
     assert "Put `why_no_existing_tag` and `retrieval_query` on the group object itself" in prompt
