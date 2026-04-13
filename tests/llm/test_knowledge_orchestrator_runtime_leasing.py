@@ -488,7 +488,7 @@ def test_knowledge_orchestrator_inline_json_retries_classification_more_than_onc
     assert worker_status["telemetry"]["summary"]["structured_repair_followup_call_count"] == 2
 
 
-def test_knowledge_orchestrator_classification_count_mismatch_repairs_only_unresolved_tail_rows(
+def test_knowledge_orchestrator_classification_missing_rows_repair_only_targets_unresolved_tail_rows(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -534,7 +534,6 @@ def test_knowledge_orchestrator_classification_count_mismatch_repairs_only_unres
     assert repair_packet["repair_validation_summary"]["validation_errors"] == [
         "knowledge_block_missing_decision",
         "knowledge_missing_response_rows",
-        "label_count_mismatch",
     ]
     assert repair_packet["repair_validation_summary"]["missing_row_ids"] == ["r03"]
     assert repair_packet["rows"] == [
@@ -1119,7 +1118,12 @@ class _TailOnlyClassificationRepairInlineRunner(FakeCodexExecRunner):
             return _packet_result_from_base(
                 base_result,
                 response_text=json.dumps(
-                    {"labels": ["keep_for_review", "keep_for_review"]},
+                    {
+                        "rows": [
+                            {"row_id": "r01", "category": "keep_for_review"},
+                            {"row_id": "r02", "category": "keep_for_review"},
+                        ]
+                    },
                     indent=2,
                     sort_keys=True,
                 ),

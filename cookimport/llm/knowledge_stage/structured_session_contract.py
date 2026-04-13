@@ -840,7 +840,6 @@ def build_knowledge_edited_task_file_from_classification_response(
         return None, ("response_json_invalid",), {"parse_error": str(exc)}
     if not isinstance(parsed, Mapping):
         return None, ("response_not_json_object",), {"response_type": type(parsed).__name__}
-    labels = parsed.get("labels")
     (
         _row_id_by_unit_id,
         unit_id_by_row_id,
@@ -851,39 +850,26 @@ def build_knowledge_edited_task_file_from_classification_response(
     seen_row_ids: set[str] = set()
     duplicate_row_ids: set[str] = set()
     unknown_row_ids: set[str] = set()
-    label_count_mismatch = False
-    returned_label_count = 0
-    if isinstance(labels, list):
-        returned_label_count = len(labels)
-        label_count_mismatch = returned_label_count != len(owned_row_ids)
-        for index, row_id in enumerate(owned_row_ids[:returned_label_count]):
-            unit_id = unit_id_by_row_id.get(row_id)
-            if not unit_id:
-                continue
-            answers_by_unit_id[unit_id] = {
-                "category": str(labels[index] or "").strip(),
-            }
-    else:
-        decision_rows = parsed.get("rows")
-        if not isinstance(decision_rows, list):
-            return None, ("rows_missing_or_not_a_list",), {}
-        for row in decision_rows:
-            if not isinstance(row, Mapping):
-                return None, ("row_not_a_json_object",), {}
-            row_id = str(row.get("row_id") or "").strip()
-            if not row_id:
-                return None, ("row_id_missing",), {}
-            if row_id in seen_row_ids:
-                duplicate_row_ids.add(row_id)
-                continue
-            seen_row_ids.add(row_id)
-            unit_id = unit_id_by_row_id.get(row_id)
-            if not unit_id:
-                unknown_row_ids.add(row_id)
-                continue
-            answers_by_unit_id[unit_id] = {
-                "category": str(row.get("category") or "").strip(),
-            }
+    decision_rows = parsed.get("rows")
+    if not isinstance(decision_rows, list):
+        return None, ("rows_missing_or_not_a_list",), {}
+    for row in decision_rows:
+        if not isinstance(row, Mapping):
+            return None, ("row_not_a_json_object",), {}
+        row_id = str(row.get("row_id") or "").strip()
+        if not row_id:
+            return None, ("row_id_missing",), {}
+        if row_id in seen_row_ids:
+            duplicate_row_ids.add(row_id)
+            continue
+        seen_row_ids.add(row_id)
+        unit_id = unit_id_by_row_id.get(row_id)
+        if not unit_id:
+            unknown_row_ids.add(row_id)
+            continue
+        answers_by_unit_id[unit_id] = {
+            "category": str(row.get("category") or "").strip(),
+        }
     missing_unit_ids = [
         unit_id_by_row_id[row_id]
         for row_id in owned_row_ids
@@ -895,15 +881,6 @@ def build_knowledge_edited_task_file_from_classification_response(
         unknown_row_ids=sorted(unknown_row_ids),
         duplicate_row_ids=sorted(duplicate_row_ids),
     )
-    if label_count_mismatch:
-        response_contract_errors = tuple(
-            dict.fromkeys([*response_contract_errors, "label_count_mismatch"])
-        )
-        response_contract_metadata = {
-            **dict(response_contract_metadata),
-            "expected_label_count": len(owned_row_ids),
-            "returned_label_count": returned_label_count,
-        }
     edited = dict(original_task_file)
     edited["units"] = []
     for unit in original_task_file.get("units") or []:

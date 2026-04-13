@@ -10,8 +10,7 @@ Start with:
 Current inline classification contract:
 - pass 1 is row-grounded and asks for one ordered `rows` array of `{row_id, category}`
 - allowed categories stay binary: `keep_for_review` or `other`
-- legacy `labels` arrays are still parsed for compatibility
-- if a legacy `labels` array is short, the parser salvages the answered prefix and narrows repair to only the unresolved tail row ids instead of resending the whole shard
+- missing rows now narrow repair through unresolved `row_id`s in the `rows` array itself
 
 Current inline grouping contract:
 - pass 2 reads one mixed `ordered_rows` surface

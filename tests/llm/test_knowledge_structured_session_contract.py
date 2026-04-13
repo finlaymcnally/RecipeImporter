@@ -104,7 +104,7 @@ def test_classification_structured_response_accepts_row_grounded_rows_array() ->
     }
 
 
-def test_classification_structured_response_salvages_short_legacy_labels_array() -> None:
+def test_classification_structured_response_narrows_missing_row_grounding() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
@@ -116,13 +116,18 @@ def test_classification_structured_response_salvages_short_legacy_labels_array()
 
     edited, errors, metadata = build_knowledge_edited_task_file_from_classification_response(
         original_task_file=task_file,
-        response_text=json.dumps({"labels": ["keep_for_review", "other"]}),
+        response_text=json.dumps(
+            {
+                "rows": [
+                    {"row_id": "r01", "category": "keep_for_review"},
+                    {"row_id": "r02", "category": "other"},
+                ]
+            }
+        ),
     )
 
     assert edited is not None
-    assert errors == ("knowledge_missing_response_rows", "label_count_mismatch")
-    assert metadata["expected_label_count"] == 3
-    assert metadata["returned_label_count"] == 2
+    assert errors == ("knowledge_missing_response_rows",)
     assert metadata["failed_unit_ids"] == ["knowledge::23"]
     assert metadata["missing_row_ids"] == ["r03"]
 
@@ -578,7 +583,7 @@ def test_grouping_structured_response_rejects_noncontiguous_group_spans() -> Non
     assert metadata["failed_unit_ids"] == ["knowledge::31", "knowledge::32", "knowledge::33"]
 
 
-def test_classification_repair_packet_preserves_packet_level_count_feedback() -> None:
+def test_classification_repair_packet_preserves_packet_level_missing_row_feedback() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
@@ -591,21 +596,19 @@ def test_classification_repair_packet_preserves_packet_level_count_feedback() ->
         failed_unit_ids=["knowledge::21", "knowledge::22"],
         previous_answers_by_unit_id={},
         validation_feedback_by_unit_id={},
-        repair_validation_errors=["label_count_mismatch"],
+        repair_validation_errors=["knowledge_missing_response_rows"],
         repair_validation_metadata={
-            "expected_label_count": 2,
-            "returned_label_count": 1,
+            "missing_row_ids": ["r02"],
         },
     )
 
     packet = knowledge_task_file_to_structured_packet(
         task_file_payload=repair_task_file,
         packet_kind="classification_repair",
-        validation_errors=["label_count_mismatch"],
+        validation_errors=["knowledge_missing_response_rows"],
     )
 
     assert packet["repair_validation_summary"] == {
-        "validation_errors": ["label_count_mismatch"],
-        "expected_label_count": 2,
-        "returned_label_count": 1,
+        "validation_errors": ["knowledge_missing_response_rows"],
+        "missing_row_ids": ["r02"],
     }
