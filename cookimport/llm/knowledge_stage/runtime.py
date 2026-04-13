@@ -321,6 +321,9 @@ def run_codex_farm_nonrecipe_finalize(
                 "codex_exec_style": resolve_codex_exec_style_value(
                     run_settings.knowledge_codex_exec_style,
                 ),
+                "knowledge_inline_repair_transcript_mode": (
+                    run_settings.resolved_knowledge_inline_repair_transcript_mode()
+                ),
                 "knowledge_prompt_target_count": run_settings.knowledge_prompt_target_count,
                 "knowledge_packet_input_char_budget": run_settings.knowledge_packet_input_char_budget,
                 "knowledge_packet_output_char_budget": run_settings.knowledge_packet_output_char_budget,
@@ -332,6 +335,9 @@ def run_codex_farm_nonrecipe_finalize(
                 "surface_pipeline": run_settings.llm_knowledge_pipeline.value,
                 "codex_exec_style": resolve_codex_exec_style_value(
                     run_settings.knowledge_codex_exec_style,
+                ),
+                "knowledge_inline_repair_transcript_mode": (
+                    run_settings.resolved_knowledge_inline_repair_transcript_mode()
                 ),
                 "input_mode": "nonrecipe_candidate_spans",
                 "workspace_root": str(workspace_root) if workspace_root is not None else None,

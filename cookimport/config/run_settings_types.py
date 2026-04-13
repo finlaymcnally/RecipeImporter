@@ -43,6 +43,7 @@ BUCKET2_INTERNAL_ONLY_RUN_SETTING_NAMES = (
     "recipe_codex_exec_style",
     "line_role_codex_exec_style",
     "knowledge_codex_exec_style",
+    "knowledge_inline_repair_transcript_mode",
     "knowledge_group_task_max_units",
     "knowledge_group_task_max_evidence_chars",
 )
@@ -238,6 +239,11 @@ class CodexExecStyle(str, Enum):
     inline_json_v1 = CODEX_EXEC_STYLE_INLINE_JSON_V1
 
 
+class StructuredRepairTranscriptMode(str, Enum):
+    fresh = "fresh"
+    resume = "resume"
+
+
 class CodexFarmFailureMode(str, Enum):
     fail = "fail"
     fallback = "fallback"
@@ -305,6 +311,19 @@ def normalize_codex_exec_style_value(value: Any) -> str:
     raise ValueError(
         "Invalid Codex exec style. Expected one of: "
         f"{CODEX_EXEC_STYLE_TASKFILE_V1}, {CODEX_EXEC_STYLE_INLINE_JSON_V1}."
+    )
+
+
+def normalize_structured_repair_transcript_mode_value(value: Any) -> str:
+    normalized = str(getattr(value, "value", value) or "").strip().lower().replace("_", "-")
+    if normalized in {"", "default", "resume", "resumed"}:
+        return StructuredRepairTranscriptMode.resume.value
+    if normalized in {"fresh", "fresh-call", "fresh-bounded"}:
+        return StructuredRepairTranscriptMode.fresh.value
+    raise ValueError(
+        "Invalid structured repair transcript mode. Expected one of: "
+        f"{StructuredRepairTranscriptMode.fresh.value}, "
+        f"{StructuredRepairTranscriptMode.resume.value}."
     )
 
 

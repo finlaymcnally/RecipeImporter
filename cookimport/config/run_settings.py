@@ -72,6 +72,7 @@ from .run_settings_types import (
     RECIPE_CODEX_FARM_PIPELINE_POLICY_ERROR,
     RECIPE_CODEX_FARM_PIPELINE_SHARD_V1,
     SectionDetectorBackend,
+    StructuredRepairTranscriptMode,
     UnstructuredHtmlParserVersion,
     UnstructuredPreprocessMode,
     WebHtmlTextExtractor,
@@ -84,6 +85,7 @@ from .run_settings_types import (
     normalize_codex_exec_style_value,
     normalize_llm_knowledge_pipeline_value,
     normalize_llm_recipe_pipeline_value,
+    normalize_structured_repair_transcript_mode_value,
 )
 
 
@@ -894,6 +896,20 @@ class RunSettings(BaseModel):
             surface=RUN_SETTING_SURFACE_INTERNAL,
         ),
     )
+    knowledge_inline_repair_transcript_mode: StructuredRepairTranscriptMode = Field(
+        default=StructuredRepairTranscriptMode.resume,
+        json_schema_extra=_ui_meta(
+            group="LLM",
+            label="Knowledge Repair Transcript Mode",
+            order=116,
+            description=(
+                "Transcript policy for inline structured knowledge repair. "
+                "Resume keeps repair inside the prior Codex session; fresh reruns "
+                "repair as a bounded new packet call in the prepared workspace."
+            ),
+            surface=RUN_SETTING_SURFACE_INTERNAL,
+        ),
+    )
     knowledge_prompt_target_count: int | None = Field(
         default=5,
         ge=1,
@@ -1271,6 +1287,14 @@ class RunSettings(BaseModel):
     ) -> str | CodexExecStyle:
         return normalize_codex_exec_style_value(value)
 
+    @field_validator("knowledge_inline_repair_transcript_mode", mode="before")
+    @classmethod
+    def _normalize_knowledge_inline_repair_transcript_mode(
+        cls,
+        value: Any,
+    ) -> str | StructuredRepairTranscriptMode:
+        return normalize_structured_repair_transcript_mode_value(value)
+
     @classmethod
     def from_dict(
         cls,
@@ -1318,6 +1342,12 @@ class RunSettings(BaseModel):
             data["knowledge_codex_exec_style"] = normalize_codex_exec_style_value(
                 data.get("knowledge_codex_exec_style")
             )
+        if "knowledge_inline_repair_transcript_mode" in data:
+            data["knowledge_inline_repair_transcript_mode"] = (
+                normalize_structured_repair_transcript_mode_value(
+                    data.get("knowledge_inline_repair_transcript_mode")
+                )
+            )
         return cls.model_validate(data)
 
     def resolved_recipe_codex_exec_style(self) -> str:
@@ -1328,6 +1358,11 @@ class RunSettings(BaseModel):
 
     def resolved_knowledge_codex_exec_style(self) -> str:
         return resolve_codex_exec_style_value(self.knowledge_codex_exec_style)
+
+    def resolved_knowledge_inline_repair_transcript_mode(self) -> str:
+        return normalize_structured_repair_transcript_mode_value(
+            self.knowledge_inline_repair_transcript_mode
+        )
 
     def to_run_config_dict(self) -> dict[str, object]:
         from cookimport.config.codex_decision import (

@@ -329,7 +329,7 @@ def test_knowledge_orchestrator_retries_one_fresh_session_after_preserved_progre
     )
 
 
-def test_knowledge_orchestrator_inline_json_style_reuses_workspace_without_resuming_history(
+def test_knowledge_orchestrator_inline_json_style_persists_workspace_for_possible_repair_resume(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -365,7 +365,7 @@ def test_knowledge_orchestrator_inline_json_style_reuses_workspace_without_resum
     assert len(runner.calls) == 4
     assert [call["mode"] for call in runner.calls].count("structured_prompt") == 4
     assert [call["mode"] for call in runner.calls].count("structured_prompt_resume") == 0
-    assert [call["persist_session"] for call in runner.calls].count(True) == 0
+    assert [call["persist_session"] for call in runner.calls].count(True) == 4
     assert [call["resume_last"] for call in runner.calls].count(True) == 0
     assert len({call["execution_working_dir"] for call in runner.calls}) == 2
     assert lineage_payload["turn_count"] == 2
@@ -376,6 +376,73 @@ def test_knowledge_orchestrator_inline_json_style_reuses_workspace_without_resum
         "structured_session_classification_initial": 2,
         "structured_session_grouping": 2,
     }
+
+
+def test_knowledge_orchestrator_inline_json_repairs_resume_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
+    pack_root, _run_root = make_runtime_pack_and_run_dirs(tmp_path)
+    settings = make_runtime_settings(
+        pack_root=pack_root,
+        worker_count=1,
+        knowledge_prompt_target_count=1,
+        knowledge_codex_exec_style="inline-json-v1",
+    )
+    runner = _MultiRepairGroupingInlineRunner()
+
+    _run_runtime_phase(
+        monkeypatch,
+        tmp_path,
+        runner=runner,
+        settings=settings,
+        block_texts=["Knowledge zero."],
+        spans=[knowledge_span(0)],
+    )
+
+    assert [call["mode"] for call in runner.calls] == [
+        "structured_prompt",
+        "structured_prompt",
+        "structured_prompt_resume",
+        "structured_prompt_resume",
+    ]
+    assert [call["resume_last"] for call in runner.calls] == [False, False, True, True]
+    assert [call["persist_session"] for call in runner.calls] == [True, True, True, True]
+
+
+def test_knowledge_orchestrator_inline_json_repairs_can_be_forced_fresh(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
+    pack_root, _run_root = make_runtime_pack_and_run_dirs(tmp_path)
+    settings = make_runtime_settings(
+        pack_root=pack_root,
+        worker_count=1,
+        knowledge_prompt_target_count=1,
+        knowledge_codex_exec_style="inline-json-v1",
+        knowledge_inline_repair_transcript_mode="fresh",
+    )
+    runner = _MultiRepairGroupingInlineRunner()
+
+    _run_runtime_phase(
+        monkeypatch,
+        tmp_path,
+        runner=runner,
+        settings=settings,
+        block_texts=["Knowledge zero."],
+        spans=[knowledge_span(0)],
+    )
+
+    assert [call["mode"] for call in runner.calls] == [
+        "structured_prompt",
+        "structured_prompt",
+        "structured_prompt",
+        "structured_prompt",
+    ]
+    assert [call["resume_last"] for call in runner.calls] == [False, False, False, False]
+    assert [call["persist_session"] for call in runner.calls] == [False, False, False, False]
 
 
 def test_knowledge_orchestrator_inline_json_retries_classification_more_than_once(

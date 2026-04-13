@@ -128,6 +128,7 @@ def build_run_settings(
     line_role_prompt_target_count: int | None = 5,
     llm_knowledge_pipeline: str | LlmKnowledgePipeline = LlmKnowledgePipeline.off,
     knowledge_codex_exec_style: str = "inline-json-v1",
+    knowledge_inline_repair_transcript_mode: str = "resume",
     knowledge_prompt_target_count: int | None = 5,
     knowledge_packet_input_char_budget: int | None = 18000,
     knowledge_packet_output_char_budget: int | None = 6000,
@@ -254,6 +255,9 @@ def build_run_settings(
             ),
             "llm_knowledge_pipeline": _normalized_value(llm_knowledge_pipeline),
             "knowledge_codex_exec_style": resolved_knowledge_codex_exec_style,
+            "knowledge_inline_repair_transcript_mode": _normalized_value(
+                knowledge_inline_repair_transcript_mode
+            ),
             "knowledge_prompt_target_count": (
                 int(knowledge_prompt_target_count)
                 if knowledge_prompt_target_count is not None

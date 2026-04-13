@@ -40,6 +40,7 @@ _STAGE_INTERNAL_FIELDS = (
     "knowledge_prompt_target_count",
     "line_role_codex_exec_style",
     "knowledge_codex_exec_style",
+    "knowledge_inline_repair_transcript_mode",
     "knowledge_packet_input_char_budget",
     "knowledge_packet_output_char_budget",
     "knowledge_group_task_max_units",

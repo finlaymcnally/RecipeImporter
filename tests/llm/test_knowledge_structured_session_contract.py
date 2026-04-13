@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from cookimport.llm.editable_task_file import build_repair_task_file
 from cookimport.llm.knowledge_stage.structured_session_contract import (
     build_knowledge_edited_task_file_from_classification_response,
     build_knowledge_edited_task_file_from_grouping_response,
@@ -187,3 +188,132 @@ def test_grouping_structured_prompt_is_group_first_and_parser_maps_group_groundi
             "category_key": "techniques",
         }
     ]
+
+
+def test_grouping_repair_packet_preserves_previous_answer_and_validation_feedback() -> None:
+    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[
+            _shard(shard_id="book.ks0000.nr", block_index=31, text="Use gentle heat for eggs."),
+        ],
+    )
+    grouping_task_file, _ = build_knowledge_grouping_task_file(
+        assignment_id="worker-structured-001",
+        worker_id="worker-structured-001",
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id={"knowledge::31": {"category": "keep_for_review"}},
+        unit_to_shard_id=unit_to_shard_id,
+    )
+    repair_task_file = build_repair_task_file(
+        original_task_file=grouping_task_file,
+        failed_unit_ids=["knowledge::31"],
+        previous_answers_by_unit_id={
+            "knowledge::31": {
+                "group_id": "g01",
+                "topic_label": "",
+                "grounding": {
+                    "tag_keys": ["saute"],
+                    "category_keys": ["cooking-method"],
+                    "proposed_tags": [],
+                },
+                "why_no_existing_tag": None,
+                "retrieval_query": None,
+            }
+        },
+        validation_feedback_by_unit_id={
+            "knowledge::31": {
+                "validation_errors": ["knowledge_block_missing_group"],
+                "error_details": [
+                    {
+                        "path": "/units/knowledge::31/answer/topic_label",
+                        "code": "knowledge_block_missing_group",
+                        "message": "topic_label must be a non-empty string",
+                    }
+                ],
+            }
+        },
+        repair_validation_errors=["knowledge_block_missing_group"],
+        repair_validation_metadata={
+            "failed_unit_ids": ["knowledge::31"],
+            "error_details": [
+                {
+                    "path": "/units/knowledge::31/answer/topic_label",
+                    "code": "knowledge_block_missing_group",
+                    "message": "topic_label must be a non-empty string",
+                }
+            ],
+        },
+    )
+
+    packet = knowledge_task_file_to_structured_packet(
+        task_file_payload=repair_task_file,
+        packet_kind="grouping_1_repair",
+        validation_errors=["knowledge_block_missing_group"],
+    )
+    prompt = build_knowledge_structured_prompt(
+        task_file_payload=repair_task_file,
+        packet=packet,
+    )
+
+    assert packet["repair_feedback_rows"] == [
+        {
+            "row_id": "r01",
+            "previous_answer": {
+                "group_id": "g01",
+                "topic_label": "",
+                "grounding": {
+                    "tag_keys": ["saute"],
+                    "category_keys": ["cooking-method"],
+                    "proposed_tags": [],
+                },
+                "why_no_existing_tag": None,
+                "retrieval_query": None,
+            },
+            "validation_errors": ["knowledge_block_missing_group"],
+            "error_details": [
+                {
+                    "path": "/units/knowledge::31/answer/topic_label",
+                    "code": "knowledge_block_missing_group",
+                    "message": "topic_label must be a non-empty string",
+                }
+            ],
+        }
+    ]
+    assert packet["repair_validation_summary"]["validation_errors"] == [
+        "knowledge_block_missing_group"
+    ]
+    assert "repair_feedback_rows" in prompt
+    assert "repair_validation_summary" in prompt
+
+
+def test_classification_repair_packet_preserves_packet_level_count_feedback() -> None:
+    task_file, _ = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[
+            _shard(shard_id="book.ks0000.nr", block_index=21, text="Acid brightens rich dishes."),
+            _shard(shard_id="book.ks0001.nr", block_index=22, text="Chapter opener."),
+        ],
+    )
+    repair_task_file = build_repair_task_file(
+        original_task_file=task_file,
+        failed_unit_ids=["knowledge::21", "knowledge::22"],
+        previous_answers_by_unit_id={},
+        validation_feedback_by_unit_id={},
+        repair_validation_errors=["label_count_mismatch"],
+        repair_validation_metadata={
+            "expected_label_count": 2,
+            "returned_label_count": 1,
+        },
+    )
+
+    packet = knowledge_task_file_to_structured_packet(
+        task_file_payload=repair_task_file,
+        packet_kind="classification_repair",
+        validation_errors=["label_count_mismatch"],
+    )
+
+    assert packet["repair_validation_summary"] == {
+        "validation_errors": ["label_count_mismatch"],
+        "expected_label_count": 2,
+        "returned_label_count": 1,
+    }

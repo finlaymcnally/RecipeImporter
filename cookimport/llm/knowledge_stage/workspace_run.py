@@ -7,6 +7,7 @@ from typing import Any, Callable, Mapping, Sequence
 from cookimport.config.run_settings import (
     CODEX_EXEC_STYLE_INLINE_JSON_V1,
     normalize_codex_exec_style_value,
+    normalize_structured_repair_transcript_mode_value,
 )
 from . import _shared as _shared_module
 from . import planning as _planning_module
@@ -65,6 +66,7 @@ from .structured_session_contract import (
     write_knowledge_task_file_snapshot as _write_task_file_snapshot,
 )
 from ..structured_session_runtime import (
+    assert_structured_session_can_resume,
     initialize_structured_session_lineage,
     record_structured_session_turn,
 )
@@ -85,6 +87,12 @@ def _render_events_jsonl(events: tuple[dict[str, Any], ...]) -> str:
     if not events:
         return ""
     return "".join(json.dumps(event, sort_keys=True) + "\n" for event in events)
+
+
+def _knowledge_inline_repair_should_resume(settings: Mapping[str, Any]) -> bool:
+    return normalize_structured_repair_transcript_mode_value(
+        settings.get("knowledge_inline_repair_transcript_mode")
+    ) == "resume"
 
 
 def _attach_worker_guardrail_summary(
@@ -575,6 +583,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
     worker_runner_results: list[dict[str, Any]] = []
     stage_rows: list[dict[str, Any]] = []
     requested_shards = [shard_by_id[shard_id] for shard_id in assignment.shard_ids]
+    inline_repair_should_resume = _knowledge_inline_repair_should_resume(settings)
 
     def _record_structured_attempt(
         *,
@@ -747,6 +756,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
             model=model,
             reasoning_effort=reasoning_effort,
             workspace_task_label="knowledge structured classification session",
+            persist_session=inline_repair_should_resume,
         )
         terminal_run_result = initial_run_result
         execution_workspace = Path(initial_run_result.execution_working_dir or session_root)
@@ -857,6 +867,8 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                         validation_errors=classification_validation_errors,
                         validation_metadata=classification_validation_metadata,
                     ),
+                    repair_validation_errors=classification_validation_errors,
+                    repair_validation_metadata=classification_validation_metadata,
                 )
                 repair_packet = _knowledge_task_file_to_structured_packet(
                     task_file_payload=repair_task_file,
@@ -895,6 +907,11 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     encoding="utf-8",
                 )
                 repair_prompt_path.write_text(repair_prompt, encoding="utf-8")
+                if inline_repair_should_resume:
+                    assert_structured_session_can_resume(
+                        worker_root=session_root,
+                        execution_working_dir=execution_workspace,
+                    )
                 repair_run_result = runner.run_packet_worker(
                     prompt_text=repair_prompt,
                     input_payload=repair_packet,
@@ -903,6 +920,8 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     output_schema_path=None,
                     model=model,
                     reasoning_effort=reasoning_effort,
+                    resume_last=inline_repair_should_resume,
+                    persist_session=inline_repair_should_resume,
                     prepared_execution_working_dir=execution_workspace,
                     workspace_task_label="knowledge structured classification repair session",
                 )
@@ -1076,6 +1095,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     reasoning_effort=reasoning_effort,
                     prepared_execution_working_dir=execution_workspace,
                     workspace_task_label="knowledge structured grouping session",
+                    persist_session=inline_repair_should_resume,
                 )
                 terminal_run_result = grouping_run_result
                 grouping_response_path.write_text(
@@ -1169,6 +1189,8 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                                 validation_errors=grouping_validation_errors,
                                 validation_metadata=grouping_validation_metadata,
                             ),
+                            repair_validation_errors=grouping_validation_errors,
+                            repair_validation_metadata=grouping_validation_metadata,
                         )
                         repair_grouping_packet = _knowledge_task_file_to_structured_packet(
                             task_file_payload=repair_grouping_task_file,
@@ -1215,6 +1237,11 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                             repair_grouping_prompt,
                             encoding="utf-8",
                         )
+                        if inline_repair_should_resume:
+                            assert_structured_session_can_resume(
+                                worker_root=session_root,
+                                execution_working_dir=execution_workspace,
+                            )
                         repair_grouping_run_result = runner.run_packet_worker(
                             prompt_text=repair_grouping_prompt,
                             input_payload=repair_grouping_packet,
@@ -1223,6 +1250,8 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                             output_schema_path=None,
                             model=model,
                             reasoning_effort=reasoning_effort,
+                            resume_last=inline_repair_should_resume,
+                            persist_session=inline_repair_should_resume,
                             prepared_execution_working_dir=execution_workspace,
                             workspace_task_label="knowledge structured grouping repair session",
                         )

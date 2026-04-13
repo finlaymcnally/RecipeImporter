@@ -548,6 +548,8 @@ def build_repair_task_file(
     failed_unit_ids: Sequence[str],
     previous_answers_by_unit_id: Mapping[str, Mapping[str, Any]],
     validation_feedback_by_unit_id: Mapping[str, Mapping[str, Any]],
+    repair_validation_errors: Sequence[str] | None = None,
+    repair_validation_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     failed_unit_id_set = {
         str(unit_id).strip() for unit_id in failed_unit_ids if str(unit_id).strip()
@@ -599,6 +601,16 @@ def build_repair_task_file(
         if normalized_key == "units" or normalized_key in repair_task_file:
             continue
         repair_task_file[normalized_key] = deepcopy(value)
+    if repair_validation_errors:
+        repair_task_file["repair_validation_errors"] = [
+            str(error).strip()
+            for error in repair_validation_errors
+            if str(error).strip()
+        ]
+    if isinstance(repair_validation_metadata, Mapping):
+        repair_task_file["repair_validation_metadata"] = deepcopy(
+            dict(repair_validation_metadata)
+        )
     return repair_task_file
 
 

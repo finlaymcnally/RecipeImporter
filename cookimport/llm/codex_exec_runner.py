@@ -197,6 +197,8 @@ class CodexExecRunResult:
     duration_ms: int | None = None
     started_at_utc: str | None = None
     finished_at_utc: str | None = None
+    resume_last: bool = False
+    persist_session: bool = False
     workspace_mode: DirectExecWorkerContract = "packet"
     supervision_state: str | None = None
     supervision_reason_code: str | None = None
@@ -320,6 +322,8 @@ class CodexExecRunResult:
             "source_working_dir": self.source_working_dir,
             "execution_working_dir": self.execution_working_dir,
             "execution_agents_path": self.execution_agents_path,
+            "resume_last": bool(self.resume_last),
+            "persist_session": bool(self.persist_session),
         }
 
     def to_payload(self, *, worker_id: str, shard_id: str) -> dict[str, Any]:
@@ -700,6 +704,8 @@ class SubprocessCodexExecRunner:
             duration_ms=completed.duration_ms,
             started_at_utc=_format_utc_timestamp(started_at),
             finished_at_utc=_format_utc_timestamp(finished_at),
+            resume_last=bool(resume_last),
+            persist_session=bool(persist_session),
             workspace_mode=workspace_mode,
             supervision_state=(
                 completed.termination_decision.supervision_state
@@ -1322,6 +1328,8 @@ class FakeCodexExecRunner:
             duration_ms=1,
             started_at_utc="2026-01-01T00:00:00Z",
             finished_at_utc="2026-01-01T00:00:00Z",
+            resume_last=bool(resume_last),
+            persist_session=bool(persist_session),
             workspace_mode="packet",
             supervision_state="completed",
             codex_policy_mode=(
@@ -1617,6 +1625,8 @@ class FakeCodexExecRunner:
             duration_ms=1,
             started_at_utc="2026-01-01T00:00:00Z",
             finished_at_utc="2026-01-01T00:00:00Z",
+            resume_last=False,
+            persist_session=False,
             workspace_mode="taskfile",
             supervision_state="completed",
             codex_policy_mode=(

@@ -86,6 +86,7 @@ _SUMMARY_ORDER = (
     "knowledge_packet_output_char_budget",
     "knowledge_group_task_max_units",
     "knowledge_group_task_max_evidence_chars",
+    "knowledge_inline_repair_transcript_mode",
     "line_role_pipeline",
     "line_role_codex_exec_style",
     "line_role_prompt_target_count",

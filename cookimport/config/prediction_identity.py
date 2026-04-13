@@ -56,6 +56,7 @@ ALL_METHOD_PREDICTION_IDENTITY_FIELDS = (
     "codex_farm_failure_mode",
     "llm_knowledge_pipeline",
     "knowledge_codex_exec_style",
+    "knowledge_inline_repair_transcript_mode",
     "codex_farm_knowledge_context_blocks",
 )
 

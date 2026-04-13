@@ -233,6 +233,84 @@ def _compact_knowledge_row_facts(
     return " | ".join(parts)
 
 
+def _compact_repair_error_detail(detail: Mapping[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    for key in ("code", "message", "path", "row_id", "block_index"):
+        value = detail.get(key)
+        if value in (None, "", [], {}):
+            continue
+        compact[str(key)] = value
+    return compact
+
+
+def _compact_repair_feedback_row(
+    *,
+    row_id: str,
+    unit: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    previous_answer = _coerce_dict(unit.get("previous_answer"))
+    validation_feedback = _coerce_dict(unit.get("validation_feedback"))
+    validation_errors = [
+        str(error).strip()
+        for error in (validation_feedback.get("validation_errors") or [])
+        if str(error).strip()
+    ]
+    error_details = [
+        _compact_repair_error_detail(detail)
+        for detail in (validation_feedback.get("error_details") or [])
+        if isinstance(detail, Mapping)
+    ]
+    error_details = [detail for detail in error_details if detail]
+    if not previous_answer and not validation_errors and not error_details:
+        return None
+    payload: dict[str, Any] = {"row_id": row_id}
+    if previous_answer:
+        payload["previous_answer"] = previous_answer
+    if validation_errors:
+        payload["validation_errors"] = validation_errors
+    if error_details:
+        payload["error_details"] = error_details
+    return payload
+
+
+def _compact_repair_validation_summary(
+    task_file_payload: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    validation_errors = [
+        str(error).strip()
+        for error in (task_file_payload.get("repair_validation_errors") or [])
+        if str(error).strip()
+    ]
+    validation_metadata = _coerce_dict(task_file_payload.get("repair_validation_metadata"))
+    summary: dict[str, Any] = {}
+    if validation_errors:
+        summary["validation_errors"] = validation_errors
+    for key in (
+        "expected_label_count",
+        "returned_label_count",
+        "unresolved_block_indices",
+        "missing_block_indices",
+        "missing_row_ids",
+        "unknown_row_ids",
+        "duplicate_row_ids",
+        "knowledge_blocks_missing_group",
+        "knowledge_group_grounding_mismatch_blocks",
+    ):
+        value = validation_metadata.get(key)
+        if value in (None, "", [], {}):
+            continue
+        summary[str(key)] = value
+    error_details = [
+        _compact_repair_error_detail(detail)
+        for detail in (validation_metadata.get("error_details") or [])
+        if isinstance(detail, Mapping)
+    ]
+    error_details = [detail for detail in error_details if detail]
+    if error_details:
+        summary["error_details"] = error_details
+    return summary or None
+
+
 def knowledge_task_file_to_structured_packet(
     *,
     task_file_payload: Mapping[str, Any],
@@ -240,10 +318,12 @@ def knowledge_task_file_to_structured_packet(
     validation_errors: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     stage_key = str(task_file_payload.get("stage_key") or "").strip()
+    repair_mode = str(task_file_payload.get("mode") or "").strip() == "repair"
     rows: list[str] = []
     context_before_rows: list[str] = []
     context_after_rows: list[str] = []
     row_facts: list[str] = []
+    repair_feedback_rows: list[dict[str, Any]] = []
     for index, unit in enumerate(task_file_payload.get("units") or []):
         if not isinstance(unit, Mapping):
             continue
@@ -296,6 +376,13 @@ def knowledge_task_file_to_structured_packet(
                         classification_category=classification_category,
                     )
                 )
+        if repair_mode:
+            repair_feedback_row = _compact_repair_feedback_row(
+                row_id=row_id,
+                unit=unit,
+            )
+            if repair_feedback_row is not None:
+                repair_feedback_rows.append(repair_feedback_row)
     packet = {
         "schema_version": "knowledge_structured_packet.v2",
         "stage_key": stage_key,
@@ -339,6 +426,11 @@ def knowledge_task_file_to_structured_packet(
         packet["validation_errors"] = [
             str(error).strip() for error in validation_errors if str(error).strip()
         ]
+    if repair_feedback_rows:
+        packet["repair_feedback_rows"] = repair_feedback_rows
+    repair_validation_summary = _compact_repair_validation_summary(task_file_payload)
+    if repair_validation_summary is not None:
+        packet["repair_validation_summary"] = repair_validation_summary
     return packet
 
 
@@ -348,6 +440,7 @@ def build_knowledge_structured_prompt(
     packet: Mapping[str, Any],
 ) -> str:
     stage_key = str(task_file_payload.get("stage_key") or "").strip()
+    repair_mode = str(task_file_payload.get("mode") or "").strip() == "repair"
     row_count = len([row for row in (packet.get("rows") or []) if isinstance(row, str)])
     has_context = bool(packet.get("context_before_rows") or packet.get("context_after_rows"))
     if stage_key == KNOWLEDGE_GROUP_STAGE_KEY:
@@ -388,10 +481,19 @@ def build_knowledge_structured_prompt(
         if has_context
         else ""
     )
+    repair_note = (
+        "This is a repair followup.\n"
+        "When present, `repair_feedback_rows` shows the prior answer for each failing row and the exact validator complaints.\n"
+        "When present, `repair_validation_summary` carries packet-level contract failures such as wrong row count.\n"
+        "Fix those exact failures instead of inventing a new scheme.\n"
+        if repair_mode
+        else ""
+    )
     return (
         "Return JSON only.\n\n"
         + task_note
         + context_note
+        + repair_note
         + f"Return exactly {row_count} result row(s): one for each owned `row_id` shown in `rows`.\n"
         + "Do not include commentary, markdown, or extra keys.\n"
         + "Response shape:\n"
