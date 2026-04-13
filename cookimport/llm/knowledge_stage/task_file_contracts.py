@@ -193,6 +193,88 @@ def _grouping_answer_proposed_tags(answer: Mapping[str, Any] | None) -> list[dic
     return deduped
 
 
+def _display_name_from_tag_key(value: str) -> str:
+    cleaned = normalize_knowledge_tag_key(value)
+    if not cleaned:
+        return ""
+    return " ".join(
+        word.capitalize() for word in cleaned.replace("_", "-").split("-") if word
+    )
+
+
+def normalize_knowledge_grouping_group_shape(
+    group_raw: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    group = _coerce_dict(group_raw)
+    if not group:
+        return {}
+    grounding = _coerce_dict(group.get("grounding"))
+    normalized_group = dict(group)
+    if grounding:
+        normalized_group["grounding"] = dict(grounding)
+
+    if not str(normalized_group.get("group_id") or "").strip():
+        nested_group_id = str(grounding.get("group_id") or "").strip()
+        if nested_group_id:
+            normalized_group["group_id"] = nested_group_id
+    if not str(normalized_group.get("topic_label") or "").strip():
+        nested_topic_label = str(grounding.get("topic_label") or "").strip()
+        if nested_topic_label:
+            normalized_group["topic_label"] = nested_topic_label
+
+    proposed_rows = _coerce_grouping_proposed_tag_rows(
+        grounding.get("proposed_tags") if grounding else None,
+        grounding.get("proposed_tag") if grounding else None,
+    )
+    if not proposed_rows:
+        proposed_rows = _coerce_grouping_proposed_tag_rows(
+            group.get("proposed_tags"),
+            group.get("proposed_tag"),
+        )
+
+    topic_label = str(normalized_group.get("topic_label") or "").strip()
+    for proposed_tag in proposed_rows:
+        display_name = str(
+            proposed_tag.get("display_name")
+            or proposed_tag.get("display")
+            or proposed_tag.get("name")
+            or ""
+        ).strip()
+        if not display_name and len(proposed_rows) == 1 and topic_label:
+            display_name = topic_label
+        if not display_name:
+            display_name = _display_name_from_tag_key(str(proposed_tag.get("key") or ""))
+        if display_name:
+            proposed_tag["display_name"] = display_name
+
+    if proposed_rows:
+        normalized_grounding = dict(_coerce_dict(normalized_group.get("grounding")))
+        normalized_grounding["proposed_tags"] = proposed_rows
+        normalized_group["grounding"] = normalized_grounding
+
+    why_no_existing_tag = str(normalized_group.get("why_no_existing_tag") or "").strip()
+    retrieval_query = str(normalized_group.get("retrieval_query") or "").strip()
+    if not why_no_existing_tag:
+        why_no_existing_tag = str(grounding.get("why_no_existing_tag") or "").strip()
+    if not retrieval_query:
+        retrieval_query = str(grounding.get("retrieval_query") or "").strip()
+    if (not why_no_existing_tag or not retrieval_query) and len(proposed_rows) == 1:
+        proposed_tag = proposed_rows[0]
+        if not why_no_existing_tag:
+            why_no_existing_tag = str(
+                proposed_tag.get("why_no_existing_tag")
+                or proposed_tag.get("why_no_tag")
+                or ""
+            ).strip()
+        if not retrieval_query:
+            retrieval_query = str(proposed_tag.get("retrieval_query") or "").strip()
+    if why_no_existing_tag:
+        normalized_group["why_no_existing_tag"] = why_no_existing_tag
+    if retrieval_query:
+        normalized_group["retrieval_query"] = retrieval_query
+    return normalized_group
+
+
 def _validate_grouping_approved_proposed_tags(
     *,
     unit_id: str,
@@ -1245,7 +1327,7 @@ def _validate_knowledge_same_session_grouping_task_file(
                 }
             )
             continue
-        group_dict = dict(group)
+        group_dict = normalize_knowledge_grouping_group_shape(group)
         group_id = str(
             group_dict.get("group_id")
             or group_dict.get("group_key")

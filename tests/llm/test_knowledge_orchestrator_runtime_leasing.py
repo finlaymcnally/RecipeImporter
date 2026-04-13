@@ -584,6 +584,71 @@ def test_knowledge_orchestrator_grouping_repairs_only_missing_rows_without_schem
     ]
 
 
+def test_knowledge_orchestrator_grouping_repairs_preserve_first_root_cause_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_runtime_codex_home(monkeypatch, tmp_path=tmp_path)
+    pack_root, _run_root = make_runtime_pack_and_run_dirs(tmp_path)
+    settings = make_runtime_settings(
+        pack_root=pack_root,
+        worker_count=1,
+        knowledge_prompt_target_count=1,
+        knowledge_codex_exec_style="inline-json-v1",
+    )
+    runner = _RootCausePreservingGroupingInlineRunner()
+
+    fixture = _run_runtime_phase(
+        monkeypatch,
+        tmp_path,
+        runner=runner,
+        settings=settings,
+        block_texts=["Fold the dough gently after resting."],
+        spans=[knowledge_span(0)],
+    )
+    phase_dir = Path(fixture["phase_dir"])
+    worker_root = Path(fixture["worker_root"])
+    proposal = json.loads(
+        (phase_dir / "proposals" / "book.ks0000.nr.json").read_text(encoding="utf-8")
+    )
+    first_repair_packet = json.loads(
+        (
+            worker_root
+            / "shards"
+            / "book.ks0000.nr"
+            / "structured_session"
+            / "grouping_repair_packet_01_01.json"
+        ).read_text(encoding="utf-8")
+    )
+    second_repair_packet = json.loads(
+        (
+            worker_root
+            / "shards"
+            / "book.ks0000.nr"
+            / "structured_session"
+            / "grouping_repair_packet_01_02.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert proposal["payload"] is not None
+    assert proposal["validation_errors"] == []
+    assert "unknown_grounding_category_key" in first_repair_packet[
+        "repair_root_cause_summary"
+    ]["validation_errors"]
+    assert "proposed tag category_key must be an existing category key" in str(
+        first_repair_packet["repair_root_cause_summary"]["message"]
+    )
+    assert second_repair_packet["repair_validation_summary"]["validation_errors"] == [
+        "knowledge_block_missing_group"
+    ]
+    assert "unknown_grounding_category_key" in second_repair_packet[
+        "repair_root_cause_summary"
+    ]["validation_errors"]
+    assert second_repair_packet["previous_groups"][0]["validation_errors"] == [
+        "knowledge_block_missing_group"
+    ]
+
+
 def test_knowledge_orchestrator_inline_json_populates_top_level_telemetry_and_survivability(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -998,6 +1063,130 @@ class _MultiRepairGroupingInlineRunner(FakeCodexExecRunner):
                 base_result,
                 response_text=json.dumps(
                     {"groups": _structured_grouping_groups(payload, topic_label="Heat control")},
+                    indent=2,
+                    sort_keys=True,
+                ),
+            )
+        return base_result
+
+
+class _RootCausePreservingGroupingInlineRunner(FakeCodexExecRunner):
+    def __init__(self) -> None:
+        super().__init__(output_builder=lambda payload: {})
+        self.grouping_repair_call_count = 0
+
+    def run_packet_worker(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        base_result = super().run_packet_worker(*args, **kwargs)
+        payload = dict(kwargs.get("input_payload") or {})
+        packet_kind = str(payload.get("packet_kind") or "").strip()
+        stage_key = str(payload.get("stage_key") or "").strip()
+        if stage_key == "nonrecipe_classify":
+            return _packet_result_from_base(
+                base_result,
+                response_text=json.dumps(
+                    {"labels": _structured_classification_labels(payload)},
+                    indent=2,
+                    sort_keys=True,
+                ),
+            )
+        if stage_key == "knowledge_group" and packet_kind == "grouping_1":
+            row_ids = [
+                row_id
+                for row in (payload.get("rows") or [])
+                if (row_id := _structured_packet_row_id(row))
+            ]
+            return _packet_result_from_base(
+                base_result,
+                response_text=json.dumps(
+                    {
+                        "groups": [
+                            {
+                                "group_id": "g01",
+                                "start_row_id": row_ids[0],
+                                "end_row_id": row_ids[-1],
+                                "topic_label": "Dough resting",
+                                "grounding": {
+                                    "tag_keys": [],
+                                    "category_keys": ["techniques"],
+                                    "proposed_tags": [
+                                        {
+                                            "key": "dough-resting",
+                                            "display_name": "Dough resting",
+                                            "category_key": "not-a-real-category",
+                                        }
+                                    ],
+                                },
+                                "why_no_existing_tag": (
+                                    "No existing tag covers the rest-before-folding concept."
+                                ),
+                                "retrieval_query": "rest dough before folding",
+                            }
+                        ]
+                    },
+                    indent=2,
+                    sort_keys=True,
+                ),
+            )
+        if stage_key == "knowledge_group" and packet_kind == "grouping_1_repair":
+            self.grouping_repair_call_count += 1
+            row_ids = [
+                row_id
+                for row in (payload.get("rows") or [])
+                if (row_id := _structured_packet_row_id(row))
+            ]
+            if self.grouping_repair_call_count == 1:
+                return _packet_result_from_base(
+                    base_result,
+                    response_text=json.dumps(
+                        {
+                            "groups": [
+                                {
+                                    "group_id": "g01",
+                                    "start_row_id": row_ids[0],
+                                    "end_row_id": row_ids[-1],
+                                    "topic_label": "",
+                                    "grounding": {
+                                        "tag_keys": ["saute"],
+                                        "category_keys": ["cooking-method"],
+                                        "proposed_tags": [],
+                                    },
+                                    "why_no_existing_tag": None,
+                                    "retrieval_query": None,
+                                }
+                            ]
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    ),
+                )
+            return _packet_result_from_base(
+                base_result,
+                response_text=json.dumps(
+                    {
+                        "groups": [
+                            {
+                                "group_id": "g01",
+                                "start_row_id": row_ids[0],
+                                "end_row_id": row_ids[-1],
+                                "topic_label": "Dough resting",
+                                "grounding": {
+                                    "tag_keys": [],
+                                    "category_keys": ["techniques"],
+                                    "proposed_tags": [
+                                        {
+                                            "key": "dough-resting",
+                                            "display_name": "Dough resting",
+                                            "category_key": "techniques",
+                                        }
+                                    ],
+                                },
+                                "why_no_existing_tag": (
+                                    "No existing tag covers the rest-before-folding concept."
+                                ),
+                                "retrieval_query": "rest dough before folding",
+                            }
+                        ]
+                    },
                     indent=2,
                     sort_keys=True,
                 ),

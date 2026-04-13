@@ -369,6 +369,41 @@ def _merge_knowledge_response_contract_diagnostics(
     return tuple(dict.fromkeys(merged_errors)), merged_metadata
 
 
+def _knowledge_repair_root_cause_summary(
+    *,
+    validation_errors: Sequence[str],
+    validation_metadata: Mapping[str, Any],
+) -> dict[str, Any]:
+    summary: dict[str, Any] = {}
+    cleaned_errors = [
+        str(error).strip() for error in validation_errors if str(error).strip()
+    ]
+    if cleaned_errors:
+        summary["validation_errors"] = cleaned_errors
+    error_details = [
+        {
+            key: value
+            for key, value in dict(detail).items()
+            if key in {"code", "message", "path", "row_id", "block_index"}
+            and value not in (None, "", [], {})
+        }
+        for detail in (validation_metadata.get("error_details") or [])
+        if isinstance(detail, Mapping)
+    ]
+    error_details = [detail for detail in error_details if detail]
+    if error_details:
+        summary["error_details"] = error_details
+    if error_details:
+        first_detail = error_details[0]
+        code = str(first_detail.get("code") or "").strip()
+        message = str(first_detail.get("message") or "").strip()
+        path = str(first_detail.get("path") or "").strip()
+        summary["message"] = " | ".join(part for part in (code, message, path) if part)
+    elif cleaned_errors:
+        summary["message"] = ",".join(cleaned_errors)
+    return summary
+
+
 def _knowledge_task_file_useful_progress(
     *,
     task_file_path: Path,
@@ -1330,6 +1365,10 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     grouping_validation_errors,
                     grouping_validation_metadata,
                 ):
+                    grouping_repair_root_cause_summary = _knowledge_repair_root_cause_summary(
+                        validation_errors=grouping_validation_errors,
+                        validation_metadata=grouping_validation_metadata,
+                    )
                     for repair_attempt_index in range(
                         1, grouping_repair_limit + 1
                     ):
@@ -1346,6 +1385,9 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                             ),
                             repair_validation_errors=grouping_validation_errors,
                             repair_validation_metadata=grouping_validation_metadata,
+                        )
+                        repair_grouping_task_file["repair_root_cause_summary"] = dict(
+                            grouping_repair_root_cause_summary
                         )
                         repair_grouping_packet = _knowledge_task_file_to_structured_packet(
                             task_file_payload=repair_grouping_task_file,
@@ -1645,6 +1687,12 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                         whole_shard_grouping_repair_task_file is not None
                         and whole_shard_grouping_task_file is not None
                     ):
+                        whole_shard_grouping_repair_task_file[
+                            "repair_root_cause_summary"
+                        ] = _knowledge_repair_root_cause_summary(
+                            validation_errors=proposal_errors,
+                            validation_metadata=proposal_metadata,
+                        )
                         repair_packet = _knowledge_task_file_to_structured_packet(
                             task_file_payload=whole_shard_grouping_repair_task_file,
                             packet_kind="grouping_final_repair",

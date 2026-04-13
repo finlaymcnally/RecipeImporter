@@ -8,6 +8,7 @@ from .task_file_contracts import (
     KNOWLEDGE_CLASSIFY_STAGE_KEY,
     KNOWLEDGE_GROUP_STAGE_KEY,
     collect_knowledge_resolution_metadata_by_shard,
+    normalize_knowledge_grouping_group_shape,
 )
 
 
@@ -311,6 +312,111 @@ def _compact_repair_validation_summary(
     return summary or None
 
 
+def _compact_root_cause_summary(task_file_payload: Mapping[str, Any]) -> dict[str, Any] | None:
+    root_cause = _coerce_dict(task_file_payload.get("repair_root_cause_summary"))
+    if not root_cause:
+        return None
+    summary: dict[str, Any] = {}
+    validation_errors = [
+        str(error).strip()
+        for error in (root_cause.get("validation_errors") or [])
+        if str(error).strip()
+    ]
+    if validation_errors:
+        summary["validation_errors"] = validation_errors
+    message = str(root_cause.get("message") or "").strip()
+    if message:
+        summary["message"] = message
+    error_details = [
+        _compact_repair_error_detail(detail)
+        for detail in (root_cause.get("error_details") or [])
+        if isinstance(detail, Mapping)
+    ]
+    error_details = [detail for detail in error_details if detail]
+    if error_details:
+        summary["error_details"] = error_details
+    return summary or None
+
+
+def _knowledge_previous_groups(task_file_payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    groups: list[dict[str, Any]] = []
+    current_group: dict[str, Any] | None = None
+    current_story_key: str | None = None
+    for index, unit in enumerate(task_file_payload.get("units") or []):
+        if not isinstance(unit, Mapping):
+            continue
+        row_id = _knowledge_local_row_id(index)
+        previous_answer = _coerce_dict(unit.get("previous_answer"))
+        validation_feedback = _coerce_dict(unit.get("validation_feedback"))
+        validation_errors = [
+            str(error).strip()
+            for error in (validation_feedback.get("validation_errors") or [])
+            if str(error).strip()
+        ]
+        error_details = [
+            _compact_repair_error_detail(detail)
+            for detail in (validation_feedback.get("error_details") or [])
+            if isinstance(detail, Mapping)
+        ]
+        error_details = [detail for detail in error_details if detail]
+        story_key = json.dumps(
+            {
+                "group_id": str(previous_answer.get("group_id") or "").strip(),
+                "topic_label": str(previous_answer.get("topic_label") or "").strip(),
+                "grounding": _coerce_dict(previous_answer.get("grounding")),
+                "why_no_existing_tag": previous_answer.get("why_no_existing_tag"),
+                "retrieval_query": previous_answer.get("retrieval_query"),
+            },
+            sort_keys=True,
+        )
+        if current_group is None or current_story_key != story_key:
+            current_group = {
+                "start_row_id": row_id,
+                "end_row_id": row_id,
+                "row_ids": [row_id],
+                "validation_errors": list(validation_errors),
+                "error_details": list(error_details),
+            }
+            if previous_answer:
+                for key in (
+                    "group_id",
+                    "topic_label",
+                    "grounding",
+                    "why_no_existing_tag",
+                    "retrieval_query",
+                ):
+                    value = previous_answer.get(key)
+                    if value not in (None, "", [], {}):
+                        current_group[key] = value
+            groups.append(current_group)
+            current_story_key = story_key
+            continue
+        current_group["end_row_id"] = row_id
+        current_group.setdefault("row_ids", []).append(row_id)
+        current_group.setdefault("validation_errors", []).extend(validation_errors)
+        current_group.setdefault("error_details", []).extend(error_details)
+    for group in groups:
+        group["validation_errors"] = list(
+            dict.fromkeys(
+                str(error).strip()
+                for error in (group.get("validation_errors") or [])
+                if str(error).strip()
+            )
+        )
+        seen_details: set[str] = set()
+        deduped_error_details: list[dict[str, Any]] = []
+        for detail in (
+            detail for detail in (group.get("error_details") or []) if isinstance(detail, Mapping)
+        ):
+            detail_key = json.dumps(dict(detail), sort_keys=True)
+            if detail_key in seen_details:
+                continue
+            seen_details.add(detail_key)
+            deduped_error_details.append(dict(detail))
+        group["error_details"] = deduped_error_details
+    return groups
+
+
 def knowledge_task_file_to_structured_packet(
     *,
     task_file_payload: Mapping[str, Any],
@@ -428,9 +534,16 @@ def knowledge_task_file_to_structured_packet(
         ]
     if repair_feedback_rows:
         packet["repair_feedback_rows"] = repair_feedback_rows
+    if repair_mode and stage_key == KNOWLEDGE_GROUP_STAGE_KEY:
+        previous_groups = _knowledge_previous_groups(task_file_payload)
+        if previous_groups:
+            packet["previous_groups"] = previous_groups
     repair_validation_summary = _compact_repair_validation_summary(task_file_payload)
     if repair_validation_summary is not None:
         packet["repair_validation_summary"] = repair_validation_summary
+    root_cause_summary = _compact_root_cause_summary(task_file_payload)
+    if root_cause_summary is not None:
+        packet["repair_root_cause_summary"] = root_cause_summary
     return packet
 
 
@@ -459,11 +572,14 @@ def build_knowledge_structured_prompt(
             "When present, `row_facts` gives factual row metadata in compact `rXX | key=value` form.\n"
             "Use existing `tags` first whenever they fit cleanly.\n"
             "If no existing tag fits, you may use `grounding.proposed_tags`, but proposed tags must be strong standalone retrieval handles and must include both `why_no_existing_tag` and `retrieval_query`.\n"
+            "Put `why_no_existing_tag` and `retrieval_query` on the group object itself, not inside `grounding` and not inside `proposed_tags`.\n"
             "When you propose a new tag, its `category_key` must be chosen from the packet `categories` list.\n"
             "Prefer concrete kitchen vocabulary rooted in the packet ontology, such as techniques, ingredients, storage, or equipment.\n"
             "Reject broad chapter-theme, editorial, or pedagogy-summary labels. If the only tag story that comes to mind is vague or bookish, split the rows differently or choose a better existing tag.\n"
             "Keep each proposed tag key as a normalized slug like `rendering-fat`, not prose.\n"
             "Do not answer this step with one row object per row. Return groups, not row-level grouping answers.\n"
+            "Valid existing-tag example: `{\"group_id\":\"g01\",\"start_row_id\":\"r01\",\"end_row_id\":\"r02\",\"topic_label\":\"Heat control\",\"grounding\":{\"tag_keys\":[\"heat-control\"],\"category_keys\":[\"techniques\"],\"proposed_tags\":[]},\"why_no_existing_tag\":null,\"retrieval_query\":null}`.\n"
+            "Valid proposed-tag example: `{\"group_id\":\"g02\",\"start_row_id\":\"r03\",\"end_row_id\":\"r03\",\"topic_label\":\"Dough resting\",\"grounding\":{\"tag_keys\":[],\"category_keys\":[\"techniques\"],\"proposed_tags\":[{\"key\":\"dough-resting\",\"display_name\":\"Dough resting\",\"category_key\":\"techniques\"}]},\"why_no_existing_tag\":\"No existing tag covers the rest-before-rolling concept.\",\"retrieval_query\":\"rest dough before rolling\"}`.\n"
         )
     else:
         response_shape = '{"labels":["keep_for_review","other"]}'
@@ -488,8 +604,11 @@ def build_knowledge_structured_prompt(
     repair_note = (
         "This is a repair followup.\n"
         "When present, `repair_feedback_rows` shows the prior answer for each failing row and the exact validator complaints.\n"
+        "When present, `previous_groups` summarizes the previously attempted groups for these failing rows.\n"
         "When present, `repair_validation_summary` carries packet-level contract failures such as wrong row count.\n"
-        "Fix those exact failures instead of inventing a new scheme.\n"
+        "When present, `repair_root_cause_summary` is the first real reason this packet entered repair; keep fixing that root cause unless the feedback shows it is already resolved.\n"
+        "Patch the previous groups instead of inventing a new grouping scheme.\n"
+        "Keep the same group boundaries, topic labels, and grounding story unless the validator feedback explicitly says they are wrong.\n"
         if repair_mode
         else ""
     )
@@ -750,6 +869,7 @@ def build_knowledge_edited_task_file_from_grouping_response(
         for group_index, group in enumerate(groups):
             if not isinstance(group, Mapping):
                 return None, ("group_not_a_json_object",), {}
+            group = normalize_knowledge_grouping_group_shape(group)
             group_id = str(
                 group.get("group_id") or group.get("group_key") or group.get("group_index") or ""
             ).strip()
@@ -863,6 +983,7 @@ def build_knowledge_edited_task_file_from_grouping_response(
         for row in rows:
             if not isinstance(row, Mapping):
                 return None, ("row_not_a_json_object",), {}
+            row = normalize_knowledge_grouping_group_shape(row)
             row_id = str(row.get("row_id") or "").strip()
             if not row_id:
                 return None, ("row_id_missing",), {}

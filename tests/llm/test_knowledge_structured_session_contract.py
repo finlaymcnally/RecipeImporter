@@ -130,6 +130,8 @@ def test_grouping_structured_prompt_is_group_first_and_parser_maps_group_groundi
     assert "split-and-tag pass" in prompt
     assert "Return one `groups` array." in prompt
     assert "choose the group boundaries with the tag story in mind" in prompt
+    assert "Put `why_no_existing_tag` and `retrieval_query` on the group object itself" in prompt
+    assert "Valid proposed-tag example" in prompt
 
     edited, errors, metadata = build_knowledge_edited_task_file_from_grouping_response(
         original_task_file=grouping_task_file,
@@ -193,6 +195,82 @@ def test_grouping_structured_prompt_is_group_first_and_parser_maps_group_groundi
     ]
 
 
+def test_grouping_structured_response_salvages_nested_proposal_metadata() -> None:
+    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[
+            _shard(shard_id="book.ks0000.nr", block_index=41, text="Rest dough before rolling."),
+        ],
+    )
+    grouping_task_file, _ = build_knowledge_grouping_task_file(
+        assignment_id="worker-structured-001",
+        worker_id="worker-structured-001",
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id={"knowledge::41": {"category": "keep_for_review"}},
+        unit_to_shard_id=unit_to_shard_id,
+    )
+
+    edited, errors, metadata = build_knowledge_edited_task_file_from_grouping_response(
+        original_task_file=grouping_task_file,
+        response_text=json.dumps(
+            {
+                "groups": [
+                    {
+                        "group_id": "g01",
+                        "start_row_id": "r01",
+                        "end_row_id": "r01",
+                        "topic_label": "Dough resting",
+                        "grounding": {
+                            "tag_keys": [],
+                            "category_keys": ["techniques"],
+                            "proposed_tags": [
+                                {
+                                    "key": "dough-resting",
+                                    "category_key": "techniques",
+                                    "why_no_existing_tag": (
+                                        "No existing tag covers the rest-before-rolling concept."
+                                    ),
+                                    "retrieval_query": "rest dough before rolling",
+                                }
+                            ],
+                        },
+                    }
+                ]
+            }
+        ),
+    )
+
+    assert edited is not None
+    assert errors == ()
+    assert metadata == {}
+    answers, validation_errors, validation_metadata = validate_knowledge_grouping_task_file(
+        original_task_file=grouping_task_file,
+        edited_task_file=edited,
+    )
+
+    assert validation_errors == ()
+    assert validation_metadata["failed_unit_ids"] == []
+    assert answers == {
+        "knowledge::41": {
+            "group_id": "g01",
+            "topic_label": "Dough resting",
+            "grounding": {
+                "tag_keys": [],
+                "category_keys": ["techniques"],
+                "proposed_tags": [
+                    {
+                        "key": "dough-resting",
+                        "display_name": "Dough resting",
+                        "category_key": "techniques",
+                    }
+                ],
+            },
+            "why_no_existing_tag": "No existing tag covers the rest-before-rolling concept.",
+            "retrieval_query": "rest dough before rolling",
+        }
+    }
+
+
 def test_grouping_repair_packet_preserves_previous_answer_and_validation_feedback() -> None:
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
@@ -247,6 +325,20 @@ def test_grouping_repair_packet_preserves_previous_answer_and_validation_feedbac
             ],
         },
     )
+    repair_task_file["repair_root_cause_summary"] = {
+        "validation_errors": ["invalid_proposed_tag_display_name"],
+        "message": (
+            "invalid_proposed_tag_display_name | proposed display_name must be a short "
+            "non-empty string | /units/knowledge::31/answer/grounding/proposed_tags/0/display_name"
+        ),
+        "error_details": [
+            {
+                "path": "/units/knowledge::31/answer/grounding/proposed_tags/0/display_name",
+                "code": "invalid_proposed_tag_display_name",
+                "message": "proposed display_name must be a short non-empty string",
+            }
+        ],
+    }
 
     packet = knowledge_task_file_to_structured_packet(
         task_file_payload=repair_task_file,
@@ -282,11 +374,37 @@ def test_grouping_repair_packet_preserves_previous_answer_and_validation_feedbac
             ],
         }
     ]
+    assert packet["previous_groups"] == [
+        {
+            "start_row_id": "r01",
+            "end_row_id": "r01",
+            "row_ids": ["r01"],
+            "validation_errors": ["knowledge_block_missing_group"],
+            "error_details": [
+                {
+                    "path": "/units/knowledge::31/answer/topic_label",
+                    "code": "knowledge_block_missing_group",
+                    "message": "topic_label must be a non-empty string",
+                }
+            ],
+            "group_id": "g01",
+            "grounding": {
+                "tag_keys": ["saute"],
+                "category_keys": ["cooking-method"],
+                "proposed_tags": [],
+            },
+        }
+    ]
     assert packet["repair_validation_summary"]["validation_errors"] == [
         "knowledge_block_missing_group"
     ]
+    assert packet["repair_root_cause_summary"]["validation_errors"] == [
+        "invalid_proposed_tag_display_name"
+    ]
     assert "repair_feedback_rows" in prompt
+    assert "previous_groups" in prompt
     assert "repair_validation_summary" in prompt
+    assert "repair_root_cause_summary" in prompt
 
 
 def test_grouping_structured_response_rejects_noncontiguous_group_spans() -> None:
