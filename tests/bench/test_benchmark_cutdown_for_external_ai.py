@@ -11,6 +11,33 @@ globals().update({
 })
 
 
+def test_canonical_lines_owner_module_keeps_script_helper_exports(
+    tmp_path: Path,
+) -> None:
+    import cookimport.bench.external_ai_cutdown.canonical_lines as canonical_lines
+
+    canonical_spans_path = tmp_path / "canonical_span_labels.jsonl"
+    _write_jsonl(
+        canonical_spans_path,
+        [
+            {"label": "RECIPE_TITLE", "start_char": 0, "end_char": 10},
+            {"label": "INGREDIENT_LINE", "start_char": 11, "end_char": 22},
+        ],
+    )
+
+    lines = canonical_lines._build_canonical_lines("Dish Title\n1 cup flour\n")
+    spans = canonical_lines._load_gold_spans(canonical_spans_path)
+    labels_by_line = canonical_lines._line_gold_labels(lines=lines, spans=spans)
+
+    assert canonical_lines._overlap_len(0, 4, 2, 6) == 2
+    assert [line["text"] for line in lines] == ["Dish Title", "1 cup flour"]
+    assert [span["label"] for span in spans] == ["RECIPE_TITLE", "INGREDIENT_LINE"]
+    assert labels_by_line == {
+        0: ["RECIPE_TITLE"],
+        1: ["INGREDIENT_LINE"],
+    }
+
+
 def test_summarize_prompt_warning_aggregate_counts_warnings(tmp_path: Path) -> None:
     module = _load_cutdown_module()
     full_prompt_log_path = tmp_path / "full_prompt_log.jsonl"

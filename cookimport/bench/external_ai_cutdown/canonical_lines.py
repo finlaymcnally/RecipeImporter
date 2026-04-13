@@ -1,11 +1,73 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from cookimport.bench.eval_canonical_text import build_canonical_gold_line_labels
+from cookimport.bench.eval_canonical_text import (
+    _build_canonical_lines as _build_canonical_lines_impl,
+    _load_canonical_gold_spans as _load_gold_spans_impl,
+    _overlap_len as _overlap_len_impl,
+    build_canonical_gold_line_labels,
+)
 
 from .io import _coerce_int, _excerpt
+
+
+def _build_canonical_lines(canonical_text: str) -> list[dict[str, Any]]:
+    return _build_canonical_lines_impl(canonical_text)
+
+
+def _load_gold_spans(canonical_spans_path: Path) -> list[dict[str, Any]]:
+    return _load_gold_spans_impl(canonical_spans_path)
+
+
+def _overlap_len(a_start: int, a_end: int, b_start: int, b_end: int) -> int:
+    return _overlap_len_impl(a_start, a_end, b_start, b_end)
+
+
+def _line_gold_labels(
+    *,
+    lines: list[dict[str, Any]],
+    spans: list[dict[str, Any]],
+) -> dict[int, list[str]]:
+    labels_by_line: dict[int, list[str]] = {}
+    span_cursor = 0
+    span_total = len(spans)
+
+    for line in lines:
+        line_index = int(line["line_index"])
+        line_start = int(line["start_char"])
+        line_end = int(line["end_char"])
+
+        while span_cursor < span_total and int(spans[span_cursor]["end_char"]) <= line_start:
+            span_cursor += 1
+
+        overlap_by_label: dict[str, int] = defaultdict(int)
+        scan_index = span_cursor
+        while scan_index < span_total:
+            span = spans[scan_index]
+            label = str(span["label"])
+            span_start = int(span["start_char"])
+            if span_start >= line_end:
+                break
+            span_end = int(span["end_char"])
+            overlap = _overlap_len(line_start, line_end, span_start, span_end)
+            if overlap > 0:
+                overlap_by_label[label] += overlap
+            scan_index += 1
+
+        if not overlap_by_label:
+            labels_by_line[line_index] = ["OTHER"]
+            continue
+
+        ordered = sorted(
+            overlap_by_label.items(),
+            key=lambda item: (-item[1], item[0]),
+        )
+        labels_by_line[line_index] = [label for label, _ in ordered]
+
+    return labels_by_line
 
 
 def _build_correct_label_sample(
