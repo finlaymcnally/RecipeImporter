@@ -3,11 +3,11 @@ Label distinctions that matter:
 - `INGREDIENT_LINE`: quantity/unit ingredients and bare ingredient items in ingredient lists.
 - `INSTRUCTION_LINE`: recipe-local imperative action sentences, even when they include time.
 - `TIME_LINE`: stand-alone timing/temperature lines, not full instruction sentences.
-- `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into component ingredient lists or step families.
+- `HOWTO_SECTION` is recipe-internal only. Use it for subsection headings that split one recipe into a real mini-preparation with its own nearby ingredients and/or steps.
 - `HOWTO_SECTION` is book-optional. Some books legitimately use zero of them, so do not invent subsection structure just because the label exists.
 - `YIELD_LINE`: stand-alone yield or serving lines such as `SERVES 4` or `Makes about 1/2 cup`.
-- `RECIPE_VARIANT`: alternate recipe names, variant headers, or short local alternate-version runs inside one recipe.
-- `RECIPE_NOTES`: recipe-local prose that belongs with the current recipe but is not ingredient or instruction structure.
+- `RECIPE_VARIANT`: local alternate-version headings, intro prose, or short alternate-version runs inside one parent recipe.
+- `RECIPE_NOTES`: recipe-local prose that belongs with the current recipe but is not ingredient or instruction structure, including storage, leftovers, make-ahead, and freezing guidance.
 - `NONRECIPE_CANDIDATE`: outside-recipe material that is not recipe-local and should be sent to knowledge later.
 - `NONRECIPE_EXCLUDE`: obvious outside-recipe junk that should never reach knowledge.
 
@@ -19,14 +19,20 @@ Negative rules:
 - If local evidence is genuinely ambiguous, resolve the row from the text and neighboring context alone.
 - If the shard rows are outside recipe context, default to `NONRECIPE_CANDIDATE`; only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.
 - Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure before or after the heading.
+- A `HOWTO_SECTION` should own a real mini-preparation. If the heading is just one named component inside a larger ingredient list, do not promote it to `HOWTO_SECTION`.
+- A short named component such as `Lime Vinaigrette` is usually not `HOWTO_SECTION` when the nearby rows show it is simply one ingredient/component among many rather than the start of its own ingredient-and-step subsection.
 - A single outside-recipe heading by itself is not enough to justify `HOWTO_SECTION`.
 - A full sentence or paragraph beginning with `To make ...` or `To serve ...` is usually variant or procedural prose, not `HOWTO_SECTION`, unless the whole line is a short heading-shaped header.
-- A `Variations` heading and its immediately following alternate-version lines usually stay `RECIPE_VARIANT` until the variant run ends.
+- A bare cue line such as `Variation` or `Variations` is not itself enough for `RECIPE_VARIANT`; treat it as a cue that following rows may become variant content.
+- The rows after `Variation` or `Variations` may still be `RECIPE_VARIANT` when they clearly form a local alternate-version run inside the current recipe.
+- A heading-like variant title and its immediately attached intro prose can both be `RECIPE_VARIANT` when nearby rows show they are introducing alternate versions within the current recipe rather than a new recipe or generic prose.
 - Short `Variation` / `Variations` follow-up lines such as `To add a little heat ...` or `To evoke the flavors ...` usually stay `RECIPE_VARIANT`.
 - Variant context is local, not sticky. End a nearby `Variations` run when a fresh title-like line is followed by a strict yield line or ingredient rows.
 - Do not let nearby `Variations` prose swallow a fresh recipe start such as `Bright Cabbage Slaw` -> `Serves 4 generously` -> `1/2 medium red onion, sliced thinly`.
 - If a short title-like line is immediately followed by a strict yield line or ingredient rows, reset to a new recipe: prefer `RECIPE_TITLE`, not `RECIPE_VARIANT`, even when earlier nearby rows were variants.
 - A strict yield header such as `SERVES 4`, `Makes about 1/2 cup`, or `Yield: 6 servings` stays `YIELD_LINE` when it appears between a recipe title and ingredient or method structure; do not downgrade it to `RECIPE_NOTES`.
+- Storage guidance belongs to `RECIPE_NOTES`, not `INSTRUCTION_LINE`, even when written as an imperative sentence.
+- Lines about refrigerating, storing, freezing, leftovers, keeping time, or make-ahead handling usually stay `RECIPE_NOTES`.
 - Local row evidence wins over shaky prior span assumptions. A title-like line followed by yield or ingredients can still be `RECIPE_TITLE` even if upstream recipe-span state is missing or noisy.
 - Do not use `HOWTO_SECTION` for chapter, part, topic, or cookbook-lesson headings such as `Salt and Pepper`, `Cooking Acids`, `Starches`, or `Stewing and Braising`; those are usually outside-recipe labels.
 - If a heading introduces explanatory prose rather than recipe-local ingredients or steps, prefer `NONRECIPE_CANDIDATE`, not `HOWTO_SECTION`.
@@ -160,3 +166,23 @@ Few-shot examples:
 29) Context: outside recipe, broad book promise or encouragement prose
     Line: `Keep reading and I'll teach you how to cook with confidence.`
     Label: `NONRECIPE_EXCLUDE`
+
+30) Context: inside recipe, bare cue heading before alternate-version rows
+    Line: `Variations`
+    Label: `RECIPE_NOTES`
+
+31) Context: inside recipe, heading-like local alternate-version title after a `Variations` cue
+    Line: `Three Classic Shaved Salads`
+    Label: `RECIPE_VARIANT`
+
+32) Context: inside recipe, explanatory prose that is still introducing the local variant run
+    Line: `I inherited my fondness for shaved salads from my friend Cal Peternell, and these are the three versions I return to most often.`
+    Label: `RECIPE_VARIANT`
+
+33) Context: inside recipe, named component within a larger ingredient list rather than its own sub-preparation
+    Line: `Lime Vinaigrette`
+    Label: `INGREDIENT_LINE`
+
+34) Context: inside recipe, storage guidance after the main method
+    Line: `Refrigerate leftovers, covered, for up to one night.`
+    Label: `RECIPE_NOTES`
