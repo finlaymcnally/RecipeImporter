@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from cookimport.bench.segmentation_metrics import compute_segmentation_boundaries
+from cookimport.labelstudio.block_gold import load_gold_block_label_assignments
 from cookimport.labelstudio.howto_section import resolve_howto_label_sets_by_index
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
 from cookimport.staging.stage_block_predictions import (
@@ -1033,117 +1034,13 @@ def load_gold_block_labels(
     profile_output: dict[str, Any] | None = None,
     index_metadata_output: dict[int, list[dict[str, Any]]] | None = None,
 ) -> dict[int, set[str]]:
-    assignments: dict[int, set[str]] = {}
-    assignment_spans: dict[int, list[dict[str, Any]]] = {}
-    profile = _new_blockization_profile()
-
-    for line_number, line in enumerate(
-        freeform_span_labels_jsonl_path.read_text(encoding="utf-8").splitlines(),
-        start=1,
-    ):
-        raw = line.strip()
-        if not raw:
-            continue
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"Invalid JSON in gold file at line {line_number}: {exc}"
-            ) from exc
-        if not isinstance(payload, dict):
-            continue
-
-        label_value = payload.get("label")
-        if not isinstance(label_value, str) or not label_value.strip():
-            continue
-        normalized_label = normalize_freeform_label(label_value)
-        if normalized_label not in _FREEFORM_LABEL_SET:
-            raise ValueError(
-                f"Unsupported freeform label in gold file: {label_value!r}"
-            )
-
-        span_id = str(payload.get("span_id") or f"line:{line_number}")
-        source_hash = payload.get("source_hash")
-        source_file = payload.get("source_file")
-        indices = _extract_block_indices(payload)
-        if not indices:
-            continue
-        selected_text = str(payload.get("selected_text") or "").strip()
-        stable_keys, spine_indices = _extract_gold_matching_metadata(payload)
-        _update_blockization_profile_from_gold_payload(
-            profile,
-            payload,
-            indices=indices,
-        )
-        for block_index in indices:
-            assignments.setdefault(block_index, set()).add(normalized_label)
-            assignment_spans.setdefault(block_index, []).append(
-                {
-                    "span_id": span_id,
-                    "label": normalized_label,
-                    "source_hash": source_hash,
-                    "source_file": source_file,
-                }
-            )
-            if index_metadata_output is not None:
-                index_metadata_output.setdefault(block_index, []).append(
-                    {
-                        "span_id": span_id,
-                        "selected_text": selected_text,
-                        "stable_keys": list(stable_keys),
-                        "spine_indices": list(spine_indices),
-                    }
-                )
-
-    if not assignments:
-        raise ValueError(
-            f"Gold file contains no usable block labels: {freeform_span_labels_jsonl_path}"
-        )
-
-    assignments = resolve_howto_label_sets_by_index(assignments)
-
-    conflicts: list[dict[str, Any]] = []
-    for block_index, labels in sorted(assignments.items()):
-        if len(labels) <= 1:
-            continue
-        conflicts.append(
-            {
-                "warning": "gold_block_has_multiple_labels",
-                "block_index": block_index,
-                "labels": sorted(labels),
-                "spans": assignment_spans.get(block_index, []),
-            }
-        )
-
-    if conflicts:
-        if conflict_output_path is not None:
-            _write_jsonl(conflict_output_path, conflicts)
-
-    max_index = max(assignments)
-    missing = [index for index in range(max_index + 1) if index not in assignments]
-    if require_exhaustive and missing:
-        diagnostics = list(conflicts)
-        diagnostics.append(
-            {
-                "error": "gold_missing_block_labels",
-                "missing_block_indices": missing,
-            }
-        )
-        if conflict_output_path is not None:
-            _write_jsonl(conflict_output_path, diagnostics)
-        raise ValueError(
-            "Gold is not exhaustive: missing labels for "
-            f"{len(missing)} blocks (examples: {missing[:10]})."
-        )
-
-    if profile_output is not None:
-        profile_output.clear()
-        profile_output.update(_serialize_blockization_profile(profile))
-
-    return {
-        block_index: set(labels)
-        for block_index, labels in sorted(assignments.items())
-    }
+    return load_gold_block_label_assignments(
+        freeform_span_labels_jsonl_path,
+        conflict_output_path=conflict_output_path,
+        require_exhaustive=require_exhaustive,
+        profile_output=profile_output,
+        index_metadata_output=index_metadata_output,
+    )
 
 
 def load_stage_block_labels(

@@ -7,6 +7,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from cookimport.labelstudio.block_gold import (
+    derive_block_gold_bundle,
+    write_block_gold_rows,
+)
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.canonical_gold import (
     build_canonical_gold_bundle,
@@ -642,9 +646,15 @@ def run_labelstudio_export(
     segment_manifest_path = export_root / "freeform_segment_manifest.jsonl"
     _write_jsonl(segment_manifest_path, segment_manifest_rows)
 
+    block_gold_bundle = derive_block_gold_bundle(span_rows)
+    block_gold_rows = list(block_gold_bundle.get("rows") or [])
+    block_gold_path = export_root / "block_gold_labels.jsonl"
+    write_block_gold_rows(block_gold_path, block_gold_rows)
+
     canonical_bundle = build_canonical_gold_bundle(
         export_payload=[row for row in export_payload if isinstance(row, dict)],
         span_rows=span_rows,
+        block_gold_rows=block_gold_rows,
     )
     canonical_paths = write_canonical_gold_bundle(
         export_root=export_root,
@@ -675,9 +685,18 @@ def run_labelstudio_export(
                 "canonical_span_error_count"
             ),
         },
+        "block_gold": {
+            "block_count": len(block_gold_rows),
+            "multilabel_block_count": sum(
+                1
+                for row in block_gold_rows
+                if len(list(row.get("labels") or [])) > 1
+            ),
+        },
         "output": {
             "freeform_span_labels": str(spans_path),
             "freeform_segment_manifest": str(segment_manifest_path),
+            "block_gold_labels": str(block_gold_path),
             "export_payload": str(export_path),
             "canonical_text": str(canonical_paths["canonical_text_path"]),
             "canonical_block_map": str(canonical_paths["canonical_block_map_path"]),
@@ -705,6 +724,7 @@ def run_labelstudio_export(
             "export_payload_json": export_path,
             "freeform_span_labels_jsonl": spans_path,
             "freeform_segment_manifest_jsonl": segment_manifest_path,
+            "block_gold_labels_jsonl": block_gold_path,
             "canonical_text_path": canonical_paths["canonical_text_path"],
             "canonical_block_map_jsonl": canonical_paths["canonical_block_map_path"],
             "canonical_span_labels_jsonl": canonical_paths["canonical_span_labels_path"],

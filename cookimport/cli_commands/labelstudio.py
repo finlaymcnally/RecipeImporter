@@ -3528,7 +3528,25 @@ def register(app: typer.Typer) -> dict[str, object]:
 
         if not suppress_summary:
             typer.secho("Benchmark complete.", fg=typer.colors.GREEN)
-            typer.secho(f"Gold spans: {selected_gold}", fg=typer.colors.CYAN)
+            typer.secho(f"Gold export: {selected_gold}", fg=typer.colors.CYAN)
+            if (
+                selected_eval_mode == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+                and isinstance(prewarmed_canonical_paths, dict)
+            ):
+                canonical_text_path = prewarmed_canonical_paths.get("canonical_text_path")
+                canonical_spans_path = prewarmed_canonical_paths.get(
+                    "canonical_span_labels_path"
+                )
+                if canonical_text_path is not None:
+                    typer.secho(
+                        f"Canonical gold text: {canonical_text_path}",
+                        fg=typer.colors.CYAN,
+                    )
+                if canonical_spans_path is not None:
+                    typer.secho(
+                        f"Canonical scored labels: {canonical_spans_path}",
+                        fg=typer.colors.CYAN,
+                    )
             typer.secho(f"Benchmark artifact root: {pred_run}", fg=typer.colors.CYAN)
             if processed_run_root is not None:
                 typer.secho(f"Processed output: {processed_run_root}", fg=typer.colors.CYAN)

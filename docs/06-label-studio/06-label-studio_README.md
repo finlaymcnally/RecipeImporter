@@ -196,6 +196,7 @@ Thinking effort uses `--codex-thinking-effort` (alias `--codex-reasoning-effort`
 - `exports/labelstudio_export.json`
 - `exports/freeform_span_labels.jsonl`
 - `exports/freeform_segment_manifest.jsonl`
+- `exports/block_gold_labels.jsonl`
 - `exports/canonical_text.txt`
 - `exports/canonical_block_map.jsonl`
 - `exports/canonical_span_labels.jsonl`
@@ -207,7 +208,11 @@ Thinking effort uses `--codex-thinking-effort` (alias `--codex-reasoning-effort`
 `summary.json` includes deduped recipe-header diagnostics from normalized `RECIPE_TITLE` spans.
 
 Canonical-text benchmark note:
-- `canonical_span_labels.jsonl` preserves the raw freeform span intent, including inline title subspans and contents-style title rows when they were annotated that way. The canonical-text benchmark now scores those raw spans directly at line level and writes `gold_projection_warnings.jsonl` when the export contains suspicious title/variant patterns that should probably be cleaned up in Label Studio instead of being filtered out by the scorer.
+- `freeform_span_labels.jsonl` remains the raw archive of what the annotator drew in Label Studio.
+- `block_gold_labels.jsonl` is the benchmark-authoritative per-block gold derived from those freeform spans. One broad drag across several adjacent blocks is intentionally equivalent to labeling those blocks one by one.
+- `canonical_span_labels.jsonl` is now derived from `block_gold_labels.jsonl`, not from raw cross-block span fragments. Canonical rows therefore cover full canonical block spans for the block labels that survived derivation.
+- raw freeform geometry no longer decides canonical gold count by itself. Canonical span count should change only when the set of labeled blocks changes, not when a drag starts or ends at a different character inside an already-labeled block.
+- canonical-text benchmark still writes `gold_projection_warnings.jsonl` when the export contains suspicious title/variant patterns that should probably be cleaned up in Label Studio instead of being filtered out by the scorer.
 
 ### 5.2 Eval artifacts
 

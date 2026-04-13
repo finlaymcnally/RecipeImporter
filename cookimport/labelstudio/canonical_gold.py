@@ -6,6 +6,11 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+from cookimport.labelstudio.block_gold import (
+    derive_block_gold_bundle,
+    load_block_gold_rows,
+    write_block_gold_rows,
+)
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
 
 _BLOCK_SEPARATOR = "\n\n"
@@ -178,6 +183,98 @@ def _build_canonical_span_id(
     )
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:20]
     return f"urn:cookimport:canonical_span:{source_hash}:{digest}"
+
+
+def _first_nonempty(values: list[str]) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _build_canonical_spans_from_block_gold(
+    *,
+    block_gold_rows: list[dict[str, Any]],
+    block_lookup: dict[int, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    warnings: list[str] = []
+    output_rows: list[dict[str, Any]] = []
+    seen_rows: set[tuple[int, str]] = set()
+
+    for row in block_gold_rows:
+        block_index = _coerce_int(row.get("block_index"))
+        if block_index is None:
+            continue
+        canonical_block = block_lookup.get(block_index)
+        if canonical_block is None:
+            warnings.append(
+                f"missing_canonical_block_for_block_gold:block_index={block_index}"
+            )
+            continue
+        raw_labels = row.get("labels")
+        if isinstance(raw_labels, list):
+            labels = [
+                normalize_freeform_label(str(value or ""))
+                for value in raw_labels
+                if str(value or "").strip()
+            ]
+        else:
+            labels = []
+        if not labels:
+            continue
+        source_hash = str(row.get("source_hash") or "")
+        source_file = str(row.get("source_file") or "")
+        segment_ids = [
+            str(value).strip()
+            for value in list(row.get("segment_ids") or [])
+            if str(value).strip()
+        ]
+        book_ids = [
+            str(value).strip()
+            for value in list(row.get("book_ids") or [])
+            if str(value).strip()
+        ]
+        for label in sorted(set(labels)):
+            dedupe_key = (block_index, label)
+            if dedupe_key in seen_rows:
+                continue
+            seen_rows.add(dedupe_key)
+            origin_span_id = f"block:{block_index}"
+            output_rows.append(
+                {
+                    "span_id": _build_canonical_span_id(
+                        source_hash=source_hash or "unknown",
+                        origin_span_id=origin_span_id,
+                        label=label,
+                        start_char=int(canonical_block["start_char"]),
+                        end_char=int(canonical_block["end_char"]),
+                        part_index=0,
+                    ),
+                    "origin_span_id": origin_span_id,
+                    "segment_id": _first_nonempty(segment_ids),
+                    "segment_ids": segment_ids,
+                    "source_hash": source_hash,
+                    "source_file": source_file,
+                    "book_id": _first_nonempty(book_ids),
+                    "book_ids": book_ids,
+                    "label": label,
+                    "start_char": int(canonical_block["start_char"]),
+                    "end_char": int(canonical_block["end_char"]),
+                    "selected_text": str(canonical_block["text"]),
+                    "block_index": block_index,
+                }
+            )
+    output_rows.sort(
+        key=lambda row: (
+            str(row.get("source_hash") or ""),
+            _coerce_int(row.get("start_char")) or 0,
+            _coerce_int(row.get("end_char")) or 0,
+            str(row.get("label") or ""),
+            str(row.get("span_id") or ""),
+        )
+    )
+    return output_rows, warnings
 
 
 def _build_canonical_spans(
@@ -373,7 +470,8 @@ def _build_manifest(
 def build_canonical_gold_bundle(
     *,
     export_payload: list[dict[str, Any]],
-    span_rows: list[dict[str, Any]],
+    span_rows: list[dict[str, Any]] | None = None,
+    block_gold_rows: list[dict[str, Any]] | None = None,
     block_separator: str = _BLOCK_SEPARATOR,
 ) -> dict[str, Any]:
     segment_rows = _extract_segment_rows(export_payload)
@@ -383,9 +481,13 @@ def build_canonical_gold_bundle(
             block_separator=block_separator,
         )
     )
-    canonical_span_rows, span_warnings = _build_canonical_spans(
-        span_rows=span_rows,
-        segment_rows=segment_rows,
+    effective_block_gold_rows = list(block_gold_rows or [])
+    if not effective_block_gold_rows:
+        effective_block_gold_rows = list(
+            derive_block_gold_bundle(list(span_rows or [])).get("rows") or []
+        )
+    canonical_span_rows, span_warnings = _build_canonical_spans_from_block_gold(
+        block_gold_rows=effective_block_gold_rows,
         block_lookup=block_lookup,
     )
     canonical_span_errors = _validate_canonical_spans(
@@ -394,7 +496,7 @@ def build_canonical_gold_bundle(
     )
     warnings = list(block_warnings) + list(span_warnings)
     manifest = _build_manifest(
-        span_rows=span_rows,
+        span_rows=list(span_rows or []),
         canonical_text=canonical_text,
         canonical_block_rows=canonical_block_rows,
         canonical_span_rows=canonical_span_rows,
@@ -475,6 +577,7 @@ def ensure_canonical_gold_artifacts(
     canonical_span_labels_path = export_root / "canonical_span_labels.jsonl"
     canonical_span_errors_path = export_root / "canonical_span_label_errors.jsonl"
     canonical_manifest_path = export_root / "canonical_manifest.json"
+    block_gold_labels_path = export_root / "block_gold_labels.jsonl"
 
     if (
         canonical_text_path.exists()
@@ -482,12 +585,22 @@ def ensure_canonical_gold_artifacts(
         and canonical_span_labels_path.exists()
         and canonical_manifest_path.exists()
     ):
+        if not block_gold_labels_path.exists() or not block_gold_labels_path.is_file():
+            freeform_span_path = export_root / "freeform_span_labels.jsonl"
+            if freeform_span_path.exists() and freeform_span_path.is_file():
+                span_rows = _read_jsonl(freeform_span_path)
+                block_gold_bundle = derive_block_gold_bundle(span_rows)
+                write_block_gold_rows(
+                    block_gold_labels_path,
+                    list(block_gold_bundle.get("rows") or []),
+                )
         return {
             "canonical_text_path": canonical_text_path,
             "canonical_block_map_path": canonical_block_map_path,
             "canonical_span_labels_path": canonical_span_labels_path,
             "canonical_span_errors_path": canonical_span_errors_path,
             "canonical_manifest_path": canonical_manifest_path,
+            "block_gold_labels_path": block_gold_labels_path,
         }
 
     export_payload_path = export_root / "labelstudio_export.json"
@@ -511,9 +624,17 @@ def ensure_canonical_gold_artifacts(
         )
     export_payload = [row for row in payload_raw if isinstance(row, dict)]
     span_rows = _read_jsonl(freeform_span_path)
+    block_gold_rows = load_block_gold_rows(block_gold_labels_path)
+    if not block_gold_rows:
+        block_gold_bundle = derive_block_gold_bundle(span_rows)
+        block_gold_rows = list(block_gold_bundle.get("rows") or [])
+        write_block_gold_rows(block_gold_labels_path, block_gold_rows)
 
     bundle = build_canonical_gold_bundle(
         export_payload=export_payload,
         span_rows=span_rows,
+        block_gold_rows=block_gold_rows,
     )
-    return write_canonical_gold_bundle(export_root=export_root, bundle=bundle)
+    paths = write_canonical_gold_bundle(export_root=export_root, bundle=bundle)
+    paths["block_gold_labels_path"] = block_gold_labels_path
+    return paths

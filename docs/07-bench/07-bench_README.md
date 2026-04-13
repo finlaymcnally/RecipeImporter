@@ -254,6 +254,13 @@ Canonical-text mode expects:
 - `exports/canonical_span_labels.jsonl`
 - `exports/canonical_manifest.json`
 
+Canonical gold authority note:
+
+- `exports/freeform_span_labels.jsonl` is still the entry artifact selected by benchmark discovery because it identifies the gold export bundle, but canonical-text scoring does not score that raw freeform file directly
+- `exports/block_gold_labels.jsonl` is the derived block-authoritative gold built from the freeform export
+- `exports/canonical_span_labels.jsonl` is then derived from `block_gold_labels.jsonl` and uses full canonical block spans for the labeled blocks
+- broad freeform `KNOWLEDGE` or `OTHER` drags are therefore treated as per-block labeling intent, not as benchmark-authoritative span geometry
+
 ### 3.3 Stage-block scoring contract
 
 Current rules:
