@@ -30,7 +30,7 @@ Current scoring modes:
 
 - `stage-blocks`: compare stage evidence labels against freeform gold block labels
 - `canonical-text`: align prediction text to canonical gold text and score per canonical line
-- canonical-text title scoring now filters raw freeform `RECIPE_TITLE` spans down to line-level recipe-start reality: tiny inline `RECIPE_TITLE` mentions inside a larger `OTHER` paragraph do not turn the whole line into a title target, and unsupported contents-style title lines do not count as recipe-title misses unless nearby gold lines also show recipe-local structure such as yield, ingredients, or instructions. `RECIPE_VARIANT` spans still project directly; the title-specific filter is not applied to variant runs.
+- canonical-text scoring now projects gold spans to lines without title-specific rewrites. If exported gold contains suspicious patterns such as inline `RECIPE_TITLE`/`RECIPE_VARIANT` subspans inside `OTHER` prose or `RECIPE_TITLE` lines without nearby recipe structure, the evaluator surfaces those as `gold_projection_warnings.jsonl` so the gold can be fixed directly instead of silently normalized during scoring.
 
 Current benchmark handoff model:
 

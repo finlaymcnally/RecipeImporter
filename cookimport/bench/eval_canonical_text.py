@@ -66,7 +66,6 @@ _AUTO_LOCAL_CONFIDENCE_MIN_RATIO = 0.93
 _CANONICAL_BOUNDARY_OVERLAP_THRESHOLD = 0.5
 _CANONICAL_SEGMENTATION_BOUNDARY_TOLERANCE_BLOCKS = 0
 _CANONICAL_SEGMENTATION_METRICS_REQUESTED: tuple[str, ...] = ("boundary_f1",)
-_TITLE_LIKE_LABELS = {"RECIPE_TITLE"}
 _TITLE_STRUCTURE_SUPPORT_LABELS = {
     "INGREDIENT_LINE",
     "INSTRUCTION_LINE",
@@ -74,7 +73,6 @@ _TITLE_STRUCTURE_SUPPORT_LABELS = {
     "YIELD_LINE",
     "TIME_LINE",
 }
-_TITLE_LINE_COVERAGE_MIN = 0.8
 _TITLE_STRUCTURE_LOOKAHEAD_LINES = 8
 
 try:  # pragma: no cover - non-Unix runtimes may not expose resource.
@@ -1245,37 +1243,15 @@ def _build_gold_line_labels(
                 break
             span_end = int(span["end_char"])
             if span_end > line_start:
-                if (
-                    label in _TITLE_LIKE_LABELS
-                    and not _should_project_title_label_to_line(
-                        line=line,
-                        span_start=span_start,
-                        span_end=span_end,
-                    )
-                ):
-                    scan_index += 1
-                    continue
                 labels.add(label)
             scan_index += 1
 
-        provisional_labels_by_line[line_index] = labels
-
-    gold_line_labels: dict[int, set[str]] = {}
-    for line in lines:
-        line_index = int(line["line_index"])
-        labels = set(provisional_labels_by_line.get(line_index) or set())
-        if labels & _TITLE_LIKE_LABELS and not _line_has_title_support(
-            line_index=line_index,
-            current_labels=labels,
-            labels_by_line=provisional_labels_by_line,
-        ):
-            labels -= _TITLE_LIKE_LABELS
         if not labels and strict_empty_to_other:
             labels.add("OTHER")
         if labels:
-            gold_line_labels[line_index] = labels
+            provisional_labels_by_line[line_index] = labels
 
-    return gold_line_labels
+    return provisional_labels_by_line
 
 
 def build_canonical_gold_line_labels(
@@ -1295,44 +1271,128 @@ def build_canonical_gold_line_labels(
     return lines, labels
 
 
-def _should_project_title_label_to_line(
-    *,
-    line: dict[str, Any],
-    span_start: int,
-    span_end: int,
-) -> bool:
-    line_start = int(line["start_char"])
-    line_end = int(line["end_char"])
-    line_text = str(line.get("text") or "")
-    if not line_text or line_end <= line_start:
-        return False
-    overlap = _overlap_len(line_start, line_end, span_start, span_end)
-    if overlap <= 0:
-        return False
-    stripped = line_text.strip()
-    content_len = len(stripped) if stripped else len(line_text)
-    if content_len <= 0:
-        return False
-    return (overlap / content_len) >= _TITLE_LINE_COVERAGE_MIN
-
-
-def _line_has_title_support(
+def _find_title_support_context(
     *,
     line_index: int,
-    current_labels: set[str],
     labels_by_line: dict[int, set[str]],
-) -> bool:
-    current_has_other = "OTHER" in current_labels
+) -> dict[str, Any]:
     for offset in range(1, _TITLE_STRUCTURE_LOOKAHEAD_LINES + 1):
         neighbor_labels = set(labels_by_line.get(line_index + offset) or set())
         non_other_labels = neighbor_labels - {"OTHER"}
         if not non_other_labels:
             continue
         if non_other_labels & _TITLE_STRUCTURE_SUPPORT_LABELS:
-            return True
-        if current_has_other and non_other_labels & _TITLE_LIKE_LABELS:
-            return False
-    return False
+            return {
+                "status": "supported",
+                "support_line_index": line_index + offset,
+                "support_labels": sorted(non_other_labels & _TITLE_STRUCTURE_SUPPORT_LABELS),
+            }
+        if "RECIPE_TITLE" in non_other_labels:
+            return {
+                "status": "later_title_before_structure",
+                "later_title_line_index": line_index + offset,
+                "later_title_labels": sorted(non_other_labels),
+            }
+    return {"status": "missing"}
+
+
+def _build_gold_projection_warnings(
+    *,
+    lines: list[dict[str, Any]],
+    gold_spans: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    labels_by_line = _build_gold_line_labels(
+        lines=lines,
+        gold_spans=gold_spans,
+        strict_empty_to_other=False,
+    )
+    warnings: list[dict[str, Any]] = []
+    span_cursor = 0
+    span_total = len(gold_spans)
+
+    for line in lines:
+        line_index = int(line["line_index"])
+        line_start = int(line["start_char"])
+        line_end = int(line["end_char"])
+        line_text = str(line.get("text") or "")
+        line_labels = set(labels_by_line.get(line_index) or set())
+
+        while span_cursor < span_total and int(gold_spans[span_cursor]["end_char"]) <= line_start:
+            span_cursor += 1
+
+        overlapping_spans: list[dict[str, Any]] = []
+        scan_index = span_cursor
+        while scan_index < span_total:
+            span = gold_spans[scan_index]
+            span_start = int(span["start_char"])
+            if span_start >= line_end:
+                break
+            span_end = int(span["end_char"])
+            overlap = _overlap_len(line_start, line_end, span_start, span_end)
+            if overlap > 0:
+                overlapping_spans.append(
+                    {
+                        "label": str(span["label"]),
+                        "start_char": span_start,
+                        "end_char": span_end,
+                        "overlap_chars": overlap,
+                    }
+                )
+            scan_index += 1
+
+        stripped = line_text.strip()
+        content_len = len(stripped) if stripped else len(line_text)
+        if content_len <= 0:
+            continue
+
+        for label in ("RECIPE_TITLE", "RECIPE_VARIANT"):
+            if label not in line_labels or "OTHER" not in line_labels:
+                continue
+            overlap_chars = sum(
+                int(span["overlap_chars"])
+                for span in overlapping_spans
+                if str(span["label"]) == label
+            )
+            if overlap_chars <= 0:
+                continue
+            warnings.append(
+                {
+                    "warning": "gold_inline_label_subspan_inside_other_line",
+                    "line_index": line_index,
+                    "label": label,
+                    "line_text_excerpt": _excerpt(line_text),
+                    "label_overlap_chars": overlap_chars,
+                    "line_content_chars": content_len,
+                    "label_overlap_ratio": round(overlap_chars / content_len, 6),
+                }
+            )
+
+        if "RECIPE_TITLE" not in line_labels:
+            continue
+        support = _find_title_support_context(
+            line_index=line_index,
+            labels_by_line=labels_by_line,
+        )
+        support_status = str(support.get("status") or "missing")
+        if support_status == "supported":
+            continue
+        warning_row = {
+            "line_index": line_index,
+            "label": "RECIPE_TITLE",
+            "line_text_excerpt": _excerpt(line_text),
+            "lookahead_lines": _TITLE_STRUCTURE_LOOKAHEAD_LINES,
+        }
+        if support_status == "later_title_before_structure":
+            warning_row["warning"] = "gold_recipe_title_precedes_later_recipe_title_before_structure"
+            warning_row["later_title_line_index"] = int(
+                support.get("later_title_line_index") or -1
+            )
+            warning_row["later_title_labels"] = list(support.get("later_title_labels") or [])
+        else:
+            warning_row["warning"] = "gold_recipe_title_without_nearby_recipe_structure"
+        warnings.append(warning_row)
+
+    return warnings
 
 
 def _build_pred_line_labels(
@@ -1685,6 +1745,10 @@ def evaluate_canonical_text(
         gold_spans=gold_spans,
         strict_empty_to_other=strict_empty_gold_to_other,
     )
+    gold_projection_warnings = _build_gold_projection_warnings(
+        lines=canonical_lines,
+        gold_spans=gold_spans,
+    )
     pred_line_labels = _build_pred_line_labels(
         lines=canonical_lines,
         aligned_prediction_blocks=aligned_blocks,
@@ -1730,6 +1794,21 @@ def evaluate_canonical_text(
         "gold_span_count": len(gold_spans),
         "canonical_text_path": str(canonical_text_path),
         "canonical_span_labels_path": str(canonical_spans_path),
+        "gold_projection_warning_count": len(gold_projection_warnings),
+        "gold_projection_warning_counts": {
+            warning: sum(
+                1
+                for row in gold_projection_warnings
+                if str(row.get("warning") or "") == warning
+            )
+            for warning in sorted(
+                {
+                    str(row.get("warning") or "")
+                    for row in gold_projection_warnings
+                    if str(row.get("warning") or "")
+                }
+            )
+        },
     }
     total_prediction_lines = len(set(gold_line_labels) | set(pred_line_labels))
     report["authority_coverage"] = {
@@ -1831,6 +1910,7 @@ def evaluate_canonical_text(
     alignment_gaps_path = out_dir / "alignment_gaps.jsonl"
     missed_boundaries_path = out_dir / "missed_gold_boundaries.jsonl"
     false_positive_boundaries_path = out_dir / "false_positive_boundaries.jsonl"
+    gold_projection_warnings_path = out_dir / "gold_projection_warnings.jsonl"
     _write_jsonl(missed_lines_path, missed_rows)
     _write_jsonl(wrong_lines_path, wrong_rows)
     _write_jsonl(aligned_blocks_path, aligned_blocks)
@@ -1838,6 +1918,7 @@ def evaluate_canonical_text(
     _write_jsonl(alignment_gaps_path, alignment_gaps)
     _write_jsonl(missed_boundaries_path, missed_boundary_rows)
     _write_jsonl(false_positive_boundaries_path, false_positive_boundary_rows)
+    _write_jsonl(gold_projection_warnings_path, gold_projection_warnings)
 
     _write_jsonl(out_dir / "missed_gold_blocks.jsonl", missed_rows)
     _write_jsonl(out_dir / "wrong_label_blocks.jsonl", wrong_rows)
@@ -1854,6 +1935,7 @@ def evaluate_canonical_text(
         "wrong_label_blocks_jsonl": str(out_dir / "wrong_label_blocks.jsonl"),
         "missed_gold_boundaries_jsonl": str(missed_boundaries_path),
         "false_positive_boundaries_jsonl": str(false_positive_boundaries_path),
+        "gold_projection_warnings_jsonl": str(gold_projection_warnings_path),
     }
 
     subphase_seconds["artifact_write_seconds"] = max(

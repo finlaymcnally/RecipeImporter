@@ -207,7 +207,7 @@ Thinking effort uses `--codex-thinking-effort` (alias `--codex-reasoning-effort`
 `summary.json` includes deduped recipe-header diagnostics from normalized `RECIPE_TITLE` spans.
 
 Canonical-text benchmark note:
-- `canonical_span_labels.jsonl` preserves the raw freeform span intent, including inline title subspans and contents-style title rows when they were annotated that way. The canonical-text benchmark now applies an extra line-level title projection filter at scoring time so whole-line `RECIPE_TITLE` recall only counts title-like lines that behave like real recipe starts rather than every raw title mention preserved in the export. That filter is title-only; it does not demote `RECIPE_VARIANT` runs.
+- `canonical_span_labels.jsonl` preserves the raw freeform span intent, including inline title subspans and contents-style title rows when they were annotated that way. The canonical-text benchmark now scores those raw spans directly at line level and writes `gold_projection_warnings.jsonl` when the export contains suspicious title/variant patterns that should probably be cleaned up in Label Studio instead of being filtered out by the scorer.
 
 ### 5.2 Eval artifacts
 

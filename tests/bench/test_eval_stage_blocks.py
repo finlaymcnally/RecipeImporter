@@ -135,7 +135,7 @@ def test_build_gold_line_labels_preserves_howto_section_labels() -> None:
     assert labels[4] == {"HOWTO_SECTION"}
 
 
-def test_build_gold_line_labels_ignores_inline_recipe_title_subspan_inside_other_line() -> None:
+def test_build_gold_line_labels_preserves_inline_recipe_title_subspan_inside_other_line() -> None:
     text = (
         "Make Pasta alle Vongole to practice layering acids. "
         "Heat a pan and continue cooking."
@@ -164,10 +164,45 @@ def test_build_gold_line_labels_ignores_inline_recipe_title_subspan_inside_other
         strict_empty_to_other=True,
     )
 
-    assert labels[0] == {"OTHER"}
+    assert labels[0] == {"OTHER", "RECIPE_TITLE"}
 
 
-def test_build_gold_line_labels_drops_unsupported_contents_recipe_titles() -> None:
+def test_build_gold_projection_warnings_flags_inline_recipe_title_subspan_inside_other_line() -> None:
+    text = (
+        "Make Pasta alle Vongole to practice layering acids. "
+        "Heat a pan and continue cooking."
+    )
+    lines = canonical_eval._build_canonical_lines(text)
+    title_start = text.index("Pasta alle Vongole")
+    title_end = title_start + len("Pasta alle Vongole")
+    gold_spans = [
+        {
+            "span_id": "s0",
+            "label": "OTHER",
+            "start_char": lines[0]["start_char"],
+            "end_char": lines[0]["end_char"],
+        },
+        {
+            "span_id": "s1",
+            "label": "RECIPE_TITLE",
+            "start_char": title_start,
+            "end_char": title_end,
+        },
+    ]
+
+    warnings = canonical_eval._build_gold_projection_warnings(
+        lines=lines,
+        gold_spans=gold_spans,
+    )
+
+    assert any(
+        row["warning"] == "gold_inline_label_subspan_inside_other_line"
+        and row["label"] == "RECIPE_TITLE"
+        for row in warnings
+    )
+
+
+def test_build_gold_line_labels_preserves_unsupported_contents_recipe_titles() -> None:
     lines = canonical_eval._build_canonical_lines(
         "Bright Cabbage Slaw\nScented Cream\nSuggested Menus\nFOREWORD"
     )
@@ -198,8 +233,50 @@ def test_build_gold_line_labels_drops_unsupported_contents_recipe_titles() -> No
         strict_empty_to_other=True,
     )
 
-    assert labels[0] == {"OTHER"}
-    assert labels[1] == {"OTHER"}
+    assert labels[0] == {"RECIPE_TITLE"}
+    assert labels[1] == {"RECIPE_TITLE"}
+
+
+def test_build_gold_projection_warnings_flags_unsupported_contents_recipe_titles() -> None:
+    lines = canonical_eval._build_canonical_lines(
+        "Bright Cabbage Slaw\nScented Cream\nSuggested Menus\nFOREWORD"
+    )
+    gold_spans = [
+        {
+            "span_id": "s0",
+            "label": "RECIPE_TITLE",
+            "start_char": lines[0]["start_char"],
+            "end_char": lines[0]["end_char"],
+        },
+        {
+            "span_id": "s1",
+            "label": "RECIPE_TITLE",
+            "start_char": lines[1]["start_char"],
+            "end_char": lines[1]["end_char"],
+        },
+        {
+            "span_id": "s2",
+            "label": "OTHER",
+            "start_char": lines[3]["start_char"],
+            "end_char": lines[3]["end_char"],
+        },
+    ]
+
+    warnings = canonical_eval._build_gold_projection_warnings(
+        lines=lines,
+        gold_spans=gold_spans,
+    )
+
+    assert any(
+        row["warning"] == "gold_recipe_title_precedes_later_recipe_title_before_structure"
+        and row["line_index"] == 0
+        for row in warnings
+    )
+    assert any(
+        row["warning"] == "gold_recipe_title_without_nearby_recipe_structure"
+        and row["line_index"] == 1
+        for row in warnings
+    )
 
 
 def test_build_gold_line_labels_keeps_supported_recipe_titles() -> None:
@@ -234,7 +311,7 @@ def test_build_gold_line_labels_keeps_supported_recipe_titles() -> None:
     assert labels[0] == {"RECIPE_TITLE"}
 
 
-def test_build_gold_line_labels_drops_section_heading_before_real_recipe_title() -> None:
+def test_build_gold_line_labels_preserves_section_heading_before_real_recipe_title() -> None:
     lines = canonical_eval._build_canonical_lines(
         "A Panzanella for Every Season\n"
         "Panzanella notes.\n"
@@ -287,8 +364,68 @@ def test_build_gold_line_labels_drops_section_heading_before_real_recipe_title()
         strict_empty_to_other=True,
     )
 
-    assert labels[0] == {"OTHER"}
+    assert labels[0] == {"OTHER", "RECIPE_TITLE"}
     assert labels[2] == {"RECIPE_TITLE"}
+
+
+def test_build_gold_projection_warnings_flags_section_heading_before_real_recipe_title() -> None:
+    lines = canonical_eval._build_canonical_lines(
+        "A Panzanella for Every Season\n"
+        "Panzanella notes.\n"
+        "Summer: Tomato, Basil, and Cucumber\n"
+        "Serves 4 generously\n"
+        "1 cup stock"
+    )
+    gold_spans = [
+        {
+            "span_id": "s0",
+            "label": "OTHER",
+            "start_char": lines[0]["start_char"],
+            "end_char": lines[0]["end_char"],
+        },
+        {
+            "span_id": "s1",
+            "label": "RECIPE_TITLE",
+            "start_char": lines[0]["start_char"],
+            "end_char": lines[0]["end_char"],
+        },
+        {
+            "span_id": "s2",
+            "label": "OTHER",
+            "start_char": lines[1]["start_char"],
+            "end_char": lines[1]["end_char"],
+        },
+        {
+            "span_id": "s3",
+            "label": "RECIPE_TITLE",
+            "start_char": lines[2]["start_char"],
+            "end_char": lines[2]["end_char"],
+        },
+        {
+            "span_id": "s4",
+            "label": "YIELD_LINE",
+            "start_char": lines[3]["start_char"],
+            "end_char": lines[3]["end_char"],
+        },
+        {
+            "span_id": "s5",
+            "label": "INGREDIENT_LINE",
+            "start_char": lines[4]["start_char"],
+            "end_char": lines[4]["end_char"],
+        },
+    ]
+
+    warnings = canonical_eval._build_gold_projection_warnings(
+        lines=lines,
+        gold_spans=gold_spans,
+    )
+
+    assert any(
+        row["warning"] == "gold_recipe_title_precedes_later_recipe_title_before_structure"
+        and row["line_index"] == 0
+        and row["later_title_line_index"] == 2
+        for row in warnings
+    )
 
 
 def test_build_gold_line_labels_keeps_recipe_variant_lines_without_title_support() -> None:
@@ -536,6 +673,116 @@ def test_evaluate_canonical_text_includes_howto_section_totals(tmp_path: Path) -
     assert report["per_label"]["HOWTO_SECTION"]["pred_total"] == 1
     assert report["per_label"]["HOWTO_SECTION"]["tp"] == 1
     assert report["confusion"]["HOWTO_SECTION"]["HOWTO_SECTION"] == 1
+
+
+def test_evaluate_canonical_text_writes_gold_projection_warnings_without_rewriting_gold(
+    tmp_path: Path,
+) -> None:
+    canonical_text = (
+        "Make Pasta alle Vongole to practice layering acids.\n"
+        "Serves 2"
+    )
+    canonical_lines = canonical_eval._build_canonical_lines(canonical_text)
+    title_start = canonical_text.index("Pasta alle Vongole")
+    title_end = title_start + len("Pasta alle Vongole")
+
+    gold_export_root = tmp_path / "gold"
+    gold_export_root.mkdir(parents=True, exist_ok=True)
+    canonical_text_path = gold_export_root / "canonical_text.txt"
+    canonical_spans_path = gold_export_root / "canonical_span_labels.jsonl"
+    canonical_text_path.write_text(canonical_text, encoding="utf-8")
+    _write_jsonl(
+        canonical_spans_path,
+        [
+            {
+                "span_id": "s0",
+                "label": "OTHER",
+                "start_char": canonical_lines[0]["start_char"],
+                "end_char": canonical_lines[0]["end_char"],
+            },
+            {
+                "span_id": "s1",
+                "label": "RECIPE_TITLE",
+                "start_char": title_start,
+                "end_char": title_end,
+            },
+            {
+                "span_id": "s2",
+                "label": "YIELD_LINE",
+                "start_char": canonical_lines[1]["start_char"],
+                "end_char": canonical_lines[1]["end_char"],
+            },
+        ],
+    )
+    (gold_export_root / "canonical_manifest.json").write_text(
+        json.dumps({"schema_version": "canonical_gold.v1"}, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    stage_predictions_path = tmp_path / "stage_block_predictions.json"
+    stage_predictions_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "stage_block_predictions.v1",
+                "workbook_slug": "demo",
+                "source_file": "demo.epub",
+                "source_hash": "hash-demo",
+                "block_count": 2,
+                "block_labels": {
+                    "0": "OTHER",
+                    "1": "YIELD_LINE",
+                },
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    extracted_blocks_path = tmp_path / "extracted_archive.json"
+    extracted_blocks_path.write_text(
+        json.dumps(
+            [
+                {
+                    "index": 0,
+                    "text": "Make Pasta alle Vongole to practice layering acids.",
+                },
+                {"index": 1, "text": "Serves 2"},
+            ],
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    result = evaluate_canonical_text(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_path,
+        extracted_blocks_json=extracted_blocks_path,
+        out_dir=tmp_path / "eval",
+        strict_empty_gold_to_other=True,
+        canonical_paths={
+            "canonical_text_path": canonical_text_path,
+            "canonical_span_labels_path": canonical_spans_path,
+            "canonical_manifest_path": gold_export_root / "canonical_manifest.json",
+        },
+    )
+    report = result["report"]
+
+    assert report["per_label"]["RECIPE_TITLE"]["gold_total"] == 1
+    assert report["canonical"]["gold_projection_warning_count"] == 1
+    assert report["canonical"]["gold_projection_warning_counts"] == {
+        "gold_inline_label_subspan_inside_other_line": 1
+    }
+    warning_rows = [
+        json.loads(line)
+        for line in (
+            Path(report["artifacts"]["gold_projection_warnings_jsonl"])
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
+        if line.strip()
+    ]
+    assert len(warning_rows) == 1
+    assert warning_rows[0]["warning"] == "gold_inline_label_subspan_inside_other_line"
+    assert warning_rows[0]["label"] == "RECIPE_TITLE"
 
 
 def test_evaluate_canonical_text_scores_knowledge_stage_in_line_role_projection(
