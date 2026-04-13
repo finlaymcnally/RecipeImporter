@@ -289,6 +289,9 @@ def generate_pred_run_artifacts(
     knowledge_codex_exec_style: str = str(
         serialized_run_setting_default("knowledge_codex_exec_style")
     ),
+    knowledge_inline_repair_transcript_mode: str = str(
+        serialized_run_setting_default("knowledge_inline_repair_transcript_mode")
+    ),
     atomic_block_splitter: str = "off",
     line_role_pipeline: str = "off",
     line_role_prompt_target_count: int = 5,
@@ -501,6 +504,9 @@ def generate_pred_run_artifacts(
         line_role_codex_exec_style=line_role_codex_exec_style,
         line_role_prompt_target_count=line_role_prompt_target_count,
         knowledge_codex_exec_style=knowledge_codex_exec_style,
+        knowledge_inline_repair_transcript_mode=(
+            knowledge_inline_repair_transcript_mode
+        ),
         codex_farm_cmd=codex_farm_cmd,
         codex_farm_model=codex_farm_model,
         codex_farm_reasoning_effort=codex_farm_reasoning_effort,

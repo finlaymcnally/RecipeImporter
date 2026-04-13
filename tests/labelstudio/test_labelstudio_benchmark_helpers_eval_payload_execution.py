@@ -200,6 +200,7 @@ def test_labelstudio_benchmark_uses_eval_output_dir_for_prediction_scratch(
     assert captured_generate["codex_execution_policy"] == "execute"
     assert captured_generate["atomic_block_splitter"] == "off"
     assert captured_generate["line_role_pipeline"] == "off"
+    assert captured_generate["knowledge_inline_repair_transcript_mode"] == "resume"
     assert run_manifest_path.exists()
 
 
