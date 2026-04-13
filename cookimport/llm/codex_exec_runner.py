@@ -969,10 +969,14 @@ class FakeCodexExecRunner:
                         label = str(row.get("label") or "").strip()
                         if not label:
                             continue
+                        row_id = str(row.get("row_id") or "").strip()
+                        row_id_match = re.fullmatch(r"r(\d+)", row_id)
                         atomic_index_value = row.get("atomic_index")
                         try:
                             ordinal = (
-                                int(atomic_index_value)
+                                max(0, int(row_id_match.group(1)) - 1)
+                                if row_id_match is not None
+                                else int(atomic_index_value)
                                 if atomic_index_value is not None
                                 else row_index
                             )
@@ -1159,6 +1163,35 @@ class FakeCodexExecRunner:
             )
             return dict(direct_output) if isinstance(direct_output, Mapping) else {}
         if stage_key == "knowledge_group":
+            evidence_rows = evidence.get("rows")
+            if isinstance(evidence_rows, list):
+                structured_rows: list[dict[str, Any]] = []
+                row_facts: list[str] = []
+                for raw_row in evidence_rows:
+                    if not isinstance(raw_row, Mapping):
+                        continue
+                    row_id = str(raw_row.get("row_id") or "").strip()
+                    text = str(raw_row.get("text") or "").strip()
+                    if row_id:
+                        structured_rows.append({"row_id": row_id, "text": text})
+                        raw_classification = raw_row.get("classification")
+                        classification_category = (
+                            str(raw_classification.get("category") or "").strip()
+                            if isinstance(raw_classification, Mapping)
+                            else ""
+                        )
+                        if classification_category:
+                            row_facts.append(
+                                f"{row_id} | classification={classification_category}"
+                            )
+                direct_output = self.output_builder(
+                    {
+                        "stage_key": stage_key,
+                        "rows": structured_rows,
+                        "row_facts": row_facts,
+                    }
+                )
+                return dict(direct_output) if isinstance(direct_output, Mapping) else {}
             block_index = int(evidence.get("block_index") or 0)
             direct_output = self.output_builder(
                 {

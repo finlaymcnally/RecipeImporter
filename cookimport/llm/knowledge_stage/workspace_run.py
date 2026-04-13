@@ -47,6 +47,7 @@ from .task_file_contracts import (
     build_task_file_answer_feedback,
     build_knowledge_classification_task_file,
     build_knowledge_grouping_task_files,
+    canonicalize_knowledge_grouping_answer_ids,
     combine_knowledge_task_file_outputs,
     collect_knowledge_resolution_metadata_by_shard,
     validate_knowledge_classification_task_file,
@@ -1489,6 +1490,12 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                             grouping_batch_answers_by_unit_id,
                             repair_grouping_answers_by_unit_id,
                         )
+                        grouping_batch_answers_by_unit_id = (
+                            canonicalize_knowledge_grouping_answer_ids(
+                                original_task_file=grouping_task_file,
+                                answers_by_unit_id=grouping_batch_answers_by_unit_id,
+                            )
+                        )
                         final_grouping_task_file = _apply_answers_to_task_file(
                             original_task_file=grouping_task_file,
                             answers_by_unit_id=grouping_batch_answers_by_unit_id,
@@ -1767,6 +1774,12 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                             final_grouping_answers_by_unit_id = _knowledge_merge_answers(
                                 final_grouping_answers_by_unit_id,
                                 repair_grouping_answers_by_unit_id,
+                            )
+                            final_grouping_answers_by_unit_id = (
+                                canonicalize_knowledge_grouping_answer_ids(
+                                    original_task_file=whole_shard_grouping_task_file,
+                                    answers_by_unit_id=final_grouping_answers_by_unit_id,
+                                )
                             )
                             final_grouping_task_file = _apply_answers_to_task_file(
                                 original_task_file=whole_shard_grouping_task_file,

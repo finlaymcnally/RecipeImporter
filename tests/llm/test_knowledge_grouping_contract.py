@@ -8,6 +8,7 @@ from cookimport.llm.knowledge_stage.task_file_contracts import (
     build_knowledge_classification_task_file,
     build_knowledge_grouping_task_file,
     build_knowledge_grouping_task_files,
+    canonicalize_knowledge_grouping_answer_ids,
     validate_knowledge_grouping_task_file,
 )
 from cookimport.llm.knowledge_stage.structured_session_contract import (
@@ -216,6 +217,123 @@ def test_grouping_validator_requires_tag_story_and_group_consistency() -> None:
     assert answers_by_unit_id is None
     assert "knowledge_group_mixed_tag_story" in errors
     assert sorted(metadata["failed_unit_ids"]) == ["knowledge::11", "knowledge::12"]
+
+
+def test_grouping_answer_id_canonicalization_recovers_repair_subset_collisions() -> None:
+    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[
+            _shard(block_index=51, text="Buy whole spices and grind them just before use."),
+            _shard(block_index=52, text="Fresh grinding releases aromatic oils."),
+            _shard(block_index=53, text="Salt improves dessert flavor."),
+            _shard(block_index=54, text="Desserts need a pinch of salt too."),
+            _shard(block_index=55, text="Finish cookie dough with flaky salt."),
+        ],
+    )
+    grouping_task_file, _ = build_knowledge_grouping_task_file(
+        assignment_id="worker-001",
+        worker_id="worker-001",
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id={
+            "knowledge::51": {"category": "keep_for_review"},
+            "knowledge::52": {"category": "keep_for_review"},
+            "knowledge::53": {"category": "keep_for_review"},
+            "knowledge::54": {"category": "keep_for_review"},
+            "knowledge::55": {"category": "keep_for_review"},
+        },
+        unit_to_shard_id=unit_to_shard_id,
+    )
+
+    merged_answers = {
+        "knowledge::51": _group_answer(
+            group_id="g01",
+            topic_label="Fresh-ground spices",
+            proposed_tags=[
+                {
+                    "key": "fresh-ground-spices",
+                    "display_name": "Fresh-ground spices",
+                    "category_key": "techniques",
+                }
+            ],
+            why_no_existing_tag="No existing tag covers grinding whole spices right before use.",
+            retrieval_query="whole spices grind before use aromatic oils",
+        ),
+        "knowledge::52": _group_answer(
+            group_id="g01",
+            topic_label="Fresh-ground spices",
+            proposed_tags=[
+                {
+                    "key": "fresh-ground-spices",
+                    "display_name": "Fresh-ground spices",
+                    "category_key": "techniques",
+                }
+            ],
+            why_no_existing_tag="No existing tag covers grinding whole spices right before use.",
+            retrieval_query="whole spices grind before use aromatic oils",
+        ),
+        "knowledge::53": _group_answer(
+            group_id="g01",
+            topic_label="Salt in desserts",
+            tag_keys=["sweet", "dessert"],
+        ),
+        "knowledge::54": _group_answer(
+            group_id="g01",
+            topic_label="Salt in desserts",
+            tag_keys=["sweet", "dessert"],
+        ),
+        "knowledge::55": _group_answer(
+            group_id="g01",
+            topic_label="Salt in desserts",
+            tag_keys=["sweet", "dessert"],
+        ),
+    }
+
+    invalid = deepcopy(grouping_task_file)
+    for unit in invalid["units"]:
+        unit_id = str(unit.get("unit_id") or "")
+        if unit_id in merged_answers:
+            unit["answer"] = deepcopy(merged_answers[unit_id])
+
+    answers_by_unit_id, errors, metadata = validate_knowledge_grouping_task_file(
+        original_task_file=grouping_task_file,
+        edited_task_file=invalid,
+    )
+
+    assert answers_by_unit_id is None
+    assert errors == ("knowledge_group_mixed_tag_story",)
+    assert sorted(metadata["failed_unit_ids"]) == [
+        "knowledge::51",
+        "knowledge::52",
+        "knowledge::53",
+        "knowledge::54",
+        "knowledge::55",
+    ]
+
+    canonical_answers = canonicalize_knowledge_grouping_answer_ids(
+        original_task_file=grouping_task_file,
+        answers_by_unit_id=merged_answers,
+    )
+    repaired = deepcopy(grouping_task_file)
+    for unit in repaired["units"]:
+        unit_id = str(unit.get("unit_id") or "")
+        if unit_id in canonical_answers:
+            unit["answer"] = deepcopy(canonical_answers[unit_id])
+
+    repaired_answers_by_unit_id, repaired_errors, repaired_metadata = (
+        validate_knowledge_grouping_task_file(
+            original_task_file=grouping_task_file,
+            edited_task_file=repaired,
+        )
+    )
+
+    assert repaired_errors == ()
+    assert repaired_metadata["failed_unit_ids"] == []
+    assert repaired_answers_by_unit_id is not None
+    assert repaired_answers_by_unit_id["knowledge::51"]["group_id"] == "g01"
+    assert repaired_answers_by_unit_id["knowledge::52"]["group_id"] == "g01"
+    assert repaired_answers_by_unit_id["knowledge::53"]["group_id"] == "g02"
+    assert repaired_answers_by_unit_id["knowledge::54"]["group_id"] == "g02"
+    assert repaired_answers_by_unit_id["knowledge::55"]["group_id"] == "g02"
 
 
 def test_grouping_structured_response_maps_group_fields_and_reports_missing_rows() -> None:

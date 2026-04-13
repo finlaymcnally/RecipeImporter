@@ -177,7 +177,7 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert task_file["stage_key"] == "knowledge_group"
     assert "helper_commands" not in task_file
     assert task_file["answer_schema"]["editable_pointer_pattern"] == "/units/*/answer"
-    assert task_file["answer_schema"]["example_answers"][0]["group_id"] == "g01"
+    assert task_file["answer_schema"]["example_answers"][0]["groups"][0]["group_id"] == "g01"
     assert first_output["packet_id"] == "book.ks0000.nr"
     assert first_output["block_decisions"][0]["block_index"] == 0
     assert first_output["block_decisions"][0]["category"] == "knowledge"

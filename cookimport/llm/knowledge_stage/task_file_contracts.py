@@ -1677,6 +1677,72 @@ def validate_knowledge_grouping_task_file(
     return validated_answers, (), next_metadata
 
 
+def canonicalize_knowledge_grouping_answer_ids(
+    *,
+    original_task_file: Mapping[str, Any],
+    answers_by_unit_id: Mapping[str, Mapping[str, Any]] | None,
+) -> dict[str, dict[str, Any]]:
+    canonical_answers: dict[str, dict[str, Any]] = {}
+    next_group_index = 1
+    current_story_key: str | None = None
+    current_group_id: str | None = None
+    seen_unit_ids: set[str] = set()
+
+    for unit in original_task_file.get("units") or []:
+        if not isinstance(unit, Mapping):
+            continue
+        unit_id = str(unit.get("unit_id") or "").strip()
+        if not unit_id:
+            continue
+        seen_unit_ids.add(unit_id)
+        answer = _coerce_dict(_coerce_dict(answers_by_unit_id).get(unit_id))
+        if not answer:
+            current_story_key = None
+            current_group_id = None
+            continue
+        topic_label = str(answer.get("topic_label") or "").strip()
+        group_id = str(answer.get("group_id") or "").strip()
+        if not topic_label or not group_id:
+            canonical_answers[unit_id] = dict(answer)
+            current_story_key = None
+            current_group_id = None
+            continue
+        grounding = _normalize_output_grounding(answer.get("grounding"))
+        why_no_existing_tag = _trimmed_text_or_none(answer.get("why_no_existing_tag"))
+        retrieval_query = _trimmed_text_or_none(answer.get("retrieval_query"))
+        story_key = json.dumps(
+            {
+                "topic_label": topic_label,
+                "grounding": grounding,
+                "why_no_existing_tag": why_no_existing_tag,
+                "retrieval_query": retrieval_query,
+            },
+            sort_keys=True,
+        )
+        if current_story_key != story_key or current_group_id is None:
+            current_group_id = f"g{next_group_index:02d}"
+            next_group_index += 1
+            current_story_key = story_key
+        canonical_answers[unit_id] = {
+            "group_id": current_group_id,
+            "topic_label": topic_label,
+            "grounding": grounding,
+            "why_no_existing_tag": why_no_existing_tag,
+            "retrieval_query": retrieval_query,
+        }
+
+    for unit_id, answer in dict(answers_by_unit_id or {}).items():
+        cleaned_unit_id = str(unit_id).strip()
+        if (
+            not cleaned_unit_id
+            or cleaned_unit_id in seen_unit_ids
+            or not isinstance(answer, Mapping)
+        ):
+            continue
+        canonical_answers[cleaned_unit_id] = dict(answer)
+    return canonical_answers
+
+
 def combine_knowledge_task_file_outputs(
     *,
     classification_task_file: Mapping[str, Any],
