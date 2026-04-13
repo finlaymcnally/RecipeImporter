@@ -402,6 +402,9 @@ def _run_all_method_prediction_once_impl(
                             "knowledge_codex_exec_style": benchmark_kwargs[
                                 "knowledge_codex_exec_style"
                             ],
+                            "knowledge_inline_repair_transcript_mode": benchmark_kwargs[
+                                "knowledge_inline_repair_transcript_mode"
+                            ],
                             "recipe_codex_exec_style": benchmark_kwargs[
                                 "recipe_codex_exec_style"
                             ],

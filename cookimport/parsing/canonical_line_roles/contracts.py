@@ -67,9 +67,13 @@ class CanonicalLineRolePrediction(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     recipe_id: str | None = None
+    row_id: str | None = None
     block_id: str
     block_index: int | None = None
     atomic_index: int
+    row_ordinal: int | None = None
+    start_char_in_block: int | None = None
+    end_char_in_block: int | None = None
     text: str
     within_recipe_span: bool | None = None
     label: str

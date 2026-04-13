@@ -393,9 +393,13 @@ def _label_atomic_lines_internal(
         else:
             baseline_prediction = CanonicalLineRolePrediction(
                 recipe_id=candidate.recipe_id,
+                row_id=candidate.row_id,
                 block_id=str(candidate.block_id),
                 block_index=int(candidate.block_index),
                 atomic_index=int(candidate.atomic_index),
+                row_ordinal=int(candidate.row_ordinal),
+                start_char_in_block=int(candidate.start_char_in_block),
+                end_char_in_block=int(candidate.end_char_in_block),
                 text=str(candidate.text),
                 within_recipe_span=candidate.within_recipe_span,
                 label=label,
@@ -759,9 +763,13 @@ def _run_line_role_shard_runtime(
             candidate = candidate_by_atomic_index[atomic_index]
             predictions_by_atomic_index[atomic_index] = CanonicalLineRolePrediction(
                 recipe_id=candidate.recipe_id,
+                row_id=candidate.row_id,
                 block_id=str(candidate.block_id),
                 block_index=int(candidate.block_index),
                 atomic_index=atomic_index,
+                row_ordinal=int(candidate.row_ordinal),
+                start_char_in_block=int(candidate.start_char_in_block),
+                end_char_in_block=int(candidate.end_char_in_block),
                 text=str(candidate.text),
                 within_recipe_span=candidate.within_recipe_span,
                 label=str(row["label"] or "NONRECIPE_CANDIDATE"),

@@ -3,7 +3,7 @@ summary: "Current benchmark-suite reference for cookimport bench and related ben
 read_when:
   - When running or modifying cookimport bench workflows
   - When debugging benchmark scoring behavior or artifacts
-  - When comparing stage-blocks versus canonical-text evaluation modes
+  - When comparing stage-blocks versus source-rows evaluation modes
 ---
 
 # Bench Section Reference
@@ -29,8 +29,8 @@ Current owner note for large benchmark helpers:
 Current scoring modes:
 
 - `stage-blocks`: compare stage evidence labels against freeform gold block labels
-- `canonical-text`: align prediction text to canonical gold text and score per canonical line
-- canonical-text scoring now projects gold spans to lines without title-specific rewrites. If exported gold contains suspicious patterns such as inline `RECIPE_TITLE`/`RECIPE_VARIANT` subspans inside `OTHER` prose or `RECIPE_TITLE` lines without nearby recipe structure, the evaluator surfaces those as `gold_projection_warnings.jsonl` so the gold can be fixed directly instead of silently normalized during scoring.
+- `source-rows`: compare authoritative row predictions against `row_gold_labels.jsonl` by shared ordered `row_id`
+- `canonical-text` remains a compatibility alias accepted by the CLI/history layer and normalizes to `source-rows`
 
 Current benchmark handoff model:
 
@@ -106,7 +106,7 @@ Important current constraints:
 `labelstudio-benchmark` is the active single-run benchmark primitive. It supports:
 
 - action `run` or `compare`
-- `--eval-mode stage-blocks|canonical-text`
+- `--eval-mode stage-blocks|source-rows`
 - `--predictions-out` / `--predictions-in` for replayable evaluation-only reruns
 - `--baseline` / `--candidate` compare inputs
 - offline runs via `--no-upload`
@@ -116,11 +116,11 @@ Current behavior notes:
 
 - default eval mode is `stage-blocks`
 - `stage-blocks` forces `line_role_pipeline=off` and `atomic_block_splitter=off`
-- canonical-text runs can enable:
+- source-row runs can enable:
   - `atomic_block_splitter=atomic-v1`
   - `line_role_pipeline=off|codex-line-role-route-v2`
   - `llm_knowledge_pipeline=codex-knowledge-candidate-v2`
-- benchmark/operator defaults now keep `atomic_block_splitter=off` unless it is explicitly requested
+- benchmark/operator defaults now keep `atomic_block_splitter=off` unless it is explicitly requested as a compatibility/input-shaping override
 - shared deterministic-prep reuse may still feed both vanilla and codex benchmark variants, but only variants whose `line_role_pipeline` matches the bundle may reuse its authoritative line-role outputs; codex line-role variants must not inherit a vanilla prep bundle
 - non-interactive live Codex-backed benchmark runs require:
   - `--allow-codex`
@@ -138,7 +138,7 @@ Current behavior notes:
 - prediction-run manifests now surface `book_cache` telemetry for the shared conversion and deterministic-prep layers, including the shared cache root, content-addressed conversion key, hit/miss state, and timing. `bench gc` can now optionally prune that shared cache root by age or retained bytes.
 - interactive single-book and single-profile benchmark reruns now also sit on one stable prediction-reuse cache under `<interactive processed output root>/.prediction_reuse_cache/` by default (or `COOKIMPORT_ALL_METHOD_PREDICTION_REUSE_CACHE_ROOT` when set). When the same source path and benchmark prediction identity repeat, those interactive paths can copy prior prediction artifacts into the new timestamped run root instead of rerunning the full prediction stage.
 
-Interactive benchmark modes are still active and remain offline canonical-text workflows:
+Interactive benchmark modes are still active and remain offline source-row workflows:
 
 - `single_book`
 - `selected_matched_books`
@@ -234,13 +234,13 @@ Required supporting artifact:
 
 Current rule:
 
-- benchmark scoring reads one canonical pointer pair from prediction-run metadata:
+- benchmark scoring reads one manifest pointer pair from prediction-run metadata:
   - `stage_block_predictions_path`
   - `extracted_archive_path`
-- prediction generation is responsible for setting those canonical pointers to the correct artifacts for the run
-- canonical-text line-role runs rewire that same pointer pair to the scored `line-role-pipeline/` projection artifacts; helpers should not guess stage-backed files or raw `full_text.json` from path layout
+- prediction generation is responsible for setting those pointers to the correct artifacts for the run
+- source-row line-role runs rewire that same pointer pair to the scored `line-role-pipeline/` projection artifacts; helpers should not guess stage-backed files or raw `full_text.json` from path layout
 - new-format prediction/eval manifests and import return payloads do not publish separate line-role scorer keys anymore; helpers should fail on missing canonical pointers instead of probing older fallback filenames or implicit directories
-- semantic stage/canonical scoring uses only authoritative predictions. If `stage_block_predictions.json` carries unresolved candidate block indices, those rows are excluded from accuracy/F1 and reported separately as coverage/incompleteness.
+- semantic stage/source-row scoring uses only authoritative predictions. If `stage_block_predictions.json` carries unresolved candidate block indices, those rows are excluded from accuracy/F1 and reported separately as coverage/incompleteness.
 
 ### 3.2 Gold inputs
 
@@ -248,18 +248,16 @@ Stage-block mode expects:
 
 - `exports/freeform_span_labels.jsonl`
 
-Canonical-text mode expects:
+Source-row mode expects:
 
-- `exports/canonical_text.txt`
-- `exports/canonical_span_labels.jsonl`
-- `exports/canonical_manifest.json`
+- `exports/row_gold_labels.jsonl`
+- optional `exports/row_gold_conflicts.jsonl` for reviewer follow-up
 
-Canonical gold authority note:
+Row gold authority note:
 
-- `exports/freeform_span_labels.jsonl` is still the entry artifact selected by benchmark discovery because it identifies the gold export bundle, but canonical-text scoring does not score that raw freeform file directly
-- `exports/block_gold_labels.jsonl` is the derived block-authoritative gold built from the freeform export
-- `exports/canonical_span_labels.jsonl` is then derived from `block_gold_labels.jsonl` and uses full canonical block spans for the labeled blocks
-- broad freeform `KNOWLEDGE` or `OTHER` drags are therefore treated as per-block labeling intent, not as benchmark-authoritative span geometry
+- `exports/freeform_span_labels.jsonl` is still the entry artifact selected by benchmark discovery because it identifies the gold export bundle, but source-row scoring does not score that raw freeform file directly
+- `exports/row_gold_labels.jsonl` is the active benchmark authority
+- canonical export files may still exist as compatibility/archive outputs for older tooling, but they are no longer the active scorer inputs
 
 ### 3.3 Stage-block scoring contract
 
@@ -282,25 +280,24 @@ Important diagnostics:
 - `wrong_label_blocks.jsonl`
 - `gold_conflicts.jsonl`
 
-### 3.4 Canonical-text scoring contract
+### 3.4 Source-row scoring contract
 
 Current rules:
 
-- prediction text is aligned against canonical gold text
-- canonical scoring uses the enforced global SequenceMatcher alignment path for safety
-- the sequence matcher is fixed to `dmp`; non-`dmp` modes are not an active benchmark surface
-- canonical-text benchmark runs score the same canonical pointer pair used by all benchmark modes
-- canonical-text `eval_report.json` now carries both overlap-style `boundary` counts and structural `segmentation` metrics (`label_projection=core_structural_v1`, `boundaries.overall_micro`, error taxonomy), so single-book codex-vs-vanilla comparisons can attribute quality deltas across both label semantics and boundary structure
-- canonical-text eval now also emits boundary-mismatch artifacts for structural debugging (`missed_gold_boundaries.jsonl` and `false_positive_boundaries.jsonl`) so segmentation regressions can be inspected without rerunning stage-block mode
+- row predictions are compared directly against `row_gold_labels.jsonl` by stable ordered row identity
+- active scoring does not require SequenceMatcher alignment or canonical text reconstruction
+- `source-rows` benchmark runs score the same manifest pointer pair used by all benchmark modes
+- `source-rows` `eval_report.json` carries both overlap-style `boundary` counts and structural `segmentation` metrics (`label_projection=core_structural_v1`, `boundaries.overall_micro`, error taxonomy), so single-book codex-vs-vanilla comparisons can attribute quality deltas across both label semantics and boundary structure
+- row-based eval also emits boundary-mismatch artifacts for structural debugging (`missed_gold_boundaries.jsonl` and `false_positive_boundaries.jsonl`) so segmentation regressions can be inspected without rerunning stage-block mode
 - line-role regression tuning should keep one no-subsection source and one real-subsection source in the deterministic proof story. The current repo-local contrast pair is `saltfatacidheatcutdown` (`HOWTO_SECTION=0` in gold) versus `seaandsmokecutdown` (`HOWTO_SECTION=111` in gold).
 
 Current line-role and knowledge behavior:
 
-- `line-role-pipeline/` artifacts are written when line-role is enabled; prediction generation may set canonical scorer pointers to these projection artifacts for that run
-- processed stage-backed artifacts still get written for the run; the regression fix was specifically to move the canonical scorer pointer pair to the projection artifacts instead of leaving scoring on the stage-backed pair
-- when the benchmark reuses authoritative Stage 2 recipe-local labels, the scored line-role artifact pair still has to stay in canonical atomic-span coordinates:
-  - `stage_block_predictions.json` is serialized from canonical line-role projections, not copied from source blocks
-  - `extracted_archive.json` carries the matching atomic line coordinates and `line_role_projection` metadata
+- `line-role-pipeline/` artifacts are written when line-role is enabled; prediction generation may set scorer pointers to these projection artifacts for that run
+- processed stage-backed artifacts still get written for the run; the regression fix was specifically to move the scorer pointer pair to the projection artifacts instead of leaving scoring on the stage-backed pair
+- when the benchmark reuses authoritative Stage 2 recipe-local labels, the scored line-role artifact pair must still preserve the row-projected coordinates that match the scorer inputs:
+  - `stage_block_predictions.json` is serialized from row-backed line-role projections, not copied from source blocks
+  - `extracted_archive.json` carries the matching projection metadata
   - outside-recipe `KNOWLEDGE` versus `OTHER` labels in that projection must come from the final non-recipe authority, not the pre-knowledge seed
 - those line-role artifacts now expose `decided_by`, `reason_tags`, and `escalation_reasons`; scalar trust/confidence fields are gone
 - `09_nonrecipe_authority.json` is the authoritative scored outside-span contract; benchmark scoring and projection must read this file only when they need final outside-recipe truth
@@ -313,7 +310,7 @@ Current line-role and knowledge behavior:
   - knowledge-merge changed-row diagnostics
   - knowledge-merge summary diagnostics
 
-Canonical-text diagnostics commonly include:
+Source-row diagnostics commonly include:
 
 - `aligned_prediction_blocks.jsonl`
 - `missed_gold_lines.jsonl`
@@ -321,7 +318,7 @@ Canonical-text diagnostics commonly include:
 - `missed_gold_blocks.jsonl`
 - `wrong_label_blocks.jsonl`
 - `joined_line_table.jsonl`
-- `joined_line_table.jsonl` now reuses the evaluator's canonical gold line-label projection rules, so reviewer diagnostics should agree with `eval_report.json` on filtered inline `RECIPE_TITLE` mentions, dropped contents-page titles, and preserved `RECIPE_VARIANT` runs
+- `joined_line_table.jsonl` now reuses the evaluator's row-gold line-label projection rules, so reviewer diagnostics should agree with `eval_report.json` on filtered inline `RECIPE_TITLE` mentions, dropped contents-page titles, and preserved `RECIPE_VARIANT` runs
 - older alias files such as `missed_gold_spans.jsonl` and `false_positive_preds.jsonl` are retired
 - `line_role_flips_vs_baseline.jsonl`
 - `slice_metrics.json`
@@ -329,7 +326,7 @@ Canonical-text diagnostics commonly include:
   - this routing artifact is now the plain-language upstream-diversion summary for line-role. It reports the coarse route split and whether outside-recipe rows were kept for knowledge review or filtered before the knowledge stage.
 - `prompt_eval_alignment.md`
 
-When `--line-role-gated` is enabled, canonical-text runs also write:
+When `--line-role-gated` is enabled, source-row runs also write:
 
 - `regression_gates.json`
 - `regression_gates.md`

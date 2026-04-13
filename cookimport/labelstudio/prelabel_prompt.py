@@ -346,20 +346,30 @@ def _build_prompt(
     source_map = data.get("source_map")
     if not isinstance(source_map, dict):
         raise ValueError("task missing source_map")
-    blocks = source_map.get("blocks")
+    blocks = source_map.get("rows")
     if not isinstance(blocks, list):
-        raise ValueError("task source_map.blocks missing")
+        blocks = source_map.get("blocks")
+    if not isinstance(blocks, list):
+        raise ValueError("task source_map.rows/blocks missing")
 
     focus_valid_blocks = _extract_valid_blocks_from_segment_text(
         segment_text=segment_text,
         blocks=blocks,
     )
     context_before_blocks = _extract_prompt_context_blocks(
-        source_map.get("context_before_blocks")
+        source_map.get("context_before_rows")
     )
+    if not context_before_blocks:
+        context_before_blocks = _extract_prompt_context_blocks(
+            source_map.get("context_before_blocks")
+        )
     context_after_blocks = _extract_prompt_context_blocks(
-        source_map.get("context_after_blocks")
+        source_map.get("context_after_rows")
     )
+    if not context_after_blocks:
+        context_after_blocks = _extract_prompt_context_blocks(
+            source_map.get("context_after_blocks")
+        )
 
     if context_before_blocks or context_after_blocks:
         valid_blocks = [
@@ -501,13 +511,19 @@ def _build_prompt_log_entry(
     source_map = data.get("source_map")
     if not isinstance(source_map, dict):
         source_map = {}
-    source_blocks = source_map.get("blocks")
+    source_blocks = source_map.get("rows")
+    if not isinstance(source_blocks, list):
+        source_blocks = source_map.get("blocks")
     if not isinstance(source_blocks, list):
         source_blocks = []
-    context_before_blocks = source_map.get("context_before_blocks")
+    context_before_blocks = source_map.get("context_before_rows")
+    if not isinstance(context_before_blocks, list):
+        context_before_blocks = source_map.get("context_before_blocks")
     if not isinstance(context_before_blocks, list):
         context_before_blocks = []
-    context_after_blocks = source_map.get("context_after_blocks")
+    context_after_blocks = source_map.get("context_after_rows")
+    if not isinstance(context_after_blocks, list):
+        context_after_blocks = source_map.get("context_after_blocks")
     if not isinstance(context_after_blocks, list):
         context_after_blocks = []
     block_indices: list[int] = []

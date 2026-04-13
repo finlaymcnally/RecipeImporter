@@ -64,6 +64,7 @@ def _write_label_first_artifacts(
     line_role_authoritative_lines_path = (
         line_role_pipeline_dir / LINE_ROLE_AUTHORITATIVE_LABELED_LINES_FILE_NAME
     )
+    line_role_row_predictions_path = line_role_pipeline_dir / "row_label_predictions.jsonl"
     line_role_authoritative_blocks_path = (
         line_role_pipeline_dir / LINE_ROLE_AUTHORITATIVE_BLOCK_LABELS_FILE_NAME
     )
@@ -110,9 +111,13 @@ def _write_label_first_artifacts(
     if wrote_line_role_stage:
         final_line_rows = [
             {
+                "row_id": row.row_id,
                 "source_block_id": row.source_block_id,
                 "source_block_index": row.source_block_index,
                 "atomic_index": row.atomic_index,
+                "row_ordinal": row.row_ordinal,
+                "start_char_in_block": row.start_char_in_block,
+                "end_char_in_block": row.end_char_in_block,
                 "text": row.text,
                 "deterministic_label": row.deterministic_label,
                 "label": row.final_label,
@@ -147,6 +152,7 @@ def _write_label_first_artifacts(
         ]
         if authoritative_stage_key == "line_role":
             _write_jsonl(line_role_authoritative_lines_path, final_line_rows)
+            _write_jsonl(line_role_row_predictions_path, final_line_rows)
             _write_json(line_role_authoritative_blocks_path, final_block_rows)
             _write_jsonl(line_role_label_diffs_path, diff_rows)
         else:
@@ -203,6 +209,7 @@ def _write_label_first_artifacts(
             paths.update(
                 {
                     "line_role_authoritative_lines_path": line_role_authoritative_lines_path,
+                    "line_role_row_predictions_path": line_role_row_predictions_path,
                     "line_role_authoritative_blocks_path": line_role_authoritative_blocks_path,
                     "line_role_label_diffs_path": line_role_label_diffs_path,
                 }

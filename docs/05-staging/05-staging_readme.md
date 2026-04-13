@@ -97,6 +97,7 @@ Per run, output root:
 
 Per workbook (slugified file stem):
 
+- `raw/source/<workbook_slug>/source_rows.jsonl`
 - `08_nonrecipe_route.json`
 - `08_nonrecipe_exclusions.jsonl`
 - `09_nonrecipe_authority.json`
@@ -108,6 +109,7 @@ Per workbook (slugified file stem):
 - `label_refine/<workbook_slug>/labeled_lines.jsonl` and `block_labels.json` on deterministic-backed refine runs
 - `line-role-pipeline/authoritative_labeled_lines.jsonl`
 - `line-role-pipeline/authoritative_block_labels.json`
+- `line-role-pipeline/row_label_predictions.jsonl`
 - `line-role-pipeline/label_diffs.jsonl`
 - `recipe_boundary/<workbook_slug>/recipe_spans.json`
 - `recipe_boundary/<workbook_slug>/span_decisions.json`
@@ -132,6 +134,7 @@ Per workbook (slugified file stem):
 - `<workbook_slug>.excel_import_report.json` at run root
 - `processing_timeseries.jsonl` at run root (stage status snapshots + CPU utilization samples)
 - `stage_observability.json` at run root (canonical semantic stage index for the run)
+- `raw/source/<workbook_slug>/source_rows.jsonl` is the shared deterministic semantic baseline below importer `source_blocks`. Stage, Label Studio, and benchmark row-authoritative flows should all agree on these ordered `row_id`s.
 - `run_summary.json` at run root (machine-readable per-run digest: books, major settings, codex-farm mode, topline metrics)
 - `run_summary.md` at run root (human-readable quick digest; written only when `stage --write-markdown` is enabled)
 - `run_manifest.json` at run root (source identity + artifact index for this stage run)

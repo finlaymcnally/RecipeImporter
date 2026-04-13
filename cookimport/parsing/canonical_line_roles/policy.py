@@ -136,9 +136,13 @@ def _build_line_role_deterministic_baseline(
         else:
             prediction = CanonicalLineRolePrediction(
                 recipe_id=candidate.recipe_id,
+                row_id=candidate.row_id,
                 block_id=str(candidate.block_id),
                 block_index=int(candidate.block_index),
                 atomic_index=int(candidate.atomic_index),
+                row_ordinal=int(candidate.row_ordinal),
+                start_char_in_block=int(candidate.start_char_in_block),
+                end_char_in_block=int(candidate.end_char_in_block),
                 text=str(candidate.text),
                 within_recipe_span=candidate.within_recipe_span,
                 label=label,
@@ -702,9 +706,13 @@ def _fallback_prediction(
         reason_tags = [reason, "deterministic_unavailable"]
     return CanonicalLineRolePrediction(
         recipe_id=candidate.recipe_id,
+        row_id=candidate.row_id,
         block_id=str(candidate.block_id),
         block_index=int(candidate.block_index),
         atomic_index=int(candidate.atomic_index),
+        row_ordinal=int(candidate.row_ordinal),
+        start_char_in_block=int(candidate.start_char_in_block),
+        end_char_in_block=int(candidate.end_char_in_block),
         text=str(candidate.text),
         within_recipe_span=candidate.within_recipe_span,
         label=label,
@@ -820,9 +828,13 @@ def _apply_repo_baseline_semantic_policy(
         reason_tags.append("coerced_other_to_live_contract_label")
     return CanonicalLineRolePrediction(
         recipe_id=prediction.recipe_id,
+        row_id=prediction.row_id,
         block_id=prediction.block_id,
         block_index=prediction.block_index,
         atomic_index=prediction.atomic_index,
+        row_ordinal=prediction.row_ordinal,
+        start_char_in_block=prediction.start_char_in_block,
+        end_char_in_block=prediction.end_char_in_block,
         text=prediction.text,
         within_recipe_span=prediction.within_recipe_span,
         label=label,
@@ -841,9 +853,13 @@ def _normalize_prediction_metadata(
     if prediction.decided_by == "codex":
         return CanonicalLineRolePrediction(
             recipe_id=prediction.recipe_id,
+            row_id=prediction.row_id,
             block_id=prediction.block_id,
             block_index=prediction.block_index,
             atomic_index=prediction.atomic_index,
+            row_ordinal=prediction.row_ordinal,
+            start_char_in_block=prediction.start_char_in_block,
+            end_char_in_block=prediction.end_char_in_block,
             text=prediction.text,
             within_recipe_span=prediction.within_recipe_span,
             label=label,
@@ -868,9 +884,13 @@ def _normalize_prediction_metadata(
             )
     return CanonicalLineRolePrediction(
         recipe_id=prediction.recipe_id,
+        row_id=prediction.row_id,
         block_id=prediction.block_id,
         block_index=prediction.block_index,
         atomic_index=prediction.atomic_index,
+        row_ordinal=prediction.row_ordinal,
+        start_char_in_block=prediction.start_char_in_block,
+        end_char_in_block=prediction.end_char_in_block,
         text=prediction.text,
         within_recipe_span=prediction.within_recipe_span,
         label=label,

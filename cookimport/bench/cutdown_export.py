@@ -12,6 +12,14 @@ from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
 
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
 _WHITESPACE_RE = re.compile(r"\s+")
+_TITLE_STRUCTURE_SUPPORT_LABELS = {
+    "INGREDIENT_LINE",
+    "INSTRUCTION_LINE",
+    "HOWTO_SECTION",
+    "YIELD_LINE",
+    "TIME_LINE",
+}
+_TITLE_STRUCTURE_LOOKAHEAD_LINES = 8
 
 
 def build_line_role_joined_line_rows(
@@ -20,27 +28,9 @@ def build_line_role_joined_line_rows(
     eval_output_dir: Path,
     line_role_predictions_path: Path | None,
 ) -> list[dict[str, Any]]:
-    canonical_payload = report.get("canonical")
-    if not isinstance(canonical_payload, dict):
+    canonical_lines, gold_label_sets_by_line = _load_eval_gold_lines(report)
+    if not canonical_lines:
         return []
-
-    canonical_text_path_raw = canonical_payload.get("canonical_text_path")
-    canonical_spans_path_raw = canonical_payload.get("canonical_span_labels_path")
-    if not isinstance(canonical_text_path_raw, str) or not isinstance(
-        canonical_spans_path_raw, str
-    ):
-        return []
-
-    canonical_text_path = Path(canonical_text_path_raw)
-    canonical_spans_path = Path(canonical_spans_path_raw)
-    if not canonical_text_path.exists() or not canonical_spans_path.exists():
-        return []
-
-    canonical_lines, gold_label_sets_by_line = build_canonical_gold_line_labels(
-        canonical_text_path=canonical_text_path,
-        canonical_spans_path=canonical_spans_path,
-        strict_empty_to_other=True,
-    )
 
     wrong_rows = _read_jsonl(eval_output_dir / "wrong_label_lines.jsonl")
     pred_overrides: dict[int, str] = {}
@@ -65,7 +55,12 @@ def build_line_role_joined_line_rows(
     for line in canonical_lines:
         line_index = int(line["line_index"])
         gold_labels = sorted(gold_label_sets_by_line.get(line_index) or {"OTHER"})
-        gold_label = gold_overrides.get(line_index, gold_labels[0])
+        projected_gold_label = _project_gold_label_for_joined_line_rows(
+            line_index=line_index,
+            gold_labels=gold_labels,
+            gold_label_sets_by_line=gold_label_sets_by_line,
+        )
+        gold_label = gold_overrides.get(line_index, projected_gold_label)
         pred_label = pred_overrides.get(line_index, gold_label)
         line_meta = line_role_meta.get(line_index, {})
         joined_rows.append(
@@ -89,6 +84,104 @@ def build_line_role_joined_line_rows(
         )
     joined_rows.sort(key=lambda row: int(row["line_index"]))
     return joined_rows
+
+
+def _load_eval_gold_lines(
+    report: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[int, set[str]]]:
+    canonical_payload = report.get("canonical")
+    if isinstance(canonical_payload, dict):
+        canonical_text_path_raw = canonical_payload.get("canonical_text_path")
+        canonical_spans_path_raw = canonical_payload.get("canonical_span_labels_path")
+        if isinstance(canonical_text_path_raw, str) and isinstance(
+            canonical_spans_path_raw, str
+        ):
+            canonical_text_path = Path(canonical_text_path_raw)
+            canonical_spans_path = Path(canonical_spans_path_raw)
+            if canonical_text_path.exists() and canonical_spans_path.exists():
+                return build_canonical_gold_line_labels(
+                    canonical_text_path=canonical_text_path,
+                    canonical_spans_path=canonical_spans_path,
+                    strict_empty_to_other=True,
+                )
+
+    row_gold_path_raw = report.get("row_gold_labels_path")
+    if not isinstance(row_gold_path_raw, str):
+        row_gold_path_raw = (
+            report.get("output", {}).get("row_gold_labels_path")
+            if isinstance(report.get("output"), dict)
+            else None
+        )
+    if not isinstance(row_gold_path_raw, str):
+        return [], {}
+    row_gold_path = Path(row_gold_path_raw)
+    if not row_gold_path.exists() or not row_gold_path.is_file():
+        return [], {}
+
+    lines: list[dict[str, Any]] = []
+    labels_by_line: dict[int, set[str]] = {}
+    for row in _read_jsonl(row_gold_path):
+        line_index = _coerce_int(row.get("row_index"))
+        if line_index is None:
+            continue
+        text = str(row.get("text") or "")
+        labels = {
+            _normalize_label(label)
+            for label in (row.get("labels") or [])
+            if _normalize_label(label) in _FREEFORM_LABEL_SET
+        }
+        if not labels:
+            labels = {"OTHER"}
+        lines.append({"line_index": line_index, "text": text})
+        labels_by_line[line_index] = labels
+    lines.sort(key=lambda row: int(row["line_index"]))
+    return lines, labels_by_line
+
+
+def _project_gold_label_for_joined_line_rows(
+    *,
+    line_index: int,
+    gold_labels: list[str],
+    gold_label_sets_by_line: dict[int, set[str]],
+) -> str:
+    if not gold_labels:
+        return "OTHER"
+    if "OTHER" in gold_labels:
+        return "OTHER"
+    if "RECIPE_TITLE" not in gold_labels:
+        return gold_labels[0]
+    support = _find_title_support_context(
+        line_index=line_index,
+        labels_by_line=gold_label_sets_by_line,
+    )
+    if str(support.get("status") or "missing") == "supported":
+        return gold_labels[0]
+    return "OTHER"
+
+
+def _find_title_support_context(
+    *,
+    line_index: int,
+    labels_by_line: dict[int, set[str]],
+) -> dict[str, Any]:
+    for offset in range(1, _TITLE_STRUCTURE_LOOKAHEAD_LINES + 1):
+        neighbor_labels = set(labels_by_line.get(line_index + offset) or set())
+        non_other_labels = neighbor_labels - {"OTHER"}
+        if not non_other_labels:
+            continue
+        if non_other_labels & _TITLE_STRUCTURE_SUPPORT_LABELS:
+            return {
+                "status": "supported",
+                "support_line_index": line_index + offset,
+                "support_labels": sorted(non_other_labels & _TITLE_STRUCTURE_SUPPORT_LABELS),
+            }
+        if "RECIPE_TITLE" in non_other_labels:
+            return {
+                "status": "later_title_before_structure",
+                "later_title_line_index": line_index + offset,
+                "later_title_labels": sorted(non_other_labels),
+            }
+    return {"status": "missing"}
 
 
 def write_line_role_stable_samples(
@@ -145,8 +238,8 @@ def write_prompt_eval_alignment_doc(
     lines = [
         "# Prompt ↔ Eval Alignment",
         "",
-        "This run uses canonical line-label scoring.",
-        "The scorer reads the canonical pointer pair recorded in the prediction manifest, not an inferred default artifact path.",
+        "This run uses source-row line-label scoring.",
+        "The scorer reads the prediction manifest pointer pair directly instead of inferring legacy canonical artifacts.",
         "",
         "## Prompt Families",
         "",
@@ -155,11 +248,11 @@ def write_prompt_eval_alignment_doc(
             "(prior recipe span/schema prompts)."
         ),
         (
-            f"- Atomic block splitter: `{atomic_block_splitter}` "
-            "(deterministic block-to-line atomization)."
+            f"- Legacy atomic block splitter flag: `{atomic_block_splitter}` "
+            "(compatibility-only row candidate shaping when enabled)."
         ),
         (
-            f"- Canonical line-role pipeline: `{line_role_pipeline}` "
+            f"- Row line-role pipeline: `{line_role_pipeline}` "
             "(the requested prediction surface, not necessarily the final scored artifact mode)."
         ),
         "",

@@ -188,6 +188,7 @@ def _write_authoritative_line_role_artifacts(
     semantic_line_role_predictions_path = (
         pipeline_dir / "semantic_line_role_predictions.jsonl"
     )
+    row_label_predictions_path = pipeline_dir / "row_label_predictions.jsonl"
     projected_spans_path = pipeline_dir / "projected_spans.jsonl"
     stage_predictions_path = pipeline_dir / "stage_block_predictions.json"
     extracted_archive_path = pipeline_dir / "extracted_archive.json"
@@ -202,6 +203,14 @@ def _write_authoritative_line_role_artifacts(
         encoding="utf-8",
     )
     semantic_line_role_predictions_path.write_text(
+        "\n".join(
+            json.dumps(row.model_dump(mode="json"), sort_keys=True)
+            for row in semantic_predictions
+        )
+        + ("\n" if semantic_predictions else ""),
+        encoding="utf-8",
+    )
+    row_label_predictions_path.write_text(
         "\n".join(
             json.dumps(row.model_dump(mode="json"), sort_keys=True)
             for row in semantic_predictions
@@ -240,6 +249,7 @@ def _write_authoritative_line_role_artifacts(
         {
             "line_role_predictions_path": line_role_predictions_path,
             "semantic_line_role_predictions_path": semantic_line_role_predictions_path,
+            "row_label_predictions_path": row_label_predictions_path,
             "projected_spans_path": projected_spans_path,
             "stage_block_predictions_path": stage_predictions_path,
             "extracted_archive_path": extracted_archive_path,

@@ -17,6 +17,8 @@ Code surfaces (primary):
 - `cookimport/labelstudio/ingest_support.py` (shared helper surface consumed by the flow package)
 - `cookimport/labelstudio/ingest_flows/` (offline prediction-run, upload, normalization, split-merge, and artifact ownership)
 - `cookimport/labelstudio/export.py`
+- `cookimport/labelstudio/row_gold.py`
+- `cookimport/labelstudio/migrate_to_source_rows.py`
 - `cookimport/labelstudio/eval_freeform.py`
 - `cookimport/labelstudio/prelabel.py`
 - `cookimport/labelstudio/freeform_tasks.py`
@@ -30,12 +32,9 @@ Code surfaces (primary):
 Nearby code used directly by Label Studio benchmark/eval flow:
 
 - `cookimport/bench/eval_stage_blocks.py`
-- `cookimport/bench/eval_canonical_text.py`
+- `cookimport/bench/eval_source_rows.py`
 - `cookimport/bench/prediction_records.py`
-- `cookimport/bench/sequence_matcher_select.py`
-- `cookimport/bench/canonical_alignment_cache.py`
 - `cookimport/analytics/perf_report.py`
-- `cookimport/labelstudio/canonical_line_projection.py`
 
 Label-first runtime seam used by benchmark/import flows:
 
@@ -89,7 +88,7 @@ Active Label Studio runtime scope is `freeform-spans`.
 - Interactive benchmark is offline-only and offers:
   - single offline run,
   - all-method offline sweep.
-- Interactive benchmark routes both modes to `labelstudio-benchmark` with `eval-mode canonical-text`.
+- Interactive benchmark routes extractor-independent scoring to `labelstudio-benchmark --eval-mode source-rows`.
 - The interactive gold-export picker shortens normal `.../<book>/exports/<file>` paths to the book slug for display, while keeping the older relative-path fallback for nonstandard layouts.
 - When a chosen gold export implies a matching source file, interactive benchmark uses that inferred source automatically; the manual source picker appears only when inference fails.
 - The offline prediction-run seam behind `labelstudio-benchmark --no-upload` accepts the hidden `knowledge_inline_repair_transcript_mode` run-setting knob too, so helper-built benchmark kwargs can flow all the way into prediction generation without signature drift.
@@ -113,8 +112,8 @@ Resume/idempotence is based on these IDs, not Label Studio internal task IDs.
 ### 3.3 Task payload contract
 
 - `segment_text` contains the labelable focus window for one task.
-- `source_map.blocks[*]` carries offset-authoritative block spans (`segment_start`, `segment_end`) for that focus text.
-- `source_map.context_before_blocks` and `source_map.context_after_blocks` carry prompt-only context rows (not label targets).
+- `source_map.rows[*]` carries the authoritative row-native mapping for that focus text, including stable `row_id`, row ordinals, and offsets.
+- `source_map.blocks[*]` and `source_map.context_before_blocks` / `source_map.context_after_blocks` remain compatibility aliases for older UI/tests and should not be treated as the semantic baseline.
 - Import writes `coverage.json` from focus + context block coverage and fails when extracted text is empty.
 
 ## 4) Freeform Prelabel Contracts
@@ -131,7 +130,7 @@ Both modes keep deterministic normalization and offset integrity.
 Freeform label set includes `HOWTO_SECTION` for in-recipe subsection headers (for example `TO SERVE` / `FOR THE SAUCE`).
 Scoring behavior:
 - freeform eval and stage-block benchmark mode resolve `HOWTO_SECTION` into `INGREDIENT_LINE` or `INSTRUCTION_LINE` using nearby context.
-- canonical-text benchmark mode keeps `HOWTO_SECTION` as an explicit scored label.
+- source-row benchmark mode keeps `HOWTO_SECTION` as an explicit scored label.
 
 ### 4.2 Upload behavior
 
@@ -196,6 +195,8 @@ Thinking effort uses `--codex-thinking-effort` (alias `--codex-reasoning-effort`
 - `exports/labelstudio_export.json`
 - `exports/freeform_span_labels.jsonl`
 - `exports/freeform_segment_manifest.jsonl`
+- `exports/row_gold_labels.jsonl`
+- `exports/row_gold_conflicts.jsonl`
 - `exports/block_gold_labels.jsonl`
 - `exports/canonical_text.txt`
 - `exports/canonical_block_map.jsonl`
@@ -207,12 +208,11 @@ Thinking effort uses `--codex-thinking-effort` (alias `--codex-reasoning-effort`
 
 `summary.json` includes deduped recipe-header diagnostics from normalized `RECIPE_TITLE` spans.
 
-Canonical-text benchmark note:
+Row-authoritative benchmark note:
 - `freeform_span_labels.jsonl` remains the raw archive of what the annotator drew in Label Studio.
-- `block_gold_labels.jsonl` is the benchmark-authoritative per-block gold derived from those freeform spans. One broad drag across several adjacent blocks is intentionally equivalent to labeling those blocks one by one.
-- `canonical_span_labels.jsonl` is now derived from `block_gold_labels.jsonl`, not from raw cross-block span fragments. Canonical rows therefore cover full canonical block spans for the block labels that survived derivation.
-- raw freeform geometry no longer decides canonical gold count by itself. Canonical span count should change only when the set of labeled blocks changes, not when a drag starts or ends at a different character inside an already-labeled block.
-- canonical-text benchmark still writes `gold_projection_warnings.jsonl` when the export contains suspicious title/variant patterns that should probably be cleaned up in Label Studio instead of being filtered out by the scorer.
+- `row_gold_labels.jsonl` is the benchmark-authoritative gold. Benchmarks and row prediction diagnostics should trace one `row_id` end-to-end through scoring and mismatch reports.
+- `data.source_map.rows` is the authoritative task mapping for new freeform tasks. `blocks` keys remain as compatibility aliases for older UI/tests and should not be treated as the semantic baseline.
+- `block_gold_labels.jsonl` and canonical export files may still be written as compatibility/archive outputs for older tooling, but they are no longer the active scorer authority.
 
 ### 5.2 Eval artifacts
 
@@ -250,13 +250,13 @@ Canonical line-role projection note:
 - eval-only from prediction records (`--predictions-in`)
 - prediction-record output (`--predictions-out`)
 - compare action for benchmark runs (`labelstudio-benchmark compare`)
-- line-role gating (`--line-role-gated`) for canonical Milestone-5 regression checks
+- line-role gating (`--line-role-gated`) for row-based Milestone-5 regression checks
 - benchmark prediction-generation scratch stays inside the resolved `eval_output_dir` artifact root, so one benchmark session does not spill sibling timestamp roots under `data/golden/benchmark-vs-golden`
 - when processed outputs are requested, benchmark/prediction runs reuse the stage-produced authoritative label artifacts (`label_deterministic`, `label_refine`, `recipe_boundary`) and mirror the resulting `stage_block_predictions.json` into the prediction run root
 - those processed outputs now also include `recipe_authority/<workbook_slug>/recipe_block_ownership.json`, and prediction-run scoring inherits the same ownership invariant: recipe-local evidence may not overlap final outside-recipe `KNOWLEDGE`
 - prediction generation no longer runs a second post-stage diagnostic `label_atomic_lines(...)` pass; freeform span projection reuses the authoritative labeled-line bundle from stage or builds the same bundle once in-memory for offline-only runs
-- canonical benchmark scoring follows the prediction manifest pointer pair; when authoritative line labels are projected, outside-recipe `KNOWLEDGE` versus `OTHER` still comes from the final non-recipe authority after knowledge refinement, and telemetry reports `mode=final_authority_projection`
-- canonical-text benchmark eval reports now also serialize structural segmentation metrics beside the older overlap-style `boundary` counts, so paired benchmark comparisons can tell whether a gain came from line classification, boundary structure, or both
+- source-row benchmark scoring follows the prediction manifest pointer pair; when authoritative line labels are projected, outside-recipe `KNOWLEDGE` versus `OTHER` still comes from the final non-recipe authority after knowledge refinement, and telemetry reports `mode=final_authority_projection`
+- source-row benchmark eval reports now also serialize structural segmentation metrics beside the older overlap-style `boundary` counts, so paired benchmark comparisons can tell whether a gain came from line classification, boundary structure, or both
 - interactive offline benchmark auto-publication of `upload_bundle_v1/` is Codex-only; fully vanilla single-book and matched-book runs stay local and skip Oracle bundle/upload startup
 
 Execution modes:
@@ -279,16 +279,17 @@ Codex execution notes:
 Eval modes:
 
 - `stage-blocks` (default)
-- `canonical-text`
+- `source-rows`
+- `canonical-text` compatibility alias
 
 Evaluation implementation:
 
 - `stage-blocks` path uses `cookimport/bench/eval_stage_blocks.py`.
-- `canonical-text` path uses `cookimport/bench/eval_canonical_text.py`.
-- Canonical mode ensures canonical gold artifacts from export payloads via `cookimport/labelstudio/canonical_gold.py` when needed.
+- `source-rows` path uses `cookimport/bench/eval_source_rows.py`.
+- Canonical export files may still be present as compatibility/archive outputs, but active scoring does not require them.
 - Benchmark prediction generation now writes one authoritative stage run under `data/output/<timestamp>/...` and mirrors benchmark artifacts into the eval root.
-- Scoring reads only one canonical prediction-run pointer pair from `manifest.json`: `stage_block_predictions_path` and `extracted_archive_path`.
-- When line-role projection is enabled, those canonical pointers are set to the projection outputs during generation (no scorer-side source switching).
+- Scoring reads only one prediction-run pointer pair from `manifest.json`: `stage_block_predictions_path` and `extracted_archive_path`.
+- When line-role projection is enabled, those pointers are set to the projection outputs during generation (no scorer-side source switching).
 
 Benchmark eval artifacts include:
 
@@ -300,7 +301,7 @@ Benchmark eval artifacts include:
 - interrupted benchmark runs now also write `benchmark_status.json` plus `partial_benchmark_summary.json`; when prediction-manifest telemetry is already present, they also try to write `prompt_budget_summary.json` before returning control
   - the command-layer recovery/finalization helpers now live in `cookimport/cli_support/labelstudio_benchmark_recovery.py`, while transient eval-output pruning lives in `cookimport/cli_support/labelstudio_benchmark_artifacts.py`
 
-Canonical-text mode also writes line/alignment diagnostics:
+Source-row mode also writes row/line diagnostics:
 
 - `missed_gold_lines.jsonl`
 - `wrong_label_lines.jsonl`
@@ -325,7 +326,7 @@ Final non-recipe authority is still only a binary outside-recipe seam. It may ar
 Stage-backed `recipe_boundary/<workbook_slug>/span_decisions.json` is the recipe-level reviewer/debug companion for the same reason-based escalation contract.
 Canonical line-role codex inflight is now resolved inside `canonical_line_roles.py`; `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` remains the explicit override.
 `atomic_block_splitter=off` keeps one line-role candidate per extracted block; `atomic_block_splitter=atomic-v1` enables deterministic boundary splitting before line-role labeling.
-When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots also write diagnostics under `line-role-pipeline/`:
+When source-row benchmark eval runs with `line_role_pipeline != off`, eval roots also write diagnostics under `line-role-pipeline/`:
 - `line-role-pipeline/joined_line_table.jsonl`
 - `line-role-pipeline/line_role_flips_vs_baseline.jsonl`
 - `line-role-pipeline/slice_metrics.json`
@@ -363,7 +364,7 @@ When canonical benchmark eval runs with `line_role_pipeline != off`, eval roots 
 ## 7) Current Gotchas
 
 - `labelstudio-export` writes only explicit spans; unlabeled text is implicit and benchmarks treat missing gold coverage as `OTHER`.
-- Overlapping exported spans are preserved. Stage-block and canonical-text scoring treat touched blocks/lines as multi-label gold, so macro/per-label metrics can lag overall accuracy.
+- Overlapping exported spans are preserved. Stage-block and source-row scoring treat touched blocks/lines as multi-label gold, so macro/per-label metrics can lag overall accuracy.
 - Adding a freeform label is a multi-surface change: update `cookimport/labelstudio/label_config_freeform.py`, `cookimport/labelstudio/eval_freeform.py`, `cookimport/staging/stage_block_predictions.py`, `cookimport/bench/eval_stage_blocks.py`, and `cookimport/bench/eval_canonical_text.py`.
 - Reusing an older Label Studio project can leave stale `label_config`; if code labels and UI labels disagree, recreate or patch the project before changing scorers.
 - `labelstudio-benchmark compare` accepts either all-method benchmark report roots/files or single `eval_report.json` inputs.

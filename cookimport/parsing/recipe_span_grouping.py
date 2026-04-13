@@ -21,17 +21,10 @@ _RECIPE_LOCAL_LABELS = {
 }
 _SPAN_START_LABELS = {"RECIPE_TITLE"}
 _TITLE_ANCHOR_LABELS = {"RECIPE_TITLE"}
-_RECIPE_STRUCTURE_LABELS = {
-    "INGREDIENT_LINE",
-    "INSTRUCTION_LINE",
-    "HOWTO_SECTION",
-    "YIELD_LINE",
-    "TIME_LINE",
-}
 _INGREDIENT_EVIDENCE_LABELS = {"INGREDIENT_LINE"}
 _INSTRUCTION_EVIDENCE_LABELS = {"INSTRUCTION_LINE"}
-_BRIDGEABLE_RECIPE_STRUCTURE_LABELS = _RECIPE_LOCAL_LABELS - _TITLE_ANCHOR_LABELS
-_NONRECIPE_GAP_LABELS = {"NONRECIPE_CANDIDATE"}
+_GAP_LABELS = {"NONRECIPE_CANDIDATE", "NONRECIPE_EXCLUDE"}
+_MAX_GAP_BLOCKS = 2
 
 
 def recipe_boundary_from_labels(
@@ -48,6 +41,7 @@ def recipe_boundary_from_labels(
     spans: list[RecipeSpan] = []
     span_decisions: list[RecipeSpanDecision] = []
     pending: list[AuthoritativeBlockLabel] = []
+    gap_blocks: list[AuthoritativeBlockLabel] = []
 
     def flush_pending(*, warning: str | None = None) -> None:
         nonlocal pending
@@ -67,28 +61,42 @@ def recipe_boundary_from_labels(
     for position, block in enumerate(ordered_blocks):
         label = str(block.final_label or "NONRECIPE_CANDIDATE")
         if label in _SPAN_START_LABELS:
+            gap_blocks = []
             if pending:
                 flush_pending()
             pending = [block]
             continue
+        if gap_blocks and label in _RECIPE_LOCAL_LABELS:
+            if _should_continue_after_gap(
+                pending=pending,
+                gap_blocks=gap_blocks,
+                next_label=label,
+            ):
+                gap_blocks = []
+                pending.append(block)
+                continue
+            if pending:
+                flush_pending()
+            gap_blocks = []
         if label in _RECIPE_LOCAL_LABELS:
             if not pending:
                 pending = [block]
                 continue
             pending.append(block)
             continue
-        if _should_bridge_nonrecipe_gap(
+        if _should_buffer_gap(
             pending=pending,
-            ordered_blocks=ordered_blocks,
-            gap_position=position,
+            gap_blocks=gap_blocks,
+            current_label=label,
         ):
-            pending.append(block)
+            gap_blocks.append(block)
             continue
         if pending:
             warning = None
             if pending and str(pending[0].final_label or "NONRECIPE_CANDIDATE") not in _SPAN_START_LABELS:
                 warning = "recipe_span_started_without_title"
             flush_pending(warning=warning)
+        gap_blocks = []
 
     if pending:
         warning = None
@@ -189,30 +197,36 @@ def _build_span_decision(
     )
 
 
-def _should_bridge_nonrecipe_gap(
+def _should_buffer_gap(
     *,
     pending: Sequence[AuthoritativeBlockLabel],
-    ordered_blocks: Sequence[AuthoritativeBlockLabel],
-    gap_position: int,
+    gap_blocks: Sequence[AuthoritativeBlockLabel],
+    current_label: str,
 ) -> bool:
     if not pending:
         return False
-    if gap_position < 0 or gap_position >= len(ordered_blocks):
+    if current_label not in _GAP_LABELS:
+        return False
+    if len(gap_blocks) >= _MAX_GAP_BLOCKS:
         return False
     if not _has_title_anchor(pending):
         return False
-    if not _has_bridgeable_recipe_structure(pending):
-        return False
+    return True
 
-    current_label = str(ordered_blocks[gap_position].final_label or "NONRECIPE_CANDIDATE")
-    if current_label not in _NONRECIPE_GAP_LABELS:
-        return False
 
-    next_position = gap_position + 1
-    if next_position >= len(ordered_blocks):
+def _should_continue_after_gap(
+    *,
+    pending: Sequence[AuthoritativeBlockLabel],
+    gap_blocks: Sequence[AuthoritativeBlockLabel],
+    next_label: str,
+) -> bool:
+    if not pending or not gap_blocks:
         return False
-    next_label = str(ordered_blocks[next_position].final_label or "NONRECIPE_CANDIDATE")
-    return next_label in _RECIPE_STRUCTURE_LABELS
+    if len(gap_blocks) > _MAX_GAP_BLOCKS:
+        return False
+    if not _has_title_anchor(pending):
+        return False
+    return next_label in (_RECIPE_LOCAL_LABELS - _TITLE_ANCHOR_LABELS)
 
 
 def _has_title_anchor(block_rows: Sequence[AuthoritativeBlockLabel]) -> bool:
@@ -259,16 +273,6 @@ def _rejection_reason_for_missing_core_fields(missing_core_fields: Sequence[str]
         return "rejected_missing_instruction_evidence"
     return "rejected_missing_ingredient_and_instruction_evidence"
 
-
-def _has_bridgeable_recipe_structure(
-    block_rows: Sequence[AuthoritativeBlockLabel],
-) -> bool:
-    return any(
-        str(row.final_label or "NONRECIPE_CANDIDATE") in _BRIDGEABLE_RECIPE_STRUCTURE_LABELS
-        for row in block_rows
-    )
-
-
 def _decision_to_recipe_span(decision: RecipeSpanDecision) -> RecipeSpan:
     payload = decision.model_dump(
         mode="json",
@@ -302,11 +306,11 @@ def _normalize_recipe_boundary_block_labels(
                         "decided_by": "fallback",
                         "reason_tags": [
                             *list(block.reason_tags),
-                            "accepted_recipe_span_nonrecipe_gap_to_notes",
+                            "accepted_recipe_span_nonrecipe_block_to_notes",
                         ],
                         "escalation_reasons": [
                             *list(block.escalation_reasons),
-                            "accepted_recipe_span_nonrecipe_gap_to_notes",
+                            "accepted_recipe_span_nonrecipe_block_to_notes",
                         ],
                     }
                 )

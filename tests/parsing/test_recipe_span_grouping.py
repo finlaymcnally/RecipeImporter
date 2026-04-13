@@ -2,9 +2,19 @@ from __future__ import annotations
 
 from cookimport.parsing.label_source_of_truth import (
     AuthoritativeBlockLabel,
-    AuthoritativeLabeledLine,
+    AuthoritativeLabeledLine as _AuthoritativeLabeledLine,
 )
 from cookimport.parsing.recipe_span_grouping import recipe_boundary_from_labels
+
+
+def AuthoritativeLabeledLine(**kwargs: object) -> _AuthoritativeLabeledLine:
+    atomic_index = int(kwargs.get("atomic_index", 0) or 0)
+    text = str(kwargs.get("text") or "")
+    kwargs.setdefault("row_id", f"row:{atomic_index}")
+    kwargs.setdefault("row_ordinal", 0)
+    kwargs.setdefault("start_char_in_block", 0)
+    kwargs.setdefault("end_char_in_block", len(text))
+    return _AuthoritativeLabeledLine(**kwargs)
 
 
 def test_recipe_boundary_from_labels_splits_on_non_recipe_boundaries_and_rejects_incomplete_span() -> None:
@@ -515,22 +525,17 @@ def test_recipe_boundary_from_labels_keeps_anchored_recipe_through_single_nonrec
     )
 
     assert len(spans) == 1
-    assert spans[0].block_indices == [0, 1, 2, 3, 4, 5]
+    assert spans[0].block_indices == [0, 1, 2, 4, 5]
     assert [row.decision for row in span_decisions] == ["accepted_recipe_span"]
     assert [row.final_label for row in normalized_blocks] == [
         "RECIPE_TITLE",
         "YIELD_LINE",
         "INGREDIENT_LINE",
-        "RECIPE_NOTES",
+        "NONRECIPE_CANDIDATE",
         "INGREDIENT_LINE",
         "INSTRUCTION_LINE",
     ]
-    assert normalized_blocks[3].decided_by == "fallback"
-    assert "accepted_recipe_span_nonrecipe_gap_to_notes" in normalized_blocks[3].reason_tags
-    assert (
-        "accepted_recipe_span_nonrecipe_gap_to_notes"
-        in normalized_blocks[3].escalation_reasons
-    )
+    assert normalized_blocks[3].decided_by == "codex"
 
 
 def test_recipe_boundary_from_labels_keeps_trailing_variant_run_inside_parent_recipe() -> None:
@@ -639,4 +644,325 @@ def test_recipe_boundary_from_labels_keeps_trailing_variant_run_inside_parent_re
         "INSTRUCTION_LINE",
         "RECIPE_VARIANT",
         "RECIPE_VARIANT",
+    ]
+
+
+def test_recipe_boundary_from_labels_keeps_variant_run_after_excluded_cue_outside_span() -> None:
+    labeled_lines = [
+        AuthoritativeLabeledLine(
+            source_block_id="block:0",
+            source_block_index=0,
+            atomic_index=0,
+            text="Bright Cabbage Slaw",
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:1",
+            source_block_index=1,
+            atomic_index=1,
+            text="1 small cabbage",
+            deterministic_label="INGREDIENT_LINE",
+            final_label="INGREDIENT_LINE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:2",
+            source_block_index=2,
+            atomic_index=2,
+            text="Toss well and season to taste.",
+            deterministic_label="INSTRUCTION_LINE",
+            final_label="INSTRUCTION_LINE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:3",
+            source_block_index=3,
+            atomic_index=3,
+            text="Variations",
+            deterministic_label="RECIPE_VARIANT",
+            final_label="NONRECIPE_EXCLUDE",
+            decided_by="codex",
+            escalation_reasons=["nonrecipe_excluded"],
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:4",
+            source_block_index=4,
+            atomic_index=4,
+            text="To make Asian Slaw, add ginger and sesame oil.",
+            deterministic_label="RECIPE_VARIANT",
+            final_label="RECIPE_VARIANT",
+            decided_by="codex",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:5",
+            source_block_index=5,
+            atomic_index=5,
+            text="Quick Pickled Cucumbers",
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:6",
+            source_block_index=6,
+            atomic_index=6,
+            text="1 cucumber",
+            deterministic_label="INGREDIENT_LINE",
+            final_label="INGREDIENT_LINE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:7",
+            source_block_index=7,
+            atomic_index=7,
+            text="Season and serve.",
+            deterministic_label="INSTRUCTION_LINE",
+            final_label="INSTRUCTION_LINE",
+            decided_by="rule",
+        ),
+    ]
+    block_labels = [
+        AuthoritativeBlockLabel(
+            source_block_id="block:0",
+            source_block_index=0,
+            supporting_atomic_indices=[0],
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:1",
+            source_block_index=1,
+            supporting_atomic_indices=[1],
+            deterministic_label="INGREDIENT_LINE",
+            final_label="INGREDIENT_LINE",
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:2",
+            source_block_index=2,
+            supporting_atomic_indices=[2],
+            deterministic_label="INSTRUCTION_LINE",
+            final_label="INSTRUCTION_LINE",
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:3",
+            source_block_index=3,
+            supporting_atomic_indices=[3],
+            deterministic_label="RECIPE_VARIANT",
+            final_label="NONRECIPE_EXCLUDE",
+            decided_by="codex",
+            escalation_reasons=["nonrecipe_excluded"],
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:4",
+            source_block_index=4,
+            supporting_atomic_indices=[4],
+            deterministic_label="RECIPE_VARIANT",
+            final_label="RECIPE_VARIANT",
+            decided_by="codex",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:5",
+            source_block_index=5,
+            supporting_atomic_indices=[5],
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:6",
+            source_block_index=6,
+            supporting_atomic_indices=[6],
+            deterministic_label="INGREDIENT_LINE",
+            final_label="INGREDIENT_LINE",
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:7",
+            source_block_index=7,
+            supporting_atomic_indices=[7],
+            deterministic_label="INSTRUCTION_LINE",
+            final_label="INSTRUCTION_LINE",
+            decided_by="rule",
+        ),
+    ]
+
+    spans, span_decisions, normalized_blocks = recipe_boundary_from_labels(
+        block_labels,
+        labeled_lines,
+    )
+
+    assert len(spans) == 2
+    assert spans[0].block_indices == [0, 1, 2, 4]
+    assert spans[0].start_block_index == 0
+    assert spans[0].end_block_index == 4
+    assert spans[1].block_indices == [5, 6, 7]
+    assert [row.decision for row in span_decisions] == [
+        "accepted_recipe_span",
+        "accepted_recipe_span",
+    ]
+    assert [row.final_label for row in normalized_blocks] == [
+        "RECIPE_TITLE",
+        "INGREDIENT_LINE",
+        "INSTRUCTION_LINE",
+        "NONRECIPE_EXCLUDE",
+        "RECIPE_VARIANT",
+        "RECIPE_TITLE",
+        "INGREDIENT_LINE",
+        "INSTRUCTION_LINE",
+    ]
+
+
+def test_recipe_boundary_from_labels_closes_before_long_excluded_gap() -> None:
+    labeled_lines = [
+        AuthoritativeLabeledLine(
+            source_block_id="block:0",
+            source_block_index=0,
+            atomic_index=0,
+            text="Bright Cabbage Slaw",
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:1",
+            source_block_index=1,
+            atomic_index=1,
+            text="1 small cabbage",
+            deterministic_label="INGREDIENT_LINE",
+            final_label="INGREDIENT_LINE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:2",
+            source_block_index=2,
+            atomic_index=2,
+            text="Toss well and season to taste.",
+            deterministic_label="INSTRUCTION_LINE",
+            final_label="INSTRUCTION_LINE",
+            decided_by="rule",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:3",
+            source_block_index=3,
+            atomic_index=3,
+            text="Variations",
+            deterministic_label="RECIPE_VARIANT",
+            final_label="NONRECIPE_EXCLUDE",
+            decided_by="codex",
+            escalation_reasons=["nonrecipe_excluded"],
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:4",
+            source_block_index=4,
+            atomic_index=4,
+            text="Shaved salads are refreshing in warm weather.",
+            deterministic_label="NONRECIPE_CANDIDATE",
+            final_label="NONRECIPE_CANDIDATE",
+            decided_by="codex",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:5",
+            source_block_index=5,
+            atomic_index=5,
+            text="Use a mandoline for even slices.",
+            deterministic_label="NONRECIPE_CANDIDATE",
+            final_label="NONRECIPE_CANDIDATE",
+            decided_by="codex",
+        ),
+        AuthoritativeLabeledLine(
+            source_block_id="block:6",
+            source_block_index=6,
+            atomic_index=6,
+            text="To make Asian Slaw, add ginger and sesame oil.",
+            deterministic_label="RECIPE_VARIANT",
+            final_label="RECIPE_VARIANT",
+            decided_by="codex",
+        ),
+    ]
+    block_labels = [
+        AuthoritativeBlockLabel(
+            source_block_id="block:0",
+            source_block_index=0,
+            supporting_atomic_indices=[0],
+            deterministic_label="RECIPE_TITLE",
+            final_label="RECIPE_TITLE",
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:1",
+            source_block_index=1,
+            supporting_atomic_indices=[1],
+            deterministic_label="INGREDIENT_LINE",
+            final_label="INGREDIENT_LINE",
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:2",
+            source_block_index=2,
+            supporting_atomic_indices=[2],
+            deterministic_label="INSTRUCTION_LINE",
+            final_label="INSTRUCTION_LINE",
+            decided_by="rule",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:3",
+            source_block_index=3,
+            supporting_atomic_indices=[3],
+            deterministic_label="RECIPE_VARIANT",
+            final_label="NONRECIPE_EXCLUDE",
+            decided_by="codex",
+            escalation_reasons=["nonrecipe_excluded"],
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:4",
+            source_block_index=4,
+            supporting_atomic_indices=[4],
+            deterministic_label="NONRECIPE_CANDIDATE",
+            final_label="NONRECIPE_CANDIDATE",
+            decided_by="codex",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:5",
+            source_block_index=5,
+            supporting_atomic_indices=[5],
+            deterministic_label="NONRECIPE_CANDIDATE",
+            final_label="NONRECIPE_CANDIDATE",
+            decided_by="codex",
+        ),
+        AuthoritativeBlockLabel(
+            source_block_id="block:6",
+            source_block_index=6,
+            supporting_atomic_indices=[6],
+            deterministic_label="RECIPE_VARIANT",
+            final_label="RECIPE_VARIANT",
+            decided_by="codex",
+        ),
+    ]
+
+    spans, span_decisions, normalized_blocks = recipe_boundary_from_labels(
+        block_labels,
+        labeled_lines,
+    )
+
+    assert len(spans) == 1
+    assert spans[0].block_indices == [0, 1, 2]
+    assert [row.decision for row in span_decisions] == [
+        "accepted_recipe_span",
+        "rejected_pseudo_recipe_span",
+    ]
+    assert span_decisions[1].block_indices == [6]
+    assert span_decisions[1].rejection_reason == "rejected_missing_title_anchor"
+    assert [row.final_label for row in normalized_blocks] == [
+        "RECIPE_TITLE",
+        "INGREDIENT_LINE",
+        "INSTRUCTION_LINE",
+        "NONRECIPE_EXCLUDE",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
     ]

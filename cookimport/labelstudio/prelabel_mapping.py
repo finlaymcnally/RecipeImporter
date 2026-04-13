@@ -228,12 +228,14 @@ def _extract_task_data(task: dict[str, Any]) -> tuple[str, str, list[dict[str, A
     source_map = data.get("source_map")
     if not isinstance(source_map, dict):
         raise ValueError("task missing data.source_map")
-    blocks = source_map.get("blocks")
+    blocks = source_map.get("rows")
     if not isinstance(blocks, list) or not blocks:
-        raise ValueError("task source_map.blocks missing/empty")
+        blocks = source_map.get("blocks")
+    if not isinstance(blocks, list) or not blocks:
+        raise ValueError("task source_map.rows/blocks missing/empty")
     source_blocks = [item for item in blocks if isinstance(item, dict)]
     if not source_blocks:
-        raise ValueError("task source_map.blocks has no valid entries")
+        raise ValueError("task source_map.rows/blocks has no valid entries")
     return segment_id, segment_text, source_blocks
 def _build_block_map(task: dict[str, Any]) -> dict[int, tuple[int, int]]:
     _segment_id, segment_text, source_blocks = _extract_task_data(task)
@@ -271,7 +273,9 @@ def _resolve_focus_block_indices(
     source_map: dict[str, Any],
     available_block_indices: list[int],
 ) -> list[int]:
-    raw_focus_indices = source_map.get("focus_block_indices")
+    raw_focus_indices = source_map.get("focus_row_indices")
+    if not isinstance(raw_focus_indices, list):
+        raw_focus_indices = source_map.get("focus_block_indices")
     if not isinstance(raw_focus_indices, list):
         return list(available_block_indices)
     available = set(available_block_indices)

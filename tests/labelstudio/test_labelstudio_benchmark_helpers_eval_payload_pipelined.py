@@ -9,7 +9,7 @@ globals().update({
     if not name.startswith("test_")
     and not (name.startswith("__") and name.endswith("__"))
 })
-def test_labelstudio_benchmark_pipelined_mode_overlaps_prediction_with_eval_prewarm(
+def test_labelstudio_benchmark_pipelined_mode_skips_canonical_prewarm_for_row_eval(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -19,11 +19,6 @@ def test_labelstudio_benchmark_pipelined_mode_overlaps_prediction_with_eval_prew
     gold_export_root.mkdir(parents=True, exist_ok=True)
     gold_spans = gold_export_root / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
-    canonical_text_path = gold_export_root / "canonical_text.txt"
-    canonical_spans_path = gold_export_root / "canonical_span_labels.jsonl"
-    canonical_text_path.write_text("Title", encoding="utf-8")
-    canonical_spans_path.write_text("{}\n", encoding="utf-8")
-
     prediction_run = tmp_path / "pred-run"
     _write_benchmark_prediction_run_fixture(
         prediction_run=prediction_run,
@@ -45,21 +40,9 @@ def test_labelstudio_benchmark_pipelined_mode_overlaps_prediction_with_eval_prew
         }
     _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts", _fake_generate_pred_run_artifacts)
 
-    def _fake_ensure_canonical_gold_artifacts(*, export_root: Path):
-        assert export_root == gold_export_root
-        prewarm_started.set()
-        return {
-            "canonical_text_path": canonical_text_path,
-            "canonical_span_labels_path": canonical_spans_path,
-        }
-
-    _patch_cli_attr(monkeypatch, "ensure_canonical_gold_artifacts",
-        _fake_ensure_canonical_gold_artifacts,
-    )
-
     captured_eval: dict[str, object] = {}
 
-    def _fake_evaluate_canonical_text(**kwargs):
+    def _fake_evaluate_source_rows(**kwargs):
         captured_eval.update(kwargs)
         return {
             "report": {
@@ -89,8 +72,8 @@ def test_labelstudio_benchmark_pipelined_mode_overlaps_prediction_with_eval_prew
             "false_positive_preds": [],
         }
 
-    _patch_cli_attr(monkeypatch, "evaluate_canonical_text", _fake_evaluate_canonical_text)
-    _patch_cli_attr(monkeypatch, "format_canonical_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows", _fake_evaluate_source_rows)
+    _patch_cli_attr(monkeypatch, "format_source_row_eval_report_md", lambda *_: "report")
     _install_noop_benchmark_eval_mocks(monkeypatch)
 
     eval_root = tmp_path / "eval-pipelined"
@@ -101,11 +84,11 @@ def test_labelstudio_benchmark_pipelined_mode_overlaps_prediction_with_eval_prew
         processed_output_dir=tmp_path / "output",
         eval_output_dir=eval_root,
         no_upload=True,
-        eval_mode="canonical-text",
+        eval_mode="source-rows",
     )
 
-    assert producer_observed_prewarm["value"] is True
-    assert isinstance(captured_eval.get("canonical_paths"), dict)
+    assert producer_observed_prewarm["value"] is False
+    assert captured_eval["gold_export_root"] == gold_export_root
 
 def _run_pipelined_streaming_fixture(
     monkeypatch: pytest.MonkeyPatch,
@@ -422,14 +405,8 @@ def _run_canonical_text_pipelined_fixture(
             "false_positive_preds": [],
         }
 
-    _patch_cli_attr(monkeypatch, "evaluate_canonical_text", _fake_eval_canonical_text)
-    _patch_cli_attr(monkeypatch, "format_canonical_eval_report_md", lambda *_: "report")
-    _patch_cli_attr(monkeypatch, "ensure_canonical_gold_artifacts",
-        lambda *, export_root: {
-            "canonical_text_path": export_root / "canonical_text.txt",
-            "canonical_span_labels_path": export_root / "canonical_span_labels.jsonl",
-        },
-    )
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows", _fake_eval_canonical_text)
+    _patch_cli_attr(monkeypatch, "format_source_row_eval_report_md", lambda *_: "report")
 
     captured_csv: dict[str, object] = {}
 
@@ -453,7 +430,7 @@ def _run_canonical_text_pipelined_fixture(
             processed_output_dir=tmp_path / "output",
             eval_output_dir=eval_root,
             no_upload=True,
-            eval_mode="canonical-text",
+            eval_mode="source-rows",
             line_role_pipeline="off",
             sequence_matcher="dmp",
         )
@@ -467,7 +444,7 @@ def _run_canonical_text_pipelined_fixture(
     }
 
 
-def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
+def test_labelstudio_benchmark_source_rows_mode_uses_row_evaluator(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     fixture = _run_canonical_text_pipelined_fixture(monkeypatch, tmp_path)
@@ -485,10 +462,7 @@ def test_labelstudio_benchmark_canonical_text_mode_uses_canonical_evaluator(
         Path(captured_eval["stage_predictions_json"]).read_text(encoding="utf-8")
     )
     assert replay_payload["block_labels"] == {"0": "OTHER"}
-    assert captured_eval["sequence_matcher_env"] == "dmp"
-
-
-def test_labelstudio_benchmark_canonical_text_mode_records_timing_and_scheduler_artifacts(
+def test_labelstudio_benchmark_source_rows_mode_records_timing_and_scheduler_artifacts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     fixture = _run_canonical_text_pipelined_fixture(monkeypatch, tmp_path)
@@ -496,7 +470,7 @@ def test_labelstudio_benchmark_canonical_text_mode_records_timing_and_scheduler_
     scheduler_events = fixture["scheduler_events"]
     run_manifest = fixture["run_manifest"]
 
-    assert captured_csv["eval_scope"] == "canonical-text"
+    assert captured_csv["eval_scope"] == "source-rows"
     timing = captured_csv.get("timing")
     assert isinstance(timing, dict)
     checkpoints = timing.get("checkpoints")
@@ -517,7 +491,7 @@ def test_labelstudio_benchmark_canonical_text_mode_records_timing_and_scheduler_
     assert evaluate_finished_events
     assert evaluate_finished_events[-1]["prediction_load_seconds"] == pytest.approx(0.12)
     assert evaluate_finished_events[-1]["gold_load_seconds"] == pytest.approx(0.34)
-    assert run_manifest["run_config"]["eval_mode"] == "canonical-text"
+    assert run_manifest["run_config"]["eval_mode"] == "source-rows"
     assert run_manifest["run_config"]["sequence_matcher"] == "dmp"
 
 def test_labelstudio_benchmark_captures_eval_profile_artifacts_when_enabled(
@@ -552,7 +526,7 @@ def test_labelstudio_benchmark_captures_eval_profile_artifacts_when_enabled(
         ),
     )
 
-    def _fake_eval_canonical_text(**_kwargs):
+    def _fake_eval_source_rows(**_kwargs):
         time.sleep(0.01)
         return {
             "report": {
@@ -576,14 +550,8 @@ def test_labelstudio_benchmark_captures_eval_profile_artifacts_when_enabled(
             "false_positive_preds": [],
         }
 
-    _patch_cli_attr(monkeypatch, "evaluate_canonical_text", _fake_eval_canonical_text)
-    _patch_cli_attr(monkeypatch, "format_canonical_eval_report_md", lambda *_: "report")
-    _patch_cli_attr(monkeypatch, "ensure_canonical_gold_artifacts",
-        lambda *, export_root: {
-            "canonical_text_path": export_root / "canonical_text.txt",
-            "canonical_span_labels_path": export_root / "canonical_span_labels.jsonl",
-        },
-    )
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows", _fake_eval_source_rows)
+    _patch_cli_attr(monkeypatch, "format_source_row_eval_report_md", lambda *_: "report")
 
     captured_csv: dict[str, object] = {}
 
@@ -603,7 +571,7 @@ def test_labelstudio_benchmark_captures_eval_profile_artifacts_when_enabled(
         processed_output_dir=tmp_path / "output",
         eval_output_dir=eval_root,
         no_upload=True,
-        eval_mode="canonical-text",
+        eval_mode="source-rows",
     )
 
     assert (eval_root / "eval_profile.pstats").exists()

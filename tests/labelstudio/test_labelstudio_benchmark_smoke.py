@@ -292,10 +292,6 @@ def _run_interactive_single_book_simulated_runtime(
     gold_export_root.mkdir(parents=True, exist_ok=True)
     gold_spans = gold_export_root / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
-    canonical_text_path = gold_export_root / "canonical_text.txt"
-    canonical_span_labels_path = gold_export_root / "canonical_span_labels.jsonl"
-    canonical_text_path.write_text("Title\nBody\n", encoding="utf-8")
-    canonical_span_labels_path.write_text("{}\n", encoding="utf-8")
 
     menu_answers = iter(["labelstudio_benchmark", "single_book", "exit"])
     _patch_cli_attr(
@@ -424,14 +420,7 @@ def _run_interactive_single_book_simulated_runtime(
             "timing": {"prediction_seconds": 0.25 if variant_slug == "codex-exec" else 0.15},
         }
 
-    def _fake_ensure_canonical_gold_artifacts(*, export_root: Path):
-        assert export_root == gold_export_root
-        return {
-            "canonical_text_path": canonical_text_path,
-            "canonical_span_labels_path": canonical_span_labels_path,
-        }
-
-    def _fake_evaluate_canonical_text(**kwargs):
+    def _fake_evaluate_source_rows(**kwargs):
         eval_calls.append(dict(kwargs))
         eval_output_dir = kwargs["out_dir"]
         assert isinstance(eval_output_dir, Path)
@@ -444,13 +433,8 @@ def _run_interactive_single_book_simulated_runtime(
         return log_path
 
     _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts", _fake_generate_pred_run_artifacts)
-    _patch_cli_attr(
-        monkeypatch,
-        "ensure_canonical_gold_artifacts",
-        _fake_ensure_canonical_gold_artifacts,
-    )
-    monkeypatch.setattr(bench_artifacts, "evaluate_canonical_text", _fake_evaluate_canonical_text)
-    monkeypatch.setattr(bench_artifacts, "format_canonical_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(bench_artifacts, "evaluate_source_rows", _fake_evaluate_source_rows)
+    monkeypatch.setattr(bench_artifacts, "format_source_row_eval_report_md", lambda *_: "report")
     monkeypatch.setattr(
         cli.llm_prompt_artifacts,
         "build_codex_farm_prompt_response_log",
@@ -579,25 +563,12 @@ def _run_real_vanilla_single_book_runtime(
     gold_root.mkdir(parents=True, exist_ok=True)
     gold_spans = gold_root / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
-    canonical_text_path = gold_root / "canonical_text.txt"
-    canonical_text_path.write_text("Toast\n1 slice bread\nToast the bread.\n", encoding="utf-8")
-    canonical_span_labels_path = gold_root / "canonical_span_labels.jsonl"
-    canonical_span_labels_path.write_text("{}\n", encoding="utf-8")
-
-    _patch_cli_attr(
-        monkeypatch,
-        "ensure_canonical_gold_artifacts",
-        lambda *, export_root: {
-            "canonical_text_path": canonical_text_path,
-            "canonical_span_labels_path": canonical_span_labels_path,
-        },
-    )
     monkeypatch.setattr(
         bench_artifacts,
-        "evaluate_canonical_text",
+        "evaluate_source_rows",
         lambda **kwargs: _simulated_canonical_eval_report(eval_output_dir=kwargs["out_dir"]),
     )
-    monkeypatch.setattr(bench_artifacts, "format_canonical_eval_report_md", lambda *_: "report")
+    monkeypatch.setattr(bench_artifacts, "format_source_row_eval_report_md", lambda *_: "report")
     monkeypatch.setattr(
         "cookimport.analytics.perf_report.append_benchmark_csv",
         lambda *_args, **_kwargs: None,

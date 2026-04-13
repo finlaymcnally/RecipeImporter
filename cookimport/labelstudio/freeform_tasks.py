@@ -5,6 +5,7 @@ import random
 from typing import Any, Iterable, Sequence
 
 from cookimport.labelstudio.models import ArchiveBlock
+from cookimport.parsing.source_rows import build_source_rows
 
 SEGMENT_SEPARATOR = "\n\n"
 
@@ -41,6 +42,20 @@ class SegmentTaskData:
         }
 
 
+@dataclass(frozen=True)
+class _TaskRow:
+    row_id: str
+    row_index: int
+    source_block_index: int
+    source_block_id: str
+    text: str
+    row_ordinal: int
+    start_char_in_block: int
+    end_char_in_block: int
+    location: dict[str, Any]
+    source_kind: str | None = None
+
+
 def build_segment_id(source_hash: str, start_block_index: int, end_block_index: int) -> str:
     return f"urn:cookimport:segment:{source_hash}:{start_block_index}:{end_block_index}"
 
@@ -49,36 +64,109 @@ def build_block_id(source_hash: str, block_index: int) -> str:
     return f"urn:cookimport:block:{source_hash}:{block_index}"
 
 
-def _coerce_archive(archive: Iterable[ArchiveBlock | dict[str, Any]]) -> list[ArchiveBlock]:
-    blocks: list[ArchiveBlock] = []
-    for item in archive:
+def _coerce_source_rows(
+    archive: Iterable[ArchiveBlock | dict[str, Any]],
+    *,
+    source_hash: str,
+) -> list[_TaskRow]:
+    raw_items = list(archive)
+    task_rows: list[_TaskRow] = []
+    if any(isinstance(item, dict) and item.get("row_id") for item in raw_items):
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text") or "")
+            if not text:
+                continue
+            location = item.get("location")
+            if not isinstance(location, dict):
+                location = {}
+            row_index = int(item.get("row_index", item.get("block_index", len(task_rows))))
+            source_block_index = int(
+                item.get("source_block_index", item.get("block_index", row_index))
+            )
+            source_block_id = str(
+                item.get("source_block_id")
+                or item.get("block_id")
+                or build_block_id(source_hash, source_block_index)
+            )
+            task_rows.append(
+                _TaskRow(
+                    row_id=str(item.get("row_id")),
+                    row_index=row_index,
+                    source_block_index=source_block_index,
+                    source_block_id=source_block_id,
+                    text=text,
+                    row_ordinal=int(item.get("row_ordinal", 0)),
+                    start_char_in_block=int(item.get("start_char_in_block", 0)),
+                    end_char_in_block=int(
+                        item.get("end_char_in_block", max(0, len(text)))
+                    ),
+                    location=dict(location),
+                    source_kind=str(item.get("source_kind") or "") or None,
+                )
+            )
+        task_rows.sort(key=lambda row: row.row_index)
+        return task_rows
+
+    blocks: list[dict[str, Any]] = []
+    for item in raw_items:
         if isinstance(item, ArchiveBlock):
-            blocks.append(item)
+            blocks.append(
+                {
+                    "block_id": build_block_id(source_hash, int(item.index)),
+                    "block_index": int(item.index),
+                    "text": str(item.text or ""),
+                    "location": dict(item.location),
+                    "source_kind": item.source_kind,
+                }
+            )
             continue
         if not isinstance(item, dict):
             continue
-        text = item.get("text") or ""
-        index = item.get("index")
-        if index is None:
-            index = item.get("block_index", len(blocks))
+        text = str(item.get("text") or "")
+        if not text:
+            continue
+        block_index = int(item.get("index", item.get("block_index", len(blocks))))
         location = item.get("location")
         if not isinstance(location, dict):
             location = {
                 k: v
                 for k, v in item.items()
-                if k not in {"text", "index", "source_kind"}
+                if k not in {"text", "index", "block_index", "source_kind"}
             }
-        source_kind = item.get("source_kind")
         blocks.append(
-            ArchiveBlock(
-                index=int(index),
-                text=str(text),
-                location=location,
-                source_kind=source_kind,
+            {
+                "block_id": str(item.get("block_id") or build_block_id(source_hash, block_index)),
+                "block_index": block_index,
+                "text": text,
+                "location": dict(location),
+                "source_kind": item.get("source_kind"),
+            }
+        )
+
+    for row in build_source_rows(blocks, source_hash=source_hash):
+        block = blocks[int(row.block_index)] if int(row.block_index) < len(blocks) else {}
+        location = block.get("location")
+        if not isinstance(location, dict):
+            location = {}
+        source_kind = block.get("source_kind")
+        task_rows.append(
+            _TaskRow(
+                row_id=str(row.row_id),
+                row_index=int(row.row_index),
+                source_block_index=int(row.block_index),
+                source_block_id=str(row.block_id),
+                text=str(row.text),
+                row_ordinal=int(row.row_ordinal),
+                start_char_in_block=int(row.start_char_in_block),
+                end_char_in_block=int(row.end_char_in_block),
+                location=dict(location),
+                source_kind=str(source_kind) if source_kind else None,
             )
         )
-    blocks.sort(key=lambda block: block.index)
-    return blocks
+    task_rows.sort(key=lambda row: row.row_index)
+    return task_rows
 
 
 def _segment_ranges(
@@ -168,7 +256,6 @@ def resolve_segment_overlap_for_target(
             raise ValueError("segment_focus_blocks must be >= 1")
         if segment_focus_blocks > segment_blocks:
             raise ValueError("segment_focus_blocks must be <= segment_blocks")
-        # Keep focus windows contiguous across tasks: step <= focus.
         min_overlap_for_focus = max(0, segment_blocks - segment_focus_blocks)
     requested_overlap_effective = max(requested_overlap, min_overlap_for_focus)
     if target_task_count is None or total_blocks <= 0:
@@ -197,7 +284,6 @@ def resolve_segment_overlap_for_target(
             continue
         if diff > best_diff:
             continue
-
         if prefer_higher_task_count and count > best_count:
             best_overlap = overlap
             best_count = count
@@ -210,7 +296,6 @@ def resolve_segment_overlap_for_target(
             continue
         if count != best_count:
             continue
-
         requested_distance = abs(overlap - requested_overlap)
         if requested_distance < best_requested_distance:
             best_overlap = overlap
@@ -226,49 +311,88 @@ def resolve_segment_overlap_for_target(
 
 
 def _build_segment_text(
-    blocks: list[ArchiveBlock], *, source_hash: str
+    rows: Sequence[_TaskRow],
 ) -> tuple[str, list[dict[str, Any]]]:
     parts: list[str] = []
-    source_blocks: list[dict[str, Any]] = []
+    source_rows: list[dict[str, Any]] = []
     cursor = 0
 
-    for idx, block in enumerate(blocks):
-        text = block.text or ""
+    for idx, row in enumerate(rows):
+        text = row.text or ""
         start_offset = cursor
         end_offset = start_offset + len(text)
-        source_blocks.append(
+        source_rows.append(
             {
-                "block_id": build_block_id(source_hash, block.index),
-                "block_index": block.index,
+                "row_id": row.row_id,
+                "row_index": row.row_index,
+                "block_index": row.row_index,
+                "text": text,
+                "source_block_index": row.source_block_index,
+                "block_id": row.row_id,
+                "source_block_id": row.source_block_id,
+                "row_ordinal": row.row_ordinal,
+                "start_char_in_block": row.start_char_in_block,
+                "end_char_in_block": row.end_char_in_block,
                 "segment_start": start_offset,
                 "segment_end": end_offset,
-                "location": block.location,
-                "source_kind": block.source_kind,
+                "location": row.location,
+                "source_kind": row.source_kind,
             }
         )
         parts.append(text)
         cursor = end_offset
-        if idx < len(blocks) - 1:
+        if idx < len(rows) - 1:
             cursor += len(SEGMENT_SEPARATOR)
 
-    return SEGMENT_SEPARATOR.join(parts), source_blocks
+    return SEGMENT_SEPARATOR.join(parts), source_rows
 
 
-def _build_context_prompt_blocks(
-    blocks: Sequence[ArchiveBlock], *, source_hash: str
+def _build_legacy_block_rows(
+    rows: Sequence[_TaskRow],
+    *,
+    include_segment_offsets: bool,
 ) -> list[dict[str, Any]]:
-    prompt_blocks: list[dict[str, Any]] = []
-    for block in blocks:
-        prompt_blocks.append(
+    legacy_rows: list[dict[str, Any]] = []
+    cursor = 0
+    for idx, row in enumerate(rows):
+        text = row.text or ""
+        payload = {
+            "block_id": row.source_block_id,
+            "block_index": row.source_block_index,
+            "text": text,
+            "location": row.location,
+            "source_kind": row.source_kind,
+        }
+        if include_segment_offsets:
+            payload["segment_start"] = cursor
+            payload["segment_end"] = cursor + len(text)
+        legacy_rows.append(payload)
+        cursor += len(text)
+        if idx < len(rows) - 1:
+            cursor += len(SEGMENT_SEPARATOR)
+    return legacy_rows
+
+
+def _build_context_prompt_rows(rows: Sequence[_TaskRow]) -> list[dict[str, Any]]:
+    prompt_rows: list[dict[str, Any]] = []
+    for row in rows:
+        prompt_rows.append(
             {
-                "block_id": build_block_id(source_hash, block.index),
-                "block_index": block.index,
-                "text": block.text or "",
-                "location": block.location,
-                "source_kind": block.source_kind,
+                "row_id": row.row_id,
+                "row_index": row.row_index,
+                "block_index": row.row_index,
+                "source_block_index": row.source_block_index,
+                "block_id": row.row_id,
+                "source_block_id": row.source_block_id,
+                "text": row.text or "",
+                "row_ordinal": row.row_ordinal,
+                "start_char_in_block": row.start_char_in_block,
+                "end_char_in_block": row.end_char_in_block,
+                "location": row.location,
+                "source_kind": row.source_kind,
             }
         )
-    return prompt_blocks
+    return prompt_rows
 
 
 def build_freeform_span_tasks(
@@ -287,39 +411,49 @@ def build_freeform_span_tasks(
     if segment_focus_blocks > segment_blocks:
         raise ValueError("segment_focus_blocks must be <= segment_blocks")
 
-    blocks = _coerce_archive(archive)
-    ranges = _segment_ranges(len(blocks), segment_blocks, segment_overlap)
+    rows = _coerce_source_rows(archive, source_hash=source_hash)
+    ranges = _segment_ranges(len(rows), segment_blocks, segment_overlap)
     tasks: list[dict[str, Any]] = []
 
     for segment_index, (start, end) in enumerate(ranges):
-        segment_blocks_slice = blocks[start:end]
-        if not segment_blocks_slice:
+        segment_rows_slice = rows[start:end]
+        if not segment_rows_slice:
             continue
         focus_start_offset, focus_end_offset = _resolve_focus_slice_bounds(
-            segment_length=len(segment_blocks_slice),
+            segment_length=len(segment_rows_slice),
             segment_blocks=segment_blocks,
             segment_focus_blocks=segment_focus_blocks,
         )
-        start_block_index = segment_blocks_slice[0].index
-        end_block_index = segment_blocks_slice[-1].index
-        segment_id = build_segment_id(source_hash, start_block_index, end_block_index)
-        focus_blocks_slice = segment_blocks_slice[focus_start_offset:focus_end_offset]
-        segment_text, source_blocks = _build_segment_text(
-            focus_blocks_slice, source_hash=source_hash
+        start_row_index = segment_rows_slice[0].row_index
+        end_row_index = segment_rows_slice[-1].row_index
+        segment_id = build_segment_id(source_hash, start_row_index, end_row_index)
+        focus_rows_slice = segment_rows_slice[focus_start_offset:focus_end_offset]
+        segment_text, source_rows = _build_segment_text(focus_rows_slice)
+        legacy_focus_blocks = _build_legacy_block_rows(
+            focus_rows_slice,
+            include_segment_offsets=True,
         )
-        context_before_blocks = _build_context_prompt_blocks(
-            segment_blocks_slice[:focus_start_offset],
-            source_hash=source_hash,
+        context_before_rows = _build_context_prompt_rows(
+            segment_rows_slice[:focus_start_offset]
         )
-        context_after_blocks = _build_context_prompt_blocks(
-            segment_blocks_slice[focus_end_offset:],
-            source_hash=source_hash,
+        context_after_rows = _build_context_prompt_rows(
+            segment_rows_slice[focus_end_offset:]
         )
-        focus_indices = [block.index for block in focus_blocks_slice]
+        legacy_context_before_blocks = _build_legacy_block_rows(
+            segment_rows_slice[:focus_start_offset],
+            include_segment_offsets=False,
+        )
+        legacy_context_after_blocks = _build_legacy_block_rows(
+            segment_rows_slice[focus_end_offset:],
+            include_segment_offsets=False,
+        )
+        focus_indices = [row.row_index for row in focus_rows_slice]
         context_before_indices = [
-            block.index for block in segment_blocks_slice[:focus_start_offset]
+            row.row_index for row in segment_rows_slice[:focus_start_offset]
         ]
-        context_after_indices = [block.index for block in segment_blocks_slice[focus_end_offset:]]
+        context_after_indices = [
+            row.row_index for row in segment_rows_slice[focus_end_offset:]
+        ]
         focus_block_range = _collapse_block_index_ranges(focus_indices)
         context_before_block_range = _collapse_block_index_ranges(context_before_indices)
         context_after_block_range = _collapse_block_index_ranges(context_after_indices)
@@ -335,8 +469,19 @@ def build_freeform_span_tasks(
             )
         source_map = {
             "separator": SEGMENT_SEPARATOR,
-            "start_block_index": start_block_index,
-            "end_block_index": end_block_index,
+            "start_row_index": start_row_index,
+            "end_row_index": end_row_index,
+            "focus_start_row_index": focus_indices[0],
+            "focus_end_row_index": focus_indices[-1],
+            "focus_row_indices": focus_indices,
+            "focus_row_range": focus_block_range,
+            "context_before_row_indices": context_before_indices,
+            "context_after_row_indices": context_after_indices,
+            "context_before_row_range": context_before_block_range,
+            "context_after_row_range": context_after_block_range,
+            "context_before_rows": context_before_rows,
+            "context_after_rows": context_after_rows,
+            "rows": source_rows,
             "focus_start_block_index": focus_indices[0],
             "focus_end_block_index": focus_indices[-1],
             "focus_block_indices": focus_indices,
@@ -345,9 +490,9 @@ def build_freeform_span_tasks(
             "context_after_block_indices": context_after_indices,
             "context_before_block_range": context_before_block_range,
             "context_after_block_range": context_after_block_range,
-            "context_before_blocks": context_before_blocks,
-            "context_after_blocks": context_after_blocks,
-            "blocks": source_blocks,
+            "context_before_blocks": legacy_context_before_blocks,
+            "context_after_blocks": legacy_context_after_blocks,
+            "blocks": legacy_focus_blocks,
         }
         task_data = SegmentTaskData(
             segment_id=segment_id,
@@ -385,12 +530,14 @@ def map_span_offsets_to_blocks(
 ) -> list[dict[str, Any]]:
     if end_offset <= start_offset:
         return []
-    source_blocks = source_map.get("blocks")
-    if not isinstance(source_blocks, list):
+    source_rows = source_map.get("rows")
+    if not isinstance(source_rows, list):
+        source_rows = source_map.get("blocks")
+    if not isinstance(source_rows, list):
         return []
 
     touched: list[dict[str, Any]] = []
-    for item in source_blocks:
+    for item in source_rows:
         if not isinstance(item, dict):
             continue
         block_start = item.get("segment_start")
@@ -409,11 +556,11 @@ def map_span_offsets_to_blocks(
 def compute_freeform_task_coverage(
     archive: Iterable[ArchiveBlock | dict[str, Any]], tasks: Sequence[dict[str, Any]]
 ) -> dict[str, Any]:
-    blocks = _coerce_archive(archive)
-    extracted_chars = sum(len(block.text or "") for block in blocks)
+    rows = _coerce_source_rows(archive, source_hash="unknown")
+    extracted_chars = sum(len(row.text or "") for row in rows)
 
-    block_text_lengths = {block.index: len(block.text or "") for block in blocks}
-    covered_block_indices: set[int] = set()
+    row_text_lengths = {row.row_index: len(row.text or "") for row in rows}
+    covered_row_indices: set[int] = set()
     for task in tasks:
         data = task.get("data") if isinstance(task, dict) else {}
         if not isinstance(data, dict):
@@ -421,20 +568,20 @@ def compute_freeform_task_coverage(
         source_map = data.get("source_map")
         if not isinstance(source_map, dict):
             continue
-        for key in ("blocks", "context_before_blocks", "context_after_blocks"):
-            source_blocks = source_map.get(key)
-            if not isinstance(source_blocks, list):
+        for key in ("rows", "context_before_rows", "context_after_rows", "blocks", "context_before_blocks", "context_after_blocks"):
+            source_rows = source_map.get(key)
+            if not isinstance(source_rows, list):
                 continue
-            for item in source_blocks:
+            for item in source_rows:
                 if not isinstance(item, dict):
                     continue
-                block_index = item.get("block_index")
+                row_index = item.get("row_index", item.get("block_index"))
                 try:
-                    covered_block_indices.add(int(block_index))
+                    covered_row_indices.add(int(row_index))
                 except (TypeError, ValueError):
                     continue
 
-    chunked_chars = sum(block_text_lengths.get(index, 0) for index in covered_block_indices)
+    chunked_chars = sum(row_text_lengths.get(index, 0) for index in covered_row_indices)
     warnings: list[str] = []
     if extracted_chars == 0:
         warnings.append("No text extracted; OCR may be required for scanned documents.")

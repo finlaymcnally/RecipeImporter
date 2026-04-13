@@ -584,6 +584,14 @@ def run_labelstudio_import(
         run_manifest_artifacts[
             "line_role_pipeline_semantic_predictions_jsonl"
         ] = semantic_line_role_predictions_manifest_path
+    row_label_predictions_manifest_path = _path_for_manifest(
+        run_root,
+        pred.get("line_role_pipeline_row_label_predictions_path"),
+    )
+    if row_label_predictions_manifest_path:
+        run_manifest_artifacts[
+            "line_role_pipeline_row_label_predictions_jsonl"
+        ] = row_label_predictions_manifest_path
     line_role_spans_manifest_path = _path_for_manifest(
         run_root,
         pred.get("line_role_pipeline_projected_spans_path"),

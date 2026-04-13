@@ -148,7 +148,8 @@ Pipeline assets under `llm_pipelines/pipelines/` no longer pin repo-default `cod
   - `llm_recipe_pipeline=off`
   - `line_role_pipeline=off`
   - `llm_knowledge_pipeline=off`
-  - `atomic_block_splitter=off`
+- `source_rows` is always the live deterministic baseline for line-role and downstream benchmark/runtime contracts.
+- `atomic_block_splitter=off` remains only as a legacy benchmark compatibility/input-shaping knob.
 - fully Codex-backed runs now come from enabling those surfaces explicitly, not from a separate deterministic line-role middle mode
 - `cookimport/config/codex_decision.py` is the shared approval and metadata layer.
 - Execute mode requires explicit approval at the command boundary.

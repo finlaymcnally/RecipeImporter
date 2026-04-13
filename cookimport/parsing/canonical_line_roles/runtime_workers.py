@@ -808,18 +808,42 @@ def _evaluate_line_role_structured_response(
             "invalid",
         )
     rows_payload = parsed_payload.get("rows")
-    if not isinstance(rows_payload, list):
-        return None, ("rows_missing_or_not_a_list",), {}, "invalid"
     ordered_atomic_indices = [int(value) for value in shard.owned_ids]
-    translated_rows, translation_errors, response_contract_metadata = (
-        _translate_line_role_structured_rows_payload(
-            rows_payload=rows_payload,
-            ordered_atomic_indices=ordered_atomic_indices,
+    if not isinstance(rows_payload, list):
+        labels_payload = parsed_payload.get("labels")
+        if isinstance(labels_payload, list):
+            from cookimport.parsing.canonical_line_roles.validation import (
+                _translate_line_role_ordered_labels_to_atomic_indices,
+            )
+
+            translated_payload, translation_errors, response_contract_metadata = (
+                _translate_line_role_ordered_labels_to_atomic_indices(
+                    ordered_rows=[
+                        (
+                            int(value),
+                            "",
+                        )
+                        for value in ordered_atomic_indices
+                    ],
+                    labels_payload=labels_payload,
+                )
+            )
+            translated_rows = list(translated_payload.get("rows") or [])
+        else:
+            return None, ("rows_missing_or_not_a_list",), {}, "invalid"
+    else:
+        translated_rows, translation_errors, response_contract_metadata = (
+            _translate_line_role_structured_rows_payload(
+                rows_payload=rows_payload,
+                ordered_atomic_indices=ordered_atomic_indices,
+            )
         )
-    )
     response_contract_error_list: list[str] = []
+    allowed_top_level_keys = {"rows"}
+    if isinstance(parsed_payload.get("labels"), list) and not isinstance(rows_payload, list):
+        allowed_top_level_keys = {"labels"}
     extra_top_level_keys = sorted(
-        key for key in parsed_payload.keys() if str(key).strip() != "rows"
+        key for key in parsed_payload.keys() if str(key).strip() not in allowed_top_level_keys
     )
     if extra_top_level_keys:
         response_contract_error_list.append("extra_top_level_keys")

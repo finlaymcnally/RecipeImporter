@@ -272,6 +272,7 @@ def execute_stage_import_session_from_recipe_boundary_result(
         workbook_slug,
         result.source_blocks or extracted_book_bundle.source_blocks,
         result.source_support or extracted_book_bundle.source_support,
+        source_hash=extracted_book_bundle.source_hash,
         output_stats=output_stats,
     )
     intermediate_dir = run_root / "intermediate drafts" / workbook_slug

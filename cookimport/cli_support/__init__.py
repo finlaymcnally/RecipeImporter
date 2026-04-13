@@ -139,9 +139,9 @@ from cookimport.core.source_model import (
     offset_source_support,
 )
 from cookimport.core.timing import TimingStats, measure
-from cookimport.bench.eval_canonical_text import (
-    evaluate_canonical_text,
-    format_canonical_eval_report_md,
+from cookimport.bench.eval_source_rows import (
+    evaluate_source_rows,
+    format_source_row_eval_report_md,
 )
 from cookimport.bench.eval_stage_blocks import (
     evaluate_stage_blocks,
@@ -462,7 +462,8 @@ SINGLE_BOOK_SPLIT_CONVERT_INPUT_FIELDS = tuple(
 PROCESSING_TIMESERIES_HEARTBEAT_SECONDS = 1.0
 PROCESSING_TIMESERIES_FILENAME = "processing_timeseries.jsonl"
 BENCHMARK_EVAL_MODE_STAGE_BLOCKS = "stage-blocks"
-BENCHMARK_EVAL_MODE_CANONICAL_TEXT = "canonical-text"
+BENCHMARK_EVAL_MODE_SOURCE_ROWS = "source-rows"
+BENCHMARK_EVAL_MODE_CANONICAL_TEXT = BENCHMARK_EVAL_MODE_SOURCE_ROWS
 COOKIMPORT_BENCH_WRITE_MARKDOWN_ENV = "COOKIMPORT_BENCH_WRITE_MARKDOWN"
 COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS_ENV = (
     "COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS"
@@ -1209,15 +1210,29 @@ def _normalize_benchmark_eval_mode(value: str) -> str:
     }:
         return BENCHMARK_EVAL_MODE_STAGE_BLOCKS
     if normalized in {
+        "source-rows",
+        "source-row",
+        "rows",
         "canonical",
         "canonical-text",
     }:
-        return BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+        return BENCHMARK_EVAL_MODE_SOURCE_ROWS
     _fail(
         f"Invalid benchmark eval mode: {value!r}. "
-        "Expected one of: stage-blocks, canonical-text."
+        "Expected one of: stage-blocks, source-rows."
     )
     return BENCHMARK_EVAL_MODE_STAGE_BLOCKS
+
+
+def _is_row_benchmark_eval_mode(value: Any) -> bool:
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    return normalized in {
+        BENCHMARK_EVAL_MODE_SOURCE_ROWS,
+        "canonical-text",
+        "canonical",
+        "rows",
+        "source-row",
+    }
 
 
 def _normalize_gold_adaptation_mode(value: str) -> str:

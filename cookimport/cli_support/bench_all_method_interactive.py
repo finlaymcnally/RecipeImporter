@@ -74,7 +74,7 @@ def _interactive_all_method_benchmark(*, selected_benchmark_settings: root.RunSe
         else:
             root.typer.secho('Dimensions: non-EPUB source uses global benchmark run settings (plus sweeps when enabled).', fg=root.typer.colors.BRIGHT_BLACK)
     root.typer.secho('CodexFarm process selection is available for all-method runs.', fg=root.typer.colors.BRIGHT_BLACK)
-    root.typer.secho('All method benchmark uses canonical-text eval mode (extractor-independent).', fg=root.typer.colors.BRIGHT_BLACK)
+    root.typer.secho('All method benchmark uses source-rows eval mode (extractor-independent).', fg=root.typer.colors.BRIGHT_BLACK)
     all_method_codex_defaults_payload = {key: value for key, value in selected_benchmark_settings.model_dump(mode='json', exclude_none=True).items() if key in root.RunSettings.model_fields}
     all_method_codex_defaults_payload.update({'llm_recipe_pipeline': root.RECIPE_CODEX_FARM_PIPELINE_SHARD_V1, 'line_role_pipeline': root.LINE_ROLE_PIPELINE_ROUTE_V2, 'llm_knowledge_pipeline': root.KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2, 'atomic_block_splitter': str(all_method_codex_defaults_payload.get('atomic_block_splitter') or 'off')})
     all_method_codex_settings = root.choose_interactive_codex_surfaces(selected_settings=root.RunSettings.from_dict(all_method_codex_defaults_payload, warn_context='interactive all-method codex defaults'), back_action=root.BACK_ACTION, surface_options=('recipe', 'line_role', 'knowledge'), prompt_codex_shard_plan_menu=root._prompt_codex_shard_plan_menu)

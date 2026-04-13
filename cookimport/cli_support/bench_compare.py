@@ -28,6 +28,7 @@ from . import (
     _golden_benchmark_root,
     _golden_pulled_from_labelstudio_root,
     _golden_sent_to_labelstudio_root,
+    _is_row_benchmark_eval_mode,
     _load_json_dict,
     _normalize_codex_farm_recipe_mode,
     _normalize_llm_recipe_pipeline,
@@ -815,7 +816,7 @@ def _resolve_line_role_baseline_joined_rows(
         history_rows,
         source_key=source_key,
         predicate=lambda row: (
-            str(row.get("eval_scope") or "").strip() == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+            _is_row_benchmark_eval_mode(row.get("eval_scope"))
             and _is_pipeline_off((row.get("_run_config") or {}).get("line_role_pipeline"))
             and str((row.get("_run_config") or {}).get("llm_recipe_pipeline") or "").strip()
             == str(llm_recipe_pipeline or "").strip()
@@ -827,8 +828,7 @@ def _resolve_line_role_baseline_joined_rows(
             history_rows,
             source_key=source_key,
             predicate=lambda row: (
-                str(row.get("eval_scope") or "").strip()
-                == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+                _is_row_benchmark_eval_mode(row.get("eval_scope"))
                 and _is_pipeline_off((row.get("_run_config") or {}).get("line_role_pipeline"))
                 and _is_pipeline_off((row.get("_run_config") or {}).get("llm_recipe_pipeline"))
             ),
@@ -914,7 +914,7 @@ def _build_line_role_regression_gate_payload(
         predicate=lambda row: (
             _is_pipeline_off((row.get("_run_config") or {}).get("llm_recipe_pipeline"))
             and _is_pipeline_off((row.get("_run_config") or {}).get("line_role_pipeline"))
-            and str(row.get("eval_scope") or "").strip() == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+            and _is_row_benchmark_eval_mode(row.get("eval_scope"))
         ),
     )
     codex_foodlab_row = _find_latest_history_row(
@@ -926,7 +926,7 @@ def _build_line_role_regression_gate_payload(
             )
             == RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
             and _is_pipeline_off((row.get("_run_config") or {}).get("line_role_pipeline"))
-            and str(row.get("eval_scope") or "").strip() == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+            and _is_row_benchmark_eval_mode(row.get("eval_scope"))
         ),
     )
     vanilla_foodlab_report = (
@@ -1120,8 +1120,7 @@ def _build_line_role_regression_gate_payload(
             predicate=lambda row: (
                 _is_pipeline_off((row.get("_run_config") or {}).get("llm_recipe_pipeline"))
                 and _is_pipeline_off((row.get("_run_config") or {}).get("line_role_pipeline"))
-                and str(row.get("eval_scope") or "").strip()
-                == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+                and _is_row_benchmark_eval_mode(row.get("eval_scope"))
             ),
         )
         sea_candidate_row = _find_latest_history_row(
@@ -1129,8 +1128,7 @@ def _build_line_role_regression_gate_payload(
             source_key=BENCHMARK_COMPARE_SEA_SOURCE_KEY,
             predicate=lambda row: (
                 not _is_pipeline_off((row.get("_run_config") or {}).get("line_role_pipeline"))
-                and str(row.get("eval_scope") or "").strip()
-                == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+                and _is_row_benchmark_eval_mode(row.get("eval_scope"))
             ),
         )
         sea_vanilla_report = (

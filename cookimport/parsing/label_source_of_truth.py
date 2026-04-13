@@ -31,7 +31,8 @@ from cookimport.parsing.canonical_line_roles import (
     CanonicalLineRolePrediction,
     label_atomic_lines_with_baseline,
 )
-from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate, atomize_blocks
+from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
+from cookimport.parsing.source_rows import build_source_rows
 
 _RECIPE_LOCAL_LABELS = {
     "RECIPE_TITLE",
@@ -105,9 +106,13 @@ def _notify_authoritative_progress(
 class AuthoritativeLabeledLine(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    row_id: str = ""
     source_block_id: str
     source_block_index: int
     atomic_index: int
+    row_ordinal: int = 0
+    start_char_in_block: int = 0
+    end_char_in_block: int = 0
     text: str
     within_recipe_span_hint: bool | None = None
     deterministic_label: str
@@ -118,6 +123,10 @@ class AuthoritativeLabeledLine(BaseModel):
 
     @model_validator(mode="after")
     def _normalize_metadata(self) -> "AuthoritativeLabeledLine":
+        if not str(self.row_id or "").strip():
+            self.row_id = f"row:{int(self.atomic_index)}"
+        if self.end_char_in_block <= 0 and self.text:
+            self.end_char_in_block = len(self.text)
         self.escalation_reasons = _unique_string_list(self.escalation_reasons)
         self.reason_tags = _unique_string_list(self.reason_tags)
         return self
@@ -213,6 +222,7 @@ class LabelFirstStageResult(BaseModel):
     outside_recipe_blocks: list[dict[str, Any]] = Field(default_factory=list)
     updated_conversion_result: ConversionResult
     archive_blocks: list[dict[str, Any]] = Field(default_factory=list)
+    source_rows: list[dict[str, Any]] = Field(default_factory=list)
     source_hash: str | None = None
 
 
@@ -247,14 +257,9 @@ def build_label_first_stage_result(
         conversion_result=conversion_result,
         source_file=source_file,
     )
-    atomized = _atomize_archive_blocks(
+    atomized = _build_source_row_candidates(
         archive_blocks,
-        conversion_result=conversion_result,
-        atomic_block_splitter=_run_setting_value(
-            run_settings,
-            "atomic_block_splitter",
-            default="off",
-        ),
+        source_hash=source_hash,
     )
     _notify_authoritative_progress(
         progress_callback=progress_callback,
@@ -262,7 +267,7 @@ def build_label_first_stage_result(
         total=4,
         detail_lines=[
             f"archive blocks: {archive_block_count}",
-            f"atomic lines: {len(atomized)}",
+            f"source rows: {len(atomized)}",
         ],
     )
     if atomized:
@@ -272,7 +277,7 @@ def build_label_first_stage_result(
             total=4,
             detail_lines=[
                 f"archive blocks: {archive_block_count}",
-                f"atomic lines: {len(atomized)}",
+                f"source rows: {len(atomized)}",
             ],
         )
         final_predictions, deterministic_reference_predictions = label_atomic_lines_with_baseline(
@@ -475,6 +480,21 @@ def build_conversion_result_from_label_spans(
         outside_recipe_blocks=non_recipe_blocks,
         updated_conversion_result=updated_result,
         archive_blocks=[dict(block) for block in ordered_blocks],
+        source_rows=[
+            {
+                "row_id": row.row_id,
+                "source_hash": source_hash,
+                "row_index": row.atomic_index,
+                "row_ordinal": row.row_ordinal,
+                "block_id": row.source_block_id,
+                "block_index": row.source_block_index,
+                "start_char_in_block": row.start_char_in_block,
+                "end_char_in_block": row.end_char_in_block,
+                "text": row.text,
+                "rule_tags": [],
+            }
+            for row in labeled_lines
+        ],
         source_hash=source_hash,
     )
 
@@ -543,7 +563,11 @@ def authoritative_lines_to_canonical_predictions(
                 ),
                 block_id=row.source_block_id,
                 block_index=block_index,
+                row_id=row.row_id,
                 atomic_index=int(row.atomic_index),
+                row_ordinal=int(row.row_ordinal),
+                start_char_in_block=int(row.start_char_in_block),
+                end_char_in_block=int(row.end_char_in_block),
                 text=row.text,
                 within_recipe_span=recipe_index is not None,
                 label=row.final_label,
@@ -671,57 +695,28 @@ def _archive_block_rows(
     return source_blocks_to_rows(resolved_blocks)
 
 
-def _atomize_archive_blocks(
+def _build_source_row_candidates(
     archive_blocks: Sequence[dict[str, Any]],
     *,
-    conversion_result: ConversionResult,
-    atomic_block_splitter: str,
+    source_hash: str,
 ) -> list[AtomicLineCandidate]:
-    del conversion_result
-    staged: list[dict[str, Any]] = []
-    for row in archive_blocks:
-        block_index = int(row.get("index", 0))
-        text = str(row.get("text") or "").strip()
-        if not text:
-            continue
-        atomized = atomize_blocks(
-            [
-                {
-                    "block_id": str(row.get("block_id") or f"block:{block_index}"),
-                    "block_index": block_index,
-                    "text": text,
-                }
-            ],
+    source_rows = build_source_rows(archive_blocks, source_hash=source_hash)
+    return [
+        AtomicLineCandidate(
             recipe_id=None,
+            row_id=str(row.row_id),
+            block_id=str(row.block_id),
+            block_index=int(row.block_index),
+            atomic_index=int(row.row_index),
+            row_ordinal=int(row.row_ordinal),
+            start_char_in_block=int(row.start_char_in_block),
+            end_char_in_block=int(row.end_char_in_block),
+            text=str(row.text),
             within_recipe_span=None,
-            atomic_block_splitter=atomic_block_splitter,
+            rule_tags=list(row.rule_tags),
         )
-        for candidate in atomized:
-            staged.append(
-                {
-                    "recipe_id": candidate.recipe_id,
-                    "block_id": candidate.block_id,
-                    "block_index": candidate.block_index,
-                    "text": candidate.text,
-                    "within_recipe_span": candidate.within_recipe_span,
-                    "rule_tags": list(candidate.rule_tags),
-                }
-            )
-
-    output: list[AtomicLineCandidate] = []
-    for atomic_index, row in enumerate(staged):
-        output.append(
-            AtomicLineCandidate(
-                recipe_id=row["recipe_id"],
-                block_id=str(row["block_id"]),
-                block_index=int(row["block_index"]),
-                atomic_index=atomic_index,
-                text=str(row["text"]),
-                within_recipe_span=row["within_recipe_span"],
-                rule_tags=list(row["rule_tags"]),
-            )
-        )
-    return output
+        for row in source_rows
+    ]
 
 
 def _build_authoritative_lines(
@@ -747,9 +742,23 @@ def _build_authoritative_lines(
         )
         labeled_lines.append(
             AuthoritativeLabeledLine(
+                row_id=str(
+                    getattr(
+                        prediction,
+                        "row_id",
+                        f"urn:cookimport:row:unknown:{int(prediction.block_index or 0)}:{int(getattr(prediction, 'row_ordinal', 0) or 0)}",
+                    )
+                ),
                 source_block_id=str(prediction.block_id),
                 source_block_index=int(prediction.block_index or 0),
                 atomic_index=int(prediction.atomic_index),
+                row_ordinal=int(getattr(prediction, "row_ordinal", 0) or 0),
+                start_char_in_block=int(
+                    getattr(prediction, "start_char_in_block", 0) or 0
+                ),
+                end_char_in_block=int(
+                    getattr(prediction, "end_char_in_block", 0) or 0
+                ),
                 text=str(prediction.text or ""),
                 within_recipe_span_hint=prediction.within_recipe_span,
                 deterministic_label=deterministic_label,
@@ -814,6 +823,20 @@ def _build_authoritative_block_labels(
             )
         )
     return output
+
+
+def _atomize_archive_blocks(
+    archive_blocks: Sequence[dict[str, Any]],
+    *,
+    source_hash: str | None = None,
+    conversion_result: ConversionResult | None = None,
+    atomic_block_splitter: str = "atomic-v1",
+) -> list[AtomicLineCandidate]:
+    del conversion_result, atomic_block_splitter
+    return _build_source_row_candidates(
+        archive_blocks,
+        source_hash=str(source_hash or "unknown"),
+    )
 
 
 def _select_block_label(

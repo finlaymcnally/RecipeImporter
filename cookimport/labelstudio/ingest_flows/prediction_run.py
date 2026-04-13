@@ -31,6 +31,7 @@ from cookimport.core.executor_fallback import (
     shutdown_executor,
 )
 from cookimport.core.models import ConversionReport, ConversionResult, MappingConfig
+from cookimport.core.source_model import normalize_source_blocks
 from cookimport.core.progress_messages import (
     format_worker_activity,
     format_worker_activity_reset,
@@ -128,6 +129,7 @@ from cookimport.parsing.label_source_of_truth import (
     build_label_first_stage_result,
 )
 from cookimport.parsing.recipe_block_atomizer import AtomicLineCandidate
+from cookimport.parsing.source_rows import build_source_rows, write_source_rows
 from cookimport.parsing.tables import ExtractedTable
 from cookimport.plugins import registry
 from cookimport.paths import resolve_book_cache_root
@@ -1878,6 +1880,14 @@ def generate_pred_run_artifacts(
     (run_root / "extracted_text.txt").write_text(
         prepared_archive_text(prepared_archive) + "\n", encoding="utf-8"
     )
+    source_rows_path: Path | None = None
+    normalized_source_blocks = normalize_source_blocks(result.source_blocks)
+    if normalized_source_blocks:
+        source_rows_path = run_root / "raw" / "source" / book_slug / "source_rows.jsonl"
+        write_source_rows(
+            source_rows_path,
+            build_source_rows(normalized_source_blocks, source_hash=file_hash),
+        )
 
     tasks_path: Path | None = None
     tasks_jsonl_status = "written" if write_label_studio_tasks else "skipped_by_config"
@@ -2049,6 +2059,7 @@ def generate_pred_run_artifacts(
             else None
         ),
         "extracted_archive_path": str(scored_extracted_archive_path),
+        "source_rows_path": str(source_rows_path) if source_rows_path is not None else None,
         "line_role_pipeline_line_role_predictions_path": (
             str(line_role_artifacts["line_role_predictions_path"])
             if isinstance(line_role_artifacts, dict)
@@ -2059,6 +2070,12 @@ def generate_pred_run_artifacts(
             str(line_role_artifacts["semantic_line_role_predictions_path"])
             if isinstance(line_role_artifacts, dict)
             and line_role_artifacts.get("semantic_line_role_predictions_path") is not None
+            else None
+        ),
+        "line_role_pipeline_row_label_predictions_path": (
+            str(line_role_artifacts["row_label_predictions_path"])
+            if isinstance(line_role_artifacts, dict)
+            and line_role_artifacts.get("row_label_predictions_path") is not None
             else None
         ),
         "line_role_pipeline_telemetry_path": (
@@ -2163,6 +2180,9 @@ def generate_pred_run_artifacts(
         run_manifest_artifacts[
             "stage_block_predictions_json"
         ] = local_stage_predictions_manifest_path
+    source_rows_manifest_path = _path_for_manifest(run_root, source_rows_path)
+    if source_rows_manifest_path:
+        run_manifest_artifacts["source_rows_jsonl"] = source_rows_manifest_path
     if isinstance(line_role_artifacts, dict):
         line_role_predictions_manifest_path = _path_for_manifest(
             run_root,
@@ -2172,6 +2192,14 @@ def generate_pred_run_artifacts(
             run_manifest_artifacts[
                 "line_role_pipeline_line_role_predictions_jsonl"
             ] = line_role_predictions_manifest_path
+        row_label_predictions_manifest_path = _path_for_manifest(
+            run_root,
+            line_role_artifacts.get("row_label_predictions_path"),
+        )
+        if row_label_predictions_manifest_path:
+            run_manifest_artifacts[
+                "line_role_pipeline_row_label_predictions_jsonl"
+            ] = row_label_predictions_manifest_path
         line_role_telemetry_manifest_path = _path_for_manifest(
             run_root,
             line_role_artifacts.get("telemetry_summary_path"),
@@ -2332,6 +2360,7 @@ def generate_pred_run_artifacts(
         "processed_run_root": processed_run_root,
         "stage_run_root": processed_run_root,
         "extracted_archive_path": scored_extracted_archive_path,
+        "source_rows_path": source_rows_path,
         "processed_report_path": processed_report_path,
         "stage_block_predictions_path": scored_stage_block_predictions_path,
         "line_role_pipeline_line_role_predictions_path": (
@@ -2341,6 +2370,11 @@ def generate_pred_run_artifacts(
         ),
         "line_role_pipeline_semantic_predictions_path": (
             line_role_artifacts.get("semantic_line_role_predictions_path")
+            if isinstance(line_role_artifacts, dict)
+            else None
+        ),
+        "line_role_pipeline_row_label_predictions_path": (
+            line_role_artifacts.get("row_label_predictions_path")
             if isinstance(line_role_artifacts, dict)
             else None
         ),

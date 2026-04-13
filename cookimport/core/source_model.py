@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from cookimport.core.models import ConversionResult, SourceBlock, SourceSupport
+from cookimport.parsing.source_rows import (
+    build_source_rows,
+    source_rows_to_payload,
+)
 
 _RAW_OUTPUT_CATEGORY = "rawArtifacts"
 _BLOCK_ID_RE = re.compile(r"^(?:b|block:)(\d+)$")
@@ -180,17 +184,26 @@ def write_source_model_artifacts(
     blocks: Sequence[SourceBlock | Mapping[str, Any]],
     support: Sequence[SourceSupport | Mapping[str, Any]],
     *,
+    source_hash: str | None = None,
     output_stats: Any | None = None,
 ) -> dict[str, Path]:
     source_dir = run_root / "raw" / "source" / workbook_slug
     source_dir.mkdir(parents=True, exist_ok=True)
     source_blocks_path = source_dir / "source_blocks.jsonl"
+    source_rows_path = source_dir / "source_rows.jsonl"
     source_support_path = source_dir / "source_support.json"
+    normalized_blocks = normalize_source_blocks(blocks)
     block_rows = [
         block.model_dump(mode="json", by_alias=True)
-        for block in normalize_source_blocks(blocks)
+        for block in normalized_blocks
     ]
     support_rows = source_support_to_payload(support)
+    source_rows_payload = source_rows_to_payload(
+        build_source_rows(
+            normalized_blocks,
+            source_hash=str(source_hash or "unknown"),
+        )
+    )
     if block_rows:
         source_blocks_path.write_text(
             "\n".join(json.dumps(row, sort_keys=True) for row in block_rows) + "\n",
@@ -198,15 +211,24 @@ def write_source_model_artifacts(
         )
     else:
         source_blocks_path.write_text("", encoding="utf-8")
+    if source_rows_payload:
+        source_rows_path.write_text(
+            "\n".join(json.dumps(row, sort_keys=True) for row in source_rows_payload) + "\n",
+            encoding="utf-8",
+        )
+    else:
+        source_rows_path.write_text("", encoding="utf-8")
     source_support_path.write_text(
         json.dumps(support_rows, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     if output_stats is not None:
         output_stats.record_path(_RAW_OUTPUT_CATEGORY, source_blocks_path)
+        output_stats.record_path(_RAW_OUTPUT_CATEGORY, source_rows_path)
         output_stats.record_path(_RAW_OUTPUT_CATEGORY, source_support_path)
     return {
         "source_blocks_path": source_blocks_path,
+        "source_rows_path": source_rows_path,
         "source_support_path": source_support_path,
     }
 

@@ -141,7 +141,6 @@ from cookimport.cli_support import (
     compute_file_hash,
     console,
     dt,
-    ensure_canonical_gold_artifacts,
     epub,
     evaluate_predicted_vs_freeform,
     evaluate_stage,
@@ -1087,7 +1086,8 @@ def register(app: typer.Typer) -> dict[str, object]:
             "--eval-mode",
             help=(
                 "Benchmark evaluator mode: stage-blocks (block-index parity required) "
-                "or canonical-text (extractor-independent alignment scoring)."
+                "or source-rows (extractor-independent row scoring). "
+                "canonical-text remains a compatibility alias."
             ),
         )] = BENCHMARK_EVAL_MODE_STAGE_BLOCKS,
         gold_adaptation_mode: Annotated[str, typer.Option(
@@ -1113,7 +1113,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             "--sequence-matcher",
             hidden=True,
             help=(
-                "Canonical-text SequenceMatcher mode (dmp only)."
+                "Legacy canonical-text compatibility SequenceMatcher mode (dmp only)."
             ),
         )] = "dmp",
         predictions_out: Annotated[Path | None, typer.Option(
@@ -1574,22 +1574,22 @@ def register(app: typer.Typer) -> dict[str, object]:
         ),
         atomic_block_splitter: Annotated[str, typer.Option(
             "--atomic-block-splitter",
+            hidden=True,
             help=(
-                "Optional deterministic mixed-block atomization mode for benchmark "
-                "line-role experiments: off or atomic-v1."
+                "Legacy compatibility knob for benchmark line-role inputs: off or atomic-v1."
             ),
         )] = "off",
         line_role_pipeline: Annotated[str, typer.Option(
             "--line-role-pipeline",
             help=(
-                "Optional canonical line-role labeling pipeline for benchmark "
+                "Optional row-based line-role labeling pipeline for benchmark "
                 f"experiments: off or {LINE_ROLE_PIPELINE_ROUTE_V2}."
             ),
         )] = "off",
         line_role_gated: Annotated[bool, typer.Option(
             "--line-role-gated/--no-line-role-gated",
             help=(
-                "Enable Milestone-5 regression gates for canonical line-role runs. "
+                "Enable Milestone-5 regression gates for row-based line-role runs. "
                 "Fails the command when gates do not pass."
             ),
         )] = False,
@@ -1697,7 +1697,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         )] = None,
         alignment_cache_dir: Annotated[Path | None, typer.Option(
             "--alignment-cache-dir",
-            help="Internal: optional canonical alignment cache directory for benchmark runs.",
+            help="Internal: optional legacy compatibility cache directory for benchmark runs.",
             hidden=True,
         )] = None,
     ) -> None:
@@ -1888,7 +1888,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         )
         selected_eval_mode = _normalize_benchmark_eval_mode(eval_mode)
         if selected_eval_mode == BENCHMARK_EVAL_MODE_STAGE_BLOCKS:
-            # Line-role/atomic paths are canonical-text benchmark features.
+            # Line-role rows only participate in source-row benchmark mode.
             selected_atomic_block_splitter = "off"
             selected_line_role_pipeline = "off"
         benchmark_codex_confirmation = _unwrap_typer_option_default(
@@ -2480,19 +2480,9 @@ def register(app: typer.Typer) -> dict[str, object]:
                             )
 
                         def _prewarm_evaluation_inputs() -> dict[str, Path] | None:
-                            if selected_eval_mode != BENCHMARK_EVAL_MODE_CANONICAL_TEXT:
+                            if selected_eval_mode == BENCHMARK_EVAL_MODE_STAGE_BLOCKS:
                                 return None
-                            canonical_paths = ensure_canonical_gold_artifacts(
-                                export_root=selected_gold.parent
-                            )
-                            return {
-                                "canonical_text_path": Path(
-                                    canonical_paths["canonical_text_path"]
-                                ),
-                                "canonical_span_labels_path": Path(
-                                    canonical_paths["canonical_span_labels_path"]
-                                ),
-                            }
+                            return None
 
                         pipelined_result = run_pipelined(
                             run_prediction_bundle=_run_prediction_stage_bundle,
@@ -2910,7 +2900,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         line_role_diagnostics_artifacts: dict[str, Any] = {}
         line_role_gate_payload: dict[str, Any] | None = None
         if (
-            selected_eval_mode == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+            selected_eval_mode != BENCHMARK_EVAL_MODE_STAGE_BLOCKS
             and selected_line_role_pipeline != "off"
         ):
             line_role_output_dir = eval_output_dir / "line-role-pipeline"
@@ -3309,16 +3299,15 @@ def register(app: typer.Typer) -> dict[str, object]:
                 eval_output_dir,
                 eval_profile_top_path,
             )
-        if selected_eval_mode == BENCHMARK_EVAL_MODE_CANONICAL_TEXT:
+        if selected_eval_mode != BENCHMARK_EVAL_MODE_STAGE_BLOCKS:
             gold_export_root = selected_gold.parent
             benchmark_artifacts["gold_export_root"] = _path_for_manifest(
                 eval_output_dir,
                 gold_export_root,
             )
             for artifact_name in (
-                "canonical_text.txt",
-                "canonical_span_labels.jsonl",
-                "canonical_manifest.json",
+                "row_gold_labels.jsonl",
+                "row_gold_conflicts.jsonl",
             ):
                 artifact_path = gold_export_root / artifact_name
                 if artifact_path.exists():
@@ -3529,31 +3518,13 @@ def register(app: typer.Typer) -> dict[str, object]:
         if not suppress_summary:
             typer.secho("Benchmark complete.", fg=typer.colors.GREEN)
             typer.secho(f"Gold export: {selected_gold}", fg=typer.colors.CYAN)
-            if (
-                selected_eval_mode == BENCHMARK_EVAL_MODE_CANONICAL_TEXT
-                and isinstance(prewarmed_canonical_paths, dict)
-            ):
-                canonical_text_path = prewarmed_canonical_paths.get("canonical_text_path")
-                canonical_spans_path = prewarmed_canonical_paths.get(
-                    "canonical_span_labels_path"
-                )
-                if canonical_text_path is not None:
-                    typer.secho(
-                        f"Canonical gold text: {canonical_text_path}",
-                        fg=typer.colors.CYAN,
-                    )
-                if canonical_spans_path is not None:
-                    typer.secho(
-                        f"Canonical scored labels: {canonical_spans_path}",
-                        fg=typer.colors.CYAN,
-                    )
             typer.secho(f"Benchmark artifact root: {pred_run}", fg=typer.colors.CYAN)
             if processed_run_root is not None:
                 typer.secho(f"Processed output: {processed_run_root}", fg=typer.colors.CYAN)
-            if selected_eval_mode == BENCHMARK_EVAL_MODE_CANONICAL_TEXT:
+            if selected_eval_mode != BENCHMARK_EVAL_MODE_STAGE_BLOCKS:
                 typer.secho(
                     "Overall line accuracy: "
-                    f"{float(report.get('overall_line_accuracy') or 0.0):.3f}",
+                    f"{float(report.get('overall_line_accuracy') or report.get('overall_block_accuracy') or 0.0):.3f}",
                     fg=typer.colors.CYAN,
                 )
             else:
