@@ -335,20 +335,28 @@ def _default_structured_line_role_output(payload: Mapping[str, Any]) -> dict[str
         or payload.get("rows")
         or []
     )
-    rows = [
-        dict(row)
-        for row in raw_rows
-        if isinstance(row, Mapping)
-    ]
-    if raw_rows:
-        return {"labels": ["RECIPE_NOTES" for _row in raw_rows]}
     output_rows: list[dict[str, Any]] = []
-    for row in rows:
+    for row in raw_rows:
+        if not isinstance(row, Mapping):
+            continue
+        row = dict(row)
         row_id = str(row.get("row_id") or "").strip()
         if not row_id:
             continue
         output_rows.append({"row_id": row_id, "label": "RECIPE_NOTES"})
-    return {"rows": output_rows}
+    if output_rows:
+        return {"rows": output_rows}
+    if raw_rows:
+        return {
+            "rows": [
+                {
+                    "row_id": f"r{index + 1:02d}",
+                    "label": "RECIPE_NOTES",
+                }
+                for index, _row in enumerate(raw_rows)
+            ]
+        }
+    return {"rows": []}
 
 
 def build_structural_pipeline_output(

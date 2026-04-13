@@ -487,13 +487,19 @@ def _line_role_structured_row_id(index: int) -> str:
     return f"r{index + 1:02d}"
 
 
-def _line_role_structured_packet_rows(shard: root.ShardManifestEntryV1) -> list[str]:
-    rows: list[str] = []
+def _line_role_structured_packet_rows(
+    shard: root.ShardManifestEntryV1,
+) -> list[dict[str, root.Any]]:
+    rows: list[dict[str, root.Any]] = []
     for position, (_atomic_index, block_index, text) in enumerate(
         _line_role_structured_input_rows(shard)
     ):
         rows.append(
-            f"{_line_role_structured_row_id(position)} | {block_index} | {text}"
+            {
+                "row_id": _line_role_structured_row_id(position),
+                "block_index": int(block_index),
+                "text": str(text or ""),
+            }
         )
     return rows
 
@@ -502,9 +508,9 @@ def _line_role_structured_context_rows(
     *,
     shard: root.ShardManifestEntryV1,
     key: str,
-) -> list[str]:
+) -> list[dict[str, root.Any]]:
     rows_payload = root._coerce_mapping_dict(shard.input_payload).get(key) or []
-    rows: list[str] = []
+    rows: list[dict[str, root.Any]] = []
     for row in rows_payload:
         if not isinstance(row, (list, tuple)) or len(row) < 2:
             continue
@@ -514,7 +520,12 @@ def _line_role_structured_context_rows(
         else:
             block_index = int(row[0])
             text = str(row[1] or "")
-        rows.append(f"{block_index} | {text}")
+        rows.append(
+            {
+                "block_index": int(block_index),
+                "text": str(text or ""),
+            }
+        )
     return rows
 
 
@@ -522,7 +533,7 @@ def _build_line_role_structured_packet(*, shard: root.ShardManifestEntryV1, pack
     del deterministic_baseline_by_atomic_index
     validation_metadata_dict = dict(validation_metadata or {})
     payload: dict[str, root.Any] = {
-        "schema_version": "line_role_structured_packet.v3",
+        "schema_version": "line_role_structured_packet.v4",
         "stage_key": "line_role",
         "packet_kind": str(packet_kind or "initial"),
         "shard_id": shard.shard_id,
@@ -572,8 +583,11 @@ def _build_line_role_structured_packet(*, shard: root.ShardManifestEntryV1, pack
             ]
             previous_failed_rows.append(
                 {
-                    "row_index": position,
-                    "row_text": str(text or ""),
+                    "row_id": _line_role_structured_row_id(position),
+                    "block_index": int(
+                        _line_role_structured_input_rows(shard)[position][1]
+                    ),
+                    "text": str(text or ""),
                     "previous_label": previous_label,
                     "failure_reasons": sorted(
                         set([*failure_reasons, *specific_validation_errors])
@@ -635,25 +649,26 @@ def _build_line_role_structured_prompt(*, packet: root.Mapping[str, root.Any]) -
     return (
         "Return JSON only.\n\n"
         "Review the canonical line-role packet and respond with one JSON object shaped like:\n"
-        '{"labels":["<ALLOWED_LABEL>","<ALLOWED_LABEL>"]}\n\n'
+        '{"rows":[{"row_id":"r01","label":"<ALLOWED_LABEL>"}]}\n\n'
         "Shared labeling contract:\n"
         + shared_contract
         + "\n\n"
         + "Rules:\n"
         f"- Allowed labels: {allowed_labels}\n"
         f"- {owned_row_count_note}\n"
-        f"- Return exactly {owned_row_count} label(s): one for each owned row shown in `rows`.\n"
-        "- `rows` is an ordered array of compact row strings in the form `rXX | block_index | text`.\n"
+        f"- Return exactly {owned_row_count} row answer(s): one for each owned row shown in `rows`.\n"
+        "- `rows` is an ordered array of row objects with `row_id`, `block_index`, and `text`.\n"
         "- Treat `rows` as one contiguous ordered shard slice, not as isolated examples.\n"
         "- Label in one pass, but use the surrounding owned rows to understand local transitions and resets before deciding each row.\n"
         "- Keep the whole shard sequence in mind while labeling, especially around recipe starts, yields, variants, and fresh-title resets.\n"
-        "- Keep label order exactly aligned with the packet `rows` order.\n"
-        "- The first label applies to `rows[0]`, the second label applies to `rows[1]`, and so on.\n"
+        "- Keep the answer rows aligned to the packet `rows` order and packet-local `row_id` values.\n"
+        "- Every owned `row_id` must appear exactly once in the answer.\n"
         "- Finish the full owned-row list; do not stop early.\n"
-        "- Do not copy the placeholder schema literally; replace it with the full ordered label list for this shard.\n"
+        "- Do not copy the placeholder schema literally; replace it with the full ordered row answer list for this shard.\n"
         "- If `previous_failed_rows` are shown, those are the prior labels for these same rows and the reasons repo validation rejected them. Re-check from the packet text and nearby context; do not just echo the previous labels.\n"
-        f"- {context_note}Do not label any `context_before_rows` or `context_after_rows`; they are reference-only compact strings in the form `block_index | text`.\n"
-        "- Return one JSON object with only the top-level key `labels`.\n"
+        f"- {context_note}Do not label any `context_before_rows` or `context_after_rows`; they are reference-only row objects with `block_index` and `text`.\n"
+        "- Return one JSON object with only the top-level key `rows`.\n"
+        "- Each answer row object must contain only `row_id` and `label`.\n"
         "- Do not include commentary, markdown, or extra keys.\n\n"
         + repair_note
         + "Packet JSON:\n"
@@ -683,12 +698,12 @@ def _build_line_role_structured_output_schema(
     if not isinstance(schema_copy, dict):
         return base_schema_path
     properties_payload = root._coerce_mapping_dict(schema_copy.get('properties'))
-    labels_payload = dict(root._coerce_mapping_dict(properties_payload.get('labels')))
-    if not labels_payload:
+    rows_payload = dict(root._coerce_mapping_dict(properties_payload.get('rows')))
+    if not rows_payload:
         return base_schema_path
-    labels_payload['minItems'] = max(0, int(expected_label_count))
-    labels_payload['maxItems'] = max(0, int(expected_label_count))
-    properties_payload['labels'] = labels_payload
+    rows_payload['minItems'] = max(0, int(expected_label_count))
+    rows_payload['maxItems'] = max(0, int(expected_label_count))
+    properties_payload['rows'] = rows_payload
     schema_copy['properties'] = properties_payload
     schema_path = session_root / f'output_schema_{schema_stem}.json'
     schema_path.write_text(
@@ -698,23 +713,75 @@ def _build_line_role_structured_output_schema(
     return schema_path
 
 
-def _translate_line_role_structured_labels_payload(
+def _translate_line_role_structured_rows_payload(
     *,
-    labels_payload: root.Sequence[root.Any],
+    rows_payload: root.Sequence[root.Any],
     ordered_atomic_indices: root.Sequence[int],
-) -> tuple[list[dict[str, root.Any]], dict[str, root.Any]]:
+) -> tuple[list[dict[str, root.Any]], tuple[str, ...], dict[str, root.Any]]:
+    expected_row_ids = [
+        _line_role_structured_row_id(index)
+        for index, _value in enumerate(ordered_atomic_indices)
+    ]
+    atomic_index_by_row_id = {
+        row_id: int(ordered_atomic_indices[index])
+        for index, row_id in enumerate(expected_row_ids)
+    }
     translated_rows: list[dict[str, root.Any]] = []
-    for index, label_value in enumerate(labels_payload):
-        row_payload: dict[str, root.Any] = {"label": label_value}
-        if index < len(ordered_atomic_indices):
-            row_payload["atomic_index"] = int(ordered_atomic_indices[index])
-        translated_rows.append(row_payload)
-    return translated_rows, {
-        "ordered_label_vector": {
+    returned_row_ids: list[str] = []
+    duplicate_row_ids: set[str] = set()
+    unknown_row_ids: set[str] = set()
+    row_id_missing_count = 0
+    seen_row_ids: set[str] = set()
+    for row in rows_payload:
+        if not isinstance(row, root.Mapping):
+            row_id_missing_count += 1
+            continue
+        row_dict = dict(row)
+        row_id = str(row_dict.get("row_id") or "").strip()
+        if not row_id:
+            row_id_missing_count += 1
+            continue
+        if row_id in seen_row_ids:
+            duplicate_row_ids.add(row_id)
+            continue
+        seen_row_ids.add(row_id)
+        atomic_index = atomic_index_by_row_id.get(row_id)
+        if atomic_index is None:
+            unknown_row_ids.add(row_id)
+            continue
+        returned_row_ids.append(row_id)
+        translated_rows.append(
+            {
+                "atomic_index": int(atomic_index),
+                "label": row_dict.get("label"),
+            }
+        )
+    missing_row_ids = [
+        row_id for row_id in expected_row_ids if row_id not in set(returned_row_ids)
+    ]
+    translation_errors: list[str] = []
+    if row_id_missing_count:
+        translation_errors.append("row_id_missing")
+    if missing_row_ids:
+        translation_errors.append("missing_row_ids:" + ",".join(missing_row_ids))
+    translation_errors.extend(
+        f"duplicate_row_id:{row_id}" for row_id in sorted(duplicate_row_ids)
+    )
+    translation_errors.extend(
+        f"unknown_row_id:{row_id}" for row_id in sorted(unknown_row_ids)
+    )
+    return translated_rows, tuple(dict.fromkeys(translation_errors)), {
+        "row_grounded_output": {
             "applied": True,
-            "returned_label_count": len(labels_payload),
+            "returned_row_count": len(rows_payload),
             "expected_row_count": len(ordered_atomic_indices),
-        }
+        },
+        "expected_row_ids": expected_row_ids,
+        "returned_row_ids": returned_row_ids,
+        "missing_row_ids": missing_row_ids,
+        "duplicate_row_ids": sorted(duplicate_row_ids),
+        "unknown_row_ids": sorted(unknown_row_ids),
+        "row_id_missing_count": row_id_missing_count,
     }
 
 
@@ -740,28 +807,19 @@ def _evaluate_line_role_structured_response(
             {"response_type": type(parsed_payload).__name__},
             "invalid",
         )
-    labels_payload = parsed_payload.get("labels")
-    if not isinstance(labels_payload, list):
-        return None, ("labels_missing_or_not_a_list",), {}, "invalid"
+    rows_payload = parsed_payload.get("rows")
+    if not isinstance(rows_payload, list):
+        return None, ("rows_missing_or_not_a_list",), {}, "invalid"
     ordered_atomic_indices = [int(value) for value in shard.owned_ids]
-    translated_rows, response_contract_metadata = (
-        _translate_line_role_structured_labels_payload(
-            labels_payload=labels_payload,
+    translated_rows, translation_errors, response_contract_metadata = (
+        _translate_line_role_structured_rows_payload(
+            rows_payload=rows_payload,
             ordered_atomic_indices=ordered_atomic_indices,
         )
     )
     response_contract_error_list: list[str] = []
-    if len(labels_payload) != len(ordered_atomic_indices):
-        response_contract_error_list.append("wrong_label_count")
-        response_contract_metadata = {
-            **response_contract_metadata,
-            "label_count_mismatch": {
-                "expected_row_count": len(ordered_atomic_indices),
-                "returned_label_count": len(labels_payload),
-            },
-        }
     extra_top_level_keys = sorted(
-        key for key in parsed_payload.keys() if str(key).strip() != "labels"
+        key for key in parsed_payload.keys() if str(key).strip() != "rows"
     )
     if extra_top_level_keys:
         response_contract_error_list.append("extra_top_level_keys")
@@ -807,6 +865,7 @@ def _evaluate_line_role_structured_response(
     merged_errors = tuple(
         dict.fromkeys(
             [
+                *[str(error).strip() for error in translation_errors if str(error).strip()],
                 *[str(error).strip() for error in response_contract_errors if str(error).strip()],
                 *[str(error).strip() for error in validation_errors if str(error).strip()],
             ]

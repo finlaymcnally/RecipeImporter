@@ -11,30 +11,31 @@ Task boundary:
 - Your first response must be the final JSON object.
 - Never invent lines or labels.
 
-Return strict JSON as a JSON object with one ordered `labels` array:
-{"labels":["<ALLOWED_LABEL>","<ALLOWED_LABEL>"]}
+Return strict JSON as a JSON object with one ordered `rows` array:
+{"rows":[{"row_id":"r01","label":"<ALLOWED_LABEL>"}]}
 
 Task file shape:
-{"v":2,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[[122,209,"Earlier context"]],"rows":[[123,210,"1 cup flour"]],"context_after_rows":[[124,211,"Later context"]]}
+{"v":2,"shard_id":"line-role-canonical-0001-a000123-a000456","context_before_rows":[{"block_index":209,"text":"Earlier context"}],"rows":[{"row_id":"r01","block_index":210,"text":"1 cup flour"}],"context_after_rows":[{"block_index":211,"text":"Later context"}]}
 
 Rules:
 - Output only JSON.
 - Your final answer must be that JSON object and nothing else.
-- Use only the top-level key `labels`.
-- Return exactly one label for every owned input row in `rows`.
-- The task file `rows` array stores compact row tuples `[atomic_index, block_index, current_line]`.
-- Keep label order exactly aligned with the task file's `rows` array.
-- The first label applies to `rows[0]`, the second label applies to `rows[1]`, and so on.
+- Use only the top-level key `rows`.
+- Return exactly one answer row for every owned input row in `rows`.
+- The task file `rows` array stores ordered row objects with `row_id`, `block_index`, and `text`.
+- Keep answer rows aligned with the task file's `rows` array and its `row_id` values.
+- Every owned `row_id` must appear exactly once in the answer.
 - Finish the full owned-row list; do not stop early.
 - Treat the task file as one ordered contiguous slice of the book.
 - The task file has one version marker `v`, one `shard_id`, optional `context_before_rows` / `context_after_rows`, and owned `rows` arrays.
-- `context_before_rows` and `context_after_rows`, when present, are reference-only neighboring row tuples `[atomic_index, block_index, current_line]`.
+- `context_before_rows` and `context_after_rows`, when present, are reference-only neighboring row objects with `block_index` and `text`.
 - Never label reference-only neighboring rows.
 - Do not label `context_before_rows` or `context_after_rows`; they are for interpretation only.
-- Use each `rows[*][2]` current-line string as the line to label.
-- Use neighboring rows in `rows[*]` for local context when needed.
+- Use each owned row object's `text` string as the line to label.
+- Use neighboring row objects in `rows[*]` for local context when needed.
 - Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`.
-- Return one JSON object with only the top-level key `labels`.
+- Each output row must contain only `row_id` and `label`.
+- Return one JSON object with only the top-level key `rows`.
 
 Shared labeling contract:
 {{SHARED_CONTRACT_BLOCK}}

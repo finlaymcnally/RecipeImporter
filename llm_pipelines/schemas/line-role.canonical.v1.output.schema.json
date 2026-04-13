@@ -4,25 +4,38 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "labels"
+    "rows"
   ],
   "properties": {
-    "labels": {
+    "rows": {
       "type": "array",
       "items": {
-        "type": "string",
-        "enum": [
-          "RECIPE_TITLE",
-          "INGREDIENT_LINE",
-          "INSTRUCTION_LINE",
-          "HOWTO_SECTION",
-          "YIELD_LINE",
-          "TIME_LINE",
-          "RECIPE_NOTES",
-          "RECIPE_VARIANT",
-          "NONRECIPE_CANDIDATE",
-          "NONRECIPE_EXCLUDE"
-        ]
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "row_id",
+          "label"
+        ],
+        "properties": {
+          "row_id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "enum": [
+              "RECIPE_TITLE",
+              "INGREDIENT_LINE",
+              "INSTRUCTION_LINE",
+              "HOWTO_SECTION",
+              "YIELD_LINE",
+              "TIME_LINE",
+              "RECIPE_NOTES",
+              "RECIPE_VARIANT",
+              "NONRECIPE_CANDIDATE",
+              "NONRECIPE_EXCLUDE"
+            ]
+          }
+        }
       }
     }
   }

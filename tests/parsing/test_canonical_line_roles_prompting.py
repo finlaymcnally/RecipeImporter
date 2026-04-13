@@ -174,27 +174,29 @@ def test_line_role_inline_packet_uses_ordered_rows_and_neighbor_context() -> Non
     )
 
     assert packet["rows"] == [
-        "r01 | 210 | Bright Cabbage Slaw",
-        "r02 | 211 | Serves 4 generously",
+        {"row_id": "r01", "block_index": 210, "text": "Bright Cabbage Slaw"},
+        {"row_id": "r02", "block_index": 211, "text": "Serves 4 generously"},
     ]
-    assert packet["context_before_rows"] == ["209 | Variations"]
-    assert packet["context_after_rows"] == ["212 | 1/2 medium red onion, sliced thinly"]
+    assert packet["context_before_rows"] == [{"block_index": 209, "text": "Variations"}]
+    assert packet["context_after_rows"] == [
+        {"block_index": 212, "text": "1/2 medium red onion, sliced thinly"}
+    ]
     assert "owned_ids" not in packet
-    assert '{"labels":["<ALLOWED_LABEL>","<ALLOWED_LABEL>"]}' in prompt
+    assert '{"rows":[{"row_id":"r01","label":"<ALLOWED_LABEL>"}]}' in prompt
     assert "This packet has 2 owned row(s)" in prompt
-    assert "Return exactly 2 label(s): one for each owned row shown in `rows`." in prompt
-    assert "`rows` is an ordered array of compact row strings in the form `rXX | block_index | text`." in prompt
+    assert "Return exactly 2 row answer(s): one for each owned row shown in `rows`." in prompt
+    assert "`rows` is an ordered array of row objects with `row_id`, `block_index`, and `text`." in prompt
     assert "Treat `rows` as one contiguous ordered shard slice, not as isolated examples." in prompt
     assert "Label in one pass, but use the surrounding owned rows" in prompt
     assert "Keep the whole shard sequence in mind while labeling" in prompt
-    assert "Keep label order exactly aligned with the packet `rows` order." in prompt
-    assert "The first label applies to `rows[0]`" in prompt
+    assert "Keep the answer rows aligned to the packet `rows` order and packet-local `row_id` values." in prompt
+    assert "Every owned `row_id` must appear exactly once in the answer." in prompt
     assert "Finish the full owned-row list; do not stop early." in prompt
     assert "Do not copy the placeholder schema literally" in prompt
     assert "nearby context rows are shown" in prompt
 
 
-def test_line_role_watchdog_retry_prompt_uses_compact_rows_and_labels_array() -> None:
+def test_line_role_watchdog_retry_prompt_uses_row_grounded_output_contract() -> None:
     shard = ShardManifestEntryV1(
         shard_id="line-role-canonical-0001-a000010-a000011",
         owned_ids=("10", "11"),
@@ -210,16 +212,21 @@ def test_line_role_watchdog_retry_prompt_uses_compact_rows_and_labels_array() ->
         successful_examples=[
             {
                 "shard_id": "line-role-canonical-0001-a000008-a000009",
-                "output": {"labels": ["RECIPE_TITLE", "YIELD_LINE"]},
+                "output": {
+                    "rows": [
+                        {"row_id": "r01", "label": "RECIPE_TITLE"},
+                        {"row_id": "r02", "label": "YIELD_LINE"},
+                    ]
+                },
             }
         ],
     )
 
-    assert '{"labels":["<ALLOWED_LABEL>"]}' in prompt
-    assert "Use only the top-level key `labels`." in prompt
-    assert "Keep label order exactly aligned with the authoritative row order shown below." in prompt
-    assert '<BEGIN_AUTHORITATIVE_ROWS>\n"r01 | 210 | Bright Cabbage Slaw"\n"r02 | 211 | Serves 4 generously"\n<END_AUTHORITATIVE_ROWS>' in prompt
-    assert '"output": {"labels": ["RECIPE_TITLE", "YIELD_LINE"]}' in prompt
+    assert '{"rows":[{"row_id":"r01","label":"<ALLOWED_LABEL>"}]}' in prompt
+    assert "Use only the top-level key `rows`." in prompt
+    assert "Keep answer rows aligned with the authoritative row order and `row_id` values shown below." in prompt
+    assert '<BEGIN_AUTHORITATIVE_ROWS>\n{"block_index": 210, "row_id": "r01", "text": "Bright Cabbage Slaw"}\n{"block_index": 211, "row_id": "r02", "text": "Serves 4 generously"}\n<END_AUTHORITATIVE_ROWS>' in prompt
+    assert '"output": {"rows": [{"label": "RECIPE_TITLE", "row_id": "r01"}, {"label": "YIELD_LINE", "row_id": "r02"}]}' in prompt
 
 
 def test_shared_line_role_contract_block_appears_in_file_prompt() -> None:
@@ -447,7 +454,7 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     )
 
     assert (
-        '{"labels":["<ALLOWED_LABEL>","<ALLOWED_LABEL>"]}'
+        '{"rows":[{"row_id":"r01","label":"<ALLOWED_LABEL>"}]}'
         in prompt
     )
     assert "line-role-canonical-0001-a000123-a000456" in prompt
@@ -460,17 +467,17 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert "Do not run shell commands, Python, or any other tools." in prompt
     assert "Do not describe your plan, reasoning, or heuristics." in prompt
     assert "Your first response must be the final JSON object." in prompt
-    assert "Use only the top-level key `labels`." in prompt
-    assert "The task file `rows` array stores compact row tuples `[atomic_index, block_index, current_line]`." in prompt
-    assert "Return exactly one label for every owned input row in `rows`." in prompt
+    assert "Use only the top-level key `rows`." in prompt
+    assert "The task file `rows` array stores ordered row objects with `row_id`, `block_index`, and `text`." in prompt
+    assert "Return exactly one answer row for every owned input row in `rows`." in prompt
     assert "Finish the full owned-row list; do not stop early." in prompt
-    assert "Use each `rows[*][2]` current-line string as the line to label." in prompt
+    assert "Use each owned row object's `text` string as the line to label." in prompt
     assert "Never label reference-only neighboring rows" in prompt
     assert "Do not label `context_before_rows` or `context_after_rows`; they are for interpretation only." in prompt
     assert "Use `context_before_rows` and `context_after_rows` only for context around the owned rows in `rows`." in prompt
-    assert '"r01 | 210 | 1 cup flour"' in prompt
-    assert '"209 | Earlier context"' in prompt
-    assert '"211 | Later context"' in prompt
+    assert '{"block_index": 210, "row_id": "r01", "text": "1 cup flour"}' in prompt
+    assert '{"block_index": 209, "text": "Earlier context"}' in prompt
+    assert '{"block_index": 211, "text": "Later context"}' in prompt
     assert "If the shard rows are outside recipe context, default to `NONRECIPE_CANDIDATE`" in prompt
     assert (
         "Variant context is local, not sticky. End a nearby `Variations` run"
@@ -501,13 +508,13 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
         in prompt
     )
     assert "This book will teach you the four elements of good cooking." in prompt
-    assert "Keep label order exactly aligned with the task file's `rows` array." in prompt
+    assert "Keep answer rows aligned with the task file's `rows` array and its `row_id` values." in prompt
     assert "A single outside-recipe heading by itself is not enough" in prompt
     assert "Reference-only neighboring context:" in prompt
     assert "These neighboring rows are for context only. Do not label them." in prompt
-    assert '<BEGIN_CONTEXT_BEFORE_ROWS>\n"209 | Earlier context"\n<END_CONTEXT_BEFORE_ROWS>' in prompt
-    assert '<BEGIN_CONTEXT_AFTER_ROWS>\n"211 | Later context"\n<END_CONTEXT_AFTER_ROWS>' in prompt
-    assert '<BEGIN_AUTHORITATIVE_ROWS>\n"r01 | 210 | 1 cup flour"\n<END_AUTHORITATIVE_ROWS>' in prompt
+    assert '<BEGIN_CONTEXT_BEFORE_ROWS>\n{"block_index": 209, "text": "Earlier context"}\n<END_CONTEXT_BEFORE_ROWS>' in prompt
+    assert '<BEGIN_CONTEXT_AFTER_ROWS>\n{"block_index": 211, "text": "Later context"}\n<END_CONTEXT_AFTER_ROWS>' in prompt
+    assert '<BEGIN_AUTHORITATIVE_ROWS>\n{"block_index": 210, "row_id": "r01", "text": "1 cup flour"}\n<END_AUTHORITATIVE_ROWS>' in prompt
 
 
 def test_canonical_line_role_file_prompt_ignores_removed_shard_context_fields() -> None:

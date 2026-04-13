@@ -611,35 +611,41 @@ def _build_line_role_watchdog_example(
         return None
     labels = payload.get("labels")
     if isinstance(labels, list):
-        compact_labels = [
-            str(label).strip()
-            for label in labels[:2]
+        compact_rows = [
+            {
+                "row_id": f"r{index + 1:02d}",
+                "label": str(label).strip(),
+            }
+            for index, label in enumerate(labels[:2])
             if str(label).strip()
         ]
-        if not compact_labels:
+        if not compact_rows:
             return None
         return {
             "shard_id": shard.shard_id,
             "owned_ids": list(shard.owned_ids),
             "output": {
-                "labels": compact_labels,
+                "rows": compact_rows,
             },
         }
     rows = payload.get("rows")
     if not isinstance(rows, list):
         return None
-    compact_labels = [
-        str(row_payload.get("label") or "").strip()
-        for row_payload in rows[:2]
+    compact_rows = [
+        {
+            "row_id": str(row_payload.get("row_id") or f"r{index + 1:02d}").strip(),
+            "label": str(row_payload.get("label") or "").strip(),
+        }
+        for index, row_payload in enumerate(rows[:2])
         if isinstance(row_payload, Mapping) and str(row_payload.get("label") or "").strip()
     ]
-    if not compact_labels:
+    if not compact_rows:
         return None
     return {
         "shard_id": shard.shard_id,
         "owned_ids": list(shard.owned_ids),
         "output": {
-            "labels": compact_labels,
+            "rows": compact_rows,
         },
     }
 
@@ -772,10 +778,10 @@ def _build_line_role_watchdog_retry_prompt(
         "- Do not think step-by-step out loud.\n"
         "- The first emitted character must be `{`.\n"
         "- Your first response must be the final JSON object.\n"
-        f"- Return one JSON object shaped like {{\"labels\":[\"<ALLOWED_LABEL>\"]}} with exactly {row_count} label(s).\n"
-        "- Use only the top-level key `labels`.\n"
-        "- Keep label order exactly aligned with the authoritative row order shown below.\n"
-        "- The first label applies to the first row, the second label applies to the second row, and so on.\n"
+        f"- Return one JSON object shaped like {{\"rows\":[{{\"row_id\":\"r01\",\"label\":\"<ALLOWED_LABEL>\"}}]}} with exactly {row_count} answer row(s).\n"
+        "- Use only the top-level key `rows`.\n"
+        "- Keep answer rows aligned with the authoritative row order and `row_id` values shown below.\n"
+        "- Every authoritative `row_id` must appear exactly once in the answer.\n"
         f"- Allowed labels: {allowed_labels}\n"
         "- Finish the full owned-row list; do not stop early.\n\n"
         "- Treat span codes and hint lists as weak hints only, not final truth.\n"
@@ -791,7 +797,7 @@ def _build_line_role_watchdog_retry_prompt(
         "<BEGIN_AUTHORITATIVE_ROWS>\n"
         f"{authoritative_rows}\n"
         "<END_AUTHORITATIVE_ROWS>\n\n"
-        "Each authoritative row is rendered as `rXX | block_index | text`.\n"
+        "Each authoritative row is rendered as a row object with `row_id`, `block_index`, and `text`.\n"
         "Recompute the full shard from those rows. Do not copy sibling examples verbatim.\n\n"
         "Successful sibling examples:\n"
         "<BEGIN_SUCCESSFUL_SIBLING_EXAMPLES>\n"

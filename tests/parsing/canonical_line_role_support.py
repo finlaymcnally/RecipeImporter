@@ -203,14 +203,21 @@ def _line_role_runner(
             row_ids = re.findall(r'"row_id"\s*:\s*"([^"]+)"', prompt_text)
         if structured_packet_rows:
             return {
-                "labels": [
-                    (
-                        label_by_atomic_index or {}
-                    ).get(
-                        atomic_indices[index] if index < len(atomic_indices) else index,
-                        "NONRECIPE_CANDIDATE",
-                    )
-                    for index, _row in enumerate(structured_packet_rows)
+                "rows": [
+                    {
+                        "row_id": (
+                            str(row.get("row_id") or "").strip()
+                            if isinstance(row, dict)
+                            else f"r{index + 1:02d}"
+                        ),
+                        "label": (
+                            label_by_atomic_index or {}
+                        ).get(
+                            atomic_indices[index] if index < len(atomic_indices) else index,
+                            "NONRECIPE_CANDIDATE",
+                        ),
+                    }
+                    for index, row in enumerate(structured_packet_rows)
                 ]
             }
         if row_ids:

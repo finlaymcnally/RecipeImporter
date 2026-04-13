@@ -961,8 +961,18 @@ def test_label_atomic_lines_inline_json_repairs_in_place(tmp_path) -> None:
                 elif isinstance(row, (list, tuple)) and row:
                     atomic_indices.append(int(row[0]))
             label = "NOT_A_REAL_LABEL" if len(self.calls) == 1 else "RECIPE_NOTES"
-            label_count = len(structured_packet_rows) or len(atomic_indices)
-            return {"labels": [label for _ in range(label_count)]}
+            packet_rows = list(structured_packet_rows) or [
+                {"row_id": f"r{index + 1:02d}"} for index, _value in enumerate(atomic_indices)
+            ]
+            return {
+                "rows": [
+                    {
+                        "row_id": str((row or {}).get("row_id") or f"r{index + 1:02d}"),
+                        "label": label,
+                    }
+                    for index, row in enumerate(packet_rows)
+                ]
+            }
 
     runner = _StructuredRepairRunner()
     predictions = label_atomic_lines(
@@ -986,7 +996,7 @@ def test_label_atomic_lines_inline_json_repairs_in_place(tmp_path) -> None:
     ]
 
 
-def test_label_atomic_lines_inline_json_rejects_row_shaped_output_and_repairs_with_labels(
+def test_label_atomic_lines_inline_json_rejects_row_answers_without_row_ids_and_repairs(
     tmp_path,
 ) -> None:
     candidates = [
@@ -1023,7 +1033,12 @@ def test_label_atomic_lines_inline_json_rejects_row_shaped_output_and_repairs_wi
                         {"atomic_index": 2, "label": "RECIPE_NOTES"},
                     ]
                 }
-            return {"labels": ["RECIPE_NOTES", "RECIPE_NOTES"]}
+            return {
+                "rows": [
+                    {"row_id": "r01", "label": "RECIPE_NOTES"},
+                    {"row_id": "r02", "label": "RECIPE_NOTES"},
+                ]
+            }
 
     runner = _RowShapedFallbackRunner()
     predictions = label_atomic_lines(
@@ -1071,7 +1086,10 @@ def test_label_atomic_lines_inline_json_rejects_row_shaped_output_and_repairs_wi
             / "repair_packet_01.json"
         ).read_text(encoding="utf-8")
     )
-    assert initial_status["validation_errors"] == ["labels_missing_or_not_a_list"]
+    assert initial_status["validation_errors"] == [
+        "row_id_missing",
+        "missing_row_ids:r01,r02",
+    ]
 
 
 def test_label_atomic_lines_inline_json_prompt_avoids_literal_example_copy_failure(
@@ -1097,17 +1115,25 @@ def test_label_atomic_lines_inline_json_prompt_avoids_literal_example_copy_failu
         def _build_output(self, payload):  # noqa: ANN001
             prompt_text = str(self.calls[-1].get("prompt_text") or "")
             if (
-                '{"labels":["RECIPE_NOTES","NONRECIPE_EXCLUDE"]}'
+                '{"rows":[{"row_id":"r01","label":"RECIPE_NOTES"},{"row_id":"r02","label":"NONRECIPE_EXCLUDE"}]}'
                 in prompt_text
             ):
-                return {"labels": ["RECIPE_NOTES", "NONRECIPE_EXCLUDE"]}
+                return {
+                    "rows": [
+                        {"row_id": "r01", "label": "RECIPE_NOTES"},
+                        {"row_id": "r02", "label": "NONRECIPE_EXCLUDE"},
+                    ]
+                }
             structured_packet_rows = (
                 payload.get("structured_packet_rows") if isinstance(payload, dict) else []
             )
             return {
-                "labels": [
-                    "NONRECIPE_EXCLUDE"
-                    for _row in structured_packet_rows or []
+                "rows": [
+                    {
+                        "row_id": str((row or {}).get("row_id") or f"r{index + 1:02d}"),
+                        "label": "NONRECIPE_EXCLUDE",
+                    }
+                    for index, row in enumerate(structured_packet_rows or [])
                 ]
             }
 
@@ -1739,11 +1765,21 @@ def test_label_atomic_lines_preserves_partial_inline_shard_authority_and_repairs
 
     def _partial_inline_builder(payload):
         packet_kind = str((payload or {}).get("packet_kind") or "").strip()
+        rows = list((payload or {}).get("structured_packet_rows") or [])
         if packet_kind == "initial":
-            return {"labels": ["RECIPE_TITLE", "YIELD_LINE"]}
+            return {
+                "rows": [
+                    {"row_id": str(rows[0]["row_id"]), "label": "RECIPE_TITLE"},
+                    {"row_id": str(rows[1]["row_id"]), "label": "YIELD_LINE"},
+                ]
+            }
         if packet_kind == "repair":
-            return {"labels": ["INGREDIENT_LINE"]}
-        return {"labels": []}
+            return {
+                "rows": [
+                    {"row_id": str(rows[0]["row_id"]), "label": "INGREDIENT_LINE"}
+                ]
+            }
+        return {"rows": []}
 
     predictions = label_atomic_lines(
         candidates,
@@ -1804,7 +1840,9 @@ def test_label_atomic_lines_preserves_partial_inline_shard_authority_and_repairs
             / "repair_packet_01.json"
         ).read_text(encoding="utf-8")
     )
-    assert repair_packet["rows"] == ["r01 | 2 | 1 cup thinly sliced cabbage"]
+    assert repair_packet["rows"] == [
+        {"row_id": "r01", "block_index": 2, "text": "1 cup thinly sliced cabbage"}
+    ]
 
     shard_status_rows = [
         json.loads(line)
@@ -1857,15 +1895,18 @@ def test_label_atomic_lines_accepts_structurally_valid_labels_without_semantic_r
 
     def _semantic_builder(payload):
         packet_kind = str((payload or {}).get("packet_kind") or "").strip()
+        rows = list((payload or {}).get("structured_packet_rows") or [])
         if packet_kind == "initial":
             return {
-                "labels": [
-                    "RECIPE_TITLE",
-                    "YIELD_LINE",
-                    "RECIPE_NOTES",
+                "rows": [
+                    {"row_id": str(rows[0]["row_id"]), "label": "RECIPE_TITLE"},
+                    {"row_id": str(rows[1]["row_id"]), "label": "YIELD_LINE"},
+                    {"row_id": str(rows[2]["row_id"]), "label": "RECIPE_NOTES"},
                 ]
             }
-        return {"labels": ["INGREDIENT_LINE"]}
+        return {
+            "rows": [{"row_id": str(rows[0]["row_id"]), "label": "INGREDIENT_LINE"}]
+        }
 
     runner = FakeCodexExecRunner(output_builder=_semantic_builder)
     predictions = label_atomic_lines(
@@ -1938,19 +1979,23 @@ def test_label_atomic_lines_accepts_structurally_valid_recipe_start_even_when_se
 
     def _semantic_builder(payload):
         packet_kind = str((payload or {}).get("packet_kind") or "").strip()
+        rows = list((payload or {}).get("structured_packet_rows") or [])
         if packet_kind == "initial":
             return {
-                "labels": [
-                    "INGREDIENT_LINE",
-                    "RECIPE_NOTES",
-                    "NONRECIPE_CANDIDATE",
+                "rows": [
+                    {"row_id": str(rows[0]["row_id"]), "label": "INGREDIENT_LINE"},
+                    {"row_id": str(rows[1]["row_id"]), "label": "RECIPE_NOTES"},
+                    {
+                        "row_id": str(rows[2]["row_id"]),
+                        "label": "NONRECIPE_CANDIDATE",
+                    },
                 ]
             }
         return {
-            "labels": [
-                "RECIPE_TITLE",
-                "YIELD_LINE",
-                "INGREDIENT_LINE",
+            "rows": [
+                {"row_id": str(rows[0]["row_id"]), "label": "RECIPE_TITLE"},
+                {"row_id": str(rows[1]["row_id"]), "label": "YIELD_LINE"},
+                {"row_id": str(rows[2]["row_id"]), "label": "INGREDIENT_LINE"},
             ]
         }
 
@@ -2010,11 +2055,21 @@ def test_label_atomic_lines_repairs_partial_labels_reply_only_for_missing_rows(
 
     def _partial_labels_builder(payload):
         packet_kind = str((payload or {}).get("packet_kind") or "").strip()
+        rows = list((payload or {}).get("structured_packet_rows") or [])
         if packet_kind == "initial":
-            return {"labels": ["RECIPE_TITLE", "YIELD_LINE"]}
+            return {
+                "rows": [
+                    {"row_id": str(rows[0]["row_id"]), "label": "RECIPE_TITLE"},
+                    {"row_id": str(rows[1]["row_id"]), "label": "YIELD_LINE"},
+                ]
+            }
         if packet_kind == "repair":
-            return {"labels": ["INGREDIENT_LINE"]}
-        return {"labels": []}
+            return {
+                "rows": [
+                    {"row_id": str(rows[0]["row_id"]), "label": "INGREDIENT_LINE"}
+                ]
+            }
+        return {"rows": []}
 
     runner = FakeCodexExecRunner(output_builder=_partial_labels_builder)
     predictions = label_atomic_lines(
@@ -2049,10 +2104,10 @@ def test_label_atomic_lines_repairs_partial_labels_reply_only_for_missing_rows(
     repair_schema_payload = json.loads(
         Path(str(runner.calls[1]["output_schema_path"])).read_text(encoding="utf-8")
     )
-    assert initial_schema_payload["properties"]["labels"]["minItems"] == 3
-    assert initial_schema_payload["properties"]["labels"]["maxItems"] == 3
-    assert repair_schema_payload["properties"]["labels"]["minItems"] == 1
-    assert repair_schema_payload["properties"]["labels"]["maxItems"] == 1
+    assert initial_schema_payload["properties"]["rows"]["minItems"] == 3
+    assert initial_schema_payload["properties"]["rows"]["maxItems"] == 3
+    assert repair_schema_payload["properties"]["rows"]["minItems"] == 1
+    assert repair_schema_payload["properties"]["rows"]["maxItems"] == 1
 
     repair_packet = json.loads(
         (
@@ -2068,7 +2123,9 @@ def test_label_atomic_lines_repairs_partial_labels_reply_only_for_missing_rows(
             / "repair_packet_01.json"
         ).read_text(encoding="utf-8")
     )
-    assert repair_packet["rows"] == ["r01 | 2 | 1 cup thinly sliced cabbage"]
+    assert repair_packet["rows"] == [
+        {"row_id": "r01", "block_index": 2, "text": "1 cup thinly sliced cabbage"}
+    ]
 
 
 def test_label_atomic_lines_inline_json_allows_three_incremental_repair_attempts(
@@ -2098,15 +2155,25 @@ def test_label_atomic_lines_inline_json_allows_three_incremental_repair_attempts
     def _incremental_builder(payload):
         packet_kind = str((payload or {}).get("packet_kind") or "").strip()
         rows = list((payload or {}).get("structured_packet_rows") or [])
-        row_texts = [str(row) for row in rows]
+        row_texts = [
+            str((row or {}).get("text") or "")
+            for row in rows
+            if isinstance(row, dict)
+        ]
         if packet_kind == "initial":
-            return {"labels": ["RECIPE_TITLE"]}
+            return {
+                "rows": [{"row_id": str(rows[0]["row_id"]), "label": "RECIPE_TITLE"}]
+            }
         repair_rows_seen.append(row_texts)
         if len(repair_rows_seen) == 1:
-            return {"labels": ["YIELD_LINE"]}
+            return {
+                "rows": [{"row_id": str(rows[0]["row_id"]), "label": "YIELD_LINE"}]
+            }
         if len(repair_rows_seen) == 2:
-            return {"labels": []}
-        return {"labels": ["INGREDIENT_LINE"]}
+            return {"rows": []}
+        return {
+            "rows": [{"row_id": str(rows[0]["row_id"]), "label": "INGREDIENT_LINE"}]
+        }
 
     runner = FakeCodexExecRunner(output_builder=_incremental_builder)
     predictions = label_atomic_lines(
@@ -2140,9 +2207,9 @@ def test_label_atomic_lines_inline_json_allows_three_incremental_repair_attempts
         True,
     ]
     assert repair_rows_seen == [
-        ["r01 | 1 | Serves 4 generously", "r02 | 2 | 1 cup thinly sliced cabbage"],
-        ["r01 | 2 | 1 cup thinly sliced cabbage"],
-        ["r01 | 2 | 1 cup thinly sliced cabbage"],
+        ["Serves 4 generously", "1 cup thinly sliced cabbage"],
+        ["1 cup thinly sliced cabbage"],
+        ["1 cup thinly sliced cabbage"],
     ]
 
     proposal_payload = json.loads(
@@ -2177,7 +2244,9 @@ def test_label_atomic_lines_inline_json_allows_three_incremental_repair_attempts
     third_repair_packet = json.loads(
         (structured_session_root / "repair_packet_03.json").read_text(encoding="utf-8")
     )
-    assert third_repair_packet["rows"] == ["r01 | 2 | 1 cup thinly sliced cabbage"]
+    assert third_repair_packet["rows"] == [
+        {"row_id": "r01", "block_index": 2, "text": "1 cup thinly sliced cabbage"}
+    ]
 
     shard_status_rows = [
         json.loads(line)
@@ -2220,13 +2289,16 @@ def test_label_atomic_lines_inline_json_repairs_when_initial_labels_array_is_too
 
     runner = FakeCodexExecRunner(
         output_builder=lambda payload: {
-            "labels": [
-                "RECIPE_NOTES",
-                "RECIPE_NOTES",
-                "NONRECIPE_CANDIDATE",
+            "rows": [
+                {"row_id": "r01", "label": "RECIPE_NOTES"},
+                {"row_id": "r02", "label": "RECIPE_NOTES"},
+                {"row_id": "r03", "label": "NONRECIPE_CANDIDATE"},
             ]
             if str((payload or {}).get("packet_kind") or "") == "initial"
-            else ["RECIPE_NOTES", "RECIPE_NOTES"]
+            else [
+                {"row_id": "r01", "label": "RECIPE_NOTES"},
+                {"row_id": "r02", "label": "RECIPE_NOTES"},
+            ]
         }
     )
     predictions = label_atomic_lines(

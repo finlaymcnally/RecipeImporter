@@ -289,7 +289,15 @@ def _render_line_role_authoritative_rows(shard: ShardManifestEntryV1) -> str:
             block_index = int(row[1]) if len(row) >= 3 else int(row[0])
             text = str((row[2] if len(row) >= 3 else row[1]) or "")
             rendered_rows.append(
-                json.dumps(f"r{index + 1:02d} | {block_index} | {text}", ensure_ascii=False)
+                json.dumps(
+                    {
+                        "row_id": f"r{index + 1:02d}",
+                        "block_index": block_index,
+                        "text": text,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
             )
         elif isinstance(row, Mapping):
             row_dict = dict(row)
@@ -305,7 +313,15 @@ def _render_line_role_authoritative_rows(shard: ShardManifestEntryV1) -> str:
                 or ""
             )
             rendered_rows.append(
-                json.dumps(f"r{index + 1:02d} | {block_index} | {text}", ensure_ascii=False)
+                json.dumps(
+                    {
+                        "row_id": str(row_dict.get("row_id") or f"r{index + 1:02d}"),
+                        "block_index": block_index,
+                        "text": text,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
             )
     return "\n".join(rendered_rows) if rendered_rows else "[no shard rows available]"
 
