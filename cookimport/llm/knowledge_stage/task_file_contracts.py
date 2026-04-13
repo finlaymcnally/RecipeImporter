@@ -1194,65 +1194,47 @@ def combine_knowledge_task_file_outputs(
         answer = _coerce_dict(classification_answers_by_unit_id.get(unit_id))
         category = str(answer.get("category") or "other").strip() or "other"
         shard_rows.setdefault(shard_id, []).append((block_index, answer, unit_id))
-    outputs: dict[str, dict[str, Any]] = {}
     grouping_answers = grouping_answers_by_unit_id or {}
+    outputs: dict[str, dict[str, Any]] = {}
+    grouped_rows_by_shard = _canonicalize_knowledge_groups_by_shard(
+        shard_rows=shard_rows,
+        grouping_answers=grouping_answers,
+    )
     for shard_id, rows in shard_rows.items():
         ordered_rows = sorted(rows, key=lambda row: row[0])
-        group_records_by_id: dict[str, dict[str, Any]] = {}
+        group_rows = grouped_rows_by_shard.get(shard_id, [])
+        idea_groups = [
+            {
+                "group_id": str(group_row.get("group_id") or ""),
+                "topic_label": str(group_row.get("topic_label") or ""),
+                "block_indices": list(group_row.get("block_indices") or []),
+                "grounding": dict(group_row.get("grounding") or empty_grounding_payload()),
+                "why_no_existing_tag": group_row.get("why_no_existing_tag"),
+                "retrieval_query": group_row.get("retrieval_query"),
+            }
+            for group_row in group_rows
+        ]
+        block_to_grounding = {
+            int(block_index): dict(group_row.get("grounding") or empty_grounding_payload())
+            for group_row in group_rows
+            for block_index in (group_row.get("block_indices") or [])
+            if block_index is not None
+        }
         block_decisions: list[dict[str, Any]] = []
-        for block_index, answer, unit_id in ordered_rows:
+        for block_index, answer, _unit_id in ordered_rows:
             classification_category = str(answer.get("category") or "other").strip() or "other"
-            final_category = "other"
-            grounding = empty_grounding_payload()
-            grouping_answer = _coerce_dict(grouping_answers.get(unit_id))
-            if classification_category == "keep_for_review":
-                final_category = "knowledge"
-                grounding = _normalize_output_grounding(grouping_answer.get("grounding"))
+            final_category = "knowledge" if classification_category == "keep_for_review" else "other"
             block_decisions.append(
                 {
                     "block_index": block_index,
                     "category": final_category,
-                    "grounding": grounding,
+                    "grounding": (
+                        dict(block_to_grounding.get(block_index) or empty_grounding_payload())
+                        if final_category == "knowledge"
+                        else empty_grounding_payload()
+                    ),
                 }
             )
-            if final_category != "knowledge":
-                continue
-            group_id = str(grouping_answer.get("group_id") or "").strip()
-            topic_label = str(grouping_answer.get("topic_label") or "").strip()
-            if not group_id or not topic_label:
-                continue
-            group_record = group_records_by_id.setdefault(
-                group_id,
-                {
-                    "group_id": group_id,
-                    "topic_label": topic_label,
-                    "block_indices": [],
-                    "grounding": grounding,
-                    "why_no_existing_tag": _trimmed_text_or_none(
-                        grouping_answer.get("why_no_existing_tag")
-                    ),
-                    "retrieval_query": _trimmed_text_or_none(
-                        grouping_answer.get("retrieval_query")
-                    ),
-                },
-            )
-            group_record["block_indices"].append(block_index)
-        idea_groups = [
-            {
-                **group_record,
-                "block_indices": sorted(
-                    {
-                        int(block_index)
-                        for block_index in (group_record.get("block_indices") or [])
-                        if block_index is not None
-                    }
-                ),
-            }
-            for group_record in sorted(
-                group_records_by_id.values(),
-                key=lambda row: (str(row.get("group_id") or ""), str(row.get("topic_label") or "")),
-            )
-        ]
         outputs[shard_id] = {
             "packet_id": shard_id,
             "block_decisions": block_decisions,
@@ -1269,6 +1251,7 @@ def collect_knowledge_resolution_metadata_by_shard(
     unit_to_shard_id: Mapping[str, str],
 ) -> dict[str, dict[str, Any]]:
     grouping_answers = grouping_answers_by_unit_id or {}
+    shard_rows: dict[str, list[tuple[int, dict[str, Any], str]]] = {}
     metadata_by_shard: dict[str, dict[str, Any]] = {}
     for unit in classification_task_file.get("units") or []:
         if not isinstance(unit, Mapping):
@@ -1283,7 +1266,7 @@ def collect_knowledge_resolution_metadata_by_shard(
         classification_category = str(
             classification_answer.get("category") or "other"
         ).strip() or "other"
-        grouping_answer = _coerce_dict(grouping_answers.get(unit_id))
+        shard_rows.setdefault(shard_id, []).append((block_index, classification_answer, unit_id))
         shard_row = metadata_by_shard.setdefault(
             shard_id,
             {
@@ -1299,43 +1282,26 @@ def collect_knowledge_resolution_metadata_by_shard(
         if classification_category != "keep_for_review":
             continue
         shard_row["kept_for_review_block_count"] += 1
-        group_id = str(grouping_answer.get("group_id") or "").strip()
-        topic_label = str(grouping_answer.get("topic_label") or "").strip()
-        grounding = _normalize_output_grounding(grouping_answer.get("grounding"))
-        group_details = shard_row["_group_details_by_id"].setdefault(
-            group_id,
-            {
-                "group_id": group_id,
-                "topic_label": topic_label,
-                "block_indices": [],
-                "grounding": grounding,
-                "why_no_existing_tag": _trimmed_text_or_none(
-                    grouping_answer.get("why_no_existing_tag")
-                ),
-                "retrieval_query": _trimmed_text_or_none(
-                    grouping_answer.get("retrieval_query")
-                ),
-            },
-        )
-        group_details["block_indices"].append(block_index)
-    for shard_row in metadata_by_shard.values():
-        group_details = [
-            {
-                **detail,
-                "block_indices": sorted(
-                    {
-                        int(block_index)
-                        for block_index in (detail.get("block_indices") or [])
-                        if block_index is not None
-                    }
-                ),
-            }
-            for detail in sorted(
-                shard_row.pop("_group_details_by_id").values(),
-                key=lambda row: (str(row.get("group_id") or ""), str(row.get("topic_label") or "")),
+    grouped_rows_by_shard = _canonicalize_knowledge_groups_by_shard(
+        shard_rows=shard_rows,
+        grouping_answers=grouping_answers,
+    )
+    for shard_id, shard_row in metadata_by_shard.items():
+        shard_row.pop("_group_details_by_id")
+        group_details = []
+        for detail in grouped_rows_by_shard.get(shard_id, []):
+            if not str(detail.get("group_id") or "").strip():
+                continue
+            group_details.append(
+                {
+                    "group_id": str(detail.get("group_id") or ""),
+                    "topic_label": str(detail.get("topic_label") or ""),
+                    "block_indices": list(detail.get("block_indices") or []),
+                    "grounding": dict(detail.get("grounding") or empty_grounding_payload()),
+                    "why_no_existing_tag": detail.get("why_no_existing_tag"),
+                    "retrieval_query": detail.get("retrieval_query"),
+                }
             )
-            if str(detail.get("group_id") or "").strip()
-        ]
         shard_row["knowledge_group_count"] = len(group_details)
         shard_row["knowledge_group_split_count"] = max(len(group_details) - 1, 0)
         shard_row["knowledge_groups_using_existing_tags"] = sum(
@@ -1350,6 +1316,70 @@ def collect_knowledge_resolution_metadata_by_shard(
         )
         shard_row["group_resolution_details"] = group_details
     return metadata_by_shard
+
+
+def _canonicalize_knowledge_groups_by_shard(
+    *,
+    shard_rows: Mapping[str, Sequence[tuple[int, Mapping[str, Any], str]]],
+    grouping_answers: Mapping[str, Mapping[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    grouped_rows_by_shard: dict[str, list[dict[str, Any]]] = {}
+    for shard_id, rows in shard_rows.items():
+        story_order: list[str] = []
+        groups_by_story_key: dict[str, dict[str, Any]] = {}
+        for block_index, answer, unit_id in sorted(rows, key=lambda row: row[0]):
+            classification_category = str(answer.get("category") or "other").strip() or "other"
+            if classification_category != "keep_for_review":
+                continue
+            grouping_answer = _coerce_dict(grouping_answers.get(unit_id))
+            original_group_id = str(grouping_answer.get("group_id") or "").strip()
+            topic_label = str(grouping_answer.get("topic_label") or "").strip()
+            if not original_group_id or not topic_label:
+                continue
+            grounding = _normalize_output_grounding(grouping_answer.get("grounding"))
+            why_no_existing_tag = _trimmed_text_or_none(
+                grouping_answer.get("why_no_existing_tag")
+            )
+            retrieval_query = _trimmed_text_or_none(
+                grouping_answer.get("retrieval_query")
+            )
+            story_key = json.dumps(
+                {
+                    "topic_label": topic_label,
+                    "grounding": grounding,
+                    "why_no_existing_tag": why_no_existing_tag,
+                    "retrieval_query": retrieval_query,
+                },
+                sort_keys=True,
+            )
+            if story_key not in groups_by_story_key:
+                story_order.append(story_key)
+                groups_by_story_key[story_key] = {
+                    "group_id": "",
+                    "topic_label": topic_label,
+                    "block_indices": [],
+                    "grounding": grounding,
+                    "why_no_existing_tag": why_no_existing_tag,
+                    "retrieval_query": retrieval_query,
+                }
+            groups_by_story_key[story_key]["block_indices"].append(block_index)
+        grouped_rows_by_shard[shard_id] = [
+            {
+                **groups_by_story_key[story_key],
+                "group_id": f"g{index:02d}",
+                "block_indices": sorted(
+                    {
+                        int(block_index)
+                        for block_index in (
+                            groups_by_story_key[story_key].get("block_indices") or []
+                        )
+                        if block_index is not None
+                    }
+                ),
+            }
+            for index, story_key in enumerate(story_order, start=1)
+        ]
+    return grouped_rows_by_shard
 
 
 def transition_knowledge_classification_task_file(

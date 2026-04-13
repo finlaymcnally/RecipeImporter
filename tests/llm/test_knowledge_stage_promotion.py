@@ -257,3 +257,151 @@ def test_grounding_detail_rollup_uses_group_oriented_counts() -> None:
             "block_indices": [12],
         }
     ]
+
+
+def test_promotion_remaps_batch_local_group_ids_across_one_shard() -> None:
+    shards = [
+        _shard(
+            shard_id="book.ks0000.nr",
+            blocks=[
+                (11, "Salt helps food taste more vivid."),
+                (12, "Kosher and sea salt behave differently."),
+                (13, "Taste and adjust seasoning as you cook."),
+            ],
+        )
+    ]
+    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+        assignment=WorkerAssignmentV1(
+            worker_id="worker-001",
+            shard_ids=("book.ks0000.nr",),
+            workspace_root="/tmp/worker-001",
+        ),
+        shards=shards,
+    )
+
+    outputs = combine_knowledge_task_file_outputs(
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id={
+            "knowledge::11": {"category": "keep_for_review"},
+            "knowledge::12": {"category": "keep_for_review"},
+            "knowledge::13": {"category": "keep_for_review"},
+        },
+        grouping_answers_by_unit_id={
+            "knowledge::11": {
+                "group_id": "g01",
+                "topic_label": "Salt fundamentals",
+                "grounding": {
+                    "tag_keys": [],
+                    "category_keys": ["ingredients"],
+                    "proposed_tags": [
+                        {
+                            "key": "salt",
+                            "display_name": "Salt",
+                            "category_key": "ingredients",
+                        }
+                    ],
+                },
+                "why_no_existing_tag": "No existing tag captures salt as the central subject.",
+                "retrieval_query": "salt seasoning flavor fundamentals",
+            },
+            "knowledge::12": {
+                "group_id": "g01",
+                "topic_label": "Salt types",
+                "grounding": {
+                    "tag_keys": [],
+                    "category_keys": ["ingredients"],
+                    "proposed_tags": [
+                        {
+                            "key": "salt-types",
+                            "display_name": "Salt Types",
+                            "category_key": "ingredients",
+                        }
+                    ],
+                },
+                "why_no_existing_tag": "No existing tag captures the comparison between salt types.",
+                "retrieval_query": "kosher salt sea salt salt types",
+            },
+            "knowledge::13": {
+                "group_id": "g01",
+                "topic_label": "Seasoning to taste",
+                "grounding": {
+                    "tag_keys": [],
+                    "category_keys": ["techniques"],
+                    "proposed_tags": [
+                        {
+                            "key": "seasoning-to-taste",
+                            "display_name": "Seasoning to Taste",
+                            "category_key": "techniques",
+                        }
+                    ],
+                },
+                "why_no_existing_tag": "No existing tag captures seasoning by tasting and adjustment.",
+                "retrieval_query": "seasoning to taste salt tasting adjustment",
+            },
+        },
+        unit_to_shard_id=unit_to_shard_id,
+    )
+
+    assert outputs["book.ks0000.nr"]["idea_groups"] == [
+        {
+            "group_id": "g01",
+            "topic_label": "Salt fundamentals",
+            "block_indices": [11],
+            "grounding": {
+                "tag_keys": [],
+                "category_keys": ["ingredients"],
+                "proposed_tags": [
+                    {
+                        "key": "salt",
+                        "display_name": "Salt",
+                        "category_key": "ingredients",
+                    }
+                ],
+            },
+            "why_no_existing_tag": "No existing tag captures salt as the central subject.",
+            "retrieval_query": "salt seasoning flavor fundamentals",
+        },
+        {
+            "group_id": "g02",
+            "topic_label": "Salt types",
+            "block_indices": [12],
+            "grounding": {
+                "tag_keys": [],
+                "category_keys": ["ingredients"],
+                "proposed_tags": [
+                    {
+                        "key": "salt-types",
+                        "display_name": "Salt Types",
+                        "category_key": "ingredients",
+                    }
+                ],
+            },
+            "why_no_existing_tag": "No existing tag captures the comparison between salt types.",
+            "retrieval_query": "kosher salt sea salt salt types",
+        },
+        {
+            "group_id": "g03",
+            "topic_label": "Seasoning to taste",
+            "block_indices": [13],
+            "grounding": {
+                "tag_keys": [],
+                "category_keys": ["techniques"],
+                "proposed_tags": [
+                    {
+                        "key": "seasoning-to-taste",
+                        "display_name": "Seasoning to Taste",
+                        "category_key": "techniques",
+                    }
+                ],
+            },
+            "why_no_existing_tag": "No existing tag captures seasoning by tasting and adjustment.",
+            "retrieval_query": "seasoning to taste salt tasting adjustment",
+        },
+    ]
+
+    valid, errors, _metadata = validate_knowledge_shard_output(
+        shards[0],
+        outputs["book.ks0000.nr"],
+    )
+    assert valid is True
+    assert errors == ()
