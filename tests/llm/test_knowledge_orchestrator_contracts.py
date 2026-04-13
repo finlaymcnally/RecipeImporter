@@ -97,8 +97,9 @@ def test_worker_prompt_describes_task_file_contract() -> None:
     assert "personal story with an embedded cooking lesson is still usually `other`" in prompt
     assert "Praise, endorsement, foreword, thesis, manifesto" in prompt
     assert "A heading alone is not enough for `knowledge`." in prompt
-    assert "Short conceptual headings can still be `knowledge`" in prompt
-    assert "short action-key or strategy heading" in prompt
+    assert "If a row is functioning as a heading, answer `other`" in prompt
+    assert "Short heading rows can still help later grouping as context" in prompt
+    assert "let the explanatory body carry the knowledge" in prompt
     assert "unsupported by reusable explanatory body text in the owned packet" in prompt
     assert "Final categories must be exactly one of `keep_for_review` or `other`." in prompt
     assert "Do not think about tags in this step." in prompt
@@ -154,7 +155,7 @@ def test_knowledge_worker_hint_stays_compact_and_keeps_high_signal_sections(
     assert "## Shard interpretation" not in rendered
     assert "## Decision policy" not in rendered
     assert "## Attention rows" not in rendered
-    assert "`examples/valid_heading_with_useful_body_packet.json`" in rendered
+    assert "`examples/valid_heading_stays_other_with_useful_body_packet.json`" in rendered
     assert "Nearby recipe guardrail block indices: `2, 3`." in rendered
     assert "Owned block range: `4..40`." in rendered
     assert "Read the owned blocks in order from the authoritative shard input." in rendered
@@ -200,7 +201,7 @@ def test_knowledge_task_file_summary_surfaces_semantic_review_contract() -> None
         for row in (review_contract.get("decision_policy") or [])
     )
     assert any(
-        "semantic key for the following owned explanatory row" in row.lower()
+        "let the explanatory body carry the knowledge" in row.lower()
         for row in (review_contract.get("decision_policy") or [])
     )
 

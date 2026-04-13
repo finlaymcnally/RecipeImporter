@@ -61,7 +61,7 @@ def test_classification_task_file_uses_binary_category_only_answers() -> None:
         for row in task_file["review_contract"]["anti_patterns"]
     )
     assert any(
-        "semantic key for the following owned explanatory row" in row
+        "let the explanatory body carry the knowledge" in row
         for row in task_file["review_contract"]["decision_policy"]
     )
 
@@ -136,7 +136,8 @@ def test_structured_prompt_keeps_first_pass_tag_free_and_binary() -> None:
     )
 
     assert "Classify each row only as `keep_for_review` or `other`." in prompt
-    assert "reusable concept or strategy name" in prompt
+    assert "keep it `other` in this first pass" in prompt
+    assert "let the explanatory body carry the knowledge" in prompt
     assert "Do not think about tags during classification." in prompt
     assert "Tagging happens only in the second pass." in prompt
     assert "rows sharing one group_id" not in prompt
@@ -172,7 +173,7 @@ def test_structured_packet_uses_compact_row_strings_without_ontology() -> None:
         packet_kind="initial",
     )
 
-    assert packet["schema_version"] == "knowledge_structured_packet.v2"
+    assert packet["schema_version"] == "knowledge_structured_packet.v3"
     assert packet["rows"] == [
         "r01 | 10 | Whisk to emulsify.",
         "r02 | 11 | Chapter opener.",

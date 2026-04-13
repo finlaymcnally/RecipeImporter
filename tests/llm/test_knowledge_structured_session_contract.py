@@ -63,7 +63,8 @@ def test_classification_structured_packet_and_prompt_use_compact_binary_surface(
     ]
     assert "labels" in prompt
     assert "keep_for_review" in prompt
-    assert "reusable concept or strategy name" in prompt
+    assert "keep it `other` in this first pass" in prompt
+    assert "let the explanatory body carry the knowledge" in prompt
     assert "Do not think about tags during classification." in prompt
 
 
@@ -100,8 +101,28 @@ def test_grouping_structured_prompt_is_group_first_and_parser_maps_group_groundi
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(shard_id="book.ks0000.nr", block_index=31, text="Use gentle heat for eggs."),
-            _shard(shard_id="book.ks0001.nr", block_index=32, text="Rest dough before rolling."),
+            ShardManifestEntryV1(
+                shard_id="book.ks0000.nr",
+                owned_ids=("book.ks0000.nr",),
+                input_payload={
+                    "v": "1",
+                    "bid": "book.ks0000.nr",
+                    "b": [
+                        {"i": 30, "id": "book.ks0000.nr:30", "t": "BALANCE"},
+                        {
+                            "i": 31,
+                            "id": "book.ks0000.nr:31",
+                            "t": "Use gentle heat for eggs.",
+                        },
+                        {
+                            "i": 32,
+                            "id": "book.ks0000.nr:32",
+                            "t": "Rest dough before rolling.",
+                        },
+                    ],
+                },
+                metadata={"owned_block_indices": [30, 31, 32], "owned_block_count": 3},
+            ),
         ],
     )
     grouping_task_file, _ = build_knowledge_grouping_task_file(
@@ -109,6 +130,7 @@ def test_grouping_structured_prompt_is_group_first_and_parser_maps_group_groundi
         worker_id="worker-structured-001",
         classification_task_file=classification_task_file,
         classification_answers_by_unit_id={
+            "knowledge::30": {"category": "other"},
             "knowledge::31": {"category": "keep_for_review"},
             "knowledge::32": {"category": "keep_for_review"},
         },
@@ -128,9 +150,16 @@ def test_grouping_structured_prompt_is_group_first_and_parser_maps_group_groundi
         "r01 | classification=keep_for_review",
         "r02 | classification=keep_for_review",
     ]
+    assert packet["ordered_rows"] == [
+        "ctx01 | other | 30 | BALANCE",
+        "r01 | keep_for_review | 31 | Use gentle heat for eggs.",
+        "r02 | keep_for_review | 32 | Rest dough before rolling.",
+    ]
     assert "split-and-tag pass" in prompt
     assert "Return one `groups` array." in prompt
     assert "choose the group boundaries with the tag story in mind" in prompt
+    assert "ordered_rows" in prompt
+    assert "ctxXX" in prompt
     assert "Put `why_no_existing_tag` and `retrieval_query` on the group object itself" in prompt
     assert "Valid proposed-tag example" in prompt
 
@@ -194,6 +223,67 @@ def test_grouping_structured_prompt_is_group_first_and_parser_maps_group_groundi
             "category_key": "techniques",
         }
     ]
+
+
+def test_grouping_structured_response_rejects_context_only_row_ids() -> None:
+    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[
+            ShardManifestEntryV1(
+                shard_id="book.ks0000.nr",
+                owned_ids=("book.ks0000.nr",),
+                input_payload={
+                    "v": "1",
+                    "bid": "book.ks0000.nr",
+                    "b": [
+                        {"i": 30, "id": "book.ks0000.nr:30", "t": "BALANCE"},
+                        {
+                            "i": 31,
+                            "id": "book.ks0000.nr:31",
+                            "t": "Use gentle heat for eggs.",
+                        },
+                    ],
+                },
+                metadata={"owned_block_indices": [30, 31], "owned_block_count": 2},
+            ),
+        ],
+    )
+    grouping_task_file, _ = build_knowledge_grouping_task_file(
+        assignment_id="worker-structured-001",
+        worker_id="worker-structured-001",
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id={
+            "knowledge::30": {"category": "other"},
+            "knowledge::31": {"category": "keep_for_review"},
+        },
+        unit_to_shard_id=unit_to_shard_id,
+    )
+
+    edited, errors, metadata = build_knowledge_edited_task_file_from_grouping_response(
+        original_task_file=grouping_task_file,
+        response_text=json.dumps(
+            {
+                "groups": [
+                    {
+                        "group_id": "g01",
+                        "row_ids": ["ctx01", "r01"],
+                        "topic_label": "Heat control",
+                        "grounding": {
+                            "tag_keys": ["saute"],
+                            "category_keys": ["cooking-method"],
+                            "proposed_tags": [],
+                        },
+                        "why_no_existing_tag": None,
+                        "retrieval_query": None,
+                    }
+                ]
+            }
+        ),
+    )
+
+    assert edited is not None
+    assert "knowledge_unknown_row_ids" in errors
+    assert metadata["unknown_row_ids"] == ["ctx01"]
 
 
 def test_grouping_structured_response_salvages_nested_proposal_metadata() -> None:

@@ -26,7 +26,8 @@ Decision boundary:
 - If the text is technically true but low-value, too generic, or not worth preserving on its own, keep it as `other`.
 - If the owned chunk mixes memoir, author/teacher praise, book framing, or scene-setting with a few useful cooking sentences, do not promote the whole chunk.
 - In mixed chunks, keep the memoir/framing blocks `other`; only mark a block `knowledge` when that block itself stands on its own as reusable cooking guidance.
-- If a short conceptual heading directly introduces useful explanatory blocks in the same owned chunk, keep that heading with the useful body instead of forcing it to `other` as decoration.
+- If a row is functioning as a heading, keep it `other` even when it names the nearby concept clearly.
+- If a short conceptual heading directly introduces useful explanatory blocks in the same owned chunk, keep the heading itself `other` and let the explanatory body carry the `knowledge`.
 - Statements like "this book will make you a better cook", personal origin stories, why the author wrote the book, or praise for a teacher/book are still `other` even when nearby blocks mention cooking principles.
 - Be especially skeptical of chunks that mostly look like headings, menus, title lists, front matter, or back matter.
 - A chunk can still be `knowledge` if it is concise. Tables, charts, and short technical reference entries are valid when the text is genuinely useful.

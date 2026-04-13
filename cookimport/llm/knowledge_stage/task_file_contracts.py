@@ -28,6 +28,8 @@ KNOWLEDGE_GROUP_SCHEMA_VERSION = "knowledge_group_only.v1"
 KNOWLEDGE_GROUP_TASK_MAX_UNITS = 40
 KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS = 12000
 KNOWLEDGE_GROUP_SAME_SESSION_BATCH_UNIT_ID = "knowledge-group-batch"
+KNOWLEDGE_GROUP_CONTEXT_OTHER_MAX_WORDS = 10
+KNOWLEDGE_GROUP_CONTEXT_OTHER_MAX_CHARS = 80
 
 
 @dataclass(frozen=True)
@@ -602,11 +604,11 @@ def _knowledge_classification_review_contract() -> dict[str, Any]:
             "Decide by local span, emit by row: neighboring rows can explain the current row without forcing all nearby rows into the same answer.",
             "Treat heading shape and packet position as weak hints only.",
             "A heading or bridge row can support nearby knowledge without itself being knowledge.",
-            "A heading alone is not enough for knowledge; keep a heading only when it directly introduces or names reusable explanatory content in the owned packet.",
+            "A heading alone is not enough for knowledge; if a row is functioning as a heading, keep it `other` in this first pass even when it names the nearby concept clearly.",
             "Return `keep_for_review` only when the row looks like reusable cooking knowledge worth carrying into the second-pass group review.",
             "Do not think about tags in this first pass. Tagging belongs entirely to the second pass.",
-            "Short conceptual headings can still be knowledge when they introduce real explanatory content; shortness alone is not enough to drop a block.",
-            "Keep a short action-key or strategy heading when it is the semantic key for the following owned explanatory row, even if the body text does not restate the heading words.",
+            "Short heading rows can still matter later as grouping context, so do not force them into `keep_for_review` just to preserve structure.",
+            "If a short heading is the semantic key for nearby explanatory rows, keep the heading itself `other` and let the explanatory body carry the knowledge.",
         ],
         "anti_patterns": [
             "Do not invent a rule that classifies many rows at once from heading level, casing, length, or title shape.",
@@ -747,6 +749,159 @@ def _grouping_unit_budget(unit: Mapping[str, Any]) -> int:
     )
 
 
+def _is_short_other_grouping_context_text(text: Any) -> bool:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return False
+    word_count = len([part for part in cleaned.split() if part.strip()])
+    return (
+        word_count <= KNOWLEDGE_GROUP_CONTEXT_OTHER_MAX_WORDS
+        and len(cleaned) <= KNOWLEDGE_GROUP_CONTEXT_OTHER_MAX_CHARS
+    )
+
+
+def _build_grouping_ordered_rows(
+    *,
+    classification_task_file: Mapping[str, Any],
+    classification_answers_by_unit_id: Mapping[str, Mapping[str, Any]],
+    unit_to_shard_id: Mapping[str, str],
+    batch_units: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    batch_unit_ids = [
+        str(unit.get("unit_id") or "").strip()
+        for unit in batch_units
+        if isinstance(unit, Mapping) and str(unit.get("unit_id") or "").strip()
+    ]
+    if not batch_unit_ids:
+        return []
+    batch_unit_id_set = set(batch_unit_ids)
+    row_id_by_unit_id = {
+        unit_id: f"r{index:02d}" for index, unit_id in enumerate(batch_unit_ids, start=1)
+    }
+
+    source_rows: list[dict[str, Any]] = []
+    for position, unit in enumerate(classification_task_file.get("units") or []):
+        if not isinstance(unit, Mapping):
+            continue
+        unit_dict = dict(unit)
+        unit_id = str(unit_dict.get("unit_id") or "").strip()
+        shard_id = str(unit_to_shard_id.get(unit_id) or "").strip()
+        if not unit_id or not shard_id:
+            continue
+        evidence = _coerce_dict(unit_dict.get("evidence"))
+        classification_answer = _coerce_dict(
+            classification_answers_by_unit_id.get(unit_id)
+        )
+        classification_category = (
+            str(classification_answer.get("category") or "other").strip() or "other"
+        )
+        source_rows.append(
+            {
+                "position": position,
+                "unit_id": unit_id,
+                "shard_id": shard_id,
+                "block_index": int(evidence.get("block_index") or 0),
+                "text": str(evidence.get("text") or ""),
+                "classification_category": classification_category,
+                "context_before": evidence.get("context_before"),
+                "context_before_block_index": evidence.get(
+                    "context_before_block_index"
+                ),
+                "context_after": evidence.get("context_after"),
+                "context_after_block_index": evidence.get("context_after_block_index"),
+                "structure": dict(_coerce_dict(evidence.get("structure"))),
+            }
+        )
+
+    batch_positions_by_shard: dict[str, list[int]] = {}
+    for row in source_rows:
+        if row["unit_id"] in batch_unit_id_set:
+            batch_positions_by_shard.setdefault(str(row["shard_id"]), []).append(
+                int(row["position"])
+            )
+
+    included_context_positions: set[int] = set()
+
+    def _qualifies_context_row(row: Mapping[str, Any]) -> bool:
+        return (
+            str(row.get("unit_id") or "") not in batch_unit_id_set
+            and str(row.get("classification_category") or "") == "other"
+            and _is_short_other_grouping_context_text(row.get("text"))
+        )
+
+    for shard_id, shard_positions in batch_positions_by_shard.items():
+        if not shard_positions:
+            continue
+        first_position = min(shard_positions)
+        last_position = max(shard_positions)
+        for row in source_rows:
+            position = int(row.get("position") or 0)
+            if (
+                str(row.get("shard_id") or "") == shard_id
+                and first_position <= position <= last_position
+                and _qualifies_context_row(row)
+            ):
+                included_context_positions.add(position)
+        scan_position = first_position - 1
+        while scan_position >= 0:
+            row = source_rows[scan_position]
+            if str(row.get("shard_id") or "") != shard_id or not _qualifies_context_row(row):
+                break
+            included_context_positions.add(scan_position)
+            scan_position -= 1
+        scan_position = last_position + 1
+        while scan_position < len(source_rows):
+            row = source_rows[scan_position]
+            if str(row.get("shard_id") or "") != shard_id or not _qualifies_context_row(row):
+                break
+            included_context_positions.add(scan_position)
+            scan_position += 1
+
+    ordered_rows: list[dict[str, Any]] = []
+    next_context_index = 1
+    for row in source_rows:
+        unit_id = str(row.get("unit_id") or "")
+        if unit_id in batch_unit_id_set:
+            display_id = row_id_by_unit_id[unit_id]
+            ordered_rows.append(
+                {
+                    "display_id": display_id,
+                    "row_id": display_id,
+                    "source_unit_id": unit_id,
+                    "context_only": False,
+                    "classification_category": str(
+                        row.get("classification_category") or "keep_for_review"
+                    ),
+                    "block_index": int(row.get("block_index") or 0),
+                    "text": str(row.get("text") or ""),
+                    "context_before": row.get("context_before"),
+                    "context_before_block_index": row.get(
+                        "context_before_block_index"
+                    ),
+                    "context_after": row.get("context_after"),
+                    "context_after_block_index": row.get("context_after_block_index"),
+                    "structure": dict(_coerce_dict(row.get("structure"))),
+                }
+            )
+            continue
+        if int(row.get("position") or 0) not in included_context_positions:
+            continue
+        ordered_rows.append(
+            {
+                "display_id": f"ctx{next_context_index:02d}",
+                "row_id": None,
+                "source_unit_id": unit_id,
+                "context_only": True,
+                "classification_category": "other",
+                "block_index": int(row.get("block_index") or 0),
+                "text": str(row.get("text") or ""),
+                "structure": dict(_coerce_dict(row.get("structure"))),
+            }
+        )
+        next_context_index += 1
+    return ordered_rows
+
+
 def _collect_knowledge_grouping_units(
     *,
     classification_task_file: Mapping[str, Any],
@@ -845,6 +1000,7 @@ def _build_knowledge_grouping_task_file_from_units(
     assignment_id: str,
     worker_id: str,
     units: Sequence[Mapping[str, Any]],
+    ordered_rows: Sequence[Mapping[str, Any]] | None,
     batch_index: int,
     batch_count: int,
     total_grouping_unit_count: int,
@@ -869,6 +1025,10 @@ def _build_knowledge_grouping_task_file_from_units(
         answer_schema=_knowledge_grouping_answer_schema(),
     )
     task_file["ontology"] = load_knowledge_tag_catalog().task_scope_payload()
+    if ordered_rows:
+        task_file["ordered_rows"] = [
+            dict(row) for row in ordered_rows if isinstance(row, Mapping)
+        ]
     if task_units:
         task_file["grouping_batch"] = _grouping_batch_metadata(
             batch_units=units,
@@ -924,6 +1084,7 @@ def _build_knowledge_same_session_grouping_task_file_from_units(
     assignment_id: str,
     worker_id: str,
     units: Sequence[Mapping[str, Any]],
+    ordered_rows: Sequence[Mapping[str, Any]] | None,
     batch_index: int,
     batch_count: int,
     total_grouping_unit_count: int,
@@ -949,6 +1110,10 @@ def _build_knowledge_same_session_grouping_task_file_from_units(
         answer_schema=_knowledge_same_session_grouping_answer_schema(),
     )
     task_file["ontology"] = load_knowledge_tag_catalog().task_scope_payload()
+    if ordered_rows:
+        task_file["ordered_rows"] = [
+            dict(row) for row in ordered_rows if isinstance(row, Mapping)
+        ]
     task_file["grouping_batch"] = _grouping_batch_metadata(
         batch_units=units,
         batch_index=batch_index,
@@ -1010,6 +1175,12 @@ def build_knowledge_grouping_task_files(
                 assignment_id=assignment_id,
                 worker_id=worker_id,
                 units=batch_units,
+                ordered_rows=_build_grouping_ordered_rows(
+                    classification_task_file=classification_task_file,
+                    classification_answers_by_unit_id=classification_answers_by_unit_id,
+                    unit_to_shard_id=unit_to_shard_id,
+                    batch_units=batch_units,
+                ),
                 batch_index=batch_index,
                 batch_count=len(grouping_batches),
                 total_grouping_unit_count=total_grouping_unit_count,
@@ -1220,6 +1391,7 @@ def build_knowledge_grouping_task_file(
             assignment_id=assignment_id,
             worker_id=worker_id,
             units=(),
+            ordered_rows=(),
             batch_index=1,
             batch_count=1,
             total_grouping_unit_count=0,
@@ -2161,6 +2333,7 @@ def transition_knowledge_classification_task_file(
             assignment_id=str(original_task_file.get("assignment_id") or ""),
             worker_id=str(original_task_file.get("worker_id") or ""),
             units=first_grouping_units,
+            ordered_rows=grouping_task_files[0].get("ordered_rows") or (),
             batch_index=1,
             batch_count=len(grouping_task_files),
             total_grouping_unit_count=sum(
@@ -2336,6 +2509,7 @@ def transition_knowledge_grouping_task_file(
             assignment_id=str(original_task_file.get("assignment_id") or ""),
             worker_id=str(original_task_file.get("worker_id") or ""),
             units=next_grouping_units,
+            ordered_rows=grouping_task_files[next_batch_index].get("ordered_rows") or (),
             batch_index=next_batch_index + 1,
             batch_count=len(grouping_task_files),
             total_grouping_unit_count=sum(

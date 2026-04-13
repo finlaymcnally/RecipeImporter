@@ -194,6 +194,98 @@ def test_same_session_handoff_advances_to_grouping_and_projects_group_grounding(
     }
 
 
+def test_same_session_grouping_task_shows_short_other_rows_in_ordered_context(
+    tmp_path: Path,
+) -> None:
+    workspace_root, state_path = _initialize_workspace_with_shards(
+        tmp_path,
+        shards=[
+            ShardManifestEntryV1(
+                shard_id="book.ks0000.nr",
+                owned_ids=("book.ks0000.nr",),
+                input_payload={
+                    "v": "1",
+                    "bid": "book.ks0000.nr",
+                    "b": [
+                        {"i": 7, "id": "book.ks0000.nr:7", "t": "BALANCE"},
+                        {
+                            "i": 8,
+                            "id": "book.ks0000.nr:8",
+                            "t": "Use low heat and whisk steadily.",
+                        },
+                        {
+                            "i": 9,
+                            "id": "book.ks0000.nr:9",
+                            "t": "Add butter off the heat to prevent splitting.",
+                        },
+                    ],
+                },
+                metadata={"owned_block_indices": [7, 8, 9], "owned_block_count": 3},
+            )
+        ],
+    )
+
+    task_file = load_task_file(workspace_root / "task.json")
+    edited = deepcopy(task_file)
+    edited["units"][0]["answer"] = _classification_answer("other")
+    edited["units"][1]["answer"] = _classification_answer("keep_for_review")
+    edited["units"][2]["answer"] = _classification_answer("keep_for_review")
+    write_task_file(path=workspace_root / "task.json", payload=edited)
+
+    classification_result = advance_knowledge_same_session_handoff(
+        workspace_root=workspace_root,
+        state_path=state_path,
+    )
+    grouping_task = load_task_file(workspace_root / "task.json")
+
+    assert classification_result["status"] == "advance_to_grouping"
+    assert grouping_task["stage_key"] == "knowledge_group"
+    assert [row["row_id"] for row in grouping_task["units"][0]["evidence"]["rows"]] == [
+        "r01",
+        "r02",
+    ]
+    assert grouping_task["ordered_rows"] == [
+        {
+            "display_id": "ctx01",
+            "row_id": None,
+            "source_unit_id": "knowledge::7",
+            "context_only": True,
+            "classification_category": "other",
+            "block_index": 7,
+            "text": "BALANCE",
+            "structure": {"heading_level": None, "table_hint": None},
+        },
+        {
+            "display_id": "r01",
+            "row_id": "r01",
+            "source_unit_id": "knowledge::8",
+            "context_only": False,
+            "classification_category": "keep_for_review",
+            "block_index": 8,
+            "text": "Use low heat and whisk steadily.",
+            "context_before": None,
+            "context_before_block_index": None,
+            "context_after": None,
+            "context_after_block_index": None,
+            "structure": {"heading_level": None, "table_hint": None},
+        },
+        {
+            "display_id": "r02",
+            "row_id": "r02",
+            "source_unit_id": "knowledge::9",
+            "context_only": False,
+            "classification_category": "keep_for_review",
+            "block_index": 9,
+            "text": "Add butter off the heat to prevent splitting.",
+            "context_before": None,
+            "context_before_block_index": None,
+            "context_after": None,
+            "context_after_block_index": None,
+            "structure": {"heading_level": None, "table_hint": None},
+        },
+    ]
+
+
 def test_same_session_handoff_completes_without_grouping_when_all_rows_are_other(
     tmp_path: Path,
 ) -> None:

@@ -225,6 +225,20 @@ def _compact_knowledge_context_row(
     return f"{row_id} | {int(block_index)} | {str(text or '')}"
 
 
+def _compact_knowledge_ordered_row(row: Mapping[str, Any]) -> str | None:
+    display_id = str(row.get("display_id") or row.get("row_id") or "").strip()
+    classification_category = str(
+        row.get("classification_category") or row.get("classification") or ""
+    ).strip()
+    text = str(row.get("text") or "").strip()
+    if not display_id or not classification_category or not text:
+        return None
+    block_index = row.get("block_index")
+    if block_index is None:
+        return f"{display_id} | {classification_category} | {text}"
+    return f"{display_id} | {classification_category} | {int(block_index)} | {text}"
+
+
 def _compact_knowledge_row_facts(
     *,
     row_id: str,
@@ -426,6 +440,7 @@ def knowledge_task_file_to_structured_packet(
     stage_key = str(task_file_payload.get("stage_key") or "").strip()
     repair_mode = str(task_file_payload.get("mode") or "").strip() == "repair"
     rows: list[str] = []
+    ordered_rows: list[str] = []
     context_before_rows: list[str] = []
     context_after_rows: list[str] = []
     row_facts: list[str] = []
@@ -489,8 +504,15 @@ def knowledge_task_file_to_structured_packet(
             )
             if repair_feedback_row is not None:
                 repair_feedback_rows.append(repair_feedback_row)
+    if stage_key == KNOWLEDGE_GROUP_STAGE_KEY:
+        for row in task_file_payload.get("ordered_rows") or []:
+            if not isinstance(row, Mapping):
+                continue
+            compact_row = _compact_knowledge_ordered_row(row)
+            if compact_row:
+                ordered_rows.append(compact_row)
     packet = {
-        "schema_version": "knowledge_structured_packet.v2",
+        "schema_version": "knowledge_structured_packet.v3",
         "stage_key": stage_key,
         "packet_kind": str(packet_kind or "initial"),
         "assignment_id": str(task_file_payload.get("assignment_id") or ""),
@@ -498,6 +520,8 @@ def knowledge_task_file_to_structured_packet(
         "bid": str(task_file_payload.get("assignment_id") or "knowledge-packet"),
         "rows": rows,
     }
+    if ordered_rows:
+        packet["ordered_rows"] = ordered_rows
     if context_before_rows:
         packet["context_before_rows"] = context_before_rows
     if context_after_rows:
@@ -556,6 +580,7 @@ def build_knowledge_structured_prompt(
     repair_mode = str(task_file_payload.get("mode") or "").strip() == "repair"
     row_count = len([row for row in (packet.get("rows") or []) if isinstance(row, str)])
     has_context = bool(packet.get("context_before_rows") or packet.get("context_after_rows"))
+    has_ordered_rows = bool(packet.get("ordered_rows"))
     if stage_key == KNOWLEDGE_GROUP_STAGE_KEY:
         response_shape = (
             '{"groups":[{"group_id":"g01","start_row_id":"r01","end_row_id":"r02","topic_label":"Heat control","grounding":{"tag_keys":["heat-control"],"category_keys":["techniques"],"proposed_tags":[]},"why_no_existing_tag":null,"retrieval_query":null}]}'
@@ -563,8 +588,11 @@ def build_knowledge_structured_prompt(
         task_note = (
             "Review the ordered kept knowledge rows and partition them into contiguous reading-order groups.\n"
             "The packet `rows` array is ordered and authoritative; each row is rendered as `rXX | block_index | text`.\n"
+            "When present, `ordered_rows` interleaves those authoritative kept rows with short context-only `other` rows in source order.\n"
+            "Each `ordered_rows` item is rendered as `display_id | classification | block_index | text`.\n"
             "This is a split-and-tag pass: choose the group boundaries with the tag story in mind.\n"
             "Every owned row in `rows` already survived the binary review and must belong to exactly one contiguous group.\n"
+            "Only the `rXX` rows in `rows` are groupable. `ctxXX` rows in `ordered_rows` are structural context only and must never appear in returned group spans.\n"
             "Return one `groups` array. Each group claims an inclusive span with `start_row_id` and `end_row_id`.\n"
             "The groups must cover every owned row exactly once, in order, with no gaps and no overlap.\n"
             "Each group must carry one `group_id`, one `topic_label`, and one shared `grounding` story for that whole span.\n"
@@ -591,12 +619,19 @@ def build_knowledge_structured_prompt(
             "Return one ordered `labels` array with exactly one label per row.\n"
             "Classify each row only as `keep_for_review` or `other`.\n"
             "A heading, bridge line, or short setup row may help nearby rows count as knowledge without itself being `keep_for_review`.\n"
-            "But keep a short heading when it is the reusable concept or strategy name that makes the following explanatory row(s) materially clearer.\n"
+            "If a row is functioning as a heading, keep it `other` in this first pass even when it names the nearby concept clearly.\n"
+            "Short heading rows can still help later grouping as context, so do not force them into `keep_for_review` just to preserve structure.\n"
+            "If a short heading is the semantic key for nearby explanatory rows, keep the heading itself `other` and let the explanatory body carry the knowledge.\n"
             "Do not think about tags during classification. Tagging happens only in the second pass.\n"
             "If the row looks like reusable cooking knowledge worth carrying forward, return `keep_for_review`; otherwise return `other`.\n"
             "Memoir, book framing, navigation, decorative headings, and true-but-low-utility prose belong in `other` even if they mention cooking.\n"
             "Treat category labels and heading shape as weak hints only, but do use row order and nearby rows to understand the local run.\n"
         )
+    ordered_rows_note = (
+        "Use `ordered_rows` when present to understand the local run, but never treat the `ctxXX` context-only rows as groupable.\n"
+        if stage_key == KNOWLEDGE_GROUP_STAGE_KEY and has_ordered_rows
+        else ""
+    )
     context_note = (
         "Use `context_before_rows` and `context_after_rows` when present so you can understand the local run, then make the final label for the owned row itself.\n"
         if has_context
@@ -613,12 +648,18 @@ def build_knowledge_structured_prompt(
         if repair_mode
         else ""
     )
+    coverage_note = (
+        f"The `groups` spans together must cover exactly {row_count} owned row(s).\n"
+        if stage_key == KNOWLEDGE_GROUP_STAGE_KEY
+        else f"The `labels` array must contain exactly {row_count} row label(s).\n"
+    )
     return (
         "Return JSON only.\n\n"
         + task_note
+        + ordered_rows_note
         + context_note
         + repair_note
-        + f"The `groups` spans together must cover exactly {row_count} owned row(s).\n"
+        + coverage_note
         + "Do not include commentary, markdown, or extra keys.\n"
         + "Response shape:\n"
         + response_shape
