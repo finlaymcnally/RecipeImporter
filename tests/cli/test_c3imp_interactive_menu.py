@@ -52,6 +52,15 @@ def _patch_stage_attr(
             monkeypatch.setattr(module, name, value)
 
 
+def _patch_config_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    config_path,
+    local_config_path,
+) -> None:
+    _patch_interactive_attr(monkeypatch, "DEFAULT_CONFIG_PATH", config_path)
+    _patch_interactive_attr(monkeypatch, "DEFAULT_LOCAL_CONFIG_PATH", local_config_path)
+
+
 def _echo_codex_step_plan(**kwargs):
     return {
         str(row["step_id"]): {
@@ -311,11 +320,12 @@ def test_load_settings_preserves_stale_sequence_matcher_key(
     tmp_path,
 ) -> None:
     config_path = tmp_path / "cookimport.json"
+    local_config_path = tmp_path / "cookimport.local.json"
     config_path.write_text(
         json.dumps({"benchmark_sequence_matcher": "fallback"}, sort_keys=True),
         encoding="utf-8",
     )
-    _patch_interactive_attr(monkeypatch, "DEFAULT_CONFIG_PATH", config_path)
+    _patch_config_paths(monkeypatch, config_path, local_config_path)
     settings = cli._load_settings()
 
     assert settings["benchmark_sequence_matcher"] == "fallback"
@@ -326,7 +336,8 @@ def test_load_settings_includes_expanded_operator_defaults(
     tmp_path,
 ) -> None:
     config_path = tmp_path / "cookimport.json"
-    _patch_interactive_attr(monkeypatch, "DEFAULT_CONFIG_PATH", config_path)
+    local_config_path = tmp_path / "cookimport.local.json"
+    _patch_config_paths(monkeypatch, config_path, local_config_path)
 
     settings = cli._load_settings()
 
@@ -339,6 +350,52 @@ def test_load_settings_includes_expanded_operator_defaults(
     assert settings["codex_farm_knowledge_context_blocks"] == 0
     assert settings["label_studio_url"] == ""
     assert settings["label_studio_api_key"] == ""
+
+
+def test_load_settings_merges_ignored_local_labelstudio_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "cookimport.json"
+    local_config_path = tmp_path / "cookimport.local.json"
+    config_path.write_text(
+        json.dumps({"label_studio_url": "http://localhost:8080"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    local_config_path.write_text(
+        json.dumps({"label_studio_api_key": "local-key"}, sort_keys=True),
+        encoding="utf-8",
+    )
+    _patch_config_paths(monkeypatch, config_path, local_config_path)
+
+    settings = cli._load_settings()
+
+    assert settings["label_studio_url"] == "http://localhost:8080"
+    assert settings["label_studio_api_key"] == "local-key"
+
+
+def test_save_settings_writes_labelstudio_key_to_ignored_local_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "cookimport.json"
+    local_config_path = tmp_path / "cookimport.local.json"
+    _patch_config_paths(monkeypatch, config_path, local_config_path)
+
+    payload = {
+        "label_studio_url": "http://localhost:8080",
+        "label_studio_api_key": "local-key",
+        "workers": 3,
+    }
+
+    cli._save_settings(dict(payload))
+
+    saved_main = json.loads(config_path.read_text(encoding="utf-8"))
+    saved_local = json.loads(local_config_path.read_text(encoding="utf-8"))
+
+    assert saved_main["label_studio_url"] == "http://localhost:8080"
+    assert "label_studio_api_key" not in saved_main
+    assert saved_local["label_studio_api_key"] == "local-key"
 
 
 def test_settings_menu_includes_expanded_operator_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -433,11 +490,12 @@ def test_run_settings_payload_filter_rejects_removed_removed_epub_extractor_valu
     tmp_path,
 ) -> None:
     config_path = tmp_path / "cookimport.json"
+    local_config_path = tmp_path / "cookimport.local.json"
     config_path.write_text(
         json.dumps({"epub_extractor": REMOVED_EXTRACTOR_VALUE}, sort_keys=True),
         encoding="utf-8",
     )
-    _patch_interactive_attr(monkeypatch, "DEFAULT_CONFIG_PATH", config_path)
+    _patch_config_paths(monkeypatch, config_path, local_config_path)
     settings = cli._load_settings()
 
     with pytest.raises(Exception):
@@ -452,11 +510,12 @@ def test_run_settings_payload_filter_rejects_removed_auto_epub_extractor(
     tmp_path,
 ) -> None:
     config_path = tmp_path / "cookimport.json"
+    local_config_path = tmp_path / "cookimport.local.json"
     config_path.write_text(
         json.dumps({"epub_extractor": "auto"}, sort_keys=True),
         encoding="utf-8",
     )
-    _patch_interactive_attr(monkeypatch, "DEFAULT_CONFIG_PATH", config_path)
+    _patch_config_paths(monkeypatch, config_path, local_config_path)
     settings = cli._load_settings()
 
     with pytest.raises(Exception):

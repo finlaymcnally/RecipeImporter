@@ -263,7 +263,7 @@ The post-Bucket-2 product contract now has two public layers:
 - `pdf_ocr_policy` (default `auto`)
 - `output_dir` (default `data/output`)
 - `label_studio_url` (default unset; populated after first interactive Label Studio prompt)
-- `label_studio_api_key` (default unset; populated after first interactive Label Studio prompt)
+- `label_studio_api_key` (default unset; when saved interactively it now lives in ignored `cookimport.local.json` rather than tracked `cookimport.json`)
 - `pdf_pages_per_job` (default `50`)
 - `epub_spine_items_per_job` (default `10`)
 - `warm_models` (default `false`)
@@ -301,7 +301,7 @@ What each setting affects:
 - Internal-only parser/OCR/scoring payload keys remain accepted for engineering experiments and benchmark reproducibility: `multi_recipe_*`, `ingredient_*`, `p6_*`, `recipe_score*`, `ocr_device`, `ocr_batch_size`, `pdf_column_gap_ratio`, and `codex_farm_failure_mode`.
 - `pdf_ocr_policy`: public OCR policy for PDFs.
 - `output_dir`: interactive `stage` target output root.
-- `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults.
+- `label_studio_url`, `label_studio_api_key`: interactive Label Studio import/export credential defaults. The URL stays in `cookimport.json`; the API key now saves to ignored `cookimport.local.json`.
 - `warm_models`: preloads SpaCy, ingredient parser, and OCR model before staging.
 - `llm_recipe_pipeline`: recipe codex-farm parsing correction flow (`off` or `codex-recipe-shard-v1`).
 - `llm_knowledge_pipeline`: optional knowledge-harvest flow (`off` or `codex-knowledge-candidate-v2`) used by `stage` only.
@@ -354,8 +354,8 @@ Developer note:
    - freeform prelabel task calls run in parallel by default (`15` workers).
 5. Enter Label Studio URL and API key if needed.
    - If `LABEL_STUDIO_URL` and `LABEL_STUDIO_API_KEY` are set, prompts are skipped.
-   - Otherwise, interactive mode uses saved `cookimport.json` values when present.
-   - If still missing, you are prompted once and the entered values are saved to `cookimport.json` for future interactive runs.
+   - Otherwise, interactive mode uses saved `cookimport.json` / `cookimport.local.json` values when present.
+   - If still missing, you are prompted once. The URL is saved to `cookimport.json`, while the API key is saved to ignored `cookimport.local.json` for future interactive runs.
 6. The tool builds tasks on your machine.
    - It prepares freeform segment tasks (`freeform-spans`) from extracted source blocks.
    - Before per-task AI labeling starts, it runs a single Codex model-access preflight call and fails fast when the selected model/account combination is invalid.
@@ -386,8 +386,8 @@ Developer note:
 `Label Studio export` steps:
 
 1. Uses `LABEL_STUDIO_URL` / `LABEL_STUDIO_API_KEY` env vars when present; otherwise prompts for them.
-   - If env vars are unset, interactive mode reuses saved `cookimport.json` values before prompting.
-   - Newly prompted values are saved to `cookimport.json`.
+   - If env vars are unset, interactive mode reuses saved `cookimport.json` / `cookimport.local.json` values before prompting.
+   - Newly prompted URL values are saved to `cookimport.json`; newly prompted API keys are saved to ignored `cookimport.local.json`.
 2. Fetches Label Studio projects and shows a project picker.
    - In plain English: choose an existing project title instead of typing it.
    - The picker shows each project with a detected type tag (for example `pipeline`, `canonical-blocks`, `freeform-spans`) when available.
@@ -1228,7 +1228,7 @@ CLI-relevant environment variables:
 Precedence notes:
 
 - For Label Studio creds: CLI flags win over environment variables.
-- For interactive Label Studio import/export creds: environment variables win over saved `cookimport.json` credentials.
+- For interactive Label Studio import/export creds: environment variables win over saved `cookimport.json` / `cookimport.local.json` credentials.
 - For prelabel Codex settings: `--codex-cmd`/`--codex-model`/`--codex-thinking-effort` win for that run; env vars are defaults.
 - For EPUB extractor/options: explicit stage/benchmark flags or interactive per-run Run Settings selection write `C3IMP_EPUB_EXTRACTOR` plus `C3IMP_EPUB_UNSTRUCTURED_*` vars for that run; markdown extractors still require `COOKIMPORT_ENABLE_MARKDOWN_EXTRACTORS=1`.
 - For all-method markdown extractors: `COOKIMPORT_ALL_METHOD_INCLUDE_MARKDOWN_EXTRACTORS=1` gates optional markdown variants.

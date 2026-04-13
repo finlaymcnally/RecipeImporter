@@ -43,7 +43,6 @@
   "all_method_source_shard_min_variants": 6,
   "all_method_smart_scheduler": true,
   "label_studio_url": "http://localhost:8080",
-  "label_studio_api_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6ODA3ODQxMTY3NSwiaWF0IjoxNzcxMjExNjc1LCJqdGkiOiJkZTk0NWUxNTA1NjM0MGE2YWY5MTQzZGYwNDhlNjAyMyIsInVzZXJfaWQiOiIxIn0.TPkjLgYr96F97ak4DZqV5nYB_DIAzNu55YSNm_UnA9I",
   "output_dir": "/home/mcnal/projects/recipeimport/data/output",
   "all_method_wing_backlog_target": 4
 }

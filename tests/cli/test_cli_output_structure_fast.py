@@ -22,6 +22,7 @@ def test_load_settings_matches_current_run_settings_defaults(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(cli, "DEFAULT_CONFIG_PATH", tmp_path / "missing-cookimport.json")
+    monkeypatch.setattr(cli, "DEFAULT_LOCAL_CONFIG_PATH", tmp_path / "missing-cookimport.local.json")
 
     settings = cli._load_settings()
     expected = RunSettings().to_run_config_dict()

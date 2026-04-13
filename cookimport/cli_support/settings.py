@@ -14,11 +14,24 @@ from cookimport.epub_extractor_names import (
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.plugins import registry
 
+_LOCAL_ONLY_SETTINGS_KEYS = ("label_studio_api_key",)
+
 
 def _runtime():
     from cookimport import cli_support as runtime
 
     return runtime
+
+
+def _load_json_object(path: Path) -> Dict[str, Any] | None:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            loaded = json.load(handle)
+    except Exception:
+        return None
+    if isinstance(loaded, dict):
+        return dict(loaded)
+    return None
 
 
 def _load_settings() -> Dict[str, Any]:
@@ -84,45 +97,48 @@ def _load_settings() -> Dict[str, Any]:
         "label_studio_api_key": "",
         "output_dir": str(runtime.DEFAULT_INTERACTIVE_OUTPUT),
     }
-    if not runtime.DEFAULT_CONFIG_PATH.exists():
+    tracked_loaded = _load_json_object(runtime.DEFAULT_CONFIG_PATH)
+    local_loaded = _load_json_object(runtime.DEFAULT_LOCAL_CONFIG_PATH)
+
+    if tracked_loaded is None and not runtime.DEFAULT_CONFIG_PATH.exists():
         defaults[runtime.ALL_METHOD_WING_BACKLOG_SETTING_KEY] = defaults[
             runtime.ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY
         ]
         defaults[runtime.ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY] = defaults[
             runtime.ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY
         ]
-    try:
-        with open(runtime.DEFAULT_CONFIG_PATH, "r", encoding="utf-8") as handle:
-            loaded = json.load(handle)
-    except Exception:
+        tracked_loaded = None
+
+    if tracked_loaded is None:
         defaults[runtime.ALL_METHOD_WING_BACKLOG_SETTING_KEY] = defaults[
             runtime.ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY
         ]
         defaults[runtime.ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY] = defaults[
             runtime.ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY
         ]
-        return defaults
-    if isinstance(loaded, dict):
-        merged = {**defaults, **loaded}
-        if runtime.ALL_METHOD_WING_BACKLOG_SETTING_KEY not in loaded:
-            merged[runtime.ALL_METHOD_WING_BACKLOG_SETTING_KEY] = _resolve_positive_int_setting(
-                merged,
-                key=runtime.ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
-                fallback=runtime.ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
-            )
-        if runtime.ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY not in loaded:
-            merged[runtime.ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY] = _resolve_positive_int_setting(
-                merged,
-                key=runtime.ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
-                fallback=runtime.ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
-            )
-        merged[runtime.ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY] = (
-            _normalize_all_method_scheduler_scope(
-                merged.get(runtime.ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY)
-            )
+        tracked_loaded = {}
+
+    merged = {**defaults, **tracked_loaded}
+    if isinstance(local_loaded, dict):
+        merged.update(local_loaded)
+    if runtime.ALL_METHOD_WING_BACKLOG_SETTING_KEY not in tracked_loaded:
+        merged[runtime.ALL_METHOD_WING_BACKLOG_SETTING_KEY] = _resolve_positive_int_setting(
+            merged,
+            key=runtime.ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
+            fallback=runtime.ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
         )
-        return merged
-    return defaults
+    if runtime.ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY not in tracked_loaded:
+        merged[runtime.ALL_METHOD_MAX_EVAL_TAIL_SETTING_KEY] = _resolve_positive_int_setting(
+            merged,
+            key=runtime.ALL_METHOD_MAX_SPLIT_SLOTS_SETTING_KEY,
+            fallback=runtime.ALL_METHOD_MAX_SPLIT_PHASE_SLOTS_DEFAULT,
+        )
+    merged[runtime.ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY] = (
+        _normalize_all_method_scheduler_scope(
+            merged.get(runtime.ALL_METHOD_SCHEDULER_SCOPE_SETTING_KEY)
+        )
+    )
+    return merged
 
 
 def _run_settings_payload_from_settings(settings: Mapping[str, Any]) -> dict[str, Any]:
@@ -136,8 +152,25 @@ def _run_settings_payload_from_settings(settings: Mapping[str, Any]) -> dict[str
 def _save_settings(settings: Dict[str, Any]) -> None:
     runtime = _runtime()
     runtime.DEFAULT_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tracked_settings = dict(settings)
+    existing_local_settings = _load_json_object(runtime.DEFAULT_LOCAL_CONFIG_PATH) or {}
+    local_settings = dict(existing_local_settings)
+    for key in _LOCAL_ONLY_SETTINGS_KEYS:
+        if key in tracked_settings:
+            value = tracked_settings.pop(key)
+            cleaned = str(value or "").strip()
+            if cleaned:
+                local_settings[key] = cleaned
+            else:
+                local_settings.pop(key, None)
     with open(runtime.DEFAULT_CONFIG_PATH, "w", encoding="utf-8") as handle:
-        json.dump(settings, handle, indent=2)
+        json.dump(tracked_settings, handle, indent=2)
+    if local_settings:
+        runtime.DEFAULT_LOCAL_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(runtime.DEFAULT_LOCAL_CONFIG_PATH, "w", encoding="utf-8") as handle:
+            json.dump(local_settings, handle, indent=2)
+    elif runtime.DEFAULT_LOCAL_CONFIG_PATH.exists():
+        runtime.DEFAULT_LOCAL_CONFIG_PATH.unlink()
 
 
 def _coerce_positive_int(value: Any) -> int | None:
