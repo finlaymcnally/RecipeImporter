@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -281,6 +282,84 @@ def _count_seeded_annotations(tasks: list[dict[str, Any]]) -> int:
     return count
 
 
+def _annotation_label_counts(task: dict[str, Any]) -> dict[str, int]:
+    annotations = task.get("annotations")
+    if not isinstance(annotations, list) or not annotations:
+        return {}
+    latest = annotations[-1]
+    if not isinstance(latest, dict):
+        return {}
+    result = latest.get("result")
+    if not isinstance(result, list):
+        return {}
+    counts: Counter[str] = Counter()
+    for item in result:
+        if not isinstance(item, dict):
+            continue
+        value = item.get("value")
+        if not isinstance(value, dict):
+            continue
+        labels = value.get("labels")
+        if not isinstance(labels, list):
+            continue
+        for label in labels:
+            label_text = str(label or "").strip()
+            if label_text:
+                counts[label_text] += 1
+    return dict(sorted(counts.items()))
+
+
+def _verify_uploaded_project_annotations(
+    *,
+    client: LabelStudioClient,
+    project_id: int,
+    tasks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    exported_tasks = client.export_tasks(project_id)
+    exported_by_segment_id: dict[str, dict[str, Any]] = {}
+    for task in exported_tasks:
+        if not isinstance(task, dict):
+            continue
+        data = task.get("data")
+        if not isinstance(data, dict):
+            continue
+        segment_id = str(data.get("segment_id") or "").strip()
+        if segment_id:
+            exported_by_segment_id[segment_id] = task
+
+    mismatches: list[dict[str, Any]] = []
+    for task in tasks:
+        data = task.get("data")
+        if not isinstance(data, dict):
+            continue
+        segment_id = str(data.get("segment_id") or "").strip()
+        if not segment_id:
+            continue
+        expected = _annotation_label_counts(task)
+        exported_task = exported_by_segment_id.get(segment_id)
+        if exported_task is None:
+            mismatches.append(
+                {
+                    "segment_id": segment_id,
+                    "expected": expected,
+                    "actual": None,
+                    "reason": "missing_exported_task",
+                }
+            )
+            continue
+        actual = _annotation_label_counts(exported_task)
+        if expected != actual:
+            mismatches.append(
+                {
+                    "segment_id": segment_id,
+                    "expected": expected,
+                    "actual": actual,
+                    "reason": "annotation_label_mismatch",
+                }
+            )
+    return mismatches
+
+
 def _mirror_annotations_into_predictions(
     *,
     client: LabelStudioClient,
@@ -352,6 +431,100 @@ def _mirror_annotations_into_predictions(
     return created
 
 
+def _create_or_replace_project(
+    *,
+    client: LabelStudioClient,
+    project_name: str,
+    label_config: str,
+    description: str,
+    keep_existing: bool,
+) -> dict[str, Any]:
+    existing_project = client.find_project_by_title(project_name)
+    if existing_project and not keep_existing:
+        existing_id = existing_project.get("id")
+        if existing_id is not None:
+            client.delete_project(int(existing_id))
+        existing_project = None
+    project = existing_project
+    if project is None:
+        project = client.create_project(
+            project_name,
+            label_config,
+            description=description,
+        )
+    project_id = project.get("id")
+    if project_id is None:
+        raise RuntimeError(
+            f"Label Studio project creation failed for {project_name}"
+        )
+    return client.update_project(
+        int(project_id),
+        {
+            "show_annotation_history": True,
+            "reveal_preannotations_interactively": True,
+        },
+    )
+
+
+def _provision_verified_project(
+    *,
+    client: LabelStudioClient,
+    project_name: str,
+    label_config: str,
+    tasks: list[dict[str, Any]],
+    upload_batch_size: int,
+    keep_existing: bool,
+    mirror_as_predictions: bool,
+) -> tuple[dict[str, Any], dict[str, Any], int]:
+    attempts = 1 if keep_existing else 2
+    last_mismatches: list[dict[str, Any]] = []
+    project: dict[str, Any] | None = None
+    upload_summary: dict[str, Any] | None = None
+    mirrored_prediction_count = 0
+
+    for attempt in range(1, attempts + 1):
+        project = _create_or_replace_project(
+            client=client,
+            project_name=project_name,
+            label_config=label_config,
+            description=(
+                "Row-authoritative gold replacement imported from "
+                "migrated row_seed_tasks.jsonl."
+            ),
+            keep_existing=keep_existing if attempt == 1 else False,
+        )
+        project_id = int(project["id"])
+        upload_summary = _upload_tasks_as_annotations(
+            client=client,
+            project_id=project_id,
+            tasks=tasks,
+            upload_batch_size=upload_batch_size,
+        )
+        mirrored_prediction_count = 0
+        if mirror_as_predictions:
+            mirrored_prediction_count = _mirror_annotations_into_predictions(
+                client=client,
+                project_id=project_id,
+                tasks=tasks,
+            )
+        last_mismatches = _verify_uploaded_project_annotations(
+            client=client,
+            project_id=project_id,
+            tasks=tasks,
+        )
+        if not last_mismatches:
+            return project, upload_summary, mirrored_prediction_count
+
+    preview = ", ".join(
+        f"{item['segment_id']} expected={item['expected']} actual={item['actual']}"
+        for item in last_mismatches[:3]
+    )
+    raise RuntimeError(
+        "Uploaded Label Studio annotations did not match the row seed tasks. "
+        f"Examples: {preview}"
+    )
+
+
 def _iter_book_roots(root: Path, only: set[str]) -> list[Path]:
     if not root.exists() or not root.is_dir():
         raise RuntimeError(f"Missing pulled-from-labelstudio root: {root}")
@@ -392,52 +565,21 @@ def main() -> int:
             _convert_seed_task_to_annotation_task(task)
             for task in seed_tasks
         ]
-        existing_project = client.find_project_by_title(target_project_name)
-        if existing_project and not args.keep_existing:
-            existing_id = existing_project.get("id")
-            if existing_id is not None:
-                client.delete_project(int(existing_id))
-            existing_project = None
-        project = existing_project
-        if project is None:
-            project = client.create_project(
-                target_project_name,
-                label_config,
-                description=(
-                    "Row-authoritative gold replacement imported from "
-                    "migrated row_seed_tasks.jsonl."
-                ),
-            )
-        project_id = project.get("id")
-        if project_id is None:
-            raise RuntimeError(
-                f"Label Studio project creation failed for {target_project_name}"
-            )
-        project = client.update_project(
-            int(project_id),
-            {
-                "show_annotation_history": True,
-                "reveal_preannotations_interactively": bool(args.mirror_as_predictions),
-            },
-        )
-        upload_summary = _upload_tasks_as_annotations(
+        project, upload_summary, mirrored_prediction_count = _provision_verified_project(
             client=client,
-            project_id=int(project_id),
+            project_name=target_project_name,
+            label_config=label_config,
             tasks=annotation_tasks,
             upload_batch_size=args.upload_batch_size,
+            keep_existing=args.keep_existing,
+            mirror_as_predictions=bool(args.mirror_as_predictions),
         )
-        mirrored_prediction_count = 0
-        if args.mirror_as_predictions:
-            mirrored_prediction_count = _mirror_annotations_into_predictions(
-                client=client,
-                project_id=int(project_id),
-                tasks=annotation_tasks,
-            )
+        project_id = int(project["id"])
         payload = {
             "book_slug": book_root.name,
             "original_project_name": original_project_name,
             "row_gold_project_name": target_project_name,
-            "row_gold_project_id": int(project_id),
+            "row_gold_project_id": project_id,
             "row_seed_tasks_path": str(tasks_path),
             "task_count": len(annotation_tasks),
             "seeded_annotation_count": _count_seeded_annotations(annotation_tasks),
