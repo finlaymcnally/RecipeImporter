@@ -80,6 +80,41 @@ def test_list_project_tasks_falls_back_to_legacy_query_on_runtime_error(monkeypa
     ]
 
 
+def test_list_project_tasks_paginates_legacy_tasks_payload(monkeypatch) -> None:
+    client = LabelStudioClient("http://localhost:8080", "token")
+    calls: list[str] = []
+
+    def fake_request_json(method: str, path: str, payload=None):
+        calls.append(f"{method} {path}")
+        if path.startswith("/api/projects/123/tasks?"):
+            raise RuntimeError("project-scoped endpoint unavailable")
+        if "page=1" in path:
+            return {
+                "tasks": [{"id": 1}, {"id": 2}],
+                "total": 3,
+                "total_annotations": 0,
+                "total_predictions": 0,
+            }
+        return {
+            "tasks": [{"id": 3}],
+            "total": 3,
+            "total_annotations": 0,
+            "total_predictions": 0,
+        }
+
+    monkeypatch.setattr(client, "_request_json", fake_request_json)
+
+    tasks = client.list_project_tasks(123)
+
+    assert tasks == [{"id": 1}, {"id": 2}, {"id": 3}]
+    assert calls == [
+        "GET /api/projects/123/tasks?page=1&page_size=100",
+        "GET /api/tasks?project=123&page=1&page_size=100",
+        "GET /api/projects/123/tasks?page=2&page_size=100",
+        "GET /api/tasks?project=123&page=2&page_size=100",
+    ]
+
+
 def test_update_project_uses_patch(monkeypatch) -> None:
     client = LabelStudioClient("http://localhost:8080", "token")
     calls: list[tuple[str, str, object]] = []

@@ -209,9 +209,23 @@ class LabelStudioClient:
                     )
                 if not payload.get("next"):
                     break
+            elif isinstance(payload, dict) and "tasks" in payload:
+                results = payload.get("tasks", [])
+                if isinstance(results, list):
+                    tasks.extend(
+                        [item for item in results if isinstance(item, dict)]
+                    )
+                total_raw = payload.get("total")
+                try:
+                    total = int(total_raw)
+                except (TypeError, ValueError):
+                    total = None
+                if total is None or len(tasks) >= total or not results:
+                    break
             elif isinstance(payload, list):
                 tasks.extend([item for item in payload if isinstance(item, dict)])
-                break
+                if len(payload) < 100:
+                    break
             else:
                 break
             page += 1
