@@ -22,6 +22,9 @@ def evaluate_source_rows(
     prediction_rows_path = _resolve_prediction_rows_path(stage_predictions_json)
     gold_rows = _read_jsonl(row_gold_path)
     prediction_rows = _read_jsonl(prediction_rows_path)
+    authority_by_block_index, authority_path = _load_nonrecipe_authority_by_block_index(
+        stage_predictions_json
+    )
 
     gold_by_row_id: dict[str, dict[str, Any]] = {}
     gold_row_id_by_row_index: dict[int, str] = {}
@@ -35,15 +38,35 @@ def evaluate_source_rows(
             gold_row_id_by_row_index[row_index] = row_id
 
     prediction_by_row_id: dict[str, dict[str, Any]] = {}
+    direct_row_id_match_rows = 0
+    row_index_fallback_match_rows = 0
     for row in prediction_rows:
-        row_id = str(row.get("row_id") or "").strip()
-        if not row_id:
-            row_index = _coerce_int(row.get("row_index", row.get("atomic_index")))
-            if row_index is not None:
-                row_id = gold_row_id_by_row_index.get(row_index, "")
-        if not row_id:
+        original_row_id = str(row.get("row_id") or "").strip()
+        row_index = _coerce_int(row.get("row_index", row.get("atomic_index")))
+        resolved_row_id = ""
+        match_mode = ""
+        if original_row_id and original_row_id in gold_by_row_id:
+            resolved_row_id = original_row_id
+            match_mode = "row_id"
+        elif row_index is not None:
+            resolved_row_id = gold_row_id_by_row_index.get(row_index, "")
+            if resolved_row_id:
+                match_mode = "row_index"
+        if not resolved_row_id:
             continue
-        prediction_by_row_id[row_id] = row
+        existing = prediction_by_row_id.get(resolved_row_id)
+        if existing is not None and existing.get("_match_mode") == "row_id" and match_mode != "row_id":
+            continue
+        row_payload = dict(row)
+        row_payload["_match_mode"] = match_mode
+        row_payload["_resolved_row_id"] = resolved_row_id
+        prediction_by_row_id[resolved_row_id] = row_payload
+
+    for row in prediction_by_row_id.values():
+        if row.get("_match_mode") == "row_id":
+            direct_row_id_match_rows += 1
+        elif row.get("_match_mode") == "row_index":
+            row_index_fallback_match_rows += 1
 
     aligned_rows: list[dict[str, Any]] = []
     wrong_rows: list[dict[str, Any]] = []
@@ -54,6 +77,7 @@ def evaluate_source_rows(
     correct = 0
     total = 0
     missing_prediction_count = 0
+    authority_override_rows = 0
 
     for row_id, gold_row in sorted(
         gold_by_row_id.items(),
@@ -67,6 +91,11 @@ def evaluate_source_rows(
         pred_label = normalize_freeform_label(
             str((prediction or {}).get("label") or (prediction or {}).get("final_label") or "OTHER")
         )
+        pred_block_index = _coerce_int((prediction or {}).get("block_index"))
+        authority_label = _authority_category_to_label(authority_by_block_index.get(pred_block_index))
+        if authority_label is not None and authority_label != pred_label:
+            pred_label = authority_label
+            authority_override_rows += 1
         if pred_label not in _FREEFORM_LABEL_SET:
             pred_label = "OTHER"
         is_correct = pred_label in set(gold_labels)
@@ -82,6 +111,7 @@ def evaluate_source_rows(
             "gold_label": primary_gold,
             "gold_labels": gold_labels,
             "pred_label": pred_label,
+            "prediction_match_mode": (prediction or {}).get("_match_mode"),
             "is_wrong_label": not is_correct,
         }
         aligned_rows.append(payload)
@@ -158,6 +188,9 @@ def evaluate_source_rows(
             "correct_rows": correct,
             "wrong_rows": len(wrong_rows),
             "missing_prediction_rows": missing_prediction_count,
+            "direct_row_id_match_rows": direct_row_id_match_rows,
+            "row_index_fallback_match_rows": row_index_fallback_match_rows,
+            "authority_override_rows": authority_override_rows,
         },
         "metrics": {
             "micro_precision": round(micro_precision, 6),
@@ -179,6 +212,9 @@ def evaluate_source_rows(
         "confusion": confusion,
         "wrong_label_blocks": wrong_rows,
         "wrong_label_lines": wrong_rows,
+        "artifacts": {
+            "nonrecipe_authority_path": str(authority_path) if authority_path is not None else None,
+        },
         "output": {
             "wrong_label_lines_path": str(wrong_path),
             "aligned_prediction_blocks_path": str(aligned_path),
@@ -204,6 +240,9 @@ def format_source_row_eval_report_md(report: dict[str, Any]) -> str:
         f"- Correct rows: {counts.get('correct_rows', 0)}",
         f"- Wrong rows: {counts.get('wrong_rows', 0)}",
         f"- Missing prediction rows: {counts.get('missing_prediction_rows', 0)}",
+        f"- Direct row-id matches: {counts.get('direct_row_id_match_rows', 0)}",
+        f"- Row-index fallback matches: {counts.get('row_index_fallback_match_rows', 0)}",
+        f"- Authority overrides: {counts.get('authority_override_rows', 0)}",
         f"- Overall line accuracy: {float(report.get('overall_line_accuracy') or 0.0):.3f}",
         (
             "- Macro F1 (excluding OTHER): "
@@ -251,6 +290,64 @@ def _resolve_prediction_rows_path(stage_predictions_json: Path) -> Path:
     raise FileNotFoundError(
         f"Could not locate row prediction artifact beside {stage_predictions_json}"
     )
+
+
+def _load_nonrecipe_authority_by_block_index(
+    stage_predictions_json: Path,
+) -> tuple[dict[int, str], Path | None]:
+    manifest_path = stage_predictions_json.parent.parent / "run_manifest.json"
+    if not manifest_path.exists() or not manifest_path.is_file():
+        return {}, None
+    try:
+        manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}, None
+    if not isinstance(manifest_payload, dict):
+        return {}, None
+    artifacts = manifest_payload.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return {}, None
+    candidate_dirs: list[Path] = []
+    for key in ("processed_output_run_dir", "stage_run_dir"):
+        raw_value = artifacts.get(key)
+        if not isinstance(raw_value, str) or not raw_value.strip():
+            continue
+        candidate = Path(raw_value)
+        if not candidate.is_absolute():
+            candidate = (manifest_path.parent / candidate).resolve()
+        candidate_dirs.append(candidate)
+    for candidate_dir in candidate_dirs:
+        authority_path = candidate_dir / "09_nonrecipe_authority.json"
+        if not authority_path.exists() or not authority_path.is_file():
+            continue
+        try:
+            payload = json.loads(authority_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        block_map = payload.get("authoritative_block_category_by_index")
+        if not isinstance(block_map, dict):
+            continue
+        normalized: dict[int, str] = {}
+        for key, value in block_map.items():
+            block_index = _coerce_int(key)
+            if block_index is None:
+                continue
+            category = str(value or "").strip().lower()
+            if category in {"knowledge", "other"}:
+                normalized[block_index] = category
+        if normalized:
+            return normalized, authority_path
+    return {}, None
+
+
+def _authority_category_to_label(category: str | None) -> str | None:
+    if category == "knowledge":
+        return "KNOWLEDGE"
+    if category == "other":
+        return "OTHER"
+    return None
 
 
 def _normalize_labels(value: Any) -> list[str]:

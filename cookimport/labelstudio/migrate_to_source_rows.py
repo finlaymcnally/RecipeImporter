@@ -64,7 +64,9 @@ def migrate_freeform_export_to_row_gold(
         for touched in touched_blocks:
             if not isinstance(touched, dict):
                 continue
-            block_index = _coerce_int(touched.get("block_index"))
+            block_index = _coerce_int(
+                touched.get("source_block_index", touched.get("block_index"))
+            )
             segment_start = _coerce_int(touched.get("segment_start"))
             segment_end = _coerce_int(touched.get("segment_end"))
             if (

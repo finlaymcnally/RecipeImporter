@@ -3,6 +3,7 @@ import json
 from cookimport.labelstudio.migrate_to_source_rows import (
     MigrationResult,
     build_row_labelstudio_seed_package,
+    migrate_freeform_export_to_row_gold,
 )
 from cookimport.parsing.source_rows import SourceRow, write_source_rows
 
@@ -70,3 +71,70 @@ def test_row_seed_package_uses_non_overlapping_focus_rows(tmp_path) -> None:
     assert focus_row_groups[2] == [f"row-{index}" for index in range(240, 245)]
     assert set(focus_row_groups[0]).isdisjoint(focus_row_groups[1])
     assert set(focus_row_groups[1]).isdisjoint(focus_row_groups[2])
+
+
+def test_migrate_freeform_export_to_row_gold_prefers_source_block_index(tmp_path) -> None:
+    source_rows = [
+        SourceRow(
+            row_id="row-a",
+            source_hash="hash-1",
+            row_index=0,
+            row_ordinal=0,
+            block_id="block-10",
+            block_index=10,
+            start_char_in_block=0,
+            end_char_in_block=len("Bright Cabbage Slaw"),
+            text="Bright Cabbage Slaw",
+            rule_tags=["title_like"],
+        ),
+        SourceRow(
+            row_id="row-b",
+            source_hash="hash-1",
+            row_index=1,
+            row_ordinal=0,
+            block_id="block-20",
+            block_index=20,
+            start_char_in_block=0,
+            end_char_in_block=len("Salt is essential."),
+            text="Salt is essential.",
+            rule_tags=["explicit_prose"],
+        ),
+    ]
+    source_rows_path = tmp_path / "source_rows.jsonl"
+    write_source_rows(source_rows_path, source_rows)
+
+    freeform_path = tmp_path / "freeform_span_labels.jsonl"
+    freeform_path.write_text(
+        json.dumps(
+            {
+                "label": "RECIPE_TITLE",
+                "span_id": "span-1",
+                "start_offset": 0,
+                "end_offset": len("Bright Cabbage Slaw"),
+                "touched_blocks": [
+                    {
+                        "block_index": 1,
+                        "source_block_index": 10,
+                        "segment_start": 0,
+                        "segment_end": len("Bright Cabbage Slaw"),
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = migrate_freeform_export_to_row_gold(
+        freeform_span_labels_jsonl_path=freeform_path,
+        source_rows_jsonl_path=source_rows_path,
+    )
+
+    labels_by_row_id = {
+        row["row_id"]: row["labels"]
+        for row in result.row_gold_rows
+    }
+    assert labels_by_row_id == {
+        "row-a": ["RECIPE_TITLE"],
+        "row-b": ["OTHER"],
+    }
