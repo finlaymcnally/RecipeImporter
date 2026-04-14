@@ -74,6 +74,7 @@ Source rows note:
 - The active splitter is two-stage: keep the existing recipe-oriented first pass, then run a prose cleanup pass only on oversized or obviously mid-sentence-fractured rows.
 - Version one uses fixed thresholds rather than semantic grouping: rows over roughly 220 chars with multiple sentences, rows over roughly 320 chars, and broken lowercase-leading continuations get reworked into smaller sentence-based rows, while existing small recipe rows are left alone.
 - Yield rows still split cleanly from following ingredients, including spaced-fraction cases like `Makes about 1 / 2 cup 1 tablespoon lemon juice`.
+- Lowercase mid-sentence prose uses of `makes`, `serves`, and `yields` should not create structural yield-row fractures; those cues are only allowed as boundaries when they still look like real yield lines in context.
 
 Canonical line-role prompt seam note:
 - line-role prompt semantics now come from one shared contract file, `llm_pipelines/prompts/line-role.shared-contract.v1.md`; the file prompt and taskfile prompt are only transport wrappers around that same contract.

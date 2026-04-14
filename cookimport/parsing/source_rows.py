@@ -444,6 +444,10 @@ def _split_before_pattern(text: str, pattern: re.Pattern[str]) -> list[str]:
                 and not _looks_like_yield_line(text[match.start():])
             )
             if not (
+                pattern is _BOUNDARY_YIELD_RE
+                and not _looks_like_structural_yield_boundary(text, match.start())
+            )
+            if not (
                 pattern is _BOUNDARY_HOWTO_RE
                 and not _looks_like_structural_howto_boundary(text, match.start())
             )
@@ -718,6 +722,26 @@ def _looks_like_structural_howto_boundary(text: str, start: int) -> bool:
     if not _looks_compact_howto_heading(candidate):
         return False
     if start <= 0:
+        return True
+    previous_index = start - 1
+    while previous_index >= 0 and text[previous_index].isspace():
+        previous_index -= 1
+    if previous_index < 0:
+        return True
+    return text[previous_index] in ".!?:"
+
+
+def _looks_like_structural_yield_boundary(text: str, start: int) -> bool:
+    candidate = text[start:].strip()
+    if not _looks_like_yield_line(candidate):
+        return False
+    if start <= 0:
+        return True
+    match = _YIELD_PREFIX_RE.match(candidate)
+    if match is None:
+        return False
+    prefix = match.group(0).strip()
+    if prefix and prefix[0].isupper():
         return True
     previous_index = start - 1
     while previous_index >= 0 and text[previous_index].isspace():

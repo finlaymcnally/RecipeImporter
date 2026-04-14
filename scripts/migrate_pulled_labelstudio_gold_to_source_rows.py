@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.labelstudio.archive import build_extracted_archive
+from cookimport.labelstudio.export import run_labelstudio_export
 from cookimport.labelstudio.migrate_to_source_rows import (
     build_row_labelstudio_seed_package,
     migrate_freeform_export_to_row_gold,
@@ -50,6 +53,25 @@ def _parse_args() -> argparse.Namespace:
         default=[],
         help="Restrict migration to one or more export folder names.",
     )
+    parser.add_argument(
+        "--prefer-live-row-gold",
+        action="store_true",
+        help=(
+            "When a migrated replacement Label Studio project exists, export its "
+            "current annotations first and migrate from that live project instead "
+            "of the older pulled export."
+        ),
+    )
+    parser.add_argument(
+        "--label-studio-url",
+        default=None,
+        help="Label Studio base URL. Defaults to saved settings/env or localhost.",
+    )
+    parser.add_argument(
+        "--label-studio-api-key",
+        default=None,
+        help="Label Studio API key. Defaults to saved settings/env when available.",
+    )
     return parser.parse_args()
 
 
@@ -69,6 +91,15 @@ def main() -> int:
 
     sent_manifest_index = _index_sent_manifests(args.sent_root)
     batch_rows: list[dict[str, Any]] = []
+    label_studio_credentials = _resolve_labelstudio_credentials(
+        label_studio_url=args.label_studio_url,
+        label_studio_api_key=args.label_studio_api_key,
+    )
+    if args.prefer_live_row_gold and label_studio_credentials is None:
+        raise SystemExit(
+            "--prefer-live-row-gold requires Label Studio credentials via "
+            "--label-studio-api-key, LABEL_STUDIO_API_KEY, or cookimport.local.json"
+        )
 
     for export_root in export_roots:
         project_root = export_root.parent
@@ -95,8 +126,24 @@ def main() -> int:
         source_rows = build_source_rows(archive_blocks, source_hash=source_hash)
         write_source_rows(source_rows_path, source_rows)
 
+        migration_span_path = freeform_path
+        span_source = "pulled_export"
+        live_export_summary: dict[str, Any] | None = None
+        if args.prefer_live_row_gold and label_studio_credentials is not None:
+            live_export_summary = _maybe_export_live_row_gold_project(
+                project_root=project_root,
+                pulled_root=args.pulled_root,
+                label_studio_url=label_studio_credentials[0],
+                label_studio_api_key=label_studio_credentials[1],
+            )
+            if live_export_summary is not None:
+                migration_span_path = Path(
+                    live_export_summary["freeform_span_labels_path"]
+                )
+                span_source = str(live_export_summary["span_source"])
+
         migration_result = migrate_freeform_export_to_row_gold(
-            freeform_span_labels_jsonl_path=freeform_path,
+            freeform_span_labels_jsonl_path=migration_span_path,
             source_rows_jsonl_path=source_rows_path,
         )
         seed_package = build_row_labelstudio_seed_package(
@@ -117,6 +164,9 @@ def main() -> int:
             migration_result=migration_result,
             seed_package=seed_package,
             archive_source=archive_source,
+            migration_span_path=migration_span_path,
+            migration_span_source=span_source,
+            live_export_summary=live_export_summary,
         )
         _update_export_run_manifest(
             run_manifest_path=run_manifest_path,
@@ -125,6 +175,7 @@ def main() -> int:
             source_hash=source_hash,
             source_rows_path=source_rows_path,
             written_paths=written_paths,
+            migration_span_path=migration_span_path,
         )
 
         batch_rows.append(
@@ -139,6 +190,8 @@ def main() -> int:
                 "unlabeled_row_count": migration_result.unlabeled_row_count,
                 "seed_task_count": seed_package.task_count,
                 "seeded_annotation_count": seed_package.seeded_annotation_count,
+                "migration_span_source": span_source,
+                "migration_span_path": str(migration_span_path),
                 "source_rows_path": str(source_rows_path),
                 "row_gold_labels_path": str(written_paths["row_gold_path"]),
             }
@@ -147,7 +200,8 @@ def main() -> int:
             f"{slug}: migrated {migration_result.migrated_labeled_row_count} rows "
             f"(ambiguous={migration_result.ambiguous_row_count}, "
             f"conflicts={migration_result.conflicting_row_count}, "
-            f"seed_tasks={seed_package.task_count}) via {archive_source}"
+            f"seed_tasks={seed_package.task_count}) via {archive_source}; "
+            f"labels from {span_source}"
         )
 
     batch_summary_path = args.pulled_root / "source_rows_migration_summary.json"
@@ -157,6 +211,83 @@ def main() -> int:
     )
     print(f"Wrote batch summary: {batch_summary_path}")
     return 0
+
+
+def _resolve_labelstudio_credentials(
+    *,
+    label_studio_url: str | None,
+    label_studio_api_key: str | None,
+) -> tuple[str, str] | None:
+    url = str(label_studio_url or os.getenv("LABEL_STUDIO_URL") or "").strip()
+    api_key = str(
+        label_studio_api_key or os.getenv("LABEL_STUDIO_API_KEY") or ""
+    ).strip()
+    if not url:
+        url = _load_saved_setting("label_studio_url") or "http://localhost:8080"
+    if not api_key:
+        api_key = _load_saved_setting("label_studio_api_key") or ""
+    if not api_key:
+        return None
+    return url, api_key
+
+
+def _load_saved_setting(key: str) -> str | None:
+    for path in (Path("cookimport.local.json"), Path("cookimport.json")):
+        if not path.exists() or not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        value = str(payload.get(key) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def _maybe_export_live_row_gold_project(
+    *,
+    project_root: Path,
+    pulled_root: Path,
+    label_studio_url: str,
+    label_studio_api_key: str,
+) -> dict[str, Any] | None:
+    summary_path = project_root / "exports" / "row_gold_labelstudio_project.json"
+    if not summary_path.exists() or not summary_path.is_file():
+        return None
+    summary = _load_json_object(summary_path)
+    project_name = str(summary.get("row_gold_project_name") or "").strip()
+    if not project_name:
+        return None
+    project_id = str(summary.get("row_gold_project_id") or "").strip() or "unknown"
+    backup_root = (
+        pulled_root
+        / project_root.name
+        / "live_row_gold_backups"
+        / f"{dt.datetime.now().strftime('%Y-%m-%d_%H.%M.%S')}_project-{project_id}"
+    )
+    export_result = run_labelstudio_export(
+        project_name=project_name,
+        output_dir=pulled_root,
+        label_studio_url=label_studio_url,
+        label_studio_api_key=label_studio_api_key,
+        run_dir=backup_root,
+    )
+    export_root = Path(export_result["export_root"])
+    freeform_span_labels_path = export_root / "freeform_span_labels.jsonl"
+    if not freeform_span_labels_path.exists():
+        raise FileNotFoundError(
+            f"Live row-gold export missing freeform spans: {freeform_span_labels_path}"
+        )
+    return {
+        "project_name": project_name,
+        "project_id": project_id,
+        "backup_run_root": str(export_root.parent),
+        "freeform_span_labels_path": str(freeform_span_labels_path),
+        "span_source": f"live_row_gold:{project_name}",
+    }
 
 
 def _resolve_source_identity(
@@ -268,6 +399,9 @@ def _update_export_summary(
     migration_result: Any,
     seed_package: Any,
     archive_source: str,
+    migration_span_path: Path,
+    migration_span_source: str,
+    live_export_summary: dict[str, Any] | None,
 ) -> None:
     summary = dict(existing_summary)
     output = dict(summary.get("output") or {})
@@ -278,6 +412,7 @@ def _update_export_summary(
             "row_gold_ambiguous": str(written_paths["ambiguous_path"]),
             "row_gold_conflicts": str(written_paths["conflicts_path"]),
             "row_seed_tasks": str(written_paths["seed_tasks_path"]),
+            "migration_freeform_span_labels": str(migration_span_path),
         }
     )
     summary["output"] = output
@@ -289,6 +424,8 @@ def _update_export_summary(
         "seed_task_count": seed_package.task_count,
         "seeded_annotation_count": seed_package.seeded_annotation_count,
         "archive_source": archive_source,
+        "migration_span_source": migration_span_source,
+        "live_export": live_export_summary,
     }
     summary_path.write_text(
         json.dumps(summary, indent=2, sort_keys=True),
@@ -304,6 +441,7 @@ def _update_export_run_manifest(
     source_hash: str,
     source_rows_path: Path,
     written_paths: dict[str, Path],
+    migration_span_path: Path,
 ) -> None:
     manifest = dict(existing_manifest)
     artifacts = dict(manifest.get("artifacts") or {})
@@ -315,6 +453,10 @@ def _update_export_run_manifest(
             "row_gold_conflicts_jsonl": _relative_or_absolute(written_paths["conflicts_path"], run_manifest_path.parent),
             "row_seed_tasks_jsonl": _relative_or_absolute(written_paths["seed_tasks_path"], run_manifest_path.parent),
             "migration_summary_json": _relative_or_absolute(written_paths["summary_path"], run_manifest_path.parent),
+            "migration_freeform_span_labels_jsonl": _relative_or_absolute(
+                migration_span_path,
+                run_manifest_path.parent,
+            ),
         }
     )
     manifest["artifacts"] = artifacts

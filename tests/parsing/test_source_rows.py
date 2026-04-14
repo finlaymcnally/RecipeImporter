@@ -63,6 +63,22 @@ def test_makes_serves_and_yields_inside_prose_do_not_create_structural_splits() 
     assert "yields a smoother sauce" in yields_rows[0]
 
 
+def test_lowercase_mid_sentence_serves_no_longer_creates_yield_split() -> None:
+    sample = (
+        "But she only ever serves one of two salads at our dinner table: Persian cucumber, "
+        "tomato, and onion, or Shirazi Salad, and a romaine-pecorino-sun-dried tomato number. "
+        "As a child, I quickly grew bored with salad. By the time I left for college, "
+        "I'd disavowed it altogether."
+    )
+
+    assert _split_block_text(sample) == [
+        "But she only ever serves one of two salads at our dinner table: Persian cucumber, "
+        "tomato, and onion, or Shirazi Salad, and a romaine-pecorino-sun-dried tomato number.",
+        "As a child, I quickly grew bored with salad. By the time I left for college, "
+        "I'd disavowed it altogether.",
+    ]
+
+
 def test_to_x_and_for_x_phrases_do_not_split_prose_mid_sentence() -> None:
     sample = (
         "Sometimes you'll need to use multiple fats to achieve different textures within a "

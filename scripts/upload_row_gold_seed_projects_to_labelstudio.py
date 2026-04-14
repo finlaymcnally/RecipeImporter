@@ -129,7 +129,10 @@ def _build_target_project_name(original_name: str, suffix: str) -> str:
     normalized_suffix = str(suffix or "").strip()
     if not normalized_suffix:
         raise ValueError("project suffix must not be empty")
-    full_name = f"{original_name} {normalized_suffix}"
+    if original_name.endswith(f" {normalized_suffix}") or original_name == normalized_suffix:
+        full_name = original_name
+    else:
+        full_name = f"{original_name} {normalized_suffix}"
     if len(full_name) <= 50:
         return full_name
     reserved = len(normalized_suffix) + 1
