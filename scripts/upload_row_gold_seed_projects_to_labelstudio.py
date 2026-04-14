@@ -155,6 +155,7 @@ def _convert_seed_task_to_annotation_task(task: dict[str, Any]) -> dict[str, Any
                     continue
                 annotation: dict[str, Any] = {
                     "result": result,
+                    "ground_truth": False,
                     "meta": {
                         "seed_source": "row_seed_tasks.jsonl",
                     },
