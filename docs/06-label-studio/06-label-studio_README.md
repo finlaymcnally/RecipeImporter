@@ -213,6 +213,7 @@ Row-authoritative benchmark note:
 - `row_gold_labels.jsonl` is the benchmark-authoritative gold. Benchmarks and row prediction diagnostics should trace one `row_id` end-to-end through scoring and mismatch reports.
 - `data.source_map.rows` is the authoritative task mapping for new freeform tasks. `blocks` keys remain as compatibility aliases for older UI/tests and should not be treated as the semantic baseline.
 - `block_gold_labels.jsonl` and canonical export files may still be written as compatibility/archive outputs for older tooling, but they are no longer the active scorer authority.
+- Older pulled exports can be batch-migrated in place with `python scripts/migrate_pulled_labelstudio_gold_to_source_rows.py`. That script writes `exports/source_rows.jsonl`, migrated row gold files, `exports/row_seed_tasks.jsonl`, and updates the export summary/manifest to point at the new row-native artifacts.
 
 ### 5.2 Eval artifacts
 
