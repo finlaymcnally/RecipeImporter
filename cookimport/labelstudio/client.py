@@ -245,6 +245,16 @@ class LabelStudioClient:
             payload["score"] = score
         return self._request_json("POST", "/api/predictions", payload)
 
+    def update_annotation(self, annotation_id: int, fields: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(fields, dict) or not fields:
+            raise ValueError("update_annotation requires a non-empty fields dict")
+        return self._request_json("PATCH", f"/api/annotations/{annotation_id}", fields)
+
+    def update_prediction(self, prediction_id: int, fields: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(fields, dict) or not fields:
+            raise ValueError("update_prediction requires a non-empty fields dict")
+        return self._request_json("PATCH", f"/api/predictions/{prediction_id}", fields)
+
     def export_tasks(self, project_id: int) -> list[dict[str, Any]]:
         paths = [
             f"/api/projects/{project_id}/export?download_all_tasks=true&exportType=JSON",

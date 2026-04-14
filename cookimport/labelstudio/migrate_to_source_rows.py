@@ -7,6 +7,7 @@ from typing import Any
 
 from cookimport.labelstudio.freeform_tasks import build_freeform_span_tasks
 from cookimport.labelstudio.label_config_freeform import FREEFORM_LABEL_CONTROL_NAME
+from cookimport.labelstudio.result_ids import make_safe_label_studio_result_id
 from cookimport.labelstudio.row_gold import write_row_gold_rows
 from cookimport.parsing.source_rows import SourceRow, load_source_rows
 
@@ -187,7 +188,9 @@ def build_row_labelstudio_seed_package(
             for label in labels:
                 result_rows.append(
                     {
-                        "id": f"seed-{row_id}-{label}",
+                        "id": make_safe_label_studio_result_id(
+                            f"seed-{row_id}-{label}"
+                        ),
                         "type": "labels",
                         "from_name": FREEFORM_LABEL_CONTROL_NAME,
                         "to_name": "segment_text",

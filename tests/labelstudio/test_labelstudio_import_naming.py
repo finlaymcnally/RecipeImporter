@@ -130,3 +130,39 @@ def test_create_prediction_posts_prediction_payload(monkeypatch) -> None:
             },
         )
     ]
+
+
+def test_update_annotation_uses_patch(monkeypatch) -> None:
+    client = LabelStudioClient("http://localhost:8080", "token")
+    calls: list[tuple[str, str, object]] = []
+
+    def fake_request_json(method: str, path: str, payload=None):
+        calls.append((method, path, payload))
+        return {"id": 55, "result": [{"id": "safe-id"}]}
+
+    monkeypatch.setattr(client, "_request_json", fake_request_json)
+
+    updated = client.update_annotation(55, {"result": [{"id": "safe-id"}]})
+
+    assert updated["id"] == 55
+    assert calls == [
+        ("PATCH", "/api/annotations/55", {"result": [{"id": "safe-id"}]})
+    ]
+
+
+def test_update_prediction_uses_patch(monkeypatch) -> None:
+    client = LabelStudioClient("http://localhost:8080", "token")
+    calls: list[tuple[str, str, object]] = []
+
+    def fake_request_json(method: str, path: str, payload=None):
+        calls.append((method, path, payload))
+        return {"id": 77, "result": [{"id": "safe-id"}]}
+
+    monkeypatch.setattr(client, "_request_json", fake_request_json)
+
+    updated = client.update_prediction(77, {"result": [{"id": "safe-id"}]})
+
+    assert updated["id"] == 77
+    assert calls == [
+        ("PATCH", "/api/predictions/77", {"result": [{"id": "safe-id"}]})
+    ]

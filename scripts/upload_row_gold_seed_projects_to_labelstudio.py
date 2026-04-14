@@ -14,6 +14,7 @@ from cookimport.labelstudio.ingest_support import (
     _task_id_value,
 )
 from cookimport.labelstudio.label_config_freeform import build_freeform_label_config
+from cookimport.labelstudio.result_ids import sanitize_label_studio_result_ids
 
 
 def _parse_args() -> argparse.Namespace:
@@ -163,7 +164,7 @@ def _convert_seed_task_to_annotation_task(task: dict[str, Any]) -> dict[str, Any
                 if not isinstance(result, list) or not result:
                     continue
                 annotation: dict[str, Any] = {
-                    "result": result,
+                    "result": sanitize_label_studio_result_ids(result),
                     "ground_truth": False,
                     "meta": {
                         "seed_source": "row_seed_tasks.jsonl",
@@ -173,6 +174,15 @@ def _convert_seed_task_to_annotation_task(task: dict[str, Any]) -> dict[str, Any
                 if model_version:
                     annotation["meta"]["seed_model_version"] = str(model_version)
                 annotations.append(annotation)
+    if annotations:
+        sanitized_annotations: list[dict[str, Any]] = []
+        for annotation in annotations:
+            sanitized_annotation = dict(annotation)
+            result = annotation.get("result")
+            if isinstance(result, list):
+                sanitized_annotation["result"] = sanitize_label_studio_result_ids(result)
+            sanitized_annotations.append(sanitized_annotation)
+        annotations = sanitized_annotations
     if annotations:
         converted["annotations"] = annotations
     return converted
