@@ -226,6 +226,25 @@ class LabelStudioClient:
             payload["meta"] = meta
         return self._request_json("POST", f"/api/tasks/{task_id}/annotations", payload)
 
+    def create_prediction(
+        self,
+        *,
+        task_id: int,
+        project_id: int,
+        result: list[dict[str, Any]],
+        model_version: str,
+        score: float | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "task": task_id,
+            "project": project_id,
+            "result": result,
+            "model_version": model_version,
+        }
+        if score is not None:
+            payload["score"] = score
+        return self._request_json("POST", "/api/predictions", payload)
+
     def export_tasks(self, project_id: int) -> list[dict[str, Any]]:
         paths = [
             f"/api/projects/{project_id}/export?download_all_tasks=true&exportType=JSON",

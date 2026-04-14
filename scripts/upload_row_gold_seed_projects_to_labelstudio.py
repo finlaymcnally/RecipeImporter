@@ -64,6 +64,15 @@ def _parse_args() -> argparse.Namespace:
             "instead of deleting and recreating it."
         ),
     )
+    parser.add_argument(
+        "--mirror-as-predictions",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Mirror imported annotation results into Label Studio predictions and "
+            "enable interactive preannotation reveal for visibility."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -259,6 +268,77 @@ def _count_seeded_annotations(tasks: list[dict[str, Any]]) -> int:
     return count
 
 
+def _mirror_annotations_into_predictions(
+    *,
+    client: LabelStudioClient,
+    project_id: int,
+    tasks: list[dict[str, Any]],
+    model_version: str = "row-gold-visibility-v1",
+) -> int:
+    remote_tasks = client.list_project_tasks(project_id)
+    task_ids_by_segment_id: dict[str, int] = {}
+    existing_prediction_segment_ids: set[str] = set()
+    for remote_task in remote_tasks:
+        if not isinstance(remote_task, dict):
+            continue
+        data = remote_task.get("data")
+        if not isinstance(data, dict):
+            continue
+        segment_id = str(data.get("segment_id") or "").strip()
+        if not segment_id:
+            continue
+        remote_task_id = remote_task.get("id")
+        try:
+            task_ids_by_segment_id[segment_id] = int(remote_task_id)
+        except (TypeError, ValueError):
+            continue
+        predictions = remote_task.get("predictions")
+        if isinstance(predictions, list) and predictions:
+            existing_prediction_segment_ids.add(segment_id)
+
+    created = 0
+    missing_segment_ids: list[str] = []
+    for task in tasks:
+        data = task.get("data")
+        if not isinstance(data, dict):
+            continue
+        segment_id = str(data.get("segment_id") or "").strip()
+        if not segment_id:
+            continue
+        annotations = task.get("annotations")
+        if not isinstance(annotations, list) or not annotations:
+            continue
+        if segment_id in existing_prediction_segment_ids:
+            continue
+        remote_task_id = task_ids_by_segment_id.get(segment_id)
+        if remote_task_id is None:
+            missing_segment_ids.append(segment_id)
+            continue
+        for annotation in annotations:
+            if not isinstance(annotation, dict):
+                continue
+            result = annotation.get("result")
+            if not isinstance(result, list) or not result:
+                continue
+            client.create_prediction(
+                task_id=remote_task_id,
+                project_id=project_id,
+                result=result,
+                model_version=model_version,
+                score=1.0,
+            )
+            created += 1
+            break
+
+    if missing_segment_ids:
+        preview = ", ".join(missing_segment_ids[:8])
+        raise RuntimeError(
+            "Prediction mirror could not resolve task ids for segment ids: "
+            f"{preview}"
+        )
+    return created
+
+
 def _iter_book_roots(root: Path, only: set[str]) -> list[Path]:
     if not root.exists() or not root.is_dir():
         raise RuntimeError(f"Missing pulled-from-labelstudio root: {root}")
@@ -324,6 +404,7 @@ def main() -> int:
             int(project_id),
             {
                 "show_annotation_history": True,
+                "reveal_preannotations_interactively": bool(args.mirror_as_predictions),
             },
         )
         upload_summary = _upload_tasks_as_annotations(
@@ -332,6 +413,13 @@ def main() -> int:
             tasks=annotation_tasks,
             upload_batch_size=args.upload_batch_size,
         )
+        mirrored_prediction_count = 0
+        if args.mirror_as_predictions:
+            mirrored_prediction_count = _mirror_annotations_into_predictions(
+                client=client,
+                project_id=int(project_id),
+                tasks=annotation_tasks,
+            )
         payload = {
             "book_slug": book_root.name,
             "original_project_name": original_project_name,
@@ -341,6 +429,10 @@ def main() -> int:
             "task_count": len(annotation_tasks),
             "seeded_annotation_count": _count_seeded_annotations(annotation_tasks),
             "show_annotation_history": bool(project.get("show_annotation_history")),
+            "reveal_preannotations_interactively": bool(
+                project.get("reveal_preannotations_interactively")
+            ),
+            "mirrored_prediction_count": mirrored_prediction_count,
             **upload_summary,
         }
         _write_json(summary_path, payload)

@@ -96,3 +96,37 @@ def test_update_project_uses_patch(monkeypatch) -> None:
     assert calls == [
         ("PATCH", "/api/projects/123", {"show_annotation_history": True})
     ]
+
+
+def test_create_prediction_posts_prediction_payload(monkeypatch) -> None:
+    client = LabelStudioClient("http://localhost:8080", "token")
+    calls: list[tuple[str, str, object]] = []
+
+    def fake_request_json(method: str, path: str, payload=None):
+        calls.append((method, path, payload))
+        return {"id": 1, "task": 123, "project": 456, "model_version": "row-gold-visibility-v1"}
+
+    monkeypatch.setattr(client, "_request_json", fake_request_json)
+
+    created = client.create_prediction(
+        task_id=123,
+        project_id=456,
+        result=[{"type": "labels"}],
+        model_version="row-gold-visibility-v1",
+        score=1.0,
+    )
+
+    assert created["id"] == 1
+    assert calls == [
+        (
+            "POST",
+            "/api/predictions",
+            {
+                "task": 123,
+                "project": 456,
+                "result": [{"type": "labels"}],
+                "model_version": "row-gold-visibility-v1",
+                "score": 1.0,
+            },
+        )
+    ]
