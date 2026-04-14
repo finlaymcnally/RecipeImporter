@@ -440,6 +440,7 @@ def _run_canonical_text_pipelined_fixture(
         "captured_csv": captured_csv,
         "scheduler_events": scheduler_events,
         "eval_root": eval_root,
+        "line_role_stage_predictions_path": line_role_paths["stage_predictions_path"],
         "run_manifest": run_manifest,
     }
 
@@ -450,18 +451,23 @@ def test_labelstudio_benchmark_source_rows_mode_uses_row_evaluator(
     fixture = _run_canonical_text_pipelined_fixture(monkeypatch, tmp_path)
     captured_eval = fixture["captured_eval"]
     eval_root = fixture["eval_root"]
+    line_role_stage_predictions_path = fixture["line_role_stage_predictions_path"]
 
     assert captured_eval["gold_export_root"] == (tmp_path / "gold" / "exports")
-    assert captured_eval["stage_predictions_json"] == (
+    replay_stage_predictions_path = (
         eval_root
         / ".prediction-record-replay"
         / "pipelined"
         / "stage_block_predictions.from_records.json"
     )
+    assert captured_eval["stage_predictions_json"] == line_role_stage_predictions_path
+    assert captured_eval["stage_predictions_json"] != replay_stage_predictions_path
     replay_payload = json.loads(
-        Path(captured_eval["stage_predictions_json"]).read_text(encoding="utf-8")
+        replay_stage_predictions_path.read_text(encoding="utf-8")
     )
     assert replay_payload["block_labels"] == {"0": "OTHER"}
+
+
 def test_labelstudio_benchmark_source_rows_mode_records_timing_and_scheduler_artifacts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

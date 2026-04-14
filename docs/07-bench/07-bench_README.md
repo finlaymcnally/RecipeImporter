@@ -238,6 +238,7 @@ Current rule:
   - `extracted_archive_path`
 - prediction generation is responsible for setting those pointers to the correct artifacts for the run
 - source-row line-role runs rewire that same pointer pair to the scored `line-role-pipeline/` projection artifacts; helpers should not guess stage-backed files or raw `full_text.json` from path layout
+- pipelined `.prediction-record-replay/` bundles are block-level replay helpers only. They can back `stage-blocks` evaluation, but `source-rows` must stay on the authoritative row-backed prediction pointers so the evaluator can still resolve `row_label_predictions.jsonl` / `semantic_line_role_predictions.jsonl`.
 - new-format prediction/eval manifests and import return payloads do not publish separate line-role scorer keys anymore; helpers should fail on missing canonical pointers instead of probing older fallback filenames or implicit directories
 - semantic stage/source-row scoring uses only authoritative predictions. If `stage_block_predictions.json` carries unresolved candidate block indices, those rows are excluded from accuracy/F1 and reported separately as coverage/incompleteness.
 

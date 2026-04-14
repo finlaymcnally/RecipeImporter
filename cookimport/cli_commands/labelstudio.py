@@ -2531,7 +2531,10 @@ def register(app: typer.Typer) -> dict[str, object]:
             prediction_phase_seconds = prediction_bundle.prediction_phase_seconds
             evaluation_stage_predictions_path = stage_predictions_path
             evaluation_extracted_archive_path = extracted_archive_path
-            if pipelined_replay_bundle is not None:
+            if (
+                pipelined_replay_bundle is not None
+                and selected_eval_mode == BENCHMARK_EVAL_MODE_STAGE_BLOCKS
+            ):
                 evaluation_stage_predictions_path = (
                     pipelined_replay_bundle.stage_predictions_path
                 )
