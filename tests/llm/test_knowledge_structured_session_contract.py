@@ -130,6 +130,7 @@ def test_classification_structured_response_narrows_missing_row_grounding() -> N
     assert errors == ("knowledge_missing_response_rows",)
     assert metadata["failed_unit_ids"] == ["knowledge::23"]
     assert metadata["missing_row_ids"] == ["r03"]
+    assert "answer" not in edited["units"][2]
 
 
 def test_grouping_structured_prompt_is_group_first_and_parser_maps_group_grounding() -> None:
@@ -533,6 +534,99 @@ def test_grouping_repair_packet_preserves_previous_answer_and_validation_feedbac
     assert "previous_groups" in prompt
     assert "repair_validation_summary" in prompt
     assert "repair_root_cause_summary" in prompt
+
+
+def test_grouping_repair_packet_skips_blank_previous_answers_and_fake_previous_groups() -> None:
+    classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
+        assignment=_assignment(),
+        shards=[
+            _shard(shard_id="book.ks0000.nr", block_index=31, text="Use gentle heat for eggs."),
+            _shard(shard_id="book.ks0001.nr", block_index=32, text="Rest dough before rolling."),
+        ],
+    )
+    grouping_task_file, _ = build_knowledge_grouping_task_file(
+        assignment_id="worker-structured-001",
+        worker_id="worker-structured-001",
+        classification_task_file=classification_task_file,
+        classification_answers_by_unit_id={
+            "knowledge::31": {"category": "keep_for_review"},
+            "knowledge::32": {"category": "keep_for_review"},
+        },
+        unit_to_shard_id=unit_to_shard_id,
+    )
+
+    edited, errors, metadata = build_knowledge_edited_task_file_from_grouping_response(
+        original_task_file=grouping_task_file,
+        response_text=json.dumps(
+            {
+                "groups": [
+                    {
+                        "group_id": "g01",
+                        "start_row_id": "r01",
+                        "end_row_id": "r01",
+                        "topic_label": "Heat control",
+                        "grounding": {
+                            "tag_keys": ["saute"],
+                            "category_keys": ["cooking-method"],
+                            "proposed_tags": [],
+                        },
+                        "why_no_existing_tag": None,
+                        "retrieval_query": None,
+                    }
+                ]
+            }
+        ),
+    )
+
+    assert edited is not None
+    assert errors == ("knowledge_missing_response_rows",)
+    assert metadata["failed_unit_ids"] == ["knowledge::32"]
+    assert "answer" not in edited["units"][1]
+
+    repair_task_file = build_repair_task_file(
+        original_task_file=edited,
+        failed_unit_ids=metadata["failed_unit_ids"],
+        previous_answers_by_unit_id={
+            str(unit.get("unit_id") or ""): dict(unit.get("answer") or {})
+            for unit in edited["units"]
+            if isinstance(unit, dict)
+        },
+        validation_feedback_by_unit_id={
+            "knowledge::32": {
+                "validation_errors": ["knowledge_missing_response_rows"],
+                "error_details": [
+                    {
+                        "path": "/units/knowledge::32/answer",
+                        "code": "knowledge_missing_response_row",
+                        "message": "response did not return a row for this owned row_id",
+                    }
+                ],
+            }
+        },
+        repair_validation_errors=["knowledge_missing_response_rows"],
+        repair_validation_metadata=metadata,
+    )
+
+    packet = knowledge_task_file_to_structured_packet(
+        task_file_payload=repair_task_file,
+        packet_kind="grouping_1_repair",
+        validation_errors=["knowledge_missing_response_rows"],
+    )
+
+    assert packet["repair_feedback_rows"] == [
+        {
+            "row_id": "r01",
+            "validation_errors": ["knowledge_missing_response_rows"],
+            "error_details": [
+                {
+                    "path": "/units/knowledge::32/answer",
+                    "code": "knowledge_missing_response_row",
+                    "message": "response did not return a row for this owned row_id",
+                }
+            ],
+        }
+    ]
+    assert "previous_groups" not in packet
 
 
 def test_grouping_structured_response_rejects_noncontiguous_group_spans() -> None:

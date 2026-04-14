@@ -370,21 +370,11 @@ def test_grouping_structured_response_maps_group_fields_and_reports_missing_rows
                 "tag_keys": ["saute"],
                 "category_keys": ["cooking-method"],
                 "proposed_tags": [],
-            },
+        },
         "why_no_existing_tag": "",
         "retrieval_query": "",
     }
-    assert edited["units"][1]["answer"] == {
-        "group_id": None,
-        "topic_label": None,
-        "grounding": {
-            "tag_keys": [],
-            "category_keys": [],
-            "proposed_tags": [],
-        },
-        "why_no_existing_tag": None,
-        "retrieval_query": None,
-    }
+    assert "answer" not in edited["units"][1]
 
 
 def test_grouping_validator_rejects_noncontiguous_group_runs() -> None:

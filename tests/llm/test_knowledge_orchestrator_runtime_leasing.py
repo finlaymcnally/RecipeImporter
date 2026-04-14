@@ -699,9 +699,7 @@ def test_knowledge_orchestrator_grouping_repairs_preserve_first_root_cause_summa
     assert "unknown_grounding_category_key" in second_repair_packet[
         "repair_root_cause_summary"
     ]["validation_errors"]
-    assert second_repair_packet["previous_groups"][0]["validation_errors"] == [
-        "knowledge_block_missing_group"
-    ]
+    assert "previous_groups" not in second_repair_packet
 
 
 def test_knowledge_orchestrator_inline_json_populates_top_level_telemetry_and_survivability(

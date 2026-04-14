@@ -16,6 +16,18 @@ def _coerce_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
+def _payload_has_meaningful_content(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        return any(_payload_has_meaningful_content(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_payload_has_meaningful_content(item) for item in value)
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
+
+
 def render_validation_reason_detail(
     *,
     prefix: str,
@@ -266,6 +278,7 @@ def _compact_repair_feedback_row(
     unit: Mapping[str, Any],
 ) -> dict[str, Any] | None:
     previous_answer = _coerce_dict(unit.get("previous_answer"))
+    has_previous_answer = _payload_has_meaningful_content(previous_answer)
     validation_feedback = _coerce_dict(unit.get("validation_feedback"))
     validation_errors = [
         str(error).strip()
@@ -278,10 +291,10 @@ def _compact_repair_feedback_row(
         if isinstance(detail, Mapping)
     ]
     error_details = [detail for detail in error_details if detail]
-    if not previous_answer and not validation_errors and not error_details:
+    if not has_previous_answer and not validation_errors and not error_details:
         return None
     payload: dict[str, Any] = {"row_id": row_id}
-    if previous_answer:
+    if has_previous_answer:
         payload["previous_answer"] = previous_answer
     if validation_errors:
         payload["validation_errors"] = validation_errors
@@ -363,6 +376,8 @@ def _knowledge_previous_groups(task_file_payload: Mapping[str, Any]) -> list[dic
             continue
         row_id = _knowledge_local_row_id(index)
         previous_answer = _coerce_dict(unit.get("previous_answer"))
+        if not _payload_has_meaningful_content(previous_answer):
+            continue
         validation_feedback = _coerce_dict(unit.get("validation_feedback"))
         validation_errors = [
             str(error).strip()
@@ -890,6 +905,8 @@ def build_knowledge_edited_task_file_from_classification_response(
         unit_id = str(unit_dict.get("unit_id") or "").strip()
         if unit_id in answers_by_unit_id:
             unit_dict["answer"] = answers_by_unit_id[unit_id]
+        else:
+            unit_dict.pop("answer", None)
         edited["units"].append(unit_dict)
     return edited, response_contract_errors, response_contract_metadata
 
@@ -1122,6 +1139,8 @@ def build_knowledge_edited_task_file_from_grouping_response(
         unit_id = str(unit_dict.get("unit_id") or "").strip()
         if unit_id in answers_by_unit_id:
             unit_dict["answer"] = answers_by_unit_id[unit_id]
+        else:
+            unit_dict.pop("answer", None)
         edited["units"].append(unit_dict)
     return edited, response_contract_errors, response_contract_metadata
 
