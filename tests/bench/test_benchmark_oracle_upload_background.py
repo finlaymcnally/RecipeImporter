@@ -444,6 +444,7 @@ def test_start_benchmark_bundle_oracle_upload_background_reports_followup_launch
 ) -> None:
     monkeypatch.setenv("COOKIMPORT_ALLOW_HEAVY_TEST_SIDE_EFFECTS", "1")
     monkeypatch.delenv("COOKIMPORT_DISABLE_HEAVY_TEST_SIDE_EFFECTS", raising=False)
+    monkeypatch.setenv("COOKIMPORT_BENCH_AUTO_ORACLE_UPLOAD", "1")
     bundle_dir = _make_bundle(
         tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
     )
@@ -491,6 +492,87 @@ def test_start_benchmark_bundle_oracle_upload_background_reports_followup_launch
 
     assert any("Oracle auto-follow-up worker not started" in message for message in messages)
     assert not any("Oracle benchmark upload not started" in message for message in messages)
+
+
+def test_start_benchmark_bundle_oracle_upload_background_is_disabled_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = _make_bundle(
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    messages: list[str] = []
+
+    runtime = sys.modules["cookimport.cli_support.bench"]
+    oracle_support = sys.modules["cookimport.cli_support.bench_oracle"]
+    for module in (cli, cli_support, runtime, oracle_support):
+        monkeypatch.setattr(
+            module,
+            "start_oracle_benchmark_upload_background",
+            lambda **_kwargs: (_ for _ in ()).throw(AssertionError("oracle launch should be skipped")),
+            raising=False,
+        )
+    monkeypatch.delenv("COOKIMPORT_BENCH_AUTO_ORACLE_UPLOAD", raising=False)
+    monkeypatch.setattr(cli.typer, "secho", lambda message, **_kwargs: messages.append(str(message)))
+
+    cli._start_benchmark_bundle_oracle_upload_background(
+        bundle_dir=bundle_dir,
+        scope="single_book",
+    )
+
+    assert any("Automatic Oracle benchmark upload is disabled." in message for message in messages)
+    assert any("cookimport bench oracle-upload" in message for message in messages)
+
+
+@pytest.mark.heavy_side_effects
+def test_start_benchmark_bundle_oracle_upload_background_respects_enable_env(
+    allow_heavy_test_side_effects: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("COOKIMPORT_ALLOW_HEAVY_TEST_SIDE_EFFECTS", "1")
+    monkeypatch.delenv("COOKIMPORT_DISABLE_HEAVY_TEST_SIDE_EFFECTS", raising=False)
+    monkeypatch.setenv("COOKIMPORT_BENCH_AUTO_ORACLE_UPLOAD", "1")
+    bundle_dir = _make_bundle(
+        tmp_path / "single-book-benchmark" / oracle_upload.BENCHMARK_UPLOAD_BUNDLE_DIR_NAME
+    )
+    target = oracle_upload.resolve_oracle_benchmark_bundle(bundle_dir)
+    runs_dir = _runs_dir(bundle_dir)
+    launch = oracle_upload.OracleBackgroundUploadLaunch(
+        mode="browser",
+        model=INSTANT_LANE,
+        command=["oracle", "--engine", "browser", "--model", INSTANT_MODEL],
+        bundle_dir=bundle_dir,
+        launch_dir=runs_dir / "2026-03-21_11.27.35",
+        log_path=runs_dir / "2026-03-21_11.27.35" / oracle_upload.ORACLE_UPLOAD_LOG_FILE_NAME,
+        metadata_path=runs_dir / "2026-03-21_11.27.35" / oracle_upload.ORACLE_UPLOAD_METADATA_FILE_NAME,
+        pid=4242,
+        status="running",
+        status_reason="Oracle session launched and awaiting completion.",
+        session_id="enabled-env-313",
+        reattach_command="oracle session enabled-env-313",
+    )
+    messages: list[str] = []
+
+    runtime = sys.modules["cookimport.cli_support.bench"]
+    oracle_support = sys.modules["cookimport.cli_support.bench_oracle"]
+    for module in (cli, cli_support, runtime, oracle_support):
+        monkeypatch.setattr(module, "resolve_oracle_benchmark_bundle", lambda _path: target)
+        monkeypatch.setattr(
+            module,
+            "start_oracle_benchmark_upload_background",
+            lambda **_kwargs: launch,
+        )
+        monkeypatch.setattr(module, "_start_background_oracle_followup_worker", lambda **_kwargs: launch)
+    monkeypatch.setattr(cli.typer, "secho", lambda message, **_kwargs: messages.append(str(message)))
+
+    cli._start_benchmark_bundle_oracle_upload_background(
+        bundle_dir=bundle_dir,
+        scope="single_book",
+    )
+
+    assert not any("Automatic Oracle benchmark upload is disabled." in message for message in messages)
+    assert any("started in background for single_book" in message for message in messages)
 
 
 def test_oracle_upload_log_audit_accepts_grounded_single_profile_answer(tmp_path: Path) -> None:

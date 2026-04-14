@@ -59,8 +59,8 @@ Active commands:
 
 Interactive benchmark wrap-up behavior:
 
-- Single-book benchmark runs now auto-start Oracle in the background after writing `upload_bundle_v1`, then return immediately instead of waiting on Oracle.
-- Multi-book single-profile benchmark runs do the same for the top-level group `upload_bundle_v1`; per-book bundles are still written but are not auto-uploaded.
+- Single-book benchmark runs still write `upload_bundle_v1`, but automatic Oracle launch is currently disabled by default. Set `COOKIMPORT_BENCH_AUTO_ORACLE_UPLOAD=1` if you want the benchmark wrap-up to start Oracle in the background again.
+- Multi-book single-profile benchmark runs follow the same rule for the top-level group `upload_bundle_v1`; per-book bundles are still written but are not auto-uploaded.
 - Detached Oracle runs now fan out into two review lanes by default: `quality` and `token`. The durable handoff packet is `upload_bundle_v1/quality/{overview.md,index.json,payload.json}` and the same three files under `upload_bundle_v1/token/`.
 - Those lane-local Oracle packets are now the only supported turn-1 handoff contract. They are always compact, summary-first packets: `index.json` is a bounded review index rather than a clone of the full root analysis tree, and `payload.json` is a curated evidence packet with digested heavy artifacts instead of raw literal dumps.
 - Oracle runtime logs/status moved out of the handoff folder into a sibling `.oracle_upload_runs/<timestamp>-<profile>/` directory under the benchmark root. The actual Oracle response, if the run succeeds, is still in that lane's `oracle_upload.log`. When the log stays quiet, the wrapper also falls back to Oracle's own session store under `~/.local/share/oracle/sessions/` to recover the session slug and conversation URL.
@@ -176,7 +176,7 @@ Current interactive contracts:
 - single-profile matched-book runs write under `.../single-profile-benchmark/`
 - multi-book single-profile runs also emit one top-level group `upload_bundle_v1/`
 - warm reruns of the same interactive single-profile target can now reuse finished prediction artifacts across sessions on a per-book/per-variant basis before comparison/report publication runs
-- interactive single-book writes its session bundle, auto-starts Oracle in the background, and returns immediately without blocking benchmark wrap-up
+- interactive single-book writes its session bundle and returns immediately; set `COOKIMPORT_BENCH_AUTO_ORACLE_UPLOAD=1` if you want it to auto-start Oracle in the background again
 - multi-book single-profile writes the top-level group bundle and leaves Oracle upload as a separate manual step
 - repo pytest runs now fail closed on heavyweight publication side effects (`upload_bundle_v1`, starter-pack export, dashboard refresh, background Oracle launch) unless a test explicitly opts in.
 - the explicit pytest opt-in contract is `@pytest.mark.heavy_side_effects` plus the `allow_heavy_test_side_effects` fixture; subprocess-heavy tests can still rely on the inherited `COOKIMPORT_ALLOW_HEAVY_TEST_SIDE_EFFECTS=1` environment variable that fixture sets.

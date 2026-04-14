@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 
 from cookimport.cli_support.test_safety import (
@@ -18,6 +19,16 @@ globals().update(
 _BENCHMARK_CUTDOWN_HELPER_PATH = (
     REPO_ROOT / "scripts" / "benchmark_cutdown_for_external_ai.py"
 )
+_BENCHMARK_AUTO_ORACLE_UPLOAD_ENV = "COOKIMPORT_BENCH_AUTO_ORACLE_UPLOAD"
+_TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+
+
+def _benchmark_auto_oracle_upload_enabled(
+    env: Mapping[str, str] | None = None,
+) -> bool:
+    source_env = os.environ if env is None else env
+    raw_value = str(source_env.get(_BENCHMARK_AUTO_ORACLE_UPLOAD_ENV) or "")
+    return raw_value.strip().lower() in _TRUTHY_ENV_VALUES
 
 
 def _write_single_book_starter_pack(*, session_root: Path) -> Path | None:
@@ -413,6 +424,19 @@ def _start_benchmark_bundle_oracle_upload_background(
     model: str | None = None,
     review_profile: str = "all",
 ) -> None:
+    if not _benchmark_auto_oracle_upload_enabled():
+        typer.secho(
+            (
+                "Automatic Oracle benchmark upload is disabled. "
+                f"Set {_BENCHMARK_AUTO_ORACLE_UPLOAD_ENV}=1 to re-enable it."
+            ),
+            fg=typer.colors.BRIGHT_BLACK,
+        )
+        typer.secho(
+            f"Run manually any time: cookimport bench oracle-upload {bundle_dir}",
+            fg=typer.colors.BRIGHT_BLACK,
+        )
+        return
     require_heavy_test_side_effect_permission("background Oracle benchmark upload")
     try:
         target = resolve_oracle_benchmark_bundle(bundle_dir)

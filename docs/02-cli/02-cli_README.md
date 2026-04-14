@@ -529,7 +529,7 @@ Top-level command groups:
 - `cookimport compare-control <run|agent|discovery-preferences|dashboard-state>`
 - `cookimport bench <oracle-upload|oracle-followup|speed-discover|speed-run|speed-compare|gc|pin|unpin|quality-discover|quality-run|quality-leaderboard|quality-compare|eval-stage>`
 
-`cookimport bench oracle-upload <session root or upload_bundle_v1>` reuses an existing benchmark bundle without rerunning the benchmark. It now launches both Oracle review lanes by default and accepts `--profile quality|token|all` for replay control. `--mode dry-run` is the low-cost validation path; when the payload file is too large for Oracle's inline dry-run, the command falls back to a local preview and tells you to use browser mode for the real upload.
+`cookimport bench oracle-upload <session root or upload_bundle_v1>` reuses an existing benchmark bundle without rerunning the benchmark. It launches both Oracle review lanes by default and accepts `--profile quality|token|all` for replay control. Automatic Oracle launch from interactive benchmark wrap-up is currently disabled by default; set `COOKIMPORT_BENCH_AUTO_ORACLE_UPLOAD=1` if you want benchmarks to auto-start the background upload again. `--mode dry-run` is the low-cost validation path; when the payload file is too large for Oracle's inline dry-run, the command falls back to a local preview and tells you to use browser mode for the real upload.
 
 Every command supports `--help`.
 
