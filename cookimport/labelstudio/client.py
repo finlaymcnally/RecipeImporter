@@ -183,10 +183,19 @@ class LabelStudioClient:
         tasks: list[dict[str, Any]] = []
         page = 1
         while True:
-            query = urllib.parse.urlencode(
+            project_query = urllib.parse.urlencode(
+                {"page": page, "page_size": 100}
+            )
+            legacy_query = urllib.parse.urlencode(
                 {"project": project_id, "page": page, "page_size": 100}
             )
-            payload = self._request_json("GET", f"/api/tasks?{query}")
+            try:
+                payload = self._request_json(
+                    "GET",
+                    f"/api/projects/{project_id}/tasks?{project_query}",
+                )
+            except RuntimeError:
+                payload = self._request_json("GET", f"/api/tasks?{legacy_query}")
             if isinstance(payload, dict) and "results" in payload:
                 results = payload.get("results", [])
                 if isinstance(results, list):

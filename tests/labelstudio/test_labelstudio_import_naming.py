@@ -41,3 +41,40 @@ def test_resolve_project_name_defaults_to_file_stem_and_dedupes() -> None:
         cast(LabelStudioClient, FakeClient()),
     )
     assert resolved == "the_food_lab-2"
+
+
+def test_list_project_tasks_uses_project_scoped_endpoint(monkeypatch) -> None:
+    client = LabelStudioClient("http://localhost:8080", "token")
+    calls: list[str] = []
+
+    def fake_request_json(method: str, path: str, payload=None):
+        calls.append(f"{method} {path}")
+        return {"results": [{"id": 1, "data": {"segment_id": "seg-1"}}], "next": None}
+
+    monkeypatch.setattr(client, "_request_json", fake_request_json)
+
+    tasks = client.list_project_tasks(123)
+
+    assert tasks == [{"id": 1, "data": {"segment_id": "seg-1"}}]
+    assert calls == ["GET /api/projects/123/tasks?page=1&page_size=100"]
+
+
+def test_list_project_tasks_falls_back_to_legacy_query_on_runtime_error(monkeypatch) -> None:
+    client = LabelStudioClient("http://localhost:8080", "token")
+    calls: list[str] = []
+
+    def fake_request_json(method: str, path: str, payload=None):
+        calls.append(f"{method} {path}")
+        if path.startswith("/api/projects/123/tasks?"):
+            raise RuntimeError("project-scoped endpoint unavailable")
+        return {"results": [{"id": 2, "data": {"segment_id": "seg-2"}}], "next": None}
+
+    monkeypatch.setattr(client, "_request_json", fake_request_json)
+
+    tasks = client.list_project_tasks(123)
+
+    assert tasks == [{"id": 2, "data": {"segment_id": "seg-2"}}]
+    assert calls == [
+        "GET /api/projects/123/tasks?page=1&page_size=100",
+        "GET /api/tasks?project=123&page=1&page_size=100",
+    ]

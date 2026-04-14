@@ -214,6 +214,7 @@ Row-authoritative benchmark note:
 - `data.source_map.rows` is the authoritative task mapping for new freeform tasks. `blocks` keys remain as compatibility aliases for older UI/tests and should not be treated as the semantic baseline.
 - `block_gold_labels.jsonl` and canonical export files may still be written as compatibility/archive outputs for older tooling, but they are no longer the active scorer authority.
 - Older pulled exports can be batch-migrated in place with `python scripts/migrate_pulled_labelstudio_gold_to_source_rows.py`. That script writes `exports/source_rows.jsonl`, migrated row gold files, `exports/row_seed_tasks.jsonl`, and updates the export summary/manifest to point at the new row-native artifacts.
+- To recreate those migrated sets as fresh editable Label Studio gold projects, run `python scripts/upload_row_gold_seed_projects_to_labelstudio.py`. That uploader reads `exports/row_seed_tasks.jsonl`, converts the seeded row results into real Label Studio `annotations` instead of leaving them as `predictions`, creates new replacement projects, and writes `exports/row_gold_labelstudio_project.json` plus a batch upload summary under `data/golden/pulled-from-labelstudio/`.
 
 ### 5.2 Eval artifacts
 
