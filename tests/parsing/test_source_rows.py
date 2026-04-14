@@ -63,6 +63,30 @@ def test_makes_serves_and_yields_inside_prose_do_not_create_structural_splits() 
     assert "yields a smoother sauce" in yields_rows[0]
 
 
+def test_to_x_and_for_x_phrases_do_not_split_prose_mid_sentence() -> None:
+    sample = (
+        "Sometimes you'll need to use multiple fats to achieve different textures within a "
+        "single dish. Deep-fry crisp pieces of fish in grapeseed oil, and then use olive oil "
+        "to make a creamy Aioli to serve alongside it. Use oil to make a supremely moist "
+        "Chocolate Midnight Cake, then slather it in buttercream frosting or softly whipped cream."
+    )
+
+    assert _split_block_text(sample) == [
+        "Sometimes you'll need to use multiple fats to achieve different textures within a "
+        "single dish.",
+        "Deep-fry crisp pieces of fish in grapeseed oil, and then use olive oil to make a "
+        "creamy Aioli to serve alongside it.",
+        "Use oil to make a supremely moist Chocolate Midnight Cake, then slather it in "
+        "buttercream frosting or softly whipped cream.",
+    ]
+
+
+def test_standalone_howto_headings_still_survive_without_boundary_split() -> None:
+    assert _split_block_text("FOR THE SAUCE") == ["FOR THE SAUCE"]
+    assert _split_block_text("To Serve") == ["To Serve"]
+    assert _split_block_text("To make a creamy Aioli") == ["To make a creamy Aioli"]
+
+
 def test_yield_line_separates_cleanly_from_first_ingredient() -> None:
     sample = "Serves 6-10 1 kg pork rind, with a 5mm layer of fat left on 2-3 tbsp cornish sea salt"
 

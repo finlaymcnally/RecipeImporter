@@ -443,6 +443,10 @@ def _split_before_pattern(text: str, pattern: re.Pattern[str]) -> list[str]:
                 pattern is _BOUNDARY_YIELD_RE
                 and not _looks_like_yield_line(text[match.start():])
             )
+            if not (
+                pattern is _BOUNDARY_HOWTO_RE
+                and not _looks_like_structural_howto_boundary(text, match.start())
+            )
             if match.start() > 0 and not text[max(0, match.start() - 1)].isalnum()
         }
     )
@@ -709,6 +713,20 @@ def _starts_with_lowercase_token(text: str) -> bool:
     return False
 
 
+def _looks_like_structural_howto_boundary(text: str, start: int) -> bool:
+    candidate = text[start:].strip()
+    if not _looks_compact_howto_heading(candidate):
+        return False
+    if start <= 0:
+        return True
+    previous_index = start - 1
+    while previous_index >= 0 and text[previous_index].isspace():
+        previous_index -= 1
+    if previous_index < 0:
+        return True
+    return text[previous_index] in ".!?:"
+
+
 def _looks_like_yield_amount_fragment(text: str) -> bool:
     stripped = str(text or "").strip().lower()
     if not stripped or len(stripped) > 24:
@@ -834,7 +852,7 @@ def _looks_compact_howto_heading(text: str) -> bool:
     heading_text = stripped[:-1].rstrip() if stripped.endswith(":") else stripped
     if not heading_text:
         return False
-    if any(mark in heading_text for mark in ",;()"):
+    if any(mark in heading_text for mark in ".,;()"):
         return False
     words = _VARIANT_WORD_RE.findall(heading_text)
     if not (2 <= len(words) <= 8):
