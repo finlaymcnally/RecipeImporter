@@ -480,6 +480,30 @@ def test_load_source_hint_from_gold_export_falls_back_to_segment_manifest(
     source_hint = cli._load_source_hint_from_gold_export(gold_path)
     assert source_hint == "book.epub"
 
+
+def test_load_source_hint_from_gold_export_uses_canonical_manifest_for_migrated_rows(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run"
+    exports = run_root / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    gold_path = exports / "freeform_span_labels.jsonl"
+    gold_path.write_text(
+        json.dumps({"source_file": "source_rows.jsonl", "label": "OTHER"}) + "\n",
+        encoding="utf-8",
+    )
+    (exports / "freeform_segment_manifest.jsonl").write_text(
+        json.dumps({"segment_id": "s1", "source_file": "source_rows.jsonl"}) + "\n",
+        encoding="utf-8",
+    )
+    (exports / "canonical_manifest.json").write_text(
+        json.dumps({"source_file": "saltfatacidheatCUTDOWN.epub"}),
+        encoding="utf-8",
+    )
+
+    source_hint = cli._load_source_hint_from_gold_export(gold_path)
+    assert source_hint == "saltfatacidheatCUTDOWN.epub"
+
 def test_infer_scope_from_project_payload_detects_new_freeform_labels() -> None:
     scope = cli._infer_scope_from_project_payload(
         {"label_config": "<View><Label value='RECIPE_VARIANT'/></View>"}

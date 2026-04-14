@@ -1847,19 +1847,36 @@ def _discover_prediction_runs(output_dir: Path) -> list[Path]:
     return runs
 
 
-def _load_manifest_source_file(gold_spans_path: Path) -> str | None:
-    run_root = gold_spans_path.parent.parent
-    manifest_path = run_root / "manifest.json"
-    if not manifest_path.exists() or not manifest_path.is_file():
-        return None
+def _source_hint_from_manifest_payload(manifest_path: Path) -> str | None:
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001
         return None
-    if not isinstance(manifest, dict):
+    if not isinstance(payload, dict):
         return None
-    source_file = str(manifest.get("source_file") or "").strip()
-    return source_file or None
+
+    source_file = str(payload.get("source_file") or "").strip()
+    if source_file:
+        return source_file
+
+    source_payload = payload.get("source")
+    if isinstance(source_payload, dict):
+        source_path = str(source_payload.get("path") or "").strip()
+        if source_path:
+            return source_path
+    return None
+
+
+def _load_manifest_source_file(gold_spans_path: Path) -> str | None:
+    run_root = gold_spans_path.parent.parent
+    for manifest_name in ("manifest.json", "run_manifest.json"):
+        manifest_path = run_root / manifest_name
+        if not manifest_path.exists() or not manifest_path.is_file():
+            continue
+        source_hint = _source_hint_from_manifest_payload(manifest_path)
+        if source_hint is not None:
+            return source_hint
+    return None
 
 
 def _first_source_file_from_jsonl(path: Path) -> str | None:
@@ -1897,6 +1914,13 @@ def _source_name_from_hint(source_hint: str | None) -> str | None:
 
 def _load_source_hint_from_gold_export(gold_spans_path: Path) -> str | None:
     source_hint = _source_name_from_hint(_load_manifest_source_file(gold_spans_path))
+    if source_hint:
+        return source_hint
+
+    canonical_manifest_path = gold_spans_path.parent / "canonical_manifest.json"
+    source_hint = _source_name_from_hint(
+        _source_hint_from_manifest_payload(canonical_manifest_path)
+    )
     if source_hint:
         return source_hint
 

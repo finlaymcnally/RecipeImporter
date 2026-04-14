@@ -322,6 +322,13 @@ def _load_source_hint_from_gold_export(gold_spans_path: Path) -> str | None:
     if source_hint is not None:
         return source_hint
 
+    canonical_manifest_path = gold_spans_path.parent / "canonical_manifest.json"
+    source_hint = _source_name_from_hint(
+        _source_hint_from_manifest_payload(canonical_manifest_path)
+    )
+    if source_hint is not None:
+        return source_hint
+
     source_hint = _source_name_from_hint(_first_source_file_from_jsonl(gold_spans_path))
     if source_hint is not None:
         return source_hint
