@@ -903,13 +903,14 @@ Options:
 
 ### `cookimport labelstudio-benchmark`
 
-Prediction+eval flow against freeform gold spans (upload or offline).
+Prediction+eval flow against a selected Label Studio gold export (upload or offline).
 Also supports an explicit compare action for baseline-vs-candidate all-method report gating.
 
 Behavior note:
 
 - Non-interactive upload path: generates predictions, uploads to Label Studio, then evaluates.
 - Non-interactive offline path: `--no-upload` generates predictions locally and evaluates with no Label Studio credentials/API calls.
+- In `source-rows` mode, the selected `freeform_span_labels.jsonl` still identifies the gold export bundle, but scoring reads `row_gold_labels.jsonl`.
 - `cookimport labelstudio-benchmark compare --baseline ... --candidate ...` compares either:
   - two all-method benchmark outputs (`all_method_benchmark_multi_source_report.json` roots), or
   - two single-run eval outputs (`eval_report.json` files/directories),

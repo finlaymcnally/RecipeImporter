@@ -1698,7 +1698,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             hidden=True,
         )] = None,
     ) -> None:
-        """Run benchmark eval against freeform gold, with optional upload step."""
+        """Run benchmark eval against a selected Label Studio gold export, with optional upload."""
         external_progress_callback = _BENCHMARK_PROGRESS_CALLBACK.get()
         suppress_summary = bool(_BENCHMARK_SUPPRESS_SUMMARY.get())
         suppress_spinner = bool(_BENCHMARK_SUPPRESS_SPINNER.get())
@@ -3483,8 +3483,13 @@ def register(app: typer.Typer) -> dict[str, object]:
             run_config=benchmark_run_config,
             artifacts=benchmark_artifacts,
             notes=(
-                "Benchmark evaluation against freeform gold using "
-                f"{selected_eval_mode} scoring. "
+                (
+                    "Benchmark evaluation against selected Label Studio gold export "
+                    "(freeform bundle selected; source-row scoring uses row_gold_labels.jsonl). "
+                    if selected_eval_mode == BENCHMARK_EVAL_MODE_SOURCE_ROWS
+                    else "Benchmark evaluation against selected Label Studio freeform gold export. "
+                )
+                + f"Scoring mode: {selected_eval_mode}. "
                 + (
                     "Evaluate-only mode from prediction record."
                     if predictions_in_path is not None
