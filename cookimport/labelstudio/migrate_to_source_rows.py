@@ -11,6 +11,8 @@ from cookimport.labelstudio.result_ids import make_safe_label_studio_result_id
 from cookimport.labelstudio.row_gold import write_row_gold_rows
 from cookimport.parsing.source_rows import SourceRow, load_source_rows
 
+_ROW_GOLD_SEGMENT_BLOCKS = 120
+
 
 @dataclass(frozen=True)
 class MigrationResult:
@@ -162,9 +164,9 @@ def build_row_labelstudio_seed_package(
         source_hash=source_rows[0].source_hash if source_rows else "unknown",
         source_file=Path(source_rows_jsonl_path).name,
         book_id=Path(source_rows_jsonl_path).stem,
-        segment_blocks=40,
+        segment_blocks=_ROW_GOLD_SEGMENT_BLOCKS,
         segment_overlap=0,
-        segment_focus_blocks=40,
+        segment_focus_blocks=_ROW_GOLD_SEGMENT_BLOCKS,
     )
     labels_by_row_id = {
         str(row.get("row_id")): list(row.get("labels") or [])

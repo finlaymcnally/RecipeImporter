@@ -21,7 +21,7 @@ def test_row_seed_package_uses_non_overlapping_focus_rows(tmp_path) -> None:
             text=f"row {index}",
             rule_tags=[],
         )
-        for index in range(85)
+        for index in range(245)
     ]
     source_rows_path = tmp_path / "source_rows.jsonl"
     write_source_rows(source_rows_path, rows)
@@ -65,8 +65,8 @@ def test_row_seed_package_uses_non_overlapping_focus_rows(tmp_path) -> None:
         assert isinstance(rows_payload, list)
         focus_row_groups.append([str(row.get("row_id")) for row in rows_payload if isinstance(row, dict)])
 
-    assert focus_row_groups[0] == [f"row-{index}" for index in range(40)]
-    assert focus_row_groups[1] == [f"row-{index}" for index in range(40, 80)]
-    assert focus_row_groups[2] == [f"row-{index}" for index in range(80, 85)]
+    assert focus_row_groups[0] == [f"row-{index}" for index in range(120)]
+    assert focus_row_groups[1] == [f"row-{index}" for index in range(120, 240)]
+    assert focus_row_groups[2] == [f"row-{index}" for index in range(240, 245)]
     assert set(focus_row_groups[0]).isdisjoint(focus_row_groups[1])
     assert set(focus_row_groups[1]).isdisjoint(focus_row_groups[2])
