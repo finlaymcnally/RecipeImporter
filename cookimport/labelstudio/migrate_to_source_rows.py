@@ -163,7 +163,7 @@ def build_row_labelstudio_seed_package(
         source_file=Path(source_rows_jsonl_path).name,
         book_id=Path(source_rows_jsonl_path).stem,
         segment_blocks=40,
-        segment_overlap=5,
+        segment_overlap=0,
         segment_focus_blocks=40,
     )
     labels_by_row_id = {

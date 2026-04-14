@@ -171,6 +171,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_labelstudio_export.py": ("labelstudio",),
     "test_labelstudio_freeform.py": ("labelstudio",),
     "test_labelstudio_import_naming.py": ("labelstudio",),
+    "test_migrate_to_source_rows.py": ("labelstudio",),
     "test_labelstudio_ingest_parallel.py": ("labelstudio", "ingestion"),
     "test_labelstudio_ingest_parallel_prediction_run.py": ("labelstudio", "ingestion"),
     "test_canonical_line_projection.py": ("labelstudio", "parsing"),
