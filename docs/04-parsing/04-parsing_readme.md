@@ -40,6 +40,7 @@ Core modules:
 - `cookimport/parsing/tables.py`
 - `cookimport/parsing/signals.py`
 - `cookimport/parsing/cleaning.py`
+- `cookimport/parsing/source_rows.py`
 - `cookimport/parsing/tip_taxonomy.py`
 - `cookimport/parsing/block_roles.py`
 - `cookimport/parsing/recipe_block_atomizer.py`
@@ -67,6 +68,12 @@ Additional parsing-package helpers used by importer-specific flows:
 
 Unstructured adapter note:
 - `unstructured_adapter.py` now performs deterministic multiline splitting for recipe-like `Title`/`NarrativeText`/`UncategorizedText`/`Text` blocks (in addition to `ListItem` newline splits), preserving provenance with `unstructured_stable_key` suffixes (`.s0`, `.s1`, ...) and `unstructured_split_reason`.
+
+Source rows note:
+- `source_rows.py` is the authoritative row builder for row-gold Label Studio and source-row benchmarks.
+- The active splitter is two-stage: keep the existing recipe-oriented first pass, then run a prose cleanup pass only on oversized or obviously mid-sentence-fractured rows.
+- Version one uses fixed thresholds rather than semantic grouping: rows over roughly 220 chars with multiple sentences, rows over roughly 320 chars, and broken lowercase-leading continuations get reworked into smaller sentence-based rows, while existing small recipe rows are left alone.
+- Yield rows still split cleanly from following ingredients, including spaced-fraction cases like `Makes about 1 / 2 cup 1 tablespoon lemon juice`.
 
 Canonical line-role prompt seam note:
 - line-role prompt semantics now come from one shared contract file, `llm_pipelines/prompts/line-role.shared-contract.v1.md`; the file prompt and taskfile prompt are only transport wrappers around that same contract.

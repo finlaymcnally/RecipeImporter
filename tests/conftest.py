@@ -215,6 +215,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_speed_suite_discovery.py": ("bench",),
     "test_speed_suite_runner.py": ("bench",),
     "test_source_field.py": ("parsing",),
+    "test_source_rows.py": ("parsing",),
     "test_schemaorg_ingest.py": ("parsing",),
     "test_split_merge_status.py": ("staging", "bench"),
     "test_stats_dashboard.py": ("analytics",),

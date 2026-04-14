@@ -113,6 +113,37 @@ _INGREDIENT_NOUN_HINTS = {
     "yolk",
     "yolks",
 }
+_YIELD_AMOUNT_HINTS = {
+    "batch",
+    "batches",
+    "cookie",
+    "cookies",
+    "cup",
+    "cups",
+    "glass",
+    "glasses",
+    "jar",
+    "jars",
+    "loaf",
+    "loaves",
+    "piece",
+    "pieces",
+    "portion",
+    "portions",
+    "serving",
+    "servings",
+}
+
+_PROSE_KEEP_MAX_CHARS = 220
+_PROSE_FORCE_SPLIT_MAX_CHARS = 320
+_PROSE_REPAIR_FRAGMENT_MAX_CHARS = 70
+_PROSE_COMFORTABLE_MIN_CHARS = 120
+_PROSE_MAX_SENTENCES = 2
+_PROSE_FORCE_SPLIT_SENTENCES = 3
+_ABSURDLY_LONG_ROW_CHARS = 450
+_SENTENCE_END_CHARS = ".?!"
+_CLOSING_SENTENCE_CHARS = "\"')]}”’"
+_MID_SENTENCE_SPLIT_CHARS = ",:"
 
 
 class SourceRow(BaseModel):
@@ -305,7 +336,7 @@ def _split_block_text(text: str) -> list[str]:
         if not cleaned:
             continue
         final_rows.append(cleaned.rstrip(".") if _looks_like_heading(cleaned) else cleaned)
-    return final_rows
+    return _repair_prose_rows(final_rows)
 
 
 def _split_segment(segment: str) -> list[str]:
@@ -325,11 +356,19 @@ def _split_segment(segment: str) -> list[str]:
 
 
 def _split_yield_segment(segment: str) -> list[str]:
-    quantity_matches = list(_QUANTITY_START_RE.finditer(segment))
+    yield_match = _YIELD_PREFIX_RE.match(segment)
+    search_start = yield_match.end() if yield_match else 0
+    quantity_matches = list(_QUANTITY_START_RE.finditer(segment, pos=search_start))
     if len(quantity_matches) < 2:
         return [segment]
 
-    first_ingredient_start = quantity_matches[1].start()
+    first_match = quantity_matches[0]
+    second_match = quantity_matches[1]
+    first_fragment = _normalize_text(segment[first_match.start():second_match.start()])
+    if _looks_like_yield_amount_fragment(first_fragment):
+        first_ingredient_start = second_match.start()
+    else:
+        first_ingredient_start = first_match.start()
     yield_text = _normalize_text(segment[:first_ingredient_start])
     remainder = _normalize_text(segment[first_ingredient_start:])
     rows: list[str] = []
@@ -401,6 +440,268 @@ def _is_control_line(text: str) -> bool:
         or _is_howto_heading(text)
         or _is_numbered_instruction(text)
     )
+
+
+def _repair_prose_rows(rows: Sequence[str]) -> list[str]:
+    repaired: list[str] = []
+    index = 0
+    while index < len(rows):
+        group = [rows[index]]
+        while index + 1 < len(rows) and _should_join_prose_cleanup_rows(group[-1], rows[index + 1]):
+            index += 1
+            group.append(rows[index])
+
+        if len(group) == 1:
+            repaired.extend(_split_oversized_prose_row(group[0]))
+        else:
+            repaired.extend(_split_oversized_prose_row(_normalize_text(" ".join(group))))
+        index += 1
+    return repaired
+
+
+def _should_join_prose_cleanup_rows(left: str, right: str) -> bool:
+    if not left or not right:
+        return False
+    if _is_structural_row_for_prose_cleanup(left) or _is_structural_row_for_prose_cleanup(right):
+        return False
+    if _ends_with_sentence_boundary(left):
+        return False
+    return _starts_with_lowercase_token(right)
+
+
+def _split_oversized_prose_row(text: str) -> list[str]:
+    stripped = _normalize_text(text)
+    if not stripped:
+        return []
+    if _is_structural_row_for_prose_cleanup(stripped):
+        return [stripped]
+    if not _row_needs_prose_cleanup(stripped):
+        return [stripped]
+
+    sentence_spans = _sentence_spans(stripped)
+    if len(sentence_spans) <= 1:
+        return _split_absurdly_long_row(stripped)
+
+    merged_spans = _merge_small_sentence_spans(stripped, sentence_spans)
+    rows = [_normalize_text(stripped[start:end]) for start, end in merged_spans]
+    final_rows: list[str] = []
+    for row in rows:
+        if _row_needs_prose_cleanup(row) and len(_sentence_spans(row)) <= 1:
+            final_rows.extend(_split_absurdly_long_row(row))
+            continue
+        final_rows.append(row)
+    return final_rows or [stripped]
+
+
+def _row_needs_prose_cleanup(text: str) -> bool:
+    sentence_count = _sentence_count(text)
+    if len(text) > _PROSE_FORCE_SPLIT_MAX_CHARS:
+        return True
+    if sentence_count >= _PROSE_FORCE_SPLIT_SENTENCES:
+        return True
+    return len(text) > _PROSE_KEEP_MAX_CHARS and sentence_count >= 2
+
+
+def _sentence_count(text: str) -> int:
+    return len(_sentence_spans(text))
+
+
+def _sentence_spans(text: str) -> list[tuple[int, int]]:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return []
+
+    spans: list[tuple[int, int]] = []
+    start = 0
+    index = 0
+    while index < len(stripped):
+        if stripped[index] not in _SENTENCE_END_CHARS:
+            index += 1
+            continue
+        if _is_decimal_point(stripped, index):
+            index += 1
+            continue
+
+        boundary_end = index + 1
+        while boundary_end < len(stripped) and stripped[boundary_end] in _CLOSING_SENTENCE_CHARS:
+            boundary_end += 1
+        if not _looks_like_sentence_boundary(stripped, boundary_end):
+            index += 1
+            continue
+
+        spans.append((start, boundary_end))
+        start = _skip_whitespace(stripped, boundary_end)
+        index = start
+
+    if start < len(stripped):
+        spans.append((start, len(stripped)))
+    return spans
+
+
+def _is_decimal_point(text: str, index: int) -> bool:
+    if text[index] != ".":
+        return False
+    return (
+        index > 0
+        and text[index - 1].isdigit()
+        and index + 1 < len(text)
+        and text[index + 1].isdigit()
+    )
+
+
+def _looks_like_sentence_boundary(text: str, boundary_end: int) -> bool:
+    next_index = _skip_whitespace(text, boundary_end)
+    if next_index >= len(text):
+        return True
+
+    while next_index < len(text) and text[next_index] in "\"'([{“‘":
+        next_index += 1
+    if next_index >= len(text):
+        return True
+    next_char = text[next_index]
+    return next_char.isupper() or next_char.isdigit()
+
+
+def _skip_whitespace(text: str, index: int) -> int:
+    while index < len(text) and text[index].isspace():
+        index += 1
+    return index
+
+
+def _merge_small_sentence_spans(
+    text: str,
+    spans: Sequence[tuple[int, int]],
+) -> list[tuple[int, int]]:
+    if not spans:
+        return []
+
+    merged: list[tuple[int, int]] = []
+    current_start, current_end = spans[0]
+    current_count = 1
+    for next_start, next_end in spans[1:]:
+        current_text = text[current_start:current_end].strip()
+        next_text = text[next_start:next_end].strip()
+        merged_text = text[current_start:next_end].strip()
+        if (
+            current_count < _PROSE_MAX_SENTENCES
+            and len(merged_text) <= _PROSE_KEEP_MAX_CHARS
+            and len(current_text) < _PROSE_COMFORTABLE_MIN_CHARS
+            and len(next_text) < _PROSE_COMFORTABLE_MIN_CHARS
+            and (
+                len(current_text) <= _PROSE_REPAIR_FRAGMENT_MAX_CHARS
+                or len(next_text) <= _PROSE_REPAIR_FRAGMENT_MAX_CHARS
+            )
+        ):
+            current_end = next_end
+            current_count += 1
+            continue
+
+        merged.append((current_start, current_end))
+        current_start, current_end = next_start, next_end
+        current_count = 1
+    merged.append((current_start, current_end))
+    return merged
+
+
+def _split_absurdly_long_row(text: str) -> list[str]:
+    stripped = _normalize_text(text)
+    if len(stripped) <= _ABSURDLY_LONG_ROW_CHARS:
+        return [stripped]
+
+    split_at = _best_mid_sentence_split_index(stripped)
+    if split_at is None:
+        return [stripped]
+    left = _normalize_text(stripped[:split_at].rstrip())
+    right = _normalize_text(stripped[split_at:].lstrip())
+    if not left or not right:
+        return [stripped]
+    rows: list[str] = []
+    rows.extend(_split_absurdly_long_row(left))
+    rows.extend(_split_absurdly_long_row(right))
+    return rows
+
+
+def _best_mid_sentence_split_index(text: str) -> int | None:
+    midpoint = len(text) / 2
+    candidates: list[tuple[float, int]] = []
+    for index, char in enumerate(text):
+        if char not in _MID_SENTENCE_SPLIT_CHARS:
+            continue
+        split_at = index + 1
+        left = text[:split_at].strip()
+        right = text[split_at:].strip()
+        if len(left) < 80 or len(right) < 80:
+            continue
+        candidates.append((abs(split_at - midpoint), split_at))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
+
+
+def _is_structural_row_for_prose_cleanup(text: str) -> bool:
+    return (
+        _is_cleanup_control_row(text)
+        or _is_variant_heading(text)
+        or _is_recipe_title_like(text)
+        or _is_ingredient_line(text)
+    )
+
+
+def _is_cleanup_control_row(text: str) -> bool:
+    return (
+        _is_note_line(text)
+        or _looks_like_cleanup_yield_row(text)
+        or _is_howto_heading(text)
+        or _is_numbered_instruction(text)
+    )
+
+
+def _looks_like_cleanup_yield_row(text: str) -> bool:
+    if not _is_yield_line(text):
+        return False
+    stripped = str(text or "").strip()
+    lowered = stripped.lower()
+    if lowered.startswith("yield "):
+        remainder = stripped[6:].lstrip(" :")
+        return bool(remainder[:1].isdigit())
+    return True
+
+
+def _ends_with_sentence_boundary(text: str) -> bool:
+    stripped = str(text or "").rstrip()
+    if not stripped:
+        return False
+    return stripped[-1] in _SENTENCE_END_CHARS
+
+
+def _starts_with_lowercase_token(text: str) -> bool:
+    stripped = str(text or "").lstrip()
+    if not stripped:
+        return False
+    for char in stripped:
+        if char.isalpha():
+            return char.islower()
+        if char.isdigit():
+            return False
+    return False
+
+
+def _looks_like_yield_amount_fragment(text: str) -> bool:
+    stripped = str(text or "").strip().lower()
+    if not stripped or len(stripped) > 24:
+        return False
+    if any(mark in stripped for mark in ",;.!?"):
+        return False
+    words = _VARIANT_WORD_RE.findall(stripped)
+    if len(words) > 2:
+        return False
+    if not words:
+        return False
+    return words[-1] in _YIELD_AMOUNT_HINTS or words[-1] in {
+        "cup",
+        "cups",
+    }
 
 
 def _infer_rule_tags(
