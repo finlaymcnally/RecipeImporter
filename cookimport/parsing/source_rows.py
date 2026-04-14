@@ -133,6 +133,31 @@ _YIELD_AMOUNT_HINTS = {
     "serving",
     "servings",
 }
+_YIELD_LEAD_QUALIFIERS = {
+    "about",
+    "approximately",
+    "approx",
+    "around",
+    "almost",
+    "nearly",
+    "roughly",
+}
+_YIELD_LEAD_NUMBER_WORDS = {
+    "a",
+    "an",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+}
 
 _PROSE_KEEP_MAX_CHARS = 220
 _PROSE_FORCE_SPLIT_MAX_CHARS = 320
@@ -414,6 +439,10 @@ def _split_before_pattern(text: str, pattern: re.Pattern[str]) -> list[str]:
                 pattern is _BOUNDARY_YIELD_RE
                 and text[max(0, match.start() - 3): match.start()].lower() == "to "
             )
+            if not (
+                pattern is _BOUNDARY_YIELD_RE
+                and not _looks_like_yield_line(text[match.start():])
+            )
             if match.start() > 0 and not text[max(0, match.start() - 1)].isalnum()
         }
     )
@@ -658,14 +687,7 @@ def _is_cleanup_control_row(text: str) -> bool:
 
 
 def _looks_like_cleanup_yield_row(text: str) -> bool:
-    if not _is_yield_line(text):
-        return False
-    stripped = str(text or "").strip()
-    lowered = stripped.lower()
-    if lowered.startswith("yield "):
-        remainder = stripped[6:].lstrip(" :")
-        return bool(remainder[:1].isdigit())
-    return True
+    return _looks_like_yield_line(text)
 
 
 def _ends_with_sentence_boundary(text: str) -> bool:
@@ -702,6 +724,44 @@ def _looks_like_yield_amount_fragment(text: str) -> bool:
         "cup",
         "cups",
     }
+
+
+def _looks_like_yield_line(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    match = _YIELD_PREFIX_RE.match(stripped)
+    if not match:
+        return False
+    remainder = stripped[match.end():].lstrip(" :")
+    if not remainder:
+        return False
+    lowered = remainder.lower()
+    if lowered.startswith("enough for "):
+        remainder = remainder[len("enough for ") :].lstrip()
+        lowered = remainder.lower()
+        if not remainder:
+            return False
+    for qualifier in sorted(_YIELD_LEAD_QUALIFIERS, key=len, reverse=True):
+        prefix = f"{qualifier} "
+        if lowered.startswith(prefix):
+            remainder = remainder[len(prefix) :].lstrip()
+            lowered = remainder.lower()
+            break
+    if not remainder:
+        return False
+    if remainder[0].isdigit():
+        return True
+    words = _VARIANT_WORD_RE.findall(lowered)
+    if not words:
+        return False
+    first_word = words[0]
+    prefix_word = match.group(0).strip().split()[0].lower()
+    if prefix_word.startswith("serv"):
+        return first_word in _YIELD_LEAD_NUMBER_WORDS
+    if first_word not in _YIELD_LEAD_NUMBER_WORDS:
+        return False
+    return len(words) >= 2 and words[1] in _YIELD_AMOUNT_HINTS
 
 
 def _infer_rule_tags(
@@ -754,7 +814,7 @@ def _is_note_line(text: str) -> bool:
 
 
 def _is_yield_line(text: str) -> bool:
-    return bool(_YIELD_PREFIX_RE.match(text))
+    return _looks_like_yield_line(text)
 
 
 def _is_numbered_instruction(text: str) -> bool:

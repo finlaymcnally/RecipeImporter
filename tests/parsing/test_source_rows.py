@@ -35,6 +35,34 @@ def test_yield_word_inside_prose_no_longer_splits_mid_sentence() -> None:
     ]
 
 
+def test_makes_serves_and_yields_inside_prose_do_not_create_structural_splits() -> None:
+    makes_sample = (
+        "I don't recommend using iodized salt as it makes everything taste slightly metallic. "
+        "In 1924, when iodine deficiency was a common health problem, Morton Salt began iodizing "
+        "salt to help prevent goiters, leading to great strides in public health."
+    )
+    serves_sample = (
+        "That opening bowl serves as a reminder that salt is structural, not decorative. "
+        "It should support the rest of the dish."
+    )
+    yields_sample = (
+        "Whisking steadily yields a smoother sauce when the pan is hot enough. "
+        "It also keeps the emulsion stable."
+    )
+
+    assert _split_block_text(makes_sample) == [
+        "I don't recommend using iodized salt as it makes everything taste slightly metallic.",
+        "In 1924, when iodine deficiency was a common health problem, Morton Salt began iodizing "
+        "salt to help prevent goiters, leading to great strides in public health.",
+    ]
+    serves_rows = _split_block_text(serves_sample)
+    assert serves_rows[0].startswith("That opening bowl serves as a reminder")
+    assert "serves as a reminder" in serves_rows[0]
+    yields_rows = _split_block_text(yields_sample)
+    assert yields_rows[0].startswith("Whisking steadily yields a smoother sauce")
+    assert "yields a smoother sauce" in yields_rows[0]
+
+
 def test_yield_line_separates_cleanly_from_first_ingredient() -> None:
     sample = "Serves 6-10 1 kg pork rind, with a 5mm layer of fat left on 2-3 tbsp cornish sea salt"
 
