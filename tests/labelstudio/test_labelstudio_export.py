@@ -175,10 +175,13 @@ def test_labelstudio_export_writes_row_and_block_gold_artifacts(
         if line.strip()
     ]
     assert row_gold_conflicts_path.read_text(encoding="utf-8") == ""
-    assert len(row_gold_rows) == 1
+    assert len(row_gold_rows) == 2
     assert row_gold_rows[0]["row_index"] == 0
     assert row_gold_rows[0]["labels"] == ["RECIPE_TITLE"]
     assert row_gold_rows[0]["text"] == "Simple Soup"
+    assert row_gold_rows[1]["row_index"] == 1
+    assert row_gold_rows[1]["labels"] == ["OTHER"]
+    assert row_gold_rows[1]["text"] == "1 cup stock"
     assert len(block_gold_rows) == 1
     assert block_gold_rows[0]["block_index"] == 0
     assert block_gold_rows[0]["labels"] == ["RECIPE_TITLE"]
@@ -186,6 +189,93 @@ def test_labelstudio_export_writes_row_and_block_gold_artifacts(
     assert block_gold_rows[0]["source_file"] == "/tmp/book.epub"
     assert block_gold_rows[0]["segment_ids"] == ["seg-1"]
     assert block_gold_rows[0]["book_ids"] == ["book"]
+
+
+@pytest.mark.parametrize(
+    ("annotations", "expected_missing", "expected_skipped"),
+    [
+        ([], 1, 0),
+        ([{"id": 10, "result": []}], 0, 1),
+    ],
+)
+def test_labelstudio_export_defaults_unlabeled_rows_to_other(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    annotations: list[dict[str, object]],
+    expected_missing: int,
+    expected_skipped: int,
+) -> None:
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        def find_project_by_title(self, title: str) -> dict[str, object]:
+            return {
+                "id": 7,
+                "title": title,
+                "label_config": "<View><Label value='RECIPE_VARIANT'/></View>",
+            }
+
+        def export_tasks(self, _project_id: int) -> list[dict[str, object]]:
+            return [
+                {
+                    "id": 1,
+                    "data": {
+                        "segment_id": "seg-1",
+                        "source_hash": "hash-123",
+                        "source_file": "/tmp/book.epub",
+                        "book_id": "book",
+                        "segment_text": "Alpha\nBeta",
+                        "source_map": {
+                            "rows": [
+                                {
+                                    "row_id": "row-0",
+                                    "row_index": 0,
+                                    "source_block_index": 0,
+                                    "row_ordinal": 0,
+                                    "text": "Alpha",
+                                    "segment_start": 0,
+                                    "segment_end": 5,
+                                },
+                                {
+                                    "row_id": "row-1",
+                                    "row_index": 1,
+                                    "source_block_index": 1,
+                                    "row_ordinal": 0,
+                                    "text": "Beta",
+                                    "segment_start": 6,
+                                    "segment_end": 10,
+                                },
+                            ]
+                        },
+                    },
+                    "annotations": annotations,
+                }
+            ]
+
+    monkeypatch.setattr("cookimport.labelstudio.export.LabelStudioClient", FakeClient)
+
+    result = run_labelstudio_export(
+        project_name="Book",
+        output_dir=tmp_path / "pulled-from-labelstudio",
+        label_studio_url="http://localhost:8080",
+        label_studio_api_key="token",
+        run_dir=None,
+    )
+
+    row_gold_rows = [
+        json.loads(line)
+        for line in (result["export_root"] / "row_gold_labels.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    ]
+    assert [(row["row_index"], row["labels"]) for row in row_gold_rows] == [
+        (0, ["OTHER"]),
+        (1, ["OTHER"]),
+    ]
+    assert result["summary"]["counts"]["missing"] == expected_missing
+    assert result["summary"]["counts"]["skipped"] == expected_skipped
 
 
 def test_labelstudio_export_mass_labeling_is_block_and_row_authoritative(

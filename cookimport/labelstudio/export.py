@@ -535,6 +535,7 @@ def run_labelstudio_export(
 
     span_rows: list[dict[str, Any]] = []
     segment_rows: dict[str, dict[str, Any]] = {}
+    authoritative_row_state: dict[str, dict[str, Any]] = {}
     counts = {"labeled": 0, "missing": 0, "skipped": 0}
 
     for task in export_payload:
@@ -553,6 +554,48 @@ def run_labelstudio_export(
         source_map = data.get("source_map")
         if not isinstance(source_map, dict):
             source_map = {}
+        authoritative_rows = source_map.get("rows")
+        if not isinstance(authoritative_rows, list):
+            authoritative_rows = source_map.get("blocks")
+        if not isinstance(authoritative_rows, list):
+            authoritative_rows = []
+        for row in authoritative_rows:
+            if not isinstance(row, dict):
+                continue
+            row_id = str(row.get("row_id") or "").strip()
+            if not row_id:
+                block_index = _parse_int(
+                    row.get("source_block_index", row.get("block_index"))
+                )
+                if block_index is not None:
+                    row_id = f"block:{block_index}"
+            if not row_id:
+                continue
+            row_text = str(row.get("text") or "")
+            if not row_text:
+                segment_start = _parse_int(row.get("segment_start"))
+                segment_end = _parse_int(row.get("segment_end"))
+                if (
+                    segment_start is not None
+                    and segment_end is not None
+                    and 0 <= segment_start < segment_end <= len(segment_text)
+                ):
+                    row_text = segment_text[segment_start:segment_end]
+            authoritative_row_state.setdefault(
+                row_id,
+                {
+                    "row_id": row_id,
+                    "row_index": row.get("row_index", row.get("block_index")),
+                    "block_index": row.get(
+                        "source_block_index",
+                        row.get("block_index"),
+                    ),
+                    "row_ordinal": row.get("row_ordinal"),
+                    "text": row_text,
+                    "source_hash": source_hash,
+                    "source_file": source_file,
+                },
+            )
 
         segment_rows[str(segment_id)] = {
             "segment_id": str(segment_id),
@@ -683,7 +726,10 @@ def run_labelstudio_export(
     segment_manifest_path = export_root / "freeform_segment_manifest.jsonl"
     _write_jsonl(segment_manifest_path, segment_manifest_rows)
 
-    row_gold_bundle = derive_row_gold_bundle(span_rows)
+    row_gold_bundle = derive_row_gold_bundle(
+        span_rows,
+        authoritative_rows=list(authoritative_row_state.values()),
+    )
     row_gold_rows = list(row_gold_bundle.get("rows") or [])
     row_gold_conflicts = list(row_gold_bundle.get("conflicts") or [])
     row_gold_path = export_root / "row_gold_labels.jsonl"

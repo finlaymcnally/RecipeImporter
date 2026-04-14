@@ -116,10 +116,18 @@ def migrate_freeform_export_to_row_gold(
     for row in sorted(source_rows, key=lambda value: int(value.row_index)):
         payload = row_payload.get(str(row.row_id))
         if payload is None:
-            continue
+            payload = {
+                "row_id": str(row.row_id),
+                "row_index": int(row.row_index),
+                "block_index": int(row.block_index),
+                "row_ordinal": int(row.row_ordinal),
+                "text": str(row.text),
+                "source_hash": str(row.source_hash),
+                "source_file": "unknown",
+            }
         labels = sorted(row_labels.get(str(row.row_id), set()))
         if not labels:
-            continue
+            labels = ["OTHER"]
         gold_row = {
             **payload,
             "labels": labels,

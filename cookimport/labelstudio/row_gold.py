@@ -17,9 +17,47 @@ def write_row_gold_rows(path: Path, rows: list[dict[str, Any]]) -> None:
     )
 
 
-def derive_row_gold_bundle(span_rows: list[dict[str, Any]]) -> dict[str, Any]:
+def derive_row_gold_bundle(
+    span_rows: list[dict[str, Any]],
+    *,
+    authoritative_rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     row_state: dict[str, dict[str, Any]] = {}
     conflicts: list[dict[str, Any]] = []
+
+    for row in authoritative_rows or []:
+        normalized = _normalize_authoritative_row(row)
+        if normalized is None:
+            continue
+        row_id = normalized["row_id"]
+        entry = row_state.setdefault(
+            row_id,
+            {
+                "row_id": row_id,
+                "row_index": normalized.get("row_index"),
+                "block_index": normalized.get("block_index"),
+                "row_ordinal": normalized.get("row_ordinal"),
+                "text": normalized.get("text", ""),
+                "source_hash": normalized.get("source_hash", "unknown"),
+                "source_file": normalized.get("source_file", "unknown"),
+                "labels": set(),
+                "span_ids": [],
+            },
+        )
+        if not entry.get("text") and normalized.get("text"):
+            entry["text"] = normalized["text"]
+        if (
+            (entry.get("source_hash") in {None, "", "unknown"})
+            and normalized.get("source_hash")
+            and normalized.get("source_hash") != "unknown"
+        ):
+            entry["source_hash"] = normalized["source_hash"]
+        if (
+            (entry.get("source_file") in {None, "", "unknown"})
+            and normalized.get("source_file")
+            and normalized.get("source_file") != "unknown"
+        ):
+            entry["source_file"] = normalized["source_file"]
 
     for span_row in span_rows:
         label = normalize_freeform_label(str(span_row.get("label") or "OTHER"))
@@ -74,6 +112,8 @@ def derive_row_gold_bundle(span_rows: list[dict[str, Any]]) -> dict[str, Any]:
         ),
     ):
         labels = sorted(str(label) for label in entry["labels"])
+        if not labels:
+            labels = ["OTHER"]
         row_payload = {
             "row_id": row_id,
             "row_index": entry.get("row_index"),
@@ -104,3 +144,30 @@ def _coerce_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_authoritative_row(row: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(row, dict):
+        return None
+    row_id = str(row.get("row_id") or "").strip()
+    if not row_id:
+        block_index = _coerce_int(
+            row.get("source_block_index", row.get("block_index"))
+        )
+        if block_index is not None:
+            row_id = f"block:{block_index}"
+    if not row_id:
+        return None
+    row_index = _coerce_int(row.get("row_index", row.get("block_index")))
+    block_index = _coerce_int(
+        row.get("source_block_index", row.get("block_index"))
+    )
+    return {
+        "row_id": row_id,
+        "row_index": row_index,
+        "block_index": block_index,
+        "row_ordinal": _coerce_int(row.get("row_ordinal")),
+        "text": str(row.get("text") or ""),
+        "source_hash": str(row.get("source_hash") or "unknown"),
+        "source_file": str(row.get("source_file") or "unknown"),
+    }
