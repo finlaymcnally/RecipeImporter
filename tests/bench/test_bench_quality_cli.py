@@ -27,7 +27,7 @@ def test_bench_quality_discover_writes_suite(tmp_path: Path) -> None:
         '{"source_file":"alpha.epub","label":"OTHER"}\n',
         encoding="utf-8",
     )
-    (exports / "canonical_text.txt").write_text("abc", encoding="utf-8")
+    (exports / "row_gold_labels.jsonl").write_text("abc", encoding="utf-8")
 
     suite_out = tmp_path / "quality_suite.json"
     cli.bench_quality_discover(
@@ -57,14 +57,14 @@ def test_bench_quality_discover_formats_filter(tmp_path: Path) -> None:
         '{"source_file":"alpha.epub","label":"OTHER"}\n',
         encoding="utf-8",
     )
-    (alpha_exports / "canonical_text.txt").write_text("abc", encoding="utf-8")
+    (alpha_exports / "row_gold_labels.jsonl").write_text("abc", encoding="utf-8")
     gamma_exports = gold_root / "gamma" / "exports"
     gamma_exports.mkdir(parents=True, exist_ok=True)
     (gamma_exports / "freeform_span_labels.jsonl").write_text(
         '{"source_file":"gamma.pdf","label":"OTHER"}\n',
         encoding="utf-8",
     )
-    (gamma_exports / "canonical_text.txt").write_text("abcd", encoding="utf-8")
+    (gamma_exports / "row_gold_labels.jsonl").write_text("abcd", encoding="utf-8")
 
     suite_out = tmp_path / "quality_suite_pdf.json"
     cli.bench_quality_discover(

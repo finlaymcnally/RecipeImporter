@@ -591,7 +591,7 @@ def test_run_all_method_prediction_once_uses_adapter_forwarding_surface(
         output_dir=scratch_root / config_dir_name,
         processed_output_dir=processed_output_root / config_dir_name,
         eval_output_dir=root_output_dir / config_dir_name,
-        eval_mode=cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        eval_mode=cli.BENCHMARK_EVAL_MODE_SOURCE_ROWS,
         no_upload=True,
         write_markdown=False,
         write_label_studio_tasks=False,

@@ -30,7 +30,6 @@ Current scoring modes:
 
 - `stage-blocks`: compare stage evidence labels against freeform gold block labels
 - `source-rows`: compare authoritative row predictions against `row_gold_labels.jsonl` by shared ordered `row_id`
-- `canonical-text` remains a compatibility alias accepted by the CLI/history layer and normalizes to `source-rows`
 
 Current benchmark handoff model:
 
@@ -481,8 +480,7 @@ Primary benchmark modules:
 - `cookimport/cli_support/bench.py`, `bench_single_book.py`, `bench_single_profile.py`, `bench_all_method.py`, `bench_oracle.py`, `bench_artifacts.py`, `bench_cache.py`: split benchmark implementation owners behind the CLI facade
 - `cookimport/bench/CONVENTIONS.md`: durable benchmark contracts inside the code folder
 - `cookimport/bench/eval_stage_blocks.py`: stage-block scoring
-- `cookimport/bench/eval_canonical_text.py`: canonical-text scoring and alignment telemetry
-- `cookimport/bench/canonical_alignment_cache.py`: shared canonical alignment cache
+- `cookimport/bench/eval_source_rows.py`: source-row scoring
 - `cookimport/bench/prediction_records.py`: replay record schema/helpers
 - `cookimport/bench/speed_suite.py`, `speed_runner.py`, `speed_compare.py`: SpeedSuite
 - `cookimport/bench/quality_suite.py`, `cookimport/bench/qualitysuite/`, `quality_compare.py`, `quality_leaderboard.py`: QualitySuite
@@ -500,8 +498,8 @@ Primary benchmark modules:
 
 ## 9. Recent Durable Notes
 
-- In canonical-text benchmarking, `eval_report.json -> per_label.RECIPE_TITLE` is the title-label metric. `eval_report.json -> recipe_counts.predicted_recipe_count` is a separate import-level recipe total and can diverge sharply.
-- When post-refactor CodexFarm canonical-text quality drops toward vanilla, inspect the `KNOWLEDGE` seam first. The non-recipe route stage now only routes outside-recipe review, while the finalize stage owns candidate `KNOWLEDGE` vs `OTHER` for benchmark truth.
+- In source-row benchmarking, `eval_report.json -> per_label.RECIPE_TITLE` is the title-label metric. `eval_report.json -> recipe_counts.predicted_recipe_count` is a separate import-level recipe total and can diverge sharply.
+- When post-refactor CodexFarm source-row quality drops toward vanilla, inspect the `KNOWLEDGE` seam first. The non-recipe route stage now only routes outside-recipe review, while the finalize stage owns candidate `KNOWLEDGE` vs `OTHER` for benchmark truth.
 - Single-book benchmark folder naming is about Codex participation, not every deterministic helper. A run with recipe Codex off and only deterministic line-role still belongs under `vanilla/`; only actual Codex-backed line-role belongs in the Codex/hybrid branch.
 - High Codex recipe task counts in single-book runs usually mean grouped recipe-span overproduction upstream, not retry storms inside CodexFarm.
 - Tiny line-role token spend in a Codex single-book run does not mean line-role was skipped; older helper paths only sent escalated rows to live Codex and then scored a projected artifact built from authoritative outputs.

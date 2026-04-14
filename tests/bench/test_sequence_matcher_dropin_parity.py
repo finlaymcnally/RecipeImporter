@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import json
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-import cookimport.bench.eval_canonical_text as canonical_eval
 import cookimport.bench.sequence_matcher_select as sequence_matcher_select
-from cookimport.bench.eval_canonical_text import evaluate_canonical_text
 from cookimport.bench.sequence_matcher_select import (
     SEQUENCE_MATCHER_ENV,
     get_sequence_matcher_selection,
@@ -31,78 +28,6 @@ def _matching_blocks_as_tuples(matcher: object) -> list[tuple[int, int, int]]:
         for match in matcher.get_matching_blocks()  # type: ignore[attr-defined]
         if int(match.size) > 0
     ]
-
-
-def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
-    path.write_text(
-        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
-        encoding="utf-8",
-    )
-
-
-def _write_minimal_canonical_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
-    gold_export_root = tmp_path / "exports"
-    gold_export_root.mkdir(parents=True, exist_ok=True)
-    canonical_text = "Title\nSubtitle\n1 cup stock"
-    (gold_export_root / "canonical_text.txt").write_text(
-        canonical_text,
-        encoding="utf-8",
-    )
-    _write_jsonl(
-        gold_export_root / "canonical_block_map.jsonl",
-        [
-            {"block_index": 0, "start_char": 0, "end_char": 5},
-            {"block_index": 1, "start_char": 6, "end_char": 14},
-            {"block_index": 2, "start_char": 15, "end_char": 26},
-        ],
-    )
-    _write_jsonl(
-        gold_export_root / "canonical_span_labels.jsonl",
-        [
-            {"span_id": "s0", "label": "RECIPE_TITLE", "start_char": 0, "end_char": 5},
-            {"span_id": "s1", "label": "RECIPE_TITLE", "start_char": 6, "end_char": 14},
-            {
-                "span_id": "s2",
-                "label": "INGREDIENT_LINE",
-                "start_char": 15,
-                "end_char": 26,
-            },
-        ],
-    )
-    (gold_export_root / "canonical_manifest.json").write_text(
-        json.dumps({"schema_version": "canonical_gold.v1"}, sort_keys=True),
-        encoding="utf-8",
-    )
-
-    stage_predictions_path = tmp_path / "stage_block_predictions.json"
-    stage_predictions_path.write_text(
-        json.dumps(
-            {
-                "schema_version": "stage_block_predictions.v1",
-                "workbook_slug": "demo",
-                "source_file": "demo.epub",
-                "source_hash": "abc123",
-                "block_count": 2,
-                "block_labels": {"0": "RECIPE_TITLE", "1": "INGREDIENT_LINE"},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    extracted_archive_path = tmp_path / "extracted_archive.json"
-    extracted_archive_path.write_text(
-        json.dumps(
-            [
-                {"index": 0, "text": "Title\nSubtitle"},
-                {"index": 1, "text": "1 cup stock"},
-            ],
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    return gold_export_root, stage_predictions_path, extracted_archive_path
-
-
 def _largeish_edit_example() -> tuple[str, str]:
     left_parts: list[str] = []
     right_parts: list[str] = []
@@ -243,38 +168,6 @@ def test_sequence_matcher_selector_forced_dmp_reports_runtime_options(
     assert selection.extra_telemetry.get("alignment_dmp_cleanup") == "No"
     assert selection.extra_telemetry.get("alignment_dmp_checklines") is False
     assert selection.extra_telemetry.get("alignment_dmp_timelimit") == pytest.approx(0.0)
-
-
-def test_canonical_eval_uses_dmp_and_reports_dmp_telemetry(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    gold_export_root, stage_predictions_path, extracted_archive_path = (
-        _write_minimal_canonical_fixture(tmp_path)
-    )
-    monkeypatch.setenv(canonical_eval._ALIGNMENT_STRATEGY_ENV, "global")
-    monkeypatch.setenv(SEQUENCE_MATCHER_ENV, "dmp")
-    monkeypatch.setenv("COOKIMPORT_DMP_CLEANUP", "No")
-    monkeypatch.setenv("COOKIMPORT_DMP_CHECKLINES", "0")
-    monkeypatch.setenv("COOKIMPORT_DMP_TIMELIMIT", "0")
-
-    dmp_result = evaluate_canonical_text(
-        gold_export_root=gold_export_root,
-        stage_predictions_json=stage_predictions_path,
-        extracted_blocks_json=extracted_archive_path,
-        out_dir=tmp_path / "dmp",
-    )
-
-    dmp_report = dmp_result["report"]
-    assert dmp_report["overall_line_accuracy"] == pytest.approx(1.0)
-    assert dmp_report["macro_f1_excluding_other"] == pytest.approx(1.0)
-    telemetry = dmp_report["evaluation_telemetry"]
-    assert telemetry["alignment_sequence_matcher_impl"] == "dmp"
-    assert telemetry["alignment_sequence_matcher_mode"] == "dmp"
-    assert telemetry["alignment_sequence_matcher_requested_mode"] == "dmp"
-    assert telemetry["alignment_dmp_cleanup"] == "No"
-    assert telemetry["alignment_dmp_checklines"] is False
-    assert telemetry["alignment_dmp_timelimit"] == pytest.approx(0.0)
 
 
 def test_matching_blocks_tuple_helper_drops_terminal_zero_block() -> None:

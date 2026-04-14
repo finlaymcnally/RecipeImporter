@@ -31,8 +31,11 @@ def _patch_single_book_smoke_runtime(
     gold_export_root.mkdir(parents=True, exist_ok=True)
     gold_spans = gold_export_root / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
-    (gold_export_root / "canonical_text.txt").write_text("Title\nBody\n", encoding="utf-8")
-    (gold_export_root / "canonical_span_labels.jsonl").write_text("{}\n", encoding="utf-8")
+    (gold_export_root / "row_gold_labels.jsonl").write_text(
+        "{\"row_id\":\"row:0\",\"row_index\":0,\"text\":\"Title\",\"labels\":[\"RECIPE_TITLE\"]}\n"
+        "{\"row_id\":\"row:1\",\"row_index\":1,\"text\":\"Body\",\"labels\":[\"OTHER\"]}\n",
+        encoding="utf-8",
+    )
 
     menu_answers = iter(["labelstudio_benchmark", "single_book", "exit"])
 
@@ -176,7 +179,7 @@ def test_interactive_benchmark_single_book_vanilla_smoke(
     assert len(benchmark_calls) == 1
     assert benchmark_calls[0]["llm_recipe_pipeline"] == "off"
     assert benchmark_calls[0]["no_upload"] is True
-    assert benchmark_calls[0]["eval_mode"] == cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT
+    assert benchmark_calls[0]["eval_mode"] == cli.BENCHMARK_EVAL_MODE_SOURCE_ROWS
 
 
 def test_interactive_benchmark_single_book_codex_shaped_smoke(

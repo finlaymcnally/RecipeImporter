@@ -25,11 +25,23 @@ def derive_row_gold_bundle(span_rows: list[dict[str, Any]]) -> dict[str, Any]:
         label = normalize_freeform_label(str(span_row.get("label") or "OTHER"))
         touched_rows = span_row.get("touched_rows")
         if not isinstance(touched_rows, list):
+            touched_rows = []
+        if not touched_rows:
+            touched_blocks = span_row.get("touched_blocks")
+            if isinstance(touched_blocks, list):
+                touched_rows = touched_blocks
+        if not isinstance(touched_rows, list):
             continue
         for touched in touched_rows:
             if not isinstance(touched, dict):
                 continue
             row_id = str(touched.get("row_id") or "").strip()
+            if not row_id:
+                block_index = _coerce_int(
+                    touched.get("source_block_index", touched.get("block_index"))
+                )
+                if block_index is not None:
+                    row_id = f"block:{block_index}"
             if not row_id:
                 continue
             row_index = _coerce_int(touched.get("row_index", touched.get("block_index")))

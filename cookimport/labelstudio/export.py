@@ -12,10 +12,6 @@ from cookimport.labelstudio.block_gold import (
     write_block_gold_rows,
 )
 from cookimport.labelstudio.client import LabelStudioClient
-from cookimport.labelstudio.canonical_gold import (
-    build_canonical_gold_bundle,
-    write_canonical_gold_bundle,
-)
 from cookimport.labelstudio.freeform_tasks import map_span_offsets_to_blocks
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
 from cookimport.labelstudio.row_gold import derive_row_gold_bundle, write_row_gold_rows
@@ -587,7 +583,32 @@ def run_labelstudio_export(
             if end_offset > len(segment_text):
                 counts["skipped"] += 1
                 continue
-            touched_rows = map_span_offsets_to_blocks(source_map, start_offset, end_offset)
+            raw_touched_rows = map_span_offsets_to_blocks(
+                source_map,
+                start_offset,
+                end_offset,
+            )
+            touched_rows: list[dict[str, Any]] = []
+            for row in raw_touched_rows:
+                if not isinstance(row, dict):
+                    continue
+                row_start = row.get("segment_start")
+                row_end = row.get("segment_end")
+                try:
+                    row_start_i = int(row_start)
+                    row_end_i = int(row_end)
+                except (TypeError, ValueError):
+                    row_start_i = None
+                    row_end_i = None
+                row_text = str(row.get("text") or "")
+                if (
+                    not row_text
+                    and row_start_i is not None
+                    and row_end_i is not None
+                    and row_end_i > row_start_i
+                ):
+                    row_text = segment_text[row_start_i:row_end_i]
+                touched_rows.append({**row, "text": row_text})
             touched_row_ids = [
                 row.get("row_id")
                 for row in touched_rows
@@ -675,17 +696,6 @@ def run_labelstudio_export(
     block_gold_path = export_root / "block_gold_labels.jsonl"
     write_block_gold_rows(block_gold_path, block_gold_rows)
 
-    canonical_bundle = build_canonical_gold_bundle(
-        export_payload=[row for row in export_payload if isinstance(row, dict)],
-        span_rows=span_rows,
-        block_gold_rows=block_gold_rows,
-    )
-    canonical_paths = write_canonical_gold_bundle(
-        export_root=export_root,
-        bundle=canonical_bundle,
-    )
-    canonical_manifest = dict(canonical_bundle.get("canonical_manifest") or {})
-
     deduped_recipe_headers, raw_recipe_headers = _count_freeform_recipe_headers(span_rows)
     counts["recipe_headers"] = deduped_recipe_headers
 
@@ -699,15 +709,6 @@ def run_labelstudio_export(
             "recipe_headers": deduped_recipe_headers,
             "recipe_headers_raw": raw_recipe_headers,
             "dedupe_key": "source_hash+source_file+start_block_index+end_block_index",
-        },
-        "canonical": {
-            "schema_version": canonical_manifest.get("schema_version"),
-            "block_count": canonical_manifest.get("block_count"),
-            "canonical_char_count": canonical_manifest.get("canonical_char_count"),
-            "canonical_span_count": canonical_manifest.get("canonical_span_count"),
-            "canonical_span_error_count": canonical_manifest.get(
-                "canonical_span_error_count"
-            ),
         },
         "block_gold": {
             "block_count": len(block_gold_rows),
@@ -728,13 +729,6 @@ def run_labelstudio_export(
             "row_gold_conflicts": str(row_gold_conflicts_path),
             "block_gold_labels": str(block_gold_path),
             "export_payload": str(export_path),
-            "canonical_text": str(canonical_paths["canonical_text_path"]),
-            "canonical_block_map": str(canonical_paths["canonical_block_map_path"]),
-            "canonical_span_labels": str(canonical_paths["canonical_span_labels_path"]),
-            "canonical_span_label_errors": str(
-                canonical_paths["canonical_span_errors_path"]
-            ),
-            "canonical_manifest": str(canonical_paths["canonical_manifest_path"]),
         },
     }
     summary_path = export_root / "summary.json"
@@ -757,13 +751,6 @@ def run_labelstudio_export(
             "row_gold_labels_jsonl": row_gold_path,
             "row_gold_conflicts_jsonl": row_gold_conflicts_path,
             "block_gold_labels_jsonl": block_gold_path,
-            "canonical_text_path": canonical_paths["canonical_text_path"],
-            "canonical_block_map_jsonl": canonical_paths["canonical_block_map_path"],
-            "canonical_span_labels_jsonl": canonical_paths["canonical_span_labels_path"],
-            "canonical_span_label_errors_jsonl": canonical_paths[
-                "canonical_span_errors_path"
-            ],
-            "canonical_manifest_json": canonical_paths["canonical_manifest_path"],
         },
         notes="Exported freeform span labels from Label Studio.",
     )

@@ -11,27 +11,32 @@ globals().update({
 })
 
 
-def test_canonical_lines_owner_module_keeps_script_helper_exports(
+def test_row_gold_line_loader_reads_labels_by_line(
     tmp_path: Path,
 ) -> None:
-    import cookimport.bench.external_ai_cutdown.canonical_lines as canonical_lines
+    from cookimport.bench.row_gold_lines import load_row_gold_line_labels
 
-    canonical_spans_path = tmp_path / "canonical_span_labels.jsonl"
+    row_gold_path = tmp_path / "row_gold_labels.jsonl"
     _write_jsonl(
-        canonical_spans_path,
+        row_gold_path,
         [
-            {"label": "RECIPE_TITLE", "start_char": 0, "end_char": 10},
-            {"label": "INGREDIENT_LINE", "start_char": 11, "end_char": 22},
+            {
+                "row_id": "row:0",
+                "row_index": 0,
+                "text": "Dish Title",
+                "labels": ["RECIPE_TITLE"],
+            },
+            {
+                "row_id": "row:1",
+                "row_index": 1,
+                "text": "1 cup flour",
+                "labels": ["INGREDIENT_LINE"],
+            },
         ],
     )
 
-    lines = canonical_lines._build_canonical_lines("Dish Title\n1 cup flour\n")
-    spans = canonical_lines._load_gold_spans(canonical_spans_path)
-    labels_by_line = canonical_lines._line_gold_labels(lines=lines, spans=spans)
-
-    assert canonical_lines._overlap_len(0, 4, 2, 6) == 2
+    lines, labels_by_line = load_row_gold_line_labels(row_gold_path)
     assert [line["text"] for line in lines] == ["Dish Title", "1 cup flour"]
-    assert [span["label"] for span in spans] == ["RECIPE_TITLE", "INGREDIENT_LINE"]
     assert labels_by_line == {
         0: ["RECIPE_TITLE"],
         1: ["INGREDIENT_LINE"],

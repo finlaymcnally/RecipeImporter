@@ -33,7 +33,7 @@ Interactive file discovery and direct staging intentionally differ:
   - `single_book`
   - `selected_matched_books`
   - `all_matched_books`
-- Interactive benchmark modes always run local canonical-text evaluation (`no_upload=True`), without Label Studio credential resolution/upload.
+- Interactive benchmark modes always run local source-row evaluation (`no_upload=True`), without Label Studio credential resolution/upload.
 - All-method benchmarking remains available only as a non-interactive CLI path; interactive menu flow should not route to `_interactive_all_method_benchmark`.
 - Benchmark eval report contracts should use explicit metrics: strict accuracy (`strict_accuracy`, plus `overall_block_accuracy`/`overall_line_accuracy`) and `macro_f1_excluding_other`. Analytics/history consumers may still derive older strict/practical aliases when reading archived artifacts.
 - Benchmark upload should pass `auto_project_name_on_scope_mismatch=True` into `run_labelstudio_import(...)` so auto-named benchmark projects recover by suffixing project titles instead of failing on prior freeform/canonical scope collisions.

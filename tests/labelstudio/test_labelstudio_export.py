@@ -79,7 +79,7 @@ def test_export_rejects_non_freeform_scope_from_manifest(
         )
 
 
-def test_labelstudio_export_writes_canonical_gold_artifacts(
+def test_labelstudio_export_writes_row_and_block_gold_artifacts(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -152,23 +152,21 @@ def test_labelstudio_export_writes_canonical_gold_artifacts(
     )
 
     export_root = result["export_root"]
+    row_gold_path = export_root / "row_gold_labels.jsonl"
+    row_gold_conflicts_path = export_root / "row_gold_conflicts.jsonl"
     block_gold_path = export_root / "block_gold_labels.jsonl"
-    canonical_text_path = export_root / "canonical_text.txt"
-    canonical_span_labels_path = export_root / "canonical_span_labels.jsonl"
-    canonical_manifest_path = export_root / "canonical_manifest.json"
-    canonical_errors_path = export_root / "canonical_span_label_errors.jsonl"
 
+    assert row_gold_path.exists()
+    assert row_gold_conflicts_path.exists()
     assert block_gold_path.exists()
-    assert canonical_text_path.exists()
-    assert canonical_span_labels_path.exists()
-    assert canonical_manifest_path.exists()
-    assert canonical_errors_path.exists()
+    assert not (export_root / "canonical_text.txt").exists()
+    assert not (export_root / "canonical_span_labels.jsonl").exists()
+    assert not (export_root / "canonical_manifest.json").exists()
+    assert not (export_root / "canonical_span_label_errors.jsonl").exists()
 
-    assert canonical_text_path.read_text(encoding="utf-8") == "Simple Soup\n\n1 cup stock"
-
-    canonical_rows = [
+    row_gold_rows = [
         json.loads(line)
-        for line in canonical_span_labels_path.read_text(encoding="utf-8").splitlines()
+        for line in row_gold_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
     block_gold_rows = [
@@ -176,6 +174,11 @@ def test_labelstudio_export_writes_canonical_gold_artifacts(
         for line in block_gold_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+    assert row_gold_conflicts_path.read_text(encoding="utf-8") == ""
+    assert len(row_gold_rows) == 1
+    assert row_gold_rows[0]["row_index"] == 0
+    assert row_gold_rows[0]["labels"] == ["RECIPE_TITLE"]
+    assert row_gold_rows[0]["text"] == "Simple Soup"
     assert len(block_gold_rows) == 1
     assert block_gold_rows[0]["block_index"] == 0
     assert block_gold_rows[0]["labels"] == ["RECIPE_TITLE"]
@@ -183,21 +186,16 @@ def test_labelstudio_export_writes_canonical_gold_artifacts(
     assert block_gold_rows[0]["source_file"] == "/tmp/book.epub"
     assert block_gold_rows[0]["segment_ids"] == ["seg-1"]
     assert block_gold_rows[0]["book_ids"] == ["book"]
-    assert canonical_rows
-    assert canonical_rows[0]["label"] == "RECIPE_TITLE"
-    assert canonical_rows[0]["start_char"] == 0
-    assert canonical_rows[0]["end_char"] == 11
-
-    canonical_manifest = json.loads(canonical_manifest_path.read_text(encoding="utf-8"))
-    assert canonical_manifest["schema_version"] == "canonical_gold.v1"
-    assert canonical_manifest["canonical_span_error_count"] == 0
 
 
-def test_labelstudio_export_mass_labeling_is_block_authoritative(
+def test_labelstudio_export_mass_labeling_is_block_and_row_authoritative(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def _run_export(annotation_result: list[dict[str, object]], export_slug: str) -> tuple[list[dict], list[dict]]:
+    def _run_export(
+        annotation_result: list[dict[str, object]],
+        export_slug: str,
+    ) -> tuple[list[dict], list[dict]]:
         class FakeClient:
             def __init__(self, *_args, **_kwargs) -> None:
                 return None
@@ -250,6 +248,13 @@ def test_labelstudio_export_mass_labeling_is_block_authoritative(
             run_dir=None,
         )
         export_root = result["export_root"]
+        row_gold_rows = [
+            json.loads(line)
+            for line in (export_root / "row_gold_labels.jsonl").read_text(
+                encoding="utf-8"
+            ).splitlines()
+            if line.strip()
+        ]
         block_gold_rows = [
             json.loads(line)
             for line in (export_root / "block_gold_labels.jsonl").read_text(
@@ -257,16 +262,9 @@ def test_labelstudio_export_mass_labeling_is_block_authoritative(
             ).splitlines()
             if line.strip()
         ]
-        canonical_rows = [
-            json.loads(line)
-            for line in (export_root / "canonical_span_labels.jsonl").read_text(
-                encoding="utf-8"
-            ).splitlines()
-            if line.strip()
-        ]
-        return block_gold_rows, canonical_rows
+        return row_gold_rows, block_gold_rows
 
-    sweep_block_gold_rows, sweep_canonical_rows = _run_export(
+    sweep_row_gold_rows, sweep_block_gold_rows = _run_export(
         [
             {
                 "id": "r-1",
@@ -281,7 +279,7 @@ def test_labelstudio_export_mass_labeling_is_block_authoritative(
         ],
         "mass-label",
     )
-    per_block_gold_rows, per_block_canonical_rows = _run_export(
+    per_block_row_gold_rows, per_block_gold_rows = _run_export(
         [
             {
                 "id": "r-1",
@@ -307,14 +305,14 @@ def test_labelstudio_export_mass_labeling_is_block_authoritative(
         "per-block",
     )
 
+    assert sweep_row_gold_rows == per_block_row_gold_rows
     assert sweep_block_gold_rows == per_block_gold_rows
-    assert sweep_canonical_rows == per_block_canonical_rows
     assert [
-        (row["block_index"], row["start_char"], row["end_char"], row["selected_text"])
-        for row in sweep_canonical_rows
+        (row["row_index"], row["labels"], row["text"])
+        for row in sweep_row_gold_rows
     ] == [
-        (0, 0, 5, "Alpha"),
-        (1, 7, 11, "Beta"),
+        (0, ["KNOWLEDGE"], "Alpha"),
+        (1, ["KNOWLEDGE"], "Beta"),
     ]
 
 

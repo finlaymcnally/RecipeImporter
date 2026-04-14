@@ -6,7 +6,10 @@ import re
 from pathlib import Path
 from typing import Any
 
-from cookimport.bench.eval_canonical_text import build_canonical_gold_line_labels
+from cookimport.bench.row_gold_lines import (
+    load_row_gold_line_labels,
+    resolve_row_gold_path_from_eval_report,
+)
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
 from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
 
@@ -89,53 +92,17 @@ def build_line_role_joined_line_rows(
 def _load_eval_gold_lines(
     report: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], dict[int, set[str]]]:
-    canonical_payload = report.get("canonical")
-    if isinstance(canonical_payload, dict):
-        canonical_text_path_raw = canonical_payload.get("canonical_text_path")
-        canonical_spans_path_raw = canonical_payload.get("canonical_span_labels_path")
-        if isinstance(canonical_text_path_raw, str) and isinstance(
-            canonical_spans_path_raw, str
-        ):
-            canonical_text_path = Path(canonical_text_path_raw)
-            canonical_spans_path = Path(canonical_spans_path_raw)
-            if canonical_text_path.exists() and canonical_spans_path.exists():
-                return build_canonical_gold_line_labels(
-                    canonical_text_path=canonical_text_path,
-                    canonical_spans_path=canonical_spans_path,
-                    strict_empty_to_other=True,
-                )
-
-    row_gold_path_raw = report.get("row_gold_labels_path")
-    if not isinstance(row_gold_path_raw, str):
-        row_gold_path_raw = (
-            report.get("output", {}).get("row_gold_labels_path")
-            if isinstance(report.get("output"), dict)
-            else None
-        )
-    if not isinstance(row_gold_path_raw, str):
+    row_gold_path = resolve_row_gold_path_from_eval_report(report)
+    if row_gold_path is None:
         return [], {}
-    row_gold_path = Path(row_gold_path_raw)
-    if not row_gold_path.exists() or not row_gold_path.is_file():
-        return [], {}
-
-    lines: list[dict[str, Any]] = []
-    labels_by_line: dict[int, set[str]] = {}
-    for row in _read_jsonl(row_gold_path):
-        line_index = _coerce_int(row.get("row_index"))
-        if line_index is None:
-            continue
-        text = str(row.get("text") or "")
-        labels = {
-            _normalize_label(label)
-            for label in (row.get("labels") or [])
-            if _normalize_label(label) in _FREEFORM_LABEL_SET
-        }
-        if not labels:
-            labels = {"OTHER"}
-        lines.append({"line_index": line_index, "text": text})
-        labels_by_line[line_index] = labels
-    lines.sort(key=lambda row: int(row["line_index"]))
-    return lines, labels_by_line
+    lines, raw_labels_by_line = load_row_gold_line_labels(
+        row_gold_path,
+        strict_empty_to_other=True,
+    )
+    return lines, {
+        int(line_index): set(labels)
+        for line_index, labels in raw_labels_by_line.items()
+    }
 
 
 def _project_gold_label_for_joined_line_rows(

@@ -30,7 +30,7 @@ def _run_all_method_prediction_once_impl(
     progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     from .bench_all_method import (
-        BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        BENCHMARK_EVAL_MODE_SOURCE_ROWS,
         ALL_METHOD_PREDICTION_REUSE_CACHE_SCHEMA_VERSION,
         ALL_METHOD_PREDICTION_REUSE_LOCK_SUFFIX,
         _acquire_all_method_prediction_reuse_lock,
@@ -234,7 +234,7 @@ def _run_all_method_prediction_once_impl(
                             output_dir=scratch_output_dir,
                             processed_output_dir=processed_output_dir,
                             eval_output_dir=eval_output_dir,
-                            eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+                            eval_mode=BENCHMARK_EVAL_MODE_SOURCE_ROWS,
                             no_upload=True,
                             write_markdown=False,
                             write_label_studio_tasks=False,
@@ -779,7 +779,7 @@ def _run_all_method_evaluate_prediction_record_once_impl(
 ) -> dict[str, Any]:
     from .bench_all_method import (
         _LAST_FAIL_MESSAGE,
-        BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        BENCHMARK_EVAL_MODE_SOURCE_ROWS,
         _benchmark_progress_overrides,
         _benchmark_report_metric_bundle,
         _labelstudio_benchmark_command,
@@ -817,7 +817,7 @@ def _run_all_method_evaluate_prediction_record_once_impl(
                 output_dir=scratch_output_dir,
                 processed_output_dir=processed_output_dir,
                 eval_output_dir=eval_output_dir,
-                eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+                eval_mode=BENCHMARK_EVAL_MODE_SOURCE_ROWS,
                 sequence_matcher=sequence_matcher,
                 epub_extractor=(epub_extractor or "unstructured"),
                 overlap_threshold=overlap_threshold,

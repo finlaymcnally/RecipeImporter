@@ -355,7 +355,7 @@ def _build_generate_prediction_kwargs(
         run_settings,
         output_dir=artifact_root / "prediction-run",
         eval_output_dir=artifact_root / "prediction-eval",
-        eval_mode="canonical-text",
+        eval_mode="source-rows",
         no_upload=True,
         write_markdown=False,
         write_label_studio_tasks=False,

@@ -33,9 +33,8 @@ def _read_jsonl(path: Path) -> list[dict[str, object]]:
     return rows
 
 
-def _build_line_spans(canonical_text: str) -> list[dict[str, object]]:
-    spans: list[dict[str, object]] = []
-    cursor = 0
+def _build_row_gold_rows(text: str) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
     line_labels = [
         "RECIPE_TITLE",
         "INGREDIENT_LINE",
@@ -43,36 +42,31 @@ def _build_line_spans(canonical_text: str) -> list[dict[str, object]]:
         "RECIPE_NOTES",
         "KNOWLEDGE",
     ]
-    lines = canonical_text.splitlines()
+    lines = text.splitlines()
     for line_index, line in enumerate(lines):
-        start_char = cursor
-        end_char = cursor + len(line)
-        spans.append(
+        rows.append(
             {
-                "span_id": f"s{line_index}",
-                "label": line_labels[line_index],
-                "start_char": start_char,
-                "end_char": end_char,
+                "row_id": f"row:{line_index}",
+                "row_index": line_index,
+                "text": line,
+                "labels": [line_labels[line_index]],
             }
         )
-        cursor = end_char + 1
-    return spans
+    return rows
 
 
 def test_stable_cutdown_samples_share_ids_and_text(tmp_path: Path) -> None:
     eval_output_dir = tmp_path / "eval"
     eval_output_dir.mkdir(parents=True, exist_ok=True)
-    canonical_text = (
+    row_gold_text = (
         "Dish Title\n"
         "1 cup flour\n"
         "Mix gently\n"
         "NOTE: Stir briefly\n"
         "Background note\n"
     )
-    canonical_text_path = tmp_path / "canonical_text.txt"
-    canonical_span_labels_path = tmp_path / "canonical_span_labels.jsonl"
-    canonical_text_path.write_text(canonical_text, encoding="utf-8")
-    _write_jsonl(canonical_span_labels_path, _build_line_spans(canonical_text))
+    row_gold_path = tmp_path / "row_gold_labels.jsonl"
+    _write_jsonl(row_gold_path, _build_row_gold_rows(row_gold_text))
 
     _write_jsonl(
         eval_output_dir / "wrong_label_lines.jsonl",
@@ -123,12 +117,7 @@ def test_stable_cutdown_samples_share_ids_and_text(tmp_path: Path) -> None:
         ],
     )
 
-    report = {
-        "canonical": {
-            "canonical_text_path": str(canonical_text_path),
-            "canonical_span_labels_path": str(canonical_span_labels_path),
-        }
-    }
+    report = {"row_gold_labels_path": str(row_gold_path)}
     joined_rows = build_line_role_joined_line_rows(
         report=report,
         eval_output_dir=eval_output_dir,
@@ -182,17 +171,15 @@ def test_joined_line_rows_match_line_role_metadata_by_exact_text_occurrence_only
 ) -> None:
     eval_output_dir = tmp_path / "eval"
     eval_output_dir.mkdir(parents=True, exist_ok=True)
-    canonical_text = (
+    row_gold_text = (
         "Lemon Vinaigrette\n"
         "A FEW BASIC HOW-TOS\n"
         "4 to 5 tablespoons lime juice\n"
         "Lemon Vinaigrette\n"
         "Background note\n"
     )
-    canonical_text_path = tmp_path / "canonical_text.txt"
-    canonical_span_labels_path = tmp_path / "canonical_span_labels.jsonl"
-    canonical_text_path.write_text(canonical_text, encoding="utf-8")
-    _write_jsonl(canonical_span_labels_path, _build_line_spans(canonical_text))
+    row_gold_path = tmp_path / "row_gold_labels.jsonl"
+    _write_jsonl(row_gold_path, _build_row_gold_rows(row_gold_text))
 
     _write_jsonl(
         eval_output_dir / "wrong_label_lines.jsonl",
@@ -243,12 +230,7 @@ def test_joined_line_rows_match_line_role_metadata_by_exact_text_occurrence_only
         ],
     )
 
-    report = {
-        "canonical": {
-            "canonical_text_path": str(canonical_text_path),
-            "canonical_span_labels_path": str(canonical_span_labels_path),
-        }
-    }
+    report = {"row_gold_labels_path": str(row_gold_path)}
     joined_rows = build_line_role_joined_line_rows(
         report=report,
         eval_output_dir=eval_output_dir,
@@ -282,11 +264,8 @@ def test_joined_line_rows_uses_sequence_context_for_duplicate_texts(
 ) -> None:
     eval_output_dir = tmp_path / "eval"
     eval_output_dir.mkdir(parents=True, exist_ok=True)
-    canonical_text = "Salt\nPepper\nSalt\nOil\n"
-    canonical_text_path = tmp_path / "canonical_text.txt"
-    canonical_span_labels_path = tmp_path / "canonical_span_labels.jsonl"
-    canonical_text_path.write_text(canonical_text, encoding="utf-8")
-    _write_jsonl(canonical_span_labels_path, _build_line_spans(canonical_text))
+    row_gold_path = tmp_path / "row_gold_labels.jsonl"
+    _write_jsonl(row_gold_path, _build_row_gold_rows("Salt\nPepper\nSalt\nOil\n"))
     _write_jsonl(eval_output_dir / "wrong_label_lines.jsonl", [])
 
     line_role_predictions_path = tmp_path / "line_role_predictions.jsonl"
@@ -324,12 +303,7 @@ def test_joined_line_rows_uses_sequence_context_for_duplicate_texts(
         ],
     )
 
-    report = {
-        "canonical": {
-            "canonical_text_path": str(canonical_text_path),
-            "canonical_span_labels_path": str(canonical_span_labels_path),
-        }
-    }
+    report = {"row_gold_labels_path": str(row_gold_path)}
     joined_rows = build_line_role_joined_line_rows(
         report=report,
         eval_output_dir=eval_output_dir,
@@ -341,87 +315,6 @@ def test_joined_line_rows_uses_sequence_context_for_duplicate_texts(
     assert by_line_index[2]["line_role_match_kind"] == "unmatched"
 
 
-def test_joined_line_rows_reuse_canonical_eval_gold_projection_rules(
-    tmp_path: Path,
-) -> None:
-    eval_output_dir = tmp_path / "eval"
-    eval_output_dir.mkdir(parents=True, exist_ok=True)
-    canonical_text = (
-        "Make Pasta alle Vongole to practice layering acids.\n"
-        "Scented Cream\n"
-        "Variations\n"
-        "To make Classic Torn Croutons, add garlic and oregano.\n"
-    )
-    canonical_text_path = tmp_path / "canonical_text.txt"
-    canonical_span_labels_path = tmp_path / "canonical_span_labels.jsonl"
-    canonical_text_path.write_text(canonical_text, encoding="utf-8")
-
-    title_start = canonical_text.index("Pasta alle Vongole")
-    title_end = title_start + len("Pasta alle Vongole")
-    lines = canonical_text.splitlines()
-    first_line_end = len(lines[0])
-    second_line_start = first_line_end + 1
-    second_line_end = second_line_start + len(lines[1])
-    third_line_start = second_line_end + 1
-    third_line_end = third_line_start + len(lines[2])
-    fourth_line_start = third_line_end + 1
-    fourth_line_end = fourth_line_start + len(lines[3])
-    _write_jsonl(
-        canonical_span_labels_path,
-        [
-            {
-                "span_id": "s0",
-                "label": "OTHER",
-                "start_char": 0,
-                "end_char": first_line_end,
-            },
-            {
-                "span_id": "s1",
-                "label": "RECIPE_TITLE",
-                "start_char": title_start,
-                "end_char": title_end,
-            },
-            {
-                "span_id": "s2",
-                "label": "RECIPE_TITLE",
-                "start_char": second_line_start,
-                "end_char": second_line_end,
-            },
-            {
-                "span_id": "s3",
-                "label": "RECIPE_VARIANT",
-                "start_char": third_line_start,
-                "end_char": third_line_end,
-            },
-            {
-                "span_id": "s4",
-                "label": "RECIPE_VARIANT",
-                "start_char": fourth_line_start,
-                "end_char": fourth_line_end,
-            },
-        ],
-    )
-    _write_jsonl(eval_output_dir / "wrong_label_lines.jsonl", [])
-
-    report = {
-        "canonical": {
-            "canonical_text_path": str(canonical_text_path),
-            "canonical_span_labels_path": str(canonical_span_labels_path),
-        }
-    }
-    joined_rows = build_line_role_joined_line_rows(
-        report=report,
-        eval_output_dir=eval_output_dir,
-        line_role_predictions_path=None,
-    )
-    by_line_index = {int(row["line_index"]): row for row in joined_rows}
-
-    assert by_line_index[0]["gold_label"] == "OTHER"
-    assert by_line_index[1]["gold_label"] == "OTHER"
-    assert by_line_index[2]["gold_label"] == "RECIPE_VARIANT"
-    assert by_line_index[3]["gold_label"] == "RECIPE_VARIANT"
-    assert by_line_index[2]["gold_labels"] == ["RECIPE_VARIANT"]
-    assert by_line_index[3]["gold_labels"] == ["RECIPE_VARIANT"]
 
 
 def test_line_role_flips_uses_paired_history_baseline_rows() -> None:
@@ -523,7 +416,7 @@ def test_line_role_regression_gate_payload_uses_history_baselines(
                     "run_timestamp": run_timestamp,
                     "run_dir": str(run_dir),
                     "file_name": file_name,
-                    "eval_scope": "canonical-text",
+                    "eval_scope": "source-rows",
                     "run_config_json": json.dumps(
                         {
                             "llm_recipe_pipeline": llm_recipe_pipeline,
@@ -648,7 +541,7 @@ def test_line_role_regression_gate_payload_uses_vanilla_fallback_for_confusion_d
                 "run_timestamp": "2026-03-03T00:00:01",
                 "run_dir": str(foodlab_vanilla),
                 "file_name": "thefoodlabCUTDOWN.epub",
-                "eval_scope": "canonical-text",
+                "eval_scope": "source-rows",
                 "run_config_json": json.dumps(
                     {
                         "llm_recipe_pipeline": "off",

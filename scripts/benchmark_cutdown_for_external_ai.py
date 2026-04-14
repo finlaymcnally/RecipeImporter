@@ -42,12 +42,8 @@ from typing import Any
 
 from cookimport.bench.line_role_artifact_lookup import LineRoleArtifactLookup
 from cookimport.bench import oracle_upload as oracle_upload_contract
-from cookimport.bench.external_ai_cutdown.canonical_lines import (
-    _build_canonical_lines,
+from cookimport.bench.external_ai_cutdown.row_gold_sampling import (
     _build_correct_label_sample,
-    _line_gold_labels,
-    _load_gold_spans,
-    _overlap_len,
 )
 from cookimport.bench.external_ai_cutdown.artifact_paths import (
     _iter_prompt_category_manifest_paths as _iter_prompt_category_manifest_paths_impl,

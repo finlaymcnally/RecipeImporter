@@ -18,8 +18,8 @@ from cookimport.cli_support.labelstudio_benchmark_recovery import (
 from cookimport.cli_support import (
     Annotated,
     Any,
-    BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
     BENCHMARK_EVAL_MODE_STAGE_BLOCKS,
+    BENCHMARK_EVAL_MODE_SOURCE_ROWS,
     BENCHMARK_SINGLE_BOOK_UPLOAD_BUNDLE_TARGET_BYTES,
     BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
     BenchmarkPredictionBundle,
@@ -1086,8 +1086,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             "--eval-mode",
             help=(
                 "Benchmark evaluator mode: stage-blocks (block-index parity required) "
-                "or source-rows (extractor-independent row scoring). "
-                "canonical-text remains a compatibility alias."
+                "or source-rows (extractor-independent row scoring)."
             ),
         )] = BENCHMARK_EVAL_MODE_STAGE_BLOCKS,
         gold_adaptation_mode: Annotated[str, typer.Option(
@@ -1112,9 +1111,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         sequence_matcher: Annotated[str, typer.Option(
             "--sequence-matcher",
             hidden=True,
-            help=(
-                "Legacy canonical-text compatibility SequenceMatcher mode (dmp only)."
-            ),
+            help="SequenceMatcher mode (currently dmp only).",
         )] = "dmp",
         predictions_out: Annotated[Path | None, typer.Option(
             "--predictions-out",

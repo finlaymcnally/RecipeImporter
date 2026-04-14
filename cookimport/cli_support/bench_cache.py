@@ -23,7 +23,7 @@ from cookimport.cli_support import (
     ALL_METHOD_PREDICTION_REUSE_WAIT_SECONDS,
     ALL_METHOD_SPLIT_CONVERT_INPUT_FIELDS,
     ALL_METHOD_SPLIT_CONVERT_INPUT_KEY_SCHEMA_VERSION,
-    BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+    BENCHMARK_EVAL_MODE_SOURCE_ROWS,
     SINGLE_BOOK_SPLIT_CACHE_KEY_SCHEMA_VERSION,
     SINGLE_BOOK_SPLIT_CACHE_LOCK_SUFFIX,
     SINGLE_BOOK_SPLIT_CACHE_POLL_SECONDS,
@@ -551,9 +551,9 @@ def _all_method_gold_fingerprint(gold_spans_path: Path) -> dict[str, Any]:
 
     gold_export_root = gold_spans_path.parent
     for artifact_name in (
-        "canonical_text.txt",
-        "canonical_span_labels.jsonl",
-        "canonical_manifest.json",
+        "row_gold_labels.jsonl",
+        "row_gold_conflicts.jsonl",
+        "block_gold_labels.jsonl",
     ):
         artifact_path = gold_export_root / artifact_name
         if not artifact_path.exists() or not artifact_path.is_file():
@@ -576,7 +576,7 @@ def _build_all_method_eval_signature(
 ) -> str:
     signature_payload = {
         "schema_version": str(schema_version or ALL_METHOD_EVAL_SIGNATURE_SCHEMA_VERSION),
-        "eval_mode": str(eval_mode or BENCHMARK_EVAL_MODE_CANONICAL_TEXT),
+        "eval_mode": str(eval_mode or BENCHMARK_EVAL_MODE_SOURCE_ROWS),
         "sequence_matcher": str(sequence_matcher or "dmp"),
         "gold_fingerprint": _all_method_gold_fingerprint(gold_spans_path),
         "prediction_rows": _all_method_eval_signature_prediction_rows(

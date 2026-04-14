@@ -357,7 +357,7 @@ def _run_canonical_text_pipelined_fixture(
 
     captured_eval: dict[str, object] = {}
 
-    def _fake_eval_canonical_text(**kwargs):
+    def _fake_evaluate_source_rows(**kwargs):
         captured_eval.update(kwargs)
         captured_eval["sequence_matcher_env"] = os.environ.get(cli.SEQUENCE_MATCHER_ENV)
         return {
@@ -405,7 +405,7 @@ def _run_canonical_text_pipelined_fixture(
             "false_positive_preds": [],
         }
 
-    _patch_cli_attr(monkeypatch, "evaluate_source_rows", _fake_eval_canonical_text)
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows", _fake_evaluate_source_rows)
     _patch_cli_attr(monkeypatch, "format_source_row_eval_report_md", lambda *_: "report")
 
     captured_csv: dict[str, object] = {}

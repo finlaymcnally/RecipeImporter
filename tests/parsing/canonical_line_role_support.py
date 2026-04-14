@@ -257,17 +257,19 @@ def _gold_label_counts_for_book(source_slug: str) -> dict[str, int]:
         Path("/home/mcnal/projects/recipeimport/data/golden/pulled-from-labelstudio")
         / source_slug
         / "exports"
-        / "canonical_span_labels.jsonl"
+        / "row_gold_labels.jsonl"
     )
     counts: dict[str, int] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         row = json.loads(line)
-        label = str(row.get("label") or "").strip().upper()
-        if not label:
-            continue
-        counts[label] = counts.get(label, 0) + 1
+        labels = row.get("labels") or []
+        for label_value in labels:
+            label = str(label_value or "").strip().upper()
+            if not label:
+                continue
+            counts[label] = counts.get(label, 0) + 1
     return counts
 
 

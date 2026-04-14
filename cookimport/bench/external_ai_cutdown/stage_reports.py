@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import sys
 
+from cookimport.bench.row_gold_lines import (
+    load_row_gold_line_labels,
+    resolve_row_gold_path_from_eval_report,
+)
+
 
 def _resolve_root_module():
     module = sys.modules.get("scripts.benchmark_cutdown_for_external_ai")
@@ -103,24 +108,15 @@ def _upload_bundle_load_gold_line_labels_from_eval_report(run_dir: root.Path) ->
     if not eval_report_path.is_file():
         return {}
     eval_report = root._upload_bundle_load_json_object(eval_report_path)
-    canonical = eval_report.get('canonical') if isinstance(eval_report, dict) else None
-    if not isinstance(canonical, dict):
+    if not isinstance(eval_report, dict):
         return {}
-    canonical_text_path_raw = canonical.get('canonical_text_path')
-    canonical_spans_path_raw = canonical.get('canonical_span_labels_path')
-    if not isinstance(canonical_text_path_raw, str) or not isinstance(canonical_spans_path_raw, str):
+    row_gold_path = resolve_row_gold_path_from_eval_report(eval_report)
+    if row_gold_path is None:
         return {}
-    canonical_text_path = root.Path(canonical_text_path_raw)
-    canonical_spans_path = root.Path(canonical_spans_path_raw)
-    if not canonical_text_path.is_file() or not canonical_spans_path.is_file():
-        return {}
-    try:
-        canonical_text = canonical_text_path.read_text(encoding='utf-8')
-    except OSError:
-        return {}
-    lines = root._build_canonical_lines(canonical_text)
-    spans = root._load_gold_spans(canonical_spans_path)
-    labels_by_line = root._line_gold_labels(lines=lines, spans=spans)
+    _lines, labels_by_line = load_row_gold_line_labels(
+        row_gold_path,
+        strict_empty_to_other=True,
+    )
     output: dict[int, set[str]] = {}
     for raw_index, labels in labels_by_line.items():
         index = root._coerce_int(raw_index)

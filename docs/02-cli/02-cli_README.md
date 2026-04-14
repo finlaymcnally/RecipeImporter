@@ -423,7 +423,7 @@ Interactive benchmark now has a mode submenu before execution:
      - `single-book-benchmark/<source_slug>/codex-exec` second (preserving the selected recipe pipeline, for example `codex-recipe-shard-v1`),
      - both paired variants now share the same operator-selected `atomic_block_splitter` value instead of forcing `off` for `vanilla` and `atomic-v1` for `codex-exec`,
    - when run settings resolve to `llm_recipe_pipeline=off`, runs one variant under `single-book-benchmark/<source_slug>/vanilla`,
-   - each variant run calls `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text`,
+   - each variant run calls `labelstudio-benchmark` with `--no-upload --eval-mode source-rows`,
    - prediction generation now inherits shared ingest defaults for canonical line-role codex inflight: non-split jobs default to `8`; split-gated jobs default to `4`; explicit `COOKIMPORT_LINE_ROLE_CODEX_MAX_INFLIGHT` overrides both,
    - source slug is derived from the selected source filename stem (slugified),
    - for paired codex+vanilla runs, split conversion is cached once and reused across variants (default cache root: `.../single-book-benchmark/<source_slug>/.split-cache`),
@@ -468,7 +468,7 @@ Interactive benchmark now has a mode submenu before execution:
        - `single-profile-benchmark/<index_source_slug>/codex-exec` second (preserving the selected non-`off` recipe pipeline while still forcing `line_role_pipeline=codex-line-role-route-v2`, and now sharing the selected `atomic_block_splitter` value with the paired `vanilla` run),
    - for paired codex+vanilla selected/all-matched runs, writes per-book comparison only when both variants succeed:
      - `single-profile-benchmark/<index_source_slug>/codex_vs_vanilla_comparison.json`,
-   - runs `labelstudio-benchmark` with `--no-upload --eval-mode canonical-text` for each planned variant run (no all-method variant expansion),
+   - runs `labelstudio-benchmark` with `--no-upload --eval-mode source-rows` for each planned variant run (no all-method variant expansion),
    - when 2+ books are selected, runs up to three books concurrently (`parallel books=3`),
    - single-profile runs use the same shared ingest inflight defaults; because multi-book mode enables split-phase gating, canonical line-role codex inflight defaults to `4` there (single-book stays at `8` unless env override is set),
    - concurrent single-profile runs downscale per-book `workers`, `pdf_split_workers`, and `epub_split_workers` to 80% of the chosen run-settings values,
@@ -917,7 +917,7 @@ Behavior note:
 - Offline prediction generation can skip non-scoring side artifacts via:
   - `--no-write-markdown` to skip markdown sidecars in processed stage outputs.
   - `--no-write-labelstudio-tasks` to skip `label_studio_tasks.jsonl` in offline pred-runs (stage-block scoring remains unchanged because it reads stage evidence + extracted archive).
-- Eval mode is configurable via `--eval-mode stage-blocks|canonical-text` (default `stage-blocks`).
+- Eval mode is configurable via `--eval-mode stage-blocks|source-rows` (default `stage-blocks`).
 - Benchmark execution is fixed to `pipelined`.
 - Codex-backed benchmark runs now have a single live execution mode.
   - For prompt/cost inspection, use prompt preview.
@@ -959,8 +959,7 @@ Options:
 - `--eval-output-dir PATH`: destination for benchmark report artifacts.
 - `--overlap-threshold FLOAT 0..1` (default `0.5`): match threshold.
 - `--force-source-match` (default `false`): ignore source identity checks while matching.
-- `--eval-mode TEXT` (default `stage-blocks`): `stage-blocks|canonical-text`.
-- Canonical-text benchmark matching is fixed to `dmp`.
+- `--eval-mode TEXT` (default `stage-blocks`): `stage-blocks|source-rows`.
 - `--pdf-ocr-policy TEXT` (default `auto`): `off|auto|always` OCR policy for PDF prediction generation.
 - `--pdf-column-gap-ratio FLOAT` (default `0.12`): PDF column-gap threshold ratio for column reconstruction.
 - `--line-role-guardrail-mode TEXT` (default `enforce`): `off|preview|enforce`; controls whether line-role do-no-harm arbitration is disabled, reported-only, or mutating.
@@ -1212,7 +1211,7 @@ CLI-relevant environment variables:
 - `COOKIMPORT_QUALITY_EXPERIMENT_EXECUTOR_MODE`: quality-run experiment fanout backend (`auto` default, `thread`, or `subprocess`). `auto` picks subprocess fanout when process-pool probing fails.
 - `JOBLIB_MULTIPROCESSING`: when unset, startup now auto-sets `JOBLIB_MULTIPROCESSING=0` in SemLock-restricted runtimes to avoid noisy `joblib ... will operate in serial mode` warnings.
 - `COOKIMPORT_DISABLE_JOBLIB_SEMLOCK_GUARD`: disable the automatic `JOBLIB_MULTIPROCESSING` guard (`1|true|yes|on`).
-- `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER`: canonical-text matcher selection (`dmp` only; non-`dmp` values are invalid).
+- `COOKIMPORT_BENCHMARK_SEQUENCE_MATCHER`: benchmark matcher selection (`dmp` only; non-`dmp` values are invalid).
 - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_MIN_SECONDS`: optional profiler threshold for benchmark evaluation stage (`>=0`; enables profile artifact capture when eval runtime meets threshold).
 - `COOKIMPORT_BENCHMARK_EVAL_PROFILE_TOP_N`: optional `pstats` top-N row count for benchmark evaluation profiling output (default `40`).
 - `COOKIMPORT_CODEX_CMD`: primary command override for prelabel Codex Exec flows when `--codex-cmd` is omitted.

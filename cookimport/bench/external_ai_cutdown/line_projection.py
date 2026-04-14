@@ -4,7 +4,10 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable
 
-from .canonical_lines import _build_canonical_lines, _line_gold_labels, _load_gold_spans
+from cookimport.bench.row_gold_lines import (
+    load_row_gold_line_labels,
+    resolve_row_gold_path_from_eval_report,
+)
 from .io import _coerce_int, _iter_jsonl, _load_json
 
 
@@ -268,24 +271,14 @@ def _build_line_prediction_view(
     )
     eval_report_path = run_dir / "eval_report.json"
     eval_report = _load_json(eval_report_path) if eval_report_path.is_file() else {}
-    canonical = eval_report.get("canonical")
-    if not isinstance(canonical, dict):
+    row_gold_path = resolve_row_gold_path_from_eval_report(eval_report)
+    if row_gold_path is None:
         return line_prediction_view_type({}, {}, {}, {}, {}, normalized_recipe_spans)
 
-    canonical_text_path_raw = canonical.get("canonical_text_path")
-    canonical_spans_path_raw = canonical.get("canonical_span_labels_path")
-    if not isinstance(canonical_text_path_raw, str) or not isinstance(canonical_spans_path_raw, str):
-        return line_prediction_view_type({}, {}, {}, {}, {}, normalized_recipe_spans)
-
-    canonical_text_path = Path(canonical_text_path_raw)
-    canonical_spans_path = Path(canonical_spans_path_raw)
-    if not canonical_text_path.is_file() or not canonical_spans_path.is_file():
-        return line_prediction_view_type({}, {}, {}, {}, {}, normalized_recipe_spans)
-
-    canonical_text = canonical_text_path.read_text(encoding="utf-8")
-    lines = _build_canonical_lines(canonical_text)
-    gold_spans = _load_gold_spans(canonical_spans_path)
-    gold_labels_by_line = _line_gold_labels(lines=lines, spans=gold_spans)
+    lines, gold_labels_by_line = load_row_gold_line_labels(
+        row_gold_path,
+        strict_empty_to_other=True,
+    )
 
     wrong_label_rows = _iter_jsonl(run_dir / "wrong_label_lines.jsonl")
     predicted_overrides: dict[int, str] = {}

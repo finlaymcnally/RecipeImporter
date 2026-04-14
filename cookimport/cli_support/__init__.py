@@ -190,7 +190,6 @@ from cookimport.labelstudio.ingest_flows.prediction_run import (
     generate_pred_run_artifacts,
 )
 from cookimport.labelstudio.ingest_flows.upload import run_labelstudio_import
-from cookimport.labelstudio.canonical_gold import ensure_canonical_gold_artifacts
 from cookimport.labelstudio.eval_freeform import (
     attach_recipe_count_diagnostics,
     evaluate_predicted_vs_freeform,
@@ -463,7 +462,6 @@ PROCESSING_TIMESERIES_HEARTBEAT_SECONDS = 1.0
 PROCESSING_TIMESERIES_FILENAME = "processing_timeseries.jsonl"
 BENCHMARK_EVAL_MODE_STAGE_BLOCKS = "stage-blocks"
 BENCHMARK_EVAL_MODE_SOURCE_ROWS = "source-rows"
-BENCHMARK_EVAL_MODE_CANONICAL_TEXT = BENCHMARK_EVAL_MODE_SOURCE_ROWS
 COOKIMPORT_BENCH_WRITE_MARKDOWN_ENV = "COOKIMPORT_BENCH_WRITE_MARKDOWN"
 COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS_ENV = (
     "COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS"
@@ -1213,8 +1211,6 @@ def _normalize_benchmark_eval_mode(value: str) -> str:
         "source-rows",
         "source-row",
         "rows",
-        "canonical",
-        "canonical-text",
     }:
         return BENCHMARK_EVAL_MODE_SOURCE_ROWS
     _fail(
@@ -1228,8 +1224,6 @@ def _is_row_benchmark_eval_mode(value: Any) -> bool:
     normalized = str(value or "").strip().lower().replace("_", "-")
     return normalized in {
         BENCHMARK_EVAL_MODE_SOURCE_ROWS,
-        "canonical-text",
-        "canonical",
         "rows",
         "source-row",
     }

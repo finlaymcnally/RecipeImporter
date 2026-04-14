@@ -943,7 +943,7 @@ def _interactive_single_profile_all_matched_benchmark(
             variant_settings,
             output_dir=_golden_benchmark_root(),
             eval_output_dir=single_profile_root,
-            eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+            eval_mode=BENCHMARK_EVAL_MODE_SOURCE_ROWS,
             no_upload=True,
             write_markdown=write_markdown,
             write_label_studio_tasks=write_label_studio_tasks,

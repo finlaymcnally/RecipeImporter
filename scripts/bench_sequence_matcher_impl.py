@@ -160,7 +160,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Quick local benchmark for SequenceMatcher implementation selection used by "
-            "canonical-text evaluation."
+            "benchmark alignment work."
         )
     )
     parser.add_argument(

@@ -462,7 +462,7 @@ def _interactive_single_book_benchmark(
             output_dir=_golden_benchmark_root(),
             eval_output_dir=variant_eval_output,
             processed_output_dir=variant_processed_output,
-            eval_mode=BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+            eval_mode=BENCHMARK_EVAL_MODE_SOURCE_ROWS,
             no_upload=True,
             # Single-offline keeps per-variant runs JSON-first and writes one
             # consolidated markdown summary at the session root.

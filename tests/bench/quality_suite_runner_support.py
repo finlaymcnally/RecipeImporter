@@ -52,7 +52,7 @@ def _build_suite(tmp_path: Path) -> QualitySuite:
     gold_spans = tmp_path / "gold" / "alpha" / "exports" / "freeform_span_labels.jsonl"
     gold_spans.parent.mkdir(parents=True, exist_ok=True)
     gold_spans.write_text('{"source_file":"alpha.epub","label":"OTHER"}\n', encoding="utf-8")
-    (gold_spans.parent / "canonical_text.txt").write_text("abc", encoding="utf-8")
+    (gold_spans.parent / "row_gold_labels.jsonl").write_text("abc", encoding="utf-8")
 
     return QualitySuite(
         name="quality_suite",
@@ -419,7 +419,7 @@ def _build_suite_multi(tmp_path: Path) -> QualitySuite:
             '{"source_file":"%s.epub","label":"OTHER"}\n' % target_id,
             encoding="utf-8",
         )
-        (gold_spans.parent / "canonical_text.txt").write_text(
+        (gold_spans.parent / "row_gold_labels.jsonl").write_text(
             target_id * 2,
             encoding="utf-8",
         )

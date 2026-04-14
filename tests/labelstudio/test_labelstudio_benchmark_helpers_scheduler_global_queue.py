@@ -696,9 +696,7 @@ def test_run_all_method_benchmark_dedupes_eval_by_signature(
     gold_export_root.mkdir(parents=True, exist_ok=True)
     gold_spans = gold_export_root / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
-    (gold_export_root / "canonical_text.txt").write_text("Title", encoding="utf-8")
-    (gold_export_root / "canonical_span_labels.jsonl").write_text("{}\n", encoding="utf-8")
-    (gold_export_root / "canonical_manifest.json").write_text("{}", encoding="utf-8")
+    (gold_export_root / "row_gold_labels.jsonl").write_text("{}\n", encoding="utf-8")
 
     signature_seed_by_extractor = {
         "unstructured": "shared",
@@ -807,9 +805,7 @@ def test_run_all_method_benchmark_reuses_signature_cache_across_runs(
     gold_export_root.mkdir(parents=True, exist_ok=True)
     gold_spans = gold_export_root / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
-    (gold_export_root / "canonical_text.txt").write_text("Title", encoding="utf-8")
-    (gold_export_root / "canonical_span_labels.jsonl").write_text("{}\n", encoding="utf-8")
-    (gold_export_root / "canonical_manifest.json").write_text("{}", encoding="utf-8")
+    (gold_export_root / "row_gold_labels.jsonl").write_text("{}\n", encoding="utf-8")
 
     eval_call_count = 0
 

@@ -31,7 +31,7 @@ def _write_target(
     exports_root = gold_root / target_name / "exports"
     rows = [{"source_file": source_file, "label": label} for label in labels]
     _write_jsonl(exports_root / "freeform_span_labels.jsonl", rows)
-    (exports_root / "canonical_text.txt").write_text(
+    (exports_root / "row_gold_labels.jsonl").write_text(
         "x" * canonical_chars,
         encoding="utf-8",
     )
@@ -586,7 +586,7 @@ def test_quality_suite_round_trip_and_validate(tmp_path: Path) -> None:
     source.write_text("epub", encoding="utf-8")
     gold_spans = tmp_path / "gold" / "alpha" / "exports" / "freeform_span_labels.jsonl"
     _write_jsonl(gold_spans, [{"source_file": "alpha.epub", "label": "OTHER"}])
-    (gold_spans.parent / "canonical_text.txt").write_text("abc", encoding="utf-8")
+    (gold_spans.parent / "row_gold_labels.jsonl").write_text("abc", encoding="utf-8")
 
     suite = QualitySuite(
         name="quality_test",

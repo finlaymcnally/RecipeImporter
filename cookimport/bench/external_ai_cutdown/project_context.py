@@ -151,18 +151,18 @@ def _build_project_context_digest(
             f"paired_comparisons={pair_count}, changed_lines={changed_lines_total}."
         ),
         (
-            "- benchmark_contract: canonical-text scoring compares predicted labels against "
-            "canonical line-space gold labels (including structural labels such as "
+            "- benchmark_contract: source-rows scoring compares predicted labels against "
+            "row-gold labels (including structural labels such as "
             "`INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`)."
         ),
         (
-            "- label_ontology_cheat_sheet: common canonical labels in this benchmark include "
+            "- label_ontology_cheat_sheet: common row-gold labels in this benchmark include "
             "`RECIPE_TITLE`, `INGREDIENT_LINE`, `INSTRUCTION_LINE`, `HOWTO_SECTION`, "
             "`RECIPE_NOTES`, and `OTHER`."
         ),
         (
             "- projection_bridge: build-intermediate prompt spans (`start_block_index`/`end_block_index`) "
-            "are projected into canonical line diagnostics so changed-line rows can be split into "
+            "are projected into row-level diagnostics so changed-line rows can be split into "
             "`inside_active_recipe_span` vs `outside_active_recipe_span`."
         ),
         (

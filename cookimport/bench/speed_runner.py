@@ -811,7 +811,7 @@ def _run_benchmark_sample(
         output_dir=prediction_output_dir,
         processed_output_dir=processed_output_dir,
         eval_output_dir=eval_output_dir,
-        eval_mode="canonical-text",
+        eval_mode="source-rows",
         no_upload=True,
         write_markdown=False,
         write_label_studio_tasks=False,

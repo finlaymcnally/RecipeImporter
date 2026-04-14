@@ -784,10 +784,10 @@ def _run_offline_prediction_stage_fixture(
             )
         ),
     )
-    _patch_cli_attr(monkeypatch, "evaluate_canonical_text",
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError(
-                "internal skip-evaluation mode must not run canonical evaluation."
+                "internal skip-evaluation mode must not run source-row evaluation."
             )
         ),
     )

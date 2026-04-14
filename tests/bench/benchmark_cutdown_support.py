@@ -808,28 +808,38 @@ def _prompt_rows_for_compact_recipe_correction_fixture() -> list[dict[str, objec
 
 
 def _build_eval_artifacts(module, run_dir: Path) -> tuple[Path, Path]:
-    canonical_text = "Dish Title\n1 cup flour\nMix gently\nChef note\n"
-    canonical_text_path = run_dir / "canonical_text.txt"
-    canonical_spans_path = run_dir / "canonical_span_labels.jsonl"
-    canonical_text_path.write_text(canonical_text, encoding="utf-8")
-
-    lines = module._build_canonical_lines(canonical_text)
-    labels_by_index = {
-        0: "RECIPE_TITLE",
-        1: "INGREDIENT_LINE",
-        2: "INSTRUCTION_LINE",
-        3: "RECIPE_NOTES",
-    }
-    span_rows = [
-        {
-            "label": labels_by_index[int(line["line_index"])],
-            "start_char": int(line["start_char"]),
-            "end_char": int(line["end_char"]),
-        }
-        for line in lines
-    ]
-    _write_jsonl(canonical_spans_path, span_rows)
-    return canonical_text_path, canonical_spans_path
+    del module
+    row_gold_path = run_dir / "row_gold_labels.jsonl"
+    _write_jsonl(
+        row_gold_path,
+        [
+            {
+                "row_id": "row:0",
+                "row_index": 0,
+                "text": "Dish Title",
+                "labels": ["RECIPE_TITLE"],
+            },
+            {
+                "row_id": "row:1",
+                "row_index": 1,
+                "text": "1 cup flour",
+                "labels": ["INGREDIENT_LINE"],
+            },
+            {
+                "row_id": "row:2",
+                "row_index": 2,
+                "text": "Mix gently",
+                "labels": ["INSTRUCTION_LINE"],
+            },
+            {
+                "row_id": "row:3",
+                "row_index": 3,
+                "text": "Chef note",
+                "labels": ["RECIPE_NOTES"],
+            },
+        ],
+    )
+    return row_gold_path, row_gold_path
 
 
 def _make_run_record(
@@ -849,7 +859,7 @@ def _make_run_record(
 ) -> object:
     run_dir = run_root / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    canonical_text_path, canonical_spans_path = _build_eval_artifacts(module, run_dir)
+    row_gold_path, _unused_row_gold_path = _build_eval_artifacts(module, run_dir)
 
     _write_jsonl(run_dir / "wrong_label_lines.jsonl", wrong_label_rows)
     _write_jsonl(run_dir / "missed_gold_lines.jsonl", [])
@@ -894,10 +904,7 @@ def _make_run_record(
         },
     }
     eval_report = {
-        "canonical": {
-            "canonical_text_path": str(canonical_text_path),
-            "canonical_span_labels_path": str(canonical_spans_path),
-        },
+        "row_gold_labels_path": str(row_gold_path),
         "alignment": {
             "canonical_char_coverage": 0.995,
             "prediction_block_match_ratio": 0.996,

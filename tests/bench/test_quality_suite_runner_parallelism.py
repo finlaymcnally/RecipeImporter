@@ -1342,7 +1342,7 @@ def test_quality_suite_keeps_global_scheduler_when_process_workers_unavailable(
     gold_beta = tmp_path / "gold" / "beta" / "exports" / "freeform_span_labels.jsonl"
     gold_beta.parent.mkdir(parents=True, exist_ok=True)
     gold_beta.write_text('{"source_file":"beta.epub","label":"OTHER"}\n', encoding="utf-8")
-    (gold_beta.parent / "canonical_text.txt").write_text("beta", encoding="utf-8")
+    (gold_beta.parent / "row_gold_labels.jsonl").write_text("beta", encoding="utf-8")
     quality_target_cls = type(suite.targets[0])
     suite.targets.append(
         quality_target_cls.model_validate(

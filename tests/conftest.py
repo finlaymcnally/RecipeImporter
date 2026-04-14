@@ -29,7 +29,6 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_benchmark_heavy_side_effects.py": ("bench",),
     "test_benchmark_oracle_upload_background.py": ("bench",),
     "test_cutdown_export_consistency.py": ("bench",),
-    "test_canonical_alignment_cache.py": ("bench",),
     "test_canonical_line_role_env.py": ("parsing", "llm"),
     "test_canonical_line_roles.py": ("parsing", "llm"),
     "test_canonical_line_roles_codex.py": ("parsing", "llm"),

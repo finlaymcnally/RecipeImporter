@@ -530,9 +530,7 @@ def test_build_all_method_eval_signature_is_stable_for_same_payload(tmp_path: Pa
     gold_export_root.mkdir(parents=True, exist_ok=True)
     gold_spans = gold_export_root / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
-    (gold_export_root / "canonical_text.txt").write_text("Title", encoding="utf-8")
-    (gold_export_root / "canonical_span_labels.jsonl").write_text("{}\n", encoding="utf-8")
-    (gold_export_root / "canonical_manifest.json").write_text("{}", encoding="utf-8")
+    (gold_export_root / "row_gold_labels.jsonl").write_text("{}\n", encoding="utf-8")
 
     predictions_path = tmp_path / "prediction-records.jsonl"
     write_prediction_records(
@@ -560,13 +558,13 @@ def test_build_all_method_eval_signature_is_stable_for_same_payload(tmp_path: Pa
     signature_a = cli._build_all_method_eval_signature(
         gold_spans_path=gold_spans,
         prediction_record_path=predictions_path,
-        eval_mode=cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        eval_mode=cli.BENCHMARK_EVAL_MODE_SOURCE_ROWS,
         sequence_matcher="dmp",
     )
     signature_b = cli._build_all_method_eval_signature(
         gold_spans_path=gold_spans,
         prediction_record_path=predictions_path,
-        eval_mode=cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        eval_mode=cli.BENCHMARK_EVAL_MODE_SOURCE_ROWS,
         sequence_matcher="dmp",
     )
 
@@ -579,9 +577,7 @@ def test_build_all_method_eval_signature_changes_when_inputs_change(tmp_path: Pa
     gold_export_root.mkdir(parents=True, exist_ok=True)
     gold_spans = gold_export_root / "freeform_span_labels.jsonl"
     gold_spans.write_text("{}\n", encoding="utf-8")
-    (gold_export_root / "canonical_text.txt").write_text("Title", encoding="utf-8")
-    (gold_export_root / "canonical_span_labels.jsonl").write_text("{}\n", encoding="utf-8")
-    (gold_export_root / "canonical_manifest.json").write_text("{}", encoding="utf-8")
+    (gold_export_root / "row_gold_labels.jsonl").write_text("{}\n", encoding="utf-8")
 
     predictions_a = tmp_path / "prediction-a.jsonl"
     predictions_b = tmp_path / "prediction-b.jsonl"
@@ -623,20 +619,20 @@ def test_build_all_method_eval_signature_changes_when_inputs_change(tmp_path: Pa
     base_signature = cli._build_all_method_eval_signature(
         gold_spans_path=gold_spans,
         prediction_record_path=predictions_a,
-        eval_mode=cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        eval_mode=cli.BENCHMARK_EVAL_MODE_SOURCE_ROWS,
         sequence_matcher="dmp",
     )
     changed_prediction_signature = cli._build_all_method_eval_signature(
         gold_spans_path=gold_spans,
         prediction_record_path=predictions_b,
-        eval_mode=cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        eval_mode=cli.BENCHMARK_EVAL_MODE_SOURCE_ROWS,
         sequence_matcher="dmp",
     )
     gold_spans.write_text('{"changed":true}\n', encoding="utf-8")
     changed_gold_signature = cli._build_all_method_eval_signature(
         gold_spans_path=gold_spans,
         prediction_record_path=predictions_a,
-        eval_mode=cli.BENCHMARK_EVAL_MODE_CANONICAL_TEXT,
+        eval_mode=cli.BENCHMARK_EVAL_MODE_SOURCE_ROWS,
         sequence_matcher="dmp",
     )
 

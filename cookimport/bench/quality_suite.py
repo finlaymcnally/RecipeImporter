@@ -556,11 +556,11 @@ def _assign_tercile_buckets(
 
 
 def _canonical_text_size(gold_spans_path: Path) -> int:
-    canonical_text_path = gold_spans_path.parent / "canonical_text.txt"
-    if not canonical_text_path.exists() or not canonical_text_path.is_file():
+    row_gold_path = gold_spans_path.parent / "row_gold_labels.jsonl"
+    if not row_gold_path.exists() or not row_gold_path.is_file():
         return 0
     try:
-        return max(0, int(canonical_text_path.stat().st_size))
+        return max(0, int(row_gold_path.stat().st_size))
     except OSError:
         return 0
 
