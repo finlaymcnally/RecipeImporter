@@ -320,6 +320,12 @@ def main() -> int:
             raise RuntimeError(
                 f"Label Studio project creation failed for {target_project_name}"
             )
+        project = client.update_project(
+            int(project_id),
+            {
+                "show_annotation_history": True,
+            },
+        )
         upload_summary = _upload_tasks_as_annotations(
             client=client,
             project_id=int(project_id),
@@ -334,6 +340,7 @@ def main() -> int:
             "row_seed_tasks_path": str(tasks_path),
             "task_count": len(annotation_tasks),
             "seeded_annotation_count": _count_seeded_annotations(annotation_tasks),
+            "show_annotation_history": bool(project.get("show_annotation_history")),
             **upload_summary,
         }
         _write_json(summary_path, payload)

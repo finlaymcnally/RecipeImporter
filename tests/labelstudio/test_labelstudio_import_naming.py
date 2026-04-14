@@ -78,3 +78,21 @@ def test_list_project_tasks_falls_back_to_legacy_query_on_runtime_error(monkeypa
         "GET /api/projects/123/tasks?page=1&page_size=100",
         "GET /api/tasks?project=123&page=1&page_size=100",
     ]
+
+
+def test_update_project_uses_patch(monkeypatch) -> None:
+    client = LabelStudioClient("http://localhost:8080", "token")
+    calls: list[tuple[str, str, object]] = []
+
+    def fake_request_json(method: str, path: str, payload=None):
+        calls.append((method, path, payload))
+        return {"id": 123, "show_annotation_history": True}
+
+    monkeypatch.setattr(client, "_request_json", fake_request_json)
+
+    updated = client.update_project(123, {"show_annotation_history": True})
+
+    assert updated == {"id": 123, "show_annotation_history": True}
+    assert calls == [
+        ("PATCH", "/api/projects/123", {"show_annotation_history": True})
+    ]

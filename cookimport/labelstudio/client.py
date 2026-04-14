@@ -173,6 +173,11 @@ class LabelStudioClient:
         }
         return self._request_json("POST", "/api/projects", payload)
 
+    def update_project(self, project_id: int, fields: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(fields, dict) or not fields:
+            raise ValueError("update_project requires a non-empty fields dict")
+        return self._request_json("PATCH", f"/api/projects/{project_id}", fields)
+
     def delete_project(self, project_id: int) -> None:
         self._request("DELETE", f"/api/projects/{project_id}")
 
