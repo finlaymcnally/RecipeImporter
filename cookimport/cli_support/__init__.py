@@ -1915,14 +1915,14 @@ def _source_name_from_hint(source_hint: str | None) -> str | None:
 
 
 def _load_source_hint_from_gold_export(gold_spans_path: Path) -> str | None:
-    source_hint = _source_name_from_hint(_load_manifest_source_file(gold_spans_path))
-    if source_hint:
-        return source_hint
-
     canonical_manifest_path = gold_spans_path.parent / "canonical_manifest.json"
     source_hint = _source_name_from_hint(
         _source_hint_from_manifest_payload(canonical_manifest_path)
     )
+    if source_hint:
+        return source_hint
+
+    source_hint = _source_name_from_hint(_load_manifest_source_file(gold_spans_path))
     if source_hint:
         return source_hint
 

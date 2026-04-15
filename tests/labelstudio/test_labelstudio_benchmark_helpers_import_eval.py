@@ -529,6 +529,56 @@ def test_load_source_hint_from_gold_export_uses_canonical_manifest_for_migrated_
     source_hint = cli._load_source_hint_from_gold_export(gold_path)
     assert source_hint == "saltfatacidheatCUTDOWN.epub"
 
+
+def test_load_source_hint_from_gold_export_prefers_canonical_manifest_over_run_manifest(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "run"
+    exports = run_root / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    gold_path = exports / "freeform_span_labels.jsonl"
+    gold_path.write_text("{}\n", encoding="utf-8")
+    (run_root / "run_manifest.json").write_text(
+        json.dumps({"source": {"path": "source_rows.jsonl"}}),
+        encoding="utf-8",
+    )
+    (exports / "canonical_manifest.json").write_text(
+        json.dumps({"source_file": "saltfatacidheatCUTDOWN.epub"}),
+        encoding="utf-8",
+    )
+
+    source_hint = cli._load_source_hint_from_gold_export(gold_path)
+
+    assert source_hint == "saltfatacidheatCUTDOWN.epub"
+
+
+def test_infer_source_file_from_gold_export_prefers_canonical_manifest_over_run_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_root = tmp_path / "data" / "input"
+    input_root.mkdir(parents=True, exist_ok=True)
+    source = input_root / "saltfatacidheatCUTDOWN.epub"
+    source.write_text("x", encoding="utf-8")
+    _patch_cli_attr(monkeypatch, "DEFAULT_INPUT", input_root)
+
+    run_root = tmp_path / "run"
+    exports = run_root / "exports"
+    exports.mkdir(parents=True, exist_ok=True)
+    gold_path = exports / "freeform_span_labels.jsonl"
+    gold_path.write_text("{}\n", encoding="utf-8")
+    (run_root / "run_manifest.json").write_text(
+        json.dumps({"source": {"path": "source_rows.jsonl"}}),
+        encoding="utf-8",
+    )
+    (exports / "canonical_manifest.json").write_text(
+        json.dumps({"source_file": "saltfatacidheatCUTDOWN.epub"}),
+        encoding="utf-8",
+    )
+
+    inferred = cli._infer_source_file_from_freeform_gold(gold_path)
+
+    assert inferred == source
+
 def test_infer_scope_from_project_payload_detects_new_freeform_labels() -> None:
     scope = cli._infer_scope_from_project_payload(
         {"label_config": "<View><Label value='RECIPE_VARIANT'/></View>"}
