@@ -88,11 +88,25 @@ def evaluate_source_rows(
             continue
         primary_gold = gold_labels[0]
         prediction = prediction_by_row_id.get(row_id)
-        pred_label = normalize_freeform_label(
-            str((prediction or {}).get("label") or (prediction or {}).get("final_label") or "OTHER")
+        raw_pred_label = str(
+            (prediction or {}).get("label") or (prediction or {}).get("final_label") or "OTHER"
         )
+        pred_label = normalize_freeform_label(raw_pred_label)
         pred_block_index = _coerce_int((prediction or {}).get("block_index"))
-        authority_label = _authority_category_to_label(authority_by_block_index.get(pred_block_index))
+        reason_tags = {
+            str(tag or "").strip()
+            for tag in ((prediction or {}).get("reason_tags") or [])
+            if str(tag or "").strip()
+        }
+        preserve_row_level_other = (
+            raw_pred_label.strip().upper() == "NONRECIPE_EXCLUDE"
+            or "nonrecipe_authority:preserved_exclude" in reason_tags
+        )
+        authority_label = None
+        if not preserve_row_level_other:
+            authority_label = _authority_category_to_label(
+                authority_by_block_index.get(pred_block_index)
+            )
         if authority_label is not None and authority_label != pred_label:
             pred_label = authority_label
             authority_override_rows += 1

@@ -243,6 +243,7 @@ New eval manifests should record the prediction-run root under `artifacts.artifa
 Canonical line-role projection note:
 - prediction-run `line_role_predictions.jsonl` is still the route-label artifact. Outside recipe, it should show `NONRECIPE_CANDIDATE` / `NONRECIPE_EXCLUDE`, not final `KNOWLEDGE` / `OTHER`.
 - when `semantic_line_role_predictions.jsonl` exists, benchmark eval prefers that final-semantic view for joined reviewer diagnostics and materializes it as the local benchmark `line_role_predictions.jsonl`.
+- row-level `NONRECIPE_EXCLUDE` now survives that semantic projection too: when one source block mixes an excluded setup row with neighboring candidate rows that finalize as `knowledge`, the benchmark projection/scorer must keep the excluded row as final `OTHER` instead of letting block-level authority stamp the whole block `KNOWLEDGE`.
 - `line-role-pipeline/stage_block_predictions.json` is the scored benchmark view. It stays in dense canonical `line_index` coordinates for scoring, while `projected_spans.jsonl` / `extracted_archive.json` preserve source block provenance, and it records unresolved outside-recipe candidates explicitly under `unresolved_candidate_*` metadata.
 - In other words, an unresolved outside-recipe candidate may still appear as provisional `OTHER` in projected scoring artifacts, but benchmark scoring excludes that row via the unresolved-candidate metadata until explicit final non-recipe authority exists.
 

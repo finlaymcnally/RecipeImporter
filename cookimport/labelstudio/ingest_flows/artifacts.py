@@ -367,6 +367,20 @@ def _apply_nonrecipe_authority_to_predictions(
         }:
             adjusted_predictions.append(prediction)
             continue
+        if current_label == "NONRECIPE_EXCLUDE":
+            reason_tags = list(getattr(prediction, "reason_tags", []) or [])
+            preserved_reason_tag = "nonrecipe_authority:preserved_exclude"
+            if preserved_reason_tag not in reason_tags:
+                reason_tags.append(preserved_reason_tag)
+            adjusted_predictions.append(
+                prediction.model_copy(
+                    update={
+                        "label": "OTHER",
+                        "reason_tags": reason_tags,
+                    }
+                )
+            )
+            continue
         category = final_categories.get(int(block_index))
         if category not in {"knowledge", "other"}:
             adjusted_predictions.append(prediction)

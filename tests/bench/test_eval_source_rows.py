@@ -120,3 +120,59 @@ def test_evaluate_source_rows_overlays_nonrecipe_authority_labels(tmp_path: Path
     assert report["artifacts"]["nonrecipe_authority_path"] == str(
         processed_output_root / "09_nonrecipe_authority.json"
     )
+
+
+def test_evaluate_source_rows_preserves_row_level_nonrecipe_exclude_over_block_authority(
+    tmp_path: Path,
+) -> None:
+    gold_export_root = tmp_path / "gold"
+    _write_jsonl(
+        gold_export_root / "row_gold_labels.jsonl",
+        [
+            {
+                "row_id": "gold:r0",
+                "row_index": 0,
+                "block_index": 999,
+                "labels": ["OTHER"],
+                "text": "Think about making a grilled cheese sandwich.",
+            }
+        ],
+    )
+
+    eval_root = tmp_path / "eval"
+    processed_output_root = tmp_path / "processed"
+    line_role_dir = eval_root / "line-role-pipeline"
+    stage_predictions_json = line_role_dir / "stage_block_predictions.json"
+    _write_json(stage_predictions_json, {"stage": "fixture"})
+    _write_jsonl(
+        line_role_dir / "row_label_predictions.jsonl",
+        [
+            {
+                "row_id": "gold:r0",
+                "atomic_index": 0,
+                "block_index": 999,
+                "label": "OTHER",
+                "reason_tags": ["nonrecipe_authority:preserved_exclude"],
+                "text": "Think about making a grilled cheese sandwich.",
+            }
+        ],
+    )
+    _write_json(
+        eval_root / "run_manifest.json",
+        {"artifacts": {"processed_output_run_dir": str(processed_output_root)}},
+    )
+    _write_json(
+        processed_output_root / "09_nonrecipe_authority.json",
+        {"authoritative_block_category_by_index": {"999": "knowledge"}},
+    )
+
+    result = evaluate_source_rows(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_json,
+        extracted_blocks_json=tmp_path / "unused.json",
+        out_dir=eval_root / "source-rows-eval",
+    )
+
+    report = result["report"]
+    assert report["overall_line_accuracy"] == 1.0
+    assert report["counts"]["authority_override_rows"] == 0

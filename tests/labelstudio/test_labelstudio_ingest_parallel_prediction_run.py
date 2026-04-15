@@ -1037,6 +1037,47 @@ def test_nonrecipe_authority_projection_marks_reviewed_candidate_as_codex_withou
     assert "nonrecipe_authority:other" in adjusted[0].reason_tags
 
 
+def test_nonrecipe_authority_projection_preserves_row_level_exclude_inside_knowledge_block() -> None:
+    predictions = [
+        CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id="block:10",
+            block_index=10,
+            atomic_index=10,
+            text="Think about making a grilled cheese sandwich.",
+            within_recipe_span=False,
+            label="NONRECIPE_EXCLUDE",
+            decided_by="codex",
+            reason_tags=["codex_line_role"],
+        )
+    ]
+    nonrecipe_stage_result = make_stage_result(
+        seed=make_seed_result({10: "candidate"}),
+        routing=make_routing_result(candidate_block_indices=[10]),
+        authority=make_authority_result({10: "knowledge"}),
+        candidate_status=make_finalize_status_result(
+            reviewed_block_indices=[10],
+            unreviewed_block_category_by_index={},
+        ),
+        refinement_report={
+            "authority_mode": "knowledge_refined_final",
+            "scored_effect": "final_authority",
+            "changed_blocks": [{"block_index": 10}],
+        },
+    )
+
+    adjusted, summary = _apply_nonrecipe_authority_to_predictions(
+        predictions=predictions,
+        nonrecipe_stage_result=nonrecipe_stage_result,
+    )
+
+    assert summary["changed_block_count"] == 1
+    assert adjusted[0].label == "OTHER"
+    assert adjusted[0].decided_by == "codex"
+    assert "nonrecipe_authority:preserved_exclude" in adjusted[0].reason_tags
+    assert "nonrecipe_authority:knowledge" not in adjusted[0].reason_tags
+
+
 def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_recipe(
     tmp_path: Path,
 ) -> None:
