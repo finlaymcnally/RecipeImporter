@@ -131,6 +131,8 @@ from cookimport.cli_support import (
     apply_bucket1_fixed_behavior_metadata,
     apply_codex_execution_policy_metadata,
     bucket1_fixed_behavior,
+    PRIMARY_LINE_ROLE_FLIPS_JSONL_FILE_NAME,
+    PRIMARY_LINE_ROLE_FLIPS_SAMPLE_JSONL_FILE_NAME,
     build_line_role_flips_vs_baseline,
     build_line_role_joined_line_rows,
     build_line_role_routing_summary,
@@ -2957,7 +2959,7 @@ def register(app: typer.Typer) -> dict[str, object]:
                 ),
                 baseline_joined_line_rows=baseline_joined_line_rows,
             )
-            line_role_flips_path = line_role_output_dir / "line_role_flips_vs_baseline.jsonl"
+            line_role_flips_path = line_role_output_dir / PRIMARY_LINE_ROLE_FLIPS_JSONL_FILE_NAME
             line_role_flips_path.write_text(
                 "".join(json.dumps(row, sort_keys=True) + "\n" for row in flips_rows),
                 encoding="utf-8",
@@ -3006,7 +3008,7 @@ def register(app: typer.Typer) -> dict[str, object]:
                     eval_output_dir,
                     joined_line_table_path,
                 ),
-                "line_role_flips_vs_baseline_jsonl": _path_for_manifest(
+                "line_role_flips_vs_reference_jsonl": _path_for_manifest(
                     eval_output_dir,
                     line_role_flips_path,
                 ),
@@ -3038,24 +3040,22 @@ def register(app: typer.Typer) -> dict[str, object]:
                     eval_output_dir,
                     line_role_output_dir / "aligned_prediction_blocks.sample.jsonl",
                 ),
-                "line_role_flips_vs_baseline_sample_jsonl": _path_for_manifest(
+                "line_role_flips_vs_reference_sample_jsonl": _path_for_manifest(
                     eval_output_dir,
-                    line_role_output_dir / "line_role_flips_vs_baseline.sample.jsonl",
+                    line_role_output_dir / PRIMARY_LINE_ROLE_FLIPS_SAMPLE_JSONL_FILE_NAME,
                 ),
             }
             if isinstance(baseline_history_row, dict):
-                baseline_run_dir = str(baseline_history_row.get("run_dir") or "").strip()
-                if baseline_run_dir:
-                    line_role_diagnostics_artifacts["line_role_flips_baseline_run_dir"] = (
-                        _path_for_manifest(eval_output_dir, baseline_run_dir) or baseline_run_dir
-                    )
                 baseline_run_timestamp = str(
                     baseline_history_row.get("run_timestamp") or ""
                 ).strip()
                 if baseline_run_timestamp:
                     line_role_diagnostics_artifacts[
-                        "line_role_flips_baseline_run_timestamp"
+                        "line_role_flips_reference_run_timestamp"
                     ] = baseline_run_timestamp
+                    line_role_diagnostics_artifacts[
+                        "line_role_flips_reference_origin"
+                    ] = "paired_history_reference"
 
             if line_role_gated:
                 line_role_gate_payload = _build_line_role_regression_gate_payload(

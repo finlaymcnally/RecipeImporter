@@ -179,7 +179,11 @@ from cookimport.bench.oracle_followup import (
     run_oracle_benchmark_followup,
     run_oracle_benchmark_followup_background_worker,
 )
-from cookimport.bench.pairwise_flips import build_line_role_flips_vs_baseline
+from cookimport.bench.pairwise_flips import (
+    PRIMARY_LINE_ROLE_FLIPS_JSONL_FILE_NAME,
+    PRIMARY_LINE_ROLE_FLIPS_SAMPLE_JSONL_FILE_NAME,
+    build_line_role_flips_vs_baseline,
+)
 from cookimport.bench.slice_metrics import (
     build_line_role_routing_summary,
     build_line_role_slice_metrics,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from cookimport.bench.qualitysuite.shared import *  # noqa: F401,F403
 from cookimport.bench.qualitysuite import planning as _planning
 from cookimport.bench.qualitysuite import shared as _shared
+from cookimport.bench.pairwise_flips import resolve_existing_line_role_flips_jsonl_path
 
 globals().update(
     {name: getattr(_shared, name) for name in dir(_shared) if not name.startswith("__")}
@@ -452,7 +453,11 @@ def _format_quality_run_report(summary_payload: dict[str, Any]) -> str:
                     if line_role_dir:
                         lines.append(f"  line-role sample: {line_role_dir}")
                     joined = str(example.get("joined_line_table_jsonl") or "").strip()
-                    flips = str(example.get("line_role_flips_vs_baseline_jsonl") or "").strip()
+                    flips = str(
+                        example.get("line_role_flips_vs_reference_jsonl")
+                        or example.get("line_role_flips_vs_baseline_jsonl")
+                        or ""
+                    ).strip()
                     slice_path = str(example.get("slice_metrics_json") or "").strip()
                     routing_path = str(example.get("routing_summary_json") or "").strip()
                     gates_path = str(example.get("regression_gates_json") or "").strip()
@@ -565,7 +570,7 @@ def _summarize_line_role_artifacts(
     gate_verdict_counts: dict[str, int] = {}
     for line_role_dir in example_dirs:
         joined_path = line_role_dir / "joined_line_table.jsonl"
-        flips_path = line_role_dir / "line_role_flips_vs_baseline.jsonl"
+        flips_path = resolve_existing_line_role_flips_jsonl_path(line_role_dir)
         slice_path = line_role_dir / "slice_metrics.json"
         routing_path = line_role_dir / "routing_summary.json"
         gates_path = line_role_dir / "regression_gates.json"
@@ -601,7 +606,11 @@ def _summarize_line_role_artifacts(
             {
                 "line_role_dir": _rel(line_role_dir),
                 "joined_line_table_jsonl": _rel(joined_path) if joined_path.exists() else None,
-                "line_role_flips_vs_baseline_jsonl": _rel(flips_path) if flips_path.exists() else None,
+                "line_role_flips_vs_reference_jsonl": (
+                    _rel(flips_path)
+                    if flips_path is not None and flips_path.exists()
+                    else None
+                ),
                 "slice_metrics_json": _rel(slice_path) if slice_path.exists() else None,
                 "routing_summary_json": _rel(routing_path) if routing_path.exists() else None,
                 "regression_gates_json": _rel(gates_path) if gates_path.exists() else None,

@@ -11,6 +11,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from cookimport.bench.pairwise_flips import (
+    resolve_existing_line_role_flips_jsonl_path,
+)
 from cookimport.config.run_settings import RunSettings
 from cookimport.config.run_settings_contracts import (
     RUN_SETTING_CONTRACT_FULL,
@@ -172,7 +175,7 @@ def _extract_line_role_artifacts(
         return None
 
     joined_path = line_role_dir / "joined_line_table.jsonl"
-    flips_path = line_role_dir / "line_role_flips_vs_baseline.jsonl"
+    flips_path = resolve_existing_line_role_flips_jsonl_path(line_role_dir)
     slice_path = line_role_dir / "slice_metrics.json"
     routing_path = line_role_dir / "routing_summary.json"
     gates_path = line_role_dir / "regression_gates.json"
@@ -225,8 +228,8 @@ def _extract_line_role_artifacts(
         "joined_line_table_jsonl": _relative_to_root(joined_path, run_root)
         if joined_path.exists()
         else None,
-        "line_role_flips_vs_baseline_jsonl": _relative_to_root(flips_path, run_root)
-        if flips_path.exists()
+        "line_role_flips_vs_reference_jsonl": _relative_to_root(flips_path, run_root)
+        if flips_path is not None and flips_path.exists()
         else None,
         "slice_metrics_json": _relative_to_root(slice_path, run_root)
         if slice_path.exists()

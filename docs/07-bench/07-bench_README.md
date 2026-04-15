@@ -321,7 +321,7 @@ Source-row diagnostics commonly include:
 - `joined_line_table.jsonl`
 - `joined_line_table.jsonl` now reuses the evaluator's row-gold line-label projection rules, so reviewer diagnostics should agree with `eval_report.json` on filtered inline `RECIPE_TITLE` mentions, dropped contents-page titles, and preserved `RECIPE_VARIANT` runs
 - older alias files such as `missed_gold_spans.jsonl` and `false_positive_preds.jsonl` are retired
-- `line_role_flips_vs_baseline.jsonl`
+- `line_role_flips_vs_reference.jsonl` (`line_role_flips_vs_baseline.jsonl` is the legacy filename for older runs)
 - `slice_metrics.json`
 - `routing_summary.json`
   - this routing artifact is now the plain-language upstream-diversion summary for line-role. It reports the coarse route split and whether outside-recipe rows were kept for knowledge review or filtered before the knowledge stage.

@@ -9,7 +9,10 @@ from cookimport.bench.cutdown_export import (
     build_line_role_joined_line_rows,
     write_line_role_stable_samples,
 )
-from cookimport.bench.pairwise_flips import build_line_role_flips_vs_baseline
+from cookimport.bench.pairwise_flips import (
+    PRIMARY_LINE_ROLE_FLIPS_SAMPLE_JSONL_FILE_NAME,
+    build_line_role_flips_vs_baseline,
+)
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
@@ -140,7 +143,7 @@ def test_stable_cutdown_samples_share_ids_and_text(tmp_path: Path) -> None:
     aligned_rows = _read_jsonl(output_dir / "aligned_prediction_blocks.sample.jsonl")
     wrong_rows = _read_jsonl(output_dir / "wrong_label_lines.sample.jsonl")
     correct_rows = _read_jsonl(output_dir / "correct_label_lines.sample.jsonl")
-    flip_rows = _read_jsonl(output_dir / "line_role_flips_vs_baseline.sample.jsonl")
+    flip_rows = _read_jsonl(output_dir / PRIMARY_LINE_ROLE_FLIPS_SAMPLE_JSONL_FILE_NAME)
 
     assert aligned_rows
     assert wrong_rows
@@ -361,8 +364,8 @@ def test_line_role_flips_uses_paired_history_baseline_rows() -> None:
 
     assert flips == [
         {
-            "baseline_label": "YIELD_LINE",
-            "baseline_source": "paired_history_baseline",
+            "reference_label": "YIELD_LINE",
+            "reference_source": "paired_history_reference",
             "candidate_label": "INGREDIENT_LINE",
             "decided_by": "rule",
             "gold_label": "INGREDIENT_LINE",

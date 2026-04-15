@@ -393,7 +393,7 @@ def test_quality_leaderboard_includes_line_role_artifacts_when_present(
         },
     )
     (line_role_dir / "joined_line_table.jsonl").write_text("", encoding="utf-8")
-    (line_role_dir / "line_role_flips_vs_baseline.jsonl").write_text(
+    (line_role_dir / "line_role_flips_vs_reference.jsonl").write_text(
         "", encoding="utf-8"
     )
     _write_json(

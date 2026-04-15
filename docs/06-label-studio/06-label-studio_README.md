@@ -328,7 +328,7 @@ Canonical line-role codex inflight is now resolved inside `canonical_line_roles.
 `atomic_block_splitter=off` keeps one line-role candidate per extracted block; `atomic_block_splitter=atomic-v1` enables deterministic boundary splitting before line-role labeling.
 When source-row benchmark eval runs with `line_role_pipeline != off`, eval roots also write diagnostics under `line-role-pipeline/`:
 - `line-role-pipeline/joined_line_table.jsonl`
-- `line-role-pipeline/line_role_flips_vs_baseline.jsonl`
+- `line-role-pipeline/line_role_flips_vs_reference.jsonl` (`line_role_flips_vs_baseline.jsonl` is the legacy filename for older runs)
 - `line-role-pipeline/slice_metrics.json`
 - `line-role-pipeline/routing_summary.json`
 - `line-role-pipeline/prompt_eval_alignment.md`

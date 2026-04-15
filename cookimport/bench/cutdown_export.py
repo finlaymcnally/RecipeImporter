@@ -6,6 +6,10 @@ import re
 from pathlib import Path
 from typing import Any
 
+from cookimport.bench.pairwise_flips import (
+    PRIMARY_LINE_ROLE_FLIPS_JSONL_FILE_NAME,
+    PRIMARY_LINE_ROLE_FLIPS_SAMPLE_JSONL_FILE_NAME,
+)
 from cookimport.bench.row_gold_lines import (
     load_row_gold_line_labels,
     resolve_row_gold_path_from_eval_report,
@@ -175,7 +179,7 @@ def write_line_role_stable_samples(
     wrong_path = output_dir / "wrong_label_lines.sample.jsonl"
     correct_path = output_dir / "correct_label_lines.sample.jsonl"
     aligned_path = output_dir / "aligned_prediction_blocks.sample.jsonl"
-    flips_path = output_dir / "line_role_flips_vs_baseline.sample.jsonl"
+    flips_path = output_dir / PRIMARY_LINE_ROLE_FLIPS_SAMPLE_JSONL_FILE_NAME
     _write_jsonl(wrong_path, wrong_rows)
     _write_jsonl(correct_path, correct_rows)
     _write_jsonl(aligned_path, aligned_rows)
@@ -191,7 +195,7 @@ def write_line_role_stable_samples(
         "wrong_label_lines_sample_jsonl": str(wrong_path),
         "correct_label_lines_sample_jsonl": str(correct_path),
         "aligned_prediction_blocks_sample_jsonl": str(aligned_path),
-        "line_role_flips_vs_baseline_sample_jsonl": str(flips_path),
+        "line_role_flips_vs_reference_sample_jsonl": str(flips_path),
     }
 
 
@@ -228,7 +232,10 @@ def write_prompt_eval_alignment_doc(
         "- `eval_report.json` + `eval_report.md`: canonical benchmark metrics.",
         "- `wrong_label_lines.jsonl` + `aligned_prediction_blocks.jsonl`: evaluator diagnostics.",
         "- `line-role-pipeline/line_role_predictions.jsonl`: canonical line-role rows reused for reviewer diagnostics; benchmark eval prefers final-semantic rows when that artifact exists.",
-        "- `line-role-pipeline/line_role_flips_vs_baseline.jsonl`: inferred baseline-vs-candidate deltas.",
+        (
+            f"- `line-role-pipeline/{PRIMARY_LINE_ROLE_FLIPS_JSONL_FILE_NAME}`: "
+            "inferred reference-vs-candidate deltas."
+        ),
         "- `line-role-pipeline/slice_metrics.json`: slice-level quality signals.",
         "- `line-role-pipeline/routing_summary.json`: excluded versus candidate outside-recipe routing plus recipe-local structure counts.",
         "- `line-role-pipeline/telemetry_summary.json`: the authoritative scoring-mode summary for projected line-role artifacts.",

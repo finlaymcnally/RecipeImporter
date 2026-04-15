@@ -3,6 +3,33 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+PRIMARY_LINE_ROLE_FLIPS_JSONL_FILE_NAME = "line_role_flips_vs_reference.jsonl"
+LEGACY_LINE_ROLE_FLIPS_JSONL_FILE_NAME = "line_role_flips_vs_baseline.jsonl"
+PRIMARY_LINE_ROLE_FLIPS_SAMPLE_JSONL_FILE_NAME = "line_role_flips_vs_reference.sample.jsonl"
+LEGACY_LINE_ROLE_FLIPS_SAMPLE_JSONL_FILE_NAME = "line_role_flips_vs_baseline.sample.jsonl"
+
+
+def resolve_existing_line_role_flips_jsonl_path(line_role_dir: Path) -> Path | None:
+    for file_name in (
+        PRIMARY_LINE_ROLE_FLIPS_JSONL_FILE_NAME,
+        LEGACY_LINE_ROLE_FLIPS_JSONL_FILE_NAME,
+    ):
+        candidate = line_role_dir / file_name
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
+def resolve_existing_line_role_flips_sample_jsonl_path(line_role_dir: Path) -> Path | None:
+    for file_name in (
+        PRIMARY_LINE_ROLE_FLIPS_SAMPLE_JSONL_FILE_NAME,
+        LEGACY_LINE_ROLE_FLIPS_SAMPLE_JSONL_FILE_NAME,
+    ):
+        candidate = line_role_dir / file_name
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
 
 def build_line_role_flips_vs_baseline(
     *,
@@ -10,14 +37,14 @@ def build_line_role_flips_vs_baseline(
     line_role_predictions_path: Path | None,
     baseline_joined_line_rows: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Return rows where baseline label differs from candidate label.
+    """Return rows where reference label differs from candidate label.
 
-    Preferred baseline source:
-    - `baseline_joined_line_rows` from a paired history baseline eval run.
+    Preferred reference source:
+    - `baseline_joined_line_rows` from a paired history reference eval run.
 
-    Fallback baseline inference (when paired rows are unavailable):
-    - rows decided by `codex` are treated as baseline `OTHER`
-    - all other rows retain candidate label as baseline
+    Fallback reference inference (when paired rows are unavailable):
+    - rows decided by `codex` are treated as reference `OTHER`
+    - all other rows retain candidate label as reference
     - no extra backfill is attempted from `line_role_predictions.jsonl`; if
       the joined row has no trustworthy `decided_by`, it is skipped
     """
@@ -39,10 +66,10 @@ def build_line_role_flips_vs_baseline(
             candidate_label = (
                 str(row.get("pred_label") or "OTHER").strip().upper() or "OTHER"
             )
-            baseline_label = (
+            reference_label = (
                 str(baseline_row.get("pred_label") or "OTHER").strip().upper() or "OTHER"
             )
-            if baseline_label == candidate_label:
+            if reference_label == candidate_label:
                 continue
             output.append(
                 {
@@ -50,10 +77,10 @@ def build_line_role_flips_vs_baseline(
                     "line_index": line_index,
                     "line_text": str(row.get("line_text") or ""),
                     "gold_label": str(row.get("gold_label") or "OTHER"),
-                    "baseline_label": baseline_label,
+                    "reference_label": reference_label,
                     "candidate_label": candidate_label,
                     "decided_by": str(row.get("decided_by") or ""),
-                    "baseline_source": "paired_history_baseline",
+                    "reference_source": "paired_history_reference",
                 }
             )
         output.sort(key=lambda item: (int(item["line_index"]), str(item["sample_id"])))
@@ -68,12 +95,12 @@ def build_line_role_flips_vs_baseline(
         if not decided_by:
             continue
         candidate_label = str(row.get("pred_label") or "OTHER").strip().upper() or "OTHER"
-        baseline_label = (
+        reference_label = (
             "OTHER"
             if decided_by == "codex"
             else candidate_label
         )
-        if baseline_label == candidate_label:
+        if reference_label == candidate_label:
             continue
         output.append(
             {
@@ -81,10 +108,10 @@ def build_line_role_flips_vs_baseline(
                 "line_index": line_index,
                 "line_text": str(row.get("line_text") or ""),
                 "gold_label": str(row.get("gold_label") or "OTHER"),
-                "baseline_label": baseline_label,
+                "reference_label": reference_label,
                 "candidate_label": candidate_label,
                 "decided_by": decided_by,
-                "baseline_source": "inferred_from_line_role_decided_by",
+                "reference_source": "inferred_from_line_role_decided_by",
             }
         )
     output.sort(key=lambda item: (int(item["line_index"]), str(item["sample_id"])))
