@@ -96,6 +96,8 @@ def test_worker_prompt_describes_task_file_contract() -> None:
     assert "If you feel tempted to invent a rule that covers many rows at once" in prompt
     assert "personal story with an embedded cooking lesson is still usually `other`" in prompt
     assert "Praise, endorsement, foreword, thesis, manifesto" in prompt
+    assert "Teacherly, explanatory, or motivational tone alone is not enough for `keep_for_review`." in prompt
+    assert "If a split row is mainly connective coaching, setup, author voice, or rhetoric, answer `other`" in prompt
     assert "A heading alone is not enough for `knowledge`." in prompt
     assert "If a row is functioning as a heading, answer `other`" in prompt
     assert "Short heading rows can still help later grouping as context" in prompt
@@ -104,7 +106,10 @@ def test_worker_prompt_describes_task_file_contract() -> None:
     assert "Salt, Fat, Acid, and Heat were the four elements" in prompt
     assert "It was a revelation." in prompt
     assert "My pursuit of flavor has continued to lead me around the world." in prompt
+    assert "Taste. It will need salt." in prompt
+    assert "You'll be better equipped to trust your own palate" in prompt
     assert "Taste constantly as you cook, and adjust seasoning before serving." in prompt
+    assert "Cooking fats can be heated to extreme temperatures" in prompt
     assert "Final categories must be exactly one of `keep_for_review` or `other`." in prompt
     assert "Do not think about tags in this step." in prompt
     assert "answer `proposal_candidate` with empty grounding" not in prompt
@@ -217,7 +222,19 @@ def test_knowledge_task_file_summary_surfaces_semantic_review_contract() -> None
         if isinstance(example, dict)
     )
     assert any(
+        example.get("text") == "Taste. It will need salt."
+        and example.get("category") == "other"
+        for example in contrast_examples
+        if isinstance(example, dict)
+    )
+    assert any(
         example.get("text") == "Taste constantly as you cook, and adjust seasoning before serving."
+        and example.get("category") == "keep_for_review"
+        for example in contrast_examples
+        if isinstance(example, dict)
+    )
+    assert any(
+        str(example.get("text") or "").startswith("Cooking fats can be heated to extreme temperatures")
         and example.get("category") == "keep_for_review"
         for example in contrast_examples
         if isinstance(example, dict)

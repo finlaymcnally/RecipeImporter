@@ -37,7 +37,8 @@ Negative rules:
 - If a line contains explicit cooking action plus time mention, prefer `INSTRUCTION_LINE` over `TIME_LINE`.
 - `INSTRUCTION_LINE` means a recipe-local procedural step for the current recipe, not generic culinary advice or cookbook teaching prose.
 - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.
-- If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, prefer `NONRECIPE_CANDIDATE`, not `INSTRUCTION_LINE`.
+- If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, do not call it `INSTRUCTION_LINE`.
+- Outside recipe, broad coaching, exhortation, or rhetorical setup usually stays `NONRECIPE_EXCLUDE`; use `NONRECIPE_CANDIDATE` only when the row itself states portable cooking knowledge that would still help a cook if quoted alone.
 - If local evidence is genuinely ambiguous, resolve the row from the text and neighboring context alone.
 - If the shard rows are outside recipe context, default to `NONRECIPE_CANDIDATE`; only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.
 - Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure before or after the heading.
@@ -62,6 +63,7 @@ Negative rules:
 - Endorsements, acknowledgments, foreword/introduction framing, memoir setup, and broad book-encouragement prose usually stay `NONRECIPE_EXCLUDE`; use `NONRECIPE_CANDIDATE` only when the line itself carries reusable cooking knowledge.
 - Dedications, acknowledgments, author biography, restaurant backstory, travel scenes, childhood food memories, and chef-origin stories usually stay `NONRECIPE_EXCLUDE` even when they mention real dishes, ingredients, or kitchen lessons.
 - Broad encouragement or manifesto prose such as `you can become a great cook`, `keep reading and I'll teach you how`, or `trust your palate` usually stays `NONRECIPE_EXCLUDE`, not `NONRECIPE_CANDIDATE`.
+- Short split coaching fragments such as `Taste. It will need salt.` or `Trust your palate.` usually stay `NONRECIPE_EXCLUDE` unless nearby rows make them part of a concrete standalone lesson rather than book voice or encouragement.
 - Do not rescue a memoir or intro paragraph into `NONRECIPE_CANDIDATE` just because it contains one true cooking claim near the end. If the row still reads mainly like story, framing, or inspiration, keep it `NONRECIPE_EXCLUDE`.
 - Use `NONRECIPE_CANDIDATE` only when the row itself would be worth retrieving later as a standalone cooking concept without needing the memoir, chapter setup, or book-thesis wrapper around it.
 - Mixed anecdote-plus-moral rows usually stay `NONRECIPE_EXCLUDE`. If a later row states the reusable lesson directly and can stand on its own, that later row may be `NONRECIPE_CANDIDATE`.
@@ -115,9 +117,9 @@ Few-shot examples:
     Line: `Use limes in guacamole, pho ga, green papaya salad, and kachumbar.`
     Label: `NONRECIPE_CANDIDATE`
 
-13) Context: general teaching/setup prose, not a recipe step
+13) Context: general teaching/setup prose, rhetorical framing, not a recipe step
     Line: `Think about making a grilled cheese sandwich.`
-    Label: `NONRECIPE_CANDIDATE`
+    Label: `NONRECIPE_EXCLUDE`
 
 14) Context: outside recipe, lesson heading with explanatory prose nearby
     Line: `Gentle Cooking Methods`
@@ -181,6 +183,10 @@ Few-shot examples:
 
 29) Context: outside recipe, broad book promise or encouragement prose
     Line: `Keep reading and I'll teach you how to cook with confidence.`
+    Label: `NONRECIPE_EXCLUDE`
+
+30) Context: outside recipe, short split coaching fragment without standalone reference value
+    Line: `Taste. It will need salt.`
     Label: `NONRECIPE_EXCLUDE`
 """
 

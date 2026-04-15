@@ -140,10 +140,15 @@ def test_structured_prompt_keeps_first_pass_tag_free_and_binary() -> None:
     assert "let the explanatory body carry the knowledge" in prompt
     assert "Do not think about tags during classification." in prompt
     assert "Tagging happens only in the second pass." in prompt
+    assert "Teacherly, explanatory, or motivational tone alone is not enough for `keep_for_review`." in prompt
+    assert "If a split row is mainly connective coaching, setup, author voice, or rhetoric, keep it `other`" in prompt
     assert "Salt, Fat, Acid, and Heat were the four elements" in prompt
     assert "It was a revelation." in prompt
     assert "My pursuit of flavor has continued to lead me around the world." in prompt
+    assert "Taste. It will need salt." in prompt
+    assert "You'll be better equipped to trust your own palate" in prompt
     assert "Taste constantly as you cook, and adjust seasoning before serving." in prompt
+    assert "Cooking fats can be heated to extreme temperatures" in prompt
     assert "=> `keep_for_review`" in prompt
     assert 'Response shape:\n{"rows":[{"row_id":"r01","category":"keep_for_review"},{"row_id":"r02","category":"other"}]}' in prompt
     assert "rows sharing one group_id" not in prompt

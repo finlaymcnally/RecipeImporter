@@ -28,10 +28,14 @@ Decision boundary:
 - Ask: can this block ground to at least one existing ontology tag, or a crisp proposed tag under an existing category if the catalog is missing the concept?
 - Ask: does it explain cause, judgment, troubleshooting, ingredient behavior, sensory cues, durable technique, substitution, storage, or safety?
 - If the text is technically true but low-value, too generic, motivational, or not worth preserving on its own, keep it as `other`.
+- Teacherly, explanatory, or motivational tone alone is not enough for `knowledge`.
+- If a split row or short block mainly acts as connective coaching, setup, author voice, or rhetoric, keep it `other` even when the surrounding paragraph is educational.
+- Keep `knowledge` only when the owned row or block itself stands alone as a reusable principle, mechanism, troubleshooting rule, substitution, storage/safety rule, or compact reference entry.
 - If you cannot name a specific existing tag fit, and you also cannot point to a real catalog gap that deserves a proposed tag, keep the block `other`.
 - In mixed packets, keep memoir/framing blocks `other`; only mark a block `knowledge` when that block itself stands on its own as reusable cooking guidance.
 - Memoir, scene-setting, or personal story with an embedded cooking lesson is still usually `other`; keep only the specific block that independently stands as reusable guidance.
 - Praise, endorsement, foreword, thesis, manifesto, "this book will teach you," and broad inspiration-about-cooking prose are `other` even when they contain true cooking claims.
+- Broad coaching prose such as `trust your palate`, `you'll be better equipped`, or `keep tasting` is still `other` unless the row itself states a concrete reusable rule or mechanism.
 - If only one block in a mixed packet is genuinely reusable, keep only that block and leave the surrounding framing `other`.
 - A heading alone is not enough for `knowledge`.
 - If a row is functioning as a heading, keep it `other` even when it names the nearby concept clearly.
@@ -40,6 +44,7 @@ Decision boundary:
 - If the heading is decorative, thesis-like, or unsupported by reusable explanatory body text in the owned packet, keep it `other`.
 - Do not treat two blocks as one idea just because they are adjacent in the packet; they still need clear topical continuity in the text itself.
 - Category-only grounding is not enough. If a block cannot ground more specifically than a broad category, keep it `other`.
+- Split-row example: `Taste. It will need salt.` is usually `other` when it is only a coaching fragment from broader prose, but `Cooking fats can be heated to extreme temperatures, allowing food to brown deeply.` is `knowledge` because it states a standalone cooking mechanism.
 
 Grounding rules:
 - Every `knowledge` block must include `gr.tk` with one or more existing tag keys, or `gr.pt` with one or more proposed tags.

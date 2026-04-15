@@ -606,6 +606,9 @@ def _knowledge_classification_review_contract() -> dict[str, Any]:
             "A heading or bridge row can support nearby knowledge without itself being knowledge.",
             "A heading alone is not enough for knowledge; if a row is functioning as a heading, keep it `other` in this first pass even when it names the nearby concept clearly.",
             "Return `keep_for_review` only when the row looks like reusable cooking knowledge worth carrying into the second-pass group review.",
+            "Teacherly, explanatory, or motivational tone alone is not enough for `keep_for_review`.",
+            "If a split row is mainly connective coaching, setup, author voice, or rhetoric, keep it `other` even when the surrounding paragraph is educational.",
+            "Keep `keep_for_review` for rows that stand on their own as a reusable principle, mechanism, troubleshooting rule, substitution, storage/safety rule, or compact reference fact.",
             "Do not think about tags in this first pass. Tagging belongs entirely to the second pass.",
             "Short heading rows can still matter later as grouping context, so do not force them into `keep_for_review` just to preserve structure.",
             "If a short heading is the semantic key for nearby explanatory rows, keep the heading itself `other` and let the explanatory body carry the knowledge.",
@@ -638,9 +641,31 @@ def _knowledge_classification_review_contract() -> dict[str, Any]:
                 "why": "Memoir and travel framing stay other even when the surrounding chapter is about cooking.",
             },
             {
+                "text": "Taste. It will need salt.",
+                "category": "other",
+                "why": "Short coaching fragments from broader prose are not standalone retrieval-grade knowledge.",
+            },
+            {
+                "text": (
+                    "You'll be better equipped to trust your own palate, to make "
+                    "substitutions in recipes, and cook with what's on hand."
+                ),
+                "category": "other",
+                "why": "Broad encouragement and teacherly coaching stay other without a concrete reusable rule.",
+            },
+            {
                 "text": "Taste constantly as you cook, and adjust seasoning before serving.",
                 "category": "keep_for_review",
                 "why": "This stands on its own as direct reusable cooking guidance.",
+            },
+            {
+                "text": (
+                    "Cooking fats can be heated to extreme temperatures, allowing "
+                    "the surface temperature of foods cooked in them to climb high "
+                    "enough to brown."
+                ),
+                "category": "keep_for_review",
+                "why": "This is a standalone cooking mechanism with durable future value.",
             },
         ],
     }
