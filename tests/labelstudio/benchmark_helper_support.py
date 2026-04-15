@@ -233,14 +233,14 @@ def _write_benchmark_prediction_run_fixture(
 
     stage_root = prediction_run / stage_subdir if stage_subdir else prediction_run
     stage_root.mkdir(parents=True, exist_ok=True)
-    stage_predictions_path = stage_root / "stage_block_predictions.json"
+    stage_predictions_path = stage_root / "semantic_row_predictions.json"
     extracted_archive_path = stage_root / "extracted_archive.json"
     block_labels = dict(block_labels or {})
     extracted_rows = list(extracted_rows or [])
     stage_predictions_path.write_text(
         json.dumps(
             {
-                "schema_version": "stage_block_predictions.v1",
+                "schema_version": "semantic_row_predictions.v1",
                 "block_count": len(block_labels),
                 "block_labels": block_labels,
             },
@@ -291,7 +291,7 @@ def _empty_freeform_eval_result() -> dict[str, object]:
     }
 
 
-def _empty_stage_block_eval_result() -> dict[str, object]:
+def _empty_source_row_eval_result() -> dict[str, object]:
     return {
         "report": {
             "counts": {
@@ -302,6 +302,8 @@ def _empty_stage_block_eval_result() -> dict[str, object]:
                 "gold_missed": 0,
                 "pred_false_positive": 0,
             },
+            "strict_accuracy": 0.0,
+            "overall_line_accuracy": 0.0,
             "overall_block_accuracy": 0.0,
             "macro_f1_excluding_other": 0.0,
             "worst_label_recall": {"label": None, "recall": 0.0},
@@ -323,6 +325,26 @@ def _install_noop_benchmark_eval_mocks(
     *,
     capture_csv: dict[str, object] | None = None,
 ) -> None:
+    def _is_repo_default(name: str) -> bool:
+        for module in (
+            cli,
+            cli_support,
+            bench_artifacts,
+            labelstudio_cli,
+            interactive_flow,
+            progress_support,
+            bench_single_book,
+            bench_single_profile,
+            bench_all_method,
+        ):
+            if not hasattr(module, name):
+                continue
+            current = getattr(module, name)
+            current_module = str(getattr(current, "__module__", ""))
+            if current_module and not current_module.startswith("cookimport."):
+                return False
+        return True
+
     _patch_cli_attr(monkeypatch, "load_predicted_labeled_ranges", lambda *_: [])
     _patch_cli_attr(monkeypatch, "load_gold_freeform_ranges", lambda *_: [])
     _patch_cli_attr(
@@ -332,11 +354,14 @@ def _install_noop_benchmark_eval_mocks(
     )
     _patch_cli_attr(monkeypatch, "format_freeform_eval_report_md", lambda *_: "report")
     _patch_cli_attr(monkeypatch, "_write_jsonl_rows", lambda *_: None)
-    _patch_cli_attr(
-        monkeypatch,
-        "evaluate_stage_blocks",
-        lambda **_kwargs: _empty_stage_block_eval_result(),
-    )
+    if _is_repo_default("evaluate_source_rows"):
+        _patch_cli_attr(
+            monkeypatch,
+            "evaluate_source_rows",
+            lambda **_kwargs: _empty_source_row_eval_result(),
+        )
+    if _is_repo_default("format_source_row_eval_report_md"):
+        _patch_cli_attr(monkeypatch, "format_source_row_eval_report_md", lambda *_: "report")
     _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
     if capture_csv is None:
         monkeypatch.setattr(
@@ -374,11 +399,11 @@ def _write_fake_all_method_prediction_phase_artifacts(
                     example_id=f"all-method:{source_file.name}:{record_text}:0",
                     example_index=0,
                     prediction={
-                        "schema_kind": "stage-block.v1",
-                        "block_index": 0,
+                        "schema_kind": "semantic-row.v1",
+                        "row_index": 0,
                         "pred_label": "RECIPE_TITLE",
-                        "block_text": f"pred::{record_text}",
-                        "block_features": {"signature_seed": record_text},
+                        "row_text": f"pred::{record_text}",
+                        "row_features": {"signature_seed": record_text},
                     },
                     predict_meta={
                         "source_file": str(source_file),
@@ -484,7 +509,7 @@ def _fake_offline_prediction_stage(
         pred_context=cli.PredRunContext(
             recipes=1,
             processed_report_path="",
-            stage_block_predictions_path="",
+            semantic_row_predictions_path="",
             extracted_archive_path="",
             source_file=str(source_file),
             source_hash=f"source-{source_file.stem}",
@@ -497,7 +522,7 @@ def _fake_offline_prediction_stage(
             tokens_reasoning=None,
             tokens_total=None,
         ),
-        stage_predictions_path=eval_output_dir / "prediction-run" / "stage_block_predictions.json",
+        stage_predictions_path=eval_output_dir / "prediction-run" / "semantic_row_predictions.json",
         extracted_archive_path=eval_output_dir / "prediction-run" / "extracted_archive.json",
         prediction_phase_seconds=prediction_seconds,
     )

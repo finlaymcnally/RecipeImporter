@@ -40,7 +40,7 @@ def test_labelstudio_benchmark_passes_processed_output_root(
             "tasks_uploaded": 1,
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11-00-00-00",
-            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "semantic_row_predictions_path": prediction_run / "semantic_row_predictions.json",
             "extracted_archive_path": prediction_run / "extracted_archive.json",
         }
 
@@ -134,7 +134,7 @@ def _run_eval_output_dir_prediction_fixture(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
-            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "semantic_row_predictions_path": prediction_run / "semantic_row_predictions.json",
             "extracted_archive_path": prediction_run / "extracted_archive.json",
             "run_config": {
                 "selective_retry_attempted": True,
@@ -282,7 +282,7 @@ def test_labelstudio_benchmark_predictions_out_writes_prediction_record(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
-            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "semantic_row_predictions_path": prediction_run / "semantic_row_predictions.json",
             "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {"prediction_seconds": 1.5},
         },
@@ -304,10 +304,10 @@ def test_labelstudio_benchmark_predictions_out_writes_prediction_record(
     records = list(read_prediction_records(predictions_out))
     assert len(records) == 1
     record = records[0]
-    assert record.prediction["schema_kind"] == "stage-block.v1"
-    assert record.prediction["block_index"] == 0
+    assert record.prediction["schema_kind"] == "semantic-row.v1"
+    assert record.prediction["row_index"] == 0
     assert record.prediction["pred_label"] == "RECIPE_TITLE"
-    assert record.prediction["block_text"] == "Sample title"
+    assert record.prediction["row_text"] == "Sample title"
     assert record.predict_meta["source_file"] == str(source_file)
     run_manifest = json.loads((eval_root / "run_manifest.json").read_text(encoding="utf-8"))
     assert "prediction_record_output_jsonl" in run_manifest["artifacts"]
@@ -327,11 +327,11 @@ def _run_predictions_in_evaluate_only_fixture(
                 example_id="labelstudio-benchmark:hash-123:block:0",
                 example_index=0,
                 prediction={
-                    "schema_kind": "stage-block.v1",
-                    "block_index": 0,
+                    "schema_kind": "semantic-row.v1",
+                    "row_index": 0,
                     "pred_label": "RECIPE_TITLE",
-                    "block_text": "Sample title",
-                    "block_features": {"extraction_backend": "unstructured"},
+                    "row_text": "Sample title",
+                    "row_features": {"extraction_backend": "unstructured"},
                 },
                 predict_meta={
                     "source_file": str(source_file),
@@ -364,7 +364,7 @@ def _run_predictions_in_evaluate_only_fixture(
 
     captured_eval: dict[str, object] = {}
 
-    def _fake_evaluate_stage_blocks(**kwargs):
+    def _fake_evaluate_source_rows(**kwargs):
         captured_eval.update(kwargs)
         return {
             "report": {
@@ -391,7 +391,7 @@ def _run_predictions_in_evaluate_only_fixture(
             "false_positive_preds": [],
         }
 
-    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks", _fake_evaluate_stage_blocks)
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows", _fake_evaluate_source_rows)
     _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
     monkeypatch.setattr(
         "cookimport.analytics.perf_report.append_benchmark_csv",
@@ -410,13 +410,13 @@ def _run_predictions_in_evaluate_only_fixture(
 
     replay_dir = eval_root / ".prediction-record-replay"
     assert captured_eval["stage_predictions_json"] == (
-        replay_dir / "stage_block_predictions.from_records.json"
+        replay_dir / "semantic_row_predictions.from_records.json"
     )
     assert captured_eval["extracted_blocks_json"] == (
         replay_dir / "extracted_archive.from_records.json"
     )
     replay_stage_payload = json.loads(
-        (replay_dir / "stage_block_predictions.from_records.json").read_text(
+        (replay_dir / "semantic_row_predictions.from_records.json").read_text(
             encoding="utf-8"
         )
     )
@@ -438,7 +438,7 @@ def test_labelstudio_benchmark_predictions_in_replays_stage_inputs(
     replay_stage_payload = fixture["replay_stage_payload"]
 
     assert captured_eval["stage_predictions_json"] == (
-        replay_dir / "stage_block_predictions.from_records.json"
+        replay_dir / "semantic_row_predictions.from_records.json"
     )
     assert captured_eval["extracted_blocks_json"] == (
         replay_dir / "extracted_archive.from_records.json"
@@ -464,12 +464,12 @@ def test_labelstudio_benchmark_predictions_in_rejects_legacy_run_pointer_record(
     gold_spans.write_text("{}\n", encoding="utf-8")
     prediction_run = tmp_path / "pred-run"
     prediction_run.mkdir(parents=True, exist_ok=True)
-    stage_predictions_path = prediction_run / "stage_block_predictions.json"
+    stage_predictions_path = prediction_run / "semantic_row_predictions.json"
     extracted_archive_path = prediction_run / "extracted_archive.json"
     stage_predictions_path.write_text(
         json.dumps(
             {
-                "schema_version": "stage_block_predictions.v1",
+                "schema_version": "semantic_row_predictions.v1",
                 "block_count": 1,
                 "block_labels": {"0": "OTHER"},
             },
@@ -491,7 +491,7 @@ def test_labelstudio_benchmark_predictions_in_rejects_legacy_run_pointer_record(
                 example_index=0,
                 prediction={
                     "pred_run_dir": str(prediction_run),
-                    "stage_block_predictions_path": str(stage_predictions_path),
+                    "semantic_row_predictions_path": str(stage_predictions_path),
                     "extracted_archive_path": str(extracted_archive_path),
                 },
                 predict_meta={
@@ -505,7 +505,7 @@ def test_labelstudio_benchmark_predictions_in_rejects_legacy_run_pointer_record(
 
     captured_eval: dict[str, object] = {}
 
-    def _fake_evaluate_stage_blocks(**kwargs):
+    def _fake_evaluate_source_rows(**kwargs):
         captured_eval.update(kwargs)
         return {
             "report": {
@@ -532,7 +532,7 @@ def test_labelstudio_benchmark_predictions_in_rejects_legacy_run_pointer_record(
             "false_positive_preds": [],
         }
 
-    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks", _fake_evaluate_stage_blocks)
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows", _fake_evaluate_source_rows)
     _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
     monkeypatch.setattr(
         "cookimport.analytics.perf_report.append_benchmark_csv",
@@ -558,11 +558,11 @@ def test_build_prediction_bundle_uses_manifest_canonical_scoring_pointers(
     prediction_run = tmp_path / "prediction-run"
     prediction_run.mkdir(parents=True, exist_ok=True)
 
-    default_stage_predictions_path = prediction_run / "stage_block_predictions.json"
+    default_stage_predictions_path = prediction_run / "semantic_row_predictions.json"
     default_stage_predictions_path.write_text(
         json.dumps(
             {
-                "schema_version": "stage_block_predictions.v1",
+                "schema_version": "semantic_row_predictions.v1",
                 "block_count": 1,
                 "block_labels": {"0": "OTHER"},
             },
@@ -578,11 +578,11 @@ def test_build_prediction_bundle_uses_manifest_canonical_scoring_pointers(
 
     line_role_dir = prediction_run / "line-role-pipeline"
     line_role_dir.mkdir(parents=True, exist_ok=True)
-    line_role_stage_predictions_path = line_role_dir / "stage_block_predictions.json"
+    line_role_stage_predictions_path = line_role_dir / "semantic_row_predictions.json"
     line_role_stage_predictions_path.write_text(
         json.dumps(
             {
-                "schema_version": "stage_block_predictions.v1",
+                "schema_version": "semantic_row_predictions.v1",
                 "block_count": 1,
                 "block_labels": {"0": "RECIPE_TITLE"},
             },
@@ -604,7 +604,7 @@ def test_build_prediction_bundle_uses_manifest_canonical_scoring_pointers(
                 "run_config": {"line_role_pipeline": "deterministic-route-v2"},
                 # New contract: manifest's stage/extracted pointers are the one
                 # canonical scoring surface regardless of diagnostics artifacts.
-                "stage_block_predictions_path": str(line_role_stage_predictions_path),
+                "semantic_row_predictions_path": str(line_role_stage_predictions_path),
                 "extracted_archive_path": str(line_role_extracted_archive_path),
             },
             sort_keys=True,
@@ -641,16 +641,16 @@ def test_labelstudio_benchmark_manifest_omits_removed_mode_fields(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
-            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "semantic_row_predictions_path": prediction_run / "semantic_row_predictions.json",
             "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {"prediction_seconds": 2.0},
         },
     )
     _install_noop_benchmark_eval_mocks(monkeypatch)
-    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows",
         lambda **_kwargs: {
             "report": {
-                **_empty_stage_block_eval_result()["report"],
+                **_empty_source_row_eval_result()["report"],
                 "counts": {
                     "gold_total": 1,
                     "pred_total": 1,
@@ -716,7 +716,7 @@ def test_labelstudio_benchmark_prints_predicted_recipe_count_without_name_error(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
-            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "semantic_row_predictions_path": prediction_run / "semantic_row_predictions.json",
             "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {"prediction_seconds": 2.0},
         },
@@ -724,10 +724,10 @@ def test_labelstudio_benchmark_prints_predicted_recipe_count_without_name_error(
     _install_noop_benchmark_eval_mocks(monkeypatch)
     _patch_cli_attr(
         monkeypatch,
-        "evaluate_stage_blocks",
+        "evaluate_source_rows",
         lambda **_kwargs: {
             "report": {
-                **_empty_stage_block_eval_result()["report"],
+                **_empty_source_row_eval_result()["report"],
                 "recipe_counts": {"predicted_recipe_count": "7"},
             },
             "missed_gold": [],
@@ -772,15 +772,15 @@ def _run_offline_prediction_stage_fixture(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
-            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "semantic_row_predictions_path": prediction_run / "semantic_row_predictions.json",
             "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {"prediction_seconds": 1.25},
         },
     )
-    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError(
-                "internal skip-evaluation mode must not run stage-block evaluation."
+                "internal skip-evaluation mode must not run source-row evaluation."
             )
         ),
     )
@@ -969,10 +969,10 @@ def _run_interrupt_partial_artifacts_fixture(
             json.dumps([{"index": 0, "text": "Sample title"}], sort_keys=True),
             encoding="utf-8",
         )
-        (pred_run / "stage_block_predictions.json").write_text(
+        (pred_run / "semantic_row_predictions.json").write_text(
             json.dumps(
                 {
-                    "schema_version": "stage_block_predictions.v1",
+                    "schema_version": "semantic_row_predictions.v1",
                     "block_count": 1,
                     "block_labels": {"0": "RECIPE_TITLE"},
                 },
@@ -998,7 +998,7 @@ def _run_interrupt_partial_artifacts_fixture(
             "run_root": pred_run,
             "processed_run_root": tmp_path / "processed" / "2026-03-20_12.00.00",
             "processed_report_path": "",
-            "stage_block_predictions_path": pred_run / "stage_block_predictions.json",
+            "semantic_row_predictions_path": pred_run / "semantic_row_predictions.json",
             "extracted_archive_path": pred_run / "extracted_archive.json",
             "timing": {"prediction_seconds": 1.25},
         }

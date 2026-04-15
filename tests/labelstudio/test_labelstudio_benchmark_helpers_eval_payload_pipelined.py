@@ -34,7 +34,7 @@ def test_labelstudio_benchmark_pipelined_mode_skips_canonical_prewarm_for_row_ev
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
-            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "semantic_row_predictions_path": prediction_run / "semantic_row_predictions.json",
             "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {"prediction_seconds": 0.4},
         }
@@ -109,7 +109,7 @@ def _run_pipelined_streaming_fixture(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
-            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "semantic_row_predictions_path": prediction_run / "semantic_row_predictions.json",
             "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {"prediction_seconds": 0.2},
         },
@@ -139,11 +139,11 @@ def _run_pipelined_streaming_fixture(
             example_id="labelstudio-benchmark:hash-123:block:0",
             example_index=0,
             prediction={
-                "schema_kind": "stage-block.v1",
-                "block_index": 0,
+                "schema_kind": "semantic-row.v1",
+                "row_index": 0,
                 "pred_label": "RECIPE_TITLE",
-                "block_text": "Title",
-                "block_features": {"extraction_backend": "unstructured"},
+                "row_text": "Title",
+                "row_features": {"extraction_backend": "unstructured"},
             },
             predict_meta=predict_meta,
         )
@@ -152,11 +152,11 @@ def _run_pipelined_streaming_fixture(
             example_id="labelstudio-benchmark:hash-123:block:1",
             example_index=1,
             prediction={
-                "schema_kind": "stage-block.v1",
-                "block_index": 1,
+                "schema_kind": "semantic-row.v1",
+                "row_index": 1,
                 "pred_label": "OTHER",
-                "block_text": "Body",
-                "block_features": {"extraction_backend": "unstructured"},
+                "row_text": "Body",
+                "row_features": {"extraction_backend": "unstructured"},
             },
             predict_meta=predict_meta,
         )
@@ -166,7 +166,7 @@ def _run_pipelined_streaming_fixture(
 
     captured_eval: dict[str, object] = {}
 
-    def _fake_evaluate_stage_blocks(**kwargs):
+    def _fake_evaluate_source_rows(**kwargs):
         captured_eval.update(kwargs)
         return {
             "report": {
@@ -194,7 +194,7 @@ def _run_pipelined_streaming_fixture(
         }
 
     _install_noop_benchmark_eval_mocks(monkeypatch)
-    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks", _fake_evaluate_stage_blocks)
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows", _fake_evaluate_source_rows)
     _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
 
     eval_root = tmp_path / "eval-pipelined-streaming"
@@ -235,10 +235,10 @@ def test_labelstudio_benchmark_pipelined_mode_replays_streamed_records_for_eval(
     captured_eval = fixture["captured_eval"]
 
     assert captured_eval["stage_predictions_json"] == (
-        replay_dir / "stage_block_predictions.from_records.json"
+        replay_dir / "semantic_row_predictions.from_records.json"
     )
     replay_payload = json.loads(
-        (replay_dir / "stage_block_predictions.from_records.json").read_text(
+        (replay_dir / "semantic_row_predictions.from_records.json").read_text(
             encoding="utf-8"
         )
     )
@@ -263,7 +263,7 @@ def test_labelstudio_benchmark_pipelined_mode_propagates_consumer_stream_errors(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
-            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "semantic_row_predictions_path": prediction_run / "semantic_row_predictions.json",
             "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {"prediction_seconds": 0.2},
         },
@@ -280,17 +280,17 @@ def test_labelstudio_benchmark_pipelined_mode_propagates_consumer_stream_errors(
             example_index=0,
             prediction={
                 "schema_kind": "unsupported-kind.v1",
-                "block_index": 0,
+                "row_index": 0,
                 "pred_label": "RECIPE_TITLE",
-                "block_text": "Title",
-                "block_features": {},
+                "row_text": "Title",
+                "row_features": {},
             },
             predict_meta=predict_meta,
         )
 
     _patch_cli_attr(monkeypatch, "predict_stage", _invalid_streaming_predict_stage)
     _install_noop_benchmark_eval_mocks(monkeypatch)
-    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("Evaluation should not run when streaming consumer fails.")
         ),
@@ -336,7 +336,7 @@ def _run_canonical_text_pipelined_fixture(
             "run_config": {"workers": 1, "line_role_pipeline": "deterministic-route-v2"},
             "run_config_hash": "cfg-hash",
             "run_config_summary": "workers=1",
-            "stage_block_predictions_path": str(line_role_paths["stage_predictions_path"]),
+            "semantic_row_predictions_path": str(line_role_paths["stage_predictions_path"]),
             "extracted_archive_path": str(line_role_paths["extracted_archive_path"]),
         },
     )
@@ -345,13 +345,13 @@ def _run_canonical_text_pipelined_fixture(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
-            "stage_block_predictions_path": line_role_paths["stage_predictions_path"],
+            "semantic_row_predictions_path": line_role_paths["stage_predictions_path"],
             "extracted_archive_path": line_role_paths["extracted_archive_path"],
         },
     )
-    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows",
         lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("Canonical mode should not call stage-block evaluator.")
+            AssertionError("Canonical mode should not call source-row evaluator.")
         ),
     )
 
@@ -451,17 +451,15 @@ def test_labelstudio_benchmark_source_rows_mode_uses_row_evaluator(
     fixture = _run_canonical_text_pipelined_fixture(monkeypatch, tmp_path)
     captured_eval = fixture["captured_eval"]
     eval_root = fixture["eval_root"]
-    line_role_stage_predictions_path = fixture["line_role_stage_predictions_path"]
 
     assert captured_eval["gold_export_root"] == (tmp_path / "gold" / "exports")
     replay_stage_predictions_path = (
         eval_root
         / ".prediction-record-replay"
         / "pipelined"
-        / "stage_block_predictions.from_records.json"
+        / "semantic_row_predictions.from_records.json"
     )
-    assert captured_eval["stage_predictions_json"] == line_role_stage_predictions_path
-    assert captured_eval["stage_predictions_json"] != replay_stage_predictions_path
+    assert captured_eval["stage_predictions_json"] == replay_stage_predictions_path
     replay_payload = json.loads(
         replay_stage_predictions_path.read_text(encoding="utf-8")
     )
@@ -522,13 +520,13 @@ def test_labelstudio_benchmark_captures_eval_profile_artifacts_when_enabled(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
-            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "semantic_row_predictions_path": prediction_run / "semantic_row_predictions.json",
             "extracted_archive_path": prediction_run / "extracted_archive.json",
         },
     )
-    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows",
         lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("Canonical mode should not call stage-block evaluator.")
+            AssertionError("Canonical mode should not call source-row evaluator.")
         ),
     )
 
@@ -646,7 +644,7 @@ def test_labelstudio_benchmark_writes_eval_timing_and_passes_csv_timing(
     )
     _patch_cli_attr(monkeypatch, "format_freeform_eval_report_md", lambda *_: "report")
     _patch_cli_attr(monkeypatch, "_write_jsonl_rows", lambda *_: None)
-    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows",
         lambda **_kwargs: {
             "report": {
                 "counts": {
@@ -689,7 +687,7 @@ def test_labelstudio_benchmark_writes_eval_timing_and_passes_csv_timing(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11_00.00.00",
             "processed_report_path": "",
-            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "semantic_row_predictions_path": prediction_run / "semantic_row_predictions.json",
             "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {
                 "total_seconds": 9.0,

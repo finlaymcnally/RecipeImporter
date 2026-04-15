@@ -448,15 +448,15 @@ def test_generate_pred_run_artifacts_line_role_projection_prefers_projection_for
 
     projected_spans_path = result["line_role_pipeline_projected_spans_path"]
     assert projected_spans_path is not None and projected_spans_path.exists()
-    projected_stage_path = projected_spans_path.parent / "stage_block_predictions.json"
+    projected_stage_path = projected_spans_path.parent / "semantic_row_predictions.json"
     projected_archive_path = projected_spans_path.parent / "extracted_archive.json"
     assert projected_stage_path.exists()
     assert projected_archive_path.exists()
     processed_run_root = Path(result["processed_run_root"])
     processed_stage_path = (
-        processed_run_root / ".bench" / "book" / "stage_block_predictions.json"
+        processed_run_root / ".bench" / "book" / "semantic_row_predictions.json"
     )
-    mirrored_stage_path = Path(result["stage_block_predictions_path"])
+    mirrored_stage_path = Path(result["semantic_row_predictions_path"])
     assert mirrored_stage_path == projected_stage_path
     assert result["extracted_archive_path"] == projected_archive_path
     assert processed_stage_path.exists()
@@ -604,7 +604,7 @@ def _build_authoritative_atomic_projection_fixture(tmp_path: Path) -> dict[str, 
             artifacts["extracted_archive_path"].read_text(encoding="utf-8")
         ),
         "stage_payload": json.loads(
-            artifacts["stage_block_predictions_path"].read_text(encoding="utf-8")
+            artifacts["semantic_row_predictions_path"].read_text(encoding="utf-8")
         ),
         "summary": summary,
     }
@@ -785,7 +785,7 @@ def _build_final_nonrecipe_authority_fixture(
     def _fake_execute_stage_import_session_from_result(**kwargs):
         run_root = kwargs["run_root"]
         run_root.mkdir(parents=True, exist_ok=True)
-        stage_predictions_path = run_root / ".bench" / "book" / "stage_block_predictions.json"
+        stage_predictions_path = run_root / ".bench" / "book" / "semantic_row_predictions.json"
         stage_predictions_path.parent.mkdir(parents=True, exist_ok=True)
         stage_predictions_path.write_text(
             json.dumps(
@@ -818,7 +818,7 @@ def _build_final_nonrecipe_authority_fixture(
             importer_name="fake",
             conversion_result=result,
             report_path=report_path,
-            stage_block_predictions_path=stage_predictions_path,
+            semantic_row_predictions_path=stage_predictions_path,
             run_config={"write_markdown": kwargs.get("write_markdown")},
             run_config_hash=None,
             run_config_summary=None,
@@ -883,7 +883,7 @@ def test_generate_pred_run_artifacts_processed_output_reuses_final_nonrecipe_aut
     assert isinstance(result, dict)
 
     stage_payload = json.loads(
-        Path(result["stage_block_predictions_path"]).read_text(encoding="utf-8")
+        Path(result["semantic_row_predictions_path"]).read_text(encoding="utf-8")
     )
     assert stage_payload["block_labels"]["2"] == "KNOWLEDGE"
 
@@ -1226,7 +1226,7 @@ def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_r
     assert balancing_fat_row["label"] == "NONRECIPE_CANDIDATE"
 
     stage_payload = json.loads(
-        artifacts["stage_block_predictions_path"].read_text(encoding="utf-8")
+        artifacts["semantic_row_predictions_path"].read_text(encoding="utf-8")
     )
     assert stage_payload["block_labels"]["2"] == "OTHER"
     assert stage_payload["unresolved_candidate_block_indices"] == [2]
@@ -1402,7 +1402,7 @@ def test_line_role_stage_payload_overrides_outside_recipe_howto_with_final_autho
     assert route_rows[0]["label"] == "HOWTO_SECTION"
 
     stage_payload = json.loads(
-        artifacts["stage_block_predictions_path"].read_text(encoding="utf-8")
+        artifacts["semantic_row_predictions_path"].read_text(encoding="utf-8")
     )
     assert stage_payload["block_labels"]["0"] == "KNOWLEDGE"
     assert stage_payload["unresolved_candidate_block_indices"] == []
@@ -1733,7 +1733,7 @@ def test_generate_pred_run_artifacts_writes_authoritative_line_role_artifacts_af
             authoritative_calls.append(1) or {
                 "line_role_predictions_path": tmp_path / "line_role_predictions.jsonl",
                 "projected_spans_path": tmp_path / "projected_spans.jsonl",
-                "stage_block_predictions_path": tmp_path / "stage_block_predictions.json",
+                "semantic_row_predictions_path": tmp_path / "semantic_row_predictions.json",
                 "extracted_archive_path": tmp_path / "extracted_archive.json",
             },
             {
@@ -1866,7 +1866,7 @@ def test_generate_pred_run_artifacts_passes_write_markdown_to_processed_outputs(
         captured["write_markdown"] = kwargs.get("write_markdown")
         run_root = tmp_path / "processed-output" / "2026-03-03_02.00.00"
         run_root.mkdir(parents=True, exist_ok=True)
-        stage_predictions_path = run_root / ".bench" / "book" / "stage_block_predictions.json"
+        stage_predictions_path = run_root / ".bench" / "book" / "semantic_row_predictions.json"
         stage_predictions_path.parent.mkdir(parents=True, exist_ok=True)
         stage_predictions_path.write_text(
             json.dumps(
@@ -1895,7 +1895,7 @@ def test_generate_pred_run_artifacts_passes_write_markdown_to_processed_outputs(
             importer_name="fake",
             conversion_result=result,
             report_path=report_path,
-            stage_block_predictions_path=stage_predictions_path,
+            semantic_row_predictions_path=stage_predictions_path,
             run_config={"write_markdown": kwargs.get("write_markdown")},
             run_config_hash=None,
             run_config_summary=None,
@@ -2051,10 +2051,10 @@ def test_generate_pred_run_artifacts_markdown_toggle_keeps_stage_predictions_ide
         write_label_studio_tasks=False,
     )
 
-    assert with_markdown["stage_block_predictions_path"] is not None
-    assert without_markdown["stage_block_predictions_path"] is not None
-    with_stage_path = Path(with_markdown["stage_block_predictions_path"])
-    without_stage_path = Path(without_markdown["stage_block_predictions_path"])
+    assert with_markdown["semantic_row_predictions_path"] is not None
+    assert without_markdown["semantic_row_predictions_path"] is not None
+    with_stage_path = Path(with_markdown["semantic_row_predictions_path"])
+    without_stage_path = Path(without_markdown["semantic_row_predictions_path"])
     with_stage_payload = json.loads(with_stage_path.read_text(encoding="utf-8"))
     without_stage_payload = json.loads(without_stage_path.read_text(encoding="utf-8"))
     assert with_stage_payload == without_stage_payload

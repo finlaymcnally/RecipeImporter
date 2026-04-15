@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import typer
-
-from cookimport.bench.eval_stage_blocks import evaluate_stage_blocks
 from cookimport.cli_support import (
     Annotated,
     Any,
@@ -1730,149 +1728,6 @@ def register(app: typer.Typer) -> dict[str, object]:
                 fg=typer.colors.CYAN,
             )
 
-    @app.command("eval-stage")
-    def bench_eval_stage(
-        gold_spans: Path = typer.Option(
-            ...,
-            "--gold-spans",
-            help="Path to exported freeform_span_labels.jsonl gold file.",
-        ),
-        stage_run: Path = typer.Option(
-            ...,
-            "--stage-run",
-            help="Path to a stage run directory (for example data/output/<timestamp>).",
-        ),
-        workbook_slug: str | None = typer.Option(
-            None,
-            "--workbook-slug",
-            help="Workbook folder name under .bench (required when stage run contains multiple workbooks).",
-        ),
-        extracted_archive: Path | None = typer.Option(
-            None,
-            "--extracted-archive",
-            help="Optional extracted archive JSON path. Defaults to stage run raw/**/full_text.json when unique.",
-        ),
-        out_dir: Path | None = typer.Option(
-            None,
-            "--out-dir",
-            help="Output directory for eval artifacts. Defaults to data/golden/benchmark/<timestamp>/.",
-        ),
-        label_projection: str = typer.Option(
-            "core_structural_v1",
-            "--label-projection",
-            help=(
-                "Segmentation label projection used for boundary diagnostics "
-                "(core_structural_v1 only)."
-            ),
-        ),
-        boundary_tolerance_blocks: int = typer.Option(
-            0,
-            "--boundary-tolerance-blocks",
-            min=0,
-            help="Boundary matching tolerance (in block indices) for segmentation metrics.",
-        ),
-        segmentation_metrics: str = typer.Option(
-            "boundary_f1",
-            "--segmentation-metrics",
-            help=(
-                "Comma-separated segmentation metrics to compute. "
-                "Supported: boundary_f1,pk,windowdiff,boundary_similarity."
-            ),
-        ),
-        gold_adaptation_mode: str = typer.Option(
-            "auto",
-            "--gold-adaptation-mode",
-            help=(
-                "Gold remap policy for stage-block evaluation: off (strict), "
-                "auto (adapt when fingerprints drift), force (always adapt)."
-            ),
-        ),
-        gold_adaptation_min_coverage: float = typer.Option(
-            0.7,
-            "--gold-adaptation-min-coverage",
-            min=0.0,
-            max=1.0,
-            help="Minimum remap coverage required when adaptive mode runs.",
-        ),
-        gold_adaptation_max_ambiguous: int = typer.Option(
-            50,
-            "--gold-adaptation-max-ambiguous",
-            min=0,
-            help="Maximum ambiguous remap assignments allowed.",
-        ),
-    ) -> None:
-        if not gold_spans.exists() or not gold_spans.is_file():
-            _fail(f"Gold spans file not found: {gold_spans}")
-        if not stage_run.exists() or not stage_run.is_dir():
-            _fail(f"Stage run folder not found: {stage_run}")
-
-        stage_prediction_files = sorted(
-            stage_run.glob(".bench/*/stage_block_predictions.json")
-        )
-        if not stage_prediction_files:
-            _fail(
-                "No stage block prediction manifests found under "
-                f"{stage_run / '.bench'}."
-            )
-
-        stage_predictions_path: Path
-        if workbook_slug:
-            stage_predictions_path = (
-                stage_run / ".bench" / workbook_slug / "stage_block_predictions.json"
-            )
-            if not stage_predictions_path.exists():
-                _fail(
-                    "Stage block predictions not found for workbook "
-                    f"{workbook_slug}: {stage_predictions_path}"
-                )
-        elif len(stage_prediction_files) == 1:
-            stage_predictions_path = stage_prediction_files[0]
-        else:
-            choices = ", ".join(path.parent.name for path in stage_prediction_files)
-            _fail(
-                "Stage run contains multiple workbooks. "
-                f"Pass --workbook-slug. Choices: {choices}"
-            )
-
-        extracted_archive_path = extracted_archive
-        if extracted_archive_path is None:
-            candidates = sorted(stage_run.glob("raw/**/full_text.json"))
-            if len(candidates) == 1:
-                extracted_archive_path = candidates[0]
-            else:
-                _fail(
-                    "Could not auto-resolve extracted archive. "
-                    "Pass --extracted-archive explicitly."
-                )
-        if not extracted_archive_path.exists() or not extracted_archive_path.is_file():
-            _fail(f"Extracted archive not found: {extracted_archive_path}")
-
-        if out_dir is None:
-            out_dir = _golden_benchmark_root() / dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            selected_gold_adaptation_mode = _normalize_gold_adaptation_mode(
-                gold_adaptation_mode
-            )
-            result = evaluate_stage_blocks(
-                gold_freeform_jsonl=gold_spans,
-                stage_predictions_json=stage_predictions_path,
-                extracted_blocks_json=extracted_archive_path,
-                out_dir=out_dir,
-                label_projection=label_projection,
-                boundary_tolerance_blocks=boundary_tolerance_blocks,
-                segmentation_metrics=segmentation_metrics,
-                gold_adaptation_mode=selected_gold_adaptation_mode,
-                gold_adaptation_min_coverage=float(gold_adaptation_min_coverage),
-                gold_adaptation_max_ambiguous=int(gold_adaptation_max_ambiguous),
-            )
-        except Exception as exc:  # noqa: BLE001
-            _fail(str(exc))
-
-        report = result.get("report") if isinstance(result, dict) else {}
-        typer.secho("Stage evaluation complete.", fg=typer.colors.GREEN)
-        typer.secho(f"Stage predictions: {stage_predictions_path}", fg=typer.colors.CYAN)
         typer.secho(f"Report: {out_dir / 'eval_report.md'}", fg=typer.colors.CYAN)
         typer.secho(
             "Overall block accuracy: "
@@ -1899,7 +1754,6 @@ def register(app: typer.Typer) -> dict[str, object]:
         "bench_quality_run": bench_quality_run,
         "bench_quality_compare": bench_quality_compare,
         "bench_quality_leaderboard": bench_quality_leaderboard,
-        "bench_eval_stage": bench_eval_stage,
     }
     globals().update(exports)
     return exports

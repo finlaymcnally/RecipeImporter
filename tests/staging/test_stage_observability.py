@@ -82,8 +82,8 @@ def test_build_stage_observability_report_for_knowledge_enabled_run(tmp_path: Pa
     run_root = tmp_path / "run"
     llm_root = run_root / "raw" / "llm" / "book"
     (llm_root / "knowledge" / "in").mkdir(parents=True)
-    (run_root / "08_nonrecipe_route.json").write_text("{}", encoding="utf-8")
-    (run_root / "09_nonrecipe_authority.json").write_text("{}", encoding="utf-8")
+    (run_root / "08_nonrecipe_row_route.json").write_text("{}", encoding="utf-8")
+    (run_root / "09_nonrecipe_row_authority.json").write_text("{}", encoding="utf-8")
     (run_root / "09_nonrecipe_finalize_status.json").write_text("{}", encoding="utf-8")
     _write_json(
         llm_root / KNOWLEDGE_MANIFEST_FILE_NAME,
@@ -128,7 +128,7 @@ def test_build_stage_observability_report_orders_recipe_pipeline_before_nonrecip
             "process_runs": {"recipe_correction": {}},
         },
     )
-    (run_root / "08_nonrecipe_route.json").write_text("{}", encoding="utf-8")
+    (run_root / "08_nonrecipe_row_route.json").write_text("{}", encoding="utf-8")
     (run_root / "08_nonrecipe_exclusions.jsonl").write_text("", encoding="utf-8")
     (llm_root / "knowledge" / "in").mkdir(parents=True, exist_ok=True)
     _write_json(
@@ -454,7 +454,7 @@ def test_build_stage_observability_report_surfaces_processing_attention_summarie
             ]
         },
     )
-    (run_root / "08_nonrecipe_route.json").write_text("{}", encoding="utf-8")
+    (run_root / "08_nonrecipe_row_route.json").write_text("{}", encoding="utf-8")
     (run_root / "08_nonrecipe_exclusions.jsonl").write_text(
         json.dumps(
             {

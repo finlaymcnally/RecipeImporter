@@ -274,7 +274,7 @@ def test_build_shard_recommendations_from_prep_bundle_exposes_context_and_book_k
         prediction_run_root=artifact_root / "prediction-run",
         conversion_result_path=artifact_root / "conversion_result.json",
         processed_report_path=None,
-        stage_block_predictions_path=None,
+        semantic_row_predictions_path=None,
         cache_hit=True,
         timing={},
         deterministic_settings={},
@@ -415,7 +415,7 @@ def test_build_shard_recommendations_from_prep_bundle_rebuilds_stale_preview_man
         prediction_run_root=artifact_root / "prediction-run",
         conversion_result_path=artifact_root / "conversion_result.json",
         processed_report_path=None,
-        stage_block_predictions_path=None,
+        semantic_row_predictions_path=None,
         cache_hit=True,
         timing={},
         deterministic_settings={},
@@ -918,7 +918,7 @@ def test_load_recipe_boundary_result_from_deterministic_prep_bundle_prefers_sour
 
     ownership_dir = processed_run_root / "recipe_authority" / workbook_slug
     ownership_dir.mkdir(parents=True, exist_ok=True)
-    (ownership_dir / "recipe_block_ownership.json").write_text(
+    (ownership_dir / "recipe_row_ownership.json").write_text(
         json.dumps(
             {
                 "ownership_mode": "recipe_boundary",
@@ -1001,7 +1001,7 @@ def test_load_recipe_boundary_result_from_deterministic_prep_bundle_prefers_sour
         prediction_run_root=artifact_root / "prediction-run",
         conversion_result_path=conversion_result_path,
         processed_report_path=None,
-        stage_block_predictions_path=None,
+        semantic_row_predictions_path=None,
         cache_hit=True,
         timing={},
         deterministic_settings={},
@@ -1141,7 +1141,7 @@ def test_load_recipe_boundary_result_from_deterministic_prep_bundle_reads_line_r
     )
     recipe_authority_dir = processed_run_root / "recipe_authority" / workbook_slug
     recipe_authority_dir.mkdir(parents=True, exist_ok=True)
-    (recipe_authority_dir / "recipe_block_ownership.json").write_text(
+    (recipe_authority_dir / "recipe_row_ownership.json").write_text(
         json.dumps(
             {
                 "ownership_mode": "recipe_boundary",
@@ -1184,7 +1184,7 @@ def test_load_recipe_boundary_result_from_deterministic_prep_bundle_reads_line_r
         prediction_run_root=artifact_root / "prediction-run",
         conversion_result_path=conversion_result_path,
         processed_report_path=None,
-        stage_block_predictions_path=None,
+        semantic_row_predictions_path=None,
         cache_hit=True,
         timing={},
         deterministic_settings={},

@@ -349,7 +349,7 @@ def _load_nonrecipe_authority_by_block_index(
         return {}, {}, None
     artifacts = manifest_payload.get("artifacts")
     if not isinstance(artifacts, dict):
-        return {}, None
+        return {}, {}, None
     candidate_dirs: list[Path] = []
     for key in ("processed_output_run_dir", "stage_run_dir"):
         raw_value = artifacts.get(key)
@@ -360,9 +360,11 @@ def _load_nonrecipe_authority_by_block_index(
             candidate = (manifest_path.parent / candidate).resolve()
         candidate_dirs.append(candidate)
     for candidate_dir in candidate_dirs:
-        authority_path = candidate_dir / "09_nonrecipe_authority.json"
+        authority_path = candidate_dir / "09_nonrecipe_row_authority.json"
         if not authority_path.exists() or not authority_path.is_file():
-            continue
+            authority_path = candidate_dir / "09_nonrecipe_authority.json"
+            if not authority_path.exists() or not authority_path.is_file():
+                continue
         try:
             payload = json.loads(authority_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):

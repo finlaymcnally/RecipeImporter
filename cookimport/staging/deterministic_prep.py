@@ -91,12 +91,16 @@ class DeterministicPrepBundleResult:
     prediction_run_root: Path
     conversion_result_path: Path
     processed_report_path: Path | None
-    stage_block_predictions_path: Path | None
+    semantic_row_predictions_path: Path | None
     cache_hit: bool
     timing: dict[str, float]
     deterministic_settings: dict[str, Any]
     book_cache_root: Path | None = None
     conversion_cache_summary: dict[str, Any] | None = None
+
+    @property
+    def stage_block_predictions_path(self) -> Path | None:
+        return self.semantic_row_predictions_path
 
 
 def _coerce_float(value: Any) -> float | None:
@@ -244,7 +248,9 @@ def _bundle_result_from_manifest(
         return None
     processed_report_raw = str(manifest.get("processed_report_path") or "").strip()
     stage_predictions_raw = str(
-        manifest.get("stage_block_predictions_path") or ""
+        manifest.get("semantic_row_predictions_path")
+        or manifest.get("stage_block_predictions_path")
+        or ""
     ).strip()
     timing_payload = _coerce_dict(manifest.get("timing"))
     book_cache_root_raw = str(manifest.get("book_cache_root") or "").strip()
@@ -266,7 +272,7 @@ def _bundle_result_from_manifest(
         processed_report_path=(
             Path(processed_report_raw).expanduser() if processed_report_raw else None
         ),
-        stage_block_predictions_path=(
+        semantic_row_predictions_path=(
             Path(stage_predictions_raw).expanduser() if stage_predictions_raw else None
         ),
         cache_hit=cache_hit,
@@ -538,8 +544,8 @@ def resolve_or_build_deterministic_prep_bundle(
             "processed_report_path": (
                 str(prediction_result.get("processed_report_path") or "").strip() or None
             ),
-            "stage_block_predictions_path": (
-                str(prediction_result.get("stage_block_predictions_path") or "").strip()
+            "semantic_row_predictions_path": (
+                str(prediction_result.get("semantic_row_predictions_path") or "").strip()
                 or None
             ),
             "timing": _coerce_dict(prediction_result.get("timing")),
@@ -889,7 +895,7 @@ def load_recipe_boundary_result_from_deterministic_prep_bundle(
         processed_run_root
         / "recipe_authority"
         / workbook_slug
-        / "recipe_block_ownership.json"
+        / "recipe_row_ownership.json"
     )
     recipe_ownership_result = recipe_ownership_from_payload(
         recipe_ownership_payload,
@@ -976,7 +982,7 @@ def persist_deterministic_prep_bundle_from_stage_run(
     importer_name: str,
     timing: Mapping[str, Any] | None = None,
     processed_report_path: Path | None = None,
-    stage_block_predictions_path: Path | None = None,
+    semantic_row_predictions_path: Path | None = None,
     book_cache_root: Path | str | None = None,
 ) -> DeterministicPrepBundleResult:
     resolved_source_file = source_file.expanduser()
@@ -1063,13 +1069,13 @@ def persist_deterministic_prep_bundle_from_stage_run(
             stage_run_root / "raw" / importer_name / source_hash,
             processed_run_root / "raw" / importer_name / source_hash,
         )
-        if stage_block_predictions_path is not None:
+        if semantic_row_predictions_path is not None:
             _copy_cache_payload_path(
-                stage_block_predictions_path,
+                semantic_row_predictions_path,
                 processed_run_root
                 / ".bench"
                 / workbook_slug
-                / "stage_block_predictions.json",
+                / "semantic_row_predictions.json",
             )
         if processed_report_path is not None and processed_report_path.exists():
             _copy_cache_payload_path(
@@ -1100,14 +1106,14 @@ def persist_deterministic_prep_bundle_from_stage_run(
                 if processed_report_path is not None and processed_report_path.exists()
                 else None
             ),
-            "stage_block_predictions_path": (
+            "semantic_row_predictions_path": (
                 str(
                     processed_run_root
                     / ".bench"
                     / workbook_slug
-                    / "stage_block_predictions.json"
+                    / "semantic_row_predictions.json"
                 )
-                if stage_block_predictions_path is not None
+                if semantic_row_predictions_path is not None
                 else None
             ),
             "timing": _coerce_dict(timing),

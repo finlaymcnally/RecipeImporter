@@ -631,7 +631,7 @@ def run_labelstudio_import(
         "run_root": run_root,
         "processed_run_root": pred["processed_run_root"],
         "extracted_archive_path": pred.get("extracted_archive_path"),
-        "stage_block_predictions_path": pred.get("stage_block_predictions_path"),
+        "semantic_row_predictions_path": pred.get("semantic_row_predictions_path"),
         "processed_report_path": pred["processed_report_path"],
         "line_role_pipeline_line_role_predictions_path": pred.get(
             "line_role_pipeline_line_role_predictions_path"

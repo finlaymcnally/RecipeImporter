@@ -404,7 +404,7 @@ def _install_split_import_mocks(
     def _fake_execute_stage_import_session_from_result(**kwargs):
         run_root = processed_root / "2026-02-11_00:00:00"
         run_root.mkdir(parents=True, exist_ok=True)
-        stage_predictions_path = run_root / ".bench" / "book" / "stage_block_predictions.json"
+        stage_predictions_path = run_root / ".bench" / "book" / "semantic_row_predictions.json"
         stage_predictions_path.parent.mkdir(parents=True, exist_ok=True)
         stage_predictions_path.write_text(
             json.dumps(
@@ -429,7 +429,7 @@ def _install_split_import_mocks(
             importer_name="fake",
             conversion_result=kwargs["result"],
             report_path=report_path,
-            stage_block_predictions_path=stage_predictions_path,
+            semantic_row_predictions_path=stage_predictions_path,
             run_config={},
             run_config_hash=None,
             run_config_summary=None,
@@ -718,7 +718,7 @@ def _build_authoritative_atomic_projection_fixture(tmp_path: Path) -> dict[str, 
             artifacts["extracted_archive_path"].read_text(encoding="utf-8")
         ),
         "stage_payload": json.loads(
-            artifacts["stage_block_predictions_path"].read_text(encoding="utf-8")
+            artifacts["semantic_row_predictions_path"].read_text(encoding="utf-8")
         ),
         "summary": summary,
     }
@@ -869,7 +869,7 @@ def _build_final_nonrecipe_authority_fixture(
     def _fake_execute_stage_import_session_from_result(**kwargs):
         run_root = kwargs["run_root"]
         run_root.mkdir(parents=True, exist_ok=True)
-        stage_predictions_path = run_root / ".bench" / "book" / "stage_block_predictions.json"
+        stage_predictions_path = run_root / ".bench" / "book" / "semantic_row_predictions.json"
         stage_predictions_path.parent.mkdir(parents=True, exist_ok=True)
         stage_predictions_path.write_text(
             json.dumps(
@@ -902,7 +902,7 @@ def _build_final_nonrecipe_authority_fixture(
             importer_name="fake",
             conversion_result=result,
             report_path=report_path,
-            stage_block_predictions_path=stage_predictions_path,
+            semantic_row_predictions_path=stage_predictions_path,
             run_config={"write_markdown": kwargs.get("write_markdown")},
             run_config_hash=None,
             run_config_summary=None,

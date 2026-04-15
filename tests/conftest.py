@@ -73,7 +73,6 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_epub_debug_cli.py": ("cli", "ingestion"),
     "test_epub_debug_extract_cli.py": ("cli", "ingestion"),
     "test_epub_extraction_quickwins.py": ("ingestion", "parsing"),
-    "test_eval_stage_blocks.py": ("bench", "staging"),
     "test_eval_metrics_label_accounting.py": ("labelstudio", "bench"),
     "test_eval_freeform_practical_metrics.py": ("labelstudio", "bench"),
     "test_epub_html_normalize.py": ("parsing",),

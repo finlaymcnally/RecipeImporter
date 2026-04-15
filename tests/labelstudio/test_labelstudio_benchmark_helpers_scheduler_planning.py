@@ -540,7 +540,7 @@ def test_build_all_method_eval_signature_is_stable_for_same_payload(tmp_path: Pa
                 example_id="sig:stable:0",
                 example_index=0,
                 prediction={
-                    "schema_kind": "stage-block.v1",
+                    "schema_kind": "semantic-row.v1",
                     "block_index": 0,
                     "pred_label": "RECIPE_TITLE",
                     "block_text": "Title",
@@ -588,7 +588,7 @@ def test_build_all_method_eval_signature_changes_when_inputs_change(tmp_path: Pa
                 example_id="sig:a:0",
                 example_index=0,
                 prediction={
-                    "schema_kind": "stage-block.v1",
+                    "schema_kind": "semantic-row.v1",
                     "block_index": 0,
                     "pred_label": "RECIPE_TITLE",
                     "block_text": "Title A",
@@ -605,7 +605,7 @@ def test_build_all_method_eval_signature_changes_when_inputs_change(tmp_path: Pa
                 example_id="sig:b:0",
                 example_index=0,
                 prediction={
-                    "schema_kind": "stage-block.v1",
+                    "schema_kind": "semantic-row.v1",
                     "block_index": 0,
                     "pred_label": "RECIPE_TITLE",
                     "block_text": "Title B",

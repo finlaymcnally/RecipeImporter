@@ -10,7 +10,7 @@ Change map:
 - Benchmark-helper tests still patch `cookimport.cli` and `cookimport.cli_support.bench` on purpose because those facades are the stable import seam shared across CLI and helper flows. Treat that broad patch surface as intentional unless you are replacing it with a clearly smaller named seam.
 
 Current scoring contract:
-- Predictions come from stage evidence manifests (`stage_block_predictions.json`), not pipeline chunk tasks.
+- Predictions come from stage evidence manifests (`semantic_row_predictions.json`), not pipeline chunk tasks.
 - Gold can include multiple labels per block; eval accepts any matching gold label and logs multi-label diagnostics to `gold_conflicts.jsonl`.
 - Missing gold rows for predicted blocks are defaulted to `OTHER` and logged in `gold_conflicts.jsonl`.
 - Source-row eval reads `row_gold_labels.jsonl` directly; active scoring no longer depends on canonical export artifacts.
@@ -18,7 +18,7 @@ Current scoring contract:
 - Deterministic-prep cache reuse for source-row line-role runs now fails closed when cached `line-role-pipeline/*predictions.jsonl` row counts do not match cached `raw/source/*/source_rows.jsonl`. Old block-era caches are not source-row compatible.
 - Run-level prediction-stage replay uses `cookimport/bench/prediction_records.py` (`PredictionRecord` JSONL schema v1) for `labelstudio-benchmark --predictions-out/--predictions-in`.
 - Public `labelstudio-benchmark` runs always use pipelined execution; all-method orchestration keeps a private skip-evaluation prediction pass for prediction-record generation/reuse.
-- `bench eval-stage` evaluates existing stage outputs against freeform gold and writes stage-block diagnostics (`eval_report.*`, `missed_gold_blocks.jsonl`, `wrong_label_blocks.jsonl`, boundary mismatch JSONL artifacts).
+- The old standalone `bench eval-stage` entry point is removed. Row-native benchmark evaluation now flows through `labelstudio-benchmark` and its prediction-record replay path.
 - source-row eval outputs still include `aligned_prediction_blocks.jsonl` so joined-line diagnostics can be audited directly.
 - line-role Milestone-5 diagnostics now live in `cutdown_export.py`, `pairwise_flips.py`, and `slice_metrics.py`; canonical line-role runs emit joined-line tables, flips, slice/routing metrics, and stable sampled cutdown JSONLs keyed by one `sample_id` source table.
 - `line-role-pipeline/joined_line_table.jsonl` is intentionally conservative: it only attaches candidate-label / `decided_by` / recipe-span metadata when a line-role prediction can be matched to the canonical line by exact text (same index+text first, then exact-text sequence alignment). Split/merged or ambiguous duplicate lines stay unmatched instead of borrowing another line's telemetry.

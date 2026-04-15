@@ -6,7 +6,7 @@ from typing import Any, Mapping, Sequence
 from cookimport.core.models import RecipeCandidate
 from cookimport.parsing.label_source_of_truth import RecipeSpan
 
-_SCHEMA_VERSION = "recipe_block_ownership.v1"
+_SCHEMA_VERSION = "recipe_row_ownership.v1"
 
 
 class RecipeOwnershipInvariantError(ValueError):
@@ -19,6 +19,14 @@ class RecipeOwnershipEntry:
     recipe_span_id: str
     owned_block_indices: list[int]
     divested_block_indices: list[int]
+
+    @property
+    def owned_row_indices(self) -> list[int]:
+        return list(self.owned_block_indices)
+
+    @property
+    def divested_row_indices(self) -> list[int]:
+        return list(self.divested_block_indices)
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +46,26 @@ class RecipeOwnershipResult:
     available_to_nonrecipe_block_indices: list[int]
     all_block_indices: list[int]
 
+    @property
+    def row_owner_by_index(self) -> dict[int, str]:
+        return dict(self.block_owner_by_index)
+
+    @property
+    def owned_row_indices(self) -> list[int]:
+        return list(self.owned_block_indices)
+
+    @property
+    def divested_row_indices(self) -> list[int]:
+        return list(self.divested_block_indices)
+
+    @property
+    def available_to_nonrecipe_row_indices(self) -> list[int]:
+        return list(self.available_to_nonrecipe_block_indices)
+
+    @property
+    def all_row_indices(self) -> list[int]:
+        return list(self.all_block_indices)
+
     def recipe_entry_by_recipe_id(self, recipe_id: str) -> RecipeOwnershipEntry | None:
         for entry in self.recipe_entries:
             if str(entry.recipe_id) == str(recipe_id):
@@ -47,6 +75,9 @@ class RecipeOwnershipResult:
     def is_block_recipe_owned(self, block_index: int) -> bool:
         return int(block_index) in self.block_owner_by_index
 
+    def is_row_recipe_owned(self, row_index: int) -> bool:
+        return self.is_block_recipe_owned(row_index)
+
     def assert_block_is_available_to_nonrecipe(self, block_index: int) -> None:
         normalized = int(block_index)
         if normalized in self.block_owner_by_index:
@@ -55,12 +86,18 @@ class RecipeOwnershipResult:
                 f"Block {normalized} is recipe-owned by '{owner}' and may not enter nonrecipe routing."
             )
 
+    def assert_row_is_available_to_nonrecipe(self, row_index: int) -> None:
+        self.assert_block_is_available_to_nonrecipe(row_index)
+
     def assert_block_is_recipe_owned(self, block_index: int) -> None:
         normalized = int(block_index)
         if normalized not in self.block_owner_by_index:
             raise RecipeOwnershipInvariantError(
                 f"Block {normalized} is not recipe-owned."
             )
+
+    def assert_row_is_recipe_owned(self, row_index: int) -> None:
+        self.assert_block_is_recipe_owned(row_index)
 
 
 def build_recipe_ownership_result(
@@ -195,6 +232,15 @@ def recipe_ownership_to_payload(
     return {
         "schema_version": _SCHEMA_VERSION,
         "ownership_mode": ownership_result.ownership_mode,
+        "owned_row_indices": list(ownership_result.owned_row_indices),
+        "divested_row_indices": list(ownership_result.divested_row_indices),
+        "available_to_nonrecipe_row_indices": list(
+            ownership_result.available_to_nonrecipe_row_indices
+        ),
+        "row_owner_by_index": {
+            str(index): recipe_id
+            for index, recipe_id in sorted(ownership_result.row_owner_by_index.items())
+        },
         "owned_block_indices": list(ownership_result.owned_block_indices),
         "divested_block_indices": list(ownership_result.divested_block_indices),
         "available_to_nonrecipe_block_indices": list(
@@ -208,6 +254,8 @@ def recipe_ownership_to_payload(
             {
                 "recipe_id": entry.recipe_id,
                 "recipe_span_id": entry.recipe_span_id,
+                "owned_row_indices": list(entry.owned_row_indices),
+                "divested_row_indices": list(entry.divested_row_indices),
                 "owned_block_indices": list(entry.owned_block_indices),
                 "divested_block_indices": list(entry.divested_block_indices),
             }
@@ -232,9 +280,11 @@ def recipe_ownership_from_payload(
             RecipeOwnershipEntry(
                 recipe_id=str(row.get("recipe_id") or "").strip(),
                 recipe_span_id=str(row.get("recipe_span_id") or "").strip(),
-                owned_block_indices=_normalize_index_list(row.get("owned_block_indices") or []),
+                owned_block_indices=_normalize_index_list(
+                    row.get("owned_row_indices") or row.get("owned_block_indices") or []
+                ),
                 divested_block_indices=_normalize_index_list(
-                    row.get("divested_block_indices") or []
+                    row.get("divested_row_indices") or row.get("divested_block_indices") or []
                 ),
             )
         )

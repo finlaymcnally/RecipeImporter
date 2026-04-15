@@ -31,7 +31,7 @@ def test_evaluate_source_rows_falls_back_to_row_index_when_row_ids_drift(tmp_pat
 
     eval_root = tmp_path / "eval"
     line_role_dir = eval_root / "line-role-pipeline"
-    stage_predictions_json = line_role_dir / "stage_block_predictions.json"
+    stage_predictions_json = line_role_dir / "semantic_row_predictions.json"
     _write_json(stage_predictions_json, {"stage": "fixture"})
     _write_jsonl(
         line_role_dir / "row_label_predictions.jsonl",
@@ -90,7 +90,7 @@ def test_evaluate_source_rows_prefers_row_index_when_row_id_collides_with_wrong_
 
     eval_root = tmp_path / "eval"
     line_role_dir = eval_root / "line-role-pipeline"
-    stage_predictions_json = line_role_dir / "stage_block_predictions.json"
+    stage_predictions_json = line_role_dir / "semantic_row_predictions.json"
     _write_json(stage_predictions_json, {"stage": "fixture"})
     _write_jsonl(
         line_role_dir / "row_label_predictions.jsonl",
@@ -156,7 +156,7 @@ def test_evaluate_source_rows_overlays_nonrecipe_authority_labels(tmp_path: Path
     eval_root = tmp_path / "eval"
     processed_output_root = tmp_path / "processed"
     line_role_dir = eval_root / "line-role-pipeline"
-    stage_predictions_json = line_role_dir / "stage_block_predictions.json"
+    stage_predictions_json = line_role_dir / "semantic_row_predictions.json"
     _write_json(stage_predictions_json, {"stage": "fixture"})
     _write_jsonl(
         line_role_dir / "row_label_predictions.jsonl",
@@ -211,7 +211,7 @@ def test_evaluate_source_rows_accepts_multi_label_gold_rows(tmp_path: Path) -> N
 
     eval_root = tmp_path / "eval"
     line_role_dir = eval_root / "line-role-pipeline"
-    stage_predictions_json = line_role_dir / "stage_block_predictions.json"
+    stage_predictions_json = line_role_dir / "semantic_row_predictions.json"
     _write_json(stage_predictions_json, {"stage": "fixture"})
     _write_jsonl(
         line_role_dir / "row_label_predictions.jsonl",
@@ -259,7 +259,7 @@ def test_evaluate_source_rows_preserves_row_level_nonrecipe_exclude_over_block_a
     eval_root = tmp_path / "eval"
     processed_output_root = tmp_path / "processed"
     line_role_dir = eval_root / "line-role-pipeline"
-    stage_predictions_json = line_role_dir / "stage_block_predictions.json"
+    stage_predictions_json = line_role_dir / "semantic_row_predictions.json"
     _write_json(stage_predictions_json, {"stage": "fixture"})
     _write_jsonl(
         line_role_dir / "row_label_predictions.jsonl",
@@ -322,7 +322,7 @@ def test_evaluate_source_rows_prefers_row_level_nonrecipe_authority_over_block_s
     eval_root = tmp_path / "eval"
     processed_output_root = tmp_path / "processed"
     line_role_dir = eval_root / "line-role-pipeline"
-    stage_predictions_json = line_role_dir / "stage_block_predictions.json"
+    stage_predictions_json = line_role_dir / "semantic_row_predictions.json"
     _write_json(stage_predictions_json, {"stage": "fixture"})
     _write_jsonl(
         line_role_dir / "row_label_predictions.jsonl",

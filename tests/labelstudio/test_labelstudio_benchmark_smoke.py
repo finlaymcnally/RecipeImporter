@@ -415,7 +415,7 @@ def _run_interactive_single_book_simulated_runtime(
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / variant_slug,
             "processed_report_path": "",
-            "stage_block_predictions_path": fixture_paths["stage_predictions_path"],
+            "semantic_row_predictions_path": fixture_paths["stage_predictions_path"],
             "extracted_archive_path": fixture_paths["extracted_archive_path"],
             "timing": {"prediction_seconds": 0.25 if variant_slug == "codex-exec" else 0.15},
         }

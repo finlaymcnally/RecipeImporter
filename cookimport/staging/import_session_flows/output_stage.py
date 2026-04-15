@@ -289,13 +289,15 @@ def execute_stage_import_session_from_recipe_boundary_result(
         / workbook_slug
         / "recipe_authority_decisions.json"
     )
-    recipe_block_ownership_path = (
+    recipe_row_ownership_path = (
         run_root
         / "recipe_authority"
         / workbook_slug
-        / "recipe_block_ownership.json"
+        / "recipe_row_ownership.json"
     )
-    stage_predictions_path = run_root / ".bench" / workbook_slug / "stage_block_predictions.json"
+    semantic_row_predictions_path = (
+        run_root / ".bench" / workbook_slug / "semantic_row_predictions.json"
+    )
 
     with measure(stats, "writing"):
         write_steps = [
@@ -307,7 +309,7 @@ def execute_stage_import_session_from_recipe_boundary_result(
             "chunks" if result.chunks else None,
             "tables",
             "raw artifacts" if write_raw_artifacts_enabled else None,
-            "stage block predictions",
+            "semantic row predictions",
         ]
         write_steps = [step for step in write_steps if step is not None]
         write_total = len(write_steps)
@@ -358,9 +360,9 @@ def execute_stage_import_session_from_recipe_boundary_result(
         write_completed += 1
         _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
         with measure(stats, "write_recipe_authority_seconds"):
-            runtime.write_recipe_block_ownership(
+            runtime.write_recipe_row_ownership(
                 ownership_result=recipe_refine_result.recipe_ownership_result,
-                out_path=recipe_block_ownership_path,
+                out_path=recipe_row_ownership_path,
                 output_stats=output_stats,
             )
             runtime.write_authoritative_recipe_semantics(
@@ -438,8 +440,8 @@ def execute_stage_import_session_from_recipe_boundary_result(
                 runtime.write_raw_artifacts(result, run_root, output_stats=output_stats)
             write_completed += 1
             _notify_write_progress(write_steps[write_completed] if write_completed < write_total else None)
-        with measure(stats, "write_stage_block_predictions_seconds"):
-            runtime.write_stage_block_predictions(
+        with measure(stats, "write_semantic_row_predictions_seconds"):
+            runtime.write_semantic_row_predictions(
                 results=result,
                 run_root=run_root,
                 workbook_slug=workbook_slug,
@@ -467,7 +469,7 @@ def execute_stage_import_session_from_recipe_boundary_result(
         importer_name=importer_name,
         conversion_result=result,
         report_path=report_path,
-        stage_block_predictions_path=stage_predictions_path,
+        semantic_row_predictions_path=semantic_row_predictions_path,
         run_config=dict(run_config) if run_config is not None else None,
         run_config_hash=run_config_hash,
         run_config_summary=run_config_summary,
@@ -478,7 +480,7 @@ def execute_stage_import_session_from_recipe_boundary_result(
         source_artifact_paths=source_artifact_paths,
         authoritative_recipe_payloads_path=authoritative_recipe_payloads_path,
         recipe_authority_decisions_path=recipe_authority_decisions_path,
-        recipe_block_ownership_path=recipe_block_ownership_path,
+        recipe_row_ownership_path=recipe_row_ownership_path,
         nonrecipe_stage_result=nonrecipe_stage_result,
         extracted_book_bundle=extracted_book_bundle,
         recipe_boundary_result=recipe_boundary_result,

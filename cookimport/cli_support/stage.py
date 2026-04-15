@@ -174,7 +174,7 @@ def _write_stage_run_manifest(
         target = run_root / path_key
         if target.exists():
             artifacts[artifact_key] = path_key
-    bench_prediction_paths = sorted(run_root.glob(".bench/**/stage_block_predictions.json"))
+    bench_prediction_paths = sorted(run_root.glob(".bench/**/semantic_row_predictions.json"))
     if bench_prediction_paths:
         artifacts["stage_block_predictions"] = [
             str(path.relative_to(run_root))
@@ -1203,7 +1203,7 @@ def _merge_source_jobs(
                 importer_name=resolved_importer_name,
                 timing=merge_stats.to_dict(),
                 processed_report_path=out / f"{file_path.stem}.excel_import_report.json",
-                stage_block_predictions_path=session.stage_block_predictions_path,
+                semantic_row_predictions_path=session.semantic_row_predictions_path,
             )
         except Exception as exc:  # noqa: BLE001
             report.warnings.append(

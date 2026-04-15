@@ -90,20 +90,28 @@ def build_line_role_stage_prediction_payload(
             )
         resolved_labels[block_index] = label
 
-    block_count = len(resolved_labels)
-    label_blocks: dict[str, list[int]] = {label: [] for label in FREEFORM_LABELS}
-    for block_index, label in sorted(resolved_labels.items()):
-        label_blocks.setdefault(label, []).append(block_index)
-    for label in label_blocks:
-        label_blocks[label].sort()
+    row_count = len(resolved_labels)
+    label_rows: dict[str, list[int]] = {label: [] for label in FREEFORM_LABELS}
+    for row_index, label in sorted(resolved_labels.items()):
+        label_rows.setdefault(label, []).append(row_index)
+    for label in label_rows:
+        label_rows[label].sort()
     return {
-        "schema_version": "stage_block_predictions.v1",
+        "schema_version": "semantic_row_predictions.v1",
         "source_file": str(source_file),
         "source_hash": str(source_hash or "unknown"),
         "workbook_slug": str(workbook_slug),
-        "block_count": block_count,
+        "row_count": row_count,
+        "block_count": row_count,
         "counts": {
-            "blocks": block_count,
+            "rows": row_count,
+            "blocks": row_count,
+            "unresolved_candidate_rows": len(
+                {
+                    int(index)
+                    for index in (unresolved_block_indices or [])
+                }
+            ),
             "unresolved_candidate_blocks": len(
                 {
                     int(index)
@@ -111,10 +119,14 @@ def build_line_role_stage_prediction_payload(
                 }
             ),
         },
+        "row_labels": {
+            str(index): label for index, label in sorted(resolved_labels.items())
+        },
         "block_labels": {
             str(index): label for index, label in sorted(resolved_labels.items())
         },
-        "label_blocks": label_blocks,
+        "label_rows": label_rows,
+        "label_blocks": label_rows,
         UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY: sorted(
             {
                 int(index)
@@ -128,7 +140,7 @@ def build_line_role_stage_prediction_payload(
         "conflicts": conflicts,
         "notes": [
             "Projected from canonical line-role predictions.",
-            "block_labels in this artifact use canonical line_index coordinates.",
+            "row_labels in this artifact use canonical line_index coordinates.",
             *[str(note).strip() for note in (notes or []) if str(note).strip()],
         ],
     }
@@ -202,7 +214,7 @@ def write_line_role_projection_artifacts(
         source_hash=source_hash,
         workbook_slug=workbook_slug,
     )
-    stage_path = pipeline_dir / "stage_block_predictions.json"
+    stage_path = pipeline_dir / "semantic_row_predictions.json"
     stage_path.write_text(
         json.dumps(stage_payload, indent=2, sort_keys=True),
         encoding="utf-8",
@@ -217,7 +229,7 @@ def write_line_role_projection_artifacts(
     artifact_paths: dict[str, Path] = {
         "line_role_predictions_path": line_role_predictions_path,
         "projected_spans_path": projected_spans_path,
-        "stage_block_predictions_path": stage_path,
+        "semantic_row_predictions_path": stage_path,
         "extracted_archive_path": extracted_archive_path,
     }
     telemetry_summary_path = pipeline_dir / "telemetry_summary.json"

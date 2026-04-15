@@ -92,7 +92,7 @@ def _run_global_queue_interleaving_fixture(
                     example_id=f"global:{source_file.name}:{config_index}",
                     example_index=0,
                     prediction={
-                        "schema_kind": "stage-block.v1",
+                        "schema_kind": "semantic-row.v1",
                         "block_index": 0,
                         "pred_label": "RECIPE_TITLE",
                         "block_text": f"{source_file.name}:{variant.slug}",
@@ -318,7 +318,7 @@ def _run_global_queue_smart_tail_fixture(
                     example_id=f"tail:{source_file_local.name}:{config_index}",
                     example_index=0,
                     prediction={
-                        "schema_kind": "stage-block.v1",
+                        "schema_kind": "semantic-row.v1",
                         "block_index": 0,
                         "pred_label": "RECIPE_TITLE",
                         "block_text": f"{source_file_local.name}:{config_index}",
@@ -498,7 +498,7 @@ def test_run_all_method_benchmark_global_queue_non_epub_eval_uses_default_extrac
                     example_id=f"default-extractor:{config_index}",
                     example_index=0,
                     prediction={
-                        "schema_kind": "stage-block.v1",
+                        "schema_kind": "semantic-row.v1",
                         "block_index": 0,
                         "pred_label": "RECIPE_TITLE",
                         "block_text": f"{source_file_local.name}:{config_index}",

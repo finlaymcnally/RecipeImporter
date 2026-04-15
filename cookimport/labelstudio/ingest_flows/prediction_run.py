@@ -1339,8 +1339,8 @@ def generate_pred_run_artifacts(
         result.report.llm_codex_farm = llm_report
         processed_report_path = stage_session.report_path
         stage_block_predictions_source_path = (
-            stage_session.stage_block_predictions_path
-            if stage_session.stage_block_predictions_path.exists()
+            stage_session.semantic_row_predictions_path
+            if stage_session.semantic_row_predictions_path.exists()
             else None
         )
         processed_output_write_seconds = max(
@@ -1913,23 +1913,23 @@ def generate_pred_run_artifacts(
         ),
         encoding="utf-8",
     )
-    local_stage_block_predictions_path: Path | None = None
+    local_semantic_row_predictions_path: Path | None = None
     if (
         stage_block_predictions_source_path is not None
         and stage_block_predictions_source_path.exists()
     ):
         if mirror_stage_artifacts_into_run_root:
-            local_stage_block_predictions_path = run_root / "stage_block_predictions.json"
+            local_semantic_row_predictions_path = run_root / "semantic_row_predictions.json"
             shutil.copy2(
                 stage_block_predictions_source_path,
-                local_stage_block_predictions_path,
+                local_semantic_row_predictions_path,
             )
         else:
-            local_stage_block_predictions_path = stage_block_predictions_source_path
-    scored_stage_block_predictions_path = local_stage_block_predictions_path
+            local_semantic_row_predictions_path = stage_block_predictions_source_path
+    scored_semantic_row_predictions_path = local_semantic_row_predictions_path
     scored_extracted_archive_path = archive_path
     if isinstance(line_role_artifacts, dict):
-        line_role_stage_path = line_role_artifacts.get("stage_block_predictions_path")
+        line_role_stage_path = line_role_artifacts.get("semantic_row_predictions_path")
         line_role_archive_path = line_role_artifacts.get("extracted_archive_path")
         if (
             isinstance(line_role_stage_path, Path)
@@ -1937,7 +1937,7 @@ def generate_pred_run_artifacts(
             and isinstance(line_role_archive_path, Path)
             and line_role_archive_path.exists()
         ):
-            scored_stage_block_predictions_path = line_role_stage_path
+            scored_semantic_row_predictions_path = line_role_stage_path
             scored_extracted_archive_path = line_role_archive_path
         else:
             _notify(
@@ -2060,9 +2060,9 @@ def generate_pred_run_artifacts(
         "processed_report_path": (
             str(processed_report_path) if processed_report_path is not None else None
         ),
-        "stage_block_predictions_path": (
-            str(scored_stage_block_predictions_path)
-            if scored_stage_block_predictions_path is not None
+        "semantic_row_predictions_path": (
+            str(scored_semantic_row_predictions_path)
+            if scored_semantic_row_predictions_path is not None
             else None
         ),
         "extracted_archive_path": str(scored_extracted_archive_path),
@@ -2181,11 +2181,11 @@ def generate_pred_run_artifacts(
         run_manifest_artifacts["processed_report_json"] = processed_report_manifest_path
     local_stage_predictions_manifest_path = _path_for_manifest(
         run_root,
-        scored_stage_block_predictions_path,
+        scored_semantic_row_predictions_path,
     )
     if local_stage_predictions_manifest_path:
         run_manifest_artifacts[
-            "stage_block_predictions_json"
+            "semantic_row_predictions_json"
         ] = local_stage_predictions_manifest_path
     source_rows_manifest_path = _path_for_manifest(run_root, source_rows_path)
     if source_rows_manifest_path:
@@ -2369,7 +2369,7 @@ def generate_pred_run_artifacts(
         "extracted_archive_path": scored_extracted_archive_path,
         "source_rows_path": source_rows_path,
         "processed_report_path": processed_report_path,
-        "stage_block_predictions_path": scored_stage_block_predictions_path,
+        "semantic_row_predictions_path": scored_semantic_row_predictions_path,
         "line_role_pipeline_line_role_predictions_path": (
             line_role_artifacts.get("line_role_predictions_path")
             if isinstance(line_role_artifacts, dict)

@@ -242,7 +242,7 @@ Canonical line-role projection note:
 - prediction-run `line_role_predictions.jsonl` is still the route-label artifact. Outside recipe, it should show `NONRECIPE_CANDIDATE` / `NONRECIPE_EXCLUDE`, not final `KNOWLEDGE` / `OTHER`.
 - when `semantic_line_role_predictions.jsonl` exists, benchmark eval prefers that final-semantic view for joined reviewer diagnostics and materializes it as the local benchmark `line_role_predictions.jsonl`.
 - row-level `NONRECIPE_EXCLUDE` now survives that semantic projection too: when one source block mixes an excluded setup row with neighboring candidate rows that finalize as `knowledge`, the benchmark projection/scorer must keep the excluded row as final `OTHER` instead of letting block-level authority stamp the whole block `KNOWLEDGE`.
-- `line-role-pipeline/stage_block_predictions.json` is the scored benchmark view. It stays in dense canonical `line_index` coordinates for scoring, while `projected_spans.jsonl` / `extracted_archive.json` preserve source block provenance, and it records unresolved outside-recipe candidates explicitly under `unresolved_candidate_*` metadata.
+- `line-role-pipeline/semantic_row_predictions.json` is the scored benchmark view. It preserves row-native semantic labels, while `projected_spans.jsonl` / `extracted_archive.json` preserve source block provenance, and it records unresolved outside-recipe candidates explicitly under `unresolved_candidate_*` metadata.
 - In other words, an unresolved outside-recipe candidate may still appear as provisional `OTHER` in projected scoring artifacts, but benchmark scoring excludes that row via the unresolved-candidate metadata until explicit final non-recipe authority exists.
 
 - upload path (prediction import + eval)
@@ -252,7 +252,7 @@ Canonical line-role projection note:
 - compare action for benchmark runs (`labelstudio-benchmark compare`)
 - line-role gating (`--line-role-gated`) for row-based Milestone-5 regression checks
 - benchmark prediction-generation scratch stays inside the resolved `eval_output_dir` artifact root, so one benchmark session does not spill sibling timestamp roots under `data/golden/benchmark-vs-golden`
-- when processed outputs are requested, benchmark/prediction runs reuse the stage-produced authoritative label artifacts (`label_deterministic`, `label_refine`, `recipe_boundary`) and mirror the resulting `stage_block_predictions.json` into the prediction run root
+- when processed outputs are requested, benchmark/prediction runs reuse the stage-produced authoritative label artifacts (`label_deterministic`, `label_refine`, `recipe_boundary`) and mirror the resulting `semantic_row_predictions.json` into the prediction run root
 - those processed outputs now also include `recipe_authority/<workbook_slug>/recipe_block_ownership.json`, and prediction-run scoring inherits the same ownership invariant: recipe-local evidence may not overlap final outside-recipe `KNOWLEDGE`
 - prediction generation no longer runs a second post-stage diagnostic `label_atomic_lines(...)` pass; freeform span projection reuses the authoritative labeled-line bundle from stage or builds the same bundle once in-memory for offline-only runs
 - source-row benchmark scoring follows the prediction manifest pointer pair; when authoritative line labels are projected, outside-recipe `KNOWLEDGE` versus `OTHER` still comes from the final non-recipe authority after knowledge refinement, and telemetry reports `mode=final_authority_projection`
@@ -313,9 +313,9 @@ Compare runs write:
 When line-role prediction is enabled in prediction generation, prediction runs also write:
 - `line-role-pipeline/line_role_predictions.jsonl`
 - `line-role-pipeline/projected_spans.jsonl`
-- `line-role-pipeline/stage_block_predictions.json`
+- `line-role-pipeline/semantic_row_predictions.json`
 - `line-role-pipeline/extracted_archive.json`
-Prediction-generation now reuses authoritative recipe-local line-role outputs from the stage-backed label bundle when available. `projected_spans.jsonl` and `extracted_archive.json` stay line-level reviewer artifacts, while `stage_block_predictions.json` is rebuilt as block-level scoring evidence from those projected rows. Outside-recipe `KNOWLEDGE` versus `OTHER` comes from the final non-recipe authority that import produced after any enabled refinement step.
+Prediction-generation now reuses authoritative recipe-local line-role outputs from the stage-backed label bundle when available. `projected_spans.jsonl` and `extracted_archive.json` stay line-level reviewer artifacts, while `semantic_row_predictions.json` is rebuilt as row-native scoring evidence from those projected rows. Outside-recipe `KNOWLEDGE` versus `OTHER` comes from the final non-recipe authority that import produced after any enabled refinement step.
 `line_role_predictions.jsonl` is intentionally earlier in the contract than those scored artifacts: recipe-local labels stay semantic there, but outside-recipe labels stay route-first until knowledge finalization resolves them.
 Those authoritative and projected line-role rows now carry `decided_by`, `reason_tags`, and `escalation_reasons`; scalar trust/confidence fields are gone from this seam.
 Final non-recipe authority is still only a binary outside-recipe seam. It may arbitrate rows already labeled `OTHER` or `KNOWLEDGE`, but it must not collapse clear outside-recipe structural labels such as recipe-tail `RECIPE_NOTES` back into `OTHER`.

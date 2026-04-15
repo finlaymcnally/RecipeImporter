@@ -510,7 +510,7 @@ def _load_existing_run_preview_context(*, run_path: Path) -> ExistingRunPreviewC
         processed_run_dir
         / "recipe_authority"
         / workbook_slug
-        / "recipe_block_ownership.json"
+        / "recipe_row_ownership.json"
     )
     recipe_ownership_result = recipe_ownership_from_payload(
         recipe_ownership_payload,

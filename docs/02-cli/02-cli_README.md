@@ -527,7 +527,7 @@ Top-level command groups:
 - `cookimport benchmark-csv-backfill`
 - `cookimport stats-dashboard`
 - `cookimport compare-control <run|agent|discovery-preferences|dashboard-state>`
-- `cookimport bench <oracle-upload|oracle-followup|speed-discover|speed-run|speed-compare|gc|pin|unpin|quality-discover|quality-run|quality-leaderboard|quality-compare|eval-stage>`
+- `cookimport bench <oracle-upload|oracle-followup|speed-discover|speed-run|speed-compare|gc|pin|unpin|quality-discover|quality-run|quality-leaderboard|quality-compare>`
 
 `cookimport bench oracle-upload <session root or upload_bundle_v1>` reuses an existing benchmark bundle without rerunning the benchmark. It launches both Oracle review lanes by default and accepts `--profile quality|token|all` for replay control. Automatic Oracle launch from interactive benchmark wrap-up is currently disabled by default; set `COOKIMPORT_BENCH_AUTO_ORACLE_UPLOAD=1` if you want benchmarks to auto-start the background upload again. `--mode dry-run` is the low-cost validation path; when the payload file is too large for Oracle's inline dry-run, the command falls back to a local preview and tells you to use browser mode for the real upload.
 
@@ -1178,21 +1178,6 @@ AI-agent handoff flow (default bridge on):
 1. Read `<comparison_dir>/agent_compare_control/qualitysuite_compare_control_index.json`.
 2. Compare `baseline__*.json` vs `candidate__*.json` insight files.
 3. Run `<comparison_dir>/agent_compare_control/agent_requests.jsonl` through `cookimport compare-control agent` for deeper drill-down.
-
-### `cookimport bench eval-stage`
-
-Evaluates an existing stage run (no prediction generation) against a freeform gold export.
-
-Options:
-
-- `--gold-spans PATH` (required): exported `freeform_span_labels.jsonl` gold file.
-- `--stage-run PATH` (required): stage run directory containing `.bench/*/stage_block_predictions.json`.
-- `--workbook-slug TEXT`: workbook folder under `.bench` (required when multiple workbooks exist).
-- `--extracted-archive PATH`: explicit extracted archive JSON path (otherwise auto-resolves unique `raw/**/full_text.json`).
-- `--out-dir PATH`: output directory for eval artifacts (defaults to `data/golden/benchmark-vs-golden/<timestamp>`).
-- `--label-projection TEXT` (default `core_structural_v1`): segmentation label projection for boundary diagnostics.
-- `--boundary-tolerance-blocks INTEGER>=0` (default `0`): tolerance window used when matching gold/pred boundaries.
-- `--segmentation-metrics TEXT` (default `boundary_f1`): comma-separated segmentation metrics (`boundary_f1`, optional `pk`, `windowdiff`, `boundary_similarity` when `segeval` is installed).
 
 ## Environment Variables
 

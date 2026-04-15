@@ -239,7 +239,7 @@ def write_prompt_eval_alignment_doc(
         "- `line-role-pipeline/slice_metrics.json`: slice-level quality signals.",
         "- `line-role-pipeline/routing_summary.json`: excluded versus candidate outside-recipe routing plus recipe-local structure counts.",
         "- `line-role-pipeline/telemetry_summary.json`: the authoritative scoring-mode summary for projected line-role artifacts.",
-        "- `manifest.json`: the authoritative source of `stage_block_predictions_path` and `extracted_archive_path` used by the evaluator.",
+        "- `manifest.json`: the authoritative source of `semantic_row_predictions_path` and `extracted_archive_path` used by the evaluator.",
     ]
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")

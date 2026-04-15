@@ -558,12 +558,12 @@ def test_run_labelstudio_import_respects_custom_upload_batch_size(
         importer_name="fake",
         conversion_result=fake_result,
         report_path=processed_root / "2026-02-11_00:00:00" / "book.excel_import_report.json",
-        stage_block_predictions_path=(
+        semantic_row_predictions_path=(
             processed_root
             / "2026-02-11_00:00:00"
             / ".bench"
             / "book"
-            / "stage_block_predictions.json"
+            / "semantic_row_predictions.json"
         ),
         run_config={},
         run_config_hash=None,

@@ -7,8 +7,8 @@ Durable contracts for Label Studio import/export/eval/prelabel flows in `cookimp
 - `labelstudio-benchmark` is row-native only and accepts `--eval-mode source-rows`.
 - `labelstudio-benchmark` scoring uses `cookimport.bench.eval_source_rows`.
 - Interactive benchmark modes (`single_book`, `selected_matched_books`, and `all_matched_books`) should run `labelstudio-benchmark` in `source-rows` mode so one freeform gold export can benchmark extractor/config permutations without block-index parity.
-- Prediction-run artifact generation for benchmark must still write `extracted_archive.json` and copy any processed-output stage evidence into prediction-run root as `stage_block_predictions.json`.
-- Benchmark helpers/tests that mock prediction runs must include both `extracted_archive.json` and `stage_block_predictions.json`.
+- Prediction-run artifact generation for benchmark must still write `extracted_archive.json` and copy any processed-output stage evidence into prediction-run root as `semantic_row_predictions.json`.
+- Benchmark helpers/tests that mock prediction runs must include both `extracted_archive.json` and `semantic_row_predictions.json`.
 
 ## Label Studio Prelabel Rule
 

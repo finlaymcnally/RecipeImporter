@@ -311,7 +311,7 @@ Typical stage outputs under `data/output/<timestamp>/` now include:
 - `09_nonrecipe_authority.json`
 - `09_nonrecipe_knowledge_groups.json`
 - `09_nonrecipe_finalize_status.json`
-- `.bench/<workbook_slug>/stage_block_predictions.json`
+- `.bench/<workbook_slug>/semantic_row_predictions.json`
 - `<workbook_slug>.excel_import_report.json`
 - `processing_timeseries.jsonl`
 - `run_manifest.json`

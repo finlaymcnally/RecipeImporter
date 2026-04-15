@@ -71,9 +71,9 @@ def finalize_interrupted_benchmark_run(
         prediction_artifacts["prediction_run_dir"] = (
             _path_for_manifest(eval_output_dir, pred_run) or str(pred_run)
         )
-        stage_predictions_path = pred_run / "stage_block_predictions.json"
+        stage_predictions_path = pred_run / "semantic_row_predictions.json"
         if stage_predictions_path.exists():
-            prediction_artifacts["stage_block_predictions_json"] = (
+            prediction_artifacts["semantic_row_predictions_json"] = (
                 _path_for_manifest(eval_output_dir, stage_predictions_path)
                 or str(stage_predictions_path)
             )

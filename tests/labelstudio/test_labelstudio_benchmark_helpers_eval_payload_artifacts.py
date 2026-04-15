@@ -20,10 +20,10 @@ def _run_prune_after_csv_fixture(
     prediction_run.mkdir(parents=True, exist_ok=True)
     (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
     (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
-    (prediction_run / "stage_block_predictions.json").write_text(
+    (prediction_run / "semantic_row_predictions.json").write_text(
         json.dumps(
             {
-                "schema_version": "stage_block_predictions.v1",
+                "schema_version": "semantic_row_predictions.v1",
                 "block_count": 0,
                 "block_labels": {},
             },
@@ -71,7 +71,7 @@ def _run_prune_after_csv_fixture(
     )
     _patch_cli_attr(monkeypatch, "format_freeform_eval_report_md", lambda *_: "report")
     _patch_cli_attr(monkeypatch, "_write_jsonl_rows", lambda *_: None)
-    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows",
         lambda **_kwargs: {
             "report": {
                 "counts": {
@@ -107,7 +107,7 @@ def _run_prune_after_csv_fixture(
             "run_root": prediction_run,
             "processed_run_root": processed_run_root,
             "processed_report_path": "",
-            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "semantic_row_predictions_path": prediction_run / "semantic_row_predictions.json",
             "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {"prediction_seconds": 2.5},
         },
@@ -204,10 +204,10 @@ def _run_interactive_prune_fixture(
     prediction_run.mkdir(parents=True, exist_ok=True)
     (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
     (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
-    (prediction_run / "stage_block_predictions.json").write_text(
+    (prediction_run / "semantic_row_predictions.json").write_text(
         json.dumps(
             {
-                "schema_version": "stage_block_predictions.v1",
+                "schema_version": "semantic_row_predictions.v1",
                 "block_count": 0,
                 "block_labels": {},
             },
@@ -255,7 +255,7 @@ def _run_interactive_prune_fixture(
     )
     _patch_cli_attr(monkeypatch, "format_freeform_eval_report_md", lambda *_: "report")
     _patch_cli_attr(monkeypatch, "_write_jsonl_rows", lambda *_: None)
-    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows",
         lambda **_kwargs: {
             "report": {
                 "counts": {
@@ -291,7 +291,7 @@ def _run_interactive_prune_fixture(
             "run_root": prediction_run,
             "processed_run_root": processed_run_root,
             "processed_report_path": "",
-            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "semantic_row_predictions_path": prediction_run / "semantic_row_predictions.json",
             "extracted_archive_path": prediction_run / "extracted_archive.json",
             "timing": {"prediction_seconds": 2.5},
         },
@@ -371,10 +371,10 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
     prediction_run.mkdir(parents=True, exist_ok=True)
     (prediction_run / "label_studio_tasks.jsonl").write_text("{}\n", encoding="utf-8")
     (prediction_run / "extracted_archive.json").write_text("[]\n", encoding="utf-8")
-    (prediction_run / "stage_block_predictions.json").write_text(
+    (prediction_run / "semantic_row_predictions.json").write_text(
         json.dumps(
             {
-                "schema_version": "stage_block_predictions.v1",
+                "schema_version": "semantic_row_predictions.v1",
                 "block_count": 0,
                 "block_labels": {},
             },
@@ -410,7 +410,7 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
     )
     _patch_cli_attr(monkeypatch, "format_freeform_eval_report_md", lambda *_: "report")
     _patch_cli_attr(monkeypatch, "_write_jsonl_rows", lambda *_: None)
-    _patch_cli_attr(monkeypatch, "evaluate_stage_blocks",
+    _patch_cli_attr(monkeypatch, "evaluate_source_rows",
         lambda **_kwargs: {
             "report": {
                 "counts": {
@@ -450,7 +450,7 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
             "tasks_uploaded": 1,
             "run_root": prediction_run,
             "processed_run_root": tmp_path / "processed" / "2026-02-11-00-00-00",
-            "stage_block_predictions_path": prediction_run / "stage_block_predictions.json",
+            "semantic_row_predictions_path": prediction_run / "semantic_row_predictions.json",
             "extracted_archive_path": prediction_run / "extracted_archive.json",
         }
 

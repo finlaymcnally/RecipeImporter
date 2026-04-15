@@ -55,7 +55,7 @@ def _coerce_int(value: Any) -> int | None:
 class PredRunContext:
     recipes: int | None
     processed_report_path: str
-    stage_block_predictions_path: str
+    semantic_row_predictions_path: str
     extracted_archive_path: str
     source_file: str
     source_hash: str | None
@@ -67,6 +67,10 @@ class PredRunContext:
     tokens_output: int | None
     tokens_reasoning: int | None
     tokens_total: int | None
+
+    @property
+    def stage_block_predictions_path(self) -> str:
+        return self.semantic_row_predictions_path
 
 
 @dataclass(frozen=True)
@@ -96,7 +100,7 @@ def _load_pred_run_recipe_context(
         return PredRunContext(
             recipes=None,
             processed_report_path="",
-            stage_block_predictions_path="",
+            semantic_row_predictions_path="",
             extracted_archive_path="",
             source_file="",
             source_hash=None,
@@ -116,7 +120,7 @@ def _load_pred_run_recipe_context(
         return PredRunContext(
             recipes=None,
             processed_report_path="",
-            stage_block_predictions_path="",
+            semantic_row_predictions_path="",
             extracted_archive_path="",
             source_file="",
             source_hash=None,
@@ -133,7 +137,7 @@ def _load_pred_run_recipe_context(
         return PredRunContext(
             recipes=None,
             processed_report_path="",
-            stage_block_predictions_path="",
+            semantic_row_predictions_path="",
             extracted_archive_path="",
             source_file="",
             source_hash=None,
@@ -150,7 +154,11 @@ def _load_pred_run_recipe_context(
     source_file = str(payload.get("source_file") or "")
     source_hash = str(payload.get("source_hash") or "").strip() or None
     processed_report_path = str(payload.get("processed_report_path") or "")
-    stage_block_predictions_path = str(payload.get("stage_block_predictions_path") or "")
+    semantic_row_predictions_path = str(
+        payload.get("semantic_row_predictions_path")
+        or payload.get("stage_block_predictions_path")
+        or ""
+    )
     extracted_archive_path = str(payload.get("extracted_archive_path") or "")
     run_config = payload.get("run_config")
     if not isinstance(run_config, dict):
@@ -233,7 +241,7 @@ def _load_pred_run_recipe_context(
     return PredRunContext(
         recipes=recipes,
         processed_report_path=processed_report_path,
-        stage_block_predictions_path=stage_block_predictions_path,
+        semantic_row_predictions_path=semantic_row_predictions_path,
         extracted_archive_path=extracted_archive_path,
         source_file=source_file,
         source_hash=source_hash,
@@ -256,8 +264,8 @@ def _resolve_stage_predictions_for_benchmark(
 ) -> Path:
     stage_predictions_candidates: list[Path] = []
     for value in (
-        import_result.get("stage_block_predictions_path"),
-        pred_context.stage_block_predictions_path,
+        import_result.get("semantic_row_predictions_path"),
+        pred_context.semantic_row_predictions_path,
     ):
         if not value:
             continue
@@ -268,10 +276,10 @@ def _resolve_stage_predictions_for_benchmark(
             return candidate
 
     _fail(
-        "This prediction run is missing canonical stage block predictions "
-        "(stage_block_predictions_path). Re-run benchmark after updating."
+        "This prediction run is missing canonical semantic row predictions "
+        "(semantic_row_predictions_path). Re-run benchmark after updating."
     )
-    return pred_run / "stage_block_predictions.json"
+    return pred_run / "semantic_row_predictions.json"
 
 
 def _resolve_extracted_archive_for_benchmark(
@@ -525,7 +533,7 @@ def _run_offline_benchmark_prediction_stage(
 
     prediction_stage_artifacts: dict[str, Any] = {
         "artifact_root_dir": _path_for_manifest(eval_output_dir, pred_run),
-        "stage_block_predictions_json": _path_for_manifest(
+        "semantic_row_predictions_json": _path_for_manifest(
             eval_output_dir,
             prediction_bundle.stage_predictions_path,
         ),
@@ -599,7 +607,7 @@ def _run_offline_benchmark_prediction_stage(
     )
 
 
-_BENCHMARK_PREDICTION_RECORD_STAGE_KIND = "stage-block.v1"
+_BENCHMARK_PREDICTION_RECORD_STAGE_KIND = "semantic-row.v1"
 
 
 def _json_safe(value: Any) -> Any:
@@ -645,7 +653,7 @@ def _load_stage_block_prediction_payload(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001
-        raise ValueError(f"Unable to read stage block predictions from {path}: {exc}") from exc
+        raise ValueError(f"Unable to read semantic row predictions from {path}: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"Stage block predictions payload at {path} is not a JSON object.")
     return payload
@@ -696,21 +704,23 @@ def predict_stage(
     selected_source: Path,
 ) -> Iterator[PredictionRecord]:
     stage_payload = _load_stage_block_prediction_payload(bundle.stage_predictions_path)
-    raw_block_labels = stage_payload.get("block_labels")
-    if not isinstance(raw_block_labels, dict):
+    raw_row_labels = stage_payload.get("row_labels")
+    if not isinstance(raw_row_labels, dict):
+        raw_row_labels = stage_payload.get("block_labels")
+    if not isinstance(raw_row_labels, dict):
         raise ValueError(
-            "Stage block predictions payload is missing block_labels map."
+            "Semantic row predictions payload is missing row_labels map."
         )
-    block_labels: dict[int, str] = {}
-    for raw_index, raw_label in raw_block_labels.items():
-        block_index = _coerce_int(raw_index)
-        if block_index is None or block_index < 0:
+    row_labels: dict[int, str] = {}
+    for raw_index, raw_label in raw_row_labels.items():
+        row_index = _coerce_int(raw_index)
+        if row_index is None or row_index < 0:
             continue
         normalized_label = str(raw_label or "").strip() or "OTHER"
-        block_labels[block_index] = normalized_label
+        row_labels[row_index] = normalized_label
 
     extracted_blocks = _load_extracted_archive_blocks(bundle.extracted_archive_path)
-    all_indices = sorted(set(block_labels) | set(extracted_blocks))
+    all_indices = sorted(set(row_labels) | set(extracted_blocks))
     source_identifier = bundle.pred_context.source_hash or str(selected_source)
     workbook_slug = str(stage_payload.get("workbook_slug") or "").strip()
     predict_meta = _prediction_record_meta_from_bundle(
@@ -718,18 +728,18 @@ def predict_stage(
         selected_source=selected_source,
         workbook_slug=workbook_slug,
     )
-    for block_index in all_indices:
-        block_payload = extracted_blocks.get(block_index, {})
+    for row_index in all_indices:
+        block_payload = extracted_blocks.get(row_index, {})
         prediction_payload: dict[str, Any] = {
             "schema_kind": _BENCHMARK_PREDICTION_RECORD_STAGE_KIND,
-            "block_index": int(block_index),
-            "pred_label": block_labels.get(block_index, "OTHER"),
-            "block_text": str(block_payload.get("text") or ""),
-            "block_features": dict(block_payload.get("features") or {}),
+            "row_index": int(row_index),
+            "pred_label": row_labels.get(row_index, "OTHER"),
+            "row_text": str(block_payload.get("text") or ""),
+            "row_features": dict(block_payload.get("features") or {}),
         }
         yield make_prediction_record(
-            example_id=f"labelstudio-benchmark:{source_identifier}:block:{block_index}",
-            example_index=int(block_index),
+            example_id=f"labelstudio-benchmark:{source_identifier}:row:{row_index}",
+            example_index=int(row_index),
             prediction=prediction_payload,
             predict_meta=predict_meta,
         )
@@ -741,20 +751,26 @@ def _prediction_record_stage_row(
     schema_kind = str(record.prediction.get("schema_kind") or "").strip()
     if schema_kind and schema_kind != _BENCHMARK_PREDICTION_RECORD_STAGE_KIND:
         return None
-    if "block_index" not in record.prediction:
+    if "row_index" not in record.prediction and "block_index" not in record.prediction:
         return None
 
-    block_index = _coerce_int(record.prediction.get("block_index"))
-    if block_index is None or block_index < 0:
+    row_index = _coerce_int(
+        record.prediction.get("row_index", record.prediction.get("block_index"))
+    )
+    if row_index is None or row_index < 0:
         raise ValueError(
-            f"Prediction record {record.example_id} has invalid block_index."
+            f"Prediction record {record.example_id} has invalid row_index."
         )
     pred_label = str(record.prediction.get("pred_label") or "").strip() or "OTHER"
-    block_text = str(record.prediction.get("block_text") or "")
-    block_features_payload = record.prediction.get("block_features")
-    if not isinstance(block_features_payload, dict):
-        block_features_payload = {}
-    return block_index, pred_label, block_text, dict(block_features_payload)
+    row_text = str(
+        record.prediction.get("row_text", record.prediction.get("block_text")) or ""
+    )
+    row_features_payload = record.prediction.get(
+        "row_features", record.prediction.get("block_features")
+    )
+    if not isinstance(row_features_payload, dict):
+        row_features_payload = {}
+    return row_index, pred_label, row_text, dict(row_features_payload)
 
 
 def _build_prediction_bundle_from_stage_records(
@@ -786,80 +802,83 @@ def _build_prediction_bundle_from_stage_records(
         if stage_row is None:
             raise ValueError(
                 "Prediction record file contains unsupported record payload. "
-                "Expected per-block stage records."
+                "Expected per-row semantic records."
             )
-        block_index, pred_label, block_text, block_features = stage_row
-        if int(record.example_index) != int(block_index):
+        row_index, pred_label, row_text, row_features = stage_row
+        if int(record.example_index) != int(row_index):
             raise ValueError(
-                "Prediction record example_index does not match block_index for "
+                "Prediction record example_index does not match row_index for "
                 f"{record.example_id}."
             )
-        if block_index in block_rows:
+        if row_index in block_rows:
             raise ValueError(
-                f"Prediction record file contains duplicate block_index: {block_index}"
+                f"Prediction record file contains duplicate row_index: {row_index}"
             )
-        block_rows[block_index] = {
+        block_rows[row_index] = {
             "pred_label": pred_label,
-            "block_text": block_text,
-            "block_features": block_features,
+            "row_text": row_text,
+            "row_features": row_features,
         }
         if not first_meta:
             first_meta = dict(record.predict_meta)
 
     if not block_rows:
-        raise ValueError("Prediction record file contains no stage-block records.")
+        raise ValueError("Prediction record file contains no semantic-row records.")
 
     ordered_indices = sorted(block_rows)
     expected_indices = list(ordered_indices)
     if require_contiguous:
-        max_block_index = ordered_indices[-1]
-        expected_indices = list(range(max_block_index + 1))
+        max_row_index = ordered_indices[-1]
+        expected_indices = list(range(max_row_index + 1))
         missing_indices = [
-            block_index for block_index in expected_indices if block_index not in block_rows
+            row_index for row_index in expected_indices if row_index not in block_rows
         ]
         if missing_indices:
             missing_preview = ",".join(str(value) for value in missing_indices[:10])
             raise ValueError(
-                "Prediction record block indices are not contiguous from 0. "
+                "Prediction record row indices are not contiguous from 0. "
                 f"Missing: {missing_preview}"
             )
 
     source_file = str(first_meta.get("source_file") or "")
     source_hash = str(first_meta.get("source_hash") or "").strip() or "unknown"
     workbook_slug = str(first_meta.get("workbook_slug") or "").strip()
-    label_blocks: dict[str, list[int]] = {}
+    label_rows: dict[str, list[int]] = {}
     stage_labels: dict[str, str] = {}
     extracted_rows: list[dict[str, Any]] = []
-    for block_index in expected_indices:
-        row = block_rows[block_index]
+    for row_index in expected_indices:
+        row = block_rows[row_index]
         pred_label = str(row.get("pred_label") or "OTHER").strip() or "OTHER"
-        stage_labels[str(block_index)] = pred_label
-        label_blocks.setdefault(pred_label, []).append(block_index)
+        stage_labels[str(row_index)] = pred_label
+        label_rows.setdefault(pred_label, []).append(row_index)
         extracted_rows.append(
             {
-                "index": block_index,
-                "text": str(row.get("block_text") or ""),
+                "index": row_index,
+                "text": str(row.get("row_text") or ""),
                 "location": {
-                    "features": dict(row.get("block_features") or {}),
+                    "features": dict(row.get("row_features") or {}),
                 },
             }
         )
 
     replay_output_dir.mkdir(parents=True, exist_ok=True)
-    stage_predictions_path = replay_output_dir / "stage_block_predictions.from_records.json"
+    stage_predictions_path = replay_output_dir / "semantic_row_predictions.from_records.json"
     extracted_archive_path = replay_output_dir / "extracted_archive.from_records.json"
     stage_payload: dict[str, Any] = {
-        "schema_version": "stage_block_predictions.v1",
+        "schema_version": "semantic_row_predictions.v1",
         "source_file": source_file,
         "source_hash": source_hash,
         "workbook_slug": workbook_slug,
+        "row_labels": stage_labels,
         "block_labels": stage_labels,
-        "label_blocks": label_blocks,
+        "label_rows": label_rows,
+        "label_blocks": label_rows,
         "conflicts": [],
         "notes": ["Reconstructed from per-example prediction records."],
     }
     contiguous_indices = expected_indices == list(range(len(expected_indices)))
     if contiguous_indices:
+        stage_payload["row_count"] = len(expected_indices)
         stage_payload["block_count"] = len(expected_indices)
     stage_predictions_path.write_text(
         json.dumps(stage_payload, indent=2, sort_keys=True),
@@ -878,7 +897,7 @@ def _build_prediction_bundle_from_stage_records(
         timing_payload = {}
     import_result: dict[str, Any] = {
         "run_root": str(pred_run),
-        "stage_block_predictions_path": str(stage_predictions_path),
+        "semantic_row_predictions_path": str(stage_predictions_path),
         "processed_report_path": str(first_meta.get("processed_report_path") or ""),
         "processed_run_root": str(first_meta.get("processed_run_root") or ""),
         "timing": timing_payload,
@@ -896,7 +915,7 @@ def _build_prediction_bundle_from_stage_records(
     pred_context = PredRunContext(
         recipes=_coerce_int(first_meta.get("recipes")),
         processed_report_path=str(first_meta.get("processed_report_path") or ""),
-        stage_block_predictions_path=str(stage_predictions_path),
+        semantic_row_predictions_path=str(stage_predictions_path),
         extracted_archive_path=str(extracted_archive_path),
         source_file=source_file,
         source_hash=source_hash if source_hash != "unknown" else None,
@@ -937,7 +956,7 @@ def _build_prediction_bundle_from_records(
     if len(stage_record_candidates) != len(prediction_records):
         raise ValueError(
             "Prediction record file contains unsupported payload(s). "
-            "Only per-block stage records are accepted."
+            "Only per-row semantic records are accepted."
         )
     return _build_prediction_bundle_from_stage_records(
         prediction_records=stage_record_candidates,

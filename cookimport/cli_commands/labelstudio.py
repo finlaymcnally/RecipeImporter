@@ -2482,6 +2482,10 @@ def register(app: typer.Typer) -> dict[str, object]:
                         prewarmed_canonical_paths = (
                             pipelined_result.prewarmed_canonical_paths
                         )
+                        evaluation_bundle = (
+                            pipelined_result.replay_bundle
+                            or pipelined_result.prediction_bundle
+                        )
             else:
                 if predictions_in_path is None:
                     _fail("Prediction record input is required.")
@@ -2491,6 +2495,7 @@ def register(app: typer.Typer) -> dict[str, object]:
                     replay_output_dir=eval_output_dir / ".prediction-record-replay",
                 )
                 prediction_records_output = list(prediction_record_input)
+                evaluation_bundle = prediction_bundle
 
             import_result = prediction_bundle.import_result
             imported_split_cache_payload = import_result.get("single_book_split_cache")
@@ -2518,8 +2523,8 @@ def register(app: typer.Typer) -> dict[str, object]:
                 )
             )
             prediction_phase_seconds = prediction_bundle.prediction_phase_seconds
-            evaluation_stage_predictions_path = stage_predictions_path
-            evaluation_extracted_archive_path = extracted_archive_path
+            evaluation_stage_predictions_path = evaluation_bundle.stage_predictions_path
+            evaluation_extracted_archive_path = evaluation_bundle.extracted_archive_path
 
             if predictions_out_path is not None:
                 write_prediction_records(predictions_out_path, prediction_records_output)
@@ -3183,7 +3188,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             "epub_ingredient_run_window": epub_ingredient_run_window,
             "epub_ingredient_header_window": epub_ingredient_header_window,
             "epub_title_max_length": epub_title_max_length,
-            "stage_block_predictions_path": str(stage_predictions_path),
+            "semantic_row_predictions_path": str(stage_predictions_path),
                 },
                 benchmark_codex_execution,
             )
@@ -3217,7 +3222,7 @@ def register(app: typer.Typer) -> dict[str, object]:
         benchmark_artifacts: dict[str, Any] = {
             "artifact_root_dir": _path_for_manifest(eval_output_dir, pred_run),
             "gold_spans_jsonl": _path_for_manifest(eval_output_dir, selected_gold),
-            "stage_block_predictions_json": _path_for_manifest(
+            "semantic_row_predictions_json": _path_for_manifest(
                 eval_output_dir,
                 stage_predictions_path,
             ),
@@ -3245,7 +3250,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             evaluation_stage_predictions_path != stage_predictions_path
             or evaluation_extracted_archive_path != extracted_archive_path
         ):
-            benchmark_artifacts["evaluation_stage_block_predictions_json"] = _path_for_manifest(
+            benchmark_artifacts["evaluation_semantic_row_predictions_json"] = _path_for_manifest(
                 eval_output_dir,
                 evaluation_stage_predictions_path,
             )

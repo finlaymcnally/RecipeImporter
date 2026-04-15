@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from cookimport.bench.eval_stage_blocks import compute_block_metrics
+from cookimport.bench.metrics import compute_label_metrics
 
 
 def build_line_role_slice_metrics(
@@ -49,10 +49,10 @@ def build_line_role_slice_metrics(
                 "worst_label_recall": {"label": None, "recall": None},
             }
             continue
-        metrics = compute_block_metrics(gold, pred)
+        metrics = compute_label_metrics(gold, pred)
         payload["slices"][slice_name] = {
             "line_count": len(selected),
-            "overall_line_accuracy": float(metrics.get("overall_block_accuracy") or 0.0),
+            "overall_line_accuracy": float(metrics.get("overall_accuracy") or 0.0),
             "macro_f1_excluding_other": float(metrics.get("macro_f1_excluding_other") or 0.0),
             "worst_label_recall": metrics.get("worst_label_recall"),
         }

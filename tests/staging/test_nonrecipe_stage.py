@@ -306,17 +306,17 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
         candidate_status_path.read_text(encoding="utf-8")
     )
     authority_payload = json.loads(
-        (tmp_path / "09_nonrecipe_authority.json").read_text(encoding="utf-8")
+        (tmp_path / "09_nonrecipe_row_authority.json").read_text(encoding="utf-8")
     )
 
-    assert nonrecipe_payload["schema_version"] == "nonrecipe_route.v1"
-    assert nonrecipe_payload["counts"]["candidate_blocks"] == 1
-    assert nonrecipe_payload["counts"]["excluded_blocks"] == 1
-    assert nonrecipe_payload["candidate_block_ids"] == ["b1"]
-    assert nonrecipe_payload["excluded_block_ids"] == ["b0"]
-    assert authority_payload["schema_version"] == "nonrecipe_authority.v1"
-    assert authority_payload["counts"]["final_authority_blocks"] == 1
-    assert authority_payload["authoritative_block_category_by_index"] == {"0": "other"}
+    assert nonrecipe_payload["schema_version"] == "nonrecipe_row_route.v1"
+    assert nonrecipe_payload["counts"]["candidate_rows"] == 1
+    assert nonrecipe_payload["counts"]["excluded_rows"] == 1
+    assert nonrecipe_payload["candidate_row_ids"] == ["b1"]
+    assert nonrecipe_payload["excluded_row_ids"] == ["b0"]
+    assert authority_payload["schema_version"] == "nonrecipe_row_authority.v1"
+    assert authority_payload["counts"]["final_authority_rows"] == 1
+    assert authority_payload["authoritative_row_category_by_index"] == {"0": "other"}
     assert candidate_status_payload["pipeline"] == "off"
     assert candidate_status_payload["schema_version"] == "nonrecipe_finalize_status.v1"
     assert candidate_status_payload["candidate_status"] == "not_run"
@@ -460,7 +460,7 @@ def test_nonrecipe_stage_writes_exclusion_ledger(tmp_path: Path) -> None:
     write_nonrecipe_stage_outputs(stage_result, tmp_path)
 
     payload = json.loads(
-        (tmp_path / "08_nonrecipe_route.json").read_text(encoding="utf-8")
+        (tmp_path / "08_nonrecipe_row_route.json").read_text(encoding="utf-8")
     )
     ledger_rows = [
         json.loads(line)
@@ -470,16 +470,18 @@ def test_nonrecipe_stage_writes_exclusion_ledger(tmp_path: Path) -> None:
         if line.strip()
     ]
 
-    assert payload["counts"]["excluded_blocks"] == 1
-    assert payload["excluded_block_indices"] == [0]
-    assert payload["excluded_block_ids"] == ["b0"]
+    assert payload["counts"]["excluded_rows"] == 1
+    assert payload["excluded_row_indices"] == [0]
+    assert payload["excluded_row_ids"] == ["b0"]
     assert ledger_rows == [
         {
-            "block_id": "b0",
-            "block_index": 0,
             "exclusion_source": "line_role",
             "final_category": "other",
             "preview": "Acknowledgments",
+            "row_id": "b0",
+            "row_index": 0,
+            "block_id": "b0",
+            "block_index": 0,
         }
     ]
 

@@ -125,7 +125,7 @@ Per workbook (slugified file stem):
 - `tables/<workbook_slug>/tables.jsonl` and `tables/<workbook_slug>/tables.md` (always written for stage/prediction runs; `tables.md` skipped with `stage --no-write-markdown`)
 - `knowledge/<workbook_slug>/knowledge.md` (if optional knowledge extraction is enabled and wrote reviewer-facing knowledge output)
 - `knowledge/knowledge_index.json` (if any knowledge artifacts were written in the run)
-- `.bench/<workbook_slug>/stage_block_predictions.json` (deterministic block-level benchmark evidence)
+- `.bench/<workbook_slug>/semantic_row_predictions.json` (row-native benchmark evidence)
 - `.bench/<workbook_slug>/p6_metadata_debug.jsonl` (internal-only Priority 6 diagnostics; Bucket 1 no longer exposes `p6_emit_metadata_debug` as a normal run setting)
 - `raw/<importer>/<source_hash>/<location_id>.<ext>` (if any)
   - includes `recipe_scoring_debug.jsonl` when importers emit candidate gate decisions
@@ -163,7 +163,7 @@ Outside run root (`.history/` for repo-local output roots):
 Code pointers (prefer these over line numbers, which drift often):
 
 - `cookimport/cli_worker.py` (`execute_source_job`) writes per-job raw artifacts, and `cookimport/cli_commands/stage.py` (`stage`) plus `cookimport/cli_support/stage.py` (`_merge_source_jobs`) assemble the merged book and invoke staging writers once.
-- `cookimport/staging/writer.py` (`write_intermediate_outputs`, `write_draft_outputs`, `write_section_outputs`, `write_chunk_outputs`, `write_table_outputs`, `write_raw_artifacts`, `write_stage_block_predictions`, `write_report`) implements the file layout above.
+- `cookimport/staging/writer.py` (`write_intermediate_outputs`, `write_draft_outputs`, `write_section_outputs`, `write_chunk_outputs`, `write_table_outputs`, `write_raw_artifacts`, `write_semantic_row_predictions`, `write_report`) implements the file layout above.
 - `cookimport/cli_commands/stage.py` plus `cookimport/cli_support/stage.py` (`_write_knowledge_index_best_effort`, `_write_stage_run_summary`, `_write_stage_run_manifest`) add run-level index/summary/manifest artifacts.
 - `cookimport/runs/stage_observability.py` is the canonical run-level stage model/writer used by summaries and manifests.
 
@@ -186,9 +186,9 @@ Recipe-authority note:
 - When recipe Codex is off or falls back, `pipeline_runtime.py` still emits the same payload shape deterministically so writer contracts stay uniform.
 - `write_intermediate_outputs(...)`, `write_draft_outputs(...)`, and `write_section_outputs(...)` now project from that payload first; active stage-backed runtime code no longer threads legacy override dicts as a parallel authority lane, and `CodexFarmApplyResult` no longer publishes recipe override maps as part of the live stage contract.
 
-Stage-block `KNOWLEDGE` label contract:
-- `stage_block_predictions.json` now uses only the explicit final non-recipe authority recorded in `09_nonrecipe_authority.json`.
-- recipe-local block ownership comes from `recipe_authority/<workbook_slug>/recipe_block_ownership.json`, not from recipe provenance ranges rebuilt later from recipe payloads.
+Semantic-row prediction contract:
+- `semantic_row_predictions.json` now uses only the explicit final non-recipe authority recorded in `09_nonrecipe_row_authority.json`.
+- recipe-local row ownership comes from `recipe_authority/<workbook_slug>/recipe_row_ownership.json`, not from recipe provenance ranges rebuilt later from recipe payloads.
 - `08_nonrecipe_route.json` is the deterministic `nonrecipe-route` artifact. It keeps candidate/exclude routing, exclusion reasons, block ids, and previews, but it does not publish final semantic category guesses.
 - `08_nonrecipe_route.json` may contain only blocks that were unowned at boundary time or explicitly divested later; recipe-owned blocks are forbidden input, not just low-priority output.
 - The nonrecipe router consumes authoritative block labels, not repair heuristics: `NONRECIPE_CANDIDATE` feeds the knowledge queue, `NONRECIPE_EXCLUDE` becomes immediate final `other`, and malformed authoritative labels are hard errors.

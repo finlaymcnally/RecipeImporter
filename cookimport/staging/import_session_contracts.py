@@ -25,7 +25,7 @@ class StageImportSessionResult:
     importer_name: str
     conversion_result: ConversionResult
     report_path: Path
-    stage_block_predictions_path: Path
+    semantic_row_predictions_path: Path
     run_config: dict[str, Any] | None
     run_config_hash: str | None
     run_config_summary: str | None
@@ -36,10 +36,18 @@ class StageImportSessionResult:
     source_artifact_paths: dict[str, Path] | None = None
     authoritative_recipe_payloads_path: Path | None = None
     recipe_authority_decisions_path: Path | None = None
-    recipe_block_ownership_path: Path | None = None
+    recipe_row_ownership_path: Path | None = None
     nonrecipe_stage_result: NonRecipeStageResult | None = None
     extracted_book_bundle: ExtractedBookBundle | None = None
     recipe_boundary_result: RecipeBoundaryResult | None = None
     recipe_refine_result: RecipeRefineResult | None = None
     nonrecipe_route_result: NonrecipeRouteResult | None = None
     nonrecipe_finalize_result: NonrecipeFinalizeResult | None = None
+
+    @property
+    def stage_block_predictions_path(self) -> Path:
+        return self.semantic_row_predictions_path
+
+    @property
+    def recipe_block_ownership_path(self) -> Path | None:
+        return self.recipe_row_ownership_path

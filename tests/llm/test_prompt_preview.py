@@ -218,7 +218,7 @@ def _build_existing_run_at(run_dir: Path) -> Path:
         },
     )
     _write_json(
-        run_dir / "recipe_authority" / workbook_slug / "recipe_block_ownership.json",
+        run_dir / "recipe_authority" / workbook_slug / "recipe_row_ownership.json",
         {
             "schema_version": "recipe_block_ownership.v1",
             "ownership_mode": "recipe_boundary_with_explicit_divestment",

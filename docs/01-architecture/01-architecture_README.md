@@ -69,7 +69,7 @@ Architecture priorities:
   - write run artifacts (`manifest.json`, tasks JSONL, coverage, extracted archive/text)
   - upload tasks when write consent is explicit
   - perform merge-time block-index rebasing across split jobs
-  - treat processed `stage_block_predictions.json` as the primary benchmark scoring input, with freeform projection artifacts derived from the same authoritative label-first bundle instead of a second diagnostic rerun
+  - treat processed `semantic_row_predictions.json` as the primary benchmark scoring input, with freeform projection artifacts derived from the same authoritative label-first bundle instead of a second diagnostic rerun
 
 ### Current authority boundaries
 
@@ -194,7 +194,7 @@ For `cookimport stage`, each run uses a timestamped root:
 - `<out>/<timestamp>/sections/<workbook_slug>/r{index}.sections.json` (+ `sections.md` when `--write-markdown`)
 - `<out>/<timestamp>/chunks/<workbook_slug>/c{index}.json` (+ `chunks.md` when chunks exist and `--write-markdown`)
 - `<out>/<timestamp>/tables/<workbook_slug>/tables.jsonl` (+ `tables.md` when `--write-markdown`)
-- `<out>/<timestamp>/.bench/<workbook_slug>/stage_block_predictions.json`
+- `<out>/<timestamp>/.bench/<workbook_slug>/semantic_row_predictions.json`
 - `<out>/<timestamp>/08_nonrecipe_route.json`
 - `<out>/<timestamp>/08_nonrecipe_exclusions.jsonl`
 - `<out>/<timestamp>/09_nonrecipe_authority.json`
@@ -269,7 +269,7 @@ Core artifacts:
 - `run_manifest.json`
 - `label_studio_tasks.jsonl` (optional in offline prediction runs when `--no-write-labelstudio-tasks`; required in upload mode)
 - `project.json` (upload/import mode only)
-- `stage_block_predictions.json` (present when copied from processed stage output)
+- `semantic_row_predictions.json` (present when copied from processed stage output)
 - `prelabel_report.json`, `prelabel_errors.jsonl`, `prelabel_prompt_log.md` (when prelabeling is enabled)
 
 Behavioral constraints:

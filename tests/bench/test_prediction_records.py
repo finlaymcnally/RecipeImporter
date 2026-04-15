@@ -19,13 +19,13 @@ def test_prediction_record_roundtrip_jsonl(tmp_path: Path) -> None:
         make_prediction_record(
             example_id="example-0",
             example_index=0,
-            prediction={"stage_block_predictions_path": "/tmp/a.json"},
+            prediction={"semantic_row_predictions_path": "/tmp/a.json"},
             predict_meta={"source_file": "book.epub"},
         ),
         make_prediction_record(
             example_id="example-1",
             example_index=1,
-            prediction={"stage_block_predictions_path": "/tmp/b.json"},
+            prediction={"semantic_row_predictions_path": "/tmp/b.json"},
             predict_meta={"source_file": "book-two.epub"},
         ),
     ]
@@ -56,14 +56,14 @@ def test_read_single_prediction_record_requires_exactly_one(tmp_path: Path) -> N
             schema_version=1,
             example_id="example-0",
             example_index=0,
-            prediction={"stage_block_predictions_path": "/tmp/a.json"},
+            prediction={"semantic_row_predictions_path": "/tmp/a.json"},
             predict_meta={"source_file": "book.epub"},
         ),
         PredictionRecord(
             schema_version=1,
             example_id="example-1",
             example_index=1,
-            prediction={"stage_block_predictions_path": "/tmp/b.json"},
+            prediction={"semantic_row_predictions_path": "/tmp/b.json"},
             predict_meta={"source_file": "book-two.epub"},
         ),
     ]

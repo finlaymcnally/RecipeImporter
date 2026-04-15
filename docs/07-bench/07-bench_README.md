@@ -51,7 +51,6 @@ Active commands:
 - `bench quality-run`: run deterministic all-method quality experiments for one discovered suite
 - `bench quality-leaderboard`: aggregate one quality-run experiment into a cross-source leaderboard and Pareto frontier
 - `bench quality-compare`: compare baseline/candidate quality runs with strict/practical/source-success gates
-- `bench eval-stage`: evaluate an existing stage run directly from `.bench/*/stage_block_predictions.json`
 - `bench gc`: prune old benchmark artifacts, keep only the newest five Label Studio benchmark runs by default, and wipe timestamped `data/output` run roots while preserving non-run folders
 - `bench pin` / `bench unpin`: add or remove GC keep sentinels
 - `bench oracle-upload`: upload an existing `upload_bundle_v1` to Oracle without rerunning the benchmark; defaults to both review lanes and accepts `--profile quality|token|all`
@@ -224,7 +223,7 @@ Benchmark transport note:
 
 Primary scored prediction artifact:
 
-- `stage_block_predictions.json` (`schema_version=stage_block_predictions.v1`)
+- `semantic_row_predictions.json` (`schema_version=semantic_row_predictions.v1`)
   - the current staging owner map for that artifact is: `recipe_block_evidence.py` for recipe-local evidence, `knowledge_block_evidence.py` for final non-recipe evidence, `block_label_resolution.py` for priority rules, and `stage_block_predictions.py` as the assembly root
 
 Required supporting artifact:
@@ -234,13 +233,13 @@ Required supporting artifact:
 Current rule:
 
 - benchmark scoring reads one manifest pointer pair from prediction-run metadata:
-  - `stage_block_predictions_path`
+  - `semantic_row_predictions_path`
   - `extracted_archive_path`
 - prediction generation is responsible for setting those pointers to the correct artifacts for the run
 - source-row line-role runs rewire that same pointer pair to the scored `line-role-pipeline/` projection artifacts; helpers should not guess stage-backed files or raw `full_text.json` from path layout
-- pipelined `.prediction-record-replay/` bundles are replay helpers only. `source-rows` evaluation must stay on the authoritative row-backed prediction pointers so the evaluator can still resolve `row_label_predictions.jsonl` / `semantic_line_role_predictions.jsonl`.
+- pipelined `.prediction-record-replay/` bundles are the authoritative eval input for streamed-record runs; the original prediction-run root remains the durable artifact root for manifests and recovery.
 - new-format prediction/eval manifests and import return payloads do not publish separate line-role scorer keys anymore; helpers should fail on missing canonical pointers instead of probing older fallback filenames or implicit directories
-- semantic stage/source-row scoring uses only authoritative predictions. If `stage_block_predictions.json` carries unresolved candidate block indices, those rows are excluded from accuracy/F1 and reported separately as coverage/incompleteness.
+- semantic source-row scoring uses only authoritative predictions. If `semantic_row_predictions.json` carries unresolved candidate row indices, those rows are excluded from accuracy/F1 and reported separately as coverage/incompleteness.
 
 ### 3.2 Gold inputs
 
@@ -256,7 +255,7 @@ Row gold authority note:
 - canonical export files may still exist as compatibility/archive outputs for older tooling, but they are no longer the active scorer inputs
 - benchmark run manifests should describe `source-rows` runs as evaluating a selected Label Studio gold export with row-gold scoring, not as scoring the raw freeform file directly
 
-### 3.3 Stage-block scoring contract
+### 3.3 Row-native scoring contract
 
 Current rules:
 
@@ -264,10 +263,10 @@ Current rules:
 - missing gold rows for predicted blocks default to `OTHER` and are logged in `gold_conflicts.jsonl`
 - evaluator fingerprints gold/prediction blockization metadata and fails with `gold_prediction_blockization_mismatch` when drift is severe enough to make block-level scoring misleading
 
-Primary stage-block metrics:
+Primary row-native metrics:
 
 - `strict_accuracy`
-- `overall_block_accuracy`
+- `overall_line_accuracy`
 - `macro_f1_excluding_other`
 - `worst_label_recall`
 
@@ -293,13 +292,13 @@ Current line-role and knowledge behavior:
 - `line-role-pipeline/` artifacts are written when line-role is enabled; prediction generation may set scorer pointers to these projection artifacts for that run
 - processed stage-backed artifacts still get written for the run; the regression fix was specifically to move the scorer pointer pair to the projection artifacts instead of leaving scoring on the stage-backed pair
 - when the benchmark reuses authoritative Stage 2 recipe-local labels, the scored line-role artifact pair must still preserve the row-projected coordinates that match the scorer inputs:
-  - `stage_block_predictions.json` is serialized from row-backed line-role projections, not copied from source blocks
+  - `semantic_row_predictions.json` is serialized from row-backed line-role projections, not copied from source blocks
   - `extracted_archive.json` carries the matching projection metadata
   - outside-recipe `KNOWLEDGE` versus `OTHER` labels in that projection must come from the final non-recipe authority, not the pre-knowledge seed
 - those line-role artifacts now expose `decided_by`, `reason_tags`, and `escalation_reasons`; scalar trust/confidence fields are gone
 - `09_nonrecipe_authority.json` is the authoritative scored outside-span contract; benchmark scoring and projection must read this file only when they need final outside-recipe truth
 - `08_nonrecipe_route.json` and `09_nonrecipe_finalize_status.json` are debugging/progress artifacts; they can explain routing or incompleteness but must not be treated as scored truth
-- `line-role-pipeline/line_role_predictions.jsonl` may still preserve provisional outside-recipe line-role labels for debugging, but `line-role-pipeline/stage_block_predictions.json` must fail closed and use explicit final authority only for scored outside-recipe `KNOWLEDGE`
+- `line-role-pipeline/line_role_predictions.jsonl` may still preserve provisional outside-recipe line-role labels for debugging, but `line-role-pipeline/semantic_row_predictions.json` must fail closed and use explicit final authority only for scored outside-recipe `KNOWLEDGE`
 - prompt preview and live knowledge harvest both rebuild from the same compact `build_knowledge_jobs(...)` inputs
 - knowledge worker manifests and per-shard status files may now end with explicit knowledge-runtime reason codes such as `workspace_outputs_stabilized`, `watchdog_malformed_final_output`, or `watchdog_retry_oversized_skipped`; these mean the worker stopped after stabilized owned outputs, a strict retry emitted malformed pseudo-final JSON, or a multi-chunk oversized watchdog retry was intentionally skipped
 - prediction-run and eval diagnostics can emit:
@@ -473,7 +472,7 @@ Current rules:
 Primary benchmark modules:
 
 - `cookimport/cli.py`: top-level Typer app that mounts the benchmark and Label Studio command groups
-- `cookimport/cli_commands/bench.py`: `cookimport bench` command registration (`speed-*`, `quality-*`, `gc`, `pin`, `oracle-*`, `eval-stage`)
+- `cookimport/cli_commands/bench.py`: `cookimport bench` command registration (`speed-*`, `quality-*`, `gc`, `pin`, `oracle-*`)
 - `cookimport/cli_commands/labelstudio.py`: `labelstudio-benchmark` command registration
 - `cookimport/cli_support/bench.py`, `bench_single_book.py`, `bench_single_profile.py`, `bench_all_method.py`, `bench_oracle.py`, `bench_artifacts.py`, `bench_cache.py`: split benchmark implementation owners behind the CLI facade
 - `cookimport/bench/CONVENTIONS.md`: durable benchmark contracts inside the code folder
