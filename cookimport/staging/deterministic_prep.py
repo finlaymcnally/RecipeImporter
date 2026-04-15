@@ -283,6 +283,52 @@ def _bundle_result_from_manifest(
     )
 
 
+def _run_setting_string(run_settings: RunSettings, field_name: str) -> str:
+    value = getattr(run_settings, field_name, "")
+    if hasattr(value, "value"):
+        value = value.value
+    return str(value or "").strip().lower()
+
+
+def _count_jsonl_dict_rows(path: Path) -> int:
+    return len(_read_jsonl_dicts(path))
+
+
+def _prediction_cache_supports_source_rows(
+    bundle: DeterministicPrepBundleResult,
+    *,
+    run_settings: RunSettings,
+) -> bool:
+    if _run_setting_string(run_settings, "line_role_pipeline") == "off":
+        return True
+
+    source_rows_path = (
+        bundle.processed_run_root
+        / "raw"
+        / "source"
+        / bundle.workbook_slug
+        / "source_rows.jsonl"
+    )
+    source_row_count = _count_jsonl_dict_rows(source_rows_path)
+    if source_row_count <= 0:
+        return False
+
+    line_role_dir = bundle.prediction_run_root / LINE_ROLE_PIPELINE_DIR_NAME
+    prediction_paths = [
+        line_role_dir / "row_label_predictions.jsonl",
+        line_role_dir / "semantic_line_role_predictions.jsonl",
+        line_role_dir / "line_role_predictions.jsonl",
+    ]
+    existing_prediction_paths = [path for path in prediction_paths if path.exists()]
+    if not existing_prediction_paths:
+        return False
+
+    return any(
+        _count_jsonl_dict_rows(path) == source_row_count
+        for path in existing_prediction_paths
+    )
+
+
 def load_deterministic_prep_bundle(
     manifest_path: Path | str,
 ) -> DeterministicPrepBundleResult:
@@ -329,7 +375,12 @@ def load_existing_deterministic_prep_bundle(
         prep_key=prep_key,
         book_cache_root=book_cache_root,
     )
-    return _bundle_result_from_manifest(manifest_path, cache_hit=True)
+    bundle = _bundle_result_from_manifest(manifest_path, cache_hit=True)
+    if bundle is None:
+        return None
+    if not _prediction_cache_supports_source_rows(bundle, run_settings=run_settings):
+        return None
+    return bundle
 
 
 def _build_generate_prediction_kwargs(

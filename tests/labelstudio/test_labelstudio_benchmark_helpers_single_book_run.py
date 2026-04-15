@@ -554,6 +554,120 @@ def test_load_deterministic_prep_bundle_normalizes_legacy_manifest_workbook_slug
     assert bundle.workbook_slug == normalized_slug
 
 
+def test_load_existing_deterministic_prep_bundle_rejects_block_level_prediction_cache(
+    tmp_path: Path,
+) -> None:
+    import cookimport.staging.deterministic_prep as deterministic_prep
+
+    source_file = tmp_path / "SaltFat.epub"
+    source_file.write_text("book", encoding="utf-8")
+    source_hash = "hash-123"
+    run_settings = cli.RunSettings.from_dict(
+        {
+            "line_role_pipeline": "codex-line-role-route-v2",
+        },
+        warn_context="test deterministic prep cache source-row compatibility",
+    )
+    prep_key = deterministic_prep.build_deterministic_prep_key(
+        source_file=source_file,
+        source_hash=source_hash,
+        run_settings=run_settings,
+    )
+    artifact_root = deterministic_prep.deterministic_prep_artifact_root(
+        book_cache_root=tmp_path / "book-cache",
+        source_hash=source_hash,
+        prep_key=prep_key,
+    )
+    processed_run_root = artifact_root / "processed-output" / "2026-04-15_12.00.44"
+    prediction_run_root = artifact_root / "prediction-run"
+    workbook_slug = "saltfatacidheatcutdown"
+
+    source_dir = processed_run_root / "raw" / "source" / workbook_slug
+    source_dir.mkdir(parents=True, exist_ok=True)
+    (source_dir / "source_rows.jsonl").write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "row_id": f"urn:test:{index}",
+                    "source_hash": source_hash,
+                    "row_index": index,
+                    "row_ordinal": 0,
+                    "block_id": f"b{index}",
+                    "block_index": index,
+                    "start_char_in_block": 0,
+                    "end_char_in_block": 4,
+                    "text": f"row {index}",
+                    "rule_tags": [],
+                },
+                sort_keys=True,
+            )
+            for index in range(3)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    line_role_dir = prediction_run_root / "line-role-pipeline"
+    line_role_dir.mkdir(parents=True, exist_ok=True)
+    (line_role_dir / "semantic_line_role_predictions.jsonl").write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "row_id": f"row:{index}",
+                    "block_id": f"b{index}",
+                    "block_index": index,
+                    "atomic_index": index,
+                    "text": f"row {index}",
+                    "label": "OTHER",
+                    "decided_by": "fallback",
+                    "reason_tags": [],
+                    "escalation_reasons": [],
+                },
+                sort_keys=True,
+            )
+            for index in range(2)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    conversion_result_path = artifact_root / "conversion_result.json"
+    conversion_result_path.parent.mkdir(parents=True, exist_ok=True)
+    conversion_result_path.write_text("{}", encoding="utf-8")
+    manifest_path = artifact_root / "deterministic_prep_bundle_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "deterministic_prep_bundle.v2",
+                "prep_key": prep_key,
+                "source_file": str(source_file),
+                "source_hash": source_hash,
+                "workbook_slug": workbook_slug,
+                "importer_name": "epub",
+                "processed_run_root": str(processed_run_root),
+                "prediction_run_root": str(prediction_run_root),
+                "conversion_result_path": str(conversion_result_path),
+                "timing": {},
+                "deterministic_settings": {},
+                "book_cache_root": str(tmp_path / "book-cache"),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = deterministic_prep.load_existing_deterministic_prep_bundle(
+        source_file=source_file,
+        run_settings=run_settings,
+        source_hash=source_hash,
+        book_cache_root=tmp_path / "book-cache",
+    )
+
+    assert bundle is None
+
+
 def test_resolve_or_build_deterministic_prep_bundle_writes_slugified_workbook_slug(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

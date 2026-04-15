@@ -15,6 +15,7 @@ Current scoring contract:
 - Missing gold rows for predicted blocks are defaulted to `OTHER` and logged in `gold_conflicts.jsonl`.
 - Source-row eval reads `row_gold_labels.jsonl` directly; active scoring no longer depends on canonical export artifacts.
 - Source-row eval now treats `row_index` as the safer identity whenever a direct `row_id` match points at a different gold text/row. This avoids stale `row_id` collisions after source-block or row-id rebuilds.
+- Deterministic-prep cache reuse for source-row line-role runs now fails closed when cached `line-role-pipeline/*predictions.jsonl` row counts do not match cached `raw/source/*/source_rows.jsonl`. Old block-era caches are not source-row compatible.
 - Run-level prediction-stage replay uses `cookimport/bench/prediction_records.py` (`PredictionRecord` JSONL schema v1) for `labelstudio-benchmark --predictions-out/--predictions-in`.
 - Public `labelstudio-benchmark` runs always use pipelined execution; all-method orchestration keeps a private skip-evaluation prediction pass for prediction-record generation/reuse.
 - `bench eval-stage` evaluates existing stage outputs against freeform gold and writes stage-block diagnostics (`eval_report.*`, `missed_gold_blocks.jsonl`, `wrong_label_blocks.jsonl`, boundary mismatch JSONL artifacts).
