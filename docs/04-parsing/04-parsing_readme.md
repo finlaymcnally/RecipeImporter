@@ -72,7 +72,7 @@ Unstructured adapter note:
 Source rows note:
 - `source_rows.py` is the authoritative row builder for row-gold Label Studio and source-row benchmarks.
 - The active splitter is two-stage: keep the existing recipe-oriented first pass, then run a prose cleanup pass only on oversized or obviously mid-sentence-fractured rows.
-- The prose cleanup now repacks long narrative/advice paragraphs into balanced multi-sentence rows instead of mostly single-sentence rows. Current tuning keeps ordinary recipe rows alone, preserves dense short-sentence catalogs and rhetorical question ladders as one row for context, and only re-chunks genuinely oversized prose into roughly 4-sentence / ~520-char groups.
+- Version one uses fixed thresholds rather than semantic grouping: rows over roughly 220 chars with multiple sentences, rows over roughly 320 chars, and broken lowercase-leading continuations get reworked into smaller sentence-based rows, while existing small recipe rows are left alone.
 - Yield rows still split cleanly from following ingredients, including spaced-fraction cases like `Makes about 1 / 2 cup 1 tablespoon lemon juice`.
 - Lowercase mid-sentence prose uses of `makes`, `serves`, and `yields` should not create structural yield-row fractures; those cues are only allowed as boundaries when they still look like real yield lines in context.
 
