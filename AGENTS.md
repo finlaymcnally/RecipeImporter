@@ -45,7 +45,7 @@ Owning docs map:
   - Tests / test layout / low-noise pytest behavior -> `docs/12-testing/12-testing_README.md`
 
 Beads setup note:
-  - Repo-level Beads/Dolt setup, shared-server policy, and divergence recovery -> `docs/2026-04-14_beads-shared-server-setup.md`
+  - Repo-level Beads/Dolt setup, shared-server policy, and divergence recovery -> `docs/reports/2026-04-14_21.48.00_beads-shared-server-and-remote-policy.md`
 
 Beads default on this machine:
   - Prefer `bd init --server --shared-server` for new repos.
