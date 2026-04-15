@@ -30,7 +30,6 @@ Code surfaces (primary):
 
 Nearby code used directly by Label Studio benchmark/eval flow:
 
-- `cookimport/bench/eval_stage_blocks.py`
 - `cookimport/bench/eval_source_rows.py`
 - `cookimport/bench/prediction_records.py`
 - `cookimport/analytics/perf_report.py`
@@ -81,7 +80,7 @@ Active Label Studio runtime scope is `freeform-spans`.
 
 - Interactive Label Studio import uploads directly (no second upload confirmation prompt).
 - Interactive Label Studio import uses overwrite semantics (`overwrite=True`, `resume=False`).
-- Interactive Label Studio import includes freeform prelabel mode + style selection (`span` vs `block`).
+- Interactive Label Studio import includes freeform prelabel mode selection, but labeling style is fixed to actual row spans.
 - CLI import exposes `--upload-batch-size` (default `200`) and threads it directly into the upload loop; callers can shrink batches without editing repo code.
 - Interactive export resolves credentials, fetches project titles, and shows detected type tags for operator context.
 - Interactive benchmark is offline-only and offers:
@@ -115,19 +114,19 @@ Resume/idempotence is based on these IDs, not Label Studio internal task IDs.
 
 - `segment_text` contains the labelable focus window for one task.
 - `source_map.rows[*]` carries the authoritative row-native mapping for that focus text, including stable `row_id`, row ordinals, and offsets.
-- `source_map.blocks[*]` and `source_map.context_before_blocks` / `source_map.context_after_blocks` remain compatibility aliases for older UI/tests and should not be treated as the semantic baseline.
+- New task generation writes only `source_map.rows[*]` plus `context_before_rows` / `context_after_rows`.
+- Some legacy pulled exports and fixtures may still carry `blocks` / `context_*_blocks`; compatibility readers may accept them, but they are not part of the supported new-task contract.
 - Import writes `coverage.json` from focus + context block coverage and fails when extracted text is empty.
 
 ## 4) Freeform Prelabel Contracts
 
 ### 4.1 Modes
 
-`--prelabel-granularity` supports:
+`--prelabel-granularity` is span-only.
 
-- `block` (block-based mapping): `{block_index, label}` -> full-block span
 - `span` (actual freeform): quote/offset span resolution for sub-block highlights
 
-Both modes keep deterministic normalization and offset integrity.
+Span mode keeps deterministic normalization and offset integrity.
 
 Freeform label set includes `HOWTO_SECTION` for in-recipe subsection headers (for example `TO SERVE` / `FOR THE SAUCE`).
 Scoring behavior:
@@ -199,7 +198,6 @@ Thinking effort uses `--codex-thinking-effort` (alias `--codex-reasoning-effort`
 - `exports/freeform_segment_manifest.jsonl`
 - `exports/row_gold_labels.jsonl`
 - `exports/row_gold_conflicts.jsonl`
-- `exports/block_gold_labels.jsonl`
 - `exports/summary.json`
 - `run_manifest.json` (run root)
 
@@ -208,8 +206,8 @@ Thinking effort uses `--codex-thinking-effort` (alias `--codex-reasoning-effort`
 Row-authoritative benchmark note:
 - `freeform_span_labels.jsonl` remains the raw archive of what the annotator drew in Label Studio.
 - `row_gold_labels.jsonl` is the benchmark-authoritative gold. It is exhaustive for task focus rows: explicit annotated span labels win, and any focus row left unlabeled in Label Studio exports as `OTHER`. Benchmarks and row prediction diagnostics should trace one `row_id` end-to-end through scoring and mismatch reports.
-- `data.source_map.rows` is the authoritative task mapping for new freeform tasks. `blocks` keys remain as compatibility aliases for older UI/tests and should not be treated as the semantic baseline.
-- `block_gold_labels.jsonl` remains a derived convenience artifact for block-oriented tooling, but active scoring is row-authoritative and new exports no longer write canonical gold files.
+- `data.source_map.rows` is the authoritative task mapping for new freeform tasks.
+- New exports do not write `block_gold_labels.jsonl`.
 - Older pulled exports can be batch-migrated in place with `python scripts/migrate_pulled_labelstudio_gold_to_source_rows.py`. That script writes `exports/source_rows.jsonl`, migrated row gold files, `exports/row_seed_tasks.jsonl`, and updates the export summary/manifest to point at the new row-native artifacts.
 - Row-gold migration is now row-native only. `migrate_to_source_rows.py` trusts exact `touched_blocks[].row_id` plus row-local `segment_start` / `segment_end` spans and ignores touched entries that do not name a real row. Old block-wide reprojection is intentionally unsupported because it can smear later rows in the same source block backward onto earlier rows and create fake conflicts/ambiguous rows.
 - When replacement row-gold projects already exist in Label Studio and may contain newer edits than the archived pulled export, run the migration script with `--prefer-live-row-gold`. It exports the current replacement project into `live_row_gold_backups/<timestamp>_project-<id>/`, then remigrates from that live freeform export so refreshed projects do not discard newer annotation work.
@@ -280,12 +278,10 @@ Codex execution notes:
 
 Eval modes:
 
-- `stage-blocks` (default)
 - `source-rows`
 
 Evaluation implementation:
 
-- `stage-blocks` path uses `cookimport/bench/eval_stage_blocks.py`.
 - `source-rows` path uses `cookimport/bench/eval_source_rows.py`.
 - Benchmark prediction generation now writes one authoritative stage run under `data/output/<timestamp>/...` and mirrors benchmark artifacts into the eval root.
 - Scoring reads only one prediction-run pointer pair from `manifest.json`: `stage_block_predictions_path` and `extracted_archive_path`.
@@ -366,7 +362,7 @@ When source-row benchmark eval runs with `line_role_pipeline != off`, eval roots
 
 - `labelstudio-export` writes only explicit spans; unlabeled text is implicit and benchmarks treat missing gold coverage as `OTHER`.
 - Overlapping exported spans are preserved. Stage-block and source-row scoring treat touched blocks/lines as multi-label gold, so macro/per-label metrics can lag overall accuracy.
-- Adding a freeform label is a multi-surface change: update `cookimport/labelstudio/label_config_freeform.py`, `cookimport/labelstudio/eval_freeform.py`, `cookimport/staging/stage_block_predictions.py`, `cookimport/bench/eval_stage_blocks.py`, and `cookimport/bench/eval_source_rows.py`.
+- Adding a freeform label is a multi-surface change: update `cookimport/labelstudio/label_config_freeform.py`, `cookimport/labelstudio/eval_freeform.py`, `cookimport/staging/stage_block_predictions.py`, and `cookimport/bench/eval_source_rows.py`.
 - Reusing an older Label Studio project can leave stale `label_config`; if code labels and UI labels disagree, recreate or patch the project before changing scorers.
 - `labelstudio-benchmark compare` accepts either all-method benchmark report roots/files or single `eval_report.json` inputs.
 - If recipe-tail storage/use notes are scoring as `OTHER`, check both seams:

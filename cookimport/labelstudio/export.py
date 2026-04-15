@@ -7,10 +7,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from cookimport.labelstudio.block_gold import (
-    derive_block_gold_bundle,
-    write_block_gold_rows,
-)
 from cookimport.labelstudio.client import LabelStudioClient
 from cookimport.labelstudio.freeform_tasks import map_span_offsets_to_blocks
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
@@ -278,7 +274,7 @@ def _count_freeform_recipe_headers(
             continue
         raw_recipe_headers += 1
 
-        touched_values = row.get("touched_block_indices")
+        touched_values = row.get("touched_row_indices")
         if not isinstance(touched_values, list):
             continue
         touched_indices: list[int] = []
@@ -681,17 +677,6 @@ def run_labelstudio_export(
                 if isinstance(row, dict)
                 and row.get("row_index", row.get("block_index")) is not None
             ]
-            touched_block_ids = [
-                row.get("source_block_id") or row.get("block_id")
-                for row in touched_rows
-                if isinstance(row, dict) and (row.get("source_block_id") or row.get("block_id"))
-            ]
-            touched_block_indices = [
-                int(row.get("source_block_index", row.get("block_index")))
-                for row in touched_rows
-                if isinstance(row, dict)
-                and row.get("source_block_index", row.get("block_index")) is not None
-            ]
             selected_text = str(span.get("selected_text") or "")
             span_rows.append(
                 {
@@ -715,9 +700,6 @@ def run_labelstudio_export(
                     "touched_row_ids": touched_row_ids,
                     "touched_row_indices": touched_row_indices,
                     "touched_rows": touched_rows,
-                    "touched_block_ids": touched_block_ids,
-                    "touched_block_indices": touched_block_indices,
-                    "touched_blocks": touched_rows,
                     "annotator": _resolve_annotator(annotation),
                     "annotated_at": _resolve_annotation_time(annotation),
                     "annotation_id": annotation.get("id"),
@@ -755,11 +737,6 @@ def run_labelstudio_export(
     write_row_gold_rows(row_gold_path, row_gold_rows)
     write_row_gold_rows(row_gold_conflicts_path, row_gold_conflicts)
 
-    block_gold_bundle = derive_block_gold_bundle(span_rows)
-    block_gold_rows = list(block_gold_bundle.get("rows") or [])
-    block_gold_path = export_root / "block_gold_labels.jsonl"
-    write_block_gold_rows(block_gold_path, block_gold_rows)
-
     deduped_recipe_headers, raw_recipe_headers = _count_freeform_recipe_headers(span_rows)
     counts["recipe_headers"] = deduped_recipe_headers
 
@@ -772,15 +749,7 @@ def run_labelstudio_export(
             "label": _RECIPE_HEADER_LABEL,
             "recipe_headers": deduped_recipe_headers,
             "recipe_headers_raw": raw_recipe_headers,
-            "dedupe_key": "source_hash+source_file+start_block_index+end_block_index",
-        },
-        "block_gold": {
-            "block_count": len(block_gold_rows),
-            "multilabel_block_count": sum(
-                1
-                for row in block_gold_rows
-                if len(list(row.get("labels") or [])) > 1
-            ),
+            "dedupe_key": "source_hash+source_file+start_row_index+end_row_index",
         },
         "row_gold": {
             "row_count": len(row_gold_rows),
@@ -791,7 +760,6 @@ def run_labelstudio_export(
             "freeform_segment_manifest": str(segment_manifest_path),
             "row_gold_labels": str(row_gold_path),
             "row_gold_conflicts": str(row_gold_conflicts_path),
-            "block_gold_labels": str(block_gold_path),
             "export_payload": str(export_path),
         },
     }
@@ -814,7 +782,6 @@ def run_labelstudio_export(
             "freeform_segment_manifest_jsonl": segment_manifest_path,
             "row_gold_labels_jsonl": row_gold_path,
             "row_gold_conflicts_jsonl": row_gold_conflicts_path,
-            "block_gold_labels_jsonl": block_gold_path,
         },
         notes="Exported freeform span labels from Label Studio.",
     )

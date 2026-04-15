@@ -336,7 +336,7 @@ def _build_prompt(
     *,
     task: dict[str, Any],
     allowed_labels: set[str],
-    prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,
+    prelabel_granularity: str = PRELABEL_GRANULARITY_SPAN,
 ) -> str:
     data = task.get("data") if isinstance(task, dict) else {}
     if not isinstance(data, dict):

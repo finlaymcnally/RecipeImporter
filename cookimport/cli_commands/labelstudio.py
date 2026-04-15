@@ -18,7 +18,6 @@ from cookimport.cli_support.labelstudio_benchmark_recovery import (
 from cookimport.cli_support import (
     Annotated,
     Any,
-    BENCHMARK_EVAL_MODE_STAGE_BLOCKS,
     BENCHMARK_EVAL_MODE_SOURCE_ROWS,
     BENCHMARK_SINGLE_BOOK_UPLOAD_BUNDLE_TARGET_BYTES,
     BENCHMARK_UPLOAD_BUNDLE_DIR_NAME,
@@ -35,7 +34,7 @@ from cookimport.cli_support import (
     EPUB_EXTRACTOR_ENABLE_MARKDOWN_ENV,
     KNOWLEDGE_CODEX_PIPELINE_CANDIDATE_V2,
     LINE_ROLE_PIPELINE_ROUTE_V2,
-    PRELABEL_GRANULARITY_BLOCK,
+    PRELABEL_GRANULARITY_SPAN,
     Path,
     PredRunContext,
     PredictionRecord,
@@ -377,11 +376,10 @@ def register(app: typer.Typer) -> dict[str, object]:
             help="Upload prelabels as completed annotations or predictions.",
         ),
         prelabel_granularity: str = typer.Option(
-            PRELABEL_GRANULARITY_BLOCK,
+            PRELABEL_GRANULARITY_SPAN,
             "--prelabel-granularity",
             help=(
-                "Freeform prelabel style: block (block based) or span "
-                "(actual freeform highlights)."
+                "Freeform prelabel style: span (actual freeform row-native highlights)."
             ),
         ),
         prelabel_allow_partial: bool = typer.Option(
@@ -1087,28 +1085,25 @@ def register(app: typer.Typer) -> dict[str, object]:
         eval_mode: Annotated[str, typer.Option(
             "--eval-mode",
             help=(
-                "Benchmark evaluator mode: stage-blocks (block-index parity required) "
-                "or source-rows (extractor-independent row scoring)."
+                "Benchmark evaluator mode: source-rows (extractor-independent row scoring)."
             ),
-        )] = BENCHMARK_EVAL_MODE_STAGE_BLOCKS,
+        )] = BENCHMARK_EVAL_MODE_SOURCE_ROWS,
         gold_adaptation_mode: Annotated[str, typer.Option(
             "--gold-adaptation-mode",
             help=(
-                "Stage-block evaluator only: off keeps strict block index parity; "
-                "auto adaptively remaps immutable gold labels when extractor fingerprints drift; "
-                "force always applies adaptive remap."
+                "Deprecated row-native no-op; retained only for compatibility with older benchmark invocations."
             ),
         )] = "auto",
         gold_adaptation_min_coverage: Annotated[float, typer.Option(
             "--gold-adaptation-min-coverage",
             min=0.0,
             max=1.0,
-            help="Stage-block evaluator only: minimum remap coverage required when adaptation runs.",
+            help="Deprecated row-native no-op retained for compatibility.",
         )] = 0.7,
         gold_adaptation_max_ambiguous: Annotated[int, typer.Option(
             "--gold-adaptation-max-ambiguous",
             min=0,
-            help="Stage-block evaluator only: maximum ambiguous remap assignments allowed.",
+            help="Deprecated row-native no-op retained for compatibility.",
         )] = 50,
         sequence_matcher: Annotated[str, typer.Option(
             "--sequence-matcher",
@@ -1886,10 +1881,6 @@ def register(app: typer.Typer) -> dict[str, object]:
             fixed_bucket1_behavior.codex_farm_pipeline_knowledge
         )
         selected_eval_mode = _normalize_benchmark_eval_mode(eval_mode)
-        if selected_eval_mode == BENCHMARK_EVAL_MODE_STAGE_BLOCKS:
-            # Line-role rows only participate in source-row benchmark mode.
-            selected_atomic_block_splitter = "off"
-            selected_line_role_pipeline = "off"
         benchmark_codex_confirmation = _unwrap_typer_option_default(
             benchmark_codex_confirmation
         )
@@ -2109,7 +2100,6 @@ def register(app: typer.Typer) -> dict[str, object]:
         prediction_phase_seconds = 0.0
         prewarmed_canonical_paths: dict[str, Path] | None = None
         prediction_records_output: list[PredictionRecord] = []
-        pipelined_replay_bundle: BenchmarkPredictionBundle | None = None
         codex_exec_prompt_response_log_path: Path | None = None
         single_book_split_cache_metadata: dict[str, Any] | None = None
         single_book_split_cache_run_config: dict[str, Any] | None = None
@@ -2479,8 +2469,6 @@ def register(app: typer.Typer) -> dict[str, object]:
                             )
 
                         def _prewarm_evaluation_inputs() -> dict[str, Path] | None:
-                            if selected_eval_mode == BENCHMARK_EVAL_MODE_STAGE_BLOCKS:
-                                return None
                             return None
 
                         pipelined_result = run_pipelined(
@@ -2494,7 +2482,6 @@ def register(app: typer.Typer) -> dict[str, object]:
                         prewarmed_canonical_paths = (
                             pipelined_result.prewarmed_canonical_paths
                         )
-                        pipelined_replay_bundle = pipelined_result.replay_bundle
             else:
                 if predictions_in_path is None:
                     _fail("Prediction record input is required.")
@@ -2533,16 +2520,6 @@ def register(app: typer.Typer) -> dict[str, object]:
             prediction_phase_seconds = prediction_bundle.prediction_phase_seconds
             evaluation_stage_predictions_path = stage_predictions_path
             evaluation_extracted_archive_path = extracted_archive_path
-            if (
-                pipelined_replay_bundle is not None
-                and selected_eval_mode == BENCHMARK_EVAL_MODE_STAGE_BLOCKS
-            ):
-                evaluation_stage_predictions_path = (
-                    pipelined_replay_bundle.stage_predictions_path
-                )
-                evaluation_extracted_archive_path = (
-                    pipelined_replay_bundle.extracted_archive_path
-                )
 
             if predictions_out_path is not None:
                 write_prediction_records(predictions_out_path, prediction_records_output)
@@ -2901,10 +2878,7 @@ def register(app: typer.Typer) -> dict[str, object]:
 
         line_role_diagnostics_artifacts: dict[str, Any] = {}
         line_role_gate_payload: dict[str, Any] | None = None
-        if (
-            selected_eval_mode != BENCHMARK_EVAL_MODE_STAGE_BLOCKS
-            and selected_line_role_pipeline != "off"
-        ):
+        if selected_line_role_pipeline != "off":
             line_role_output_dir = eval_output_dir / "line-role-pipeline"
             line_role_output_dir.mkdir(parents=True, exist_ok=True)
             resolved_line_role_predictions_path = _resolve_line_role_predictions_for_benchmark(
@@ -3299,21 +3273,20 @@ def register(app: typer.Typer) -> dict[str, object]:
                 eval_output_dir,
                 eval_profile_top_path,
             )
-        if selected_eval_mode != BENCHMARK_EVAL_MODE_STAGE_BLOCKS:
-            gold_export_root = selected_gold.parent
-            benchmark_artifacts["gold_export_root"] = _path_for_manifest(
-                eval_output_dir,
-                gold_export_root,
-            )
-            for artifact_name in (
-                "row_gold_labels.jsonl",
-                "row_gold_conflicts.jsonl",
-            ):
-                artifact_path = gold_export_root / artifact_name
-                if artifact_path.exists():
-                    benchmark_artifacts[
-                        artifact_name.replace(".", "_")
-                    ] = _path_for_manifest(eval_output_dir, artifact_path)
+        gold_export_root = selected_gold.parent
+        benchmark_artifacts["gold_export_root"] = _path_for_manifest(
+            eval_output_dir,
+            gold_export_root,
+        )
+        for artifact_name in (
+            "row_gold_labels.jsonl",
+            "row_gold_conflicts.jsonl",
+        ):
+            artifact_path = gold_export_root / artifact_name
+            if artifact_path.exists():
+                benchmark_artifacts[
+                    artifact_name.replace(".", "_")
+                ] = _path_for_manifest(eval_output_dir, artifact_path)
         if csv_report_path:
             benchmark_artifacts["processed_report_json"] = _path_for_manifest(
                 eval_output_dir,
@@ -3483,12 +3456,8 @@ def register(app: typer.Typer) -> dict[str, object]:
             run_config=benchmark_run_config,
             artifacts=benchmark_artifacts,
             notes=(
-                (
-                    "Benchmark evaluation against selected Label Studio gold export "
-                    "(freeform bundle selected; source-row scoring uses row_gold_labels.jsonl). "
-                    if selected_eval_mode == BENCHMARK_EVAL_MODE_SOURCE_ROWS
-                    else "Benchmark evaluation against selected Label Studio freeform gold export. "
-                )
+                "Benchmark evaluation against selected Label Studio gold export "
+                "(freeform bundle selected; source-row scoring uses row_gold_labels.jsonl). "
                 + f"Scoring mode: {selected_eval_mode}. "
                 + (
                     "Evaluate-only mode from prediction record."
@@ -3526,18 +3495,11 @@ def register(app: typer.Typer) -> dict[str, object]:
             typer.secho(f"Benchmark artifact root: {pred_run}", fg=typer.colors.CYAN)
             if processed_run_root is not None:
                 typer.secho(f"Processed output: {processed_run_root}", fg=typer.colors.CYAN)
-            if selected_eval_mode != BENCHMARK_EVAL_MODE_STAGE_BLOCKS:
-                typer.secho(
-                    "Overall line accuracy: "
-                    f"{float(report.get('overall_line_accuracy') or report.get('overall_block_accuracy') or 0.0):.3f}",
-                    fg=typer.colors.CYAN,
-                )
-            else:
-                typer.secho(
-                    "Overall block accuracy: "
-                    f"{float(report.get('overall_block_accuracy') or 0.0):.3f}",
-                    fg=typer.colors.CYAN,
-                )
+            typer.secho(
+                "Overall line accuracy: "
+                f"{float(report.get('overall_line_accuracy') or report.get('overall_block_accuracy') or 0.0):.3f}",
+                fg=typer.colors.CYAN,
+            )
             typer.secho(
                 "Macro F1 (excluding OTHER): "
                 f"{float(report.get('macro_f1_excluding_other') or 0.0):.3f}",

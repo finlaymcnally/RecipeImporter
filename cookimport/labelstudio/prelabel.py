@@ -320,7 +320,7 @@ def prelabel_freeform_task(
     *,
     provider: LlmProvider,
     allowed_labels: set[str] | None = None,
-    prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,
+    prelabel_granularity: str = PRELABEL_GRANULARITY_SPAN,
     prompt_log_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any] | None:
     """Generate one Label Studio annotation from LLM prelabel suggestions."""

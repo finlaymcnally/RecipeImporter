@@ -197,7 +197,6 @@ def test_interactive_labelstudio_freeform_scope_routes_to_freeform_import(
             "labelstudio",
             selected_file,
             (True, "annotations", True),
-            "span",
             "__default__",
             "__default_effort__",
             "exit",
@@ -285,7 +284,6 @@ def test_interactive_labelstudio_filters_incompatible_effort_choices(
             "labelstudio",
             selected_file,
             (True, "annotations", True),
-            "span",
             "gpt-5.3-codex-spark",
             "low",
             "exit",
@@ -830,7 +828,7 @@ def test_interactive_generate_dashboard_runs_without_browser_prompt(
 
     assert captured["output_root"] == configured_output
     assert captured["golden_root"] == golden_root
-    assert captured["out_dir"] == configured_output.parent / ".history" / "dashboard"
+    assert captured["out_dir"] == cli.history_root_for_output(configured_output) / "dashboard"
     assert captured["open_browser"] is False
     assert captured["since_days"] is None
     assert captured["scan_reports"] is False

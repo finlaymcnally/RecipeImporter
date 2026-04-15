@@ -143,10 +143,6 @@ from cookimport.bench.eval_source_rows import (
     evaluate_source_rows,
     format_source_row_eval_report_md,
 )
-from cookimport.bench.eval_stage_blocks import (
-    evaluate_stage_blocks,
-    format_stage_block_eval_report_md,
-)
 from cookimport.bench.sequence_matcher_select import (
     SEQUENCE_MATCHER_ENV,
     reset_sequence_matcher_selection_cache,
@@ -203,7 +199,6 @@ from cookimport.labelstudio.eval_freeform import (
 )
 from cookimport.labelstudio.prelabel import (
     CODEX_REASONING_EFFORT_VALUES,
-    PRELABEL_GRANULARITY_BLOCK,
     PRELABEL_GRANULARITY_SPAN,
     codex_account_summary,
     codex_reasoning_effort_from_cmd,
@@ -464,7 +459,6 @@ SINGLE_BOOK_SPLIT_CONVERT_INPUT_FIELDS = tuple(
 )
 PROCESSING_TIMESERIES_HEARTBEAT_SECONDS = 1.0
 PROCESSING_TIMESERIES_FILENAME = "processing_timeseries.jsonl"
-BENCHMARK_EVAL_MODE_STAGE_BLOCKS = "stage-blocks"
 BENCHMARK_EVAL_MODE_SOURCE_ROWS = "source-rows"
 COOKIMPORT_BENCH_WRITE_MARKDOWN_ENV = "COOKIMPORT_BENCH_WRITE_MARKDOWN"
 COOKIMPORT_BENCH_WRITE_LABELSTUDIO_TASKS_ENV = (
@@ -1206,12 +1200,7 @@ def _normalize_codex_farm_pipeline_id(value: str, *, option: str) -> str:
 def _normalize_benchmark_eval_mode(value: str) -> str:
     normalized = str(value or "").strip().lower().replace("_", "-")
     if normalized in {
-        "stage-block",
-        "stage-blocks",
-        "stage",
-    }:
-        return BENCHMARK_EVAL_MODE_STAGE_BLOCKS
-    if normalized in {
+        "",
         "source-rows",
         "source-row",
         "rows",
@@ -1219,9 +1208,9 @@ def _normalize_benchmark_eval_mode(value: str) -> str:
         return BENCHMARK_EVAL_MODE_SOURCE_ROWS
     _fail(
         f"Invalid benchmark eval mode: {value!r}. "
-        "Expected one of: stage-blocks, source-rows."
+        "Expected: source-rows."
     )
-    return BENCHMARK_EVAL_MODE_STAGE_BLOCKS
+    return BENCHMARK_EVAL_MODE_SOURCE_ROWS
 
 
 def _is_row_benchmark_eval_mode(value: Any) -> bool:

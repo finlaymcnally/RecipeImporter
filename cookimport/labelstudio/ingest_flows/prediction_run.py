@@ -101,7 +101,7 @@ from cookimport.labelstudio.label_config_freeform import (
     build_freeform_label_config,
 )
 from cookimport.labelstudio.prelabel import (
-    PRELABEL_GRANULARITY_BLOCK,
+    PRELABEL_GRANULARITY_SPAN,
     annotation_labels,
     codex_account_summary,
     codex_reasoning_effort_from_cmd,
@@ -342,7 +342,7 @@ def generate_pred_run_artifacts(
     prelabel_timeout_seconds: int = 600,
     prelabel_cache_dir: Path | None = None,
     prelabel_workers: int = 15,
-    prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,
+    prelabel_granularity: str = PRELABEL_GRANULARITY_SPAN,
     prelabel_allow_partial: bool = False,
     prelabel_track_token_usage: bool = True,
     allow_codex: bool = False,

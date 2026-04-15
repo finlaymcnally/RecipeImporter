@@ -52,7 +52,7 @@ def test_labelstudio_import_prints_processing_time(
         label_studio_api_key="api-key",
         prelabel=False,
         prelabel_upload_as="annotations",
-        prelabel_granularity=cli.PRELABEL_GRANULARITY_BLOCK,
+        prelabel_granularity=cli.PRELABEL_GRANULARITY_SPAN,
         llm_recipe_pipeline="off",
         codex_farm_failure_mode="fail",
     )
@@ -218,7 +218,7 @@ def test_labelstudio_import_routes_freeform_focus_and_target_options(
         target_task_count=55,
         prelabel=False,
         prelabel_upload_as="annotations",
-        prelabel_granularity=cli.PRELABEL_GRANULARITY_BLOCK,
+        prelabel_granularity=cli.PRELABEL_GRANULARITY_SPAN,
         llm_recipe_pipeline="off",
         codex_farm_failure_mode="fail",
     )
@@ -770,7 +770,7 @@ def test_labelstudio_eval_appends_benchmark_recipes_from_pred_manifest(
     assert captured_csv["tokens_reasoning"] == 1
     assert captured_csv["tokens_total"] == 28
     assert captured_dashboard["output_root"] == tmp_path / "output"
-    assert captured_dashboard["out_dir"] == tmp_path / ".history" / "dashboard"
+    assert captured_dashboard["out_dir"] == cli.REPO_ROOT / ".history" / "dashboard"
 
 def test_labelstudio_commands_default_output_roots() -> None:
     import_param = inspect.signature(cli.labelstudio_import).parameters["output_dir"]

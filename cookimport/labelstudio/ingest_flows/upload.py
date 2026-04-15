@@ -27,7 +27,7 @@ from cookimport.labelstudio.ingest_support import (
     _task_id_key,
     _task_id_value,
 )
-from cookimport.labelstudio.prelabel import PRELABEL_GRANULARITY_BLOCK
+from cookimport.labelstudio.prelabel import PRELABEL_GRANULARITY_SPAN
 from cookimport.runs import RunManifest, RunSource
 
 
@@ -169,7 +169,7 @@ def run_labelstudio_import(
     prelabel_timeout_seconds: int = 600,
     prelabel_cache_dir: Path | None = None,
     prelabel_workers: int = 15,
-    prelabel_granularity: str = PRELABEL_GRANULARITY_BLOCK,
+    prelabel_granularity: str = PRELABEL_GRANULARITY_SPAN,
     prelabel_upload_as: str = "annotations",
     prelabel_allow_partial: bool = False,
     prelabel_track_token_usage: bool = True,

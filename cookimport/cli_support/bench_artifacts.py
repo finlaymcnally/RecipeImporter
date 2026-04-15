@@ -1126,22 +1126,11 @@ def evaluate_stage(
     gold_adaptation_min_coverage: float,
     gold_adaptation_max_ambiguous: int,
 ) -> tuple[dict[str, Any], Callable[[dict[str, Any]], str]]:
-    if selected_eval_mode != BENCHMARK_EVAL_MODE_STAGE_BLOCKS:
-        gold_export_root = selected_gold.parent
-        eval_result_local = evaluate_source_rows(
-            gold_export_root=gold_export_root,
-            stage_predictions_json=stage_predictions_path,
-            extracted_blocks_json=extracted_archive_path,
-            out_dir=eval_output_dir,
-        )
-        return eval_result_local, format_source_row_eval_report_md
-    eval_result_local = evaluate_stage_blocks(
-        gold_freeform_jsonl=selected_gold,
+    gold_export_root = selected_gold.parent
+    eval_result_local = evaluate_source_rows(
+        gold_export_root=gold_export_root,
         stage_predictions_json=stage_predictions_path,
         extracted_blocks_json=extracted_archive_path,
         out_dir=eval_output_dir,
-        gold_adaptation_mode=gold_adaptation_mode,
-        gold_adaptation_min_coverage=gold_adaptation_min_coverage,
-        gold_adaptation_max_ambiguous=gold_adaptation_max_ambiguous,
     )
-    return eval_result_local, format_stage_block_eval_report_md
+    return eval_result_local, format_source_row_eval_report_md

@@ -29,6 +29,7 @@ CHANGED_LINES_PAYLOAD_PATHS = tuple(
     f"_upload_bundle_derived/root/{file_name}"
     for file_name in BENCHMARK_CHANGED_LINES_FILE_NAMES
 )
+CHANGED_LINES_PAYLOAD_PATH = CHANGED_LINES_PAYLOAD_PATHS[0]
 TRIAGE_PACKET_PAYLOAD_PATH = "_upload_bundle_derived/root/01_recipe_triage.packet.jsonl"
 PER_RECIPE_BREAKDOWN_PAYLOAD_PATH = "_upload_bundle_derived/root/per_recipe_or_per_span_breakdown.json"
 

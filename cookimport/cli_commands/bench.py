@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import typer
 
+from cookimport.bench.eval_stage_blocks import evaluate_stage_blocks
 from cookimport.cli_support import (
     Annotated,
     Any,
@@ -38,7 +39,6 @@ from cookimport.cli_support import (
     _write_qualitysuite_agent_bridge_bundle_for_compare,
     _write_qualitysuite_agent_bridge_bundle_for_run,
     dt,
-    evaluate_stage_blocks,
     history_root_for_output,
     json,
     normalize_codex_reasoning_effort,

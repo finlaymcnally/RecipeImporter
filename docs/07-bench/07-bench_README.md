@@ -3,7 +3,7 @@ summary: "Current benchmark-suite reference for cookimport bench and related ben
 read_when:
   - When running or modifying cookimport bench workflows
   - When debugging benchmark scoring behavior or artifacts
-  - When comparing stage-blocks versus source-rows evaluation modes
+  - When debugging row-native benchmark scoring and artifacts
 ---
 
 # Bench Section Reference
@@ -27,9 +27,8 @@ Current owner note for large benchmark helpers:
 - the shared per-book cache now lives below the benchmark helpers in `cookimport/staging/deterministic_prep.py` and `cookimport/staging/book_cache.py`. Interactive single-book shard suggestions, single-book benchmark variants, single-profile matched-book runs, and later stage reruns can all point at the same repo-level cache root (`.cache/cookimport/book-cache/` by default) instead of rebuilding whole-book conversion, deterministic prep, and prompt-preview state independently.
 - interactive single-book and single-profile benchmark helpers now always build that deterministic prep bundle from the benchmark baseline contract first, even when the later benchmark variant is Codex-backed. The prep bundle is baseline-only shared state; live Codex approval is required only for the later Codex benchmark variant itself.
 
-Current scoring modes:
+Current scoring mode:
 
-- `stage-blocks`: compare stage evidence labels against freeform gold block labels
 - `source-rows`: compare authoritative row predictions against `row_gold_labels.jsonl` by shared ordered row identity. Current scorer behavior is: use `row_index` whenever `row_id` and `row_index` disagree, because `row_id` can drift or collide when source block indices change across source-row rebuilds; only trust direct `row_id` matches when they are consistent with the current row payload, and overlay `09_nonrecipe_authority.json` when the benchmark manifest exposes a processed-output run dir so final nonrecipe authority still wins over intermediate route labels.
 
 Current benchmark handoff model:
@@ -107,7 +106,7 @@ Important current constraints:
 `labelstudio-benchmark` is the active single-run benchmark primitive. It supports:
 
 - action `run` or `compare`
-- `--eval-mode stage-blocks|source-rows`
+- `--eval-mode source-rows`
 - `--predictions-out` / `--predictions-in` for replayable evaluation-only reruns
 - `--baseline` / `--candidate` compare inputs
 - offline runs via `--no-upload`
@@ -115,8 +114,7 @@ Important current constraints:
 
 Current behavior notes:
 
-- default eval mode is `stage-blocks`
-- `stage-blocks` forces `line_role_pipeline=off` and `atomic_block_splitter=off`
+- default eval mode is `source-rows`
 - source-row runs can enable:
   - `atomic_block_splitter=atomic-v1`
   - `line_role_pipeline=off|codex-line-role-route-v2`
@@ -240,15 +238,11 @@ Current rule:
   - `extracted_archive_path`
 - prediction generation is responsible for setting those pointers to the correct artifacts for the run
 - source-row line-role runs rewire that same pointer pair to the scored `line-role-pipeline/` projection artifacts; helpers should not guess stage-backed files or raw `full_text.json` from path layout
-- pipelined `.prediction-record-replay/` bundles are block-level replay helpers only. They can back `stage-blocks` evaluation, but `source-rows` must stay on the authoritative row-backed prediction pointers so the evaluator can still resolve `row_label_predictions.jsonl` / `semantic_line_role_predictions.jsonl`.
+- pipelined `.prediction-record-replay/` bundles are replay helpers only. `source-rows` evaluation must stay on the authoritative row-backed prediction pointers so the evaluator can still resolve `row_label_predictions.jsonl` / `semantic_line_role_predictions.jsonl`.
 - new-format prediction/eval manifests and import return payloads do not publish separate line-role scorer keys anymore; helpers should fail on missing canonical pointers instead of probing older fallback filenames or implicit directories
 - semantic stage/source-row scoring uses only authoritative predictions. If `stage_block_predictions.json` carries unresolved candidate block indices, those rows are excluded from accuracy/F1 and reported separately as coverage/incompleteness.
 
 ### 3.2 Gold inputs
-
-Stage-block mode expects:
-
-- `exports/freeform_span_labels.jsonl`
 
 Source-row mode expects:
 
@@ -289,9 +283,9 @@ Current rules:
 
 - row predictions are compared directly against `row_gold_labels.jsonl` by stable ordered row identity
 - active scoring does not require SequenceMatcher alignment or canonical text reconstruction
-- `source-rows` benchmark runs score the same manifest pointer pair used by all benchmark modes
+- `source-rows` benchmark runs score the same manifest pointer pair used by the benchmark flow
 - `source-rows` `eval_report.json` carries both overlap-style `boundary` counts and structural `segmentation` metrics (`label_projection=core_structural_v1`, `boundaries.overall_micro`, error taxonomy), so single-book codex-vs-vanilla comparisons can attribute quality deltas across both label semantics and boundary structure
-- row-based eval also emits boundary-mismatch artifacts for structural debugging (`missed_gold_boundaries.jsonl` and `false_positive_boundaries.jsonl`) so segmentation regressions can be inspected without rerunning stage-block mode
+- row-based eval also emits boundary-mismatch artifacts for structural debugging (`missed_gold_boundaries.jsonl` and `false_positive_boundaries.jsonl`)
 - line-role regression tuning should keep one no-subsection source and one real-subsection source in the deterministic proof story. The current repo-local contrast pair is `saltfatacidheatcutdown` (`HOWTO_SECTION=0` in gold) versus `seaandsmokecutdown` (non-zero `HOWTO_SECTION` coverage in gold).
 
 Current line-role and knowledge behavior:
@@ -483,7 +477,6 @@ Primary benchmark modules:
 - `cookimport/cli_commands/labelstudio.py`: `labelstudio-benchmark` command registration
 - `cookimport/cli_support/bench.py`, `bench_single_book.py`, `bench_single_profile.py`, `bench_all_method.py`, `bench_oracle.py`, `bench_artifacts.py`, `bench_cache.py`: split benchmark implementation owners behind the CLI facade
 - `cookimport/bench/CONVENTIONS.md`: durable benchmark contracts inside the code folder
-- `cookimport/bench/eval_stage_blocks.py`: stage-block scoring
 - `cookimport/bench/eval_source_rows.py`: source-row scoring
 - `cookimport/bench/prediction_records.py`: replay record schema/helpers
 - `cookimport/bench/speed_suite.py`, `speed_runner.py`, `speed_compare.py`: SpeedSuite

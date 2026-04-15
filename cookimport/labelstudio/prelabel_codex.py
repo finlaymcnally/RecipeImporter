@@ -514,12 +514,12 @@ class CodexFarmProvider:
         detail = f"{completed.stderr or ''}\n{completed.stdout or ''}".lower()
         return "stdin is not a terminal" in detail
 def normalize_prelabel_granularity(value: str | None) -> str:
-    normalized = (value or PRELABEL_GRANULARITY_BLOCK).strip().lower()
+    normalized = (value or PRELABEL_GRANULARITY_SPAN).strip().lower()
     normalized = normalized.replace("-", "_").replace(" ", "_")
     resolved = _PRELABEL_GRANULARITY_ALIASES.get(normalized)
-    if resolved is None:
+    if resolved != PRELABEL_GRANULARITY_SPAN:
         raise ValueError(
-            "prelabel_granularity must be one of: block, span."
+            "prelabel_granularity must be: span."
         )
     return resolved
 def normalize_codex_reasoning_effort(value: str | None) -> str | None:

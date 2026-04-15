@@ -350,7 +350,7 @@ def _interactive_mode(*, limit: int | None = None) -> None:
             prelabel_cache_dir: Path | None = None
             prelabel_workers = 15
             prelabel_upload_as = "annotations"
-            prelabel_granularity = PRELABEL_GRANULARITY_BLOCK
+            prelabel_granularity = PRELABEL_GRANULARITY_SPAN
             prelabel_allow_partial = False
             codex_cmd: str | None = None
             codex_model: str | None = None
@@ -404,26 +404,11 @@ def _interactive_mode(*, limit: int | None = None) -> None:
                 continue
             prelabel, prelabel_upload_as, prelabel_allow_partial = prelabel_mode
             if prelabel:
-                prelabel_granularity_choice = _menu_select(
-                    "AI prelabel labeling style:",
-                    menu_help=(
-                        "Choose between real freeform span highlighting and "
-                        "the older one-label-per-block behavior."
-                    ),
-                    choices=[
-                        questionary.Choice(
-                            "actual freeform - allow sub-block span highlights",
-                            value=PRELABEL_GRANULARITY_SPAN,
-                        ),
-                        questionary.Choice(
-                            "block based - one label per block",
-                            value=PRELABEL_GRANULARITY_BLOCK,
-                        ),
-                    ],
+                prelabel_granularity = PRELABEL_GRANULARITY_SPAN
+                typer.secho(
+                    "AI prelabel labeling style: actual freeform row spans.",
+                    fg=typer.colors.CYAN,
                 )
-                if prelabel_granularity_choice in {None, BACK_ACTION}:
-                    continue
-                prelabel_granularity = str(prelabel_granularity_choice)
                 codex_cmd = default_codex_cmd()
                 resolved_account = codex_account_summary(codex_cmd)
                 if resolved_account:

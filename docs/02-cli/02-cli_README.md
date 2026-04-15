@@ -917,8 +917,8 @@ Behavior note:
   and writes timestamped gate reports (`comparison.json`, `comparison.md`) under `--compare-out`.
 - Offline prediction generation can skip non-scoring side artifacts via:
   - `--no-write-markdown` to skip markdown sidecars in processed stage outputs.
-  - `--no-write-labelstudio-tasks` to skip `label_studio_tasks.jsonl` in offline pred-runs (stage-block scoring remains unchanged because it reads stage evidence + extracted archive).
-- Eval mode is configurable via `--eval-mode stage-blocks|source-rows` (default `stage-blocks`).
+- `--no-write-labelstudio-tasks` to skip `label_studio_tasks.jsonl` in offline pred-runs.
+- Eval mode is configurable via `--eval-mode source-rows` (default `source-rows`).
 - Benchmark execution is fixed to `pipelined`.
 - Codex-backed benchmark runs now have a single live execution mode.
   - For prompt/cost inspection, use prompt preview.
@@ -960,7 +960,7 @@ Options:
 - `--eval-output-dir PATH`: destination for benchmark report artifacts.
 - `--overlap-threshold FLOAT 0..1` (default `0.5`): match threshold.
 - `--force-source-match` (default `false`): ignore source identity checks while matching.
-- `--eval-mode TEXT` (default `stage-blocks`): `stage-blocks|source-rows`.
+- `--eval-mode TEXT` (default `source-rows`): `source-rows`.
 - `--pdf-ocr-policy TEXT` (default `auto`): `off|auto|always` OCR policy for PDF prediction generation.
 - `--pdf-column-gap-ratio FLOAT` (default `0.12`): PDF column-gap threshold ratio for column reconstruction.
 - `--line-role-guardrail-mode TEXT` (default `enforce`): `off|preview|enforce`; controls whether line-role do-no-harm arbitration is disabled, reported-only, or mutating.

@@ -79,7 +79,7 @@ def test_export_rejects_non_freeform_scope_from_manifest(
         )
 
 
-def test_labelstudio_export_writes_row_and_block_gold_artifacts(
+def test_labelstudio_export_writes_row_gold_artifacts(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -105,16 +105,20 @@ def test_labelstudio_export_writes_row_and_block_gold_artifacts(
                         "book_id": "book",
                         "segment_text": "Simple Soup\n1 cup stock",
                         "source_map": {
-                            "blocks": [
+                            "rows": [
                                 {
-                                    "block_id": "b-0",
+                                    "row_id": "row-0",
+                                    "row_index": 0,
                                     "block_index": 0,
+                                    "text": "Simple Soup",
                                     "segment_start": 0,
                                     "segment_end": 11,
                                 },
                                 {
-                                    "block_id": "b-1",
+                                    "row_id": "row-1",
+                                    "row_index": 1,
                                     "block_index": 1,
+                                    "text": "1 cup stock",
                                     "segment_start": 12,
                                     "segment_end": 23,
                                 },
@@ -154,11 +158,10 @@ def test_labelstudio_export_writes_row_and_block_gold_artifacts(
     export_root = result["export_root"]
     row_gold_path = export_root / "row_gold_labels.jsonl"
     row_gold_conflicts_path = export_root / "row_gold_conflicts.jsonl"
-    block_gold_path = export_root / "block_gold_labels.jsonl"
 
     assert row_gold_path.exists()
     assert row_gold_conflicts_path.exists()
-    assert block_gold_path.exists()
+    assert not (export_root / "block_gold_labels.jsonl").exists()
     assert not (export_root / "canonical_text.txt").exists()
     assert not (export_root / "canonical_span_labels.jsonl").exists()
     assert not (export_root / "canonical_manifest.json").exists()
@@ -169,11 +172,6 @@ def test_labelstudio_export_writes_row_and_block_gold_artifacts(
         for line in row_gold_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    block_gold_rows = [
-        json.loads(line)
-        for line in block_gold_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
     assert row_gold_conflicts_path.read_text(encoding="utf-8") == ""
     assert len(row_gold_rows) == 2
     assert row_gold_rows[0]["row_index"] == 0
@@ -182,13 +180,6 @@ def test_labelstudio_export_writes_row_and_block_gold_artifacts(
     assert row_gold_rows[1]["row_index"] == 1
     assert row_gold_rows[1]["labels"] == ["OTHER"]
     assert row_gold_rows[1]["text"] == "1 cup stock"
-    assert len(block_gold_rows) == 1
-    assert block_gold_rows[0]["block_index"] == 0
-    assert block_gold_rows[0]["labels"] == ["RECIPE_TITLE"]
-    assert block_gold_rows[0]["source_hash"] == "hash-123"
-    assert block_gold_rows[0]["source_file"] == "/tmp/book.epub"
-    assert block_gold_rows[0]["segment_ids"] == ["seg-1"]
-    assert block_gold_rows[0]["book_ids"] == ["book"]
 
 
 @pytest.mark.parametrize(
@@ -278,14 +269,14 @@ def test_labelstudio_export_defaults_unlabeled_rows_to_other(
     assert result["summary"]["counts"]["skipped"] == expected_skipped
 
 
-def test_labelstudio_export_mass_labeling_is_block_and_row_authoritative(
+def test_labelstudio_export_mass_labeling_is_row_authoritative(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def _run_export(
         annotation_result: list[dict[str, object]],
         export_slug: str,
-    ) -> tuple[list[dict], list[dict]]:
+    ) -> list[dict]:
         class FakeClient:
             def __init__(self, *_args, **_kwargs) -> None:
                 return None
@@ -308,16 +299,20 @@ def test_labelstudio_export_mass_labeling_is_block_and_row_authoritative(
                             "book_id": "book",
                             "segment_text": "Alpha\nBeta",
                             "source_map": {
-                                "blocks": [
+                                "rows": [
                                     {
-                                        "block_id": "b-0",
+                                        "row_id": "row-0",
+                                        "row_index": 0,
                                         "block_index": 0,
+                                        "text": "Alpha",
                                         "segment_start": 0,
                                         "segment_end": 5,
                                     },
                                     {
-                                        "block_id": "b-1",
+                                        "row_id": "row-1",
+                                        "row_index": 1,
                                         "block_index": 1,
+                                        "text": "Beta",
                                         "segment_start": 6,
                                         "segment_end": 10,
                                     },
@@ -345,16 +340,9 @@ def test_labelstudio_export_mass_labeling_is_block_and_row_authoritative(
             ).splitlines()
             if line.strip()
         ]
-        block_gold_rows = [
-            json.loads(line)
-            for line in (export_root / "block_gold_labels.jsonl").read_text(
-                encoding="utf-8"
-            ).splitlines()
-            if line.strip()
-        ]
-        return row_gold_rows, block_gold_rows
+        return row_gold_rows
 
-    sweep_row_gold_rows, sweep_block_gold_rows = _run_export(
+    sweep_row_gold_rows = _run_export(
         [
             {
                 "id": "r-1",
@@ -369,7 +357,7 @@ def test_labelstudio_export_mass_labeling_is_block_and_row_authoritative(
         ],
         "mass-label",
     )
-    per_block_row_gold_rows, per_block_gold_rows = _run_export(
+    per_block_row_gold_rows = _run_export(
         [
             {
                 "id": "r-1",
@@ -396,7 +384,6 @@ def test_labelstudio_export_mass_labeling_is_block_and_row_authoritative(
     )
 
     assert sweep_row_gold_rows == per_block_row_gold_rows
-    assert sweep_block_gold_rows == per_block_gold_rows
     assert [
         (row["row_index"], row["labels"], row["text"])
         for row in sweep_row_gold_rows

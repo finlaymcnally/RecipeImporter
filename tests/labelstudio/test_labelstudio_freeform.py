@@ -53,11 +53,11 @@ def test_build_freeform_tasks_offsets_are_deterministic() -> None:
 
     first = tasks_a[0]["data"]
     assert first["segment_text"] == "Alpha\n\nBeta"
-    source_blocks = first["source_map"]["blocks"]
-    assert source_blocks[0]["segment_start"] == 0
-    assert source_blocks[0]["segment_end"] == 5
-    assert source_blocks[1]["segment_start"] == 7
-    assert source_blocks[1]["segment_end"] == 11
+    source_rows = first["source_map"]["rows"]
+    assert source_rows[0]["segment_start"] == 0
+    assert source_rows[0]["segment_end"] == 5
+    assert source_rows[1]["segment_start"] == 7
+    assert source_rows[1]["segment_end"] == 11
 
     touched = map_span_offsets_to_blocks(first["source_map"], 0, 4)
     assert [item["block_index"] for item in touched] == [0]
@@ -129,32 +129,20 @@ def test_build_freeform_tasks_include_focus_metadata() -> None:
     assert first_source_map["focus_block_range"] == "1-2"
     assert first_source_map["context_before_block_range"] == "0"
     assert first_source_map["context_after_block_range"] == "3"
-    assert first_source_map["blocks"][0]["block_index"] == 1
-    assert first_source_map["blocks"][0]["segment_start"] == 0
-    assert first_source_map["blocks"][0]["segment_end"] == 1
-    assert first_source_map["blocks"][1]["block_index"] == 2
-    assert first_source_map["blocks"][1]["segment_start"] == 3
-    assert first_source_map["blocks"][1]["segment_end"] == 4
-    assert first_source_map["context_before_blocks"] == [
-        {
-            "block_id": "urn:cookimport:block:hash123:0",
-            "block_index": 0,
-            "text": "A",
-            "location": {"block_index": 0},
-            "source_kind": None,
-        }
-    ]
-    assert first_source_map["context_after_blocks"] == [
-        {
-            "block_id": "urn:cookimport:block:hash123:3",
-            "block_index": 3,
-            "text": "D",
-            "location": {"block_index": 3},
-            "source_kind": None,
-        }
-    ]
+    assert first_source_map["rows"][0]["block_index"] == 1
+    assert first_source_map["rows"][0]["segment_start"] == 0
+    assert first_source_map["rows"][0]["segment_end"] == 1
+    assert first_source_map["rows"][1]["block_index"] == 2
+    assert first_source_map["rows"][1]["segment_start"] == 3
+    assert first_source_map["rows"][1]["segment_end"] == 4
+    assert len(first_source_map["context_before_rows"]) == 1
+    assert first_source_map["context_before_rows"][0]["row_index"] == 0
+    assert first_source_map["context_before_rows"][0]["text"] == "A"
+    assert len(first_source_map["context_after_rows"]) == 1
+    assert first_source_map["context_after_rows"][0]["row_index"] == 3
+    assert first_source_map["context_after_rows"][0]["text"] == "D"
     assert tasks[0]["data"]["focus_scope_hint"] == (
-        "Label only blocks 1-2. Context only: before 0; after 3."
+        "Label only rows 1-2. Context only: before 0; after 3."
     )
 
     assert second_source_map["focus_start_block_index"] == 4
@@ -165,18 +153,12 @@ def test_build_freeform_tasks_include_focus_metadata() -> None:
     assert second_source_map["focus_block_range"] == "4-5"
     assert second_source_map["context_before_block_range"] == "3"
     assert second_source_map["context_after_block_range"] == "none"
-    assert second_source_map["context_before_blocks"] == [
-        {
-            "block_id": "urn:cookimport:block:hash123:3",
-            "block_index": 3,
-            "text": "D",
-            "location": {"block_index": 3},
-            "source_kind": None,
-        }
-    ]
-    assert second_source_map["context_after_blocks"] == []
+    assert len(second_source_map["context_before_rows"]) == 1
+    assert second_source_map["context_before_rows"][0]["row_index"] == 3
+    assert second_source_map["context_before_rows"][0]["text"] == "D"
+    assert second_source_map["context_after_rows"] == []
     assert tasks[1]["data"]["focus_scope_hint"] == (
-        "Label only blocks 4-5. Context only: before 3; after none."
+        "Label only rows 4-5. Context only: before 3; after none."
     )
 
 
@@ -208,8 +190,8 @@ def test_freeform_label_config_uses_expected_label_order_and_names() -> None:
     assert '<Label value="NOTE"/>' not in config
     assert "$focus_scope_hint" in config
     assert (
-        "Focus: $focus_block_range | Context before: $context_before_block_range | "
-        "Context after: $context_after_block_range"
+        "Focus rows: $focus_row_range | Context before: $context_before_row_range | "
+        "Context after: $context_after_row_range"
     ) in config
 
 
@@ -387,7 +369,7 @@ def test_export_freeform_spans_jsonl(tmp_path, monkeypatch) -> None:
     assert rows[0]["label"] == "INGREDIENT_LINE"
     assert rows[0]["start_offset"] == 0
     assert rows[0]["end_offset"] == 5
-    assert rows[0]["touched_block_indices"] == [0]
+    assert rows[0]["touched_row_indices"] == [0]
 
     segment_manifest = result["export_root"] / "freeform_segment_manifest.jsonl"
     manifest_rows = [
@@ -540,11 +522,11 @@ def test_export_freeform_spans_maps_yield_and_time_blocks(
 
     yield_row = next(r for r in rows if r["label"] == "YIELD_LINE")
     assert yield_row["selected_text"] == "Serves 4"
-    assert yield_row["touched_block_indices"] == [0]
+    assert yield_row["touched_row_indices"] == [0]
 
     time_row = next(r for r in rows if r["label"] == "TIME_LINE")
     assert time_row["selected_text"] == "Prep: 10 min"
-    assert time_row["touched_block_indices"] == [1]
+    assert time_row["touched_row_indices"] == [1]
 
 
 def _run_freeform_recipe_header_summary_fixture(tmp_path, monkeypatch):

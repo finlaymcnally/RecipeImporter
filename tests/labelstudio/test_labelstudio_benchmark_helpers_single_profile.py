@@ -424,68 +424,30 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codex_ex
 
     assert completed is True
     assert len(prep_bundle_calls) == 1
-    assert len(benchmark_calls) == 2
-    assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
-        "off",
-        "codex-recipe-shard-v1",
-    ]
-    assert [call["line_role_pipeline"] for call in benchmark_calls] == [
-        "off",
-        "codex-line-role-route-v2",
-    ]
-    assert [call["atomic_block_splitter"] for call in benchmark_calls] == [
-        "off",
-        "off",
-    ]
-    assert [call["allow_codex"] for call in benchmark_calls] == [False, True]
-    assert [call["section_detector_backend"] for call in benchmark_calls] == [
-        "shared_v1",
-        "shared_v1",
-    ]
-    assert [call["multi_recipe_splitter"] for call in benchmark_calls] == [
-        "rules_v1",
-        "rules_v1",
-    ]
-    assert [call["instruction_step_segmentation_policy"] for call in benchmark_calls] == [
-        "always",
-        "always",
-    ]
-    assert [call["instruction_step_segmenter"] for call in benchmark_calls] == [
-        "heuristic_v1",
-        "heuristic_v1",
-    ]
-    assert [call["pdf_ocr_policy"] for call in benchmark_calls] == [
-        "off",
-        "off",
-    ]
-    assert [call["epub_unstructured_html_parser_version"] for call in benchmark_calls] == [
-        "v1",
-        "v1",
-    ]
-    assert [call["epub_unstructured_skip_headers_footers"] for call in benchmark_calls] == [
-        True,
-        True,
-    ]
-    assert [call["eval_output_dir"] for call in benchmark_calls] == [
-        benchmark_eval_output / "single-profile-benchmark" / "01_book_a" / "vanilla",
-        benchmark_eval_output / "single-profile-benchmark" / "01_book_a" / "codex-exec",
-    ]
-    assert [call["processed_output_dir"] for call in benchmark_calls] == [
+    assert len(benchmark_calls) == 1
+    assert benchmark_calls[0]["llm_recipe_pipeline"] == "codex-recipe-shard-v1"
+    assert benchmark_calls[0]["line_role_pipeline"] == "off"
+    assert benchmark_calls[0]["atomic_block_splitter"] == "off"
+    assert benchmark_calls[0]["allow_codex"] is True
+    assert benchmark_calls[0]["section_detector_backend"] == "shared_v1"
+    assert benchmark_calls[0]["multi_recipe_splitter"] == "rules_v1"
+    assert benchmark_calls[0]["instruction_step_segmentation_policy"] == "always"
+    assert benchmark_calls[0]["instruction_step_segmenter"] == "heuristic_v1"
+    assert benchmark_calls[0]["pdf_ocr_policy"] == "auto"
+    assert benchmark_calls[0]["epub_unstructured_html_parser_version"] == "v2"
+    assert benchmark_calls[0]["epub_unstructured_skip_headers_footers"] is False
+    assert benchmark_calls[0]["eval_output_dir"] == (
+        benchmark_eval_output / "single-profile-benchmark" / "01_book_a"
+    )
+    assert benchmark_calls[0]["processed_output_dir"] == (
         processed_output_root
         / benchmark_eval_output.name
         / "single-profile-benchmark"
         / "01_book_a"
-        / "vanilla",
-        processed_output_root
-        / benchmark_eval_output.name
-        / "single-profile-benchmark"
-        / "01_book_a"
-        / "codex-exec",
-    ]
-    assert [call.get("deterministic_prep_manifest_path") for call in benchmark_calls] == [
-        prep_bundle.manifest_path,
-        None,
-    ]
+    )
+    assert benchmark_calls[0].get("deterministic_prep_manifest_path") == (
+        prep_bundle.manifest_path
+    )
 
 
 def test_interactive_single_profile_codex_prep_uses_baseline_settings(
@@ -982,16 +944,12 @@ def test_interactive_single_profile_selected_matched_codex_runs_pair_for_selecte
     )
 
     assert completed is True
-    assert len(benchmark_calls) == 2
-    assert [call["source_file"] for call in benchmark_calls] == [source_b, source_b]
-    assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
-        "off",
-        "codex-recipe-shard-v1",
-    ]
-    assert [call["eval_output_dir"] for call in benchmark_calls] == [
-        benchmark_eval_output / "single-profile-benchmark" / "01_book_b" / "vanilla",
-        benchmark_eval_output / "single-profile-benchmark" / "01_book_b" / "codex-exec",
-    ]
+    assert len(benchmark_calls) == 1
+    assert benchmark_calls[0]["source_file"] == source_b
+    assert benchmark_calls[0]["llm_recipe_pipeline"] == "codex-recipe-shard-v1"
+    assert benchmark_calls[0]["eval_output_dir"] == (
+        benchmark_eval_output / "single-profile-benchmark" / "01_book_b"
+    )
 
 
 def test_interactive_single_profile_formats_codex_exec_precheck_failure_for_display(
@@ -1068,7 +1026,7 @@ def test_interactive_single_profile_formats_codex_exec_precheck_failure_for_disp
         if "Single-profile benchmark failed for" in message
     ]
     assert len(failure_messages) == 1
-    assert "codex-exec=codex-farm recipe.correction.compact.v1:" in failure_messages[0]
+    assert "recipe_only=codex-farm recipe.correction.compact.v1:" in failure_messages[0]
     assert "codex execution precheck failed before `process`" in failure_messages[0]
     assert "usage limit for GPT-5.3-Codex-Spark" in failure_messages[0]
     assert "out_dir=/tmp/recipe_correction/out" not in failure_messages[0]

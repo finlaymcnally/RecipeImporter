@@ -41,8 +41,8 @@ def build_freeform_label_config() -> str:
   <Header value="Highlight any span and apply one label."/>
   <Header value="Label ONLY the focus range shown below. Nearby context is used for AI prelabeling, not displayed here."/>
   <Header value="$focus_scope_hint"/>
-  <Header value="Focus: $focus_block_range | Context before: $context_before_block_range | Context after: $context_after_block_range"/>
-  <Header value="Blocks are separated by blank lines in the text below."/>
+  <Header value="Focus rows: $focus_row_range | Context before: $context_before_row_range | Context after: $context_after_row_range"/>
+  <Header value="Rows are separated by blank lines in the text below."/>
   <Text
     name="{FREEFORM_TEXT_NAME}"
     value="${FREEFORM_TEXT_NAME}"

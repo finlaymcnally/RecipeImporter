@@ -4,20 +4,20 @@ Durable contracts for Label Studio import/export/eval/prelabel flows in `cookimp
 
 ## Benchmark Prediction Rule
 
-- `labelstudio-benchmark` supports `--eval-mode stage-blocks|source-rows`:
-  - `stage-blocks` uses `cookimport.bench.eval_stage_blocks`.
-  - `source-rows` uses `cookimport.bench.eval_source_rows`.
+- `labelstudio-benchmark` is row-native only and accepts `--eval-mode source-rows`.
+- `labelstudio-benchmark` scoring uses `cookimport.bench.eval_source_rows`.
 - Interactive benchmark modes (`single_book`, `selected_matched_books`, and `all_matched_books`) should run `labelstudio-benchmark` in `source-rows` mode so one freeform gold export can benchmark extractor/config permutations without block-index parity.
 - Prediction-run artifact generation for benchmark must still write `extracted_archive.json` and copy any processed-output stage evidence into prediction-run root as `stage_block_predictions.json`.
 - Benchmark helpers/tests that mock prediction runs must include both `extracted_archive.json` and `stage_block_predictions.json`.
 
 ## Label Studio Prelabel Rule
 
-- Freeform prelabeling must derive final span offsets from task-local `segment_text` + `data.source_map.blocks[*].segment_start/end`; `block` mode uses block bounds directly and `span` mode resolves quotes against block text (with strict validation for optional absolute `start`/`end` fallbacks).
+- Freeform prelabeling is span-only and must derive final offsets from task-local `segment_text` + `data.source_map.rows[*].segment_start/end`.
 - Freeform prelabel flows must preserve `data.segment_text` exactly (no whitespace normalization) so exported offsets remain stable.
-- Freeform Label Studio payload contract: `data.segment_text` + `data.source_map.blocks` are focus-only labelable rows; adjacent context for AI prompting must be carried in `data.source_map.context_before_blocks` / `data.source_map.context_after_blocks` so UI text stays dedupe-friendly while prompts keep boundary context.
+- Freeform Label Studio payload contract for new tasks is `data.segment_text` + `data.source_map.rows` plus `data.source_map.context_before_rows` / `data.source_map.context_after_rows`.
+- Legacy pulled exports may still carry `blocks` / `context_*_blocks`; prompt/parsing fallbacks may read them for compatibility, but new task generation must not write them.
 - Prompt text for freeform prelabel lives in `llm_pipelines/prompts/freeform-prelabel-full.prompt.md`; iterate prompt wording there and keep required placeholder tokens (`{{SEGMENT_ID}}`, `{{BLOCKS_JSON_LINES}}`, etc.) intact.
-- Freeform prelabel granularity contract: `block` mode writes full-block spans; `span` mode writes quote-anchored spans (`block_index` + `quote` + optional `occurrence`) with optional validated absolute fallback (`start`/`end`).
+- Freeform prelabel granularity contract: `span` mode writes quote-anchored spans (`block_index` + `quote` + optional `occurrence`) with optional validated absolute fallback (`start`/`end`).
 - Freeform context-vs-focus contract: `segment_blocks` controls context visibility, `segment_focus_blocks` controls which blocks may receive labels, focus windows should be centered inside each segment when possible (so context appears before and after), and prelabel runtime must enforce focus filtering parser-side (including absolute spans that cross non-focus blocks).
 - Freeform target-task contract: when `target_task_count` is provided, resolve and persist both `segment_overlap_requested` and `segment_overlap_effective` in manifests; `segment_overlap` should reflect the effective runtime overlap.
 - Freeform prelabel overlap floor: effective overlap must satisfy `segment_overlap_effective >= segment_blocks - segment_focus_blocks` so focus windows remain contiguous across tasks and do not leave uncovered block gaps.

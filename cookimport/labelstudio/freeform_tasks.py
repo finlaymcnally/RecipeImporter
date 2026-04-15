@@ -19,9 +19,9 @@ class SegmentTaskData:
     segment_index: int
     segment_text: str
     source_map: dict[str, Any]
-    focus_block_range: str = ""
-    context_before_block_range: str = ""
-    context_after_block_range: str = ""
+    focus_row_range: str = ""
+    context_before_row_range: str = ""
+    context_after_row_range: str = ""
     focus_scope_hint: str = ""
 
     def to_task(self) -> dict[str, Any]:
@@ -34,9 +34,12 @@ class SegmentTaskData:
                 "segment_index": self.segment_index,
                 "segment_text": self.segment_text,
                 "source_map": self.source_map,
-                "focus_block_range": self.focus_block_range,
-                "context_before_block_range": self.context_before_block_range,
-                "context_after_block_range": self.context_after_block_range,
+                "focus_block_range": self.focus_row_range,
+                "context_before_block_range": self.context_before_row_range,
+                "context_after_block_range": self.context_after_row_range,
+                "focus_row_range": self.focus_row_range,
+                "context_before_row_range": self.context_before_row_range,
+                "context_after_row_range": self.context_after_row_range,
                 "focus_scope_hint": self.focus_scope_hint,
             }
         }
@@ -347,32 +350,6 @@ def _build_segment_text(
     return SEGMENT_SEPARATOR.join(parts), source_rows
 
 
-def _build_legacy_block_rows(
-    rows: Sequence[_TaskRow],
-    *,
-    include_segment_offsets: bool,
-) -> list[dict[str, Any]]:
-    legacy_rows: list[dict[str, Any]] = []
-    cursor = 0
-    for idx, row in enumerate(rows):
-        text = row.text or ""
-        payload = {
-            "block_id": row.source_block_id,
-            "block_index": row.source_block_index,
-            "text": text,
-            "location": row.location,
-            "source_kind": row.source_kind,
-        }
-        if include_segment_offsets:
-            payload["segment_start"] = cursor
-            payload["segment_end"] = cursor + len(text)
-        legacy_rows.append(payload)
-        cursor += len(text)
-        if idx < len(rows) - 1:
-            cursor += len(SEGMENT_SEPARATOR)
-    return legacy_rows
-
-
 def _build_context_prompt_rows(rows: Sequence[_TaskRow]) -> list[dict[str, Any]]:
     prompt_rows: list[dict[str, Any]] = []
     for row in rows:
@@ -429,23 +406,11 @@ def build_freeform_span_tasks(
         segment_id = build_segment_id(source_hash, start_row_index, end_row_index)
         focus_rows_slice = segment_rows_slice[focus_start_offset:focus_end_offset]
         segment_text, source_rows = _build_segment_text(focus_rows_slice)
-        legacy_focus_blocks = _build_legacy_block_rows(
-            focus_rows_slice,
-            include_segment_offsets=True,
-        )
         context_before_rows = _build_context_prompt_rows(
             segment_rows_slice[:focus_start_offset]
         )
         context_after_rows = _build_context_prompt_rows(
             segment_rows_slice[focus_end_offset:]
-        )
-        legacy_context_before_blocks = _build_legacy_block_rows(
-            segment_rows_slice[:focus_start_offset],
-            include_segment_offsets=False,
-        )
-        legacy_context_after_blocks = _build_legacy_block_rows(
-            segment_rows_slice[focus_end_offset:],
-            include_segment_offsets=False,
         )
         focus_indices = [row.row_index for row in focus_rows_slice]
         context_before_indices = [
@@ -459,12 +424,12 @@ def build_freeform_span_tasks(
         context_after_block_range = _collapse_block_index_ranges(context_after_indices)
         if context_before_block_range == "none" and context_after_block_range == "none":
             focus_scope_hint = (
-                f"Label all blocks in this task ({focus_block_range}); no extra context-only "
-                "blocks are present."
+                f"Label all rows in this task ({focus_block_range}); no extra context-only "
+                "rows are present."
             )
         else:
             focus_scope_hint = (
-                f"Label only blocks {focus_block_range}. Context only: "
+                f"Label only rows {focus_block_range}. Context only: "
                 f"before {context_before_block_range}; after {context_after_block_range}."
             )
         source_map = {
@@ -479,9 +444,6 @@ def build_freeform_span_tasks(
             "context_after_row_indices": context_after_indices,
             "context_before_row_range": context_before_block_range,
             "context_after_row_range": context_after_block_range,
-            "context_before_rows": context_before_rows,
-            "context_after_rows": context_after_rows,
-            "rows": source_rows,
             "focus_start_block_index": focus_indices[0],
             "focus_end_block_index": focus_indices[-1],
             "focus_block_indices": focus_indices,
@@ -490,9 +452,9 @@ def build_freeform_span_tasks(
             "context_after_block_indices": context_after_indices,
             "context_before_block_range": context_before_block_range,
             "context_after_block_range": context_after_block_range,
-            "context_before_blocks": legacy_context_before_blocks,
-            "context_after_blocks": legacy_context_after_blocks,
-            "blocks": legacy_focus_blocks,
+            "context_before_rows": context_before_rows,
+            "context_after_rows": context_after_rows,
+            "rows": source_rows,
         }
         task_data = SegmentTaskData(
             segment_id=segment_id,
@@ -502,9 +464,9 @@ def build_freeform_span_tasks(
             segment_index=segment_index,
             segment_text=segment_text,
             source_map=source_map,
-            focus_block_range=focus_block_range,
-            context_before_block_range=context_before_block_range,
-            context_after_block_range=context_after_block_range,
+            focus_row_range=focus_block_range,
+            context_before_row_range=context_before_block_range,
+            context_after_row_range=context_after_block_range,
             focus_scope_hint=focus_scope_hint,
         )
         tasks.append(task_data.to_task())
@@ -568,7 +530,7 @@ def compute_freeform_task_coverage(
         source_map = data.get("source_map")
         if not isinstance(source_map, dict):
             continue
-        for key in ("rows", "context_before_rows", "context_after_rows", "blocks", "context_before_blocks", "context_after_blocks"):
+        for key in ("rows", "context_before_rows", "context_after_rows"):
             source_rows = source_map.get(key)
             if not isinstance(source_rows, list):
                 continue

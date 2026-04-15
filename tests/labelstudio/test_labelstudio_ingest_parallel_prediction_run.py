@@ -1169,7 +1169,7 @@ def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_r
         ),
         AuthoritativeLabeledLine(
             source_block_id="block:2",
-            source_block_index=200,
+            source_block_index=2,
             atomic_index=2,
             text="Balancing Fat",
             deterministic_label="OTHER",
@@ -1194,12 +1194,12 @@ def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_r
     ]
 
     nonrecipe_stage_result = make_stage_result(
-        seed=make_seed_result({200: "candidate"}),
-        routing=make_routing_result(candidate_block_indices=[200]),
+        seed=make_seed_result({2: "candidate"}),
+        routing=make_routing_result(candidate_block_indices=[2]),
         authority=make_authority_result({}),
         candidate_status=make_finalize_status_result(
             reviewed_block_indices=[],
-            unreviewed_block_category_by_index={200: "candidate"},
+            unreviewed_block_category_by_index={2: "candidate"},
         ),
         refinement_report={
             "authority_mode": "deterministic_route_only",
