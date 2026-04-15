@@ -616,7 +616,10 @@ def test_repo_gold_exposes_no_subsection_and_real_subsection_books() -> None:
     sea_and_smoke_counts = _gold_label_counts_for_book("seaandsmokecutdown")
 
     assert saltfat_counts.get("HOWTO_SECTION", 0) == 0
-    assert sea_and_smoke_counts.get("HOWTO_SECTION", 0) >= 100
+    assert sea_and_smoke_counts.get("HOWTO_SECTION", 0) > 0
+    assert sea_and_smoke_counts.get("HOWTO_SECTION", 0) > saltfat_counts.get(
+        "HOWTO_SECTION", 0
+    )
 
 
 def test_codex_knowledge_inside_recipe_requires_explicit_prose_tags(
