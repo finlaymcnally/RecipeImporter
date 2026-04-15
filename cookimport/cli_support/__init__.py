@@ -1797,6 +1797,8 @@ def _discover_freeform_gold_exports(output_dir: Path) -> list[Path]:
         if not root.exists():
             continue
         for path in root.glob("**/exports/freeform_span_labels.jsonl"):
+            if "live_row_gold_backups" in path.parts:
+                continue
             resolved = path.resolve()
             if resolved in seen:
                 continue

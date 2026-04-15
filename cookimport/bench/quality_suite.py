@@ -199,7 +199,7 @@ def _discover_freeform_gold_exports(gold_root: Path) -> list[Path]:
     exports = [
         path
         for path in gold_root.glob("**/exports/freeform_span_labels.jsonl")
-        if path.is_file()
+        if path.is_file() and "live_row_gold_backups" not in path.parts
     ]
     return sorted(exports, key=str)
 

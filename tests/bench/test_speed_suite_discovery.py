@@ -5,6 +5,7 @@ from pathlib import Path
 
 from cookimport.bench.speed_suite import (
     SpeedSuite,
+    _discover_freeform_gold_exports,
     discover_speed_targets,
     load_speed_suite,
     validate_speed_suite,
@@ -85,6 +86,26 @@ def test_discover_speed_targets_uses_run_manifest_source_hint(
     assert len(suite.targets) == 1
     assert suite.targets[0].source_hint == "beta.epub"
     assert suite.targets[0].source_file.endswith("input/beta.epub")
+
+
+def test_discover_speed_targets_ignores_live_row_gold_backups(tmp_path: Path) -> None:
+    canonical = tmp_path / "gold" / "saltfatacidheatcutdown" / "exports"
+    canonical.mkdir(parents=True, exist_ok=True)
+    canonical_path = canonical / "freeform_span_labels.jsonl"
+    canonical_path.write_text("{}\n", encoding="utf-8")
+
+    backup = (
+        tmp_path
+        / "gold"
+        / "saltfatacidheatcutdown"
+        / "live_row_gold_backups"
+        / "2026-04-14_17.46.26_project-119"
+        / "exports"
+    )
+    backup.mkdir(parents=True, exist_ok=True)
+    (backup / "freeform_span_labels.jsonl").write_text("{}\n", encoding="utf-8")
+
+    assert _discover_freeform_gold_exports(tmp_path / "gold") == [canonical_path]
 
 
 def test_speed_suite_round_trip_and_validate(tmp_path: Path) -> None:

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from cookimport.bench.quality_suite import (
     QualitySuite,
+    _discover_freeform_gold_exports,
     discover_quality_suite,
     load_quality_suite,
     validate_quality_suite,
@@ -204,6 +205,26 @@ def test_discover_quality_suite_prefers_curated_cutdown_targets_when_available(
     ]
     assert suite.selection["selection_mode"] == "curated_target_ids"
     assert suite.selection["preferred_target_ids_missing"] == []
+
+
+def test_quality_suite_discovery_ignores_live_row_gold_backups(tmp_path: Path) -> None:
+    canonical = tmp_path / "gold" / "saltfatacidheatcutdown" / "exports"
+    canonical.mkdir(parents=True, exist_ok=True)
+    canonical_path = canonical / "freeform_span_labels.jsonl"
+    canonical_path.write_text("{}\n", encoding="utf-8")
+
+    backup = (
+        tmp_path
+        / "gold"
+        / "saltfatacidheatcutdown"
+        / "live_row_gold_backups"
+        / "2026-04-14_17.46.26_project-119"
+        / "exports"
+    )
+    backup.mkdir(parents=True, exist_ok=True)
+    (backup / "freeform_span_labels.jsonl").write_text("{}\n", encoding="utf-8")
+
+    assert _discover_freeform_gold_exports(tmp_path / "gold") == [canonical_path]
 
 
 def test_discover_quality_suite_curated_selection_fills_remaining_slots_when_capped(

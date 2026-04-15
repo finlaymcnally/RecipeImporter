@@ -89,6 +89,7 @@ Active Label Studio runtime scope is `freeform-spans`.
   - all-method offline sweep.
 - Interactive benchmark routes extractor-independent scoring to `labelstudio-benchmark --eval-mode source-rows`.
 - The interactive gold-export picker shortens normal `.../<book>/exports/<file>` paths to the book slug for display, while keeping the older relative-path fallback for nonstandard layouts.
+- Interactive gold-export discovery ignores archived `live_row_gold_backups/` exports so benchmark pickers and matched-book discovery stay focused on the canonical pulled export for each book.
 - When a chosen gold export implies a matching source file, interactive benchmark uses that inferred source automatically; the manual source picker appears only when inference fails.
 - Row-native migrated exports may carry `source_rows.jsonl` in the freeform JSONL artifacts; interactive source inference should prefer `exports/canonical_manifest.json` when present so migrated gold still auto-resolves back to the original input file.
 - The offline prediction-run seam behind `labelstudio-benchmark --no-upload` accepts the hidden `knowledge_inline_repair_transcript_mode` run-setting knob too, so helper-built benchmark kwargs can flow all the way into prediction generation without signature drift.

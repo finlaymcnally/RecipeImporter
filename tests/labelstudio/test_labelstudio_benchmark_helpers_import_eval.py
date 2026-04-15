@@ -244,6 +244,31 @@ def test_discover_freeform_gold_exports_orders_newest_first(tmp_path: Path) -> N
     assert discovered[0] == newer_path
     assert discovered[1] == older_path
 
+
+def test_discover_freeform_gold_exports_skips_live_row_gold_backups(
+    tmp_path: Path,
+) -> None:
+    canonical = tmp_path / "saltfatacidheatcutdown" / "exports"
+    canonical.mkdir(parents=True, exist_ok=True)
+    canonical_path = canonical / "freeform_span_labels.jsonl"
+    canonical_path.write_text("{}\n", encoding="utf-8")
+
+    backup = (
+        tmp_path
+        / "saltfatacidheatcutdown"
+        / "live_row_gold_backups"
+        / "2026-04-14_17.46.26_project-119"
+        / "exports"
+    )
+    backup.mkdir(parents=True, exist_ok=True)
+    backup_path = backup / "freeform_span_labels.jsonl"
+    backup_path.write_text("{}\n", encoding="utf-8")
+
+    discovered = cli._discover_freeform_gold_exports(tmp_path)
+
+    assert canonical_path in discovered
+    assert backup_path not in discovered
+
 def test_discover_freeform_gold_exports_includes_golden_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
