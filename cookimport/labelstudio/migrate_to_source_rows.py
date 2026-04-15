@@ -39,6 +39,7 @@ def migrate_freeform_export_to_row_gold(
 ) -> MigrationResult:
     span_rows = _read_jsonl(freeform_span_labels_jsonl_path)
     source_rows = load_source_rows(source_rows_jsonl_path)
+    rows_by_id = {str(row.row_id): row for row in source_rows}
     rows_by_block: dict[int, list[SourceRow]] = {}
     for row in source_rows:
         rows_by_block.setdefault(int(row.block_index), []).append(row)
@@ -64,6 +65,29 @@ def migrate_freeform_export_to_row_gold(
         for touched in touched_blocks:
             if not isinstance(touched, dict):
                 continue
+            touched_row = _resolve_touched_row(
+                touched=touched,
+                rows_by_id=rows_by_id,
+            )
+            if touched_row is not None:
+                overlap = _row_native_overlap_chars(
+                    touched=touched,
+                    start_offset=start_offset,
+                    end_offset=end_offset,
+                    row=touched_row,
+                )
+                if overlap <= 0:
+                    continue
+                _record_row_label(
+                    row=touched_row,
+                    label=label,
+                    span_row=span_row,
+                    overlap=overlap,
+                    row_labels=row_labels,
+                    row_payload=row_payload,
+                    ambiguous_rows=ambiguous_rows,
+                )
+                continue
             block_index = _coerce_int(
                 touched.get("source_block_index", touched.get("block_index"))
             )
@@ -86,34 +110,15 @@ def migrate_freeform_export_to_row_gold(
                 )
                 if overlap <= 0:
                     continue
-                row_id = str(row.row_id)
-                row_labels.setdefault(row_id, set()).add(label)
-                row_payload.setdefault(
-                    row_id,
-                    {
-                        "row_id": row_id,
-                        "row_index": int(row.row_index),
-                        "block_index": int(row.block_index),
-                        "row_ordinal": int(row.row_ordinal),
-                        "text": str(row.text),
-                        "source_hash": str(row.source_hash),
-                        "source_file": str(span_row.get("source_file") or "unknown"),
-                    },
+                _record_row_label(
+                    row=row,
+                    label=label,
+                    span_row=span_row,
+                    overlap=overlap,
+                    row_labels=row_labels,
+                    row_payload=row_payload,
+                    ambiguous_rows=ambiguous_rows,
                 )
-                row_length = max(1, int(row.end_char_in_block) - int(row.start_char_in_block))
-                if overlap < row_length:
-                    ambiguous_rows.append(
-                        {
-                            "row_id": row_id,
-                            "label": label,
-                            "row_index": int(row.row_index),
-                            "block_index": int(row.block_index),
-                            "row_text": str(row.text),
-                            "overlap_chars": overlap,
-                            "row_length": row_length,
-                            "span_id": span_row.get("span_id"),
-                        }
-                    )
 
     row_gold_rows: list[dict[str, Any]] = []
     conflicting_rows: list[dict[str, Any]] = []
@@ -298,3 +303,72 @@ def _coerce_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _resolve_touched_row(
+    *,
+    touched: dict[str, Any],
+    rows_by_id: dict[str, SourceRow],
+) -> SourceRow | None:
+    row_id = str(touched.get("row_id") or "").strip()
+    if not row_id:
+        return None
+    return rows_by_id.get(row_id)
+
+
+def _row_native_overlap_chars(
+    *,
+    touched: dict[str, Any],
+    start_offset: int,
+    end_offset: int,
+    row: SourceRow,
+) -> int:
+    segment_start = _coerce_int(touched.get("segment_start"))
+    segment_end = _coerce_int(touched.get("segment_end"))
+    if (
+        segment_start is not None
+        and segment_end is not None
+        and segment_end > segment_start
+    ):
+        return min(end_offset, segment_end) - max(start_offset, segment_start)
+    return max(0, int(row.end_char_in_block) - int(row.start_char_in_block))
+
+
+def _record_row_label(
+    *,
+    row: SourceRow,
+    label: str,
+    span_row: dict[str, Any],
+    overlap: int,
+    row_labels: dict[str, set[str]],
+    row_payload: dict[str, dict[str, Any]],
+    ambiguous_rows: list[dict[str, Any]],
+) -> None:
+    row_id = str(row.row_id)
+    row_labels.setdefault(row_id, set()).add(label)
+    row_payload.setdefault(
+        row_id,
+        {
+            "row_id": row_id,
+            "row_index": int(row.row_index),
+            "block_index": int(row.block_index),
+            "row_ordinal": int(row.row_ordinal),
+            "text": str(row.text),
+            "source_hash": str(row.source_hash),
+            "source_file": str(span_row.get("source_file") or "unknown"),
+        },
+    )
+    row_length = max(1, int(row.end_char_in_block) - int(row.start_char_in_block))
+    if overlap < row_length:
+        ambiguous_rows.append(
+            {
+                "row_id": row_id,
+                "label": label,
+                "row_index": int(row.row_index),
+                "block_index": int(row.block_index),
+                "row_text": str(row.text),
+                "overlap_chars": overlap,
+                "row_length": row_length,
+                "span_id": span_row.get("span_id"),
+            }
+        )

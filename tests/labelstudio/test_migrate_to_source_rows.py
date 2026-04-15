@@ -138,3 +138,111 @@ def test_migrate_freeform_export_to_row_gold_prefers_source_block_index(tmp_path
         "row-a": ["RECIPE_TITLE"],
         "row-b": ["OTHER"],
     }
+
+
+def test_migrate_freeform_export_to_row_gold_prefers_exact_row_id_for_row_native_spans(
+    tmp_path,
+) -> None:
+    texts = [
+        "Add the remaining croutons, asparagus, and macerated onions (but not their vinegar, yet). Tear in the mint leaves in small pieces.",
+        "Crumble in the feta in large pieces. Dress with another 1/3 cup vinaigrette and season with salt, then taste.",
+        "Adjust seasoning with salt, vinaigrette, and the macerating vinegar as needed. Toss, taste again, and serve at room temperature.",
+    ]
+    source_rows = []
+    start = 0
+    for row_index, text in enumerate(texts):
+        end = start + len(text)
+        source_rows.append(
+            SourceRow(
+                row_id=f"row-{row_index}",
+                source_hash="hash-1",
+                row_index=row_index,
+                row_ordinal=row_index,
+                block_id="block-1274",
+                block_index=1274,
+                start_char_in_block=start,
+                end_char_in_block=end,
+                text=text,
+                rule_tags=["instruction_like"],
+            )
+        )
+        start = end + 1
+
+    source_rows_path = tmp_path / "source_rows.jsonl"
+    write_source_rows(source_rows_path, source_rows)
+
+    freeform_rows = [
+        {
+            "label": "INSTRUCTION_LINE",
+            "span_id": "span-1",
+            "start_offset": 3687,
+            "end_offset": 3817,
+            "source_file": "source_rows.jsonl",
+            "touched_blocks": [
+                {
+                    "row_id": "row-0",
+                    "row_index": 0,
+                    "block_index": 0,
+                    "source_block_index": 1274,
+                    "segment_start": 3687,
+                    "segment_end": 3817,
+                }
+            ],
+        },
+        {
+            "label": "OTHER",
+            "span_id": "span-2",
+            "start_offset": 3819,
+            "end_offset": 3928,
+            "source_file": "source_rows.jsonl",
+            "touched_blocks": [
+                {
+                    "row_id": "row-1",
+                    "row_index": 1,
+                    "block_index": 1,
+                    "source_block_index": 1274,
+                    "segment_start": 3819,
+                    "segment_end": 3928,
+                }
+            ],
+        },
+        {
+            "label": "OTHER",
+            "span_id": "span-3",
+            "start_offset": 3930,
+            "end_offset": 4058,
+            "source_file": "source_rows.jsonl",
+            "touched_blocks": [
+                {
+                    "row_id": "row-2",
+                    "row_index": 2,
+                    "block_index": 2,
+                    "source_block_index": 1274,
+                    "segment_start": 3930,
+                    "segment_end": 4058,
+                }
+            ],
+        },
+    ]
+    freeform_path = tmp_path / "freeform_span_labels.jsonl"
+    freeform_path.write_text(
+        "\n".join(json.dumps(row) for row in freeform_rows) + "\n",
+        encoding="utf-8",
+    )
+
+    result = migrate_freeform_export_to_row_gold(
+        freeform_span_labels_jsonl_path=freeform_path,
+        source_rows_jsonl_path=source_rows_path,
+    )
+
+    labels_by_row_id = {
+        row["row_id"]: row["labels"]
+        for row in result.row_gold_rows
+    }
+    assert labels_by_row_id == {
+        "row-0": ["INSTRUCTION_LINE"],
+        "row-1": ["OTHER"],
+        "row-2": ["OTHER"],
+    }
+    assert result.conflicting_rows == []
+    assert result.ambiguous_rows == []
