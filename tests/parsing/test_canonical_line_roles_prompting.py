@@ -481,7 +481,14 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
     assert '{"block_index": 210, "row_id": "r01", "text": "1 cup flour"}' in prompt
     assert '{"block_index": 209, "text": "Earlier context"}' in prompt
     assert '{"block_index": 211, "text": "Later context"}' in prompt
-    assert "If the shard rows are outside recipe context, default to `NONRECIPE_CANDIDATE`" in prompt
+    assert (
+        "If the shard rows are outside recipe context, decide in two steps: first discard obvious fluff as `NONRECIPE_EXCLUDE`"
+        in prompt
+    )
+    assert (
+        "Nearby lesson rows can help you understand context, but they do not rescue a weak row into `NONRECIPE_CANDIDATE`"
+        in prompt
+    )
     assert (
         "Variant context is local, not sticky. End a nearby `Variations` run"
         in prompt

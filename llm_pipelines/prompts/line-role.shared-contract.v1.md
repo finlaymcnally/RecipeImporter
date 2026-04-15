@@ -18,7 +18,9 @@ Negative rules:
 - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, do not call it `INSTRUCTION_LINE`.
 - Outside recipe, broad coaching, exhortation, or rhetorical setup usually stays `NONRECIPE_EXCLUDE`; use `NONRECIPE_CANDIDATE` only when the row itself states portable cooking knowledge that would still help a cook if quoted alone.
 - If local evidence is genuinely ambiguous, resolve the row from the text and neighboring context alone.
-- If the shard rows are outside recipe context, default to `NONRECIPE_CANDIDATE`; only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.
+- If the shard rows are outside recipe context, decide in two steps: first discard obvious fluff as `NONRECIPE_EXCLUDE`, then use `NONRECIPE_CANDIDATE` only for rows that clearly stand on their own as portable cooking knowledge.
+- Nearby lesson rows can help you understand context, but they do not rescue a weak row into `NONRECIPE_CANDIDATE` when that row itself is just coaching, setup, rhetoric, or author voice.
+- Only use recipe-structure labels when nearby rows in the same shard show immediate recipe-local evidence.
 - Use `HOWTO_SECTION` only when nearby rows show immediate recipe-local structure before or after the heading.
 - A `HOWTO_SECTION` should own a real mini-preparation. If the heading is just one named component inside a larger ingredient list, do not promote it to `HOWTO_SECTION`.
 - A short named component such as `Lime Vinaigrette` is usually not `HOWTO_SECTION` when the nearby rows show it is simply one ingredient/component among many rather than the start of its own ingredient-and-step subsection.
