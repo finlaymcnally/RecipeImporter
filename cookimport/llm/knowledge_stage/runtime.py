@@ -109,6 +109,45 @@ def _current_knowledge_shard_survivability_report_builder():
     )
 
 
+def _is_budget_native_planning_warning(text: str) -> bool:
+    normalized = str(text or "").strip().lower()
+    if not normalized:
+        return False
+    return (
+        "packet-budget planning would have split" in normalized
+        or "requested final shard count" in normalized
+        or "rendered preview packet count fallback" in normalized
+        or "budget-native packetization" in normalized
+    )
+
+
+def _filtered_knowledge_planning_warnings(
+    *,
+    planning_warnings: list[str] | tuple[str, ...],
+    requested_shard_count: int | None,
+    survivability_report: Mapping[str, Any] | None,
+) -> list[str]:
+    requested_count = max(1, int(requested_shard_count or 1))
+    minimum_safe = None
+    if isinstance(survivability_report, Mapping):
+        raw_minimum_safe = survivability_report.get("minimum_safe_shard_count")
+        if raw_minimum_safe is not None:
+            minimum_safe = max(1, int(raw_minimum_safe))
+    filtered: list[str] = []
+    for warning in planning_warnings:
+        normalized_warning = str(warning).strip()
+        if not normalized_warning:
+            continue
+        if (
+            minimum_safe is not None
+            and requested_count >= minimum_safe
+            and _is_budget_native_planning_warning(normalized_warning)
+        ):
+            continue
+        filtered.append(normalized_warning)
+    return filtered
+
+
 def run_codex_farm_nonrecipe_finalize(
     *,
     conversion_result: ConversionResult,
@@ -248,8 +287,6 @@ def run_codex_farm_nonrecipe_finalize(
         input_char_budget=run_settings.knowledge_packet_input_char_budget,
         output_char_budget=run_settings.knowledge_packet_output_char_budget,
     )
-    for warning in build_report.planning_warnings:
-        logger.warning("Knowledge planning warning for %s: %s", workbook_slug, warning)
 
     if build_report.shards_written == 0:
         llm_report = _build_noop_knowledge_llm_report(
@@ -288,6 +325,13 @@ def run_codex_farm_nonrecipe_finalize(
         model_name=codex_model,
         requested_shard_count=run_settings.knowledge_prompt_target_count,
     )
+    filtered_planning_warnings = _filtered_knowledge_planning_warnings(
+        planning_warnings=build_report.planning_warnings,
+        requested_shard_count=build_report.requested_shard_count,
+        survivability_report=survivability_report,
+    )
+    for warning in filtered_planning_warnings:
+        logger.warning("Knowledge planning warning for %s: %s", workbook_slug, warning)
     _write_json(
         survivability_report,
         knowledge_stage_dir / "shard_survivability_report.json",
@@ -348,7 +392,7 @@ def run_codex_farm_nonrecipe_finalize(
                 "configured_prompt_target_count": run_settings.knowledge_prompt_target_count,
                 "requested_shard_count": build_report.requested_shard_count,
                 "budget_native_shard_count": build_report.packet_count_before_partition,
-                "planning_warnings": list(build_report.planning_warnings),
+                "planning_warnings": list(filtered_planning_warnings),
                 "configured_packet_input_char_budget": run_settings.knowledge_packet_input_char_budget,
                 "configured_packet_output_char_budget": run_settings.knowledge_packet_output_char_budget,
                 "configured_group_task_max_units": run_settings.knowledge_group_task_max_units,
@@ -631,7 +675,7 @@ def run_codex_farm_nonrecipe_finalize(
             },
             "missing_packet_ids": missing_packet_ids,
             "skipped_packet_reason_counts": dict(build_report.skipped_packet_reason_counts),
-            "planning_warnings": list(build_report.planning_warnings),
+            "planning_warnings": list(filtered_planning_warnings),
             "candidate_summary": candidate_summary,
             "refinement_report": refined_report,
             "grounding_counts": dict(grounding_counts),

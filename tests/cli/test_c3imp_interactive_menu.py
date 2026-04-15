@@ -1214,7 +1214,7 @@ def test_shard_plan_warning_lines_wrap_under_table() -> None:
     assert any("packetizer naturally split this work more finely" in line for line in lines[1:])
 
 
-def test_current_row_warning_messages_recalculate_when_shard_count_changes() -> None:
+def test_current_row_warning_messages_skip_budget_native_warning_once_survivability_is_safe() -> None:
     row = {
         "label": "Knowledge",
         "current_count": 5,
@@ -1226,7 +1226,11 @@ def test_current_row_warning_messages_recalculate_when_shard_count_changes() -> 
         ],
     }
 
+    assert run_settings_flow._current_row_warning_messages(row) == []
+
+    row["minimum_safe_shard_count"] = 6
     assert run_settings_flow._current_row_warning_messages(row) == [
+        "Current shard count 5 is below the advisory survivability minimum of 6 for session.",
         "Current shard count 5 is below the budget-native plan of 24 shards. The rendered preview packetizer naturally split this work more finely at that count."
     ]
 

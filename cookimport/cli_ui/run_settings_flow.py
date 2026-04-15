@@ -232,6 +232,17 @@ def _is_budget_native_planning_warning(text: str) -> bool:
     )
 
 
+def _should_surface_budget_native_warning(row: Mapping[str, Any]) -> bool:
+    current_count = max(1, int(row.get("current_count") or 1))
+    budget_native = _coerce_int(row.get("budget_native_shard_count"))
+    if budget_native is None or int(budget_native) <= current_count:
+        return False
+    minimum_safe = _coerce_int(row.get("minimum_safe_shard_count"))
+    if minimum_safe is not None and current_count >= int(minimum_safe):
+        return False
+    return True
+
+
 def _current_row_warning_messages(row: Mapping[str, Any]) -> list[str]:
     current_count = max(1, int(row.get("current_count") or 1))
     minimum_safe = _coerce_int(row.get("minimum_safe_shard_count"))
@@ -249,7 +260,7 @@ def _current_row_warning_messages(row: Mapping[str, Any]) -> list[str]:
             f"Current shard count {current_count} is below the advisory survivability minimum "
             f"of {int(minimum_safe)} for {_binding_limit_label(binding_limit)}."
         )
-    if budget_native is not None and int(budget_native) > 0 and current_count < int(budget_native):
+    if _should_surface_budget_native_warning(row):
         messages.append(
             f"Current shard count {current_count} is below the budget-native plan of "
             f"{int(budget_native)} shards. The rendered preview packetizer naturally split "
