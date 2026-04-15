@@ -269,6 +269,22 @@ def test_all_ingredients_phrase_preserved():
     assert _names(result[1]) == ["flour", "sugar", "eggs"]
 
 
+def test_section_header_reference_only_later_step_does_not_duplicate_group_members() -> None:
+    ingredient_lines = [
+        _section_header("Gravy"),
+        _ingredient_line("flour"),
+    ]
+    steps = [
+        "Whisk the flour until smooth.",
+        "Simmer the gravy until thickened.",
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    assert _names(result[0]) == ["flour"]
+    assert _names(result[1]) == []
+
+
 def test_earlier_step_wins_tiebreaker():
     """When scores are equal, earlier step wins."""
     ingredient_lines = [
@@ -306,4 +322,3 @@ def test_multi_ingredient_single_step():
     assert "onion" in _names(result[0])
     assert "garlic" in _names(result[0])
     assert "celery" in _names(result[0])
-

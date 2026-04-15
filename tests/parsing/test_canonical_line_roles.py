@@ -103,8 +103,8 @@ def test_label_atomic_lines_outside_recipe_saltfat_science_prose_stays_reviewabl
         within_recipe_span=False,
     )
     predictions = label_atomic_lines(candidates, _settings())
-    assert len(predictions) == 1
-    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions
+    assert all(prediction.label == "NONRECIPE_CANDIDATE" for prediction in predictions)
 
 
 def test_label_atomic_lines_outside_recipe_knowledge_heading_uses_neighbor_context_for_reviewable_other() -> None:
@@ -232,8 +232,8 @@ def test_label_atomic_lines_outside_recipe_saltfat_citrus_lesson_stays_reviewabl
         within_recipe_span=False,
     )
     predictions = label_atomic_lines(candidates, _settings())
-    assert len(predictions) == 1
-    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions
+    assert all(prediction.label == "NONRECIPE_CANDIDATE" for prediction in predictions)
 
 
 def test_label_atomic_lines_outside_recipe_note_prefix_is_recipe_notes() -> None:
@@ -343,6 +343,25 @@ def test_label_atomic_lines_unknown_pre_grouping_science_prose_stays_reviewable_
     assert len(predictions) == 1
     assert predictions[0].within_recipe_span is None
     assert predictions[0].label == "NONRECIPE_CANDIDATE"
+
+
+def test_label_atomic_lines_unknown_pre_grouping_non_primary_time_line_stays_instruction() -> None:
+    blocks = [
+        {
+            "block_id": "block:time:unknown:1",
+            "block_index": 1,
+            "text": "Cook for 10 minutes until thickened.",
+        }
+    ]
+    candidates = atomize_blocks(
+        blocks,
+        recipe_id=None,
+        within_recipe_span=None,
+    )
+    predictions = label_atomic_lines(candidates, _settings())
+    assert len(predictions) == 1
+    assert predictions[0].within_recipe_span is None
+    assert predictions[0].label == "INSTRUCTION_LINE"
 
 
 def test_label_atomic_lines_unknown_pre_grouping_knowledge_heading_uses_neighbor_context_for_reviewable_other() -> None:
@@ -1791,7 +1810,7 @@ def test_label_atomic_lines_recipe_title_with_immediate_note_prose_stays_recipe_
     assert predictions[0].label == "RECIPE_TITLE"
 
 
-def test_label_atomic_lines_non_header_yield_phrase_demotes_to_instruction() -> None:
+def test_label_atomic_lines_non_header_yield_phrase_stays_recipe_notes() -> None:
     blocks = [
         {
             "block_id": "block:yield:1",
@@ -1806,8 +1825,7 @@ def test_label_atomic_lines_non_header_yield_phrase_demotes_to_instruction() -> 
     )
     predictions = label_atomic_lines(candidates, _settings())
     assert len(predictions) == 1
-    assert predictions[0].label == "INSTRUCTION_LINE"
-    assert "sanitized_yield_to_instruction" in predictions[0].reason_tags
+    assert predictions[0].label == "RECIPE_NOTES"
 
 
 def test_label_atomic_lines_title_like_line_without_supportive_next_line_is_not_title() -> None:

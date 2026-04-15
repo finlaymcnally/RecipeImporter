@@ -1,7 +1,6 @@
 import hashlib
 import json
 import logging
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -170,92 +169,6 @@ class ProvenanceBuilder:
         if extra:
             provenance.update(extra)
         return provenance
-
-class ReportBuilder:
-    """Context manager to accumulate events and write the import report."""
-
-    def __init__(self, source_path: Path, output_dir: Path):
-        self.source_path = source_path
-        self.output_dir = output_dir
-        self.start_time = 0.0
-        self.candidates: List[Dict[str, Any]] = []
-        self.errors: List[Dict[str, Any]] = []
-        self.llm_usage: Dict[str, Any] = {"total_tokens": 0, "cost_estimate": 0.0}
-        self.success_count = 0
-        self.low_confidence_count = 0
-
-    def __enter__(self):
-        self.start_time = time.time()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        duration = time.time() - self.start_time
-        
-        # If an unhandled exception occurred, log it before writing report
-        if exc_type:
-            self.errors.append({
-                "type": "fatal_error",
-                "message": str(exc_val),
-                "traceback": str(exc_tb) # You might want to format this better
-            })
-
-        self._write_report(duration)
-
-    def add_candidate(self, recipe_id: str, status: str, confidence: float, name: str):
-        self.candidates.append({
-            "id": recipe_id,
-            "name": name,
-            "status": status,
-            "confidence": confidence
-        })
-        if status == "valid":
-            self.success_count += 1
-        elif status == "needs_review":
-            self.low_confidence_count += 1
-
-    def add_error(self, error_type: str, message: str, context: Optional[Dict[str, Any]] = None):
-        error_entry = {
-            "type": error_type,
-            "message": message
-        }
-        if context:
-            error_entry["context"] = context
-        self.errors.append(error_entry)
-
-    def track_llm_usage(self, tokens: int, cost: float):
-        self.llm_usage["total_tokens"] += tokens
-        self.llm_usage["cost_estimate"] += cost
-
-    def _write_report(self, duration: float):
-        summary = {
-            "total_candidates": len(self.candidates),
-            "success_count": self.success_count,
-            "low_confidence_count": self.low_confidence_count,
-            "error_count": len(self.errors),
-            "duration_seconds": duration,
-            "timestamp": datetime.now().isoformat()
-        }
-
-        report = {
-            "source_file": str(self.source_path),
-            "summary": summary,
-            "candidates": self.candidates,
-            "errors": self.errors,
-            "llm_usage": self.llm_usage
-        }
-
-        # Ensure output directory exists
-        reports_dir = self.output_dir / "reports"
-        reports_dir.mkdir(parents=True, exist_ok=True)
-        
-        report_file = reports_dir / f"{self.source_path.name}.report.json"
-        
-        try:
-            with open(report_file, "w", encoding="utf-8") as f:
-                json.dump(report, f, indent=2)
-            logger.info(f"Report written to {report_file}")
-        except Exception as e:
-            logger.error(f"Failed to write report: {e}")
 
 def enrich_report_with_stats(
     report: ConversionReport,

@@ -325,12 +325,15 @@ Matching order:
 
 - Default: one best step per ingredient.
 - If multiple `use` candidates exist, earliest use step wins.
+- Exact/semantic verb scoring prefers local context first, then falls back to the whole step so late ingredient mentions still inherit real `use` verbs earlier in the sentence.
+- Lemmatization covers common cookbook plural endings such as `-ies`, `-oes`, `-sses`, and `-xes`, and `-ed`/`-ing` normalization preserves known base verbs like `add` and `roll` instead of stripping them too far.
 - Multi-step assignment allowed only with strong split language and >=2 use/split candidates.
 - Max steps per ingredient is capped at 3.
 
 ### Fraction handling
 
 - Split phrases (`half`, `third`, `quarter`, `remaining`) can produce step fractions.
+- Single-step matches keep the full `input_qty` even if split language appears in the text; quantities are only reduced when the linker can account for the ingredient across multiple assigned steps.
 - When split applied, step ingredient copy gets confidence penalty (`-0.05`, floored at 0).
 
 ### Special passes after global assignment
@@ -338,6 +341,7 @@ Matching order:
 - `all ingredients` phrases can assign all non-header ingredients to a step.
   - when section context is present and the recipe has multiple sections, this scopes to ingredients in that same section.
 - Section-header groups can add grouped ingredients to steps mentioning group aliases.
+  - that supplement now applies only to group members that are still unassigned after the main best-step resolution, so later reference-only section mentions do not duplicate ingredients that already have direct evidence on an earlier step.
 - Collective-term fallback for unmatched ingredients:
   - categories currently: `spices`, `herbs`, `seasonings`
   - prefers same-section steps when section context exists, then falls back globally
@@ -536,6 +540,10 @@ Gates include:
 - `YIELD_LINE` still has strict header validation on the deterministic rule path, but the live Codex route path now treats accepted worker labels as first-authority as long as they satisfy the output contract.
 - `TIME_LINE` is still intended for primary time metadata, but the live Codex route path no longer rejects a valid worker label back to deterministic baseline at runtime.
 - In the pre-grouping `within_recipe_span=None` state, the live route contract is recipe-local labels plus `NONRECIPE_CANDIDATE` / `NONRECIPE_EXCLUDE`; line-role no longer emits final outside-recipe `KNOWLEDGE` / `OTHER`.
+- Treat `within_recipe_span=None` as its own contract state, not as a disguised outside-recipe hint:
+  - `True` means known in-recipe,
+  - `False` means known outside recipe,
+  - `None` means span-unknown before grouping and deterministic/LLM logic must stay on the span-free pre-grouping contract.
 - Short storage/use/serving-note lines such as `Store leftover...`, `Refrigerate leftovers...`, `Cover and refrigerate leftovers...`, and leading `Ideal for ...` suggestions now promote directly to `RECIPE_NOTES`.
 - Outside recipe spans, prose now defaults to route labels: `NONRECIPE_CANDIDATE` for material that knowledge should review later, `NONRECIPE_EXCLUDE` only for obvious junk that policy still allows the route layer to drop.
 - Outside-recipe `NONRECIPE_EXCLUDE` is now primarily an LLM semantic decision on the normal Codex path. Deterministic code still owns the rule/baseline path and narrow structural fail-safes such as impossible recipe-local exclusion, but it does not broad-veto ordinary outside-recipe exclusions merely because the local heuristic would have kept the row reviewable.

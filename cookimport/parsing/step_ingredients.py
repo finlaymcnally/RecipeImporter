@@ -247,7 +247,8 @@ _USE_VERBS = frozenset({
     "toss", "season", "top", "drizzle", "incorporate", "blend", "beat",
     "cream", "melt", "dissolve", "rub", "coat", "brush", "scatter",
     "garnish", "finish", "place", "put", "drop", "spoon", "layer", "spread",
-    "roll",
+    "roll", "sift", "grate", "peel", "chop", "dice", "mince", "slice",
+    "carve", "shred", "fill",
     # Cooking verbs where you're adding ingredient to pan/pot - active use
     "fry", "saute", "sear", "brown", "grill", "roast", "bake",
 })
@@ -356,6 +357,13 @@ def _classify_verb_context(
     for token in context_tokens:
         if token in _REFERENCE_VERBS:
             return ("reference", -5.0, split_fraction, None)
+
+    # Fall back to the whole step so exact/semantic matching stays aligned with
+    # fuzzy matching when the relevant use verb is farther away.
+    if any(token in _USE_VERBS for token in step_tokens):
+        return ("use", 10.0, split_fraction, None)
+    if any(token in _REFERENCE_VERBS for token in step_tokens):
+        return ("reference", -5.0, split_fraction, None)
 
     return ("neutral", 0.0, split_fraction, None)
 
@@ -580,13 +588,10 @@ def _resolve_assignments(
 
         if len(ingredient_candidates) == 1:
             candidate = ingredient_candidates[0]
-            step_fractions = None
-            if candidate.split_fraction is not None and candidate.split_fraction > 0:
-                step_fractions = {candidate.step_index: candidate.split_fraction}
             preliminary_assignments[ingredient_index] = (
                 [candidate.step_index],
                 "single match",
-                step_fractions,
+                None,
             )
             continue
 
@@ -862,6 +867,7 @@ class DebugInfo:
     assignments: list[IngredientAssignment]
     group_assignments: dict[int, list[int]]  # step_idx -> ingredient indices from groups
     all_ingredients_steps: list[int]  # step indices with "all ingredients" phrase
+    all_ingredients_assignments: dict[int, list[int]]  # step_idx -> included ingredient indices
 
 
 def assign_ingredient_lines_to_steps(
@@ -895,12 +901,12 @@ def assign_ingredient_lines_to_steps(
     step_texts = [_coerce_step_text(step) for step in steps]
     if not step_texts:
         if debug:
-            return [], DebugInfo([], [], {}, [])
+            return [], DebugInfo([], [], {}, [], {})
         return []
     if not ingredient_lines:
         empty_result = [[] for _ in step_texts]
         if debug:
-            return empty_result, DebugInfo([], [], {}, [])
+            return empty_result, DebugInfo([], [], {}, [], {})
         return empty_result
 
     groups = _build_groups(ingredient_lines)
@@ -926,6 +932,7 @@ def assign_ingredient_lines_to_steps(
     # Debug tracking
     group_assignments: dict[int, list[int]] = {}
     all_ingredients_steps: list[int] = []
+    all_ingredients_assignments: dict[int, list[int]] = {}
 
     # Phase 1: Collect all candidates using two-phase algorithm
     candidates = _collect_all_candidates(step_texts, alias_map, match_kind="exact")
@@ -995,37 +1002,50 @@ def assign_ingredient_lines_to_steps(
                 )
                 if scoped_indices:
                     include_indices = scoped_indices
+            all_ingredients_assignments[step_idx] = list(include_indices)
             results[step_idx] = _build_step_lines(include_indices, ingredient_lines)
+
+    assigned_indices = _collect_assigned_indices(results, ingredient_lines)
+
+    # Section header group matching supplements only the still-unassigned members of a group.
+    # Once a concrete ingredient in the group is already assigned elsewhere, do not duplicate it
+    # onto later steps that merely mention the section name.
+    for group in groups:
+        unassigned_group_indices = [
+            ing_idx for ing_idx in group.indices if ing_idx not in assigned_indices
+        ]
+        if not unassigned_group_indices:
             continue
+        target_step_idx: int | None = None
+        for step_idx, step_text in enumerate(step_texts):
+            if _step_mentions_group(_tokenize(step_text), group.aliases):
+                target_step_idx = step_idx
+                break
+        if target_step_idx is None:
+            continue
+        group_assignments.setdefault(target_step_idx, []).extend(unassigned_group_indices)
+        existing_indices = {
+            idx
+            for idx in (_result_line_index(result_line) for result_line in results[target_step_idx])
+            if idx is not None
+        }
+        for ing_idx in unassigned_group_indices:
+            if ing_idx in existing_indices:
+                continue
+            line = ingredient_lines[ing_idx]
+            if line.get("quantity_kind") == "section_header":
+                continue
+            line_copy = copy.deepcopy(line)
+            line_copy[_INTERNAL_INGREDIENT_INDEX_KEY] = ing_idx
+            results[target_step_idx].append(line_copy)
+            assigned_indices.add(ing_idx)
 
-        # Section header group matching adds to results (doesn't replace)
-        for group in groups:
-            if _step_mentions_group(step_tokens, group.aliases):
-                if step_idx not in group_assignments:
-                    group_assignments[step_idx] = []
-                group_assignments[step_idx].extend(group.indices)
-
-                # Merge group indices into this step's results
-                existing_indices = {
-                    idx
-                    for idx in (_result_line_index(result_line) for result_line in results[step_idx])
-                    if idx is not None
-                }
-                for ing_idx in group.indices:
-                    if ing_idx not in existing_indices:
-                        line = ingredient_lines[ing_idx]
-                        if line.get("quantity_kind") != "section_header":
-                            line_copy = copy.deepcopy(line)
-                            line_copy[_INTERNAL_INGREDIENT_INDEX_KEY] = ing_idx
-                            results[step_idx].append(line_copy)
-
-        # Re-sort by original ingredient order
+    # Re-sort by original ingredient order after supplements.
+    for step_idx in range(len(results)):
         results[step_idx] = _sort_step_lines_by_index(results[step_idx], ingredient_lines)
 
     # Fallback pass: assign unmatched ingredients via collective term matching
     # Find which ingredients are not yet assigned to any step
-    assigned_indices = _collect_assigned_indices(results, ingredient_lines)
-
     unassigned_indices = [
         idx for idx in non_header_indices
         if idx not in assigned_indices
@@ -1089,6 +1109,7 @@ def assign_ingredient_lines_to_steps(
             assignments=assignments,
             group_assignments=group_assignments,
             all_ingredients_steps=all_ingredients_steps,
+            all_ingredients_assignments=all_ingredients_assignments,
         )
         return cleaned_results, debug_info
 
@@ -1234,6 +1255,8 @@ def _coerce_step_text(step: str | HowToStep) -> str:
 
 
 def _undouble_consonant(token: str) -> str:
+    if token in _USE_VERBS or token in _REFERENCE_VERBS or token in _LEMMA_OVERRIDES.values():
+        return token
     if len(token) >= 2 and token[-1] == token[-2] and token[-1] not in "aeiou":
         return token[:-1]
     return token
@@ -1251,7 +1274,9 @@ def _lemmatize_token(token: str) -> str:
         return _undouble_consonant(token[:-3])
     if token.endswith("ed") and len(token) > 4:
         return _undouble_consonant(token[:-2])
-    if token.endswith("es") and len(token) > 4 and token.endswith(("ches", "shes")):
+    if token.endswith("es") and len(token) > 4 and token.endswith(("ches", "shes", "sses", "xes", "zes")):
+        return token[:-2]
+    if token.endswith("oes") and len(token) > 4:
         return token[:-2]
     if token.endswith("s") and len(token) > 3 and not token.endswith(("ss", "us", "is")):
         return token[:-1]

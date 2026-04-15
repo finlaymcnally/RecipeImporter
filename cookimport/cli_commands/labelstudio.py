@@ -1274,17 +1274,17 @@ def register(app: typer.Typer) -> dict[str, object]:
         section_detector_backend: Annotated[str, typer.Option(
             "--section-detector-backend",
             hidden=True,
-            help="Section detector backend: shared_v1.",
+            help="Hidden transition-only flag. Current fixed behavior pins the section detector to shared_v1.",
         )] = "shared_v1",
         multi_recipe_splitter: Annotated[str, typer.Option(
             "--multi-recipe-splitter",
             hidden=True,
-            help="Shared multi-recipe splitter backend: off or rules_v1.",
+            help="Hidden transition-only flag. Current fixed behavior pins the multi-recipe splitter to rules_v1.",
         )] = "rules_v1",
         multi_recipe_trace: Annotated[bool, typer.Option(
             "--multi-recipe-trace/--no-multi-recipe-trace",
             hidden=True,
-            help="Write shared multi-recipe splitter trace artifacts.",
+            help="Hidden transition-only flag. New top-tier runs keep multi-recipe trace off.",
         )] = False,
         multi_recipe_min_ingredient_lines: Annotated[int, typer.Option(
             "--multi-recipe-min-ingredient-lines",
@@ -1306,12 +1306,12 @@ def register(app: typer.Typer) -> dict[str, object]:
         instruction_step_segmentation_policy: Annotated[str, typer.Option(
             "--instruction-step-segmentation-policy",
             hidden=True,
-            help="Fallback instruction-step segmentation policy: off, auto, or always.",
+            help="Hidden transition-only flag. Current fixed behavior pins fallback instruction segmentation to always.",
         )] = "auto",
         instruction_step_segmenter: Annotated[str, typer.Option(
             "--instruction-step-segmenter",
             hidden=True,
-            help="Instruction-step fallback segmenter backend: heuristic_v1 or pysbd_v1.",
+            help="Hidden transition-only flag. Current fixed behavior pins the fallback segmenter to heuristic_v1.",
         )] = "heuristic_v1",
         web_schema_extractor: Annotated[str, typer.Option(
             "--web-schema-extractor",

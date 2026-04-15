@@ -194,6 +194,51 @@ def test_evaluate_source_rows_overlays_nonrecipe_authority_labels(tmp_path: Path
     )
 
 
+def test_evaluate_source_rows_accepts_multi_label_gold_rows(tmp_path: Path) -> None:
+    gold_export_root = tmp_path / "gold"
+    _write_jsonl(
+        gold_export_root / "row_gold_labels.jsonl",
+        [
+            {
+                "row_id": "gold:r0",
+                "row_index": 0,
+                "block_index": 275,
+                "labels": ["KNOWLEDGE", "OTHER"],
+                "text": "SALT AND FLAVOR",
+            }
+        ],
+    )
+
+    eval_root = tmp_path / "eval"
+    line_role_dir = eval_root / "line-role-pipeline"
+    stage_predictions_json = line_role_dir / "stage_block_predictions.json"
+    _write_json(stage_predictions_json, {"stage": "fixture"})
+    _write_jsonl(
+        line_role_dir / "row_label_predictions.jsonl",
+        [
+            {
+                "row_id": "gold:r0",
+                "atomic_index": 0,
+                "row_index": 0,
+                "block_index": 275,
+                "label": "OTHER",
+                "text": "SALT AND FLAVOR",
+            }
+        ],
+    )
+
+    result = evaluate_source_rows(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_json,
+        extracted_blocks_json=tmp_path / "unused.json",
+        out_dir=eval_root / "source-rows-eval",
+    )
+
+    report = result["report"]
+    assert report["overall_line_accuracy"] == 1.0
+    assert report["counts"]["wrong_rows"] == 0
+
+
 def test_evaluate_source_rows_preserves_row_level_nonrecipe_exclude_over_block_authority(
     tmp_path: Path,
 ) -> None:

@@ -138,6 +138,44 @@ def test_draft_v1_honors_explicit_ingredient_step_mapping_override() -> None:
     ]
 
 
+def test_draft_v1_preserves_section_group_assignments_from_step_linker() -> None:
+    candidate = RecipeCandidate(
+        name="Grouped Components",
+        ingredients=["Sauce", "1 cup tomato paste", "1 clove garlic"],
+        instructions=["Make the sauce."],
+    )
+
+    draft = recipe_candidate_to_draft_v1(
+        candidate,
+        instruction_step_options={"instruction_step_segmentation_policy": "off"},
+    )
+
+    assert draft["steps"][0]["instruction"] == "Make the sauce."
+    assert [line["raw_text"] for line in draft["steps"][0]["ingredient_lines"]] == [
+        "1 cup tomato paste",
+        "1 clove garlic",
+    ]
+
+
+def test_draft_v1_preserves_all_ingredients_assignments_from_step_linker() -> None:
+    candidate = RecipeCandidate(
+        name="All Ingredients",
+        ingredients=["1 cup flour", "1 egg"],
+        instructions=["Whisk the egg.", "Combine all ingredients."],
+    )
+
+    draft = recipe_candidate_to_draft_v1(
+        candidate,
+        instruction_step_options={"instruction_step_segmentation_policy": "off"},
+    )
+
+    assert [line["raw_text"] for line in draft["steps"][0]["ingredient_lines"]] == ["1 egg"]
+    assert [line["raw_text"] for line in draft["steps"][1]["ingredient_lines"]] == [
+        "1 cup flour",
+        "1 egg",
+    ]
+
+
 def test_sanitize_staging_line_caps_recipe_multiplier() -> None:
     line = _sanitize_staging_line(
         {

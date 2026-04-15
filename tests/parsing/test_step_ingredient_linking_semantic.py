@@ -41,6 +41,21 @@ def test_lemmatized_plural_match():
     assert debug_info.candidates[0].match_kind == "semantic"
 
 
+def test_lemmatized_plural_edge_endings_match() -> None:
+    ingredient_lines = [
+        _ingredient_line("potato"),
+        _ingredient_line("glass"),
+        _ingredient_line("box"),
+    ]
+    steps = [
+        "Roast the potatoes, wipe the glasses, and pack the boxes.",
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    assert _names(result[0]) == ["potato", "glass", "box"]
+
+
 def test_lemmatized_floured_match():
     """Adjectival forms like 'floured' should match flour ingredients."""
     ingredient_lines = [
@@ -56,6 +71,29 @@ def test_lemmatized_floured_match():
 
     assert _names(result[0]) == ["all-purpose flour"]
     assert debug_info.candidates[0].match_kind == "semantic"
+
+
+def test_whole_step_use_verb_rescues_late_exact_match_context() -> None:
+    ingredient_lines = [
+        _ingredient_line("sugar"),
+    ]
+    steps = [
+        "Whisk the flour and the sugar until smooth.",
+    ]
+
+    result, debug_info = assign_ingredient_lines_to_steps(
+        steps, ingredient_lines, debug=True
+    )
+
+    assert _names(result[0]) == ["sugar"]
+    assert len(debug_info.candidates) == 1
+    assert debug_info.candidates[0].verb_signal == "use"
+
+
+def test_ed_ing_lemmatization_preserves_double_consonant_bases() -> None:
+    assert step_ingredients_mod._lemmatize_token("added") == "add"
+    assert step_ingredients_mod._lemmatize_token("rolling") == "roll"
+    assert step_ingredients_mod._lemmatize_token("filling") == "fill"
 
 
 def test_synonym_green_onion_match():
@@ -184,6 +222,25 @@ def test_roll_is_use_verb():
     assert _names(result[0]) == ["tart dough"]
 
 
+def test_common_prep_verbs_count_as_use_verbs() -> None:
+    ingredient_lines = [
+        _ingredient_line("carrots"),
+        _ingredient_line("cheese"),
+    ]
+    steps = [
+        "Peel the carrots.",
+        "Grate the cheese finely.",
+    ]
+
+    result, debug_info = assign_ingredient_lines_to_steps(
+        steps, ingredient_lines, debug=True
+    )
+
+    assert _names(result[0]) == ["carrots"]
+    assert _names(result[1]) == ["cheese"]
+    assert [candidate.verb_signal for candidate in debug_info.candidates] == ["use", "use"]
+
+
 def test_split_only_applies_to_immediate_ingredient():
     """'remaining croutons, squash' should NOT split squash."""
     ingredient_lines = [
@@ -221,6 +278,23 @@ def test_reserve_without_remaining_does_not_split():
 
     assigned_steps = [i for i, step_lines in enumerate(result) if _names(step_lines)]
     assert assigned_steps == [1], f"Expected step 1 only, got {assigned_steps}"
+
+
+def test_single_step_split_language_keeps_full_quantity() -> None:
+    ingredient_lines = [{
+        "quantity_kind": "exact",
+        "raw_ingredient_text": "onions",
+        "raw_text": "2 onions",
+        "input_qty": 2.0,
+    }]
+    steps = [
+        "Add half the onions now, then the rest later.",
+    ]
+
+    result = assign_ingredient_lines_to_steps(steps, ingredient_lines)
+
+    assert len(result[0]) == 1
+    assert result[0][0]["input_qty"] == 2.0
 
 
 def test_split_penalty_lowers_confidence():

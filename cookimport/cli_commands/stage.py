@@ -265,19 +265,19 @@ def register(app: typer.Typer) -> dict[str, object]:
             "shared_v1",
             "--section-detector-backend",
             hidden=True,
-            help="Section detector backend: shared_v1.",
+            help="Hidden transition-only flag. Current fixed behavior pins the section detector to shared_v1.",
         ),
         multi_recipe_splitter: str = typer.Option(
             "rules_v1",
             "--multi-recipe-splitter",
             hidden=True,
-            help="Shared multi-recipe splitter backend: off or rules_v1.",
+            help="Hidden transition-only flag. Current fixed behavior pins the multi-recipe splitter to rules_v1.",
         ),
         multi_recipe_trace: bool = typer.Option(
             False,
             "--multi-recipe-trace/--no-multi-recipe-trace",
             hidden=True,
-            help="Write shared multi-recipe splitter trace artifacts.",
+            help="Hidden transition-only flag. New top-tier runs keep multi-recipe trace off.",
         ),
         multi_recipe_min_ingredient_lines: int = typer.Option(
             1,
@@ -303,13 +303,13 @@ def register(app: typer.Typer) -> dict[str, object]:
             "auto",
             "--instruction-step-segmentation-policy",
             hidden=True,
-            help="Fallback instruction-step segmentation policy: off, auto, or always.",
+            help="Hidden transition-only flag. Current fixed behavior pins fallback instruction segmentation to always.",
         ),
         instruction_step_segmenter: str = typer.Option(
             "heuristic_v1",
             "--instruction-step-segmenter",
             hidden=True,
-            help="Instruction-step fallback segmenter backend: heuristic_v1 or pysbd_v1.",
+            help="Hidden transition-only flag. Current fixed behavior pins the fallback segmenter to heuristic_v1.",
         ),
         web_schema_extractor: str = typer.Option(
             "builtin_jsonld",

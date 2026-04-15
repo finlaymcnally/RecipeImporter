@@ -1,7 +1,4 @@
-from pathlib import Path
-
 from cookimport.parsing import cleaning, signals
-from cookimport.core import reporting
 
 
 def test_cleaning() -> None:
@@ -41,15 +38,3 @@ def test_signals() -> None:
     head_text = "Ingredients"
     head_feats = signals.classify_block(head_text)
     assert head_feats["is_header_likely"] is True
-
-
-def test_reporting(tmp_path: Path) -> None:
-    source_file = Path("test_cookbook.pdf")
-
-    with reporting.ReportBuilder(source_file, tmp_path) as report:
-        report.add_candidate("id_1", "valid", 0.95, "Test Recipe")
-        report.add_error("warning", "Something minor happened")
-
-    report_file = tmp_path / "reports" / "test_cookbook.pdf.report.json"
-    assert report_file.exists()
-    assert report_file.read_text(encoding="utf-8").strip()

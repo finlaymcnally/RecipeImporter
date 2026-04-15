@@ -450,26 +450,54 @@ def _candidate_source_block_indices(candidate: RecipeCandidate) -> list[int]:
 
 def _mapping_from_assignment_debug(debug: Any) -> dict[str, list[int]]:
     assignments = getattr(debug, "assignments", None)
-    if not isinstance(assignments, list):
-        return {}
     mapping: dict[str, list[int]] = {}
-    for assignment in assignments:
-        ingredient_index = getattr(assignment, "ingredient_index", None)
-        if not isinstance(ingredient_index, int) or ingredient_index < 0:
-            continue
-        assigned_steps = getattr(assignment, "assigned_steps", None)
-        if not isinstance(assigned_steps, list):
-            continue
-        normalized_steps: list[int] = []
-        seen_steps: set[int] = set()
-        for step_index in assigned_steps:
-            if not isinstance(step_index, int) or step_index < 0 or step_index in seen_steps:
+    if isinstance(assignments, list):
+        for assignment in assignments:
+            ingredient_index = getattr(assignment, "ingredient_index", None)
+            if not isinstance(ingredient_index, int) or ingredient_index < 0:
                 continue
-            seen_steps.add(step_index)
-            normalized_steps.append(step_index)
-        if normalized_steps:
-            mapping[str(ingredient_index)] = normalized_steps
+            assigned_steps = getattr(assignment, "assigned_steps", None)
+            if not isinstance(assigned_steps, list):
+                continue
+            _merge_ingredient_step_mapping(
+                mapping,
+                ingredient_index=ingredient_index,
+                step_indexes=assigned_steps,
+            )
+    for assignment_map_name in ("group_assignments", "all_ingredients_assignments"):
+        assignment_map = getattr(debug, assignment_map_name, None)
+        if not isinstance(assignment_map, Mapping):
+            continue
+        for step_index, ingredient_indexes in assignment_map.items():
+            if not isinstance(step_index, int) or step_index < 0:
+                continue
+            if not isinstance(ingredient_indexes, list):
+                continue
+            for ingredient_index in ingredient_indexes:
+                _merge_ingredient_step_mapping(
+                    mapping,
+                    ingredient_index=ingredient_index,
+                    step_indexes=[step_index],
+                )
     return mapping
+
+
+def _merge_ingredient_step_mapping(
+    mapping: dict[str, list[int]],
+    *,
+    ingredient_index: Any,
+    step_indexes: list[Any],
+) -> None:
+    if not isinstance(ingredient_index, int) or ingredient_index < 0:
+        return
+    key = str(ingredient_index)
+    normalized_steps = mapping.setdefault(key, [])
+    seen_steps = set(normalized_steps)
+    for step_index in step_indexes:
+        if not isinstance(step_index, int) or step_index < 0 or step_index in seen_steps:
+            continue
+        seen_steps.add(step_index)
+        normalized_steps.append(step_index)
 
 
 def _resolve_instruction_step_segmentation_options(

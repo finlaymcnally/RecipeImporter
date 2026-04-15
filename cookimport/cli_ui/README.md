@@ -28,6 +28,7 @@ Interactive run-settings UI helpers.
   - `llm_knowledge_pipeline=codex-knowledge-candidate-v2`, `line_role_pipeline=codex-line-role-route-v2`, `atomic_block_splitter=off` (legacy compatibility default; `source_rows` is the live baseline)
   - parsing stack pinned to `unstructured + v1 + br_split_v1 + skip_headers=true`
   - deterministic parsing knobs pinned to `section_detector_backend=shared_v1`, `multi_recipe_splitter=rules_v1`, `instruction_step_segmentation_policy=always`, `instruction_step_segmenter=heuristic_v1`, `pdf_ocr_policy=off`
+  - benchmark canonical-text matching is pinned to `benchmark_sequence_matcher=dmp`; older saved payloads may still carry the key, but interactive flows should treat it as fixed behavior rather than a real choice
   - recipe routing is fixed to the shard-v1 pipeline; only model/reasoning overrides remain operator-adjustable
 - `Vanilla` profile uses the same top-tier parsing stack with every Codex surface off (`llm_recipe_pipeline=off`, `llm_knowledge_pipeline=off`, `line_role_pipeline=off`, `atomic_block_splitter=off`).
 - `COOKIMPORT_TOP_TIER_PROFILE=codex-exec|vanilla` still overrides the interactive prompt.
