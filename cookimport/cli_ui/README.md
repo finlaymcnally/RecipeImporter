@@ -18,6 +18,7 @@ Interactive run-settings UI helpers.
   - interactive all-method benchmark callers can reuse that same planner with the benchmark surface set they actually support
   - recipe `Taskfile`, line-role `JSON`, and knowledge `JSON` are the default Codex step modes
   - unavailable mode cells render blank instead of placeholder dashes, and row notes still surface deterministic shard recommendations and survivability hints when available
+  - planner wording is split on purpose: `safe` means advisory survivability floor, while `native` in row notes means the packet-size estimate; neither label is intended to imply a quality-optimal shard count
   - those prompts map directly to `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count`
   - line-role transport now persists through `line_role_codex_exec_style` and knowledge through `knowledge_codex_exec_style`
 - Any non-`off` choice also prompts for codex AI settings for that run:

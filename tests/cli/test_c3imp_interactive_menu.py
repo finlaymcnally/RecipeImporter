@@ -1147,10 +1147,14 @@ def test_choose_run_settings_uses_target_context_recommendation_builder_for_shar
     assert "Leftover for knowledge: 124 outside-recipe blocks, 38 knowledge packets" in captured_summary_lines
     assert "Each row shows: main limit | avg prompt size | avg session size | avg work per shard" in captured_summary_lines
     assert any(
-        "row notes stay compact and full planner warnings appear below the table" in line
+        "safe is the advisory survivability floor, not a quality recommendation" in line
         for line in captured_summary_lines
     )
-    assert "Rows with min -- are not verified yet. Treat those shard counts as untrusted." not in captured_summary_lines
+    assert any(
+        "native in row notes is the packet-size estimate" in line
+        for line in captured_summary_lines
+    )
+    assert "Rows with safe -- are not verified yet. Treat those shard counts as untrusted." not in captured_summary_lines
     assert not any("Exact survivability estimates appear" in line for line in captured_summary_lines)
     assert selected.line_role_prompt_target_count == 4
     assert selected.recipe_prompt_target_count == 3
@@ -1210,7 +1214,9 @@ def test_shard_plan_warning_lines_wrap_under_table() -> None:
     )
 
     assert lines[0] == "Planner warnings:"
-    assert lines[1].startswith("Knowledge: Current shard count 5 is below the budget-native")
+    assert " ".join(line.strip() for line in lines[1:]).startswith(
+        "Knowledge: Current shard count 5 is below the packet-size estimate"
+    )
     assert any("packetizer naturally split this work more finely" in line for line in lines[1:])
 
 
@@ -1227,7 +1233,7 @@ def test_current_row_warning_messages_recalculate_when_shard_count_changes() -> 
     }
 
     assert run_settings_flow._current_row_warning_messages(row) == [
-        "Current shard count 5 is below the budget-native plan of 24 shards. The rendered preview packetizer naturally split this work more finely at that count."
+        "Current shard count 5 is below the packet-size estimate of 24 shards. The rendered preview packetizer naturally split this work more finely at that count."
     ]
 
     row["current_count"] = 24
@@ -1280,7 +1286,7 @@ def test_shard_plan_summary_warns_when_some_rows_are_unverified() -> None:
         ],
     )
 
-    assert "Rows with min -- are not verified yet. Treat those shard counts as untrusted." in lines
+    assert "Rows with safe -- are not verified yet. Treat those shard counts as untrusted." in lines
 
 
 def test_choose_interactive_codex_surfaces_shows_all_rows_and_applies_line_role_only() -> None:

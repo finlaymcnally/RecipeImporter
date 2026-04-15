@@ -665,7 +665,7 @@ def _build_prompt_preview_budget_warnings(
                 "stage": stage_key,
                 "message": (
                     f"{payload.get('stage_label') or stage_key} is planned for {current_shard_count} shard(s), "
-                    f"but deterministic survivability recommends at least {minimum_safe_shard_count}. "
+                    f"but the deterministic safe floor is {minimum_safe_shard_count}. "
                     f"Binding limit: {payload.get('binding_limit') or 'unknown'}."
                 ),
             }

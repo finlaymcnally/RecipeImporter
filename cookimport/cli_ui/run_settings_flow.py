@@ -246,12 +246,12 @@ def _current_row_warning_messages(row: Mapping[str, Any]) -> list[str]:
     messages: list[str] = []
     if minimum_safe is not None and current_count < int(minimum_safe):
         messages.append(
-            f"Current shard count {current_count} is below the advisory survivability minimum "
+            f"Current shard count {current_count} is below the advisory safe floor "
             f"of {int(minimum_safe)} for {_binding_limit_label(binding_limit)}."
         )
     if budget_native is not None and int(budget_native) > 0 and current_count < int(budget_native):
         messages.append(
-            f"Current shard count {current_count} is below the budget-native plan of "
+            f"Current shard count {current_count} is below the packet-size estimate of "
             f"{int(budget_native)} shards. The rendered preview packetizer naturally split "
             "this work more finely at that count."
         )
@@ -776,7 +776,7 @@ def _build_codex_shard_plan_summary_lines(
             lines.append("Leftover for knowledge: " + ", ".join(extra_bits))
     lines.append("Each row shows: main limit | avg prompt size | avg session size | avg work per shard")
     lines.append(
-        "Shard count is your launch request. min is advisory survivability; row notes stay compact and full planner warnings appear below the table."
+        "Shard count is your launch request. safe is the advisory survivability floor, not a quality recommendation. native in row notes is the packet-size estimate."
     )
     has_recommendations = any(
         row.get("minimum_safe_shard_count") is not None for row in rows
@@ -786,7 +786,7 @@ def _build_codex_shard_plan_summary_lines(
     )
     if has_unknown_rows:
         lines.append(
-            "Rows with min -- are not verified yet. Treat those shard counts as untrusted."
+            "Rows with safe -- are not verified yet. Treat those shard counts as untrusted."
         )
     if not has_recommendations:
         lines.append(
@@ -822,7 +822,7 @@ def _prompt_codex_shard_plan_menu(
             f"{'off':<{mode_cell_width}}  "
             f"{'json':<{mode_cell_width}}  "
             f"{'taskfile':<{mode_cell_width}}  "
-            "min  notes"
+            "safe notes"
         ).rstrip()
 
     header_line = _build_header_line()
@@ -1075,7 +1075,7 @@ def _prompt_codex_shard_plan_menu(
             )
             if current_mode == _CODEX_STEP_MODE_OFF:
                 recommended_text = (
-                    f"min {int(minimum_safe)}" if minimum_safe is not None else "min --"
+                    f"safe {int(minimum_safe)}" if minimum_safe is not None else "safe --"
                 )
                 note_bits = ["disabled"]
                 if budget_native is not None and int(budget_native) > 0:
@@ -1089,12 +1089,12 @@ def _prompt_codex_shard_plan_menu(
                 note_text = " | ".join(note_bits)
                 note_class = "class:text"
             elif minimum_safe is not None:
-                recommended_text = f"min {int(minimum_safe)}"
+                recommended_text = f"safe {int(minimum_safe)}"
                 if count_value < int(minimum_safe):
-                    note_text = f"too low for {_binding_limit_label(binding_limit)}"
+                    note_text = f"below safe floor for {_binding_limit_label(binding_limit)}"
                     note_class = "class:answer"
                 else:
-                    note_text = f"ok on {_binding_limit_label(binding_limit)}"
+                    note_text = f"safe on {_binding_limit_label(binding_limit)}"
                     note_class = "class:selected"
                 if budget_native is not None and int(budget_native) > 0:
                     note_text = f"{note_text} | native {int(budget_native)}"
@@ -1109,7 +1109,7 @@ def _prompt_codex_shard_plan_menu(
                 if kpi_summary:
                     note_text = f"{note_text} | {kpi_summary}"
             else:
-                recommended_text = "min --"
+                recommended_text = "safe --"
                 note_text = (
                     f"no exact estimate | {kpi_summary}"
                     if kpi_summary and budget_summary
