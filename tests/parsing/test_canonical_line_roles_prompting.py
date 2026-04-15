@@ -154,7 +154,7 @@ def test_line_role_taskfile_worker_prompt_includes_title_yield_reset_contract() 
     assert "read the nearby rows directly in the ordered `task.json` ledger" in prompt
 
 
-def test_line_role_inline_packet_uses_ordered_rows_and_neighbor_context() -> None:
+def test_line_role_inline_packet_groups_rows_by_source_block() -> None:
     shard = ShardManifestEntryV1(
         shard_id="line-role-canonical-0001-a000010-a000011",
         owned_ids=("10", "11"),
@@ -173,27 +173,27 @@ def test_line_role_inline_packet_uses_ordered_rows_and_neighbor_context() -> Non
         packet=packet,
     )
 
-    assert packet["rows"] == [
-        {"row_id": "r01", "block_index": 210, "text": "Bright Cabbage Slaw"},
-        {"row_id": "r02", "block_index": 211, "text": "Serves 4 generously"},
-    ]
-    assert packet["context_before_rows"] == [{"block_index": 209, "text": "Variations"}]
-    assert packet["context_after_rows"] == [
-        {"block_index": 212, "text": "1/2 medium red onion, sliced thinly"}
+    assert packet["blocks"] == [
+        {"block_index": 209, "rows": [["ctx", "Variations"]]},
+        {"block_index": 210, "rows": [["r01", "Bright Cabbage Slaw"]]},
+        {"block_index": 211, "rows": [["r02", "Serves 4 generously"]]},
+        {"block_index": 212, "rows": [["ctx", "1/2 medium red onion, sliced thinly"]]},
     ]
     assert "owned_ids" not in packet
     assert '{"rows":[{"row_id":"r01","label":"<ALLOWED_LABEL>"}]}' in prompt
     assert "This packet has 2 owned row(s)" in prompt
-    assert "Return exactly 2 row answer(s): one for each owned row shown in `rows`." in prompt
-    assert "`rows` is an ordered array of row objects with `row_id`, `block_index`, and `text`." in prompt
-    assert "Treat `rows` as one contiguous ordered shard slice, not as isolated examples." in prompt
-    assert "Label in one pass, but use the surrounding owned rows" in prompt
+    assert "Return exactly 2 row answer(s): one for each owned row id shown in `blocks`." in prompt
+    assert "`blocks` is an ordered array of source blocks." in prompt
+    assert "Each block row is a two-item array: `[marker, text]`." in prompt
+    assert "`marker` is either `ctx` for reference-only context or a packet-local owned row id such as `r01`." in prompt
+    assert "Read block by block first so you preserve paragraph and list continuity" in prompt
+    assert "Use `ctx` rows and neighboring owned rows to understand local transitions and resets" in prompt
     assert "Keep the whole shard sequence in mind while labeling" in prompt
-    assert "Keep the answer rows aligned to the packet `rows` order and packet-local `row_id` values." in prompt
-    assert "Every owned `row_id` must appear exactly once in the answer." in prompt
+    assert "Keep the answer rows aligned to the owned row ids as they appear in the packet blocks." in prompt
+    assert "Every owned row id must appear exactly once in the answer." in prompt
     assert "Finish the full owned-row list; do not stop early." in prompt
     assert "Do not copy the placeholder schema literally" in prompt
-    assert "nearby context rows are shown" in prompt
+    assert "Do not label any `ctx` rows. They are reference-only evidence." in prompt
 
 
 def test_line_role_watchdog_retry_prompt_uses_row_grounded_output_contract() -> None:

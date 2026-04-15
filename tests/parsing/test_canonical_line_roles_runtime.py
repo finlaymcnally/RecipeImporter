@@ -1746,7 +1746,7 @@ def test_label_atomic_lines_preserves_partial_inline_shard_authority_and_repairs
         AtomicLineCandidate(
             recipe_id="recipe:0",
             block_id="block:inline-partial:1",
-            block_index=1,
+            block_index=0,
             atomic_index=1,
             text="Serves 4 generously",
             within_recipe_span=True,
@@ -1755,7 +1755,7 @@ def test_label_atomic_lines_preserves_partial_inline_shard_authority_and_repairs
         AtomicLineCandidate(
             recipe_id="recipe:0",
             block_id="block:inline-partial:2",
-            block_index=2,
+            block_index=0,
             atomic_index=2,
             text="1 cup thinly sliced cabbage",
             within_recipe_span=True,
@@ -1840,8 +1840,15 @@ def test_label_atomic_lines_preserves_partial_inline_shard_authority_and_repairs
             / "repair_packet_01.json"
         ).read_text(encoding="utf-8")
     )
-    assert repair_packet["rows"] == [
-        {"row_id": "r01", "block_index": 2, "text": "1 cup thinly sliced cabbage"}
+    assert repair_packet["blocks"] == [
+        {
+            "block_index": 0,
+            "rows": [
+                ["ctx", "Bright Cabbage Slaw"],
+                ["ctx", "Serves 4 generously"],
+                ["r01", "1 cup thinly sliced cabbage"],
+            ],
+        }
     ]
 
     shard_status_rows = [
@@ -2038,7 +2045,7 @@ def test_label_atomic_lines_repairs_partial_labels_reply_only_for_missing_rows(
         AtomicLineCandidate(
             recipe_id="recipe:0",
             block_id=f"block:inline-ordinal:{index}",
-            block_index=index,
+            block_index=0,
             atomic_index=index,
             text=text,
             within_recipe_span=True,
@@ -2123,8 +2130,15 @@ def test_label_atomic_lines_repairs_partial_labels_reply_only_for_missing_rows(
             / "repair_packet_01.json"
         ).read_text(encoding="utf-8")
     )
-    assert repair_packet["rows"] == [
-        {"row_id": "r01", "block_index": 2, "text": "1 cup thinly sliced cabbage"}
+    assert repair_packet["blocks"] == [
+        {
+            "block_index": 0,
+            "rows": [
+                ["ctx", "Bright Cabbage Slaw"],
+                ["ctx", "Serves 4 generously"],
+                ["r01", "1 cup thinly sliced cabbage"],
+            ],
+        }
     ]
 
 
@@ -2135,7 +2149,7 @@ def test_label_atomic_lines_inline_json_allows_three_incremental_repair_attempts
         AtomicLineCandidate(
             recipe_id="recipe:0",
             block_id=f"block:inline-repair:{index}",
-            block_index=index,
+            block_index=0,
             atomic_index=index,
             text=text,
             within_recipe_span=True,
@@ -2244,8 +2258,15 @@ def test_label_atomic_lines_inline_json_allows_three_incremental_repair_attempts
     third_repair_packet = json.loads(
         (structured_session_root / "repair_packet_03.json").read_text(encoding="utf-8")
     )
-    assert third_repair_packet["rows"] == [
-        {"row_id": "r01", "block_index": 2, "text": "1 cup thinly sliced cabbage"}
+    assert third_repair_packet["blocks"] == [
+        {
+            "block_index": 0,
+            "rows": [
+                ["ctx", "Bright Cabbage Slaw"],
+                ["ctx", "Serves 4 generously"],
+                ["r01", "1 cup thinly sliced cabbage"],
+            ],
+        }
     ]
 
     shard_status_rows = [

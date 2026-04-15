@@ -487,12 +487,50 @@ def _line_role_structured_row_id(index: int) -> str:
     return f"r{index + 1:02d}"
 
 
+def _line_role_structured_owned_atomic_indices(
+    shard: root.ShardManifestEntryV1,
+) -> list[int]:
+    return [
+        int(value)
+        for value in shard.owned_ids
+        if str(value).strip()
+    ]
+
+
+def _line_role_structured_owned_input_rows(
+    shard: root.ShardManifestEntryV1,
+) -> list[tuple[int, int, str]]:
+    owned_atomic_index_set = set(_line_role_structured_owned_atomic_indices(shard))
+    return [
+        row
+        for row in _line_role_structured_input_rows(shard)
+        if int(row[0]) in owned_atomic_index_set
+    ]
+
+
+def _line_role_structured_validator_shard(
+    shard: root.ShardManifestEntryV1,
+) -> root.ShardManifestEntryV1:
+    owned_rows = [
+        [int(atomic_index), int(block_index), str(text or "")]
+        for atomic_index, block_index, text in _line_role_structured_owned_input_rows(shard)
+    ]
+    return root.ShardManifestEntryV1(
+        shard_id=shard.shard_id,
+        owned_ids=tuple(str(value) for value in shard.owned_ids),
+        evidence_refs=tuple(shard.evidence_refs),
+        input_payload={"rows": owned_rows},
+        input_text=shard.input_text,
+        metadata=dict(shard.metadata or {}),
+    )
+
+
 def _line_role_structured_packet_rows(
     shard: root.ShardManifestEntryV1,
 ) -> list[dict[str, root.Any]]:
     rows: list[dict[str, root.Any]] = []
     for position, (_atomic_index, block_index, text) in enumerate(
-        _line_role_structured_input_rows(shard)
+        _line_role_structured_owned_input_rows(shard)
     ):
         rows.append(
             {
@@ -504,7 +542,124 @@ def _line_role_structured_packet_rows(
     return rows
 
 
-def _line_role_structured_context_rows(
+def _line_role_structured_payload_rows(
+    payload: root.Any,
+) -> list[tuple[int | None, int, str]]:
+    rows: list[tuple[int | None, int, str]] = []
+    for row in payload or []:
+        if not isinstance(row, (list, tuple)) or len(row) < 2:
+            continue
+        atomic_index: int | None = None
+        if len(row) >= 3:
+            atomic_index = int(row[0])
+            block_index = int(row[1])
+            text = str(row[2] or "")
+        else:
+            block_index = int(row[0])
+            text = str(row[1] or "")
+        rows.append((atomic_index, block_index, text))
+    return rows
+
+
+def _line_role_structured_grouped_blocks(
+    shard: root.ShardManifestEntryV1,
+) -> list[dict[str, root.Any]]:
+    owned_row_id_by_atomic_index = {
+        int(atomic_index): _line_role_structured_row_id(position)
+        for position, atomic_index in enumerate(
+            _line_role_structured_owned_atomic_indices(shard)
+        )
+    }
+    prompt_entries: list[tuple[int, str, str]] = []
+    payload = root._coerce_mapping_dict(shard.input_payload)
+    for key in ("context_before_rows", "rows", "context_after_rows"):
+        for atomic_index, block_index, text in _line_role_structured_payload_rows(
+            payload.get(key)
+        ):
+            marker = (
+                owned_row_id_by_atomic_index.get(int(atomic_index))
+                if atomic_index is not None
+                else None
+            )
+            prompt_entries.append((int(block_index), str(marker or "ctx"), str(text or "")))
+
+    blocks: list[dict[str, root.Any]] = []
+    for block_index, marker, text in prompt_entries:
+        if blocks and int(blocks[-1]["block_index"]) == int(block_index):
+            blocks[-1]["rows"].append([marker, text])
+            continue
+        blocks.append(
+            {
+                "block_index": int(block_index),
+                "rows": [[marker, text]],
+            }
+        )
+    return blocks
+
+
+def _line_role_structured_packet_owned_row_ids(
+    packet: root.Mapping[str, root.Any],
+) -> list[str]:
+    row_ids: list[str] = []
+    for block in packet.get("blocks") or []:
+        if not isinstance(block, root.Mapping):
+            continue
+        for row in block.get("rows") or []:
+            if not isinstance(row, (list, tuple)) or len(row) < 2:
+                continue
+            marker = str(row[0] or "").strip()
+            if marker and marker != "ctx":
+                row_ids.append(marker)
+    return row_ids
+
+
+def _line_role_structured_packet_row_id_to_text(
+    packet: root.Mapping[str, root.Any],
+) -> dict[str, tuple[int, str]]:
+    row_map: dict[str, tuple[int, str]] = {}
+    for block in packet.get("blocks") or []:
+        if not isinstance(block, root.Mapping):
+            continue
+        try:
+            block_index = int(block.get("block_index"))
+        except (TypeError, ValueError):
+            continue
+        for row in block.get("rows") or []:
+            if not isinstance(row, (list, tuple)) or len(row) < 2:
+                continue
+            marker = str(row[0] or "").strip()
+            if not marker or marker == "ctx":
+                continue
+            row_map[marker] = (block_index, str(row[1] or ""))
+    return row_map
+
+
+def _line_role_structured_prompt_packet(
+    *,
+    shard: root.ShardManifestEntryV1,
+    packet: root.Mapping[str, root.Any],
+) -> dict[str, root.Any]:
+    prompt_packet: dict[str, root.Any] = {
+        "blocks": list(packet.get("blocks") or []),
+    }
+    validation_errors = [
+        str(error).strip()
+        for error in (packet.get("validation_errors") or [])
+        if str(error).strip()
+    ]
+    if validation_errors:
+        prompt_packet["validation_errors"] = validation_errors
+    previous_failed_rows = [
+        dict(row)
+        for row in (packet.get("previous_failed_rows") or [])
+        if isinstance(row, root.Mapping)
+    ]
+    if previous_failed_rows:
+        prompt_packet["previous_failed_rows"] = previous_failed_rows
+    return prompt_packet
+
+
+def _line_role_structured_neighbor_context_rows(
     *,
     shard: root.ShardManifestEntryV1,
     key: str,
@@ -533,24 +688,12 @@ def _build_line_role_structured_packet(*, shard: root.ShardManifestEntryV1, pack
     del deterministic_baseline_by_atomic_index
     validation_metadata_dict = dict(validation_metadata or {})
     payload: dict[str, root.Any] = {
-        "schema_version": "line_role_structured_packet.v4",
+        "schema_version": "line_role_structured_packet.v5",
         "stage_key": "line_role",
         "packet_kind": str(packet_kind or "initial"),
         "shard_id": shard.shard_id,
-        "rows": root._line_role_structured_packet_rows(shard),
+        "blocks": _line_role_structured_grouped_blocks(shard),
     }
-    context_before_rows = _line_role_structured_context_rows(
-        shard=shard,
-        key="context_before_rows",
-    )
-    if context_before_rows:
-        payload["context_before_rows"] = context_before_rows
-    context_after_rows = _line_role_structured_context_rows(
-        shard=shard,
-        key="context_after_rows",
-    )
-    if context_after_rows:
-        payload["context_after_rows"] = context_after_rows
     if validation_errors:
         payload["validation_errors"] = [str(error).strip() for error in validation_errors if str(error).strip()]
     latest_response_rows_by_atomic_index = root._coerce_mapping_dict(
@@ -561,8 +704,9 @@ def _build_line_role_structured_packet(*, shard: root.ShardManifestEntryV1, pack
     )
     if packet_kind != "initial" and latest_response_rows_by_atomic_index:
         previous_failed_rows: list[dict[str, root.Any]] = []
-        for position, (atomic_index, _block_index, text) in enumerate(
-            _line_role_structured_input_rows(shard)
+        row_id_to_text = _line_role_structured_packet_row_id_to_text(payload)
+        for position, (atomic_index, _block_index, _text) in enumerate(
+            _line_role_structured_owned_input_rows(shard)
         ):
             response_row = root._coerce_mapping_dict(
                 latest_response_rows_by_atomic_index.get(str(atomic_index))
@@ -581,12 +725,12 @@ def _build_line_role_structured_packet(*, shard: root.ShardManifestEntryV1, pack
                 for error in (validation_errors or [])
                 if str(error).strip().endswith(f":{atomic_index}")
             ]
+            row_id = _line_role_structured_row_id(position)
+            block_index, text = row_id_to_text.get(row_id, (int(_block_index), ""))
             previous_failed_rows.append(
                 {
-                    "row_id": _line_role_structured_row_id(position),
-                    "block_index": int(
-                        _line_role_structured_input_rows(shard)[position][1]
-                    ),
+                    "row_id": row_id,
+                    "block_index": int(block_index),
                     "text": str(text or ""),
                     "previous_label": previous_label,
                     "failure_reasons": sorted(
@@ -599,35 +743,6 @@ def _build_line_role_structured_packet(*, shard: root.ShardManifestEntryV1, pack
     return payload
 
 
-def _build_line_role_structured_prompt_packet(
-    packet: root.Mapping[str, root.Any],
-) -> dict[str, root.Any]:
-    prompt_packet: dict[str, root.Any] = {
-        "rows": list(packet.get("rows") or []),
-    }
-    context_before_rows = list(packet.get("context_before_rows") or [])
-    if context_before_rows:
-        prompt_packet["context_before_rows"] = context_before_rows
-    context_after_rows = list(packet.get("context_after_rows") or [])
-    if context_after_rows:
-        prompt_packet["context_after_rows"] = context_after_rows
-    validation_errors = [
-        str(error).strip()
-        for error in (packet.get("validation_errors") or [])
-        if str(error).strip()
-    ]
-    if validation_errors:
-        prompt_packet["validation_errors"] = validation_errors
-    previous_failed_rows = [
-        dict(row)
-        for row in (packet.get("previous_failed_rows") or [])
-        if isinstance(row, root.Mapping)
-    ]
-    if previous_failed_rows:
-        prompt_packet["previous_failed_rows"] = previous_failed_rows
-    return prompt_packet
-
-
 def _build_line_role_structured_prompt(*, packet: root.Mapping[str, root.Any]) -> str:
     allowed_labels = ", ".join(root.CANONICAL_LINE_ROLE_ALLOWED_LABELS)
     shared_contract = root.build_line_role_shared_contract_block()
@@ -637,15 +752,30 @@ def _build_line_role_structured_prompt(*, packet: root.Mapping[str, root.Any]) -
         if packet_kind != "initial"
         else ""
     )
-    context_note = (
-        "If nearby context rows are shown, use them only to interpret the owned rows; do not label the context rows themselves.\n- "
-        if (packet.get("context_before_rows") or packet.get("context_after_rows"))
-        else ""
-    )
-    owned_rows = packet.get("rows") or []
-    owned_row_count = len(owned_rows) if isinstance(owned_rows, list) else 0
+    owned_row_ids = _line_role_structured_packet_owned_row_ids(packet)
+    owned_row_count = len(owned_row_ids)
     owned_row_count_note = f"This packet has {owned_row_count} owned row(s) in reading order."
-    prompt_packet = _build_line_role_structured_prompt_packet(packet)
+    prompt_packet = {
+        "blocks": list(packet.get("blocks") or []),
+        **(
+            {"validation_errors": [
+                str(error).strip()
+                for error in (packet.get("validation_errors") or [])
+                if str(error).strip()
+            ]}
+            if any(str(error).strip() for error in (packet.get("validation_errors") or []))
+            else {}
+        ),
+        **(
+            {"previous_failed_rows": [
+                dict(row)
+                for row in (packet.get("previous_failed_rows") or [])
+                if isinstance(row, root.Mapping)
+            ]}
+            if any(isinstance(row, root.Mapping) for row in (packet.get("previous_failed_rows") or []))
+            else {}
+        ),
+    }
     return (
         "Return JSON only.\n\n"
         "Review the canonical line-role packet and respond with one JSON object shaped like:\n"
@@ -656,17 +786,19 @@ def _build_line_role_structured_prompt(*, packet: root.Mapping[str, root.Any]) -
         + "Rules:\n"
         f"- Allowed labels: {allowed_labels}\n"
         f"- {owned_row_count_note}\n"
-        f"- Return exactly {owned_row_count} row answer(s): one for each owned row shown in `rows`.\n"
-        "- `rows` is an ordered array of row objects with `row_id`, `block_index`, and `text`.\n"
-        "- Treat `rows` as one contiguous ordered shard slice, not as isolated examples.\n"
-        "- Label in one pass, but use the surrounding owned rows to understand local transitions and resets before deciding each row.\n"
+        f"- Return exactly {owned_row_count} row answer(s): one for each owned row id shown in `blocks`.\n"
+        "- `blocks` is an ordered array of source blocks. Each block has a `block_index` and a compact `rows` array.\n"
+        "- Each block row is a two-item array: `[marker, text]`.\n"
+        "- `marker` is either `ctx` for reference-only context or a packet-local owned row id such as `r01`.\n"
+        "- Read block by block first so you preserve paragraph and list continuity; do not flatten the packet into isolated sentences.\n"
+        "- Use `ctx` rows and neighboring owned rows to understand local transitions and resets before deciding each owned row.\n"
         "- Keep the whole shard sequence in mind while labeling, especially around recipe starts, yields, variants, and fresh-title resets.\n"
-        "- Keep the answer rows aligned to the packet `rows` order and packet-local `row_id` values.\n"
-        "- Every owned `row_id` must appear exactly once in the answer.\n"
+        "- Keep the answer rows aligned to the owned row ids as they appear in the packet blocks.\n"
+        "- Every owned row id must appear exactly once in the answer.\n"
         "- Finish the full owned-row list; do not stop early.\n"
         "- Do not copy the placeholder schema literally; replace it with the full ordered row answer list for this shard.\n"
         "- If `previous_failed_rows` are shown, those are the prior labels for these same rows and the reasons repo validation rejected them. Re-check from the packet text and nearby context; do not just echo the previous labels.\n"
-        f"- {context_note}Do not label any `context_before_rows` or `context_after_rows`; they are reference-only row objects with `block_index` and `text`.\n"
+        "- Do not label any `ctx` rows. They are reference-only evidence.\n"
         "- Return one JSON object with only the top-level key `rows`.\n"
         "- Each answer row object must contain only `row_id` and `label`.\n"
         "- Do not include commentary, markdown, or extra keys.\n\n"
@@ -855,8 +987,9 @@ def _evaluate_line_role_structured_response(
     validation_metadata: dict[str, root.Any] = {}
     validation_errors: tuple[str, ...] = ()
     if translated_rows:
+        validator_shard = _line_role_structured_validator_shard(shard)
         valid, validation_errors, validation_metadata_raw = validator(
-            shard,
+            validator_shard,
             {"rows": translated_rows},
         )
         del valid
@@ -900,8 +1033,45 @@ def _evaluate_line_role_structured_response(
 
 def _build_line_role_repair_shard(*, shard: root.ShardManifestEntryV1, unresolved_atomic_indices: root.Sequence[int]) -> root.ShardManifestEntryV1:
     unresolved_set = {int(value) for value in unresolved_atomic_indices}
-    rows = [list(row) for row in root._coerce_mapping_dict(shard.input_payload).get('rows') or [] if isinstance(row, (list, tuple)) and row and (int(row[0]) in unresolved_set)]
-    return root.ShardManifestEntryV1(shard_id=shard.shard_id, owned_ids=tuple((str(value) for value in unresolved_atomic_indices)), evidence_refs=tuple(shard.evidence_refs), input_payload={'rows': rows}, input_text=shard.input_text, metadata=dict(shard.metadata or {}))
+    payload = root._coerce_mapping_dict(shard.input_payload)
+    original_rows = [
+        list(row)
+        for row in payload.get('rows') or []
+        if isinstance(row, (list, tuple)) and row
+    ]
+    relevant_block_indices = {
+        int(row[1]) if len(row) >= 3 else int(row[0])
+        for row in original_rows
+        if int(row[0]) in unresolved_set
+    }
+    if not relevant_block_indices:
+        relevant_block_indices = unresolved_set
+    rows = [
+        list(row)
+        for row in original_rows
+        if (
+            (int(row[1]) if len(row) >= 3 else int(row[0])) in relevant_block_indices
+        )
+    ]
+    repair_payload: dict[str, root.Any] = {'rows': rows}
+    if rows and original_rows:
+        first_original_atomic_index = int(original_rows[0][0])
+        last_original_atomic_index = int(original_rows[-1][0])
+        first_repair_atomic_index = int(rows[0][0])
+        last_repair_atomic_index = int(rows[-1][0])
+        if first_repair_atomic_index == first_original_atomic_index and payload.get('context_before_rows'):
+            repair_payload['context_before_rows'] = [
+                list(row)
+                for row in payload.get('context_before_rows') or []
+                if isinstance(row, (list, tuple)) and row
+            ]
+        if last_repair_atomic_index == last_original_atomic_index and payload.get('context_after_rows'):
+            repair_payload['context_after_rows'] = [
+                list(row)
+                for row in payload.get('context_after_rows') or []
+                if isinstance(row, (list, tuple)) and row
+            ]
+    return root.ShardManifestEntryV1(shard_id=shard.shard_id, owned_ids=tuple((str(value) for value in unresolved_atomic_indices)), evidence_refs=tuple(shard.evidence_refs), input_payload=repair_payload, input_text=shard.input_text, metadata=dict(shard.metadata or {}))
 
 def _merge_line_role_validation_metadata(*, original_shard: root.ShardManifestEntryV1, initial_metadata: root.Mapping[str, root.Any], repair_metadata: root.Mapping[str, root.Any] | None=None) -> dict[str, root.Any]:
     accepted_rows: list[dict[str, root.Any]] = [dict(row) for row in initial_metadata.get('accepted_rows') or [] if isinstance(row, root.Mapping)]
@@ -926,17 +1096,27 @@ def _merge_line_role_validation_metadata(*, original_shard: root.ShardManifestEn
         for index, atomic_index in enumerate(ordered_atomic_indices)
         if atomic_index in accepted_atomic_index_set
     ]
+    expected_row_ids = [
+        _line_role_structured_row_id(index)
+        for index, _atomic_index in enumerate(ordered_atomic_indices)
+    ]
     return {
         **dict(initial_metadata or {}),
         **dict(repair_metadata or {}),
         'owned_row_count': len(ordered_atomic_indices),
         'expected_atomic_indices': ordered_atomic_indices,
+        'expected_row_ids': expected_row_ids,
         'accepted_rows': merged_rows,
         'accepted_atomic_indices': accepted_atomic_indices,
         'accepted_row_ids': accepted_row_ids,
         'returned_row_ids': accepted_row_ids,
         'unresolved_atomic_indices': unresolved_atomic_indices,
         'validated_row_count': len(accepted_atomic_indices),
+        'row_grounded_output': {
+            'applied': True,
+            'expected_row_count': len(ordered_atomic_indices),
+            'returned_row_count': len(accepted_atomic_indices),
+        },
     }
 
 def _run_line_role_structured_assignment_v1(*, run_root: root.Path, assignment: root.WorkerAssignmentV1, artifacts: dict[str, str], assigned_shards: root.Sequence[root.ShardManifestEntryV1], worker_root: root.Path, in_dir: root.Path, debug_dir: root.Path, hints_dir: root.Path, shard_dir: root.Path, logs_dir: root.Path, debug_payload_by_shard_id: root.Mapping[str, root.Any], deterministic_baseline_by_shard_id: root.Mapping[str, root.Mapping[int, root.CanonicalLineRolePrediction]], runner: root.CodexExecRunner, pipeline_id: str, env: dict[str, str], model: str | None, reasoning_effort: str | None, settings: root.Mapping[str, root.Any], output_schema_path: root.Path | None, timeout_seconds: int, cohort_watchdog_state: root._LineRoleCohortWatchdogState, shard_completed_callback: root.Callable[..., None] | None, prompt_state: '_PromptArtifactState' | None, validator: root.Callable[[root.ShardManifestEntryV1, dict[str, root.Any]], tuple[bool, root.Sequence[str], dict[str, root.Any] | None]]) -> root._DirectLineRoleWorkerResult:
@@ -979,18 +1159,19 @@ def _run_line_role_structured_assignment_v1(*, run_root: root.Path, assignment: 
             packet_kind='initial',
             deterministic_baseline_by_atomic_index=baseline_by_atomic_index,
         )
+        initial_packet_rows = _line_role_structured_packet_rows(shard)
         initial_output_schema_path = _build_line_role_structured_output_schema(
             session_root=session_root,
             base_schema_path=output_schema_path,
             schema_stem='initial',
-            expected_label_count=len(list(initial_packet.get('rows') or [])),
+            expected_label_count=len(initial_packet_rows),
         )
         packet_path.write_text(root.json.dumps(initial_packet, indent=2, sort_keys=True) + '\n', encoding='utf-8')
         prompt_text = root._build_line_role_structured_prompt(packet=initial_packet)
         prompt_path.write_text(prompt_text, encoding='utf-8')
         if prompt_state is not None:
             prompt_state.write_prompt(phase_key=str((shard.metadata or {}).get('phase_key') or 'line_role').strip(), prompt_stem=str((shard.metadata or {}).get('prompt_stem') or 'prompt').strip(), prompt_index=int((shard.metadata or {}).get('prompt_index') or 0), prompt_text=prompt_text)
-        initial_run_result = runner.run_packet_worker(prompt_text=prompt_text, input_payload={**root._coerce_mapping_dict(shard.input_payload), 'shard_id': shard.shard_id, 'owned_ids': list(shard.owned_ids), 'packet_kind': 'initial', 'stage_key': 'line_role', 'structured_packet_rows': list(initial_packet.get('rows') or [])}, working_dir=session_root, env=env, output_schema_path=initial_output_schema_path, model=model, reasoning_effort=reasoning_effort, timeout_seconds=timeout_seconds, workspace_task_label='canonical line-role structured session', persist_session=True)
+        initial_run_result = runner.run_packet_worker(prompt_text=prompt_text, input_payload={**root._coerce_mapping_dict(shard.input_payload), 'shard_id': shard.shard_id, 'owned_ids': list(shard.owned_ids), 'packet_kind': 'initial', 'stage_key': 'line_role', 'structured_packet_rows': initial_packet_rows}, working_dir=session_root, env=env, output_schema_path=initial_output_schema_path, model=model, reasoning_effort=reasoning_effort, timeout_seconds=timeout_seconds, workspace_task_label='canonical line-role structured session', persist_session=True)
         execution_workspace = root.Path(initial_run_result.execution_working_dir or session_root)
         root.initialize_structured_session_lineage(worker_root=session_root, assignment_id=f'{assignment.worker_id}:{shard.shard_id}', execution_working_dir=execution_workspace)
         response_path.write_text(str(initial_run_result.response_text or ''), encoding='utf-8')
@@ -1045,6 +1226,7 @@ def _run_line_role_structured_assignment_v1(*, run_root: root.Path, assignment: 
                     validation_metadata=current_validation_metadata,
                     deterministic_baseline_by_atomic_index=baseline_by_atomic_index,
                 )
+                repair_packet_rows = _line_role_structured_packet_rows(repair_shard)
                 repair_packet_path = session_root / f'repair_packet_{repair_attempt_index:02d}.json'
                 repair_prompt_path = session_root / f'repair_prompt_{repair_attempt_index:02d}.txt'
                 repair_response_path = session_root / f'repair_response_{repair_attempt_index:02d}.json'
@@ -1059,13 +1241,13 @@ def _run_line_role_structured_assignment_v1(*, run_root: root.Path, assignment: 
                     session_root=session_root,
                     base_schema_path=output_schema_path,
                     schema_stem=f'repair_{repair_attempt_index:02d}',
-                    expected_label_count=len(list(repair_packet.get('rows') or [])),
+                    expected_label_count=len(repair_packet_rows),
                 )
                 repair_packet_path.write_text(root.json.dumps(repair_packet, indent=2, sort_keys=True) + '\n', encoding='utf-8')
                 repair_prompt_text = root._build_line_role_structured_prompt(packet=repair_packet)
                 repair_prompt_path.write_text(repair_prompt_text, encoding='utf-8')
                 root.assert_structured_session_can_resume(worker_root=session_root, execution_working_dir=execution_workspace)
-                repair_run_result = runner.run_packet_worker(prompt_text=repair_prompt_text, input_payload={**root._coerce_mapping_dict(repair_shard.input_payload), 'shard_id': shard.shard_id, 'owned_ids': list(repair_shard.owned_ids), 'packet_kind': 'repair', 'stage_key': 'line_role', 'validation_errors': list(current_validation_errors), 'structured_packet_rows': list(repair_packet.get('rows') or [])}, working_dir=session_root, env=env, output_schema_path=repair_output_schema_path, model=model, reasoning_effort=reasoning_effort, timeout_seconds=timeout_seconds, workspace_task_label='canonical line-role structured repair session', resume_last=True, prepared_execution_working_dir=execution_workspace)
+                repair_run_result = runner.run_packet_worker(prompt_text=repair_prompt_text, input_payload={**root._coerce_mapping_dict(repair_shard.input_payload), 'shard_id': shard.shard_id, 'owned_ids': list(repair_shard.owned_ids), 'packet_kind': 'repair', 'stage_key': 'line_role', 'validation_errors': list(current_validation_errors), 'structured_packet_rows': repair_packet_rows}, working_dir=session_root, env=env, output_schema_path=repair_output_schema_path, model=model, reasoning_effort=reasoning_effort, timeout_seconds=timeout_seconds, workspace_task_label='canonical line-role structured repair session', resume_last=True, prepared_execution_working_dir=execution_workspace)
                 repair_response_path.write_text(str(repair_run_result.response_text or ''), encoding='utf-8')
                 repair_events_path.write_text(root._render_codex_events_jsonl(repair_run_result.events), encoding='utf-8')
                 root._write_runtime_json(repair_last_message_path, {'text': repair_run_result.response_text})

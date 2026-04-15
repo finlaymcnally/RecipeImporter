@@ -69,7 +69,7 @@ def test_line_role_inline_prompt_keeps_only_shared_contract_and_packet_rows() ->
     assert "Shared labeling contract:" in prompt
     assert "Contents-style title lists, endorsements, intro framing" in prompt
     assert "Shard profile evidence:" not in prompt
-    assert '"rows": [' in prompt
+    assert '"blocks": [' in prompt
 
 
 def test_line_role_structured_response_keeps_front_matter_like_labels_when_valid() -> None:
