@@ -257,8 +257,6 @@ ORACLE_BENCHMARK_REVIEW_PROFILES: tuple[OracleBenchmarkReviewProfile, ...] = (
             "codex-exec/run_manifest.json",
             "codex-exec/eval_report.json",
             "codex-exec/prompts/prompt_type_samples_from_full_prompt_log.md",
-            "vanilla/run_manifest.json",
-            "vanilla/eval_report.json",
             "_upload_bundle_derived/root/comparison_summary.json",
             "_upload_bundle_derived/root/per_recipe_or_per_span_breakdown.json",
             "_upload_bundle_derived/root/01_recipe_triage.packet.jsonl",

@@ -55,7 +55,8 @@ def test_build_upload_bundle_for_existing_output_writes_three_files(tmp_path: Pa
     assert int(review_packet["estimated_bundle_size_bytes"]) > 0
     assert int(review_packet["summary_only_row_count"]) >= 0
     assert "codex-exec/run_manifest.json" in review_packet["missing_paths"]
-    assert "vanilla/run_manifest.json" in review_packet["missing_paths"]
+    assert "vanilla/run_manifest.json" not in review_packet["selected_paths"]
+    assert "vanilla/run_manifest.json" not in review_packet["missing_paths"]
     assert token_index_payload["review_profile"] == module.oracle_upload_contract.ORACLE_REVIEW_PROFILE_TOKEN
     assert index_payload["topline"]["full_prompt_log_status"] == "complete"
     assert index_payload["topline"]["full_prompt_log_status_source"] in {
