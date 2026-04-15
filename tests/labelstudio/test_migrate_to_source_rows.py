@@ -73,7 +73,9 @@ def test_row_seed_package_uses_non_overlapping_focus_rows(tmp_path) -> None:
     assert set(focus_row_groups[1]).isdisjoint(focus_row_groups[2])
 
 
-def test_migrate_freeform_export_to_row_gold_prefers_source_block_index(tmp_path) -> None:
+def test_migrate_freeform_export_to_row_gold_ignores_touched_rows_without_row_id(
+    tmp_path,
+) -> None:
     source_rows = [
         SourceRow(
             row_id="row-a",
@@ -135,7 +137,7 @@ def test_migrate_freeform_export_to_row_gold_prefers_source_block_index(tmp_path
         for row in result.row_gold_rows
     }
     assert labels_by_row_id == {
-        "row-a": ["RECIPE_TITLE"],
+        "row-a": ["OTHER"],
         "row-b": ["OTHER"],
     }
 

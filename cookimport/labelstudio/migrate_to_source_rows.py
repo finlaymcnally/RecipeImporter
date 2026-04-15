@@ -40,11 +40,6 @@ def migrate_freeform_export_to_row_gold(
     span_rows = _read_jsonl(freeform_span_labels_jsonl_path)
     source_rows = load_source_rows(source_rows_jsonl_path)
     rows_by_id = {str(row.row_id): row for row in source_rows}
-    rows_by_block: dict[int, list[SourceRow]] = {}
-    for row in source_rows:
-        rows_by_block.setdefault(int(row.block_index), []).append(row)
-    for rows in rows_by_block.values():
-        rows.sort(key=lambda row: (int(row.start_char_in_block), int(row.row_index)))
 
     row_labels: dict[str, set[str]] = {}
     row_payload: dict[str, dict[str, Any]] = {}
@@ -69,56 +64,25 @@ def migrate_freeform_export_to_row_gold(
                 touched=touched,
                 rows_by_id=rows_by_id,
             )
-            if touched_row is not None:
-                overlap = _row_native_overlap_chars(
-                    touched=touched,
-                    start_offset=start_offset,
-                    end_offset=end_offset,
-                    row=touched_row,
-                )
-                if overlap <= 0:
-                    continue
-                _record_row_label(
-                    row=touched_row,
-                    label=label,
-                    span_row=span_row,
-                    overlap=overlap,
-                    row_labels=row_labels,
-                    row_payload=row_payload,
-                    ambiguous_rows=ambiguous_rows,
-                )
+            if touched_row is None:
                 continue
-            block_index = _coerce_int(
-                touched.get("source_block_index", touched.get("block_index"))
+            overlap = _row_native_overlap_chars(
+                touched=touched,
+                start_offset=start_offset,
+                end_offset=end_offset,
+                row=touched_row,
             )
-            segment_start = _coerce_int(touched.get("segment_start"))
-            segment_end = _coerce_int(touched.get("segment_end"))
-            if (
-                block_index is None
-                or segment_start is None
-                or segment_end is None
-                or segment_end <= segment_start
-            ):
+            if overlap <= 0:
                 continue
-            local_start = max(0, start_offset - segment_start)
-            local_end = min(segment_end - segment_start, end_offset - segment_start)
-            if local_end <= local_start:
-                continue
-            for row in rows_by_block.get(block_index, []):
-                overlap = min(local_end, int(row.end_char_in_block)) - max(
-                    local_start, int(row.start_char_in_block)
-                )
-                if overlap <= 0:
-                    continue
-                _record_row_label(
-                    row=row,
-                    label=label,
-                    span_row=span_row,
-                    overlap=overlap,
-                    row_labels=row_labels,
-                    row_payload=row_payload,
-                    ambiguous_rows=ambiguous_rows,
-                )
+            _record_row_label(
+                row=touched_row,
+                label=label,
+                span_row=span_row,
+                overlap=overlap,
+                row_labels=row_labels,
+                row_payload=row_payload,
+                ambiguous_rows=ambiguous_rows,
+            )
 
     row_gold_rows: list[dict[str, Any]] = []
     conflicting_rows: list[dict[str, Any]] = []
